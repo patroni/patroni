@@ -34,6 +34,7 @@ class MockPostgresql(object):
     lsn_name = 'lsn'
     POSTMASTER_START_TIME = 'pg_catalog.pg_postmaster_start_time()'
     TL_LSN = 'CASE WHEN pg_catalog.pg_is_in_recovery()'
+    citus_handler = Mock()
 
     @staticmethod
     def connection():
@@ -550,6 +551,13 @@ class TestRestApiHandler(unittest.TestCase):
         post = 'POST /failover HTTP/1.0' + self._authorization + '\nContent-Length: '
         MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
         MockRestApiServer(RestApiHandler, post + '37\n\n{"candidate":"2","scheduled_at": "1"}')
+
+    @patch.object(MockPatroni, 'dcs', Mock())
+    @patch.object(MockHa, 'is_leader', Mock(return_value=True))
+    def test_do_POST_citus(self):
+        post = 'POST /citus HTTP/1.0' + self._authorization + '\nContent-Length: '
+        MockRestApiServer(RestApiHandler, post + '0\n\n')
+        MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
 
 
 class TestRestApiServer(unittest.TestCase):

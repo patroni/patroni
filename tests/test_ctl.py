@@ -21,7 +21,8 @@ from .test_ha import get_cluster_initialized_without_leader, get_cluster_initial
 
 
 @patch('patroni.ctl.load_config', Mock(return_value={
-    'scope': 'alpha', 'restapi': {'listen': '::', 'certfile': 'a'}, 'etcd': {'host': 'localhost:2379'},
+    'scope': 'alpha', 'restapi': {'listen': '::', 'certfile': 'a'},
+    'etcd': {'host': 'localhost:2379'}, 'citus': {'database': 'citus', 'group': 0},
     'postgresql': {'data_dir': '.', 'pgpass': './pgpass', 'parameters': {}, 'retry_timeout': 5}}))
 class TestCtl(unittest.TestCase):
 
@@ -30,7 +31,8 @@ class TestCtl(unittest.TestCase):
         with patch.object(AbstractEtcdClientWithFailover, 'machines') as mock_machines:
             mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
             self.runner = CliRunner()
-            self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'retry_timeout': 10}}, 'foo')
+            self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'retry_timeout': 10},
+                              'citus': {'group': 0}}, 'foo', None)
 
     @patch('patroni.ctl.logging.debug')
     def test_load_config(self, mock_logger_debug):
@@ -57,14 +59,14 @@ class TestCtl(unittest.TestCase):
 
     @patch('patroni.psycopg.connect', psycopg_connect)
     def test_get_cursor(self):
-        self.assertIsNone(get_cursor(get_cluster_initialized_without_leader(), {}, role='master'))
+        self.assertIsNone(get_cursor({}, get_cluster_initialized_without_leader(), None, {}, role='master'))
 
-        self.assertIsNotNone(get_cursor(get_cluster_initialized_with_leader(), {}, role='master'))
+        self.assertIsNotNone(get_cursor({}, get_cluster_initialized_with_leader(), None, {}, role='master'))
 
         # MockCursor returns pg_is_in_recovery as false
-        self.assertIsNone(get_cursor(get_cluster_initialized_with_leader(), {}, role='replica'))
+        self.assertIsNone(get_cursor({}, get_cluster_initialized_with_leader(), None, {}, role='replica'))
 
-        self.assertIsNotNone(get_cursor(get_cluster_initialized_with_leader(), {'dbname': 'foo'}, role='any'))
+        self.assertIsNotNone(get_cursor({}, get_cluster_initialized_with_leader(), None, {'dbname': 'foo'}, role='any'))
 
     def test_parse_dcs(self):
         assert parse_dcs(None) is None
@@ -81,7 +83,7 @@ class TestCtl(unittest.TestCase):
         cluster = get_cluster_initialized_with_leader(Failover(1, 'foo', 'bar', scheduled_at))
         del cluster.members[1].data['conn_url']
         for fmt in ('pretty', 'json', 'yaml', 'tsv', 'topology'):
-            self.assertIsNone(output_members(cluster, name='abc', fmt=fmt))
+            self.assertIsNone(output_members({}, cluster, name='abc', fmt=fmt))
 
     @patch('patroni.ctl.get_dcs')
     @patch.object(PoolManager, 'request', Mock(return_value=MockResponse()))
@@ -89,74 +91,79 @@ class TestCtl(unittest.TestCase):
         mock_get_dcs.return_value = self.e
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
         mock_get_dcs.return_value.set_failover_value = Mock()
-        result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n\ny')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
         assert 'leader' in result.output
 
-        result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n2300-01-01T12:23:00\ny')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'],
+                                    input='leader\nother\n2300-01-01T12:23:00\ny')
         assert result.exit_code == 0
 
         with patch('patroni.dcs.Cluster.is_paused', Mock(return_value=True)):
-            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--force', '--scheduled', '2015-01-01T12:00:00'])
+            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
+                                              '--force', '--scheduled', '2015-01-01T12:00:00'])
             assert result.exit_code == 1
 
         # Aborting switchover, as we answer NO to the confirmation
-        result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n\nN')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\nN')
         assert result.exit_code == 1
 
         # Aborting scheduled switchover, as we answer NO to the confirmation
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--scheduled', '2015-01-01T12:00:00+01:00'],
-                                    input='leader\nother\n\nN')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
+                                    '--scheduled', '2015-01-01T12:00:00+01:00'], input='leader\nother\n\nN')
         assert result.exit_code == 1
 
         # Target and source are equal
-        result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nleader\n\ny')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nleader\n\ny')
         assert result.exit_code == 1
 
         # Reality is not part of this cluster
-        result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nReality\n\ny')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nReality\n\ny')
         assert result.exit_code == 1
 
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--force'])
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0', '--force'])
         assert 'Member' in result.output
 
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--force', '--scheduled', '2015-01-01T12:00:00+01:00'])
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
+                                          '--force', '--scheduled', '2015-01-01T12:00:00+01:00'])
         assert result.exit_code == 0
 
         # Invalid timestamp
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--force', '--scheduled', 'invalid'])
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0', '--force', '--scheduled', 'invalid'])
         assert result.exit_code != 0
 
         # Invalid timestamp
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--force', '--scheduled', '2115-02-30T12:00:00+01:00'])
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
+                                          '--force', '--scheduled', '2115-02-30T12:00:00+01:00'])
         assert result.exit_code != 0
 
         # Specifying wrong leader
-        result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='dummy')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='dummy')
         assert result.exit_code == 1
 
         with patch.object(PoolManager, 'request', Mock(side_effect=Exception)):
             # Non-responding patroni
-            result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n2300-01-01T12:23:00\ny')
+            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'],
+                                        input='leader\nother\n2300-01-01T12:23:00\ny')
             assert 'falling back to DCS' in result.output
 
         with patch.object(PoolManager, 'request') as mocked:
             mocked.return_value.status = 500
-            result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n\ny')
+            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
             assert 'Switchover failed' in result.output
 
             mocked.return_value.status = 501
             mocked.return_value.data = b'Server does not support this operation'
-            result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n\ny')
+            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
             assert 'Switchover failed' in result.output
 
         # No members available
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_only_leader
-        result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n\ny')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
         assert result.exit_code == 1
 
         # No master available
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_without_leader
-        result = self.runner.invoke(ctl, ['switchover', 'dummy'], input='leader\nother\n\ny')
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
         assert result.exit_code == 1
 
     @patch('patroni.ctl.get_dcs')
@@ -165,12 +172,14 @@ class TestCtl(unittest.TestCase):
         mock_get_dcs.return_value = self.e
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
         mock_get_dcs.return_value.set_failover_value = Mock()
-        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='\n')
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--force'], input='\n')
+        assert 'For Citus clusters the --group must me specified' in result.output
+        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='0\n')
         assert 'Failover could be performed only to a specific candidate' in result.output
 
     @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.dummy', 'patroni.dcs.etcd']))
     def test_get_dcs(self):
-        self.assertRaises(PatroniCtlException, get_dcs, {'dummy': {}}, 'dummy')
+        self.assertRaises(PatroniCtlException, get_dcs, {'dummy': {}}, 'dummy', 0)
 
     @patch('patroni.psycopg.connect', psycopg_connect)
     @patch('patroni.ctl.query_member', Mock(return_value=([['mock column']], None)))
@@ -190,7 +199,7 @@ class TestCtl(unittest.TestCase):
             result = self.runner.invoke(ctl, ['query', 'alpha', '--file', 'dummy', '--command', 'dummy'])
             assert result.exit_code == 1
 
-            result = self.runner.invoke(ctl, ['query', 'alpha', '--file', 'dummy'])
+            result = self.runner.invoke(ctl, ['query', 'alpha', '--member', 'abc', '--file', 'dummy'])
             assert result.exit_code == 0
 
             os.remove('dummy')
@@ -208,21 +217,21 @@ class TestCtl(unittest.TestCase):
 
     def test_query_member(self):
         with patch('patroni.ctl.get_cursor', Mock(return_value=MockConnect().cursor())):
-            rows = query_member(None, None, None, 'master', 'SELECT pg_catalog.pg_is_in_recovery()', {})
+            rows = query_member({}, None, None, None, None, 'master', 'SELECT pg_catalog.pg_is_in_recovery()', {})
             self.assertTrue('False' in str(rows))
 
             with patch.object(MockCursor, 'execute', Mock(side_effect=OperationalError('bla'))):
-                rows = query_member(None, None, None, 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
+                rows = query_member({}, None, None, None, None, 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
 
         with patch('patroni.ctl.get_cursor', Mock(return_value=None)):
-            rows = query_member(None, None, None, None, 'SELECT pg_catalog.pg_is_in_recovery()', {})
+            rows = query_member({}, None, None, None, None, None, 'SELECT pg_catalog.pg_is_in_recovery()', {})
             self.assertTrue('No connection to' in str(rows))
 
-            rows = query_member(None, None, None, 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
+            rows = query_member({}, None, None, None, 'foo', 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
             self.assertTrue('No connection to' in str(rows))
 
         with patch('patroni.ctl.get_cursor', Mock(side_effect=OperationalError('bla'))):
-            rows = query_member(None, None, None, 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
+            rows = query_member({}, None, None, None, None, 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
 
     @patch('patroni.ctl.get_dcs')
     def test_dsn(self, mock_get_dcs):
@@ -335,21 +344,23 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.ctl.get_dcs')
     def test_remove(self, mock_get_dcs):
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
-        result = self.runner.invoke(ctl, ['-k', 'remove', 'alpha'], input='alpha\nslave')
+        result = self.runner.invoke(ctl, ['remove', 'dummy'], input='\n')
+        assert 'For Citus clusters the --group must me specified' in result.output
+        result = self.runner.invoke(ctl, ['-k', 'remove', 'alpha', '--group', '0'], input='alpha\nslave')
         assert 'Please confirm' in result.output
         assert 'You are about to remove all' in result.output
         # Not typing an exact confirmation
         assert result.exit_code == 1
 
         # master specified does not match master of cluster
-        result = self.runner.invoke(ctl, ['remove', 'alpha'], input='alpha\nYes I am aware\nslave')
+        result = self.runner.invoke(ctl, ['remove', 'alpha', '--group', '0'], input='alpha\nYes I am aware\nslave')
         assert result.exit_code == 1
 
         # cluster specified on cmdline does not match verification prompt
-        result = self.runner.invoke(ctl, ['remove', 'alpha'], input='beta\nleader')
+        result = self.runner.invoke(ctl, ['remove', 'alpha', '--group', '0'], input='beta\nleader')
         assert result.exit_code == 1
 
-        result = self.runner.invoke(ctl, ['remove', 'alpha'], input='alpha\nYes I am aware\nleader')
+        result = self.runner.invoke(ctl, ['remove', 'alpha', '--group', '0'], input='alpha\nYes I am aware\nleader')
         assert result.exit_code == 0
 
     def test_ctl(self):
@@ -359,23 +370,24 @@ class TestCtl(unittest.TestCase):
         assert 'Usage:' in result.output
 
     def test_get_any_member(self):
-        self.assertIsNone(get_any_member(get_cluster_initialized_without_leader(), role='master'))
+        self.assertIsNone(get_any_member({}, get_cluster_initialized_without_leader(), None, role='master'))
 
-        m = get_any_member(get_cluster_initialized_with_leader(), role='master')
+        m = get_any_member({}, get_cluster_initialized_with_leader(), None, role='master')
         self.assertEqual(m.name, 'leader')
 
     def test_get_all_members(self):
-        self.assertEqual(list(get_all_members(get_cluster_initialized_without_leader(), role='master')), [])
+        self.assertEqual(list(get_all_members({}, get_cluster_initialized_without_leader(), None, role='master')), [])
 
-        r = list(get_all_members(get_cluster_initialized_with_leader(), role='master'))
+        r = list(get_all_members({}, get_cluster_initialized_with_leader(), None, role='master'))
         self.assertEqual(len(r), 1)
         self.assertEqual(r[0].name, 'leader')
 
-        r = list(get_all_members(get_cluster_initialized_with_leader(), role='replica'))
+        r = list(get_all_members({}, get_cluster_initialized_with_leader(), None, role='replica'))
         self.assertEqual(len(r), 1)
         self.assertEqual(r[0].name, 'other')
 
-        self.assertEqual(len(list(get_all_members(get_cluster_initialized_without_leader(), role='replica'))), 2)
+        self.assertEqual(len(list(get_all_members({}, get_cluster_initialized_without_leader(),
+                                                  None, role='replica'))), 2)
 
     @patch('patroni.ctl.get_dcs')
     def test_members(self, mock_get_dcs):
@@ -439,16 +451,16 @@ class TestCtl(unittest.TestCase):
         cluster.members.append(cascade_member_wrong_tags)
         mock_get_dcs.return_value.get_cluster = Mock(return_value=cluster)
         result = self.runner.invoke(ctl, ['topology', 'dummy'])
-        assert '+\n| leader          | 127.0.0.1:5435 | Leader  |' in result.output
-        assert '|\n| + other         | 127.0.0.1:5436 | Replica |' in result.output
-        assert '|\n|   + cascade     | 127.0.0.1:5437 | Replica |' in result.output
-        assert '|\n| + wrong_cascade | 127.0.0.1:5438 | Replica |' in result.output
+        assert '+\n|     0 | leader          | 127.0.0.1:5435 | Leader  |' in result.output
+        assert '|\n|     0 | + other         | 127.0.0.1:5436 | Replica |' in result.output
+        assert '|\n|     0 |   + cascade     | 127.0.0.1:5437 | Replica |' in result.output
+        assert '|\n|     0 | + wrong_cascade | 127.0.0.1:5438 | Replica |' in result.output
 
         cluster = get_cluster_initialized_without_leader()
         mock_get_dcs.return_value.get_cluster = Mock(return_value=cluster)
         result = self.runner.invoke(ctl, ['topology', 'dummy'])
-        assert '+\n| + leader | 127.0.0.1:5435 | Replica |' in result.output
-        assert '|\n| + other  | 127.0.0.1:5436 | Replica |' in result.output
+        assert '+\n|     0 | + leader | 127.0.0.1:5435 | Replica |' in result.output
+        assert '|\n|     0 | + other  | 127.0.0.1:5436 | Replica |' in result.output
 
     @patch('patroni.ctl.get_dcs')
     @patch.object(PoolManager, 'request', Mock(return_value=MockResponse()))

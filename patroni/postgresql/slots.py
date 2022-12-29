@@ -189,7 +189,7 @@ class SlotsHandler(object):
             if ((matcher.get("name") is None or matcher["name"] == name)
                and all(not matcher.get(a) or matcher[a] == slot.get(a) for a in ('database', 'plugin', 'type'))):
                 return True
-        return False
+        return self._postgresql.citus_handler.ignore_replication_slot(slot)
 
     def drop_replication_slot(self, name):
         cursor = self._query(('SELECT pg_catalog.pg_drop_replication_slot(%s) WHERE EXISTS (SELECT 1 ' +

@@ -592,6 +592,18 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_POST_switchover(self):
         self.do_POST_failover(action='switchover')
 
+    @check_access
+    def do_POST_citus(self):
+        request = self._read_json_content()
+        if not request:
+            return
+
+        patroni = self.server.patroni
+        if patroni.postgresql.citus_handler.is_coordinator() and patroni.ha.is_leader():
+            cluster = patroni.dcs.get_cluster(True)
+            patroni.postgresql.citus_handler.handle_event(cluster, request)
+        self._write_response(200, 'OK')
+
     def parse_request(self):
         """Override parse_request method to enrich basic functionality of `BaseHTTPRequestHandler` class
 

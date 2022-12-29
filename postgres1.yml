@@ -18,6 +18,10 @@ restapi:
 #  keyfile: /etc/ssl/private/ssl-cert-snakeoil.key
 #  cacert: /etc/ssl/certs/ssl-cacert-snakeoil.pem
 
+#citus:
+#  database: citus
+#  group: 1  # worker
+
 etcd:
   #Provide host to do the initial discovery of the cluster topology:
   host: 127.0.0.1:2379
