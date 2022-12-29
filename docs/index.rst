@@ -20,6 +20,7 @@ Currently supported PostgreSQL versions: 9.3 to 15.
    :caption: Contents:
 
    README
+   citus
    dynamic_configuration
    rest_api
    existing_data

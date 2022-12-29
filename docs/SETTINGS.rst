@@ -111,6 +111,15 @@ Bootstrap configuration
                 -  **- createdb**
     -  **post\_bootstrap** or **post\_init**: An additional script that will be executed after initializing the cluster. The script receives a connection string URL (with the cluster superuser as a user name). The PGPASSFILE variable is set to the location of pgpass file.
 
+.. _citus_settings:
+
+Citus
+-----
+Enables integration Patroni with :ref:`Citus <https://docs.citusdata.com>`__. If configured, Patroni will take care of registering Citus worker nodes on the coordinator. You can find more information about Citus support :ref:`here <citus>`.
+
+-  **group**: the Citus group id, integer. Use ``0`` for coordinator and ``1``, ``2``, etc... for workers
+-  **database**: the database where ``citus`` extension should be created. Must be the same on the coordinator and all workers. Currently only one database is supported.
+
 .. _consul_settings:
 
 Consul
@@ -318,6 +327,8 @@ PostgreSQL
     -  **remove\_data\_directory\_on\_diverged\_timelines**: Patroni will remove the PostgreSQL data directory and recreate the replica if it notices that timelines are diverging and the former primary can not start streaming from the new primary. This option is useful when ``pg_rewind`` can not be used. While performing timelines divergence check on PostgreSQL v10 and older Patroni will try to connect with replication credential to the "postgres" database. Hence, such access should be allowed in the  pg_hba.conf. Default value is **false**.
     -  **replica\_method**: for each create_replica_methods other than basebackup, you would add a configuration section of the same name. At a minimum, this should include "command" with a full path to the actual script to be executed. Other configuration parameters will be passed along to the script in the form "parameter=value".
     -  **pre\_promote**: a fencing script that executes during a failover after acquiring the leader lock but before promoting the replica. If the script exits with a non-zero code, Patroni does not promote the replica and removes the leader key from DCS.
+
+.. _restapi_settings:
 
 REST API
 --------
