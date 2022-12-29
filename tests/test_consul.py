@@ -18,6 +18,8 @@ def kv_get(self, key, **kwargs):
     good_cls = ('6429',
                 [{'CreateIndex': 1334, 'Flags': 0, 'Key': key + 'failover', 'LockIndex': 0,
                   'ModifyIndex': 1334, 'Value': b''},
+                 {'CreateIndex': 1334, 'Flags': 0, 'Key': key + '1/initialize', 'LockIndex': 0,
+                  'ModifyIndex': 1334, 'Value': b'postgresql0'},
                  {'CreateIndex': 1334, 'Flags': 0, 'Key': key + 'initialize', 'LockIndex': 0,
                   'ModifyIndex': 1334, 'Value': b'postgresql0'},
                  {'CreateIndex': 2621, 'Flags': 0, 'Key': key + 'leader', 'LockIndex': 1,
@@ -94,7 +96,7 @@ class TestConsul(unittest.TestCase):
                 'verify': 'on', 'cert': 'bar', 'cacert': 'buz', 'register_service': True})
         self.c = Consul({'ttl': 30, 'scope': 'test', 'name': 'postgresql1', 'host': 'localhost:1', 'retry_timeout': 10,
                          'register_service': True, 'service_check_tls_server_name': True})
-        self.c._base_path = '/service/good'
+        self.c._base_path = 'service/good'
         self.c.get_cluster()
 
     @patch('time.sleep', Mock(side_effect=SleepException))
@@ -115,15 +117,21 @@ class TestConsul(unittest.TestCase):
 
     @patch.object(consul.Consul.KV, 'delete', Mock())
     def test_get_cluster(self):
-        self.c._base_path = '/service/test'
+        self.c._base_path = 'service/test'
         self.assertIsInstance(self.c.get_cluster(), Cluster)
         self.assertIsInstance(self.c.get_cluster(), Cluster)
-        self.c._base_path = '/service/fail'
+        self.c._base_path = 'service/fail'
         self.assertRaises(ConsulError, self.c.get_cluster)
-        self.c._base_path = '/service/broken'
+        self.c._base_path = 'service/broken'
         self.assertIsInstance(self.c.get_cluster(), Cluster)
-        self.c._base_path = '/service/legacy'
+        self.c._base_path = 'service/legacy'
         self.assertIsInstance(self.c.get_cluster(), Cluster)
+
+    def test__get_citus_cluster(self):
+        self.c._citus_group = '0'
+        cluster = self.c.get_cluster()
+        self.assertIsInstance(cluster, Cluster)
+        self.assertIsInstance(cluster.workers[1], Cluster)
 
     @patch.object(consul.Consul.KV, 'delete', Mock(side_effect=[ConsulException, True, True, True]))
     @patch.object(consul.Consul.KV, 'put', Mock(side_effect=[True, ConsulException, InvalidSession]))

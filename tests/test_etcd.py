@@ -40,6 +40,10 @@ def etcd_read(self, key, **kwargs):
         raise etcd.EtcdKeyNotFound
 
     response = {"action": "get", "node": {"key": "/service/batman5", "dir": True, "nodes": [
+                {"key": "/service/batman5/1", "dir": True, "nodes": [
+                    {"key": "/service/batman5/1/initialize", "value": "2164261704",
+                     "modifiedIndex": 20729, "createdIndex": 20729}],
+                 "modifiedIndex": 20437, "createdIndex": 20437},
                 {"key": "/service/batman5/config", "value": '{"synchronous_mode": 0}',
                  "modifiedIndex": 1582, "createdIndex": 1582},
                 {"key": "/service/batman5/failover", "value": "",
@@ -265,6 +269,12 @@ class TestEtcd(unittest.TestCase):
         self.assertIsNone(cluster.leader)
         self.etcd._base_path = '/service/noleader'
         self.assertRaises(EtcdError, self.etcd.get_cluster)
+
+    def test__get_citus_cluster(self):
+        self.etcd._citus_group = '0'
+        cluster = self.etcd.get_cluster()
+        self.assertIsInstance(cluster, Cluster)
+        self.assertIsInstance(cluster.workers[1], Cluster)
 
     def test_touch_member(self):
         self.assertFalse(self.etcd.touch_member('', ''))
