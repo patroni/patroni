@@ -1,0 +1,137 @@
+# docker compose file for running a Citus cluster
+# with 3-node etcd v3 cluster as the DCS and one haproxy node.
+# The Citus cluster has a coordinator (3 nodes)
+# and two worker clusters (2 nodes).
+#
+# Before starting it up you need to build the docker image:
+# $ docker build -f Dockerfile.citus -t patroni-citus .
+# The cluster could be started as:
+# $ docker-compose -f docker-compose-citus.yml up -d
+version: "2"
+
+networks:
+    demo:
+
+services:
+    etcd1: &etcd
+        image: patroni-citus
+        networks: [ demo ]
+        environment:
+            ETCDCTL_API: 3
+            ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+            ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+            ETCD_INITIAL_CLUSTER: etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+            ETCD_INITIAL_CLUSTER_STATE: new
+            ETCD_INITIAL_CLUSTER_TOKEN: tutorial
+        container_name: demo-etcd1
+        hostname: etcd1
+        command: etcd -name etcd1 -initial-advertise-peer-urls http://etcd1:2380
+
+    etcd2:
+        <<: *etcd
+        container_name: demo-etcd2
+        hostname: etcd2
+        command: etcd -name etcd2 -initial-advertise-peer-urls http://etcd2:2380
+
+    etcd3:
+        <<: *etcd
+        container_name: demo-etcd3
+        hostname: etcd3
+        command: etcd -name etcd3 -initial-advertise-peer-urls http://etcd3:2380
+
+    haproxy:
+        image: patroni-citus
+        networks: [ demo ]
+        env_file: docker/patroni.env
+        hostname: haproxy
+        container_name: demo-haproxy
+        ports:
+            - "5000:5000"  # Access to the coorinator primary
+            - "5001:5001"  # Load-balancing across workers primaries
+        command: haproxy
+        environment: &haproxy_env
+            ETCDCTL_API: 3
+            ETCDCTL_ENDPOINTS: http://etcd1:2379,http://etcd2:2379,http://etcd3:2379
+            PATRONI_ETCD3_HOSTS: "'etcd1:2379','etcd2:2379','etcd3:2379'"
+            PATRONI_SCOPE: demo
+            PATRONI_CITUS_GROUP: 0
+            PATRONI_CITUS_DATABASE: citus
+            PGSSLMODE: verify-ca
+            PGSSLKEY: /etc/ssl/private/ssl-cert-snakeoil.key
+            PGSSLCERT: /etc/ssl/certs/ssl-cert-snakeoil.pem
+            PGSSLROOTCERT: /etc/ssl/certs/ssl-cert-snakeoil.pem
+
+    coord1:
+        image: patroni-citus
+        networks: [ demo ]
+        env_file: docker/patroni.env
+        hostname: coord1
+        container_name: demo-coord1
+        environment: &coord_env
+            <<: *haproxy_env
+            PATRONI_NAME: coord1
+            PATRONI_CITUS_GROUP: 0
+
+    coord2:
+        image: patroni-citus
+        networks: [ demo ]
+        env_file: docker/patroni.env
+        hostname: coord2
+        container_name: demo-coord2
+        environment:
+            <<: *coord_env
+            PATRONI_NAME: coord2
+
+    coord3:
+        image: patroni-citus
+        networks: [ demo ]
+        env_file: docker/patroni.env
+        hostname: coord3
+        container_name: demo-coord3
+        environment:
+            <<: *coord_env
+            PATRONI_NAME: coord3
+
+
+    work1-1:
+        image: patroni-citus
+        networks: [ demo ]
+        env_file: docker/patroni.env
+        hostname: work1-1
+        container_name: demo-work1-1
+        environment: &work1_env
+            <<: *haproxy_env
+            PATRONI_NAME: work1-1
+            PATRONI_CITUS_GROUP: 1
+
+    work1-2:
+        image: patroni-citus
+        networks: [ demo ]
+        env_file: docker/patroni.env
+        hostname: work1-2
+        container_name: demo-work1-2
+        environment:
+            <<: *work1_env
+            PATRONI_NAME: work1-2
+
+
+    work2-1:
+        image: patroni-citus
+        networks: [ demo ]
+        env_file: docker/patroni.env
+        hostname: work2-1
+        container_name: demo-work2-1
+        environment: &work2_env
+            <<: *haproxy_env
+            PATRONI_NAME: work2-1
+            PATRONI_CITUS_GROUP: 2
+
+    work2-2:
+        image: patroni-citus
+        networks: [ demo ]
+        env_file: docker/patroni.env
+        hostname: work2-2
+        container_name: demo-work2-2
+        environment:
+            <<: *work2_env
+            PATRONI_NAME: work2-2
