@@ -39,6 +39,11 @@ class _MemberStatus(namedtuple('_MemberStatus', ['member', 'reachable', 'in_reco
     """
     @classmethod
     def from_api_response(cls, member, json):
+        """
+        :param member: dcs.Member object
+        :param json: RestApiHandler.get_postgresql_status() result
+        :returns: _MemberStatus object
+        """
         # If one of those is not in a response we want to count the node as not healthy/reachable
         assert 'wal' in json or 'xlog' in json
 
