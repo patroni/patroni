@@ -143,7 +143,7 @@ option_insecure = click.option('-k', '--insecure', is_flag=True, help='Allow con
 @click.group()
 @click.option('--config-file', '-c', help='Configuration file',
               envvar='PATRONICTL_CONFIG_FILE', default=CONFIG_FILE_PATH)
-@click.option('--dcs-url', '--dcs', '-d', help='The DCS connect url', envvar='DCS_URL')
+@click.option('--dcs-url', '--dcs', '-d', 'dcs_url', help='The DCS connect url', envvar='DCS_URL')
 @option_insecure
 @click.pass_context
 def ctl(ctx, config_file, dcs_url, insecure):
