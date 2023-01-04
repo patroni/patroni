@@ -3,6 +3,16 @@
 Release notes
 =============
 
+Version 2.1.7
+-------------
+
+**Bugfixes**
+
+- Fixed little incompatibilities with legacy python modules (Alexander Kukushkin)
+
+  They prevented from building/running Patroni on Debian buster/Ubuntu bionic.
+
+
 Version 2.1.6
 -------------
 
