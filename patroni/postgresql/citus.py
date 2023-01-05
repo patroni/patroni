@@ -9,7 +9,7 @@ from .connection import Connection
 from ..dcs import CITUS_COORDINATOR_GROUP_ID
 from ..psycopg import connect, quote_ident
 
-CITUS_SLOT_NAME_RE = re.compile(r'^citus_shard_(move|split)_slot(_[1-9][0-9]*){3}$')
+CITUS_SLOT_NAME_RE = re.compile(r'^citus_shard_(move|split)_slot(_[1-9][0-9]*){2,3}$')
 logger = logging.getLogger(__name__)
 
 
