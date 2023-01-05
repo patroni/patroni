@@ -96,7 +96,7 @@ def unpack(archive, name):
 
 
 def install_etcd():
-    version = os.environ.get('ETCDVERSION', '3.3.13')
+    version = os.environ.get('ETCDVERSION', '3.4.23')
     platform = {'linux2': 'linux', 'win32': 'windows', 'cygwin': 'windows'}.get(sys.platform, sys.platform)
     dirname = 'etcd-v{0}-{1}-amd64'.format(version, platform)
     ext = 'tar.gz' if platform == 'linux' else 'zip'
@@ -108,16 +108,17 @@ def install_etcd():
 
 
 def install_postgres():
-    version = os.environ.get('PGVERSION', '14.1-1')
+    version = os.environ.get('PGVERSION', '15.1-1')
     platform = {'darwin': 'osx', 'win32': 'windows-x64', 'cygwin': 'windows-x64'}[sys.platform]
+    if platform == 'osx':
+        return subprocess.call(['brew', 'install', 'expect', 'postgresql@{0}'.format(version.split('.')[0])])
     name = 'postgresql-{0}-{1}-binaries.zip'.format(version, platform)
     get_file('http://get.enterprisedb.com/postgresql/' + name, name)
     unzip_all(name)
     bin_dir = os.path.join('pgsql', 'bin')
     for f in os.listdir(bin_dir):
         chmod_755(os.path.join(bin_dir, f))
-    subprocess.call(['pgsql/bin/postgres', '-V'])
-    return 0
+    return subprocess.call(['pgsql/bin/postgres', '-V'])
 
 
 def main():
