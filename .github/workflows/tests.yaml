@@ -92,8 +92,8 @@ jobs:
     runs-on: ${{ fromJson('{"ubuntu":"ubuntu-20.04","windows":"windows-latest","macos":"macos-latest"}')[matrix.os] }}
     env:
       DCS: ${{ matrix.dcs }}
-      ETCDVERSION: 3.3.13
-      PGVERSION: 12.1-1  # for windows and macos
+      ETCDVERSION: 3.4.23
+      PGVERSION: 15.1-1  # for windows and macos
     strategy:
       fail-fast: false
       matrix:
