@@ -272,7 +272,7 @@ class Consul(AbstractDCS):
 
     @property
     def ttl(self):
-        return self._client.http.ttl
+        return self._client.http.ttl * 2  # we multiply the value by 2 because it was divided in the `set_ttl()` method
 
     def set_retry_timeout(self, retry_timeout):
         self._retry.deadline = retry_timeout

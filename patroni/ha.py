@@ -39,11 +39,20 @@ class _MemberStatus(namedtuple('_MemberStatus', ['member', 'reachable', 'in_reco
     """
     @classmethod
     def from_api_response(cls, member, json):
-        is_master = json['role'] == 'master'
+        """
+        :param member: dcs.Member object
+        :param json: RestApiHandler.get_postgresql_status() result
+        :returns: _MemberStatus object
+        """
+        # If one of those is not in a response we want to count the node as not healthy/reachable
+        assert 'wal' in json or 'xlog' in json
+
+        wal = json.get('wal', json.get('xlog'))
+        in_recovery = not bool(wal.get('location'))  # abuse difference in primary/replica response format
         timeline = json.get('timeline', 0)
         dcs_last_seen = json.get('dcs_last_seen', 0)
-        wal = not is_master and max(json['xlog'].get('received_location', 0), json['xlog'].get('replayed_location', 0))
-        return cls(member, True, not is_master, dcs_last_seen, timeline, wal,
+        wal = in_recovery and max(wal.get('received_location', 0), wal.get('replayed_location', 0))
+        return cls(member, True, in_recovery, dcs_last_seen, timeline, wal,
                    json.get('tags', {}), json.get('watchdog_failed', False))
 
     @classmethod

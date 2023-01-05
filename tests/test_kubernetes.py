@@ -1,11 +1,12 @@
 import base64
 import datetime
 import json
+import mock
 import socket
 import time
 import unittest
 
-from mock import call, Mock, PropertyMock, mock_open, patch
+from mock import Mock, PropertyMock, mock_open, patch
 from patroni.dcs.kubernetes import k8s_client, k8s_config, K8sConfig, K8sConnectionFailed,\
         K8sException, K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException,\
         Retry, RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
@@ -134,7 +135,7 @@ class TestK8sConfig(unittest.TestCase):
             mock_atexit.assert_called_once()
             mock_remove.side_effect = OSError
             mock_atexit.call_args[0][0]()  # call _cleanup_temp_files
-            mock_remove.assert_has_calls([call('1.tmp'), call('2.tmp')])
+            mock_remove.assert_has_calls([mock.call('1.tmp'), mock.call('2.tmp')])
 
 
 @patch('urllib3.PoolManager.request')
