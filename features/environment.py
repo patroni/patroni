@@ -443,7 +443,7 @@ class AbstractEtcdController(AbstractDcsController):
         self._client_cls = client_cls
 
     def _start(self):
-        return subprocess.Popen(["etcd", "--data-dir", self._work_directory],
+        return subprocess.Popen(["etcd", "--enable-v2=true", "--data-dir", self._work_directory],
                                 stdout=self._log, stderr=subprocess.STDOUT)
 
     def _is_running(self):

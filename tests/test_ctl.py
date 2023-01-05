@@ -41,8 +41,7 @@ class TestCtl(unittest.TestCase):
             self.assertRaises(PatroniCtlException, load_config, './non-existing-config-file', None)
 
         with patch('os.path.exists', Mock(return_value=True)), \
-             patch('patroni.config.Config.__init__', Mock(return_value=None)), \
-             patch('patroni.config.Config.copy', Mock(return_value={})):
+                patch('patroni.config.Config._load_config_path', Mock(return_value={})):
             load_config(CONFIG_FILE_PATH, None)
             mock_logger_debug.assert_called_once()
             self.assertEqual(('Ignoring configuration file "%s". It does not exists or is not readable.',

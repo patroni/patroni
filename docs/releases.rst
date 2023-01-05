@@ -3,6 +3,71 @@
 Release notes
 =============
 
+Version 2.1.7
+-------------
+
+**Bugfixes**
+
+- Fixed little incompatibilities with legacy python modules (Alexander Kukushkin)
+
+  They prevented from building/running Patroni on Debian buster/Ubuntu bionic.
+
+
+Version 2.1.6
+-------------
+
+**Improvements**
+
+- Fix annoying exceptions on ssl socket shutdown (Alexander Kukushkin)
+
+  The HAProxy is closing connections as soon as it got the HTTP Status code leaving no time for Patroni to properly shutdown SSL connection.
+
+- Adjust example Dockerfile for arm64 (Polina Bungina)
+
+  Remove explicit ``amd64`` and ``x86_64``, don't remove ``libnss_files.so.*``.
+
+
+**Security improvements**
+
+- Enforce ``search_path=pg_catalog`` for non-replication connections (Alexander)
+
+  Since Patroni is heavily relying on superuser connections, we want to protect it from the possible attacks carried out using user-defined functions and/or operators in ``public`` schema with the same name and signature as the corresponding objects in ``pg_catalog``. For that, ``search_path=pg_catalog`` is enforced for all connections created by Patroni (except replication connections).
+
+- Prevent passwords from being recorded in ``pg_stat_statements`` (Feike Steenbergen)
+
+  It is achieved by setting ``pg_stat_statements.track_utility=off`` when creating users.
+
+
+**Bugfixes**
+
+- Declare ``proxy_address`` as optional (Denis Laxalde)
+
+  As it is effectively a non-required option.
+
+- Improve behaviour of the insecure option (Alexander)
+
+  Ctl's ``insecure`` option didn't work properly when client certificates were used for REST API requests.
+
+- Take watchdog configuration from ``bootstrap.dcs`` when the new cluster is bootstrapped (Matt Baker)
+
+  Patroni used to initially configure watchdog with defaults when bootstrapping a new cluster rather than taking configuration used to bootstrap the DCS.
+
+- Fix the way file extensions are treated while finding executables in WIN32 (Martín Marqués)
+
+  Only add ``.exe`` to a file name if it has no extension yet.
+
+- Fix Consul TTL setup (Alexander)
+
+  We used ``ttl/2.0`` when setting the value on the HTTPClient, but forgot to multiply the current value by 2 in the class' property. It was resulting in Consul TTL off by twice.
+
+
+**Removed functionality**
+
+- Remove ``patronictl configure`` (Polina)
+
+  There is no more need for a separate ``patronictl`` config creation.
+
+
 Version 2.1.5
 -------------
 
