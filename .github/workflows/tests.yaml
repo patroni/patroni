@@ -133,6 +133,17 @@ jobs:
       run: python .github/workflows/install_deps.py
     - name: Run behave tests
       run: python .github/workflows/run_tests.py
+    - name: Upload logs if behave failed
+      uses: actions/upload-artifact@v3
+      if: failure()
+      with:
+        name: behave-${{ matrix.os }}-${{ matrix.dcs }}-${{ matrix.python-version }}-logs
+        path: |
+          features/output/*_failed/*postgres?.*
+          features/output/*/*postgres?.*
+          features/output/*
+        if-no-files-found: error
+        retention-days: 5
     - uses: actions/setup-python@v4
       with:
         python-version: '3.10'

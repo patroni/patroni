@@ -41,14 +41,7 @@ def main():
     if what == 'kubernetes':
         env['PATRONI_KUBERNETES_CONTEXT'] = 'k3d-k3s-default'
 
-    ret = subprocess.call(unbuffer + [sys.executable, '-m', 'behave'], env=env)
-
-    if ret != 0:
-        if subprocess.call('grep . features/output/*_failed/*postgres?.*', shell=True) != 0:
-            subprocess.call('grep . features/output/*/*postgres?.*', shell=True)
-            subprocess.call('grep . features/output/*', shell=True)
-        return 1
-    return 0
+    return subprocess.call(unbuffer + [sys.executable, '-m', 'behave'], env=env)
 
 
 if __name__ == '__main__':
