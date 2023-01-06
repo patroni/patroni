@@ -224,6 +224,10 @@ class CitusHandler(Thread):
         is controlled outside of this method."""
 
         if task.event == 'after_promote':
+            # The after_promote may happen without previous before_demote and/or
+            # before_promore.  In this case we just call self.update_node() method.
+            # If there is a transaction in progress, it could be that it already did
+            # required changes and we can simply COMMIT.
             if not self._in_flight or self._in_flight.host != task.host or self._in_flight.port != task.port:
                 self.update_node(task)
             if self._in_flight:
