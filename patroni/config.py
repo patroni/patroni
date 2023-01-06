@@ -362,7 +362,7 @@ class Config(object):
                         if suffix == 'GROUP':
                             value = parse_int(value)
                         elif suffix != 'DATABASE':
-                            value = None
+                            continue
                     elif suffix == 'PORT':
                         value = value and parse_int(value)
                     elif suffix in ('HOSTS', 'PORTS', 'CHECKS'):
@@ -441,7 +441,7 @@ class Config(object):
         if 'name' not in config and 'name' in pg_config:
             config['name'] = pg_config['name']
 
-        # when bootstrapping the new Citus cluster (coordonator/worker) enable sync replication in global configuration
+        # when bootstrapping the new Citus cluster (coordinator/worker) enable sync replication in global configuration
         if 'citus' in config:
             bootstrap = config.setdefault('bootstrap', {})
             dcs = bootstrap.setdefault('dcs', {})

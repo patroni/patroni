@@ -102,7 +102,6 @@ class CitusHandler(Thread):
             self._in_flight = None
 
     def query(self, sql, *params):
-        cursor = None
         try:
             logger.debug('query(%s, %s)', sql, params)
             cursor = self._connection.cursor()
@@ -177,7 +176,7 @@ class CitusHandler(Thread):
                 i = self.find_task_by_group(self._in_flight.group)
             else:
                 while True:
-                    i = self.find_task_by_group(CITUS_COORDINATOR_GROUP_ID)  # set_coodinator
+                    i = self.find_task_by_group(CITUS_COORDINATOR_GROUP_ID)  # set_coordinator
                     if i is None and self._tasks:
                         i = 0
                     if i is None:
