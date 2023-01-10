@@ -1131,11 +1131,11 @@ class Postgresql(object):
                                for r in self._cluster_info_state_get('pg_stat_replication') or []
                                if r[sort_col] is not None]
         # pg_stat_replication.sync_state has 4 possible states - async, potential, quorum, sync.
-        # Sort clause "ORDER BY sync_state DESC" is to get the result in required order and to keep
-        # the result consistent in case if a synchronous standby member is slowed down OR async node
-        # receiving changes faster than the sync member (very rare but possible). Such cases would
-        # trigger sync standby member swapping frequently and the sort on sync_state desc should
-        # help in keeping the query result consistent.
+        # That is, alphabetically they are in the reversed order of priority.
+        # Since we are doing reversed sort on (sync_state, lsn) tuples, it helps to keep the result
+        # consistent in case if a synchronous standby member is slowed down OR async node receiving
+        # changes faster than the sync member (very rare but possible).
+        # Such cases would trigger sync standby member swapping, but only if lag on a sync node exceeding a threshold.
         for app_name, sync_state, replica_lsn in sorted(pg_stat_replication, key=lambda r: (r[1], r[2]), reverse=True):
             member = members.get(app_name)
             if member and member.is_running and not member.tags.get('nosync', False):

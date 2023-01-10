@@ -642,8 +642,6 @@ class TestPostgresql(BaseTestPostgresql):
     def test_pick_sync_standby(self):
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
                           SyncState(0, self.me.name, self.leadermem.name), None, None, None)
-        mock_cluster_info_state_get = Mock()
-        mock_cluster_info_state_get.return_value = 'remote_apply'
 
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=[
                     'on',
