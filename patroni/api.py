@@ -746,16 +746,17 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def __members_ips(self):
         cluster = self.patroni.dcs.cluster
         if self.__allowlist_include_members and cluster:
-            for member in cluster.members:
-                if member.api_url:
-                    try:
-                        r = urlparse(member.api_url)
-                        host = r.hostname
-                        port = r.port or (443 if r.scheme == 'https' else 80)
-                        for ip in self.__resolve_ips(host, port):
-                            yield ip
-                    except Exception as e:
-                        logger.debug('Failed to parse url %s: %r', member.api_url, e)
+            for cluster in [cluster] + list(cluster.workers.values()):
+                for member in cluster.members:
+                    if member.api_url:
+                        try:
+                            r = urlparse(member.api_url)
+                            host = r.hostname
+                            port = r.port or (443 if r.scheme == 'https' else 80)
+                            for ip in self.__resolve_ips(host, port):
+                                yield ip
+                        except Exception as e:
+                            logger.debug('Failed to parse url %s: %r', member.api_url, e)
 
     def check_access(self, rh):
         if self.__allowlist or self.__allowlist_include_members:

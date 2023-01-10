@@ -244,7 +244,7 @@ def watching(w, watch, max_count=None, clear=True):
 def get_all_members(obj, cluster, group, role='master'):
     clusters = {0: cluster}
     if obj.get('citus') and group is None:
-        clusters.update({int(g): c for g, c in cluster.workers.items()})
+        clusters.update(cluster.workers)
     if role == 'master':
         for cluster in clusters.values():
             if cluster.leader is not None and cluster.leader.name:
@@ -852,7 +852,7 @@ def output_members(obj, cluster, name, extended=False, fmt='pretty', group=None)
     if is_citus_cluster:
         columns.insert(1, 'Group')
         if group is None:
-            clusters.update({int(g): cluster_as_json(c) for g, c in cluster.workers.items()})
+            clusters.update({g: cluster_as_json(c) for g, c in cluster.workers.items()})
 
     all_members = [m for c in clusters.values() for m in c['members'] if 'host' in m]
 
