@@ -311,7 +311,8 @@ class TestHa(PostgresInit):
         self.ha._rewind.check_leader_is_not_in_recovery = true
         with patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True)):
             self.assertEqual(self.ha.run_cycle(), 'running pg_rewind from leader')
-        with patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=False)):
+        with patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=False)),\
+                patch.object(Ha, 'is_synchronous_mode', Mock(return_value=True)):
             self.p.follow = true
             self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
             self.p.is_running = true

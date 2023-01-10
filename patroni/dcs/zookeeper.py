@@ -371,8 +371,11 @@ class ZooKeeper(AbstractDCS):
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         member_data = self.__last_member_data or member and member.data
+        #  We want to notify leader if some important fields in the member key changed by removing ZNode
         if member and (self._client.client_id is not None and member.session != self._client.client_id[0] or
                        not (deep_compare(member_data.get('tags', {}), data.get('tags', {})) and
+                            (member_data.get('state') == data.get('state') or
+                                'running' not in (member_data.get('state'), data.get('state'))) and
                             member_data.get('version') == data.get('version') and
                             member_data.get('checkpoint_after_promote') == data.get('checkpoint_after_promote'))):
             try:
