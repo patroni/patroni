@@ -410,6 +410,9 @@ class Ha(object):
             else:
                 msg = "starting as a secondary"
                 node_to_follow = self._get_node_to_follow(self.cluster)
+
+            if self.is_synchronous_mode():
+                self.state_handler.config.set_synchronous_standby([])
         elif self.has_lock():
             msg = "starting as readonly because i had the session lock"
             node_to_follow = None
@@ -949,14 +952,15 @@ class Ha(object):
             except Exception:
                 node_to_follow, leader = None, None
 
+        if self.is_synchronous_mode():
+            self.state_handler.config.set_synchronous_standby([])
+
         # FIXME: with mode offline called from DCS exception handler and handle_long_action_in_progress
         # there could be an async action already running, calling follow from here will lead
         # to racy state handler state updates.
         if mode_control['async_req']:
             self._async_executor.try_run_async('starting after demotion', self.state_handler.follow, (node_to_follow,))
         else:
-            if self.is_synchronous_mode():
-                self.state_handler.config.set_synchronous_standby([])
             if self._rewind.rewind_or_reinitialize_needed_and_possible(leader):
                 return False  # do not start postgres, but run pg_rewind on the next iteration
             self.state_handler.follow(node_to_follow)
