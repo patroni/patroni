@@ -12,7 +12,9 @@ TL;DR
 
 There are only a few simple rules you need to follow:
 
-1. Citus extension must be available on all nodes.
+1. Citus extension must be available on all nodes. Absolute minimum supported
+   Citus version is 10.0, but, to take all benefits from transparent
+   switchovers and restarts of workers we recommend using at least Citus 11.2.
 2. Cluster name (``scope``) must be the same for all Citus nodes!
 3. Superuser credentials must be the same on coordinator and all worker
    nodes, and ``pg_hba.conf`` should allow superuser access between all nodes.
@@ -332,3 +334,19 @@ There are two important files for you:
 
 1. Dockerfile.citus
 2. citus_k8s.yaml
+
+Citus upgrades and PostgreSQL major upgrades
+--------------------------------------------
+
+First, please read about upgrading Citus version in the `documentation`__.
+There is one minor change in the process. When executing upgrade, you have to
+use ``patronictl restart`` instead of ``systemctl restart`` to restart
+PostgreSQL.
+
+__ https://docs.citusdata.com/en/latest/admin_guide/upgrading_citus.html
+
+The PostgreSQL major upgrade with Citus is a bit more complex. You will have to
+combine techniques used in the Citus documentation about major upgrades and
+Patroni documentation about :ref:`PostgreSQL major upgrade<major_upgrade>`.
+Please keep in mind that Citus cluster consists of many Patroni clusters
+(coordinator and workers) and they all have to be upgraded independently.

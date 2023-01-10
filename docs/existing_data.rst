@@ -23,6 +23,8 @@ A Patroni cluster can be started with a data directory from a single-node Postgr
 3. Start Patroni (e.g. ``patroni /etc/patroni/patroni.yml``). It automatically detects that PostgreSQL daemon is already running but its configuration might be out-of-date.
 4. Ask Patroni to restart the node with ``patronictl restart cluster-name node-name``. This step is only required if PostgreSQL configuration is out-of-date.
 
+.. _major_upgrade:
+
 Major Upgrade of PostgreSQL Version
 ===================================
 
