@@ -160,6 +160,20 @@ class Postgresql(object):
 
     @property
     def cluster_info_query(self):
+        """Returns the monitoring query with a fixed number of fields.
+
+        The query text is constructed based on current state in DCS and PostgreSQL version:
+        1. function names depend on version. wal/lsn for v10+ and xlog/location for pre v10.
+        2. for primary we query timeline_id (extracted from pg_walfile_name()) and pg_current_wal_lsn()
+        3. for replicas we query pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn(), and  pg_is_wal_replay_paused()
+        4. for v9.6+ we query primary_slot_name and primary_conninfo from pg_stat_get_wal_receiver()
+        5. for v11+ with permanent logical slots we query from pg_replication_slots and aggregate the result
+        6. for standby_leader node running v9.6+ we also query pg_control_checkpoint to fetch timeline_id
+        7. if sync replication is enabled we query pg_stat_replication and aggregate the result.
+           In addition to that we get current values of synchronous_commit and synchronous_standby_names GUCs.
+
+        If some conditions are not satisfied we simply put static values instead. E.g., NULL, 0, '', and so on."""
+
         extra = ", " + (("pg_catalog.current_setting('synchronous_commit'), " +
                          "pg_catalog.current_setting('synchronous_standby_names'), "
                          "(SELECT pg_catalog.json_agg(r.*) FROM (SELECT application_name, sync_state," +
