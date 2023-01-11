@@ -22,6 +22,7 @@ from .connection import Connection, get_connection_cursor
 from .misc import parse_history, parse_lsn, postgres_major_version_to_int
 from .postmaster import PostmasterProcess
 from .slots import SlotsHandler
+from .validator import CaseInsensitiveDict
 from .. import psycopg
 from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
@@ -106,6 +107,7 @@ class Postgresql(object):
         self._cluster_info_state = {}
         self._has_permanent_logical_slots = True
         self._enforce_hot_standby_feedback = False
+        self._is_synchronous_mode = True
         self._cached_replica_timeline = None
 
         # Last known running process
@@ -158,11 +160,36 @@ class Postgresql(object):
 
     @property
     def cluster_info_query(self):
+        """Returns the monitoring query with a fixed number of fields.
+
+        The query text is constructed based on current state in DCS and PostgreSQL version:
+        1. function names depend on version. wal/lsn for v10+ and xlog/location for pre v10.
+        2. for primary we query timeline_id (extracted from pg_walfile_name()) and pg_current_wal_lsn()
+        3. for replicas we query pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn(), and  pg_is_wal_replay_paused()
+        4. for v9.6+ we query primary_slot_name and primary_conninfo from pg_stat_get_wal_receiver()
+        5. for v11+ with permanent logical slots we query from pg_replication_slots and aggregate the result
+        6. for standby_leader node running v9.6+ we also query pg_control_checkpoint to fetch timeline_id
+        7. if sync replication is enabled we query pg_stat_replication and aggregate the result.
+           In addition to that we get current values of synchronous_commit and synchronous_standby_names GUCs.
+
+        If some conditions are not satisfied we simply put static values instead. E.g., NULL, 0, '', and so on."""
+
+        extra = ", " + (("pg_catalog.current_setting('synchronous_commit'), " +
+                         "pg_catalog.current_setting('synchronous_standby_names'), "
+                         "(SELECT pg_catalog.json_agg(r.*) FROM (SELECT application_name, sync_state," +
+                         " pg_catalog.pg_{0}_{1}_diff(write_{1}, '0/0')::bigint AS write_lsn," +
+                         " pg_catalog.pg_{0}_{1}_diff(flush_{1}, '0/0')::bigint AS flush_lsn," +
+                         " pg_catalog.pg_{0}_{1}_diff(replay_{1}, '0/0')::bigint AS replay_lsn " +
+                         "FROM pg_catalog.pg_stat_get_wal_senders() w," +
+                         " pg_catalog.pg_stat_get_activity(pid)" +
+                         " WHERE w.state = 'streaming') r)").format(self.wal_name, self.lsn_name)
+                        if self._is_synchronous_mode and self.role == 'master' else "'on', '', NULL")
+
         if self._major_version >= 90600:
-            extra = "(SELECT pg_catalog.json_agg(s.*) FROM (SELECT slot_name, slot_type as type, datoid::bigint, " +\
-                    "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint" + \
-                    " AS confirmed_flush_lsn FROM pg_catalog.pg_get_replication_slots()) AS s)"\
-                            if self._has_permanent_logical_slots and self._major_version >= 110000 else "NULL"
+            extra = ("(SELECT pg_catalog.json_agg(s.*) FROM (SELECT slot_name, slot_type as type, datoid::bigint, " +
+                     "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint" +
+                     " AS confirmed_flush_lsn FROM pg_catalog.pg_get_replication_slots()) AS s)"
+                     if self._has_permanent_logical_slots and self._major_version >= 110000 else "NULL") + extra
             extra = (", CASE WHEN latest_end_lsn IS NULL THEN NULL ELSE received_tli END,"
                      " slot_name, conninfo, {0} FROM pg_catalog.pg_stat_get_wal_receiver()").format(extra)
             if self.role == 'standby_leader':
@@ -170,7 +197,7 @@ class Postgresql(object):
             else:
                 extra = "0" + extra
         else:
-            extra = "0, NULL, NULL, NULL, NULL"
+            extra = "0, NULL, NULL, NULL, NULL" + extra
 
         return ("SELECT " + self.TL_LSN + ", {2}").format(self.wal_name, self.lsn_name, extra)
 
@@ -334,13 +361,16 @@ class Postgresql(object):
                 self._has_permanent_logical_slots or
                 cluster.should_enforce_hot_standby_feedback(self.name, nofailover, self.major_version))
 
+            self._is_synchronous_mode = cluster.is_synchronous_mode()
+
     def _cluster_info_state_get(self, name):
         if not self._cluster_info_state:
             try:
                 result = self._is_leader_retry(self._query, self.cluster_info_query).fetchone()
                 cluster_info_state = dict(zip(['timeline', 'wal_position', 'replayed_location',
                                                'received_location', 'replay_paused', 'pg_control_timeline',
-                                               'received_tli', 'slot_name', 'conninfo', 'slots'], result))
+                                               'received_tli', 'slot_name', 'conninfo', 'slots', 'synchronous_commit',
+                                               'synchronous_standby_names', 'pg_stat_replication'], result))
                 if self._has_permanent_logical_slots:
                     cluster_info_state['slots'] =\
                         self.slots_handler.process_permanent_slots(cluster_info_state['slots'])
@@ -1076,9 +1106,6 @@ class Postgresql(object):
             logger.exception('Could not remove data directory %s', self._data_dir)
             self.move_data_directory()
 
-    def _get_synchronous_commit_param(self):
-        return self.query("SHOW synchronous_commit").fetchone()[0]
-
     def pick_synchronous_standby(self, cluster, sync_node_count=1, sync_node_maxlag=-1):
         """Finds the best candidate to be the synchronous standby.
 
@@ -1093,29 +1120,28 @@ class Postgresql(object):
         """
         if self._major_version < 90600:
             sync_node_count = 1
-        members = {m.name.lower(): m for m in cluster.members}
+        members = CaseInsensitiveDict({m.name: m for m in cluster.members})
         candidates = []
         sync_nodes = []
         replica_list = []
         # Pick candidates based on who has higher replay/remote_write/flush lsn.
-        sync_commit_par = self._get_synchronous_commit_param()
-        sort_col = {'remote_apply': 'replay', 'remote_write': 'write'}.get(sync_commit_par, 'flush')
+        synchronous_commit = self._cluster_info_state_get('synchronous_commit')
+        sort_col = {'remote_apply': 'replay', 'remote_write': 'write'}.get(synchronous_commit, 'flush') + '_lsn'
+        pg_stat_replication = [(r['application_name'], r['sync_state'], r[sort_col])
+                               for r in self._cluster_info_state_get('pg_stat_replication') or []
+                               if r[sort_col] is not None]
         # pg_stat_replication.sync_state has 4 possible states - async, potential, quorum, sync.
-        # Sort clause "ORDER BY sync_state DESC" is to get the result in required order and to keep
-        # the result consistent in case if a synchronous standby member is slowed down OR async node
-        # receiving changes faster than the sync member (very rare but possible). Such cases would
-        # trigger sync standby member swapping frequently and the sort on sync_state desc should
-        # help in keeping the query result consistent.
-        for app_name, sync_state, replica_lsn in self.query(
-                "SELECT pg_catalog.lower(application_name), sync_state, pg_{2}_{1}_diff({0}_{1}, '0/0')::bigint"
-                " FROM pg_catalog.pg_stat_replication"
-                " WHERE state = 'streaming' AND {0}_{1} IS NOT NULL"
-                " ORDER BY sync_state DESC, {0}_{1} DESC".format(sort_col, self.lsn_name, self.wal_name)):
+        # That is, alphabetically they are in the reversed order of priority.
+        # Since we are doing reversed sort on (sync_state, lsn) tuples, it helps to keep the result
+        # consistent in case if a synchronous standby member is slowed down OR async node receiving
+        # changes faster than the sync member (very rare but possible).
+        # Such cases would trigger sync standby member swapping, but only if lag on a sync node exceeding a threshold.
+        for app_name, sync_state, replica_lsn in sorted(pg_stat_replication, key=lambda r: (r[1], r[2]), reverse=True):
             member = members.get(app_name)
-            if member and not member.tags.get('nosync', False):
+            if member and member.is_running and not member.tags.get('nosync', False):
                 replica_list.append((member.name, sync_state, replica_lsn, bool(member.nofailover)))
 
-        max_lsn = max(replica_list, key=lambda x: x[2])[2] if len(replica_list) > 1 else int(str(self.last_operation()))
+        max_lsn = max(replica_list, key=lambda x: x[2])[2] if len(replica_list) > 1 else self.last_operation()
 
         # Prefer members without nofailover tag. We are relying on the fact that sorts are guaranteed to be stable.
         for app_name, sync_state, replica_lsn, _ in sorted(replica_list, key=lambda x: x[3]):

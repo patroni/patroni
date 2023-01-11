@@ -638,44 +638,44 @@ class TestPostgresql(BaseTestPostgresql):
             self.p._state = 'starting'
             self.assertIsNone(self.p.wait_for_startup())
 
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=2))
     def test_pick_sync_standby(self):
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
                           SyncState(0, self.me.name, self.leadermem.name), None, None, None)
-        mock_cursor = Mock()
-        mock_cursor.fetchone.return_value = ('remote_apply',)
 
-        with patch.object(Postgresql, "query", side_effect=[
-                    mock_cursor,
-                    [(self.leadermem.name, 'sync', 1),
-                     (self.me.name, 'async', 2),
-                     (self.other.name, 'async', 2)]
+        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=[
+                    'on',
+                    [{'application_name': self.leadermem.name, 'sync_state': 'sync', 'flush_lsn': 1},
+                     {'application_name': self.me.name, 'sync_state': 'async', 'flush_lsn': 2},
+                     {'application_name': self.other.name, 'sync_state': 'async', 'flush_lsn': 2}]
                 ]):
+
             self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.leadermem.name], [self.leadermem.name]))
 
-        with patch.object(Postgresql, "query", side_effect=[
-                    mock_cursor,
-                    [(self.leadermem.name, 'potential', 1),
-                     (self.me.name, 'async', 2),
-                     (self.other.name, 'async', 2)]
+        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=[
+                    'remote_write',
+                    [{'application_name': self.leadermem.name, 'sync_state': 'potential', 'write_lsn': 1},
+                     {'application_name': self.me.name, 'sync_state': 'async', 'write_lsn': 2},
+                     {'application_name': self.other.name, 'sync_state': 'async', 'write_lsn': 2}]
                 ]):
             self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.leadermem.name], []))
 
-        with patch.object(Postgresql, "query", side_effect=[
-                    mock_cursor,
-                    [(self.me.name, 'async', 1),
-                     (self.other.name, 'async', 2)]
+        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=[
+                    'remote_apply',
+                    [{'application_name': self.me.name.upper(), 'sync_state': 'async', 'replay_lsn': 2},
+                     {'application_name': self.other.name, 'sync_state': 'async', 'replay_lsn': 1}]
                 ]):
             self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.me.name], []))
 
-        with patch.object(Postgresql, "query", side_effect=[
-                    mock_cursor,
-                    [('missing', 'sync', 1),
-                     (self.me.name, 'async', 2),
-                     (self.other.name, 'async', 3)]
+        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=[
+                    'remote_apply',
+                    [{'application_name': 'missing', 'sync_state': 'sync', 'replay_lsn': 3},
+                     {'application_name': self.me.name, 'sync_state': 'async', 'replay_lsn': 2},
+                     {'application_name': self.other.name, 'sync_state': 'async', 'replay_lsn': 1}]
                 ]):
             self.assertEqual(self.p.pick_synchronous_standby(cluster), ([self.me.name], []))
 
-        with patch.object(Postgresql, "query", side_effect=[mock_cursor, []]):
+        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['remote_apply', []]):
             self.p._major_version = 90400
             self.assertEqual(self.p.pick_synchronous_standby(cluster), ([], []))
 

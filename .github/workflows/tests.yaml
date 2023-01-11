@@ -143,21 +143,16 @@ jobs:
           features/output/*
         if-no-files-found: error
         retention-days: 5
-    - uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-    - name: Install coveralls
-      run: python -m pip install coveralls
-    - name: Upload Coverage
+    - name: Generate coverage xml report
+      run: python -m coverage xml -o cobertura.xml
+    - name: Upload coverage to Codacy
+      run: bash <(curl -Ls https://coverage.codacy.com/get.sh) report -r cobertura.xml -l Python --partial
       env:
-        COVERALLS_FLAG_NAME: behave-${{ matrix.os }}-${{ matrix.dcs }}-${{ matrix.python-version }}
-        COVERALLS_PARALLEL: 'true'
-        GITHUB_TOKEN: ${{ secrets.github_token }}
-      run: python -m coveralls --service=github
+        CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
 
   coveralls-finish:
     name: Finalize coveralls.io
-    needs: [unit, behave]
+    needs: unit
     runs-on: ubuntu-latest
     steps:
     - uses: actions/setup-python@v4
@@ -165,3 +160,12 @@ jobs:
     - run: python -m coveralls --service=github --finish
       env:
         GITHUB_TOKEN: ${{ secrets.github_token }}
+
+  codacy-final:
+    name: Finalize Codacy
+    needs: behave
+    runs-on: ubuntu-latest
+    steps:
+    - run: bash <(curl -Ls https://coverage.codacy.com/get.sh) final
+      env:
+        CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
