@@ -47,7 +47,7 @@ We report new releases information `here <https://github.com/zalando/patroni/rel
 Community
 =========
 
-There are two places to connect with the Patroni community: `on github <https://github.com/zalando/patroni>`__, via Issues and PRs, and on channel #patroni in the `PostgreSQL Slack <https://postgres-slack.herokuapp.com/>`__.  If you're using Patroni, or just interested, please join us.
+There are two places to connect with the Patroni community: `on github <https://github.com/zalando/patroni>`__, via Issues and PRs, and on channel `#patroni <https://postgresteam.slack.com/archives/C9XPYG92A>`__ in the `PostgreSQL Slack <https://postgresteam.slack.com/>`__.  If you're using Patroni, or just interested, please join us.
 
 ===================================
 Technical Requirements/Installation
