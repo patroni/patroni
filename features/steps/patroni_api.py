@@ -131,7 +131,21 @@ def add_tag_to_config(context, tag, value, pg_name):
     context.pctl.add_tag_to_config(pg_name, tag, value)
 
 
-@then('Response on GET {url} contains {value} after {timeout:d} seconds')
+@then('Status code on GET {url:url} is {code:d} after {timeout:d} seconds')
+def check_http_code(context, url, code, timeout):
+    if context.certfile:
+        url = url.replace('http://', 'https://')
+    timeout *= context.timeout_multiplier
+    for _ in range(int(timeout)):
+        r = context.request_executor.request('GET', url)
+        if int(code) == int(r.status):
+            break
+        time.sleep(1)
+    else:
+        assert False, "HTTP Status Code is not {0} after {1} seconds".format(code, timeout)
+
+
+@then('Response on GET {url:url} contains {value} after {timeout:d} seconds')
 def check_http_response(context, url, value, timeout, negate=False):
     if context.certfile:
         url = url.replace('http://', 'https://')
