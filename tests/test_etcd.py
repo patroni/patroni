@@ -44,7 +44,7 @@ def etcd_read(self, key, **kwargs):
                     {"key": "/service/batman5/1/initialize", "value": "2164261704",
                      "modifiedIndex": 20729, "createdIndex": 20729}],
                  "modifiedIndex": 20437, "createdIndex": 20437},
-                {"key": "/service/batman5/config", "value": '{"synchronous_mode": 0}',
+                {"key": "/service/batman5/config", "value": '{"synchronous_mode": 0, "failsafe_mode": true}',
                  "modifiedIndex": 1582, "createdIndex": 1582},
                 {"key": "/service/batman5/failover", "value": "",
                  "modifiedIndex": 1582, "createdIndex": 1582},

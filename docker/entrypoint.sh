@@ -7,29 +7,30 @@ if [ -f /a.tar.xz ]; then
     sudo ln -snf dash /bin/sh
 fi
 
-readonly PATRONI_SCOPE=${PATRONI_SCOPE:-batman}
-PATRONI_NAMESPACE=${PATRONI_NAMESPACE:-/service}
-readonly PATRONI_NAMESPACE=${PATRONI_NAMESPACE%/}
-readonly DOCKER_IP=$(hostname --ip-address)
+readonly PATRONI_SCOPE="${PATRONI_SCOPE:-batman}"
+PATRONI_NAMESPACE="${PATRONI_NAMESPACE:-/service}"
+readonly PATRONI_NAMESPACE="${PATRONI_NAMESPACE%/}"
+DOCKER_IP=$(hostname --ip-address)
+readonly DOCKER_IP
 
 case "$1" in
     haproxy)
         haproxy -f /etc/haproxy/haproxy.cfg -p /var/run/haproxy.pid -D
         CONFD="confd -prefix=$PATRONI_NAMESPACE/$PATRONI_SCOPE -interval=10 -backend"
-        if [ ! -z "$PATRONI_ZOOKEEPER_HOSTS" ]; then
-            while ! /usr/share/zookeeper/bin/zkCli.sh -server $PATRONI_ZOOKEEPER_HOSTS ls /; do
+        if [ -n "$PATRONI_ZOOKEEPER_HOSTS" ]; then
+            while ! /usr/share/zookeeper/bin/zkCli.sh -server "$PATRONI_ZOOKEEPER_HOSTS" ls /; do
                 sleep 1
             done
-            exec dumb-init $CONFD zookeeper -node $PATRONI_ZOOKEEPER_HOSTS
+            exec dumb-init "$CONFD" zookeeper -node "$PATRONI_ZOOKEEPER_HOSTS"
         else
             while ! etcdctl member list 2> /dev/null; do
                 sleep 1
             done
-            exec dumb-init $CONFD etcdv3 -node $(echo $ETCDCTL_ENDPOINTS | sed 's/,/ -node /g')
+            exec dumb-init "$CONFD" etcdv3 -node "$(echo "$ETCDCTL_ENDPOINTS" | sed 's/,/ -node /g')"
         fi
         ;;
     etcd)
-        exec "$@" -advertise-client-urls http://$DOCKER_IP:2379
+        exec "$@" -advertise-client-urls "http://$DOCKER_IP:2379"
         ;;
     zookeeper)
         exec /usr/share/zookeeper/bin/zkServer.sh start-foreground

@@ -904,7 +904,6 @@ class Kubernetes(AbstractDCS):
         try:
             with self._condition:
                 self._wait_caches(stop_time)
-
                 pods = [pod for pod in self._pods.copy().values()
                         if not group or pod.metadata.labels.get(self._CITUS_LABEL) == group]
                 nodes = {name: kind for name, kind in self._kinds.copy().items()

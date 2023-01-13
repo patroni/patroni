@@ -464,8 +464,8 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,'
     :param sync: reference to `SyncState` object, last observed synchronous replication state.
     :param history: reference to `TimelineHistory` object
     :param slots: state of permanent logical replication slots on the primary in the format: {"slot_name": int}
-    :param workers: workers of the Citus cluster, optional. Format: {int(group): Cluster()}
-    """
+    :param failsafe: failsafe topology. Node is allowed to become the leader only if its name is found in this list.
+    :param workers: workers of the Citus cluster, optional. Format: {int(group): Cluster()}"""
 
     def __new__(cls, *args):
         # Make workers argument optional
@@ -886,6 +886,10 @@ class AbstractDCS(object):
         if not (isinstance(self._last_failsafe, dict) and deep_compare(self._last_failsafe, value))\
                 and self._write_failsafe(json.dumps(value, separators=(',', ':'))):
             self._last_failsafe = value
+
+    @property
+    def failsafe(self):
+        return self._last_failsafe
 
     @abc.abstractmethod
     def _update_leader(self):

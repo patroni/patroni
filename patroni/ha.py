@@ -18,7 +18,7 @@ from .postgresql import ACTION_ON_START, ACTION_ON_ROLE_CHANGE
 from .postgresql.misc import postgres_version_to_int
 from .postgresql.rewind import Rewind
 from .utils import polling_loop, tzutc, is_standby_cluster as _is_standby_cluster, parse_int
-from .dcs import RemoteMember
+from .dcs import Cluster, Leader, RemoteMember
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,65 @@ class _MemberStatus(namedtuple('_MemberStatus', ['member', 'reachable', 'in_reco
         return None
 
 
+class Failsafe(object):
+
+    def __init__(self, dcs):
+        self._lock = RLock()
+        self._dcs = dcs
+        self._last_update = 0
+        self._name = None
+        self._conn_url = None
+        self._api_url = None
+        self._slots = None
+
+    def update(self, data):
+        with self._lock:
+            self._last_update = time.time()
+            self._name = data['name']
+            self._conn_url = data['conn_url']
+            self._api_url = data['api_url']
+            self._slots = data.get('slots')
+
+    @property
+    def leader(self):
+        with self._lock:
+            if self._last_update + self._dcs.ttl > time.time():
+                return Leader(None, None,
+                              RemoteMember(self._name, {'api_url': self._api_url,
+                                                        'conn_url': self._conn_url,
+                                                        'slots': self._slots}))
+
+    def update_cluster(self, cluster):
+        # Enreach cluster with the real leader if there was a ping from it
+        leader = self.leader
+        if leader:
+            cluster = list(cluster)
+            # We rely on the strict order of fields in the namedtuple
+            cluster[2] = leader
+            cluster[4].append(leader.member)
+            cluster[8] = leader.member.data['slots']
+            cluster = Cluster(*cluster)
+        return cluster
+
+    def is_active(self):
+        """Is used to report in REST API whether the failsafe mode was activated.
+
+           On primary the self._last_update is set from the
+           set_is_active() method and always returns the correct value.
+
+           On replicas the self._last_update is set at the moment when
+           the primary performs POST /failsafe REST API calls.
+           The side-effect - it is possible that replicas will show
+           failsafe_is_active values different from the primary."""
+
+        with self._lock:
+            return self._last_update + self._dcs.ttl > time.time()
+
+    def set_is_active(self, value):
+        with self._lock:
+            self._last_update = value
+
+
 class Ha(object):
 
     def __init__(self, patroni):
@@ -81,6 +140,7 @@ class Ha(object):
         self.old_cluster = None
         self._is_leader = False
         self._is_leader_lock = RLock()
+        self._failsafe = Failsafe(patroni.dcs)
         self._was_paused = False
         self._leader_timeline = None
         self.recovering = False
@@ -151,6 +211,10 @@ class Ha(object):
             self.old_cluster = cluster
         self.cluster = cluster
 
+        if self.cluster.is_unlocked() and self.is_failsafe_mode():
+            # If failsafe mode is enabled we want to inject the "real" leader to the cluster
+            self.cluster = cluster = self._failsafe.update_cluster(cluster)
+
         if not self.has_lock(False):
             self.set_is_leader(False)
 
@@ -167,6 +231,13 @@ class Ha(object):
         self.set_is_leader(ret)
         return ret
 
+    def _failsafe_config(self):
+        if self.is_failsafe_mode():
+            ret = {m.name: m.api_url for m in self.cluster.members}
+            if self.state_handler.name not in ret:
+                ret[self.state_handler.name] = self.patroni.api.connection_string
+            return ret
+
     def update_lock(self, write_leader_optime=False):
         last_lsn = slots = None
         if write_leader_optime:
@@ -176,7 +247,7 @@ class Ha(object):
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
         try:
-            ret = self.dcs.update_leader(last_lsn, slots)
+            ret = self.dcs.update_leader(last_lsn, slots, self._failsafe_config())
         except DCSError:
             raise
         except Exception:
@@ -507,6 +578,9 @@ class Ha(object):
     def is_synchronous_mode_strict(self):
         return self.check_mode('synchronous_mode_strict')
 
+    def is_failsafe_mode(self):
+        return self.check_mode('failsafe_mode')
+
     def process_sync_replication(self):
         """Process synchronous standby beahvior.
 
@@ -710,6 +784,49 @@ class Ha(object):
         pool.join()
         return results
 
+    def update_failsafe(self, data):
+        if self.state_handler.state == 'running' and self.state_handler.role == 'master':
+            return 'Running as a leader'
+        self._failsafe.update(data)
+
+    def failsafe_is_active(self):
+        return self._failsafe.is_active()
+
+    def call_failsafe_member(self, data, member):
+        try:
+            response = self.patroni.request(member, 'post', 'failsafe', data, timeout=2, retries=1)
+            data = response.data.decode('utf-8')
+            logger.info('Got response from %s %s: %s', member.name, member.api_url, data)
+            return response.status == 200 and data == 'Accepted'
+        except Exception as e:
+            logger.warning("Request failed to %s: POST %s (%s)", member.name, member.api_url, e)
+        return False
+
+    def check_failsafe_topology(self):
+        failsafe = self.dcs.failsafe
+        if not isinstance(failsafe, dict) or self.state_handler.name not in failsafe:
+            return False
+        data = {
+            'name': self.state_handler.name,
+            'conn_url': self.state_handler.connection_string,
+            'api_url': self.patroni.api.connection_string,
+        }
+        try:
+            data['slots'] = self.state_handler.slots()
+        except Exception:
+            logger.exception('Exception when called state_handler.slots()')
+        members = [RemoteMember(name, {'api_url': url})
+                   for name, url in failsafe.items()
+                   if name != self.state_handler.name]
+        if not members:  # A sinlge node cluster
+            return True
+        pool = ThreadPool(len(members))
+        call_failsafe_member = functools.partial(self.call_failsafe_member, data)
+        results = pool.map(call_failsafe_member, members)
+        pool.close()
+        pool.join()
+        return all(results)
+
     def is_lagging(self, wal_position):
         """Returns if instance with an wal should consider itself unhealthy to be promoted due to replication lag.
 
@@ -865,8 +982,19 @@ class Ha(object):
             logger.warning('Watchdog device is not usable')
             return False
 
+        all_known_members = self.old_cluster.members
+        if self.is_failsafe_mode():
+            failsafe_members = self.dcs.failsafe
+            # We want to discard failsafe_mode if the /failsafe key contains garbage or empty.
+            if isinstance(failsafe_members, dict):
+                # If current node is missing in the /failsafe key we immediately disqualify it from the race.
+                if failsafe_members and self.state_handler.name not in failsafe_members:
+                    return False
+                # Race among not only existing cluster members, but also all known members from the failsafe config
+                all_known_members += [RemoteMember(name, {'api_url': url}) for name, url in failsafe_members.items()]
+        all_known_members += self.cluster.members
+
         # When in sync mode, only last known master and sync standby are allowed to promote automatically.
-        all_known_members = self.cluster.members + self.old_cluster.members
         if self.is_synchronous_mode() and self.cluster.sync and self.cluster.sync.leader:
             if not self.cluster.sync.matches(self.state_handler.name):
                 return False
@@ -1587,19 +1715,39 @@ class Ha(object):
         except DCSError:
             dcs_failed = True
             logger.error('Error communicating with DCS')
-            if not self.is_paused() and self.state_handler.is_running() and self.state_handler.is_leader():
+            return self._handle_dcs_error()
+        except (psycopg.Error, PostgresConnectionException):
+            return 'Error communicating with PostgreSQL. Will try again later'
+        finally:
+            if not dcs_failed:
+                self.touch_member()
+                if self.state_handler.is_leader():
+                    self._failsafe.set_is_active(0)
+
+    def _handle_dcs_error(self):
+        if not self.is_paused() and self.state_handler.is_running():
+            if self.state_handler.is_leader():
+                if self.is_failsafe_mode() and self.check_failsafe_topology():
+                    self.set_is_leader(True)
+                    self._failsafe.set_is_active(time.time())
+                    self.watchdog.keepalive()
+                    return 'continue to run as a leader because failsafe mode is enabled and all members are accessible'
+                self._failsafe.set_is_active(0)
                 msg = 'demoting self because DCS is not accessible and I was a leader'
                 if not self._async_executor.try_run_async(msg, self.demote, ('offline',)):
                     return msg
                 logger.warning('AsyncExecutor is busy, demoting from the main thread')
                 self.demote('offline')
                 return 'demoted self because DCS is not accessible and I was a leader'
-            return 'DCS is not accessible'
-        except (psycopg.Error, PostgresConnectionException):
-            return 'Error communicating with PostgreSQL. Will try again later'
-        finally:
-            if not dcs_failed:
-                self.touch_member()
+            elif self.is_failsafe_mode():
+                cluster = self._failsafe.update_cluster(self.cluster)
+                if cluster:
+                    self.state_handler.slots_handler.sync_replication_slots(cluster,
+                                                                            self.patroni.nofailover,
+                                                                            self.patroni.replicatefrom,
+                                                                            self.is_paused())
+
+        return 'DCS is not accessible'
 
     def run_cycle(self):
         with self._async_executor:
