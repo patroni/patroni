@@ -109,6 +109,8 @@ def check_response(context, component, data):
         assert data.strip('"') in context.response, "response {0} does not contain {1}".format(context.response, data)
     else:
         assert component in context.response, "{0} is not part of the response".format(component)
+        if context.certfile:
+            data = data.replace('http://', 'https://')
         assert str(context.response[component]) == str(data), "{0} does not contain {1}".format(component, data)
 
 

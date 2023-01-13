@@ -33,12 +33,12 @@ def false(*args, **kwargs):
     return False
 
 
-def get_cluster(initialize, leader, members, failover, sync, cluster_config=None):
+def get_cluster(initialize, leader, members, failover, sync, cluster_config=None, failsafe=None):
     t = datetime.datetime.now().isoformat()
     history = TimelineHistory(1, '[[1,67197376,"no recovery target specified","' + t + '","foo"]]',
                               [(1, 67197376, 'no recovery target specified', t, 'foo')])
     cluster_config = cluster_config or ClusterConfig(1, {'check_timeline': True}, 1)
-    return Cluster(initialize, cluster_config, leader, 10, members, failover, sync, history, None, None)
+    return Cluster(initialize, cluster_config, leader, 10, members, failover, sync, history, None, failsafe)
 
 
 def get_cluster_not_initialized_without_leader(cluster_config=None):
@@ -49,7 +49,7 @@ def get_cluster_bootstrapping_without_leader(cluster_config=None):
     return get_cluster("", None, [], None, SyncState(None, None, None), cluster_config)
 
 
-def get_cluster_initialized_without_leader(leader=False, failover=None, sync=None, cluster_config=None):
+def get_cluster_initialized_without_leader(leader=False, failover=None, sync=None, cluster_config=None, failsafe=False):
     m1 = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
                                   'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4})
     leader = Leader(0, 0, m1 if leader else Member(0, '', 28, {}))
@@ -61,7 +61,8 @@ def get_cluster_initialized_without_leader(leader=False, failover=None, sync=Non
                                  'scheduled_restart': {'schedule': "2100-01-01 10:53:07.560445+00:00",
                                                        'postgres_version': '99.0.0'}})
     syncstate = SyncState(0 if sync else None, sync and sync[0], sync and sync[1])
-    return get_cluster(SYSID, leader, [m1, m2], failover, syncstate, cluster_config)
+    failsafe = {m.name: m.api_url for m in (m1, m2)} if failsafe else None
+    return get_cluster(SYSID, leader, [m1, m2], failover, syncstate, cluster_config, failsafe)
 
 
 def get_cluster_initialized_with_leader(failover=None, sync=None):
@@ -82,6 +83,11 @@ def get_standby_cluster_initialized_with_only_leader(failover=None, sync=None):
                 "primary_slot_name": "",
             }}, 1)
     )
+
+
+def get_cluster_initialized_with_leader_and_failsafe():
+    return get_cluster_initialized_without_leader(leader=True, failsafe=True,
+                                                  cluster_config=ClusterConfig(1, {'failsafe_mode': True}, 1))
 
 
 def get_node_status(reachable=True, in_recovery=True, dcs_last_seen=0,
@@ -143,7 +149,7 @@ zookeeper:
         self.scheduled_restart = {'schedule': future_restart_time,
                                   'postmaster_start_time': str(postmaster_start_time)}
         self.watchdog = Watchdog(self.config)
-        self.request = lambda member, **kwargs: requests_get(member.api_url, **kwargs)
+        self.request = lambda *args, **kwargs: requests_get(args[0].api_url, *args[1:], **kwargs)
 
 
 def run_async(self, func, args=()):
@@ -205,6 +211,7 @@ class TestHa(PostgresInit):
             self.ha.load_cluster_from_dcs = Mock()
 
     def test_update_lock(self):
+        self.ha.is_failsafe_mode = true
         self.p.last_operation = Mock(side_effect=PostgresConnectionException(''))
         self.ha.dcs.update_leader = Mock(side_effect=[DCSError(''), Exception])
         self.assertRaises(DCSError, self.ha.update_lock)
@@ -458,11 +465,51 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEqual(self.ha.run_cycle(), 'running pg_rewind from leader')
 
-    def test_no_etcd_connection_master_demote(self):
+    def test_no_dcs_connection_master_demote(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.assertEqual(self.ha.run_cycle(), 'demoting self because DCS is not accessible and I was a leader')
         self.ha._async_executor.schedule('dummy')
         self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
+
+    def test_check_failsafe_topology(self):
+        self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
+        self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
+        self.ha.dcs._last_failsafe = self.ha.cluster.failsafe
+        self.assertEqual(self.ha.run_cycle(), 'demoting self because DCS is not accessible and I was a leader')
+        self.ha.state_handler.name = self.ha.cluster.leader.name
+        self.assertFalse(self.ha.failsafe_is_active())
+        self.assertEqual(self.ha.run_cycle(),
+                         'continue to run as a leader because failsafe mode is enabled and all members are accessible')
+        self.assertTrue(self.ha.failsafe_is_active())
+        with patch.object(Postgresql, 'slots', Mock(side_effect=Exception)):
+            self.ha.patroni.request = Mock(side_effect=Exception)
+            self.assertEqual(self.ha.run_cycle(), 'demoting self because DCS is not accessible and I was a leader')
+            self.assertFalse(self.ha.failsafe_is_active())
+        self.ha.dcs._last_failsafe.clear()
+        self.ha.dcs._last_failsafe[self.ha.cluster.leader.name] = self.ha.cluster.leader.member.api_url
+        self.assertEqual(self.ha.run_cycle(),
+                         'continue to run as a leader because failsafe mode is enabled and all members are accessible')
+
+    def test_no_dcs_connection_primary_failsafe(self):
+        self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
+        self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
+        self.ha.dcs._last_failsafe = self.ha.cluster.failsafe
+        self.ha.state_handler.name = self.ha.cluster.leader.name
+        self.assertEqual(self.ha.run_cycle(),
+                         'continue to run as a leader because failsafe mode is enabled and all members are accessible')
+
+    def test_no_dcs_connection_replica_failsafe(self):
+        self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
+        self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
+        self.ha.update_failsafe({'name': 'leader', 'api_url': 'http://127.0.0.1:8008/patroni',
+                                 'conn_url': 'postgres://127.0.0.1:5432/postgres', 'slots': {'foo': 1000}})
+        self.p.is_leader = false
+        self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+
+    def test_update_failsafe(self):
+        self.assertRaises(Exception, self.ha.update_failsafe, {})
+        self.p.set_role('master')
+        self.assertEqual(self.ha.update_failsafe({}), 'Running as a leader')
 
     @patch('time.sleep', Mock())
     def test_bootstrap_from_another_member(self):
@@ -725,10 +772,15 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(), 'PAUSE: promoted self to leader by acquiring session lock')
 
     def test_is_healthiest_node(self):
+        self.ha.is_failsafe_mode = true
         self.ha.state_handler.is_leader = false
         self.ha.patroni.nofailover = False
         self.ha.fetch_node_status = get_node_status()
+        self.ha.dcs._last_failsafe = {'foo': ''}
+        self.assertFalse(self.ha.is_healthiest_node())
+        self.ha.dcs._last_failsafe = {'postgresql0': ''}
         self.assertTrue(self.ha.is_healthiest_node())
+        self.ha.dcs._last_failsafe = None
         with patch.object(Watchdog, 'is_healthy', PropertyMock(return_value=False)):
             self.assertFalse(self.ha.is_healthiest_node())
         with patch('patroni.postgresql.Postgresql.is_starting', return_value=True):
