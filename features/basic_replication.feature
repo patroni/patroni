@@ -21,12 +21,9 @@ Feature: basic replication
     And I shut down postgres1
     Then "sync" key in DCS has sync_standby=postgres2 after 10 seconds
     When I start postgres1
-    And "members/postgres1" key in DCS has state=running after 10 seconds
-    And I sleep for 2 seconds
-    When I issue a GET request to http://127.0.0.1:8010/sync
-    Then I receive a response code 200
-    When I issue a GET request to http://127.0.0.1:8009/async
-    Then I receive a response code 200
+    Then "members/postgres1" key in DCS has state=running after 10 seconds
+    And Status code on GET http://127.0.0.1:8010/sync is 200 after 3 seconds
+    And Status code on GET http://127.0.0.1:8009/async is 200 after 3 seconds
 
   Scenario: check stuck sync replica
     Given I issue a PATCH request to http://127.0.0.1:8008/config with {"pause": true, "maximum_lag_on_syncnode": 15000000, "postgresql": {"parameters": {"synchronous_commit": "remote_apply"}}}
@@ -38,11 +35,8 @@ Feature: basic replication
     And I load data on postgres0
     Then "sync" key in DCS has sync_standby=postgres1 after 15 seconds
     And I resume wal replay on postgres2
-    And I sleep for 2 seconds
-    And I issue a GET request to http://127.0.0.1:8009/sync
-    Then I receive a response code 200
-    When I issue a GET request to http://127.0.0.1:8010/async
-    Then I receive a response code 200
+    And Status code on GET http://127.0.0.1:8009/sync is 200 after 3 seconds
+    And Status code on GET http://127.0.0.1:8010/async is 200 after 3 seconds
     When I issue a PATCH request to http://127.0.0.1:8008/config with {"pause": null, "maximum_lag_on_syncnode": -1, "postgresql": {"parameters": {"synchronous_commit": "on"}}}
     Then I receive a response code 200
     And I drop table on postgres0
@@ -50,23 +44,17 @@ Feature: basic replication
   Scenario: check multi sync replication
     Given I issue a PATCH request to http://127.0.0.1:8008/config with {"synchronous_node_count": 2}
     Then I receive a response code 200
-    And I sleep for 10 seconds
-    Then "sync" key in DCS has sync_standby=postgres1,postgres2 after 5 seconds
-    When I issue a GET request to http://127.0.0.1:8010/sync
-    Then I receive a response code 200
-    When I issue a GET request to http://127.0.0.1:8009/sync
-    Then I receive a response code 200
+    Then "sync" key in DCS has sync_standby=postgres1,postgres2 after 10 seconds
+    And Status code on GET http://127.0.0.1:8010/sync is 200 after 3 seconds
+    And Status code on GET http://127.0.0.1:8009/sync is 200 after 3 seconds
     When I issue a PATCH request to http://127.0.0.1:8008/config with {"synchronous_node_count": 1}
     Then I receive a response code 200
     And I shut down postgres1
-    And I sleep for 10 seconds
     Then "sync" key in DCS has sync_standby=postgres2 after 10 seconds
     When I start postgres1
-    And "members/postgres1" key in DCS has state=running after 10 seconds
-    When I issue a GET request to http://127.0.0.1:8010/sync
-    Then I receive a response code 200
-    When I issue a GET request to http://127.0.0.1:8009/async
-    Then I receive a response code 200
+    Then "members/postgres1" key in DCS has state=running after 10 seconds
+    And Status code on GET http://127.0.0.1:8010/sync is 200 after 3 seconds
+    And Status code on GET http://127.0.0.1:8009/async is 200 after 3 seconds
 
   Scenario: check the basic failover in synchronous mode
     Given I run patronictl.py pause batman
