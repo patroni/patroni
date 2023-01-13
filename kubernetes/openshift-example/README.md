@@ -19,10 +19,10 @@ oc import-image postgres:10 --confirm -n openshift
 oc new-build https://github.com/zalando/patroni --context-dir=kubernetes -n openshift
 ```
 
-## Deploy the Image 
+## Deploy the Image
 Two configuration templates exist in [templates](templates) directory: 
-- Patroni Ephemeral
-- Patroni Persistent
+-   Patroni Ephemeral
+-   Patroni Persistent
 
 The only difference is whether or not the statefulset requests persistent storage. 
 
