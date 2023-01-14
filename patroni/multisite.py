@@ -1,10 +1,14 @@
 import abc
 import logging
+from datetime import datetime
 from threading import Thread, Event
 import six
 
 from .dcs import Member
+from .dcs.kubernetes import catch_kubernetes_errors, k8s_client
 from .exceptions import DCSError
+
+import kubernetes
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +72,19 @@ class MultisiteController(Thread, AbstractSiteController):
         self.name = msconfig['name']
         self.dcs = get_dcs(msconfig)
 
+        if msconfig.get('update_crd'):
+            self._state_updater = KubernetesStateManagement(msconfig.get('update_crd'),
+                                                            msconfig.get('crd_uid'),
+                                                            reporter=self.name) #  Use pod name?
+        else:
+            self._state_updater = None
+
         self._heartbeat = Event()
         self._standby_config = None
         self._leader_resolved = Event()
         self._has_leader = False
         self._release = False
+        self._status = None
 
         self._dcs_error = None
 
@@ -82,7 +94,7 @@ class MultisiteController(Thread, AbstractSiteController):
     def resolve_leader(self):
         """Try to become leader, update active config correspondingly.
 
-        Return error when unable to res"""
+        Returns error message encountered when unable to resolve"""
         self._leader_resolved.clear()
         self._heartbeat.set()
         self._leader_resolved.wait()
@@ -107,13 +119,29 @@ class MultisiteController(Thread, AbstractSiteController):
     def _set_standby_config(self, other: Member):
         logger.info(f"Multisite replicate from {other}")
         # TODO: add support for replication slots
-        old_conf, self._standby_config = self._standby_config, {
-            'host': other.data['host'],
-            'port': other.data['port'],
-        }
+        try:
+            old_conf, self._standby_config = self._standby_config, {
+                'host': other.data['host'],
+                'port': other.data['port'],
+            }
+        except KeyError:
+            old_conf = self._standby_config
+            self._disconnected_operation()
+
         if old_conf != self._standby_config:
             logger.info(f"Setting standby configuration to: {self._standby_config}")
         return old_conf != self._standby_config
+
+    def _check_transition(self, leader, note=None):
+        if self._has_leader != leader:
+            logger.info("State transition")
+            self._has_leader = leader
+            if self.on_change:
+                self.on_change()
+        if self._state_updater and self._status != leader:
+            self._state_updater.state_transition('Leader' if leader else 'Standby', note)
+            self._status = leader
+
 
     def _resolve_multisite_leader(self):
         logger.info("Running multisite consensus.")
@@ -132,18 +160,13 @@ class MultisiteController(Thread, AbstractSiteController):
                 if self.dcs.attempt_to_acquire_leader():
                     logger.info("Became multisite leader")
                     self._standby_config = None
-                    if not self._has_leader:
-                        self._has_leader = True
-                        self.on_change()
+                    self._check_transition(leader=True, note="Acquired multisite leader status")
                 # Failed to become leader, maybe someone else acquired lock, maybe we just failed
                 else:
                     logger.info("Failed to acquire multisite lock")
                     # Non-working standby config while we are resolving who to connect to
-                    self._standby_config = self.DISCONNECTED_STANDBY_CONFIG
-                    if self._has_leader:
-                        # If we had considered ourselves to be the leader, notify main loop to reconfigure ASAP
-                        self._has_leader = False
-                        self.on_change()
+                    self._disconnected_operation()
+                    self._check_transition(leader=False, note="Lost multisite leader status")
                     # Try to get new leader
                     cluster = self.dcs.get_cluster(force=True)
                     if cluster.leader and cluster.leader.name != self.name:
@@ -163,23 +186,22 @@ class MultisiteController(Thread, AbstractSiteController):
                         logger.info("Updated multisite leader lease")
                         # Make sure we are disabled from standby mode
                         self._standby_config = None
-                        if not self._has_leader:
-                            self._has_leader = True
-                            self.on_change()
+                        self._check_transition(leader=True, note="Already have multisite leader status")
                     else:
-                        logger.error("Failed to update multiste leader status")
+                        logger.error("Failed to update multisite leader status")
                         self._disconnected_operation()
-                        if self._has_leader:
-                            self._has_leader = False
-                            self.on_change()
+                        self._check_transition(leader=False, note="Failed to update multisite leader status")
                 # Current leader is someone else
                 else:
                     logger.info(f"Multisite has leader and it is {lock_owner}")
                     self._release = False
                     if self._set_standby_config(cluster.leader.member):
-                        if self._has_leader:
-                            self._has_leader = False
-                        self.on_change()
+                        # Wake up anyway to notice that we need to replicate from new leader
+                        if not self._has_leader:
+                            self.on_change()
+                        note = f"Lost leader lock to {lock_owner}" if self._has_leader else f"Current leader {lock_owner}"
+                        self._check_transition(leader=False, note=note)
+
         except DCSError as e:
             logger.error(f"Error accessing multisite DCS: {e}")
             self._dcs_error = 'Multi site DCS cannot be reached'
@@ -187,6 +209,8 @@ class MultisiteController(Thread, AbstractSiteController):
                 self._disconnected_operation()
                 self._has_leader = False
                 self.on_change()
+                if self._state_updater:
+                    self._state_updater.state_transition('Standby', 'Unable to access multisite DCS')
         else:
             try:
                 self.touch_member()
@@ -207,9 +231,75 @@ class MultisiteController(Thread, AbstractSiteController):
             self._resolve_multisite_leader()
             self._heartbeat.clear()
             self._leader_resolved.set()
+            if self._state_updater:
+                self._state_updater.store_updates()
             self._heartbeat.wait()
 
     def shutdown(self):
         self.stop_requested = True
         self._heartbeat.set()
         self.join()
+
+
+class KubernetesStateManagement:
+    def __init__(self, crd_name, crd_uid, reporter):
+        self.crd_namespace, self.crd_name = (['default'] + crd_name.rsplit('.', 1))[-2:]
+        self.crd_uid = crd_uid
+        self.reporter = reporter
+
+        # TODO: handle config loading when main DCS is not Kubernetes based
+        #apiclient = k8s_client.ApiClient(False)
+        kubernetes.config.load_incluster_config()
+        apiclient = kubernetes.client.ApiClient()
+        self._customobj_api = kubernetes.client.CustomObjectsApi(apiclient)
+        self._events_api = kubernetes.client.EventsV1Api(apiclient)
+
+        self._status_update = None
+        self._event_obj = None
+
+    def state_transition(self, new_state, note):
+        self._status_update = {"status": {"Multisite": new_state}}
+
+        failover_time = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        reason = 'Promote' if new_state == 'Leader' else 'Demote'
+        if note is None:
+            note = 'Acquired multisite leader' if new_state == 'Leader' else 'Became a standby cluster'
+
+        self._event_obj = kubernetes.client.EventsV1Event(
+            action='Failover',
+            event_time=failover_time,
+            type="Normal",
+            reporting_controller="patroni",
+            reporting_instance=self.reporter,
+            regarding=kubernetes.client.V1ObjectReference(
+                api_version="acid.zalan.do/v1",
+                kind="postgresql",
+                name=self.crd_name,
+                namespace=self.crd_namespace,
+                uid=self.crd_uid,
+            ),
+            reason=reason, note=note,
+            metadata=kubernetes.client.V1ObjectMeta(namespace=self.crd_namespace, generate_name=self.crd_name)
+        )
+
+    def store_updates(self):
+        try:
+            if self._status_update:
+                self.update_crd_state(self._status_update)
+                self._status_update = None
+            if self._event_obj:
+                self.create_failover_event(self._event_obj)
+                self._event_obj = None
+        except Exception as e:
+            logger.warning("Unable to store Kubernetes status update: %s", e)
+
+    @catch_kubernetes_errors
+    def update_crd_state(self, update):
+        self._customobj_api.patch_namespaced_custom_object_status('acid.zalan.do', 'v1', self.crd_namespace,
+                                                    'postgresqls', self.crd_name + '/status', update,
+                                                     field_manager='patroni')
+
+        return True
+
+    def create_failover_event(self, event):
+        self._events_api.create_namespaced_event(self.crd_namespace, event)
