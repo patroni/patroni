@@ -42,10 +42,13 @@ class AbstractSiteController(object):
     def release(self):
         pass
 
+    def status(self):
+        pass
 
 class SingleSiteController(AbstractSiteController):
     """Do nothing controller for single site operation."""
-
+    def status(self):
+        return "Leader"
 
 class MultisiteController(Thread, AbstractSiteController):
     is_active = True
@@ -87,6 +90,9 @@ class MultisiteController(Thread, AbstractSiteController):
         self._status = None
 
         self._dcs_error = None
+
+    def status(self):
+        return "Leader" if self._has_leader else "Standby"
 
     def get_active_standby_config(self):
         return self._standby_config

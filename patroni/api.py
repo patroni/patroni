@@ -323,6 +323,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         self._write_response(200, '\n'.join(metrics)+'\n', content_type='text/plain')
 
+    def do_GET_multisite(self):
+        self._write_json_response(200, {"status": self.server.patroni.multisite.status()})
+
     def _read_json_content(self, body_is_optional=False):
         if 'content-length' not in self.headers:
             return self.send_error(411) if not body_is_optional else {}
