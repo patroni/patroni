@@ -793,6 +793,7 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
     rows = []
     logging.debug(cluster)
     initialize = {None: 'uninitialized', '': 'initializing'}.get(cluster.initialize, cluster.initialize)
+    cl_obj = cluster
     cluster = cluster_as_json(cluster)
 
     columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'TL', 'Lag in MB']
@@ -832,6 +833,18 @@ def output_members(cluster, name, extended=False, fmt='pretty'):
         return
 
     service_info = []
+
+    leader_name = cl_obj.leader.name if cl_obj.leader else None
+    for m in cl_obj.members:
+        if m.name == leader_name:
+            try:
+                response = request_patroni(m, endpoint="multisite")
+                msdata = json.loads(response.data.decode('utf-8'))
+                if 'status' in msdata:
+                    service_info.append(f"Multisite {msdata['status']}")
+            except Exception:
+                pass
+
     if cluster.get('pause'):
         service_info.append('Maintenance mode: on')
 
