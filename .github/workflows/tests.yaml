@@ -149,6 +149,8 @@ jobs:
       run: bash <(curl -Ls https://coverage.codacy.com/get.sh) report -r cobertura.xml -l Python --partial
       env:
         CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        SECRETS_AVAILABLE: ${{ secrets.CODACY_PROJECT_TOKEN != '' }}
+      if: ${{ env.SECRETS_AVAILABLE == 'true' }}
 
   coveralls-finish:
     name: Finalize coveralls.io
@@ -169,3 +171,5 @@ jobs:
     - run: bash <(curl -Ls https://coverage.codacy.com/get.sh) final
       env:
         CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        SECRETS_AVAILABLE: ${{ secrets.CODACY_PROJECT_TOKEN != '' }}
+      if: ${{ env.SECRETS_AVAILABLE == 'true' }}
