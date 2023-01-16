@@ -80,14 +80,14 @@ Example session:
 
     Thanks for using kind! 😊
 
-    $ docker build -f Dockerfile.citus -t patroni-citus .
+    demo@localhost:~/git/patroni/kubernetes$ docker build -f Dockerfile.citus -t patroni-citus-k8s .
     Sending build context to Docker daemon  138.8kB
     Step 1/11 : FROM postgres:15
     ...
     Successfully built 8cd73e325028
-    Successfully tagged patroni-citus:latest
+    Successfully tagged patroni-citus-k8s:latest
 
-    $ kind load docker-image patroni-citus
+    $ kind load docker-image patroni-citus-k8s
     Image: "" with ID "sha256:8cd73e325028d7147672494965e53453f5540400928caac0305015eb2c7027c7" not yet present on node "kind-control-plane", loading...
 
     $ kubectl apply -f citus_k8s.yaml

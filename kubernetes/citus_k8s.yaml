@@ -59,7 +59,7 @@ spec:
       serviceAccountName: citusdemo
       containers:
       - name: *cluster_name
-        image: patroni-citus  # docker build -f Dockerfile.citus -t patroni-citus .
+        image: patroni-citus-k8s  # docker build -f Dockerfile.citus -t patroni-citus-k8s .
         imagePullPolicy: IfNotPresent
         readinessProbe:
           httpGet:
@@ -169,7 +169,7 @@ spec:
       serviceAccountName: citusdemo
       containers:
       - name: *cluster_name
-        image: patroni-citus  # docker build -f Dockerfile.citus -t patroni-citus .
+        image: patroni-citus-k8s  # docker build -f Dockerfile.citus -t patroni-citus-k8s .
         imagePullPolicy: IfNotPresent
         readinessProbe:
           httpGet:
@@ -279,7 +279,7 @@ spec:
       serviceAccountName: citusdemo
       containers:
       - name: *cluster_name
-        image: patroni-citus  # docker build -f Dockerfile.citus -t patroni-citus .
+        image: patroni-citus-k8s  # docker build -f Dockerfile.citus -t patroni-citus-k8s .
         imagePullPolicy: IfNotPresent
         readinessProbe:
           httpGet:
