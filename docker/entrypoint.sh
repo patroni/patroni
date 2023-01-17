@@ -16,18 +16,24 @@ readonly DOCKER_IP
 case "$1" in
     haproxy)
         haproxy -f /etc/haproxy/haproxy.cfg -p /var/run/haproxy.pid -D
-        CONFD="confd -prefix=$PATRONI_NAMESPACE/$PATRONI_SCOPE -interval=10 -backend"
+        set -- confd "-prefix=$PATRONI_NAMESPACE/$PATRONI_SCOPE" -interval=10 -backend
         if [ -n "$PATRONI_ZOOKEEPER_HOSTS" ]; then
             while ! /usr/share/zookeeper/bin/zkCli.sh -server "$PATRONI_ZOOKEEPER_HOSTS" ls /; do
                 sleep 1
             done
-            exec dumb-init "$CONFD" zookeeper -node "$PATRONI_ZOOKEEPER_HOSTS"
+            set -- "$@" zookeeper -node "$PATRONI_ZOOKEEPER_HOSTS"
         else
             while ! etcdctl cluster-health 2> /dev/null; do
                 sleep 1
             done
-            exec dumb-init "$CONFD" etcdv3 -node "$(echo "$ETCDCTL_ENDPOINTS" | sed 's/,/ -node /g')"
+            set -- "$@" etcdv3
+            while IFS='' read -r line; do
+                set -- "$@" -node "$line"
+            done <<-EOT
+$(echo "$ETCDCTL_ENDPOINTS" | sed 's/,/\n/g')
+EOT
         fi
+        exec dumb-init "$@"
         ;;
     etcd)
         exec "$@" -advertise-client-urls "http://$DOCKER_IP:2379"
