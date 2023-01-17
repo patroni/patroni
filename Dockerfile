@@ -43,18 +43,18 @@ RUN set -ex \
     && echo 'syntax on\nfiletype plugin indent on\nset mouse-=a\nautocmd FileType yaml setlocal ts=2 sts=2 sw=2 expandtab' > /etc/vim/vimrc.local \
 \
     # Prepare postgres/patroni/haproxy environment
-    && mkdir -p $PGHOME/.config/patroni /patroni /run/haproxy \
-    && ln -s ../../postgres0.yml $PGHOME/.config/patroni/patronictl.yaml \
+    && mkdir -p "$PGHOME/.config/patroni" /patroni /run/haproxy \
+    && ln -s ../../postgres0.yml "$PGHOME/.config/patroni/patronictl.yaml" \
     && ln -s /patronictl.py /usr/local/bin/patronictl \
     && sed -i "s|/var/lib/postgresql.*|$PGHOME:/bin/bash|" /etc/passwd \
     && chown -R postgres:postgres /var/log \
 \
     # Download etcd
-    && curl -sL https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-$(dpkg --print-architecture).tar.gz \
+    && curl -sL "https://github.com/coreos/etcd/releases/download/v$ETCDVERSION/etcd-v$ETCDVERSION-linux-$(dpkg --print-architecture).tar.gz" \
             | tar xz -C /usr/local/bin --strip=1 --wildcards --no-anchored etcd etcdctl \
 \
     # Download confd
-    && curl -sL https://github.com/kelseyhightower/confd/releases/download/v${CONFDVERSION}/confd-${CONFDVERSION}-linux-$(dpkg --print-architecture) \
+    && curl -sL "https://github.com/kelseyhightower/confd/releases/download/v$CONFDVERSION/confd-$CONFDVERSION-linux-$(dpkg --print-architecture)" \
             > /usr/local/bin/confd && chmod +x /usr/local/bin/confd \
 \
     # Clean up all useless packages and some files
@@ -153,7 +153,7 @@ RUN sed -i 's/env python/&3/' /patroni*.py \
     && sed -i 's/^      parameters:/      pg_hba:\n      - local all all trust\n      - host replication all all md5\n      - host all all all md5\n&\n        max_connections: 100/'  postgres?.yml \
     && if [ "$COMPRESS" = "true" ]; then chmod u+s /usr/bin/sudo; fi \
     && chmod +s /bin/ping \
-    && chown -R postgres:postgres $PGHOME /run /etc/haproxy
+    && chown -R postgres:postgres "$PGHOME" /run /etc/haproxy
 
 USER postgres
 
