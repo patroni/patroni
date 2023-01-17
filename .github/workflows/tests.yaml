@@ -8,6 +8,10 @@ on:
     tags:
     - v.*
 
+env:
+  CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+  SECRETS_AVAILABLE: ${{ secrets.CODACY_PROJECT_TOKEN != '' }}
+
 jobs:
   unit:
     runs-on: ${{ fromJson('{"ubuntu":"ubuntu-20.04","windows":"windows-latest","macos":"macos-latest"}')[matrix.os] }}
@@ -147,8 +151,7 @@ jobs:
       run: python -m coverage xml -o cobertura.xml
     - name: Upload coverage to Codacy
       run: bash <(curl -Ls https://coverage.codacy.com/get.sh) report -r cobertura.xml -l Python --partial
-      env:
-        CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+      if: ${{ env.SECRETS_AVAILABLE == 'true' }}
 
   coveralls-finish:
     name: Finalize coveralls.io
@@ -167,5 +170,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - run: bash <(curl -Ls https://coverage.codacy.com/get.sh) final
-      env:
-        CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+      if: ${{ env.SECRETS_AVAILABLE == 'true' }}
