@@ -310,6 +310,8 @@ class TestHa(PostgresInit):
 
     @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
+    @patch('os.listdir', Mock(return_value=[]))
+    @patch('patroni.postgresql.rewind.fsync_dir', Mock())
     def test_recover_with_rewind(self):
         self.p.is_running = false
         self.ha.cluster = get_cluster_initialized_with_leader()
@@ -817,6 +819,8 @@ class TestHa(PostgresInit):
 
     @patch.object(Rewind, 'pg_rewind', true)
     @patch.object(Rewind, 'check_leader_is_not_in_recovery', true)
+    @patch('os.listdir', Mock(return_value=[]))
+    @patch('patroni.postgresql.rewind.fsync_dir', Mock())
     def test_post_recover(self):
         self.p.is_running = false
         self.ha.has_lock = true
