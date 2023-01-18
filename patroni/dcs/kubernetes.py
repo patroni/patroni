@@ -820,7 +820,7 @@ class Kubernetes(AbstractDCS):
         leader_path = path[:-1] if self._api.use_endpoints else path + self._LEADER
         leader = nodes.get(leader_path)
         metadata = leader and leader.metadata
-        if leader_path == self.leader_path:
+        if leader_path == self.leader_path:  # We want to memorize leader_resource_version only for our cluster
             self._leader_resource_version = metadata.resource_version if metadata else None
         annotations = metadata and metadata.annotations or {}
 
@@ -848,6 +848,7 @@ class Kubernetes(AbstractDCS):
         # get leader
         leader_record = {n: annotations.get(n) for n in (self._LEADER, 'acquireTime',
                          'ttl', 'renewTime', 'transitions') if n in annotations}
+        # We want to memorize leader_observed_record and update leader_observed_time only for our cluster
         if leader_path == self.leader_path and (leader_record or self._leader_observed_record)\
                 and leader_record != self._leader_observed_record:
             self._leader_observed_record = leader_record
@@ -859,7 +860,9 @@ class Kubernetes(AbstractDCS):
         except (TypeError, ValueError):
             ttl = self._ttl
 
-        if not metadata or not self._leader_observed_time or self._leader_observed_time + ttl < time.time():
+        # We want to check validity of the leader record only for our own cluster
+        if leader_path == self.leader_path and\
+                not (metadata and self._leader_observed_time and self._leader_observed_time + ttl >= time.time()):
             leader = None
 
         if metadata:
