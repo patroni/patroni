@@ -9,11 +9,11 @@ A Patroni cluster has two interfaces to be protected from unauthorized access: t
 Protecting DCS
 ==============
 
-Patroni and patronictl both store and retrieve data to/from the DCS. 
+Patroni and patronictl both store and retrieve data to/from the DCS.
 
 Despite DCS doesn't contain any sensitive information, it allows changing some of Patroni/Postgres configuration. Therefore the very first thing that should be protected is DCS itself.
 
-The details of protection depend on the type of DCS used. The authentication and encryption parameters (tokens/basic-auth/client certificates) for the supported types of DCS are covered in :ref:`SETTINGS <bootstrap_settings>` 
+The details of protection depend on the type of DCS used. The authentication and encryption parameters (tokens/basic-auth/client certificates) for the supported types of DCS are covered in :ref:`SETTINGS <bootstrap_settings>`
 
 The general recommendation is to enable TLS for all DCS communication.
 
@@ -22,7 +22,7 @@ Protecting the REST API
 
 Protecting the REST API is a more complicated task.
 
-The Patroni REST API is used by Patroni itself during the leader race, by the ``patronictl`` tool in order to perform failovers/switchovers/reinitialize/restarts/reloads, by HAProxy or any other kind of load balancer to perform HTTP health checks, and of course could also be used for monitoring. 
+The Patroni REST API is used by Patroni itself during the leader race, by the ``patronictl`` tool in order to perform failovers/switchovers/reinitialize/restarts/reloads, by HAProxy or any other kind of load balancer to perform HTTP health checks, and of course could also be used for monitoring.
 
 From the point of view of security, REST API contains safe (``GET`` requests, only retrieve information) and unsafe (``PUT``, ``POST``, ``PATCH`` and ``DELETE`` requests, change the state of nodes) endpoints.
 
