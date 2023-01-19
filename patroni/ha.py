@@ -1652,10 +1652,7 @@ class Ha(object):
                 # stops PostgreSQL, therefore, we only reload replication slots if no
                 # asynchronous processes are running (should be always the case for the master)
                 if not self._async_executor.busy and not self.state_handler.is_starting():
-                    create_slots = self.state_handler.slots_handler.sync_replication_slots(self.cluster,
-                                                                                           self.patroni.nofailover,
-                                                                                           self.patroni.replicatefrom,
-                                                                                           self.is_paused())
+                    create_slots = self._sync_replication_slots()
                     if not self.state_handler.cb_called:
                         if not self.state_handler.is_leader():
                             self._rewind.trigger_check_diverged_lsn()
@@ -1676,7 +1673,7 @@ class Ha(object):
         finally:
             if not dcs_failed:
                 self.touch_member()
-                if self.state_handler.is_leader():
+                if self.is_leader():
                     self._failsafe.set_is_active(0)
 
     def _handle_dcs_error(self):
@@ -1695,14 +1692,17 @@ class Ha(object):
                 self.demote('offline')
                 return 'demoted self because DCS is not accessible and I was a leader'
             elif self.is_failsafe_mode():
-                cluster = self._failsafe.update_cluster(self.cluster)
-                if cluster:
-                    self.state_handler.slots_handler.sync_replication_slots(cluster,
-                                                                            self.patroni.nofailover,
-                                                                            self.patroni.replicatefrom,
-                                                                            self.is_paused())
-
+                self._sync_replication_slots()
         return 'DCS is not accessible'
+
+    def _sync_replication_slots(self):
+        cluster = self._failsafe.update_cluster(self.cluster) if self.is_failsafe_mode()\
+            and self.failsafe_is_active() and not self.is_leader() else self.cluster
+        if cluster:
+            return self.state_handler.slots_handler.sync_replication_slots(cluster,
+                                                                           self.patroni.nofailover,
+                                                                           self.patroni.replicatefrom,
+                                                                           self.is_paused())
 
     def run_cycle(self):
         with self._async_executor:

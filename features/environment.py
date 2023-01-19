@@ -184,7 +184,7 @@ class PatroniController(AbstractController):
             config.pop('etcd', None)
 
         raft_port = os.environ.get('RAFT_PORT')
-        if raft_port:
+        if raft_port and not self._output_dir.endswith('dcs_failsafe_mode'):
             os.environ['RAFT_PORT'] = str(int(raft_port) + 1)
             config['raft'] = {'data_dir': self._output_dir, 'self_addr': 'localhost:' + os.environ['RAFT_PORT']}
 
