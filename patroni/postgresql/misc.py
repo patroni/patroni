@@ -1,4 +1,6 @@
+import errno
 import logging
+import os
 
 from patroni.exceptions import PostgresException
 
@@ -73,3 +75,16 @@ def parse_history(data):
 def format_lsn(lsn, full=False):
     template = '{0:X}/{1:08X}' if full else '{0:X}/{1:X}'
     return template.format(lsn >> 32, lsn & 0xFFFFFFFF)
+
+
+def fsync_dir(path):
+    if os.name != 'nt':
+        fd = os.open(path, os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        except OSError as e:
+            # Some filesystems don't like fsyncing directories and raise EINVAL. Ignoring it is usually safe.
+            if e.errno != errno.EINVAL:
+                raise
+        finally:
+            os.close(fd)

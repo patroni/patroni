@@ -9,7 +9,7 @@ import subprocess
 from threading import Lock, Thread
 
 from .connection import get_connection_cursor
-from .misc import format_lsn, parse_history, parse_lsn
+from .misc import format_lsn, fsync_dir, parse_history, parse_lsn
 from ..async_executor import CriticalTask
 from ..dcs import Leader
 
@@ -362,6 +362,18 @@ class Rewind(object):
                 else:
                     logger.info('Failed to archive WAL segment %s', wal)
 
+    def _maybe_clean_pg_replslot(self):
+        """Clean pg_replslot directory if pg version is less then 11
+        (pg_rewind deletes $PGDATA/pg_replslot content only since pg11)."""
+        if self._postgresql.major_version < 110000:
+            replslot_dir = self._postgresql.slots_handler.pg_replslot_dir
+            try:
+                for f in os.listdir(replslot_dir):
+                    shutil.rmtree(os.path.join(replslot_dir, f))
+                fsync_dir(replslot_dir)
+            except Exception as e:
+                logger.warning('Unable to clean %s: %r', replslot_dir, e)
+
     def pg_rewind(self, r):
         # prepare pg_rewind connection
         env = self._postgresql.config.write_pgpass(r)
@@ -439,6 +451,7 @@ class Rewind(object):
             return
 
         if self.pg_rewind(r):
+            self._maybe_clean_pg_replslot()
             self._state = REWIND_STATUS.SUCCESS
         else:
             if not self.check_leader_is_not_in_recovery(r):
