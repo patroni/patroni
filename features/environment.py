@@ -1080,6 +1080,10 @@ def after_all(context):
     context.dcs_ctl.stop()
     subprocess.call([sys.executable, '-m', 'coverage', 'combine'])
     subprocess.call([sys.executable, '-m', 'coverage', 'report'])
+    import glob
+    logs = glob.glob('features/output/*/patroni_*.log')
+    if logs and subprocess.call(['grep', 'please report it as a BUG'] + logs) == 0:
+        raise Exception('Unexpected errors in Patroni log files')
 
 
 def before_feature(context, feature):
