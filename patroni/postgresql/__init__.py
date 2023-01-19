@@ -177,12 +177,12 @@ class Postgresql(object):
 
         extra = ", " + (("pg_catalog.current_setting('synchronous_commit'), " +
                          "pg_catalog.current_setting('synchronous_standby_names'), "
-                         "(SELECT pg_catalog.json_agg(r.*) FROM (SELECT application_name, sync_state," +
+                         "(SELECT pg_catalog.json_agg(r.*) FROM (SELECT w.pid as pid, application_name, sync_state," +
                          " pg_catalog.pg_{0}_{1}_diff(write_{1}, '0/0')::bigint AS write_lsn," +
                          " pg_catalog.pg_{0}_{1}_diff(flush_{1}, '0/0')::bigint AS flush_lsn," +
                          " pg_catalog.pg_{0}_{1}_diff(replay_{1}, '0/0')::bigint AS replay_lsn " +
                          "FROM pg_catalog.pg_stat_get_wal_senders() w," +
-                         " pg_catalog.pg_stat_get_activity(pid)" +
+                         " pg_catalog.pg_stat_get_activity(w.pid)" +
                          " WHERE w.state = 'streaming') r)").format(self.wal_name, self.lsn_name)
                         if self._is_synchronous_mode and self.role == 'master' else "'on', '', NULL")
 
@@ -407,8 +407,11 @@ class Postgresql(object):
     def synchronous_commit(self):
         return self._cluster_info_state_get('synchronous_commit')
 
+    def synchronous_standby_names(self):
+        return self._cluster_info_state_get('synchronous_standby_names')
+
     def pg_stat_replication(self):
-        return self._cluster_info_state_get('pg_stat_replication')
+        return self._cluster_info_state_get('pg_stat_replication') or []
 
     def is_leader(self):
         try:
