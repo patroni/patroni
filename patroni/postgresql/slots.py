@@ -1,4 +1,3 @@
-import errno
 import logging
 import os
 import shutil
@@ -8,7 +7,7 @@ from contextlib import contextmanager
 from threading import Condition, Thread
 
 from .connection import get_connection_cursor
-from .misc import format_lsn
+from .misc import format_lsn, fsync_dir
 from ..psycopg import OperationalError
 
 logger = logging.getLogger(__name__)
@@ -17,19 +16,6 @@ logger = logging.getLogger(__name__)
 def compare_slots(s1, s2, dbid='database'):
     return s1['type'] == s2['type'] and (s1['type'] == 'physical' or
                                          s1.get(dbid) == s2.get(dbid) and s1['plugin'] == s2['plugin'])
-
-
-def fsync_dir(path):
-    if os.name != 'nt':
-        fd = os.open(path, os.O_DIRECTORY)
-        try:
-            os.fsync(fd)
-        except OSError as e:
-            # Some filesystems don't like fsyncing directories and raise EINVAL. Ignoring it is usually safe.
-            if e.errno != errno.EINVAL:
-                raise
-        finally:
-            os.close(fd)
 
 
 class SlotsAdvanceThread(Thread):
@@ -122,6 +108,7 @@ class SlotsHandler(object):
         self._advance = None
         self._replication_slots = {}  # already existing replication slots
         self._unready_logical_slots = {}
+        self.pg_replslot_dir = os.path.join(self._postgresql.data_dir, 'pg_replslot')
         self.schedule()
 
     def _query(self, sql, *params):
@@ -395,9 +382,8 @@ class SlotsHandler(object):
                 logger.error("Failed to copy logical slots from the %s via postgresql connection: %r", leader.name, e)
 
         if isinstance(create_slots, dict) and create_slots and self._postgresql.stop():
-            pg_replslot_dir = os.path.join(self._postgresql.data_dir, 'pg_replslot')
             for name, value in create_slots.items():
-                slot_dir = os.path.join(pg_replslot_dir, name)
+                slot_dir = os.path.join(self._postgresql.slots_handler.pg_replslot_dir, name)
                 slot_tmp_dir = slot_dir + '.tmp'
                 if os.path.exists(slot_tmp_dir):
                     shutil.rmtree(slot_tmp_dir)
@@ -412,7 +398,7 @@ class SlotsHandler(object):
                 os.rename(slot_tmp_dir, slot_dir)
                 fsync_dir(slot_dir)
                 self._unready_logical_slots[name] = None
-            fsync_dir(pg_replslot_dir)
+            fsync_dir(self._postgresql.slots_handler.pg_replslot_dir)
             self._postgresql.start()
 
     def schedule(self, value=None):

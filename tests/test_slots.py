@@ -9,7 +9,8 @@ from threading import Thread
 from patroni import psycopg
 from patroni.dcs import Cluster, ClusterConfig, Member
 from patroni.postgresql import Postgresql
-from patroni.postgresql.slots import SlotsAdvanceThread, SlotsHandler, fsync_dir
+from patroni.postgresql.misc import fsync_dir
+from patroni.postgresql.slots import SlotsAdvanceThread, SlotsHandler
 
 from . import BaseTestPostgresql, psycopg_connect, MockCursor
 
