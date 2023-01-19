@@ -1053,13 +1053,15 @@ class Postgresql(object):
     def move_data_directory(self):
         if os.path.isdir(self._data_dir) and not self.is_running():
             try:
-                postfix = time.strftime('%Y-%m-%d-%H-%M-%S')
+                postfix = 'failed'
 
                 # let's see if the wal directory is a symlink, in this case we
                 # should move the target
                 for (source, pg_wal_realpath) in self.pg_wal_realpath().items():
                     logger.info('renaming WAL directory and updating symlink: %s', pg_wal_realpath)
-                    new_name = '{0}_{1}'.format(pg_wal_realpath, postfix)
+                    new_name = '{0}.{1}'.format(pg_wal_realpath, postfix)
+                    if os.path.exists(new_name):
+                        shutil.rmtree(new_name)
                     os.rename(pg_wal_realpath, new_name)
                     os.unlink(source)
                     os.symlink(new_name, source)
@@ -1067,13 +1069,17 @@ class Postgresql(object):
                 # Move user defined tablespace directory
                 for (source, pg_tsp_rpath) in self.pg_tblspc_realpaths().items():
                     logger.info('renaming user defined tablespace directory and updating symlink: %s', pg_tsp_rpath)
-                    new_name = '{0}_{1}'.format(pg_tsp_rpath, postfix)
+                    new_name = '{0}.{1}'.format(pg_tsp_rpath, postfix)
+                    if os.path.exists(new_name):
+                        shutil.rmtree(new_name)
                     os.rename(pg_tsp_rpath, new_name)
                     os.unlink(source)
                     os.symlink(new_name, source)
 
-                new_name = '{0}_{1}'.format(self._data_dir, postfix)
+                new_name = '{0}.{1}'.format(self._data_dir, postfix)
                 logger.info('renaming data directory to %s', new_name)
+                if os.path.exists(new_name):
+                    shutil.rmtree(new_name)
                 os.rename(self._data_dir, new_name)
             except OSError:
                 logger.exception("Could not rename data directory %s", self._data_dir)

@@ -438,6 +438,8 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertTrue(self.p.stop())
 
     @patch('os.rename', Mock())
+    @patch('os.path.exists', Mock(return_value=True))
+    @patch('shutil.rmtree', Mock())
     @patch('os.path.isdir', Mock(return_value=True))
     @patch('os.unlink', Mock())
     @patch('os.symlink', Mock())
