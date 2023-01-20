@@ -43,7 +43,8 @@ class TestSlotsHandler(BaseTestPostgresql):
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg.OperationalError)):
             self.s.sync_replication_slots(cluster, False)
         self.p.set_role('standby_leader')
-        self.s.sync_replication_slots(cluster, False)
+        with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(True, False))):
+            self.s.sync_replication_slots(cluster, False)
         self.p.set_role('replica')
         with patch.object(Postgresql, 'is_leader', Mock(return_value=False)),\
                 patch.object(SlotsHandler, 'drop_replication_slot') as mock_drop:
@@ -52,7 +53,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.p.set_role('master')
         with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
             self.s.sync_replication_slots(cluster, False)
-        with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=True)),\
+        with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(False, True))),\
                 patch('patroni.dcs.logger.error', new_callable=Mock()) as errorlog_mock:
             alias1 = Member(0, 'test-3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
             alias2 = Member(0, 'test.3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})

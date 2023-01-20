@@ -179,31 +179,33 @@ class SlotsHandler(object):
         return False
 
     def drop_replication_slot(self, name):
-        cursor = self._query(('SELECT pg_catalog.pg_drop_replication_slot(%s) WHERE EXISTS (SELECT 1 ' +
-                              'FROM pg_catalog.pg_replication_slots WHERE slot_name = %s AND NOT active)'), name, name)
-        # In normal situation rowcount should be 1, otherwise either slot doesn't exists or it is still active
-        return cursor.rowcount == 1
+        """Returns a tuple(active, dropped)"""
+        cursor = self._query(('WITH slots AS (SELECT slot_name, active' +
+                              ' FROM pg_catalog.pg_replication_slots WHERE slot_name = %s),' +
+                              ' dropped AS (SELECT pg_catalog.pg_drop_replication_slot(slot_name),' +
+                              ' true AS dropped FROM slots WHERE not active) ' +
+                              'SELECT active, COALESCE(dropped, false) FROM slots' +
+                              ' FULL OUTER JOIN dropped ON true'), name)
+        return cursor.fetchone() if cursor.rowcount == 1 else (False, False)
 
     def _drop_incorrect_slots(self, cluster, slots, paused):
         # drop old replication slots which are not presented in desired slots
         for name in set(self._replication_slots) - set(slots):
             if not paused and not self.ignore_replication_slot(cluster, name):
-                if not self.drop_replication_slot(name):
+                active, dropped = self.drop_replication_slot(name)
+                if dropped:
+                    logger.info("Dropped unknown replication slot '%s'", name)
+                else:
                     self._schedule_load_slots = True
-                    # Check if slot is still active, this is not considered an error
-                    cursor = self._query(('SELECT 1 FROM pg_catalog.pg_replication_slots WHERE ' +
-                                          'slot_name = %s AND active'), name)
-                    if (cursor.rowcount == 1):
+                    if active:
                         logger.debug("Unable to drop unknown replication slot '%s', slot is still active", name)
                     else:
                         logger.error("Failed to drop replication slot '%s'", name)
-                else:
-                    logger.info("Dropped unknown replication slot '%s'", name)
         for name, value in slots.items():
             if name in self._replication_slots and not compare_slots(value, self._replication_slots[name]):
                 logger.info("Trying to drop replication slot '%s' because value is changing from %s to %s",
                             name, self._replication_slots[name], value)
-                if self.drop_replication_slot(name):
+                if self.drop_replication_slot(name) == (False, True):
                     self._replication_slots.pop(name)
                 else:
                     logger.error("Failed to drop replication slot '%s'", name)
