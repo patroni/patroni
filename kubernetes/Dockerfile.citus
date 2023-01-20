@@ -13,7 +13,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && curl https://install.citusdata.com/community/deb.sh | bash \
     && apt-get -y install postgresql-15-citus-11.1 \
     && pip3 install setuptools \
-    && pip3 install 'git+https://github.com/CyberDem0n/patroni.git@feature/citus-dcs#egg=patroni[kubernetes]' \
+    && pip3 install 'git+https://github.com/zalando/patroni.git@feature/citus#egg=patroni[kubernetes]' \
     && PGHOME=/home/postgres \
     && mkdir -p $PGHOME \
     && chown postgres $PGHOME \
