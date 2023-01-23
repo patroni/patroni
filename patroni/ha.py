@@ -1719,7 +1719,7 @@ class Ha(object):
                                                                             self.patroni.nofailover,
                                                                             self.patroni.replicatefrom,
                                                                             self.is_paused())
-            # Don't copy replication slots if failsafe_mode is is active
+            # Don't copy replication slots if failsafe_mode is active
             return [] if self.failsafe_is_active() else slots
 
     def run_cycle(self):
