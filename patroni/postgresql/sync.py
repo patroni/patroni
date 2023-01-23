@@ -164,12 +164,6 @@ class SyncHandler(object):
             if app_name not in self._ssn_data['members']:
                 del self._ready_replicas[app_name]
 
-        # If synchronous_standby_names has changed we also want to invalidate standbys that reconnected (new pid)
-        for row in self._postgresql.pg_stat_replication():
-            if row['application_name'] in self._ready_replicas and\
-                    row['pid'] != self._ready_replicas[row['application_name']]:
-                del self._ready_replicas[row['application_name']]
-
         # Newly connected replicas will be counted as sync only when reached self._primary_flush_lsn
         self._primary_flush_lsn = self._postgresql.last_operation()
         self._postgresql.query('SELECT pg_catalog.txid_current()')  # Ensure some WAL traffic to move replication
@@ -222,9 +216,11 @@ class SyncHandler(object):
         sync_nodes = []
         # Prefer members without nofailover tag. We are relying on the fact that sorts are guaranteed to be stable.
         for pid, app_name, sync_state, replica_lsn, _ in sorted(replica_list, key=lambda x: x[4]):
-            # standby becomes really synchronous when sync_state = 'sync' and it is known that it managed to catch up
-            if sync_state == 'sync' and app_name in self._ssn_data['members']\
-                    and app_name not in self._ready_replicas and replica_lsn >= self._primary_flush_lsn:
+            # if standby name is listed in the /sync key we can count it as synchronous, otherwice
+            # ig becomes really synchronous when sync_state = 'sync' and it is known that it managed to catch up
+            if app_name not in self._ready_replicas and app_name in self._ssn_data['members'] and\
+                    (cluster.sync and app_name in cluster.sync.members or
+                     sync_state == 'sync' and replica_lsn >= self._primary_flush_lsn):
                 self._ready_replicas[app_name] = pid
 
             if sync_node_maxlag <= 0 or max_lsn - replica_lsn <= sync_node_maxlag:

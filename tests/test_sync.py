@@ -33,22 +33,15 @@ class TestSync(BaseTestPostgresql):
             {'pid': 102, 'application_name': self.other.name, 'sync_state': 'async', 'flush_lsn': 2}]
 
         # sync node is a bit behind of async, but we prefer it anyway
-        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=[self.leadermem.name, pg_stat_replication,
+        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=[self.leadermem.name,
                                                                               'on', pg_stat_replication]):
-            self.assertEqual(self.s.current_state(cluster), ([self.leadermem.name], [self.leadermem.name]))
-
-        # pid of sync node has changed, we want to invalidate it from _ready_replicas and update _primary_flush_lsn
-        pg_stat_replication[0]['pid'] -= 1
-        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=[
-                    self.leadermem.name + ',' + self.me.name, pg_stat_replication, 'on', pg_stat_replication]):
             self.assertEqual(self.s.current_state(cluster), ([self.leadermem.name], [self.leadermem.name]))
 
         # prefer node with sync_state='potential', even if it is slightly behind of async
         pg_stat_replication[0]['sync_state'] = 'potential'
         for r in pg_stat_replication:
             r['write_lsn'] = r.pop('flush_lsn')
-        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', pg_stat_replication,
-                                                                              'remote_write', pg_stat_replication]):
+        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_write', pg_stat_replication]):
             self.assertEqual(self.s.current_state(cluster), ([self.leadermem.name], []))
 
         # when there are no sync or potential candidates we pick async with the minimal replication lag
@@ -65,7 +58,7 @@ class TestSync(BaseTestPostgresql):
             self.assertEqual(self.s.current_state(cluster), ([self.me.name], []))
 
         # invalid synchronous_standby_names and empty pg_stat_replication
-        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['a b', None, 'remote_apply', None]):
+        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['a b', 'remote_apply', None]):
             self.p._major_version = 90400
             self.assertEqual(self.s.current_state(cluster), ([], []))
 
