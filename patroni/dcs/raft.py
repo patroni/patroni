@@ -278,6 +278,9 @@ class Raft(AbstractDCS):
         super(Raft, self).__init__(config)
         self._ttl = int(config.get('ttl') or 30)
 
+        # Set a default port if no ports were specified in config
+        self._default_port(config)
+
         ready_event = threading.Event()
         self._sync_obj = KVStoreTTL(ready_event.set, self._on_set, self._on_delete, commandsWaitLeader=False, **config)
         self._sync_obj.startAutoTick()
@@ -288,6 +291,23 @@ class Raft(AbstractDCS):
                 break
             else:
                 logger.info('waiting on raft')
+
+    def _default_port(self, config):
+        if 'restapi' not in config:
+            return
+        # Prepend '1' to the API port, i.e. use '18008' if the API port is '8008'
+        port = '1' + config['restapi']['listen'].rsplit(':', 1)[1]
+        if (port > 65535):
+            return
+        n = 0
+        for addr in config['partner_addrs']:
+            if ":" not in addr:
+                config['partner_addrs'][n] = addr + ':' + port
+                n += 1
+        if ":" not in config['self_addr']:
+            config['self_addr'] = config['self_addr'] + ':' + port
+        if ":" not in config['bind_addr']:
+            config['bind_addr'] = config['bind_addr'] + ':' + port
 
     def _on_set(self, key, value):
         leader = (self._sync_obj.get(self.leader_path) or {}).get('value')
