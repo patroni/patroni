@@ -77,6 +77,7 @@ Feature: dcs failsafe mode
     Then "members/postgres0" key in DCS has state=running after 10 seconds
     And "members/postgres2" key in DCS has state=running after 10 seconds
     And Response on GET http://127.0.0.1:8008/failsafe contains postgres2 after 10 seconds
+    And replication works from postgres1 to postgres0 after 10 seconds
     Given DCS is down
     Then Response on GET http://127.0.0.1:8008/primary contains failsafe_mode_is_active after 12 seconds
     Then postgres1 role is the primary after 10 seconds
