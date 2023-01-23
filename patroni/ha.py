@@ -105,7 +105,6 @@ class Failsafe(object):
             cluster = list(cluster)
             # We rely on the strict order of fields in the namedtuple
             cluster[2] = leader
-            cluster[4].append(leader.member)
             cluster[8] = leader.member.data['slots']
             cluster = Cluster(*cluster)
         return cluster
@@ -1647,12 +1646,18 @@ class Ha(object):
                 else:
                     msg = self.process_healthy_cluster()
                     ret = self.evaluate_scheduled_restart() or msg
+            except DCSError:
+                dcs_failed = True
+                raise
             finally:
+                if not dcs_failed:
+                    if self.is_leader():
+                        self._failsafe.set_is_active(0)
                 # we might not have a valid PostgreSQL connection here if another thread
                 # stops PostgreSQL, therefore, we only reload replication slots if no
                 # asynchronous processes are running (should be always the case for the master)
                 if not self._async_executor.busy and not self.state_handler.is_starting():
-                    create_slots = self._sync_replication_slots(False)
+                    create_slots = self._sync_replication_slots(dcs_failed)
                     if not self.state_handler.cb_called:
                         if not self.state_handler.is_leader():
                             self._rewind.trigger_check_diverged_lsn()
@@ -1673,8 +1678,6 @@ class Ha(object):
         finally:
             if not dcs_failed:
                 self.touch_member()
-                if self.is_leader():
-                    self._failsafe.set_is_active(0)
 
     def _handle_dcs_error(self):
         if not self.is_paused() and self.state_handler.is_running():
@@ -1709,7 +1712,8 @@ class Ha(object):
         # Only the second one could be handled by `load_cluster_from_dcs()`.
         # The first one affects advancing logical replication slots on replicas, therefore we rely on
         # Failsafe.update_cluster(), that will return "modified" Cluster if failsafe mode is active.
-        cluster = self._failsafe.update_cluster(self.cluster) if self.is_failsafe_mode() else self.cluster
+        cluster = self._failsafe.update_cluster(self.cluster)\
+            if self.is_failsafe_mode() and not self.is_leader() else self.cluster
         if cluster:
             slots = self.state_handler.slots_handler.sync_replication_slots(cluster,
                                                                             self.patroni.nofailover,

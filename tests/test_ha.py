@@ -498,6 +498,14 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(),
                          'continue to run as a leader because failsafe mode is enabled and all members are accessible')
 
+    def test_readonly_dcs_primary_failsafe(self):
+        self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
+        self.ha.dcs.update_leader = Mock(side_effect=DCSError('Etcd is not responding properly'))
+        self.ha.dcs._last_failsafe = self.ha.cluster.failsafe
+        self.ha.state_handler.name = self.ha.cluster.leader.name
+        self.assertEqual(self.ha.run_cycle(),
+                         'continue to run as a leader because failsafe mode is enabled and all members are accessible')
+
     def test_no_dcs_connection_replica_failsafe(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
