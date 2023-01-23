@@ -1652,7 +1652,7 @@ class Ha(object):
                 # stops PostgreSQL, therefore, we only reload replication slots if no
                 # asynchronous processes are running (should be always the case for the master)
                 if not self._async_executor.busy and not self.state_handler.is_starting():
-                    create_slots = self._sync_replication_slots()
+                    create_slots = self._sync_replication_slots(False)
                     if not self.state_handler.cb_called:
                         if not self.state_handler.is_leader():
                             self._rewind.trigger_check_diverged_lsn()
@@ -1691,18 +1691,32 @@ class Ha(object):
                 logger.warning('AsyncExecutor is busy, demoting from the main thread')
                 self.demote('offline')
                 return 'demoted self because DCS is not accessible and I was a leader'
-            elif self.is_failsafe_mode():
-                self._sync_replication_slots()
+            else:
+                self._sync_replication_slots(True)
         return 'DCS is not accessible'
 
-    def _sync_replication_slots(self):
-        cluster = self._failsafe.update_cluster(self.cluster) if self.is_failsafe_mode()\
-            and self.failsafe_is_active() and not self.is_leader() else self.cluster
+    def _sync_replication_slots(self, dcs_failed):
+        """Handles replication slots.
+
+        :param dcs_failed: bool, indicates that communication with DCS failed (get_cluster() or update_leader())
+        :returns: list[str], replication slots names that should be copied from the primary"""
+
+        # If dcs_failed we don't want to touch replication slots on a leader or replicas if failsafe_mode isn't enabled.
+        if not self.cluster or dcs_failed and (self.is_leader() or not self.is_failsafe_mode()):
+            return
+
+        # It could be that DCS is read-only, or only the leader can't access it.
+        # Only the second one could be handled by `load_cluster_from_dcs()`.
+        # The first one affects advancing logical replication slots on replicas, therefore we rely on
+        # Failsafe.update_cluster(), that will return "modified" Cluster if failsafe mode is active.
+        cluster = self._failsafe.update_cluster(self.cluster) if self.is_failsafe_mode() else self.cluster
         if cluster:
-            return self.state_handler.slots_handler.sync_replication_slots(cluster,
-                                                                           self.patroni.nofailover,
-                                                                           self.patroni.replicatefrom,
-                                                                           self.is_paused())
+            slots = self.state_handler.slots_handler.sync_replication_slots(cluster,
+                                                                            self.patroni.nofailover,
+                                                                            self.patroni.replicatefrom,
+                                                                            self.is_paused())
+            # Don't copy replication slots if failsafe_mode is is active
+            return [] if self.failsafe_is_active() else slots
 
     def run_cycle(self):
         with self._async_executor:
