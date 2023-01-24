@@ -3,7 +3,7 @@ import os
 import signal
 import time
 
-from .daemon import AbstractPatroniDaemon, abstract_main
+from patroni.daemon import AbstractPatroniDaemon, abstract_main
 
 logger = logging.getLogger(__name__)
 
@@ -11,13 +11,13 @@ logger = logging.getLogger(__name__)
 class Patroni(AbstractPatroniDaemon):
 
     def __init__(self, config):
-        from .api import RestApiServer
-        from .dcs import get_dcs
-        from .ha import Ha
-        from .postgresql import Postgresql
-        from .request import PatroniRequest
-        from .version import __version__
-        from .watchdog import Watchdog
+        from patroni.api import RestApiServer
+        from patroni.dcs import get_dcs
+        from patroni.ha import Ha
+        from patroni.postgresql import Postgresql
+        from patroni.request import PatroniRequest
+        from patroni.version import __version__
+        from patroni.watchdog import Watchdog
 
         super(Patroni, self).__init__(config)
 
@@ -138,7 +138,7 @@ def patroni_main():
 
 def main():
     if os.getpid() != 1:
-        from . import check_psycopg
+        from patroni import check_psycopg
 
         check_psycopg()
         return patroni_main()
