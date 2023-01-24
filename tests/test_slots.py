@@ -9,7 +9,8 @@ from threading import Thread
 from patroni import psycopg
 from patroni.dcs import Cluster, ClusterConfig, Member
 from patroni.postgresql import Postgresql
-from patroni.postgresql.slots import SlotsAdvanceThread, SlotsHandler, fsync_dir
+from patroni.postgresql.misc import fsync_dir
+from patroni.postgresql.slots import SlotsAdvanceThread, SlotsHandler
 
 from . import BaseTestPostgresql, psycopg_connect, MockCursor
 
@@ -42,7 +43,10 @@ class TestSlotsHandler(BaseTestPostgresql):
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg.OperationalError)):
             self.s.sync_replication_slots(cluster, False)
         self.p.set_role('standby_leader')
-        self.s.sync_replication_slots(cluster, False)
+        with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(True, False))),\
+                patch('patroni.postgresql.slots.logger.debug') as mock_debug:
+            self.s.sync_replication_slots(cluster, False)
+            mock_debug.assert_called_once()
         self.p.set_role('replica')
         with patch.object(Postgresql, 'is_leader', Mock(return_value=False)),\
                 patch.object(SlotsHandler, 'drop_replication_slot') as mock_drop:
@@ -51,8 +55,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.p.set_role('master')
         with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
             self.s.sync_replication_slots(cluster, False)
-        with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=True)),\
-                patch('patroni.dcs.logger.error', new_callable=Mock()) as errorlog_mock:
+        with patch('patroni.dcs.logger.error', new_callable=Mock()) as errorlog_mock:
             alias1 = Member(0, 'test-3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
             alias2 = Member(0, 'test.3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
             cluster.members.extend([alias1, alias2])

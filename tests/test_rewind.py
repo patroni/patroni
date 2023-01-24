@@ -274,6 +274,19 @@ class TestRewind(BaseTestPostgresql):
             self.r._archive_ready_wals()
             mock_logger_info.assert_not_called()
 
+    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=100000))
+    @patch('os.listdir', Mock(side_effect=[OSError, ['something', 'something_else']]))
+    @patch('shutil.rmtree', Mock())
+    @patch('patroni.postgresql.rewind.fsync_dir', Mock())
+    @patch('patroni.postgresql.rewind.logger.warning')
+    def test_maybe_clean_pg_replslot(self, mock_logger):
+        # failed to list pg_replslot/
+        self.assertIsNone(self.r._maybe_clean_pg_replslot())
+        mock_logger.assert_called_once()
+        mock_logger.reset_mock()
+
+        self.assertIsNone(self.r._maybe_clean_pg_replslot())
+
     @patch('os.unlink', Mock())
     @patch('os.listdir', Mock(return_value=[]))
     @patch('os.path.isfile', Mock(return_value=True))
