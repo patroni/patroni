@@ -1699,9 +1699,11 @@ class Ha(object):
         :param dcs_failed: bool, indicates that communication with DCS failed (get_cluster() or update_leader())
         :returns: list[str], replication slots names that should be copied from the primary"""
 
+        slots = []
+
         # If dcs_failed we don't want to touch replication slots on a leader or replicas if failsafe_mode isn't enabled.
         if not self.cluster or dcs_failed and (self.is_leader() or not self.is_failsafe_mode()):
-            return
+            return slots
 
         # It could be that DCS is read-only, or only the leader can't access it.
         # Only the second one could be handled by `load_cluster_from_dcs()`.
@@ -1714,8 +1716,8 @@ class Ha(object):
                                                                             self.patroni.nofailover,
                                                                             self.patroni.replicatefrom,
                                                                             self.is_paused())
-            # Don't copy replication slots if failsafe_mode is active
-            return [] if self.failsafe_is_active() else slots
+        # Don't copy replication slots if failsafe_mode is active
+        return [] if self.failsafe_is_active() else slots
 
     def run_cycle(self):
         with self._async_executor:
