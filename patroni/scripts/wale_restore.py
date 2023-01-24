@@ -11,7 +11,7 @@
 # arguments are:
 #   - cluster scope
 #   - cluster role
-#   - master connection string
+#   - leader connection string
 #   - number of retries
 #   - envdir for the WALE env
 # - WALE_BACKUP_THRESHOLD_MEGABYTES if WAL amount is above that - use pg_basebackup
@@ -104,11 +104,11 @@ WALEConfig = namedtuple(
 
 class WALERestore(object):
     def __init__(self, scope, datadir, connstring, env_dir, threshold_mb,
-                 threshold_pct, use_iam, no_master, retries):
+                 threshold_pct, use_iam, no_leader, retries):
         self.scope = scope
-        self.master_connection = connstring
+        self.leader_connection = connstring
         self.data_dir = datadir
-        self.no_master = no_master
+        self.no_leader = no_leader
 
         wale_cmd = [
             'envdir',
@@ -213,11 +213,11 @@ class WALERestore(object):
         diff_in_bytes = backup_size
         attempts_no = 0
         while True:
-            if self.master_connection:
+            if self.leader_connection:
                 con = None
                 try:
                     # get the difference in bytes between the current WAL location and the backup start offset
-                    con = psycopg.connect(self.master_connection)
+                    con = psycopg.connect(self.leader_connection)
                     if con.server_version >= 100000:
                         wal_name = 'wal'
                         lsn_name = 'lsn'
@@ -235,22 +235,22 @@ class WALERestore(object):
 
                         diff_in_bytes = int(cur.fetchone()[0])
                 except psycopg.Error:
-                    logger.exception('could not determine difference with the master location')
+                    logger.exception('could not determine difference with the leader location')
                     if attempts_no < self.retries:  # retry in case of a temporarily connection issue
                         attempts_no = attempts_no + 1
                         time.sleep(RETRY_SLEEP_INTERVAL)
                         continue
                     else:
-                        if not self.no_master:
+                        if not self.no_leader:
                             return False  # do no more retries on the outer level
-                        logger.info("continue with base backup from S3 since master is not available")
+                        logger.info("continue with base backup from S3 since leader is not available")
                         diff_in_bytes = 0
                         break
                 finally:
                     if con:
                         con.close()
             else:
-                # always try to use WAL-E if master connection string is not available
+                # always try to use WAL-E if leader connection string is not available
                 diff_in_bytes = 0
             break
 
@@ -346,22 +346,22 @@ def main():
     parser.add_argument('--threshold_megabytes', type=int, default=10240)
     parser.add_argument('--threshold_backup_size_percentage', type=int, default=30)
     parser.add_argument('--use_iam', type=int, default=0)
-    parser.add_argument('--no_master', type=int, default=0)
+    parser.add_argument('--no_leader', '--no_master', type=int, default=0)
     args = parser.parse_args()
 
     exit_code = None
     assert args.retries >= 0
 
-    # Retry cloning in a loop. We do separate retries for the master
+    # Retry cloning in a loop. We do separate retries for the leader
     # connection attempt inside should_use_s3_to_create_replica,
     # because we need to differentiate between the last attempt and
     # the rest and make a decision when the last attempt fails on
-    # whether to use WAL-E or not depending on the no_master flag.
+    # whether to use WAL-E or not depending on the no_leader flag.
     for _ in range(0, args.retries + 1):
         restore = WALERestore(scope=args.scope, datadir=args.datadir, connstring=args.connstring,
                               env_dir=args.envdir, threshold_mb=args.threshold_megabytes,
                               threshold_pct=args.threshold_backup_size_percentage, use_iam=args.use_iam,
-                              no_master=args.no_master, retries=args.retries)
+                              no_leader=args.no_leader, retries=args.retries)
         exit_code = restore.run()
         if not exit_code == ExitCode.RETRY_LATER:  # only WAL-E failures lead to the retry
             logger.debug('exit_code is %r, not retrying', exit_code)

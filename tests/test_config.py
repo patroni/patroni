@@ -21,7 +21,9 @@ class TestConfig(unittest.TestCase):
     def test_set_dynamic_configuration(self):
         with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
             self.assertIsNone(self.config.set_dynamic_configuration({'foo': 'bar'}))
-        self.assertTrue(self.config.set_dynamic_configuration({'synchronous_mode': True, 'standby_cluster': {}}))
+        self.assertTrue(self.config.set_dynamic_configuration({'synchronous_mode': True,
+                                                               'standby_cluster': {}, 'master_start_timeout': 1}))
+        self.assertEqual(self.config.get('primary_start_timeout'), 1)
 
     def test_reload_local_configuration(self):
         os.environ.update({

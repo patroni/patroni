@@ -144,7 +144,8 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('patroni.postgresql.polling_loop', Mock(return_value=range(1)))
     def test_wait_for_port_open(self, mock_pg_isready):
         mock_pg_isready.return_value = STATE_NO_RESPONSE
-        mock_postmaster = MockPostmaster(is_running=False)
+        mock_postmaster = MockPostmaster()
+        mock_postmaster.is_running.return_value = None
 
         # No pid file and postmaster death
         self.assertFalse(self.p.wait_for_port_open(mock_postmaster, 1))
@@ -502,13 +503,13 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.config._config['create_replica_method'] = []
         self.assertFalse(self.p.can_create_replica_without_replication_connection())
         self.p.config._config['create_replica_method'] = ['wale', 'basebackup']
-        self.p.config._config['wale'] = {'command': 'foo', 'no_master': 1}
+        self.p.config._config['wale'] = {'command': 'foo', 'no_leader': 1}
         self.assertTrue(self.p.can_create_replica_without_replication_connection())
 
     def test_replica_method_can_work_without_replication_connection(self):
         self.assertFalse(self.p.replica_method_can_work_without_replication_connection('basebackup'))
         self.assertFalse(self.p.replica_method_can_work_without_replication_connection('foobar'))
-        self.p.config._config['foo'] = {'command': 'bar', 'no_master': 1}
+        self.p.config._config['foo'] = {'command': 'bar', 'no_leader': 1}
         self.assertTrue(self.p.replica_method_can_work_without_replication_connection('foo'))
         self.p.config._config['foo'] = {'command': 'bar'}
         self.assertFalse(self.p.replica_method_can_work_without_replication_connection('foo'))
@@ -669,8 +670,8 @@ class TestPostgresql(BaseTestPostgresql):
     def test_replica_cached_timeline(self):
         self.assertEqual(self.p.replica_cached_timeline(2), 3)
 
-    def test_get_master_timeline(self):
-        self.assertEqual(self.p.get_master_timeline(), 1)
+    def test_get_primary_timeline(self):
+        self.assertEqual(self.p.get_primary_timeline(), 1)
 
     @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='replica'))
     @patch.object(Bootstrap, 'running_custom_bootstrap', PropertyMock(return_value=True))

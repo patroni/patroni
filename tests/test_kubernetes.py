@@ -293,7 +293,7 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
         self.k.touch_member({'role': 'replica'})
         self.k._name = 'p-1'
         self.k.touch_member({'state': 'running', 'role': 'replica'})
-        self.k.touch_member({'state': 'stopped', 'role': 'master'})
+        self.k.touch_member({'state': 'stopped', 'role': 'primary'})
 
     def test_initialize(self):
         self.k.initialize()

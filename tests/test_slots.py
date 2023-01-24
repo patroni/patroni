@@ -52,7 +52,7 @@ class TestSlotsHandler(BaseTestPostgresql):
                 patch.object(SlotsHandler, 'drop_replication_slot') as mock_drop:
             self.s.sync_replication_slots(cluster, False, paused=True)
             mock_drop.assert_not_called()
-        self.p.set_role('master')
+        self.p.set_role('primary')
         with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
             self.s.sync_replication_slots(cluster, False)
         with patch('patroni.dcs.logger.error', new_callable=Mock()) as errorlog_mock:

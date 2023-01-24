@@ -77,7 +77,7 @@ scripts to clone a new replica. Those are configured in the ``postgresql`` confi
             command: <command name>
             keep_data: True
             no_params: True
-            no_master: 1
+            no_leader: 1
 
 example: wal_e
 
@@ -89,7 +89,7 @@ example: wal_e
             - basebackup
         wal_e:
             command: patroni_wale_restore
-            no_master: 1
+            no_leader: 1
             envdir: {{WALE_ENV_DIR}}
             use_iam: 1
         basebackup:
@@ -126,7 +126,7 @@ to execute and any custom parameters that should be passed to that command. All 
     Connection string to connect to the cluster member to clone from (primary or other replica). The user in the
     connection string can execute SQL and replication protocol commands.
 
-A special ``no_master`` parameter, if defined, allows Patroni to call the replica creation method even if there is no
+A special ``no_leader`` parameter, if defined, allows Patroni to call the replica creation method even if there is no
 running leader or replicas. In that case, an empty string will be passed in a connection string. This is useful for
 restoring the formerly running cluster from the binary backup.
 

@@ -76,7 +76,7 @@ Feature: basic replication
     Then postgres1 is a leader after 10 seconds
     And postgres1 role is the primary after 10 seconds
 
-  Scenario: check rejoin of the former master with pg_rewind
+  Scenario: check rejoin of the former primary with pg_rewind
     Given I add the table splitbrain to postgres0
     And I start postgres0
     Then postgres0 role is the secondary after 20 seconds

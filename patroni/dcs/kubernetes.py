@@ -242,7 +242,7 @@ class K8sClient(object):
 
         def set_base_uri(self, value):
             logger.info('Selected new K8s API server endpoint %s', value)
-            # We will connect by IP of the master node which is not listed as alternative name
+            # We will connect by IP of the K8s master node which is not listed as alternative name
             self.pool_manager.connection_pool_kw['assert_hostname'] = False
             self._base_uri = value
 
@@ -1190,7 +1190,7 @@ class Kubernetes(AbstractDCS):
         cluster = self.cluster
         if cluster and cluster.leader and cluster.leader.name == self._name:
             role = 'master'
-        elif data['state'] == 'running' and data['role'] != 'master':
+        elif data['state'] == 'running' and data['role'] not in ('master', 'primary'):
             role = data['role']
         else:
             role = None

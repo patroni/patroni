@@ -495,7 +495,7 @@ class Consul(AbstractDCS):
             return self.deregister_service(params['service_id'])
 
         self._previous_loop_register_service = self._register_service
-        if role in ['master', 'replica', 'standby-leader']:
+        if role in ['master', 'primary', 'replica', 'standby-leader']:
             if state != 'running':
                 return
             return self.register_service(service_name, **params)

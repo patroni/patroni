@@ -37,15 +37,15 @@ class TestAWSConnection(unittest.TestCase):
         self.conn = AWSConnection('test')
 
     def test_on_role_change(self):
-        self.assertTrue(self.conn.on_role_change('master'))
+        self.assertTrue(self.conn.on_role_change('primary'))
         with patch.object(MockVolumes, 'filter', Mock(return_value=[])):
             self.conn._retry.max_tries = 1
-            self.assertFalse(self.conn.on_role_change('master'))
+            self.assertFalse(self.conn.on_role_change('primary'))
 
     @patch('patroni.scripts.aws.requests_get', Mock(side_effect=Exception('foo')))
     def test_non_aws(self):
         conn = AWSConnection('test')
-        self.assertFalse(conn.on_role_change("master"))
+        self.assertFalse(conn.on_role_change("primary"))
 
     @patch('patroni.scripts.aws.requests_get', Mock(return_value=urllib3.HTTPResponse(status=200, body=b'foo')))
     def test_aws_bizare_response(self):

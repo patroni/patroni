@@ -155,12 +155,12 @@ class Bootstrap(object):
         self._postgresql.set_state('creating replica')
         self._postgresql.schedule_sanity_checks_after_pause()
 
-        is_remote_master = isinstance(clone_member, RemoteMember)
+        is_remote_member = isinstance(clone_member, RemoteMember)
 
         # get list of replica methods either from clone member or from
         # the config. If there is no configuration key, or no value is
         # specified, use basebackup
-        replica_methods = (clone_member.create_replica_methods if is_remote_master
+        replica_methods = (clone_member.create_replica_methods if is_remote_member
                            else self._postgresql.create_replica_methods) or ['basebackup']
 
         if clone_member and clone_member.conn_url:
@@ -212,7 +212,7 @@ class Bootstrap(object):
                                           "datadir": self._postgresql.data_dir,
                                           "connstring": connstring})
                 else:
-                    for param in ('no_params', 'no_master', 'keep_data'):
+                    for param in ('no_params', 'no_master', 'no_leader', 'keep_data'):
                         method_config.pop(param, None)
                 params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                 try:
@@ -269,7 +269,7 @@ class Bootstrap(object):
 
     def clone(self, clone_member):
         """
-             - initialize the replica from an existing member (master or replica)
+             - initialize the replica from an existing member (primary or replica)
              - initialize the replica using the replica creation method that
                works without the replication connection (i.e. restore from on-disk
                base backup)

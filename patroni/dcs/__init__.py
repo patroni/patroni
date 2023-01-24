@@ -229,8 +229,7 @@ class Member(namedtuple('Member', 'index,name,session,data')):
 
 
 class RemoteMember(Member):
-    """ Represents a remote master for a standby cluster
-    """
+    """Represents a remote member (typically a primary) for a standby cluster"""
     def __new__(cls, name, data):
         return super(RemoteMember, cls).__new__(cls, None, name, None, data)
 
@@ -283,7 +282,7 @@ class Leader(namedtuple('Leader', 'index,session,member')):
         version = self.member.version
         # 1.5.6 is the last version which doesn't expose checkpoint_after_promote: false
         if version and version > (1, 5, 6):
-            return self.data.get('role') == 'master' and 'checkpoint_after_promote' not in self.data
+            return self.data.get('role') in ('master', 'primary') and 'checkpoint_after_promote' not in self.data
 
 
 class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
@@ -520,16 +519,16 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,'
 
     def get_replication_slots(self, my_name, role, nofailover, major_version, show_error=False):
         # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
-        # the current master, because that member would replicate from elsewhere. We still create the slot if
+        # the current primary, because that member would replicate from elsewhere. We still create the slot if
         # the replicatefrom destination member is currently not a member of the cluster (fallback to the
-        # master), or if replicatefrom destination member happens to be the current master
+        # primary), or if replicatefrom destination member happens to be the current primary
         use_slots = self.use_slots
-        if role in ('master', 'standby_leader'):
+        if role in ('master', 'primary', 'standby_leader'):
             slot_members = [m.name for m in self.members if use_slots and m.name != my_name and
                             (m.replicatefrom is None or m.replicatefrom == my_name or
                              not self.has_member(m.replicatefrom))]
             permanent_slots = self.__permanent_slots if use_slots and \
-                role == 'master' else self.__permanent_physical_slots
+                role in ('master', 'primary') else self.__permanent_physical_slots
         else:
             # only manage slots for replicas that replicate from this one, except for the leader among them
             slot_members = [m.name for m in self.members if use_slots and
@@ -794,7 +793,7 @@ class AbstractDCS(object):
         :param path: the path in DCS where to load Cluster(s) from.
         :param loader: one of `_cluster_loader` or `_citus_cluster_loader`
         :raise: `~DCSError` in case of communication problems with DCS.
-        If the current node was running as a master and exception
+        If the current node was running as a primary and exception
         raised, instance would be demoted."""
 
     def _bypass_caches(self):
@@ -926,7 +925,7 @@ class AbstractDCS(object):
         """Attempt to acquire leader lock
         This method should create `/leader` key with value=`~self._name`
         :param permanent: if set to `!True`, the leader key will never expire.
-         Used in patronictl for the external master
+         Used in patronictl for the external primary
         :returns: `!True` if key has been created successfully.
 
         Key must be created atomically. In case if key already exists it should not be
@@ -964,7 +963,7 @@ class AbstractDCS(object):
         :param data: information about instance (including connection strings)
         :param ttl: ttl for member key, optional parameter. If it is None `~self.member_ttl will be used`
         :param permanent: if set to `!True`, the member key will never expire.
-         Used in patronictl for the external master.
+         Used in patronictl for the external primary
         :returns: `!True` on success otherwise `!False`
         """
 
@@ -1031,7 +1030,7 @@ class AbstractDCS(object):
         """"""
 
     def watch(self, leader_index, timeout):
-        """If the current node is a master it should just sleep.
+        """If the current node is a leader it should just sleep.
         Any other node should watch for changes of leader key with a given timeout
 
         :param leader_index: index of a leader key

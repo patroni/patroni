@@ -59,13 +59,17 @@ class Config(object):
     PATRONI_CONFIG_VARIABLE = PATRONI_ENV_PREFIX + 'CONFIGURATION'
 
     __CACHE_FILENAME = 'patroni.dynamic.json'
+    __REMAP_KEYS = {
+        'master_start_timeout': 'primary_start_timeout',
+        'master_stop_timeout': 'primary_stop_timeout'
+    }
     __DEFAULT_CONFIG = {
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
         'maximum_lag_on_failover': 1048576,
         'maximum_lag_on_syncnode': -1,
         'check_timeline': False,
-        'master_start_timeout': 300,
-        'master_stop_timeout': 0,
+        'primary_start_timeout': 300,
+        'primary_stop_timeout': 0,
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
         'synchronous_node_count': 1,
@@ -225,6 +229,9 @@ class Config(object):
         config = deepcopy(self.__DEFAULT_CONFIG)
 
         for name, value in dynamic_configuration.items():
+            # allow copying master_start_timeout->primary_start_timeout when the last one isn't in dynamic_configuration
+            if name in self.__REMAP_KEYS and self.__REMAP_KEYS[name] not in dynamic_configuration:
+                name = self.__REMAP_KEYS[name]
             if name == 'postgresql':
                 for name, value in (value or {}).items():
                     if name == 'parameters':

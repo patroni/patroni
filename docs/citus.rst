@@ -127,7 +127,7 @@ An example of ``patronictl switchover`` on the worker cluster::
     |     2 | work2-2 | 172.27.0.7  | Leader       | running |  1 |           |
     +-------+---------+-------------+--------------+---------+----+-----------+
     Citus group: 2
-    Master [work2-2]:
+    Primary [work2-2]:
     Candidate ['work2-1'] []:
     When should the switchover take place (e.g. 2022-12-22T08:02 )  [now]:
     Current cluster topology
@@ -137,7 +137,7 @@ An example of ``patronictl switchover`` on the worker cluster::
     | work2-1 | 172.27.0.5 | Sync Standby | running |  1 |         0 |
     | work2-2 | 172.27.0.7 | Leader       | running |  1 |           |
     +---------+------------+--------------+---------+----+-----------+
-    Are you sure you want to switchover cluster demo, demoting current master work2-2? [y/N]: y
+    Are you sure you want to switchover cluster demo, demoting current primary work2-2? [y/N]: y
     2022-12-22 07:02:40.33003 Successfully switched over to "work2-1"
     + Citus cluster: demo (group: 2, 7179854924063375386) ------+
     | Member  | Host       | Role    | State   | TL | Lag in MB |
