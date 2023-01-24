@@ -458,7 +458,7 @@ class Ha(object):
                 node_to_follow = self._get_node_to_follow(self.cluster)
 
             if self.is_synchronous_mode():
-                self.state_handler.config.set_synchronous_standby([])
+                self.state_handler.sync_handler.set_synchronous_standby_names([])
         elif self.has_lock():
             msg = "starting as readonly because i had the session lock"
             node_to_follow = None
@@ -568,9 +568,9 @@ class Ha(object):
         if self.is_synchronous_mode():
             sync_node_count = self.patroni.config['synchronous_node_count']
             current = self.cluster.sync.leader and self.cluster.sync.members or []
-            picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster, sync_node_count,
-                                                                                self.patroni.config[
-                                                                                    'maximum_lag_on_syncnode'])
+            picked, allow_promote = self.state_handler.sync_handler.current_state(self.cluster, sync_node_count,
+                                                                                  self.patroni.config[
+                                                                                      'maximum_lag_on_syncnode'])
             if set(picked) != set(current):
                 # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
                 sync_common = list(set(current).intersection(set(allow_promote)))
@@ -588,15 +588,15 @@ class Ha(object):
                     logger.warning("No standbys available!")
 
                 logger.info("Assigning synchronous standby status to %s", picked)
-                self.state_handler.config.set_synchronous_standby(picked)
+                self.state_handler.sync_handler.set_synchronous_standby_names(picked)
 
                 if picked and picked[0] != '*' and set(allow_promote) != set(picked) and not allow_promote:
                     # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
                     time.sleep(2)
-                    _, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster,
-                                                                                   sync_node_count,
-                                                                                   self.patroni.config[
-                                                                                       'maximum_lag_on_syncnode'])
+                    _, allow_promote = self.state_handler.sync_handler.current_state(self.cluster,
+                                                                                     sync_node_count,
+                                                                                     self.patroni.config[
+                                                                                         'maximum_lag_on_syncnode'])
                 if allow_promote and set(allow_promote) != set(sync_common):
                     try:
                         cluster = self.dcs.get_cluster()
@@ -612,7 +612,7 @@ class Ha(object):
         else:
             if self.cluster.sync.leader and self.dcs.delete_sync_state(index=self.cluster.sync.index):
                 logger.info("Disabled synchronous replication")
-            self.state_handler.config.set_synchronous_standby([])
+            self.state_handler.sync_handler.set_synchronous_standby_names([])
 
     def is_sync_standby(self, cluster):
         return cluster.leader and cluster.sync.leader == cluster.leader.name \
@@ -721,7 +721,8 @@ class Ha(object):
                     # Somebody else updated sync state, it may be due to us losing the lock. To be safe, postpone
                     # promotion until next cycle. TODO: trigger immediate retry of run_cycle
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
-                self.state_handler.config.set_synchronous_standby(['*'] if self.is_synchronous_mode_strict() else [])
+                self.state_handler.sync_handler.set_synchronous_standby_names(
+                        ['*'] if self.is_synchronous_mode_strict() else [])
             if self.state_handler.role != 'master':
                 def on_success():
                     self._rewind.reset_state()
@@ -1044,7 +1045,7 @@ class Ha(object):
                 node_to_follow, leader = None, None
 
         if self.is_synchronous_mode():
-            self.state_handler.config.set_synchronous_standby([])
+            self.state_handler.sync_handler.set_synchronous_standby_names([])
 
         # FIXME: with mode offline called from DCS exception handler and handle_long_action_in_progress
         # there could be an async action already running, calling follow from here will lead
