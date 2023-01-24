@@ -367,6 +367,10 @@ schema = Schema({
           Optional("ports"): [{"name": str, "port": int}],
           },
       }),
+  Optional("citus"): {
+    "database": str,
+    "group": int
+  },
   "postgresql": {
     "listen": validate_host_port_listen_multiple_hosts,
     "connect_address": validate_connect_address,

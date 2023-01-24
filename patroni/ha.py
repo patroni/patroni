@@ -156,6 +156,8 @@ class Ha(object):
         # Count of concurrent sync disabling requests. Value above zero means that we don't want to be synchronous
         # standby. Changes protected by _member_state_lock.
         self._disable_sync = 0
+        # Remember the last known member role and state written to the DCS in order to notify Citus coordinator
+        self._last_state = None
 
         # We need following property to avoid shutdown of postgres when join of Patroni to the postgres
         # already running as replica was aborted due to cluster not being initialized in DCS.
@@ -269,6 +271,22 @@ class Ha(object):
             tags['nosync'] = True
         return tags
 
+    def notify_citus_coordinator(self, event):
+        if self.state_handler.citus_handler.is_worker():
+            coordinator = self.dcs.get_citus_coordinator()
+            if coordinator and coordinator.leader and coordinator.leader.conn_kwargs:
+                try:
+                    data = {'type': event,
+                            'group': self.state_handler.citus_handler.group(),
+                            'leader': self.state_handler.name,
+                            'timeout': self.dcs.ttl,
+                            'cooldown': self.patroni.config['retry_timeout']}
+                    timeout = self.dcs.ttl if event == 'before_demote' else 2
+                    self.patroni.request(coordinator.leader.member, 'post', 'citus', data, timeout=timeout, retries=0)
+                except Exception as e:
+                    logger.warning('Request to Citus coordinator leader %s %s failed: %r',
+                                   coordinator.leader.name, coordinator.leader.member.api_url, e)
+
     def touch_member(self):
         with self._member_state_lock:
             data = {
@@ -321,7 +339,13 @@ class Ha(object):
             if self.is_paused():
                 data['pause'] = True
 
-            return self.dcs.touch_member(data)
+            ret = self.dcs.touch_member(data)
+            if ret:
+                if self._last_state != (data['state'], data['role'])\
+                        and (data['state'], data['role']) == ('running', 'master'):
+                    self.notify_citus_coordinator('after_promote')
+                self._last_state = (data['state'], data['role'])
+            return ret
 
     def clone(self, clone_member=None, msg='(without leader)'):
         if self.is_standby_cluster() and not isinstance(clone_member, RemoteMember):
@@ -709,8 +733,9 @@ class Ha(object):
             self.state_handler.set_role('master')
             self.process_sync_replication()
             self.update_cluster_history()
+            self.state_handler.citus_handler.sync_pg_dist_node(self.cluster)
             return message
-        elif self.state_handler.role == 'master':
+        elif self.state_handler.role in ('master', 'promoted'):
             self.process_sync_replication()
             return message
         else:
@@ -722,16 +747,20 @@ class Ha(object):
                     # promotion until next cycle. TODO: trigger immediate retry of run_cycle
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
                 self.state_handler.sync_handler.set_synchronous_standby_names(
-                        ['*'] if self.is_synchronous_mode_strict() else [])
-            if self.state_handler.role != 'master':
+                    ['*'] if self.is_synchronous_mode_strict() else [])
+            if self.state_handler.role not in ('master', 'promoted'):
                 def on_success():
                     self._rewind.reset_state()
                     logger.info("cleared rewind state after becoming the leader")
 
+                def before_promote():
+                    self.notify_citus_coordinator('before_promote')
+
                 with self._async_response:
                     self._async_response.reset()
                 self._async_executor.try_run_async('promote', self.state_handler.promote,
-                                                   args=(self.dcs.loop_wait, self._async_response, on_success))
+                                                   args=(self.dcs.loop_wait, self._async_response,
+                                                         before_promote, on_success))
             return promote_message
 
     def fetch_node_status(self, member):
@@ -1022,9 +1051,16 @@ class Ha(object):
                     self.release_leader_key_voluntarily(checkpoint_location)
                     status['released'] = True
 
+        def before_shutdown():
+            if self.state_handler.citus_handler.is_coordinator():
+                self.state_handler.citus_handler.on_demote()
+            else:
+                self.notify_citus_coordinator('before_demote')
+
         self.state_handler.stop(mode_control['stop'], checkpoint=mode_control['checkpoint'],
                                 on_safepoint=self.watchdog.disable if self.watchdog.is_running else None,
                                 on_shutdown=on_shutdown if mode_control['release'] else None,
+                                before_shutdown=before_shutdown if mode == 'graceful' else None,
                                 stop_timeout=self.master_stop_timeout())
         self.state_handler.set_role('demoted')
         self.set_is_leader(False)
@@ -1323,8 +1359,16 @@ class Ha(object):
         timeout = restart_data.get('timeout', self.patroni.config['master_start_timeout'])
         self.set_start_timeout(timeout)
 
+        def before_shutdown():
+            self.notify_citus_coordinator('before_demote')
+
+        def after_start():
+            self.notify_citus_coordinator('after_promote')
+
         # For non async cases we want to wait for restart to complete or timeout before returning.
-        do_restart = functools.partial(self.state_handler.restart, timeout, self._async_executor.critical_task)
+        do_restart = functools.partial(self.state_handler.restart, timeout, self._async_executor.critical_task,
+                                       before_shutdown=before_shutdown if self.has_lock() else None,
+                                       after_start=after_start if self.has_lock() else None)
         if self.is_synchronous_mode() and not self.has_lock():
             do_restart = functools.partial(self.while_not_sync_standby, do_restart)
 
@@ -1452,6 +1496,7 @@ class Ha(object):
         if not self.watchdog.activate():
             logger.error('Cancelling bootstrap because watchdog activation failed')
             self.cancel_initialization()
+
         self._rewind.ensure_checkpoint_after_promote(self.wakeup)
         self.dcs.initialize(create_new=(self.cluster.initialize is None), sysid=self.state_handler.sysid)
         self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
@@ -1756,9 +1801,14 @@ class Ha(object):
                     else:
                         self.dcs.write_leader_optime(checkpoint_location)
 
+            def _before_shutdown():
+                self.notify_citus_coordinator('before_demote')
+
             on_shutdown = _on_shutdown if self.is_leader() else None
+            before_shutdown = _before_shutdown if self.is_leader() else None
             self.while_not_sync_standby(lambda: self.state_handler.stop(checkpoint=False, on_safepoint=disable_wd,
                                                                         on_shutdown=on_shutdown,
+                                                                        before_shutdown=before_shutdown,
                                                                         stop_timeout=self.master_stop_timeout()))
             if not self.state_handler.is_running():
                 if self.is_leader() and not status['deleted']:

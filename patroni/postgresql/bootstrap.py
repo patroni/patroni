@@ -345,7 +345,7 @@ END;$$""".format(quote_literal(name), quote_ident(name, self._postgresql.connect
 BEGIN
     SET local synchronous_commit = 'local';
     GRANT EXECUTE ON function pg_catalog.{0} TO {1};
-END;$$""".format(f, quote_ident(rewind['username'], self._postgresql.connection()))
+END;$$""".format(f, quote_ident(rewind['username'], postgresql.connection()))
                         postgresql.query(sql)
 
                 for name, value in (config.get('users') or {}).items():
@@ -377,6 +377,9 @@ END;$$""".format(f, quote_ident(rewind['username'], self._postgresql.connection(
                             postgresql.reload()
                             time.sleep(1)  # give a time to postgres to "reload" configuration files
                             postgresql.connection().close()  # close connection to reconnect with a new password
+                else:  # initdb
+                    # We may want create database and extension for citus
+                    self._postgresql.citus_handler.bootstrap()
         except Exception:
             logger.exception('post_bootstrap')
             task.complete(False)

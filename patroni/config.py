@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import shutil
+import six
 import tempfile
 import yaml
 
@@ -355,9 +356,15 @@ class Config(object):
                               'CACERT', 'CERT', 'KEY', 'VERIFY', 'TOKEN', 'CHECKS', 'DC', 'CONSISTENCY',
                               'REGISTER_SERVICE', 'SERVICE_CHECK_INTERVAL', 'SERVICE_CHECK_TLS_SERVER_NAME',
                               'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL', 'POD_IP',
-                              'PORTS', 'LABELS', 'BYPASS_API_SERVICE', 'KEY_PASSWORD', 'USE_SSL', 'SET_ACLS') and name:
+                              'PORTS', 'LABELS', 'BYPASS_API_SERVICE', 'KEY_PASSWORD', 'USE_SSL', 'SET_ACLS',
+                              'GROUP', 'DATABASE') and name:
                     value = os.environ.pop(param)
-                    if suffix == 'PORT':
+                    if name == 'CITUS':
+                        if suffix == 'GROUP':
+                            value = parse_int(value)
+                        elif suffix != 'DATABASE':
+                            continue
+                    elif suffix == 'PORT':
                         value = value and parse_int(value)
                     elif suffix in ('HOSTS', 'PORTS', 'CHECKS'):
                         value = value and _parse_list(value)
@@ -365,7 +372,7 @@ class Config(object):
                         value = _parse_dict(value)
                     elif suffix in ('USE_PROXIES', 'REGISTER_SERVICE', 'USE_ENDPOINTS', 'BYPASS_API_SERVICE', 'VERIFY'):
                         value = parse_bool(value)
-                    if value:
+                    if value is not None:
                         ret[name.lower()][suffix.lower()] = value
         for dcs in ('etcd', 'etcd3'):
             if dcs in ret:
@@ -393,7 +400,11 @@ class Config(object):
     def _build_effective_configuration(self, dynamic_configuration, local_configuration):
         config = self._safe_copy_dynamic_configuration(dynamic_configuration)
         for name, value in local_configuration.items():
-            if name == 'postgresql':
+            if name == 'citus':  # remove invalid citus configuration
+                if isinstance(value, dict) and isinstance(value.get('group'), six.integer_types)\
+                        and isinstance(value.get('database'), six.string_types):
+                    config[name] = value
+            elif name == 'postgresql':
                 for name, value in (value or {}).items():
                     if name == 'parameters':
                         config['postgresql'][name].update(self._process_postgresql_parameters(value, True))
@@ -431,6 +442,12 @@ class Config(object):
         if 'name' not in config and 'name' in pg_config:
             config['name'] = pg_config['name']
 
+        # when bootstrapping the new Citus cluster (coordinator/worker) enable sync replication in global configuration
+        if 'citus' in config:
+            bootstrap = config.setdefault('bootstrap', {})
+            dcs = bootstrap.setdefault('dcs', {})
+            dcs.setdefault('synchronous_mode', True)
+
         updated_fields = (
             'name',
             'scope',
@@ -438,7 +455,8 @@ class Config(object):
             'synchronous_mode',
             'synchronous_mode_strict',
             'synchronous_node_count',
-            'maximum_lag_on_syncnode'
+            'maximum_lag_on_syncnode',
+            'citus'
         )
 
         pg_config.update({p: config[p] for p in updated_fields if p in config})

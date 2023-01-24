@@ -30,6 +30,8 @@ def mock_urlopen(self, method, url, **kwargs):
         ret.content = json.dumps({
             "header": {"revision": "1"},
             "kvs": [
+                {"key": base64_encode('/patroni/test/1/initialize'),
+                 "value": base64_encode('12345'), "mod_revision": '1'},
                 {"key": base64_encode('/patroni/test/leader'),
                  "value": base64_encode('foo'), "lease": "bla", "mod_revision": '1'},
                 {"key": base64_encode('/patroni/test/members/foo'),
@@ -206,6 +208,12 @@ class TestEtcd3(BaseTestEtcd3):
             self.assertRaises(UnsupportedEtcdVersion, self.etcd3.get_cluster)
             mock_urlopen.side_effect = SleepException()
             self.assertRaises(Etcd3Error, self.etcd3.get_cluster)
+
+    def test__get_citus_cluster(self):
+        self.etcd3._citus_group = '0'
+        cluster = self.etcd3.get_cluster()
+        self.assertIsInstance(cluster, Cluster)
+        self.assertIsInstance(cluster.workers[1], Cluster)
 
     def test_touch_member(self):
         self.etcd3.touch_member({})

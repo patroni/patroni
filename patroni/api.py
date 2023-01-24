@@ -615,6 +615,18 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_POST_switchover(self):
         self.do_POST_failover(action='switchover')
 
+    @check_access
+    def do_POST_citus(self):
+        request = self._read_json_content()
+        if not request:
+            return
+
+        patroni = self.server.patroni
+        if patroni.postgresql.citus_handler.is_coordinator() and patroni.ha.is_leader():
+            cluster = patroni.dcs.get_cluster(True)
+            patroni.postgresql.citus_handler.handle_event(cluster, request)
+        self._write_response(200, 'OK')
+
     def parse_request(self):
         """Override parse_request method to enrich basic functionality of `BaseHTTPRequestHandler` class
 
@@ -759,16 +771,17 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def __members_ips(self):
         cluster = self.patroni.dcs.cluster
         if self.__allowlist_include_members and cluster:
-            for member in cluster.members:
-                if member.api_url:
-                    try:
-                        r = urlparse(member.api_url)
-                        host = r.hostname
-                        port = r.port or (443 if r.scheme == 'https' else 80)
-                        for ip in self.__resolve_ips(host, port):
-                            yield ip
-                    except Exception as e:
-                        logger.debug('Failed to parse url %s: %r', member.api_url, e)
+            for cluster in [cluster] + list(cluster.workers.values()):
+                for member in cluster.members:
+                    if member.api_url:
+                        try:
+                            r = urlparse(member.api_url)
+                            host = r.hostname
+                            port = r.port or (443 if r.scheme == 'https' else 80)
+                            for ip in self.__resolve_ips(host, port):
+                                yield ip
+                        except Exception as e:
+                            logger.debug('Failed to parse url %s: %r', member.api_url, e)
 
     def check_access(self, rh):
         if self.__allowlist or self.__allowlist_include_members:

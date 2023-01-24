@@ -62,7 +62,7 @@ class MockKazooClient(Mock):
         if path.startswith('/no_node'):
             raise NoNodeError
         elif path in ['/service/bla/', '/service/test/']:
-            return ['initialize', 'leader', 'members', 'optime', 'failover', 'sync', 'failsafe']
+            return ['initialize', 'leader', 'members', 'optime', 'failover', 'sync', 'failsafe', '0', '1']
         return ['foo', 'bar', 'buzz']
 
     def create(self, path, value=b"", acl=None, ephemeral=False, sequence=False, makepath=False):
@@ -155,6 +155,11 @@ class TestZooKeeper(unittest.TestCase):
     def test_session_listener(self):
         self.zk.session_listener(KazooState.SUSPENDED)
 
+    def test_members_watcher(self):
+        self.zk._fetch_cluster = False
+        self.zk.members_watcher(None)
+        self.assertTrue(self.zk._fetch_cluster)
+
     def test_reload_config(self):
         self.zk.reload_config({'ttl': 20, 'retry_timeout': 10, 'loop_wait': 10})
         self.zk.reload_config({'ttl': 20, 'retry_timeout': 10, 'loop_wait': 5})
@@ -165,15 +170,15 @@ class TestZooKeeper(unittest.TestCase):
     def test_get_children(self):
         self.assertListEqual(self.zk.get_children('/no_node'), [])
 
-    def test__inner_load_cluster(self):
+    def test__cluster_loader(self):
         self.zk._base_path = self.zk._base_path.replace('test', 'bla')
-        self.zk._inner_load_cluster()
+        self.zk._cluster_loader(self.zk.client_path(''))
         self.zk._base_path = self.zk._base_path = '/broken'
-        self.zk._inner_load_cluster()
+        self.zk._cluster_loader(self.zk.client_path(''))
         self.zk._base_path = self.zk._base_path = '/legacy'
-        self.zk._inner_load_cluster()
+        self.zk._cluster_loader(self.zk.client_path(''))
         self.zk._base_path = self.zk._base_path = '/no_node'
-        self.zk._inner_load_cluster()
+        self.zk._cluster_loader(self.zk.client_path(''))
 
     def test_get_cluster(self):
         cluster = self.zk.get_cluster(True)
@@ -187,6 +192,19 @@ class TestZooKeeper(unittest.TestCase):
             self.zk.get_cluster()
         cluster = self.zk.get_cluster()
         self.assertEqual(cluster.last_lsn, 500)
+
+    def test__get_citus_cluster(self):
+        self.zk._citus_group = '0'
+        for _ in range(0, 2):
+            cluster = self.zk.get_cluster()
+            self.assertIsInstance(cluster, Cluster)
+            self.assertIsInstance(cluster.workers[1], Cluster)
+
+    @patch('patroni.dcs.zookeeper.logger.error')
+    @patch.object(ZooKeeper, '_cluster_loader', Mock(side_effect=Exception))
+    def test_get_citus_coordinator(self, mock_logger):
+        self.assertIsNone(self.zk.get_citus_coordinator())
+        mock_logger.assert_called_once()
 
     def test_delete_leader(self):
         self.assertTrue(self.zk.delete_leader())

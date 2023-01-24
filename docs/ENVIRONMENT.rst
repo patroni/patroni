@@ -33,6 +33,13 @@ It is possible to create new database users right after the successful initializ
 
 Example: defining ``PATRONI_admin_PASSWORD=strongpasswd`` and ``PATRONI_admin_OPTIONS='createrole,createdb'`` will cause creation of the user **admin** with the password **strongpasswd** that is allowed to create other users and databases.
 
+Citus
+-----
+Enables integration Patroni with :ref:`Citus <https://docs.citusdata.com>`__. If configured, Patroni will take care of registering Citus worker nodes on the coordinator. You can find more information about Citus support :ref:`here <citus>`.
+
+-  **PATRONI\_CITUS\_GROUP**: the Citus group id, integer. Use ``0`` for coordinator and ``1``, ``2``, etc... for workers
+-  **PATRONI\_CITUS\_DATABASE**: the database where ``citus`` extension should be created. Must be the same on the coordinator and all workers. Currently only one database is supported.
+
 Consul
 ------
 -  **PATRONI\_CONSUL\_HOST**: the host:port for the Consul local agent.

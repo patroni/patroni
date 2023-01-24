@@ -74,8 +74,8 @@ Feature: dcs failsafe mode
   Scenario: check three-node cluster is functioning while DCS is down
     Given I start postgres0
     And I start postgres2
-    Then "members/postgres0" key in DCS has state=running after 10 seconds
-    And "members/postgres2" key in DCS has state=running after 10 seconds
+    Then "members/postgres2" key in DCS has state=running after 10 seconds
+    And "members/postgres0" key in DCS has state=running after 20 seconds
     And Response on GET http://127.0.0.1:8008/failsafe contains postgres2 after 10 seconds
     And replication works from postgres1 to postgres0 after 10 seconds
     Given DCS is down

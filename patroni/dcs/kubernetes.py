@@ -14,12 +14,15 @@ import time
 import urllib3
 import yaml
 
+from collections import defaultdict
+from copy import deepcopy
 from urllib3 import Timeout
 from urllib3.exceptions import HTTPError
 from six.moves.http_client import HTTPException
 from threading import Condition, Lock, Thread
 
-from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState, TimelineHistory
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState,\
+        TimelineHistory, CITUS_COORDINATOR_GROUP_ID, citus_group_re
 from ..exceptions import DCSError
 from ..utils import deep_compare, iter_response_objects, keepalive_socket_options,\
         Retry, RetryFailedError, tzutc, uri, USER_AGENT
@@ -687,8 +690,10 @@ class ObjectCache(Thread):
 
 class Kubernetes(AbstractDCS):
 
+    _CITUS_LABEL = 'citus-group'
+
     def __init__(self, config):
-        self._labels = config['labels']
+        self._labels = deepcopy(config['labels'])
         self._labels[config.get('scope_label', 'cluster-name')] = config['scope']
         self._label_selector = ','.join('{0}={1}'.format(k, v) for k, v in self._labels.items())
         self._namespace = config.get('namespace') or 'default'
@@ -696,6 +701,9 @@ class Kubernetes(AbstractDCS):
         self._ca_certs = os.environ.get('PATRONI_KUBERNETES_CACERT', config.get('cacert')) or SERVICE_CERT_FILENAME
         config['namespace'] = ''
         super(Kubernetes, self).__init__(config)
+        if self._citus_group:
+            self._labels[self._CITUS_LABEL] = self._citus_group
+
         self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
                             retry_exceptions=KubernetesRetriableException)
         self._ttl = None
@@ -755,7 +763,7 @@ class Kubernetes(AbstractDCS):
 
     @property
     def leader_path(self):
-        return self._base_path[1:] if self._api.use_endpoints else super(Kubernetes, self).leader_path
+        return super(Kubernetes, self).leader_path[:-7 if self._api.use_endpoints else None]
 
     def set_ttl(self, ttl):
         ttl = int(ttl)
@@ -787,95 +795,136 @@ class Kubernetes(AbstractDCS):
                 raise RetryFailedError('Exceeded retry deadline')
             self._condition.wait(timeout)
 
-    def _load_cluster(self):
+    def _cluster_from_nodes(self, group, nodes, pods):
+        members = [self.member(pod) for pod in pods]
+        path = self._base_path[1:] + '-'
+        if group:
+            path += group + '-'
+
+        config = nodes.get(path + self._CONFIG)
+        metadata = config and config.metadata
+        annotations = metadata and metadata.annotations or {}
+
+        # get initialize flag
+        initialize = annotations.get(self._INITIALIZE)
+
+        # get global dynamic configuration
+        config = ClusterConfig.from_node(metadata and metadata.resource_version,
+                                         annotations.get(self._CONFIG) or '{}',
+                                         metadata.resource_version if self._CONFIG in annotations else 0)
+
+        # get timeline history
+        history = TimelineHistory.from_node(metadata and metadata.resource_version,
+                                            annotations.get(self._HISTORY) or '[]')
+
+        leader_path = path[:-1] if self._api.use_endpoints else path + self._LEADER
+        leader = nodes.get(leader_path)
+        metadata = leader and leader.metadata
+        if leader_path == self.leader_path:  # We want to memorize leader_resource_version only for our cluster
+            self._leader_resource_version = metadata.resource_version if metadata else None
+        annotations = metadata and metadata.annotations or {}
+
+        # get last known leader lsn
+        last_lsn = annotations.get(self._OPTIME)
+        try:
+            last_lsn = 0 if last_lsn is None else int(last_lsn)
+        except Exception:
+            last_lsn = 0
+
+        # get permanent slots state (confirmed_flush_lsn)
+        slots = annotations.get('slots')
+        try:
+            slots = slots and json.loads(slots)
+        except Exception:
+            slots = None
+
+        # get failsafe topology
+        failsafe = annotations.get(self._FAILSAFE)
+        try:
+            failsafe = json.loads(failsafe) if failsafe else None
+        except Exception:
+            failsafe = None
+
+        # get leader
+        leader_record = {n: annotations.get(n) for n in (self._LEADER, 'acquireTime',
+                         'ttl', 'renewTime', 'transitions') if n in annotations}
+        # We want to memorize leader_observed_record and update leader_observed_time only for our cluster
+        if leader_path == self.leader_path and (leader_record or self._leader_observed_record)\
+                and leader_record != self._leader_observed_record:
+            self._leader_observed_record = leader_record
+            self._leader_observed_time = time.time()
+
+        leader = leader_record.get(self._LEADER)
+        try:
+            ttl = int(leader_record.get('ttl')) or self._ttl
+        except (TypeError, ValueError):
+            ttl = self._ttl
+
+        # We want to check validity of the leader record only for our own cluster
+        if leader_path == self.leader_path and\
+                not (metadata and self._leader_observed_time and self._leader_observed_time + ttl >= time.time()):
+            leader = None
+
+        if metadata:
+            member = Member(-1, leader, None, {})
+            member = ([m for m in members if m.name == leader] or [member])[0]
+            leader = Leader(metadata.resource_version, None, member)
+
+        # failover key
+        failover = nodes.get(path + self._FAILOVER)
+        metadata = failover and failover.metadata
+        failover = Failover.from_node(metadata and metadata.resource_version,
+                                      metadata and (metadata.annotations or {}).copy())
+
+        # get synchronization state
+        sync = nodes.get(path + self._SYNC)
+        metadata = sync and sync.metadata
+        sync = SyncState.from_node(metadata and metadata.resource_version,  metadata and metadata.annotations)
+
+        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
+
+    def _cluster_loader(self, path):
+        return self._cluster_from_nodes(path['group'], path['nodes'], path['pods'])
+
+    def _citus_cluster_loader(self, path):
+        clusters = defaultdict(lambda: {'pods': [], 'nodes': {}})
+
+        for pod in path['pods']:
+            group = pod.metadata.labels.get(self._CITUS_LABEL)
+            if group and citus_group_re.match(group):
+                clusters[group]['pods'].append(pod)
+
+        for name, kind in path['nodes'].items():
+            group = kind.metadata.labels.get(self._CITUS_LABEL)
+            if group and citus_group_re.match(group):
+                clusters[group]['nodes'][name] = kind
+        return {int(group): self._cluster_from_nodes(group, value['nodes'], value['pods'])
+                for group, value in clusters.items()}
+
+    def __load_cluster(self, group, loader):
         stop_time = time.time() + self._retry.deadline
         self._api.refresh_api_servers_cache()
         try:
             with self._condition:
                 self._wait_caches(stop_time)
-
-                members = [self.member(pod) for pod in self._pods.copy().values()]
-                nodes = self._kinds.copy()
-
-            config = nodes.get(self.config_path)
-            metadata = config and config.metadata
-            annotations = metadata and metadata.annotations or {}
-
-            # get initialize flag
-            initialize = annotations.get(self._INITIALIZE)
-
-            # get global dynamic configuration
-            config = ClusterConfig.from_node(metadata and metadata.resource_version,
-                                             annotations.get(self._CONFIG) or '{}',
-                                             metadata.resource_version if self._CONFIG in annotations else 0)
-
-            # get timeline history
-            history = TimelineHistory.from_node(metadata and metadata.resource_version,
-                                                annotations.get(self._HISTORY) or '[]')
-
-            leader = nodes.get(self.leader_path)
-            metadata = leader and leader.metadata
-            self._leader_resource_version = metadata.resource_version if metadata else None
-            annotations = metadata and metadata.annotations or {}
-
-            # get last known leader lsn
-            last_lsn = annotations.get(self._OPTIME)
-            try:
-                last_lsn = 0 if last_lsn is None else int(last_lsn)
-            except Exception:
-                last_lsn = 0
-
-            # get permanent slots state (confirmed_flush_lsn)
-            slots = annotations.get('slots')
-            try:
-                slots = slots and json.loads(slots)
-            except Exception:
-                slots = None
-
-            # get failsafe topology
-            failsafe = annotations.get(self._FAILSAFE)
-            try:
-                failsafe = json.loads(failsafe) if failsafe else None
-            except Exception:
-                failsafe = None
-
-            # get leader
-            leader_record = {n: annotations.get(n) for n in (self._LEADER, 'acquireTime',
-                             'ttl', 'renewTime', 'transitions') if n in annotations}
-            if (leader_record or self._leader_observed_record) and leader_record != self._leader_observed_record:
-                self._leader_observed_record = leader_record
-                self._leader_observed_time = time.time()
-
-            leader = leader_record.get(self._LEADER)
-            try:
-                ttl = int(leader_record.get('ttl')) or self._ttl
-            except (TypeError, ValueError):
-                ttl = self._ttl
-
-            if not metadata or not self._leader_observed_time or self._leader_observed_time + ttl < time.time() \
-                    and (self._name != leader or not isinstance(failsafe, dict) or leader not in failsafe):
-                leader = None
-
-            if metadata:
-                member = Member(-1, leader, None, {})
-                member = ([m for m in members if m.name == leader] or [member])[0]
-                leader = Leader(metadata.resource_version, None, member)
-
-            # failover key
-            failover = nodes.get(self.failover_path)
-            metadata = failover and failover.metadata
-            failover = Failover.from_node(metadata and metadata.resource_version,
-                                          metadata and (metadata.annotations or {}).copy())
-
-            # get synchronization state
-            sync = nodes.get(self.sync_path)
-            metadata = sync and sync.metadata
-            sync = SyncState.from_node(metadata and metadata.resource_version,  metadata and metadata.annotations)
-
-            return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
+                pods = [pod for pod in self._pods.copy().values()
+                        if not group or pod.metadata.labels.get(self._CITUS_LABEL) == group]
+                nodes = {name: kind for name, kind in self._kinds.copy().items()
+                         if not group or kind.metadata.labels.get(self._CITUS_LABEL) == group}
+            return loader({'group': group, 'pods': pods, 'nodes': nodes})
         except Exception:
             logger.exception('get_cluster')
             raise KubernetesError('Kubernetes API is not responding properly')
+
+    def _load_cluster(self, path, loader):
+        group = self._citus_group if path == self.client_path('') else None
+        return self.__load_cluster(group, loader)
+
+    def get_citus_coordinator(self):
+        try:
+            return self.__load_cluster(str(CITUS_COORDINATOR_GROUP_ID), self._cluster_loader)
+        except Exception as e:
+            logger.error('Failed to load Citus coordinator cluster from Kubernetes: %r', e)
 
     @staticmethod
     def compare_ports(p1, p2):

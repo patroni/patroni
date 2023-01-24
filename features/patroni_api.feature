@@ -14,9 +14,9 @@ Scenario: check API requests on a stand-alone server
 	Then I receive a response code 200
 	When I issue a GET request to http://127.0.0.1:8008/replica
 	Then I receive a response code 503
-	When I run patronictl.py reinit batman postgres0 --force
-	Then I receive a response returncode 0
-	And I receive a response output "Failed: reinitialize for member postgres0, status code=503, (I am the leader, can not reinitialize)"
+	When I issue a POST request to http://127.0.0.1:8008/reinitialize with {"force": true}
+	Then I receive a response code 503
+	And I receive a response text I am the leader, can not reinitialize
 	When I run patronictl.py switchover batman --master postgres0 --force
 	Then I receive a response returncode 1
 	And I receive a response output "Error: No candidates found to switchover to"

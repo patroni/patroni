@@ -14,6 +14,8 @@ We call Patroni a "template" because it is far from being a one-size-fits-all or
 
 Currently supported PostgreSQL versions: 9.3 to 15.
 
+**Note to Citus users**: Starting from 3.0 Patroni nicely integrates with `Citus <https://www.citusdata.com>`. Please check `Citus support <https://github.com/zalando/patroni/blob/master/docs/citus.rst>`__ page for more information.
+
 **Note to Kubernetes users**: Patroni can run natively on top of Kubernetes. Take a look at the `Kubernetes <https://github.com/zalando/patroni/blob/master/docs/kubernetes.rst>`__ chapter of the Patroni documentation.
 
 .. contents::
