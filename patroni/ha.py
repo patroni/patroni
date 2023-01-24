@@ -105,7 +105,6 @@ class Failsafe(object):
             cluster = list(cluster)
             # We rely on the strict order of fields in the namedtuple
             cluster[2] = leader
-            cluster[4].append(leader.member)
             cluster[8] = leader.member.data['slots']
             cluster = Cluster(*cluster)
         return cluster
@@ -483,7 +482,7 @@ class Ha(object):
                 node_to_follow = self._get_node_to_follow(self.cluster)
 
             if self.is_synchronous_mode():
-                self.state_handler.config.set_synchronous_standby([])
+                self.state_handler.sync_handler.set_synchronous_standby_names([])
         elif self.has_lock():
             msg = "starting as readonly because i had the session lock"
             node_to_follow = None
@@ -593,9 +592,9 @@ class Ha(object):
         if self.is_synchronous_mode():
             sync_node_count = self.patroni.config['synchronous_node_count']
             current = self.cluster.sync.leader and self.cluster.sync.members or []
-            picked, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster, sync_node_count,
-                                                                                self.patroni.config[
-                                                                                    'maximum_lag_on_syncnode'])
+            picked, allow_promote = self.state_handler.sync_handler.current_state(self.cluster, sync_node_count,
+                                                                                  self.patroni.config[
+                                                                                      'maximum_lag_on_syncnode'])
             if set(picked) != set(current):
                 # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
                 sync_common = list(set(current).intersection(set(allow_promote)))
@@ -613,15 +612,15 @@ class Ha(object):
                     logger.warning("No standbys available!")
 
                 logger.info("Assigning synchronous standby status to %s", picked)
-                self.state_handler.config.set_synchronous_standby(picked)
+                self.state_handler.sync_handler.set_synchronous_standby_names(picked)
 
                 if picked and picked[0] != '*' and set(allow_promote) != set(picked) and not allow_promote:
                     # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
                     time.sleep(2)
-                    _, allow_promote = self.state_handler.pick_synchronous_standby(self.cluster,
-                                                                                   sync_node_count,
-                                                                                   self.patroni.config[
-                                                                                       'maximum_lag_on_syncnode'])
+                    _, allow_promote = self.state_handler.sync_handler.current_state(self.cluster,
+                                                                                     sync_node_count,
+                                                                                     self.patroni.config[
+                                                                                         'maximum_lag_on_syncnode'])
                 if allow_promote and set(allow_promote) != set(sync_common):
                     try:
                         cluster = self.dcs.get_cluster()
@@ -637,7 +636,7 @@ class Ha(object):
         else:
             if self.cluster.sync.leader and self.dcs.delete_sync_state(index=self.cluster.sync.index):
                 logger.info("Disabled synchronous replication")
-            self.state_handler.config.set_synchronous_standby([])
+            self.state_handler.sync_handler.set_synchronous_standby_names([])
 
     def is_sync_standby(self, cluster):
         return cluster.leader and cluster.sync.leader == cluster.leader.name \
@@ -747,7 +746,8 @@ class Ha(object):
                     # Somebody else updated sync state, it may be due to us losing the lock. To be safe, postpone
                     # promotion until next cycle. TODO: trigger immediate retry of run_cycle
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
-                self.state_handler.config.set_synchronous_standby(['*'] if self.is_synchronous_mode_strict() else [])
+                self.state_handler.sync_handler.set_synchronous_standby_names(
+                    ['*'] if self.is_synchronous_mode_strict() else [])
             if self.state_handler.role not in ('master', 'promoted'):
                 def on_success():
                     self._rewind.reset_state()
@@ -1081,7 +1081,7 @@ class Ha(object):
                 node_to_follow, leader = None, None
 
         if self.is_synchronous_mode():
-            self.state_handler.config.set_synchronous_standby([])
+            self.state_handler.sync_handler.set_synchronous_standby_names([])
 
         # FIXME: with mode offline called from DCS exception handler and handle_long_action_in_progress
         # there could be an async action already running, calling follow from here will lead
@@ -1686,31 +1686,27 @@ class Ha(object):
                 # try to start dead postgres
                 return self.recover()
 
-            try:
-                if self.cluster.is_unlocked():
-                    ret = self.process_unhealthy_cluster()
-                else:
-                    msg = self.process_healthy_cluster()
-                    ret = self.evaluate_scheduled_restart() or msg
-            finally:
-                # we might not have a valid PostgreSQL connection here if another thread
-                # stops PostgreSQL, therefore, we only reload replication slots if no
-                # asynchronous processes are running (should be always the case for the master)
-                if not self._async_executor.busy and not self.state_handler.is_starting():
-                    create_slots = self.state_handler.slots_handler.sync_replication_slots(self.cluster,
-                                                                                           self.patroni.nofailover,
-                                                                                           self.patroni.replicatefrom,
-                                                                                           self.is_paused())
-                    if not self.state_handler.cb_called:
-                        if not self.state_handler.is_leader():
-                            self._rewind.trigger_check_diverged_lsn()
-                        self.state_handler.call_nowait(ACTION_ON_START)
-                    if create_slots and self.cluster.leader:
-                        err = self._async_executor.try_run_async('copy_logical_slots',
-                                                                 self.state_handler.slots_handler.copy_logical_slots,
-                                                                 args=(self.cluster, create_slots))
-                        if not err:
-                            ret = 'Copying logical slots {0} from the primary'.format(create_slots)
+            if self.cluster.is_unlocked():
+                ret = self.process_unhealthy_cluster()
+            else:
+                msg = self.process_healthy_cluster()
+                ret = self.evaluate_scheduled_restart() or msg
+
+            # we might not have a valid PostgreSQL connection here if another thread
+            # stops PostgreSQL, therefore, we only reload replication slots if no
+            # asynchronous processes are running (should be always the case for the master)
+            if not self._async_executor.busy and not self.state_handler.is_starting():
+                create_slots = self._sync_replication_slots(False)
+                if not self.state_handler.cb_called:
+                    if not self.state_handler.is_leader():
+                        self._rewind.trigger_check_diverged_lsn()
+                    self.state_handler.call_nowait(ACTION_ON_START)
+                if create_slots and self.cluster.leader:
+                    err = self._async_executor.try_run_async('copy_logical_slots',
+                                                             self.state_handler.slots_handler.copy_logical_slots,
+                                                             args=(self.cluster, create_slots))
+                    if not err:
+                        ret = 'Copying logical slots {0} from the primary'.format(create_slots)
             return ret
         except DCSError:
             dcs_failed = True
@@ -1720,9 +1716,9 @@ class Ha(object):
             return 'Error communicating with PostgreSQL. Will try again later'
         finally:
             if not dcs_failed:
-                self.touch_member()
-                if self.state_handler.is_leader():
+                if self.is_leader():
                     self._failsafe.set_is_active(0)
+                self.touch_member()
 
     def _handle_dcs_error(self):
         if not self.is_paused() and self.state_handler.is_running():
@@ -1739,15 +1735,35 @@ class Ha(object):
                 logger.warning('AsyncExecutor is busy, demoting from the main thread')
                 self.demote('offline')
                 return 'demoted self because DCS is not accessible and I was a leader'
-            elif self.is_failsafe_mode():
-                cluster = self._failsafe.update_cluster(self.cluster)
-                if cluster:
-                    self.state_handler.slots_handler.sync_replication_slots(cluster,
+            else:
+                self._sync_replication_slots(True)
+        return 'DCS is not accessible'
+
+    def _sync_replication_slots(self, dcs_failed):
+        """Handles replication slots.
+
+        :param dcs_failed: bool, indicates that communication with DCS failed (get_cluster() or update_leader())
+        :returns: list[str], replication slots names that should be copied from the primary"""
+
+        slots = []
+
+        # If dcs_failed we don't want to touch replication slots on a leader or replicas if failsafe_mode isn't enabled.
+        if not self.cluster or dcs_failed and (self.is_leader() or not self.is_failsafe_mode()):
+            return slots
+
+        # It could be that DCS is read-only, or only the leader can't access it.
+        # Only the second one could be handled by `load_cluster_from_dcs()`.
+        # The first one affects advancing logical replication slots on replicas, therefore we rely on
+        # Failsafe.update_cluster(), that will return "modified" Cluster if failsafe mode is active.
+        cluster = self._failsafe.update_cluster(self.cluster)\
+            if self.is_failsafe_mode() and not self.is_leader() else self.cluster
+        if cluster:
+            slots = self.state_handler.slots_handler.sync_replication_slots(cluster,
                                                                             self.patroni.nofailover,
                                                                             self.patroni.replicatefrom,
                                                                             self.is_paused())
-
-        return 'DCS is not accessible'
+        # Don't copy replication slots if failsafe_mode is active
+        return [] if self.failsafe_is_active() else slots
 
     def run_cycle(self):
         with self._async_executor:

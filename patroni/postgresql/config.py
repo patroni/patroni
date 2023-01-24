@@ -12,19 +12,12 @@ from .validator import CaseInsensitiveDict, recovery_parameters,\
         transform_postgresql_parameter_value, transform_recovery_parameter_value
 from ..dcs import slot_name_from_member_name, RemoteMember
 from ..exceptions import PatroniFatalException
-from ..psycopg import quote_ident as _quote_ident
 from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, \
         validate_directory, is_subpath
 
 logger = logging.getLogger(__name__)
 
-SYNC_STANDBY_NAME_RE = re.compile(r'^[A-Za-z_][A-Za-z_0-9\$]*$')
 PARAMETER_RE = re.compile(r'([a-z_]+)\s*=\s*')
-
-
-def quote_ident(value):
-    """Very simplified version of quote_ident"""
-    return value if SYNC_STANDBY_NAME_RE.match(value) else _quote_ident(value)
 
 
 def conninfo_uri_parse(dsn):
@@ -1047,23 +1040,19 @@ class ConfigHandler(object):
         else:
             logger.info('No PostgreSQL configuration items changed, nothing to reload.')
 
-    def set_synchronous_standby(self, sync_members):
-        """Sets a node to be synchronous standby and if changed does a reload for PostgreSQL."""
-        if sync_members and sync_members != ['*']:
-            sync_members = [quote_ident(x) for x in sync_members]
-        if self._postgresql.major_version >= 90600 and len(sync_members) > 1:
-            sync_param = '{0} ({1})'.format(len(sync_members), ','.join(sync_members))
-        else:
-            sync_param = next(iter(sync_members), None)
-        if sync_param != self._synchronous_standby_names:
-            if sync_param is None:
+    def set_synchronous_standby_names(self, value):
+        """Updates synchronous_standby_names and reloads if necessary.
+        :returns: True if value was updated."""
+        if value != self._synchronous_standby_names:
+            if value is None:
                 self._server_parameters.pop('synchronous_standby_names', None)
             else:
-                self._server_parameters['synchronous_standby_names'] = sync_param
-            self._synchronous_standby_names = sync_param
+                self._server_parameters['synchronous_standby_names'] = value
+            self._synchronous_standby_names = value
             if self._postgresql.state == 'running':
                 self.write_postgresql_conf()
                 self._postgresql.reload()
+            return True
 
     @property
     def effective_configuration(self):

@@ -23,7 +23,7 @@ from .citus import CitusHandler
 from .misc import parse_history, parse_lsn, postgres_major_version_to_int
 from .postmaster import PostmasterProcess
 from .slots import SlotsHandler
-from .validator import CaseInsensitiveDict
+from .sync import SyncHandler
 from .. import psycopg
 from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
@@ -87,6 +87,7 @@ class Postgresql(object):
         self.__thread_ident = current_thread().ident
 
         self.slots_handler = SlotsHandler(self)
+        self.sync_handler = SyncHandler(self)
 
         self._callback_executor = CallbackExecutor()
         self.__cb_called = False
@@ -178,12 +179,12 @@ class Postgresql(object):
 
         extra = ", " + (("pg_catalog.current_setting('synchronous_commit'), " +
                          "pg_catalog.current_setting('synchronous_standby_names'), "
-                         "(SELECT pg_catalog.json_agg(r.*) FROM (SELECT application_name, sync_state," +
+                         "(SELECT pg_catalog.json_agg(r.*) FROM (SELECT w.pid as pid, application_name, sync_state," +
                          " pg_catalog.pg_{0}_{1}_diff(write_{1}, '0/0')::bigint AS write_lsn," +
                          " pg_catalog.pg_{0}_{1}_diff(flush_{1}, '0/0')::bigint AS flush_lsn," +
                          " pg_catalog.pg_{0}_{1}_diff(replay_{1}, '0/0')::bigint AS replay_lsn " +
                          "FROM pg_catalog.pg_stat_get_wal_senders() w," +
-                         " pg_catalog.pg_stat_get_activity(pid)" +
+                         " pg_catalog.pg_stat_get_activity(w.pid)" +
                          " WHERE w.state = 'streaming') r)").format(self.wal_name, self.lsn_name)
                         if self._is_synchronous_mode and self.role == 'master' else "'on', '', NULL")
 
@@ -405,6 +406,15 @@ class Postgresql(object):
 
     def received_timeline(self):
         return self._cluster_info_state_get('received_tli')
+
+    def synchronous_commit(self):
+        return self._cluster_info_state_get('synchronous_commit')
+
+    def synchronous_standby_names(self):
+        return self._cluster_info_state_get('synchronous_standby_names')
+
+    def pg_stat_replication(self):
+        return self._cluster_info_state_get('pg_stat_replication') or []
 
     def is_leader(self):
         try:
@@ -1070,13 +1080,15 @@ class Postgresql(object):
     def move_data_directory(self):
         if os.path.isdir(self._data_dir) and not self.is_running():
             try:
-                postfix = time.strftime('%Y-%m-%d-%H-%M-%S')
+                postfix = 'failed'
 
                 # let's see if the wal directory is a symlink, in this case we
                 # should move the target
                 for (source, pg_wal_realpath) in self.pg_wal_realpath().items():
                     logger.info('renaming WAL directory and updating symlink: %s', pg_wal_realpath)
-                    new_name = '{0}_{1}'.format(pg_wal_realpath, postfix)
+                    new_name = '{0}.{1}'.format(pg_wal_realpath, postfix)
+                    if os.path.exists(new_name):
+                        shutil.rmtree(new_name)
                     os.rename(pg_wal_realpath, new_name)
                     os.unlink(source)
                     os.symlink(new_name, source)
@@ -1084,13 +1096,17 @@ class Postgresql(object):
                 # Move user defined tablespace directory
                 for (source, pg_tsp_rpath) in self.pg_tblspc_realpaths().items():
                     logger.info('renaming user defined tablespace directory and updating symlink: %s', pg_tsp_rpath)
-                    new_name = '{0}_{1}'.format(pg_tsp_rpath, postfix)
+                    new_name = '{0}.{1}'.format(pg_tsp_rpath, postfix)
+                    if os.path.exists(new_name):
+                        shutil.rmtree(new_name)
                     os.rename(pg_tsp_rpath, new_name)
                     os.unlink(source)
                     os.symlink(new_name, source)
 
-                new_name = '{0}_{1}'.format(self._data_dir, postfix)
+                new_name = '{0}.{1}'.format(self._data_dir, postfix)
                 logger.info('renaming data directory to %s', new_name)
+                if os.path.exists(new_name):
+                    shutil.rmtree(new_name)
                 os.rename(self._data_dir, new_name)
             except OSError:
                 logger.exception("Could not rename data directory %s", self._data_dir)
@@ -1122,54 +1138,6 @@ class Postgresql(object):
         except (IOError, OSError):
             logger.exception('Could not remove data directory %s', self._data_dir)
             self.move_data_directory()
-
-    def pick_synchronous_standby(self, cluster, sync_node_count=1, sync_node_maxlag=-1):
-        """Finds the best candidate to be the synchronous standby.
-
-        Current synchronous standby is always preferred, unless it has disconnected or does not want to be a
-        synchronous standby any longer.
-        Parameter sync_node_maxlag(maximum_lag_on_syncnode) would help swapping unhealthy sync replica in case
-        if it stops responding (or hung). Please set the value high enough so it won't unncessarily swap sync
-        standbys during high loads. Any less or equal of 0 value keep the behavior backward compatible and
-        will not swap. Please note that it will not also swap sync standbys in case where all replicas are hung.
-
-        :returns tuple of candidates list and synchronous standby list.
-        """
-        if self._major_version < 90600:
-            sync_node_count = 1
-        members = CaseInsensitiveDict({m.name: m for m in cluster.members})
-        candidates = []
-        sync_nodes = []
-        replica_list = []
-        # Pick candidates based on who has higher replay/remote_write/flush lsn.
-        synchronous_commit = self._cluster_info_state_get('synchronous_commit')
-        sort_col = {'remote_apply': 'replay', 'remote_write': 'write'}.get(synchronous_commit, 'flush') + '_lsn'
-        pg_stat_replication = [(r['application_name'], r['sync_state'], r[sort_col])
-                               for r in self._cluster_info_state_get('pg_stat_replication') or []
-                               if r[sort_col] is not None]
-        # pg_stat_replication.sync_state has 4 possible states - async, potential, quorum, sync.
-        # That is, alphabetically they are in the reversed order of priority.
-        # Since we are doing reversed sort on (sync_state, lsn) tuples, it helps to keep the result
-        # consistent in case if a synchronous standby member is slowed down OR async node receiving
-        # changes faster than the sync member (very rare but possible).
-        # Such cases would trigger sync standby member swapping, but only if lag on a sync node exceeding a threshold.
-        for app_name, sync_state, replica_lsn in sorted(pg_stat_replication, key=lambda r: (r[1], r[2]), reverse=True):
-            member = members.get(app_name)
-            if member and member.is_running and not member.tags.get('nosync', False):
-                replica_list.append((member.name, sync_state, replica_lsn, bool(member.nofailover)))
-
-        max_lsn = max(replica_list, key=lambda x: x[2])[2] if len(replica_list) > 1 else self.last_operation()
-
-        # Prefer members without nofailover tag. We are relying on the fact that sorts are guaranteed to be stable.
-        for app_name, sync_state, replica_lsn, _ in sorted(replica_list, key=lambda x: x[3]):
-            if sync_node_maxlag <= 0 or max_lsn - replica_lsn <= sync_node_maxlag:
-                candidates.append(app_name)
-                if sync_state == 'sync':
-                    sync_nodes.append(app_name)
-            if len(candidates) >= sync_node_count:
-                break
-
-        return candidates, sync_nodes
 
     def schedule_sanity_checks_after_pause(self):
         """
