@@ -1088,7 +1088,7 @@ def after_all(context):
         with open(log) as f:
             for line in f:
                 if 'please report it as a BUG' in line:
-                    print(':'.join([log, line]), end='')
+                    print(':'.join([log, line.rstrip()]))
                     found = True
     if found:
         raise Exception('Unexpected errors in Patroni log files')
