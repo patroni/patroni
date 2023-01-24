@@ -1082,7 +1082,15 @@ def after_all(context):
     subprocess.call([sys.executable, '-m', 'coverage', 'report'])
     import glob
     logs = glob.glob('features/output/*/patroni_*.log')
-    if logs and subprocess.call(['grep', 'please report it as a BUG'] + logs) == 0:
+
+    found = False
+    for log in logs:
+        with open(log) as f:
+            for line in f:
+                if 'please report it as a BUG' in line:
+                    print(':'.join([log, line]), end='')
+                    found = True
+    if found:
         raise Exception('Unexpected errors in Patroni log files')
 
 
