@@ -500,9 +500,25 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(),
                          'continue to run as a leader because failsafe mode is enabled and all members are accessible')
 
+    def test_readonly_dcs_primary_failsafe(self):
+        self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
+        self.ha.dcs.update_leader = Mock(side_effect=DCSError('Etcd is not responding properly'))
+        self.ha.dcs._last_failsafe = self.ha.cluster.failsafe
+        self.ha.state_handler.name = self.ha.cluster.leader.name
+        self.assertEqual(self.ha.run_cycle(),
+                         'continue to run as a leader because failsafe mode is enabled and all members are accessible')
+
     def test_no_dcs_connection_replica_failsafe(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
+        self.ha.update_failsafe({'name': 'leader', 'api_url': 'http://127.0.0.1:8008/patroni',
+                                 'conn_url': 'postgres://127.0.0.1:5432/postgres', 'slots': {'foo': 1000}})
+        self.p.is_leader = false
+        self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
+
+    def test_no_dcs_connection_replica_failsafe_not_enabled_but_active(self):
+        self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
+        self.ha.cluster = get_cluster_initialized_with_leader()
         self.ha.update_failsafe({'name': 'leader', 'api_url': 'http://127.0.0.1:8008/patroni',
                                  'conn_url': 'postgres://127.0.0.1:5432/postgres', 'slots': {'foo': 1000}})
         self.p.is_leader = false
