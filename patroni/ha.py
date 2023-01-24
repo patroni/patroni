@@ -1640,34 +1640,27 @@ class Ha(object):
                 # try to start dead postgres
                 return self.recover()
 
-            try:
-                if self.cluster.is_unlocked():
-                    ret = self.process_unhealthy_cluster()
-                else:
-                    msg = self.process_healthy_cluster()
-                    ret = self.evaluate_scheduled_restart() or msg
-            except DCSError:
-                dcs_failed = True
-                raise
-            finally:
-                if not dcs_failed:
-                    if self.is_leader():
-                        self._failsafe.set_is_active(0)
-                # we might not have a valid PostgreSQL connection here if another thread
-                # stops PostgreSQL, therefore, we only reload replication slots if no
-                # asynchronous processes are running (should be always the case for the master)
-                if not self._async_executor.busy and not self.state_handler.is_starting():
-                    create_slots = self._sync_replication_slots(dcs_failed)
-                    if not self.state_handler.cb_called:
-                        if not self.state_handler.is_leader():
-                            self._rewind.trigger_check_diverged_lsn()
-                        self.state_handler.call_nowait(ACTION_ON_START)
-                    if create_slots and self.cluster.leader:
-                        err = self._async_executor.try_run_async('copy_logical_slots',
-                                                                 self.state_handler.slots_handler.copy_logical_slots,
-                                                                 args=(self.cluster, create_slots))
-                        if not err:
-                            ret = 'Copying logical slots {0} from the primary'.format(create_slots)
+            if self.cluster.is_unlocked():
+                ret = self.process_unhealthy_cluster()
+            else:
+                msg = self.process_healthy_cluster()
+                ret = self.evaluate_scheduled_restart() or msg
+
+            # we might not have a valid PostgreSQL connection here if another thread
+            # stops PostgreSQL, therefore, we only reload replication slots if no
+            # asynchronous processes are running (should be always the case for the master)
+            if not self._async_executor.busy and not self.state_handler.is_starting():
+                create_slots = self._sync_replication_slots(False)
+                if not self.state_handler.cb_called:
+                    if not self.state_handler.is_leader():
+                        self._rewind.trigger_check_diverged_lsn()
+                    self.state_handler.call_nowait(ACTION_ON_START)
+                if create_slots and self.cluster.leader:
+                    err = self._async_executor.try_run_async('copy_logical_slots',
+                                                             self.state_handler.slots_handler.copy_logical_slots,
+                                                             args=(self.cluster, create_slots))
+                    if not err:
+                        ret = 'Copying logical slots {0} from the primary'.format(create_slots)
             return ret
         except DCSError:
             dcs_failed = True
@@ -1677,6 +1670,8 @@ class Ha(object):
             return 'Error communicating with PostgreSQL. Will try again later'
         finally:
             if not dcs_failed:
+                if self.is_leader():
+                    self._failsafe.set_is_active(0)
                 self.touch_member()
 
     def _handle_dcs_error(self):
