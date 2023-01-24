@@ -1,5 +1,6 @@
 import abc
 import datetime
+import glob
 import os
 import json
 import psutil
@@ -1080,18 +1081,6 @@ def after_all(context):
     context.dcs_ctl.stop()
     subprocess.call([sys.executable, '-m', 'coverage', 'combine'])
     subprocess.call([sys.executable, '-m', 'coverage', 'report'])
-    import glob
-    logs = glob.glob('features/output/*/patroni_*.log')
-
-    found = False
-    for log in logs:
-        with open(log) as f:
-            for line in f:
-                if 'please report it as a BUG' in line:
-                    print(':'.join([log, line.rstrip()]))
-                    found = True
-    if found:
-        raise Exception('Unexpected errors in Patroni log files')
 
 
 def before_feature(context, feature):
@@ -1111,8 +1100,20 @@ def after_feature(context, feature):
     if os.path.exists(data):
         shutil.rmtree(data)
     context.dcs_ctl.cleanup_service_tree()
-    if feature.status == 'failed':
+
+    found = False
+    logs = glob.glob(context.pctl.output_dir + '/patroni_*.log')
+    for log in logs:
+        with open(log) as f:
+            for line in f:
+                if 'Unexpected errors in Patroni log files' in line:
+                    print(':'.join([log, line.rstrip()]))
+                    found = True
+
+    if feature.status == 'failed' or found:
         shutil.copytree(context.pctl.output_dir, context.pctl.output_dir + '_failed')
+    if found:
+        raise Exception('Unexpected errors in Patroni log files')
 
 
 def before_scenario(context, scenario):
