@@ -144,7 +144,7 @@ jobs:
         name: behave-${{ matrix.os }}-${{ matrix.dcs }}-${{ matrix.python-version }}-logs
         path: |
           features/output/*_failed/*postgres?.*
-          features/output/*
+          features/output/*.log
         if-no-files-found: error
         retention-days: 5
     - name: Generate coverage xml report
