@@ -1106,7 +1106,7 @@ def after_feature(context, feature):
     for log in logs:
         with open(log) as f:
             for line in f:
-                if 'Unexpected errors in Patroni log files' in line:
+                if 'please report it as a BUG' in line:
                     print(':'.join([log, line.rstrip()]))
                     found = True
 
