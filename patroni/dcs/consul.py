@@ -478,6 +478,10 @@ class Consul(AbstractDCS):
             check['TLSServerName'] = self._service_check_tls_server_name
         tags = self._service_tags[:]
         tags.append(role)
+        if role == 'master':
+            tags.append('primary')
+        elif role == 'primary':
+            tags.append('master')
         self._previous_loop_service_tags = self._service_tags
         self._previous_loop_token = self._client.token
 
