@@ -362,8 +362,8 @@ class Config(object):
                 if suffix in ('HOST', 'HOSTS', 'PORT', 'USE_PROXIES', 'PROTOCOL', 'SRV', 'SRV_SUFFIX', 'URL', 'PROXY',
                               'CACERT', 'CERT', 'KEY', 'VERIFY', 'TOKEN', 'CHECKS', 'DC', 'CONSISTENCY',
                               'REGISTER_SERVICE', 'SERVICE_CHECK_INTERVAL', 'SERVICE_CHECK_TLS_SERVER_NAME',
-                              'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL', 'POD_IP',
-                              'PORTS', 'LABELS', 'BYPASS_API_SERVICE', 'KEY_PASSWORD', 'USE_SSL', 'SET_ACLS',
+                              'SERVICE_TAGS', 'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL',
+                              'POD_IP', 'PORTS', 'LABELS', 'BYPASS_API_SERVICE', 'KEY_PASSWORD', 'USE_SSL', 'SET_ACLS',
                               'GROUP', 'DATABASE') and name:
                     value = os.environ.pop(param)
                     if name == 'CITUS':
@@ -373,7 +373,7 @@ class Config(object):
                             continue
                     elif suffix == 'PORT':
                         value = value and parse_int(value)
-                    elif suffix in ('HOSTS', 'PORTS', 'CHECKS'):
+                    elif suffix in ('HOSTS', 'PORTS', 'CHECKS', 'SERVICE_TAGS'):
                         value = value and _parse_list(value)
                     elif suffix in ('LABELS', 'SET_ACLS'):
                         value = _parse_dict(value)
