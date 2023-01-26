@@ -19,7 +19,7 @@ def install_requirements(what):
     requirements = ['mock>=2.0.0', 'flake8', 'pytest', 'pytest-cov'] if what == 'all' else ['behave']
     requirements += ['coverage']
     # try to split tests between psycopg2 and psycopg3
-    requirements += ['psycopg[binary]'] if sys.version_info >= (3, 6, 0) and\
+    requirements += ['psycopg[binary]'] if sys.version_info > (3, 7, 0) and\
         (sys.platform != 'darwin' or what == 'etcd3') else ['psycopg2-binary']
     for r in read('requirements.txt').split('\n'):
         r = r.strip()
