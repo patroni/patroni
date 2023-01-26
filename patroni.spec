@@ -8,7 +8,7 @@ def hiddenimports():
     sys.path.insert(0, '.')
     try:
         import patroni.dcs
-        return patroni.dcs.dcs_modules()
+        return patroni.dcs.dcs_modules() + ['http.server']
     finally:
         sys.path.pop(0)
 
