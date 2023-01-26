@@ -13,7 +13,7 @@ This version adds integration with `Citus <https://www.citusdata.com>`__ and mak
 
    - The RAFT support is deprecated. We will do our best maintaining it, but take neither guaranty nor responsibility on possible issues.
 
-   - This version is a first step in getting rid from the "master", in favor of "primary". Upgrading to the next major release will work reliably only if you run at least 3.0.0.
+   - This version is the first step in getting rid of the "master", in favor of "primary". Upgrading to the next major release will work reliably only if you run at least 3.0.0.
 
 **New features**
 
@@ -31,7 +31,7 @@ This version adds integration with `Citus <https://www.citusdata.com>`__ and mak
 
   Patroni will still write these logs, but only in DEBUG.
 
-- Run only one query per HA loop (Alexander)
+- Run only one monitoring query per HA loop (Alexander)
 
   It wasn't the case if synchronous replication is enabled.
 
