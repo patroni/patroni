@@ -34,7 +34,6 @@ except ImportError:  # pragma: no cover
 
 from .dcs import get_dcs as _get_dcs
 from .exceptions import PatroniException
-from .postgresql import Postgresql
 from .postgresql.misc import postgres_version_to_int
 from .utils import cluster_as_json, find_executable, patch_config, polling_loop, is_standby_cluster
 from .request import PatroniRequest
@@ -947,62 +946,6 @@ def topology(ctx, obj, cluster_names, group, watch, w):
 
 def timestamp(precision=6):
     return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:precision - 7]
-
-
-def touch_member(config, dcs):
-    ''' Rip-off of the ha.touch_member without inter-class dependencies '''
-    p = Postgresql(config['postgresql'])
-    p.set_state('running')
-    p.set_role('master')
-
-    def restapi_connection_string(config):
-        protocol = 'https' if config.get('certfile') else 'http'
-        connect_address = config.get('connect_address')
-        listen = config['listen']
-        return '{0}://{1}/patroni'.format(protocol, connect_address or listen)
-
-    data = {
-        'conn_url': p.connection_string,
-        'api_url': restapi_connection_string(config['restapi']),
-        'state': p.state,
-        'role': p.role
-    }
-
-    return dcs.touch_member(data, permanent=True)
-
-
-def set_defaults(config, cluster_name):
-    """fill-in some basic configuration parameters if config file is not set """
-    config['postgresql'].setdefault('name', cluster_name)
-    config['postgresql'].setdefault('scope', cluster_name)
-    config['postgresql'].setdefault('listen', '127.0.0.1')
-    config['postgresql']['authentication'] = {'replication': None}
-    config['restapi']['listen'] = ':' in config['restapi']['listen'] and config['restapi']['listen'] or '127.0.0.1:8008'
-
-
-@ctl.command('scaffold', help='Create a structure for the cluster in DCS')
-@click.argument('cluster_name')
-@option_citus_group
-@click.option('--sysid', '-s', help='System ID of the cluster to put into the initialize key', default="")
-@click.pass_obj
-def scaffold(obj, cluster_name, group, sysid):
-    dcs = get_dcs(obj, cluster_name, group)
-    cluster = dcs.get_cluster()
-    if cluster and cluster.initialize is not None:
-        raise PatroniCtlException("This cluster is already initialized")
-
-    if not dcs.initialize(create_new=True, sysid=sysid):
-        # initialize key already exists, don't touch this cluster
-        raise PatroniCtlException("Initialize key for cluster {0} already exists".format(cluster_name))
-
-    set_defaults(obj, cluster_name)
-
-    # make sure the leader keys will never expire
-    if not (touch_member(obj, dcs) and dcs.attempt_to_acquire_leader(permanent=True)):
-        # we did initialize this cluster, but failed to write the leader or member keys, wipe it down completely.
-        dcs.delete_cluster()
-        raise PatroniCtlException("Unable to install permanent leader for cluster {0}".format(cluster_name))
-    click.echo("Cluster {0} has been created successfully".format(cluster_name))
 
 
 @ctl.command('flush', help='Discard scheduled events')

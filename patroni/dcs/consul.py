@@ -415,12 +415,12 @@ class Consul(AbstractDCS):
             raise ConsulError('Consul is not responding properly')
 
     @catch_consul_errors
-    def touch_member(self, data, permanent=False):
+    def touch_member(self, data):
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
 
         try:
-            create_member = not permanent and self.refresh_session()
+            create_member = self.refresh_session()
         except DCSError:
             return False
 
@@ -438,8 +438,7 @@ class Consul(AbstractDCS):
             return True
 
         try:
-            args = {} if permanent else {'acquire': self._session}
-            self._client.kv.put(self.member_path, json.dumps(data, separators=(',', ':')), **args)
+            self._client.kv.put(self.member_path, json.dumps(data, separators=(',', ':')), acquire=self._session)
             return True
         except InvalidSession:
             self._session = None
@@ -524,10 +523,9 @@ class Consul(AbstractDCS):
         ):
             return self._update_service(new_data)
 
-    def _do_attempt_to_acquire_leader(self, permanent, retry):
+    def _do_attempt_to_acquire_leader(self, retry):
         try:
-            kwargs = {} if permanent else {'acquire': self._session}
-            return retry(self._client.kv.put, self.leader_path, self._name, **kwargs)
+            return retry(self._client.kv.put, self.leader_path, self._name, acquire=self._session)
         except InvalidSession:
             logger.error('Our session disappeared from Consul. Will try to get a new one and retry attempt')
             self._session = None
@@ -542,16 +540,15 @@ class Consul(AbstractDCS):
             return retry(self._client.kv.put, self.leader_path, self._name, acquire=self._session)
 
     @catch_return_false_exception
-    def attempt_to_acquire_leader(self, permanent=False):
+    def attempt_to_acquire_leader(self):
         retry = self._retry.copy()
-        if not permanent:
-            self._run_and_handle_exceptions(self._do_refresh_session, retry=retry)
+        self._run_and_handle_exceptions(self._do_refresh_session, retry=retry)
 
-            retry.deadline = retry.stoptime - time.time()
-            if retry.deadline < 1:
-                raise ConsulError('attempt_to_acquire_leader timeout')
+        retry.deadline = retry.stoptime - time.time()
+        if retry.deadline < 1:
+            raise ConsulError('attempt_to_acquire_leader timeout')
 
-        ret = self._run_and_handle_exceptions(self._do_attempt_to_acquire_leader, permanent, retry, retry=None)
+        ret = self._run_and_handle_exceptions(self._do_attempt_to_acquire_leader, retry, retry=None)
         if not ret:
             logger.info('Could not take out TTL lock')
 

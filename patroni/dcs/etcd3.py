@@ -743,12 +743,11 @@ class Etcd3(AbstractEtcd):
         return cluster
 
     @catch_etcd_errors
-    def touch_member(self, data, permanent=False):
-        if not permanent:
-            try:
-                self.refresh_lease()
-            except Etcd3Error:
-                return False
+    def touch_member(self, data):
+        try:
+            self.refresh_lease()
+        except Etcd3Error:
+            return False
 
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
@@ -758,7 +757,7 @@ class Etcd3(AbstractEtcd):
 
         data = json.dumps(data, separators=(',', ':'))
         try:
-            return self._client.put(self.member_path, data, None if permanent else self._lease)
+            return self._client.put(self.member_path, data, self._lease)
         except LeaseNotFound:
             self._lease = None
             logger.error('Our lease disappeared from Etcd, can not "touch_member"')
@@ -767,13 +766,13 @@ class Etcd3(AbstractEtcd):
     def take_leader(self):
         return self.retry(self._client.put, self.leader_path, self._name, self._lease)
 
-    def _do_attempt_to_acquire_leader(self, permanent, retry):
+    def _do_attempt_to_acquire_leader(self, retry):
         def _retry(*args, **kwargs):
             kwargs['retry'] = retry
             return retry(*args, **kwargs)
 
         try:
-            return _retry(self._client.put, self.leader_path, self._name, None if permanent else self._lease, 0)
+            return _retry(self._client.put, self.leader_path, self._name, self._lease, 0)
         except LeaseNotFound:
             logger.error('Our lease disappeared from Etcd. Will try to get a new one and retry attempt')
             self._lease = None
@@ -785,24 +784,23 @@ class Etcd3(AbstractEtcd):
             if retry.deadline < 1:
                 raise Etcd3Error('_do_attempt_to_acquire_leader timeout')
 
-            return _retry(self._client.put, self.leader_path, self._name, None if permanent else self._lease, 0)
+            return _retry(self._client.put, self.leader_path, self._name, self._lease, 0)
 
     @catch_return_false_exception
-    def attempt_to_acquire_leader(self, permanent=False):
+    def attempt_to_acquire_leader(self):
         retry = self._retry.copy()
 
         def _retry(*args, **kwargs):
             kwargs['retry'] = retry
             return retry(*args, **kwargs)
 
-        if not permanent:
-            self._run_and_handle_exceptions(self._do_refresh_lease, retry=_retry)
+        self._run_and_handle_exceptions(self._do_refresh_lease, retry=_retry)
 
-            retry.deadline = retry.stoptime - time.time()
-            if retry.deadline < 1:
-                raise Etcd3Error('attempt_to_acquire_leader timeout')
+        retry.deadline = retry.stoptime - time.time()
+        if retry.deadline < 1:
+            raise Etcd3Error('attempt_to_acquire_leader timeout')
 
-        ret = self._run_and_handle_exceptions(self._do_attempt_to_acquire_leader, permanent, retry, retry=None)
+        ret = self._run_and_handle_exceptions(self._do_attempt_to_acquire_leader, retry, retry=None)
         if not ret:
             logger.info('Could not take out TTL lock')
         return ret
