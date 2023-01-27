@@ -921,11 +921,9 @@ class AbstractDCS(object):
         return ret
 
     @abc.abstractmethod
-    def attempt_to_acquire_leader(self, permanent=False):
+    def attempt_to_acquire_leader(self):
         """Attempt to acquire leader lock
         This method should create `/leader` key with value=`~self._name`
-        :param permanent: if set to `!True`, the leader key will never expire.
-         Used in patronictl for the external primary
         :returns: `!True` if key has been created successfully.
 
         Key must be created atomically. In case if key already exists it should not be
@@ -955,15 +953,13 @@ class AbstractDCS(object):
         """Create or update `/config` key"""
 
     @abc.abstractmethod
-    def touch_member(self, data, permanent=False):
+    def touch_member(self, data):
         """Update member key in DCS.
         This method should create or update key with the name = '/members/' + `~self._name`
         and value = data in a given DCS.
 
         :param data: information about instance (including connection strings)
         :param ttl: ttl for member key, optional parameter. If it is None `~self.member_ttl will be used`
-        :param permanent: if set to `!True`, the member key will never expire.
-         Used in patronictl for the external primary
         :returns: `!True` on success otherwise `!False`
         """
 

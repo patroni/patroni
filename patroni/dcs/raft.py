@@ -415,9 +415,8 @@ class Raft(AbstractDCS):
             ret = self.attempt_to_acquire_leader()
         return ret
 
-    def attempt_to_acquire_leader(self, permanent=False):
-        return self._sync_obj.set(self.leader_path, self._name, ttl=None if permanent else self._ttl,
-                                  handle_raft_error=False, prevExist=False)
+    def attempt_to_acquire_leader(self):
+        return self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl, handle_raft_error=False, prevExist=False)
 
     def set_failover_value(self, value, index=None):
         return self._sync_obj.set(self.failover_path, value, prevIndex=index)
@@ -425,9 +424,9 @@ class Raft(AbstractDCS):
     def set_config_value(self, value, index=None):
         return self._sync_obj.set(self.config_path, value, prevIndex=index)
 
-    def touch_member(self, data, permanent=False):
+    def touch_member(self, data):
         data = json.dumps(data, separators=(',', ':'))
-        return self._sync_obj.set(self.member_path, data, None if permanent else self._ttl, timeout=2)
+        return self._sync_obj.set(self.member_path, data, self._ttl, timeout=2)
 
     def take_leader(self):
         return self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl)

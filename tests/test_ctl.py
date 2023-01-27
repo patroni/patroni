@@ -404,30 +404,6 @@ class TestCtl(unittest.TestCase):
             self.runner.invoke(ctl, ['list'])
 
     @patch('patroni.ctl.get_dcs')
-    def test_scaffold(self, mock_get_dcs):
-        mock_get_dcs.return_value = self.e
-        mock_get_dcs.return_value.get_cluster = get_cluster_not_initialized_without_leader
-        mock_get_dcs.return_value.initialize = Mock(return_value=True)
-        mock_get_dcs.return_value.touch_member = Mock(return_value=True)
-        mock_get_dcs.return_value.attempt_to_acquire_leader = Mock(return_value=True)
-        mock_get_dcs.return_value.delete_cluster = Mock()
-
-        with patch.object(self.e, 'initialize', return_value=False):
-            result = self.runner.invoke(ctl, ['scaffold', 'alpha'])
-            assert result.exception
-
-        with patch.object(mock_get_dcs.return_value, 'touch_member', Mock(return_value=False)):
-            result = self.runner.invoke(ctl, ['scaffold', 'alpha'])
-            assert result.exception
-
-        result = self.runner.invoke(ctl, ['scaffold', 'alpha'])
-        assert result.exit_code == 0
-
-        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
-        result = self.runner.invoke(ctl, ['scaffold', 'alpha'])
-        assert result.exception
-
-    @patch('patroni.ctl.get_dcs')
     def test_list_extended(self, mock_get_dcs):
         mock_get_dcs.return_value = self.e
         cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))

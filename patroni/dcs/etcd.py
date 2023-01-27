@@ -694,28 +694,24 @@ class Etcd(AbstractEtcd):
         return cluster
 
     @catch_etcd_errors
-    def touch_member(self, data, permanent=False):
+    def touch_member(self, data):
         data = json.dumps(data, separators=(',', ':'))
-        return self._client.set(self.member_path, data, None if permanent else self._ttl)
+        return self._client.set(self.member_path, data, self._ttl)
 
     @catch_etcd_errors
     def take_leader(self):
         return self.retry(self._client.write, self.leader_path, self._name, ttl=self._ttl)
 
-    def _do_attempt_to_acquire_leader(self, permanent=False):
+    def _do_attempt_to_acquire_leader(self):
         try:
-            return bool(self.retry(self._client.write,
-                                   self.leader_path,
-                                   self._name,
-                                   ttl=None if permanent else self._ttl,
-                                   prevExist=False))
+            return bool(self.retry(self._client.write, self.leader_path, self._name, ttl=self._ttl, prevExist=False))
         except etcd.EtcdAlreadyExist:
             logger.info('Could not take out TTL lock')
             return False
 
     @catch_return_false_exception
-    def attempt_to_acquire_leader(self, permanent=False):
-        return self._run_and_handle_exceptions(self._do_attempt_to_acquire_leader, permanent=permanent, retry=None)
+    def attempt_to_acquire_leader(self):
+        return self._run_and_handle_exceptions(self._do_attempt_to_acquire_leader, retry=None)
 
     @catch_etcd_errors
     def set_failover_value(self, value, index=None):

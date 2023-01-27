@@ -340,10 +340,10 @@ class ZooKeeper(AbstractDCS):
             logger.exception('Failed to create %s', path)
         return False
 
-    def attempt_to_acquire_leader(self, permanent=False):
+    def attempt_to_acquire_leader(self):
         try:
             self._client.retry(self._client.create, self.leader_path, self._name.encode('utf-8'),
-                               makepath=True, ephemeral=not permanent)
+                               makepath=True, ephemeral=True)
             return True
         except (ConnectionClosedError, RetryFailedError) as e:
             raise ZooKeeperError(e)
@@ -383,7 +383,7 @@ class ZooKeeper(AbstractDCS):
         return self._create(self.initialize_path, sysid, retry=True) if create_new \
             else self._client.retry(self._client.set, self.initialize_path, sysid)
 
-    def touch_member(self, data, permanent=False):
+    def touch_member(self, data):
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         member_data = self.__last_member_data or member and member.data
@@ -408,8 +408,7 @@ class ZooKeeper(AbstractDCS):
                 return True
         else:
             try:
-                self._client.create_async(self.member_path, encoded_data, makepath=True,
-                                          ephemeral=not permanent).get(timeout=1)
+                self._client.create_async(self.member_path, encoded_data, makepath=True, ephemeral=True).get(timeout=1)
                 self.__last_member_data = data
                 return True
             except Exception as e:

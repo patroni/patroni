@@ -277,7 +277,7 @@ class TestEtcd(unittest.TestCase):
         self.assertIsInstance(cluster.workers[1], Cluster)
 
     def test_touch_member(self):
-        self.assertFalse(self.etcd.touch_member('', ''))
+        self.assertFalse(self.etcd.touch_member(''))
 
     def test_take_leader(self):
         self.assertFalse(self.etcd.take_leader())
