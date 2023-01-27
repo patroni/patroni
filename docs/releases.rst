@@ -15,6 +15,7 @@ This version adds integration with `Citus <https://www.citusdata.com>`__ and mak
 
    - This version is the first step in getting rid of the "master", in favor of "primary". Upgrading to the next major release will work reliably only if you run at least 3.0.0.
 
+
 **New features**
 
 - DCS failsafe mode (Alexander Kukushkin, Polina Bungina)
@@ -24,6 +25,7 @@ This version adds integration with `Citus <https://www.citusdata.com>`__ and mak
 - Citus support (Alexander, Polina, Jelte Fennema)
 
   Patroni enables easy deployment and management of `Citus <https://www.citusdata.com>`__ clusters with HA. Please check :ref:`here <citus>` page for more information.
+
 
 **Improvements**
 
@@ -42,6 +44,13 @@ This version adds integration with `Citus <https://www.citusdata.com>`__ and mak
 - Improved check of synchronous replication connections (Alexander)
 
   When the new host is added to the ``synchronous_standby_names`` it will be set as synchronous in DCS only when it managed to catch up with the primary in addition to ``pg_stat_replication.sync_state = 'sync'``.
+
+
+**Removed functionality**
+
+- Remove ``patronictl scaffold`` (Alexander)
+
+  The only reason for having it was a hacky way of running standby clusters.
 
 
 Version 2.1.7
