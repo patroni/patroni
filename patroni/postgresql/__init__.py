@@ -56,7 +56,7 @@ class Postgresql(object):
     POSTMASTER_START_TIME = "pg_catalog.pg_postmaster_start_time()"
     TL_LSN = ("CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
               "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
-              "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "  # master timeline
+              "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "  # primary timeline
               "CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
               "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint END, "  # write_lsn
               "pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint, "
@@ -126,7 +126,7 @@ class Postgresql(object):
             ident_saved = self.config.replace_pg_ident()
             if hba_saved or ident_saved:
                 self.reload()
-        elif self.role == 'master':
+        elif self.role in ('master', 'primary'):
             self.set_role('demoted')
 
     @property
@@ -186,7 +186,7 @@ class Postgresql(object):
                          "FROM pg_catalog.pg_stat_get_wal_senders() w," +
                          " pg_catalog.pg_stat_get_activity(w.pid)" +
                          " WHERE w.state = 'streaming') r)").format(self.wal_name, self.lsn_name)
-                        if self._is_synchronous_mode and self.role == 'master' else "'on', '', NULL")
+                        if self._is_synchronous_mode and self.role in ('master', 'primary') else "'on', '', NULL")
 
         if self._major_version >= 90600:
             extra = ("(SELECT pg_catalog.json_agg(s.*) FROM (SELECT slot_name, slot_type as type, datoid::bigint, " +
@@ -331,7 +331,8 @@ class Postgresql(object):
         return deepcopy(self.config.get(method, {}))
 
     def replica_method_can_work_without_replication_connection(self, method):
-        return method != 'basebackup' and self.replica_method_options(method).get('no_master')
+        return method != 'basebackup' and (self.replica_method_options(method).get('no_master') or
+                                           self.replica_method_options(method).get('no_leader'))
 
     def can_create_replica_without_replication_connection(self, replica_methods=None):
         """ go through the replication methods to see if there are ones
@@ -421,7 +422,7 @@ class Postgresql(object):
             return bool(self._cluster_info_state_get('timeline'))
         except PostgresConnectionException:
             logger.warning('Failed to determine PostgreSQL state from the connection, falling back to cached role')
-            return bool(self.is_running() and self.role == 'master')
+            return bool(self.is_running() and self.role in ('master', 'primary'))
 
     def replay_paused(self):
         return self._cluster_info_state_get('replay_paused')
@@ -905,12 +906,13 @@ class Postgresql(object):
         except Exception:
             logger.exception('Can not fetch local timeline and lsn from replication connection')
 
-    def replica_cached_timeline(self, master_timeline):
-        if not self._cached_replica_timeline or not master_timeline or self._cached_replica_timeline != master_timeline:
+    def replica_cached_timeline(self, primary_timeline):
+        if not self._cached_replica_timeline or not primary_timeline\
+                or self._cached_replica_timeline != primary_timeline:
             self._cached_replica_timeline = self.get_replica_timeline()
         return self._cached_replica_timeline
 
-    def get_master_timeline(self):
+    def get_primary_timeline(self):
         return self._cluster_info_state_get('timeline')
 
     def get_history(self, timeline):
@@ -933,11 +935,11 @@ class Postgresql(object):
         recovery_params = self.config.build_recovery_params(member)
         self.config.write_recovery_conf(recovery_params)
 
-        # When we demoting the master or standby_leader to replica or promoting replica to a standby_leader
+        # When we demoting the primary or standby_leader to replica or promoting replica to a standby_leader
         # and we know for sure that postgres was already running before, we will only execute on_role_change
         # callback and prevent execution of on_restart/on_start callback.
         # If the role remains the same (replica or standby_leader), we will execute on_start or on_restart
-        change_role = self.cb_called and (self.role in ('master', 'demoted') or
+        change_role = self.cb_called and (self.role in ('master', 'primary', 'demoted') or
                                           not {'standby_leader', 'replica'} - {self.role, role})
         if change_role:
             self.__cb_pending = ACTION_NOOP
@@ -982,7 +984,7 @@ class Postgresql(object):
         return ret == 0
 
     def promote(self, wait_seconds, task, before_promote=None, on_success=None):
-        if self.role in ('promoted', 'master'):
+        if self.role in ('promoted', 'master', 'primary'):
             return True
 
         ret = self._pre_promote()

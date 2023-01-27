@@ -254,5 +254,5 @@ class SyncHandler(object):
         self._postgresql.reset_cluster_info_state(None)
 
         # timeline == 0 -- indicates that this is the replica, shoudn't ever happen
-        if self._postgresql.get_master_timeline() > 0:
+        if self._postgresql.get_primary_timeline() > 0:
             self._handle_synchronous_standby_names_change()

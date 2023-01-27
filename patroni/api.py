@@ -97,7 +97,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET(self, write_status_code_only=False):
         """Default method for processing all GET requests which can not be routed to other methods"""
 
-        path = '/master' if self.path == '/' else self.path
+        path = '/primary' if self.path == '/' else self.path
         response = self.get_postgresql_status()
 
         patroni = self.server.patroni
@@ -114,8 +114,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response.get('role') == 'replica' and response.get('state') == 'running' else 503
 
         if not cluster and patroni.ha.is_paused():
-            leader_status_code = 200 if response.get('role') in ('master', 'standby_leader') else 503
-            primary_status_code = 200 if response.get('role') == 'master' else 503
+            leader_status_code = 200 if response.get('role') in ('master', 'primary', 'standby_leader') else 503
+            primary_status_code = 200 if response.get('role') in ('master', 'primary') else 503
             standby_leader_status_code = 200 if response.get('role') == 'standby_leader' else 503
         elif patroni.ha.is_leader():
             leader_status_code = 200
@@ -191,7 +191,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def do_GET_liveness(self):
         patroni = self.server.patroni
-        is_primary = patroni.postgresql.role == 'master' and patroni.postgresql.is_running()
+        is_primary = patroni.postgresql.role in ('master', 'primary') and patroni.postgresql.is_running()
         # We can tolerate Patroni problems longer on the replica.
         # On the primary the liveness probe most likely will start failing only after the leader key expired.
         # It should not be a big problem because replicas will see that the primary is still alive via REST API call.
@@ -255,7 +255,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics.append("# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.")
         metrics.append("# TYPE patroni_master gauge")
-        metrics.append("patroni_master{0} {1}".format(scope_label, int(postgres['role'] == 'master')))
+        metrics.append("patroni_master{0} {1}".format(scope_label, int(postgres['role'] in ('master', 'primary'))))
+
+        metrics.append("# HELP patroni_primary Value is 1 if this node is the leader, 0 otherwise.")
+        metrics.append("# TYPE patroni_primary gauge")
+        metrics.append("patroni_primary{0} {1}".format(scope_label, int(postgres['role'] in ('master', 'primary'))))
 
         metrics.append("# HELP patroni_xlog_location Current location of the Postgres"
                        " transaction log, 0 if this node is not the leader.")
@@ -443,9 +447,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     status_code = _
                     break
             elif k == 'role':
-                if request[k] not in ('master', 'replica'):
+                if request[k] not in ('master', 'primary', 'replica'):
                     status_code = 400
-                    data = "PostgreSQL role should be either master or replica"
+                    data = "PostgreSQL role should be either primary or replica"
                     break
             elif k == 'postgres_version':
                 try:

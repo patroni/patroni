@@ -67,9 +67,8 @@ def requests_get(url, method='GET', endpoint=None, data='', **kwargs):
 
 
 class MockPostmaster(object):
-    def __init__(self, is_running=True, is_single_master=False):
-        self.is_running = Mock(return_value=is_running)
-        self.is_single_master = Mock(return_value=is_single_master)
+    def __init__(self, pid=1):
+        self.is_running = Mock(return_value=self)
         self.wait_for_user_backends_to_close = Mock()
         self.signal_stop = Mock(return_value=None)
         self.wait = Mock()
@@ -191,7 +190,7 @@ class PostgresInit(unittest.TestCase):
     @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
     @patch.object(ConfigHandler, 'replace_pg_hba', Mock())
     @patch.object(ConfigHandler, 'replace_pg_ident', Mock())
-    @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='master'))
+    @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='primary'))
     def setUp(self):
         data_dir = os.path.join('data', 'test0')
         self.p = Postgresql({'name': 'postgresql0', 'scope': 'batman', 'data_dir': data_dir,

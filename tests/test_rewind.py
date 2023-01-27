@@ -117,7 +117,7 @@ class TestRewind(BaseTestPostgresql):
             self.r.trigger_check_diverged_lsn()
             self.r.execute(self.leader)
 
-        self.leader.member.data.update(version='1.5.7', checkpoint_after_promote=False, role='master')
+        self.leader.member.data.update(version='1.5.7', checkpoint_after_promote=False, role='primary')
         self.assertIsNone(self.r.execute(self.leader))
 
         del self.leader.member.data['checkpoint_after_promote']
@@ -128,9 +128,9 @@ class TestRewind(BaseTestPostgresql):
             self.r.execute(self.leader)
 
     @patch('patroni.postgresql.rewind.logger.info')
-    def test__log_master_history(self, mock_logger):
+    def test__log_primary_history(self, mock_logger):
         history = [[n, n, ''] for n in range(1, 10)]
-        self.r._log_master_history(history, 1)
+        self.r._log_primary_history(history, 1)
         expected = '\n'.join(['{0}\t0/{0}\t'.format(n) for n in range(1, 4)] + ['...', '9\t0/9\t'])
         self.assertEqual(mock_logger.call_args[0][1], expected)
 
@@ -298,14 +298,14 @@ class TestRewind(BaseTestPostgresql):
     @patch('patroni.postgresql.rewind.Thread', MockThread)
     @patch.object(Postgresql, 'controldata')
     @patch.object(Postgresql, 'checkpoint')
-    @patch.object(Postgresql, 'get_master_timeline')
-    def test_ensure_checkpoint_after_promote(self, mock_get_master_timeline, mock_checkpoint, mock_controldata):
+    @patch.object(Postgresql, 'get_primary_timeline')
+    def test_ensure_checkpoint_after_promote(self, mock_get_primary_timeline, mock_checkpoint, mock_controldata):
         mock_controldata.return_value = {"Latest checkpoint's TimeLineID": 1}
-        mock_get_master_timeline.return_value = 1
+        mock_get_primary_timeline.return_value = 1
         self.r.ensure_checkpoint_after_promote(Mock())
 
         self.r.reset_state()
-        mock_get_master_timeline.return_value = 2
+        mock_get_primary_timeline.return_value = 2
         mock_checkpoint.return_value = 0
         self.r.ensure_checkpoint_after_promote(Mock())
         self.r.ensure_checkpoint_after_promote(Mock())

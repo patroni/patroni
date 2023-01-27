@@ -12,7 +12,6 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 - The following requests to Patroni REST API will return HTTP status code **200** only when the Patroni node is running as the primary with leader lock:
 
   - ``GET /``
-  - ``GET /master``
   - ``GET /primary``
   - ``GET /read-write``
 
@@ -33,7 +32,6 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
  In the following requests, since we are checking for the leader or standby-leader status, Patroni doesn't apply any of the user defined tags and they will be ignored.
   - ``GET /?tag_key1=value1&tag_key2=value2``
-  - ``GET /master?tag_key1=value1&tag_key2=value2``
   - ``GET /leader?tag_key1=value1&tag_key2=value2``
   - ``GET /primary?tag_key1=value1&tag_key2=value2``
   - ``GET /read-write?tag_key1=value1&tag_key2=value2``
@@ -368,7 +366,7 @@ Restart endpoint
   - **restart_pending**: boolean, if set to ``true`` Patroni will restart PostgreSQL only when restart is pending in order to apply some changes in the PostgreSQL config.
   - **role**: perform restart only if the current role of the node matches with the role from the POST request.
   - **postgres_version**: perform restart only if the current version of postgres is smaller than specified in the POST request.
-  - **timeout**: how long we should wait before PostgreSQL starts accepting connections. Overrides ``master_start_timeout``.
+  - **timeout**: how long we should wait before PostgreSQL starts accepting connections. Overrides ``primary_start_timeout``.
   - **schedule**: timestamp with time zone, schedule the restart somewhere in the future.
 
 - ``DELETE /restart``: delete the scheduled restart

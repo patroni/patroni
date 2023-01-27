@@ -126,7 +126,7 @@ class Rewind(object):
                 in_recovery = True
                 lsn = data.get('Minimum recovery ending location')
                 timeline = int(data.get("Min recovery ending loc's timeline"))
-                if lsn == '0/0' or timeline == 0:  # it was a master when it crashed
+                if lsn == '0/0' or timeline == 0:  # it was a primary when it crashed
                     data['Database cluster state'] = 'shut down'
             if data.get('Database cluster state') == 'shut down':
                 in_recovery = False
@@ -157,7 +157,7 @@ class Rewind(object):
         return in_recovery, timeline, lsn
 
     @staticmethod
-    def _log_master_history(history, i):
+    def _log_primary_history(history, i):
         start = max(0, i - 3)
         end = None if i + 4 >= len(history) else i + 2
         history_show = []
@@ -172,7 +172,7 @@ class Rewind(object):
             history_show.append('...')
             history_show.append(format_history_line(history[-1]))
 
-        logger.info('master: history=%s', '\n'.join(history_show))
+        logger.info('primary: history=%s', '\n'.join(history_show))
 
     def _conn_kwargs(self, member, auth):
         ret = member.conn_kwargs(auth)
@@ -189,7 +189,7 @@ class Rewind(object):
         if local_timeline is None or local_lsn is None:
             return
 
-        if isinstance(leader, Leader) and leader.member.data.get('role') != 'master':
+        if isinstance(leader, Leader) and leader.member.data.get('role') not in ('master', 'primary'):
             return
 
         # We want to use replication credentials when connecting to the "postgres" database in case if
@@ -206,20 +206,20 @@ class Rewind(object):
         try:
             with self._postgresql.get_replication_connection_cursor(**leader.conn_kwargs()) as cur:
                 cur.execute('IDENTIFY_SYSTEM')
-                master_timeline = cur.fetchone()[1]
-                logger.info('master_timeline=%s', master_timeline)
-                if local_timeline > master_timeline:  # Not always supported by pg_rewind
+                primary_timeline = cur.fetchone()[1]
+                logger.info('primary_timeline=%s', primary_timeline)
+                if local_timeline > primary_timeline:  # Not always supported by pg_rewind
                     need_rewind = True
-                elif local_timeline == master_timeline:
+                elif local_timeline == primary_timeline:
                     need_rewind = False
-                elif master_timeline > 1:
-                    cur.execute('TIMELINE_HISTORY {0}'.format(master_timeline))
+                elif primary_timeline > 1:
+                    cur.execute('TIMELINE_HISTORY {0}'.format(primary_timeline))
                     history = cur.fetchone()[1]
                     if not isinstance(history, six.string_types):
                         history = bytes(history).decode('utf-8')
-                    logger.debug('master: history=%s', history)
+                    logger.debug('primary: history=%s', history)
         except Exception:
-            return logger.exception('Exception when working with master via replication connection')
+            return logger.exception('Exception when working with primary via replication connection')
 
         if history is not None:
             history = list(parse_history(history))
@@ -240,7 +240,7 @@ class Rewind(object):
                     break
             else:
                 need_rewind = True
-            self._log_master_history(history, i)
+            self._log_primary_history(history, i)
 
         self._state = need_rewind and REWIND_STATUS.NEED or REWIND_STATUS.NOT_NEED
 
@@ -270,7 +270,7 @@ class Rewind(object):
                         if self._checkpoint_task.result is not None:
                             self._state = REWIND_STATUS.CHECKPOINT
                             self._checkpoint_task = None
-                elif self._postgresql.get_master_timeline() == self._postgresql.pg_control_timeline():
+                elif self._postgresql.get_primary_timeline() == self._postgresql.pg_control_timeline():
                     self._state = REWIND_STATUS.CHECKPOINT
                 else:
                     self._checkpoint_task = CriticalTask()
@@ -431,12 +431,12 @@ class Rewind(object):
         # prepare pg_rewind connection
         r = self._conn_kwargs(leader, self._postgresql.config.rewind_credentials)
 
-        # 1. make sure that we are really trying to rewind from the master
+        # 1. make sure that we are really trying to rewind from the primary
         # 2. make sure that pg_control contains the new timeline by:
         #   running a checkpoint or
-        #   waiting until Patroni on the master will expose checkpoint_after_promote=True
+        #   waiting until Patroni on the primary will expose checkpoint_after_promote=True
         checkpoint_status = leader.checkpoint_after_promote if isinstance(leader, Leader) else None
-        if checkpoint_status is None:  # we are the standby-cluster leader or master still runs the old Patroni
+        if checkpoint_status is None:  # we are the standby-cluster leader or primary still runs the old Patroni
             # superuser credentials match rewind_credentials if the latter are not provided or we run 10 or older
             if self._postgresql.config.superuser == self._postgresql.config.rewind_credentials:
                 leader_status = self._postgresql.checkpoint(
@@ -455,11 +455,11 @@ class Rewind(object):
             self._state = REWIND_STATUS.SUCCESS
         else:
             if not self.check_leader_is_not_in_recovery(r):
-                logger.warning('Failed to rewind because master %s become unreachable', leader.name)
+                logger.warning('Failed to rewind because primary %s become unreachable', leader.name)
                 if not self.can_rewind:  # It is possible that the previous attempt damaged pg_control file!
                     self._state = REWIND_STATUS.FAILED
             else:
-                logger.error('Failed to rewind from healty master: %s', leader.name)
+                logger.error('Failed to rewind from healty primary: %s', leader.name)
                 self._state = REWIND_STATUS.FAILED
 
             if self.failed:

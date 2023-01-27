@@ -905,7 +905,7 @@ class PatroniPoolController(object):
         }
         self.start(name, custom_config=custom_config)
 
-    def bootstrap_from_backup_no_master(self, name, cluster_name):
+    def bootstrap_from_backup_no_leader(self, name, cluster_name):
         custom_config = {
             'scope': cluster_name,
             'postgresql': {
@@ -914,11 +914,11 @@ class PatroniPoolController(object):
                                         '--dirname {} --filename %f --pathname %p').format(
                                         os.path.join(self.patroni_path, 'data', 'wal_archive').replace('\\', '/'))
                 },
-                'create_replica_methods': ['no_master_bootstrap'],
-                'no_master_bootstrap': {
+                'create_replica_methods': ['no_leader_bootstrap'],
+                'no_leader_bootstrap': {
                     'command': (self.BACKUP_RESTORE_SCRIPT + ' --sourcedir=' +
                                 os.path.join(self.patroni_path, 'data', 'basebackup').replace('\\', '/')),
-                    'no_master': '1'
+                    'no_leader': '1'
                 }
             }
         }

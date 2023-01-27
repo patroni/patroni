@@ -529,24 +529,24 @@ class ConfigHandler(object):
             recovery_params.update({'recovery_target': '', 'recovery_target_name': '', 'recovery_target_time': '',
                                     'recovery_target_xid': '', 'recovery_target_lsn': ''})
 
-        is_remote_master = isinstance(member, RemoteMember)
+        is_remote_member = isinstance(member, RemoteMember)
         primary_conninfo = self.primary_conninfo_params(member)
         if primary_conninfo:
             use_slots = self.get('use_slots', True) and self._postgresql.major_version >= 90400
-            if use_slots and not (is_remote_master and member.no_replication_slot):
-                primary_slot_name = member.primary_slot_name if is_remote_master else self._postgresql.name
+            if use_slots and not (is_remote_member and member.no_replication_slot):
+                primary_slot_name = member.primary_slot_name if is_remote_member else self._postgresql.name
                 recovery_params['primary_slot_name'] = slot_name_from_member_name(primary_slot_name)
                 # We are a standby leader and are using a replication slot. Make sure we connect to
                 # the leader of the main cluster (in case more than one host is specified in the
                 # connstr) by adding 'target_session_attrs=read-write' to primary_conninfo.
-                if is_remote_master and 'target_sesions_attrs' not in primary_conninfo and\
+                if is_remote_member and 'target_sesions_attrs' not in primary_conninfo and\
                         self._postgresql.major_version >= 100000:
                     primary_conninfo['target_session_attrs'] = 'read-write'
             recovery_params['primary_conninfo'] = primary_conninfo
 
         # standby_cluster config might have different parameters, we want to override them
         standby_cluster_params = ['restore_command', 'archive_cleanup_command']\
-            + (['recovery_min_apply_delay'] if is_remote_master else [])
+            + (['recovery_min_apply_delay'] if is_remote_member else [])
         recovery_params.update({p: member.data.get(p) for p in standby_cluster_params if member and member.data.get(p)})
         return recovery_params
 
@@ -1065,7 +1065,7 @@ class ConfigHandler(object):
         As a workaround we will start it with the values from controldata and set `pending_restart`
         to true as an indicator that current values of parameters are not matching expectations."""
 
-        if self._postgresql.role == 'master':
+        if self._postgresql.role in ('master', 'primary'):
             return self._server_parameters
 
         options_mapping = {

@@ -92,7 +92,7 @@ class Unavailable(Etcd3ClientError):
     code = GRPCCode.Unavailable
 
 
-# https://github.com/etcd-io/etcd/blob/master/etcdserver/api/v3rpc/rpctypes/error.go
+# https://github.com/etcd-io/etcd/commits/main/api/v3rpc/rpctypes/error.go
 class LeaseNotFound(NotFound):
     error = "etcdserver: requested lease not found"
 

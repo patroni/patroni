@@ -83,10 +83,10 @@ def check_role(context, pg_name, pg_role, max_promotion_timeout):
         "{0} role didn't change to {1} after {2} seconds".format(pg_name, pg_role, max_promotion_timeout)
 
 
-@step('replication works from {master:w} to {replica:w} after {time_limit:d} seconds')
-@then('replication works from {master:w} to {replica:w} after {time_limit:d} seconds')
-def replication_works(context, master, replica, time_limit):
+@step('replication works from {primary:w} to {replica:w} after {time_limit:d} seconds')
+@then('replication works from {primary:w} to {replica:w} after {time_limit:d} seconds')
+def replication_works(context, primary, replica, time_limit):
     context.execute_steps(u"""
         When I add the table test_{0} to {1}
         Then table test_{0} is present on {2} after {3} seconds
-    """.format(int(time()), master, replica, time_limit))
+    """.format(int(time()), primary, replica, time_limit))

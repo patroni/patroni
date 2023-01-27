@@ -153,7 +153,7 @@ class CitusHandler(Thread):
         for group, worker in cluster.workers.items():
             leader = worker.leader
             if leader and leader.conn_url\
-                    and leader.data.get('role') == 'master' and leader.data.get('state') == 'running':
+                    and leader.data.get('role') in ('master', 'primary') and leader.data.get('state') == 'running':
                 self.add_task('after_promote', group, leader.conn_url)
 
     def find_task_by_group(self, group):

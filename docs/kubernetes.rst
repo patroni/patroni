@@ -23,10 +23,7 @@ Use ConfigMaps
 In this mode, Patroni will create ConfigMaps instead of Endpoints and store keys inside meta-data of those ConfigMaps.
 Changing the leader takes at least two updates, one to the leader ConfigMap and another to the respective Endpoint.
 
-There are two ways to direct the traffic to the Postgres leader:
-
-- use the `callback script <https://github.com/zalando/patroni/blob/master/kubernetes/callback.py>`_ provided by Patroni
-- configure the Kubernetes Postgres service to use the label selector with the `role_label` (configured in patroni configuration).
+To direct the traffic to the Postgres leader you need to configure the Kubernetes Postgres service to use the label selector with the `role_label` (configured in patroni configuration).
 
 Note that in some cases, for instance, when running on OpenShift, there is no alternative to using ConfigMaps.
 
@@ -39,7 +36,7 @@ Examples
 --------
 
 - The `kubernetes <https://github.com/zalando/patroni/tree/master/kubernetes>`__ folder of the Patroni repository contains
-  examples of the Docker image, the Kubernetes manifest and the callback script in order to test Patroni Kubernetes setup.
+  examples of the Docker image, and the Kubernetes manifest to test Patroni Kubernetes setup.
   Note that in the current state it will not be able to use PersistentVolumes because of permission issues.
 
 - You can find the full-featured Docker image that can use Persistent Volumes in the

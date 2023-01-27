@@ -27,7 +27,7 @@ Feature: dcs failsafe mode
     Given DCS is up
     When I do a backup of postgres0
     And I shut down postgres0
-    When I start postgres1 in a cluster batman from backup with no_master
+    When I start postgres1 in a cluster batman from backup with no_leader
     And I sleep for 2 seconds
     Then postgres1 role is the replica after 12 seconds
 
@@ -55,7 +55,7 @@ Feature: dcs failsafe mode
     And logical slot dcs_slot_0 is in sync between postgres0 and postgres1 after 20 seconds
 
   @dcs-failsafe
-  Scenario: check master is demoted when one replica is shut down and DCS is down
+  Scenario: check primary is demoted when one replica is shut down and DCS is down
     Given DCS is down
     And I kill postgres1
     And I kill postmaster on postgres1

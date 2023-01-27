@@ -25,6 +25,7 @@ from .test_ha import get_cluster_initialized_without_leader, get_cluster_initial
     'etcd': {'host': 'localhost:2379'}, 'citus': {'database': 'citus', 'group': 0},
     'postgresql': {'data_dir': '.', 'pgpass': './pgpass', 'parameters': {}, 'retry_timeout': 5}}))
 class TestCtl(unittest.TestCase):
+    TEST_ROLES = ('master', 'primary', 'leader')
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
     def setUp(self):
@@ -58,9 +59,9 @@ class TestCtl(unittest.TestCase):
 
     @patch('patroni.psycopg.connect', psycopg_connect)
     def test_get_cursor(self):
-        self.assertIsNone(get_cursor({}, get_cluster_initialized_without_leader(), None, {}, role='master'))
-
-        self.assertIsNotNone(get_cursor({}, get_cluster_initialized_with_leader(), None, {}, role='master'))
+        for role in self.TEST_ROLES:
+            self.assertIsNone(get_cursor({}, get_cluster_initialized_without_leader(), None, {}, role=role))
+            self.assertIsNotNone(get_cursor({}, get_cluster_initialized_with_leader(), None, {}, role=role))
 
         # MockCursor returns pg_is_in_recovery as false
         self.assertIsNone(get_cursor({}, get_cluster_initialized_with_leader(), None, {}, role='replica'))
@@ -160,7 +161,7 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
         assert result.exit_code == 1
 
-        # No master available
+        # No leader available
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_without_leader
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
         assert result.exit_code == 1
@@ -187,8 +188,9 @@ class TestCtl(unittest.TestCase):
     def test_query(self, mock_get_dcs):
         mock_get_dcs.return_value = self.e
         # Mutually exclusive
-        result = self.runner.invoke(ctl, ['query', 'alpha', '--member', 'abc', '--role', 'master'])
-        assert result.exit_code == 1
+        for role in self.TEST_ROLES:
+            result = self.runner.invoke(ctl, ['query', 'alpha', '--member', 'abc', '--role', role])
+            assert result.exit_code == 1
 
         with self.runner.isolated_filesystem():
             with open('dummy', 'w') as dummy_file:
@@ -216,8 +218,9 @@ class TestCtl(unittest.TestCase):
 
     def test_query_member(self):
         with patch('patroni.ctl.get_cursor', Mock(return_value=MockConnect().cursor())):
-            rows = query_member({}, None, None, None, None, 'master', 'SELECT pg_catalog.pg_is_in_recovery()', {})
-            self.assertTrue('False' in str(rows))
+            for role in self.TEST_ROLES:
+                rows = query_member({}, None, None, None, None, role, 'SELECT pg_catalog.pg_is_in_recovery()', {})
+                self.assertTrue('False' in str(rows))
 
             with patch.object(MockCursor, 'execute', Mock(side_effect=OperationalError('bla'))):
                 rows = query_member({}, None, None, None, None, 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
@@ -239,8 +242,9 @@ class TestCtl(unittest.TestCase):
         assert 'host=127.0.0.1 port=5435' in result.output
 
         # Mutually exclusive options
-        result = self.runner.invoke(ctl, ['dsn', 'alpha', '--role', 'master', '--member', 'dummy'])
-        assert result.exit_code == 1
+        for role in self.TEST_ROLES:
+            result = self.runner.invoke(ctl, ['dsn', 'alpha', '--role', role, '--member', 'dummy'])
+            assert result.exit_code == 1
 
         # Non-existing member
         result = self.runner.invoke(ctl, ['dsn', 'alpha', '--member', 'dummy'])
@@ -345,14 +349,14 @@ class TestCtl(unittest.TestCase):
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
         result = self.runner.invoke(ctl, ['remove', 'dummy'], input='\n')
         assert 'For Citus clusters the --group must me specified' in result.output
-        result = self.runner.invoke(ctl, ['-k', 'remove', 'alpha', '--group', '0'], input='alpha\nslave')
+        result = self.runner.invoke(ctl, ['-k', 'remove', 'alpha', '--group', '0'], input='alpha\nstandby')
         assert 'Please confirm' in result.output
         assert 'You are about to remove all' in result.output
         # Not typing an exact confirmation
         assert result.exit_code == 1
 
-        # master specified does not match master of cluster
-        result = self.runner.invoke(ctl, ['remove', 'alpha', '--group', '0'], input='alpha\nYes I am aware\nslave')
+        # leader specified does not match leader of cluster
+        result = self.runner.invoke(ctl, ['remove', 'alpha', '--group', '0'], input='alpha\nYes I am aware\nstandby')
         assert result.exit_code == 1
 
         # cluster specified on cmdline does not match verification prompt
@@ -369,17 +373,19 @@ class TestCtl(unittest.TestCase):
         assert 'Usage:' in result.output
 
     def test_get_any_member(self):
-        self.assertIsNone(get_any_member({}, get_cluster_initialized_without_leader(), None, role='master'))
+        for role in self.TEST_ROLES:
+            self.assertIsNone(get_any_member({}, get_cluster_initialized_without_leader(), None, role=role))
 
-        m = get_any_member({}, get_cluster_initialized_with_leader(), None, role='master')
-        self.assertEqual(m.name, 'leader')
+            m = get_any_member({}, get_cluster_initialized_with_leader(), None, role=role)
+            self.assertEqual(m.name, 'leader')
 
     def test_get_all_members(self):
-        self.assertEqual(list(get_all_members({}, get_cluster_initialized_without_leader(), None, role='master')), [])
+        for role in self.TEST_ROLES:
+            self.assertEqual(list(get_all_members({}, get_cluster_initialized_without_leader(), None, role=role)), [])
 
-        r = list(get_all_members({}, get_cluster_initialized_with_leader(), None, role='master'))
-        self.assertEqual(len(r), 1)
-        self.assertEqual(r[0].name, 'leader')
+            r = list(get_all_members({}, get_cluster_initialized_with_leader(), None, role=role))
+            self.assertEqual(len(r), 1)
+            self.assertEqual(r[0].name, 'leader')
 
         r = list(get_all_members({}, get_cluster_initialized_with_leader(), None, role='replica'))
         self.assertEqual(len(r), 1)
@@ -467,8 +473,9 @@ class TestCtl(unittest.TestCase):
         mock_get_dcs.return_value = self.e
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
 
-        result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '-r', 'master'], input='y')
-        assert 'No scheduled restart' in result.output
+        for role in self.TEST_ROLES:
+            result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '-r', role], input='y')
+            assert 'No scheduled restart' in result.output
 
         result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '--force'])
         assert 'Success: flush scheduled restart' in result.output

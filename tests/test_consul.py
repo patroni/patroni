@@ -229,7 +229,7 @@ class TestConsul(unittest.TestCase):
     def test_set_history_value(self):
         self.assertTrue(self.c.set_history_value('{}'))
 
-    @patch.object(consul.Consul.Agent.Service, 'register', Mock(side_effect=(False, True)))
+    @patch.object(consul.Consul.Agent.Service, 'register', Mock(side_effect=(False, True, True, True)))
     @patch.object(consul.Consul.Agent.Service, 'deregister', Mock(return_value=True))
     def test_update_service(self):
         d = {'role': 'replica', 'api_url': 'http://a/t', 'conn_url': 'pg://c:1', 'state': 'running'}
@@ -244,6 +244,9 @@ class TestConsul(unittest.TestCase):
         d['state'] = 'running'
         d['role'] = 'bla'
         self.assertIsNone(self.c.update_service({}, d))
+        for role in ('master', 'primary'):
+            d['role'] = role
+            self.assertTrue(self.c.update_service({}, d))
 
     @patch.object(consul.Consul.KV, 'put', Mock(side_effect=ConsulException))
     def test_reload_config(self):
