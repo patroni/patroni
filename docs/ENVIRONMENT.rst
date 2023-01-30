@@ -35,7 +35,7 @@ Example: defining ``PATRONI_admin_PASSWORD=strongpasswd`` and ``PATRONI_admin_OP
 
 Citus
 -----
-Enables integration Patroni with :ref:`Citus <https://docs.citusdata.com>`__. If configured, Patroni will take care of registering Citus worker nodes on the coordinator. You can find more information about Citus support :ref:`here <citus>`.
+Enables integration Patroni with `Citus <https://docs.citusdata.com>`__. If configured, Patroni will take care of registering Citus worker nodes on the coordinator. You can find more information about Citus support :ref:`here <citus>`.
 
 -  **PATRONI\_CITUS\_GROUP**: the Citus group id, integer. Use ``0`` for coordinator and ``1``, ``2``, etc... for workers
 -  **PATRONI\_CITUS\_DATABASE**: the database where ``citus`` extension should be created. Must be the same on the coordinator and all workers. Currently only one database is supported.
@@ -118,8 +118,8 @@ Kubernetes
 -  **PATRONI\_KUBERNETES\_PORTS**: (optional) if the Service object has the name for the port, the same name must appear in the Endpoint object, otherwise service won't work. For example, if your service is defined as ``{Kind: Service, spec: {ports: [{name: postgresql, port: 5432, targetPort: 5432}]}}``, then you have to set ``PATRONI_KUBERNETES_PORTS='[{"name": "postgresql", "port": 5432}]'`` and Patroni will use it for updating subsets of the leader Endpoint. This parameter is used only if `PATRONI_KUBERNETES_USE_ENDPOINTS` is set.
 -  **PATRONI\_KUBERNETES\_CACERT**: (optional) Specifies the file with the CA_BUNDLE file with certificates of trusted CAs to use while verifying Kubernetes API SSL certs. If not provided, patroni will use the value provided by the ServiceAccount secret.
 
-Raft
-----
+Raft (deprecated)
+-----------------
 
 -  **PATRONI\_RAFT\_SELF\_ADDR**: ``ip:port`` to listen on for Raft connections. The ``self_addr`` must be accessible from other nodes of the cluster. If not set, the node will not participate in consensus.
 -  **PATRONI\_RAFT\_BIND\_ADDR**: (optional) ``ip:port`` to listen on for Raft connections. If not specified the ``self_addr`` will be used.

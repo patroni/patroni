@@ -105,8 +105,8 @@ def count_rows(context, name):
 
 @step("There is a transaction in progress on {name:w} changing pg_dist_node")
 def check_transaction(context, name):
-    cur = context.pctl.query(name, "SELECT xact_start FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND state"
-                                   " = 'idle in transaction' AND query ~ 'citus_update_node' AND query ~ 'demoted'")
+    cur = context.pctl.query(name, "SELECT xact_start FROM pg_stat_activity WHERE pid <> pg_backend_pid()"
+                                   " AND state = 'idle in transaction' AND query ~ 'citus_update_node'")
     assert cur.rowcount == 1, "There is no idle in transaction updating pg_dist_node"
     context.xact_start = cur.fetchone()[0]
 

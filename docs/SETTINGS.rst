@@ -116,7 +116,7 @@ Bootstrap configuration
 
 Citus
 -----
-Enables integration Patroni with :ref:`Citus <https://docs.citusdata.com>`__. If configured, Patroni will take care of registering Citus worker nodes on the coordinator. You can find more information about Citus support :ref:`here <citus>`.
+Enables integration Patroni with `Citus <https://docs.citusdata.com>`__. If configured, Patroni will take care of registering Citus worker nodes on the coordinator. You can find more information about Citus support :ref:`here <citus>`.
 
 -  **group**: the Citus group id, integer. Use ``0`` for coordinator and ``1``, ``2``, etc... for workers
 -  **database**: the database where ``citus`` extension should be created. Must be the same on the coordinator and all workers. Currently only one database is supported.
@@ -222,8 +222,8 @@ Kubernetes
 
 .. _raft_settings:
 
-Raft
-----
+Raft (deprecated)
+-----------------
 -  **self\_addr**: ``ip:port`` to listen on for Raft connections. The ``self_addr`` must be accessible from other nodes of the cluster. If not set, the node will not participate in consensus.
 -  **bind\_addr**: (optional) ``ip:port`` to listen on for Raft connections. If not specified the ``self_addr`` will be used.
 -  **partner\_addrs**: list of other Patroni nodes in the cluster in format: ['ip1:port', 'ip2:port', 'etc...']

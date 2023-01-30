@@ -5,8 +5,6 @@ on:
   push:
     branches:
     - master
-    tags:
-    - v.*
 
 env:
   CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
@@ -14,7 +12,7 @@ env:
 
 jobs:
   unit:
-    runs-on: ${{ fromJson('{"ubuntu":"ubuntu-20.04","windows":"windows-latest","macos":"macos-latest"}')[matrix.os] }}
+    runs-on: ${{ matrix.os }}-latest
     strategy:
       fail-fast: false
       matrix:
@@ -22,26 +20,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - name: Set up Python 2.7
-      uses: actions/setup-python@v4
-      with:
-        python-version: 2.7
-      if: matrix.os != 'windows'
-    - name: Install dependencies
-      run: python .github/workflows/install_deps.py
-      if: matrix.os != 'windows'
-    - name: Run tests and flake8
-      run: python .github/workflows/run_tests.py
-      if: matrix.os != 'windows'
-
-    - name: Set up Python 3.6
-      uses: actions/setup-python@v4
-      with:
-        python-version: 3.6
-    - name: Install dependencies
-      run: python .github/workflows/install_deps.py
-    - name: Run tests and flake8
-      run: python .github/workflows/run_tests.py
 
     - name: Set up Python 3.7
       uses: actions/setup-python@v4
@@ -79,6 +57,15 @@ jobs:
     - name: Run tests and flake8
       run: python .github/workflows/run_tests.py
 
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+    - name: Install dependencies
+      run: python .github/workflows/install_deps.py
+    - name: Run tests and flake8
+      run: python .github/workflows/run_tests.py
+
     - name: Combine coverage
       run: python .github/workflows/run_tests.py combine
 
@@ -93,7 +80,7 @@ jobs:
       run: python -m coveralls --service=github
 
   behave:
-    runs-on: ${{ fromJson('{"ubuntu":"ubuntu-20.04","windows":"windows-latest","macos":"macos-latest"}')[matrix.os] }}
+    runs-on: ${{ matrix.os }}-latest
     env:
       DCS: ${{ matrix.dcs }}
       ETCDVERSION: 3.4.23
@@ -102,20 +89,17 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu]
-        python-version: [2.7, 3.6, 3.9]
+        python-version: [3.7, '3.10']
         dcs: [etcd, etcd3, consul, exhibitor, kubernetes, raft]
-        exclude:
-        - dcs: kubernetes
-          python-version: 2.7
         include:
         - os: macos
-          python-version: 3.7
+          python-version: 3.8
           dcs: raft
         - os: macos
-          python-version: 3.8
+          python-version: 3.9
           dcs: etcd
         - os: macos
-          python-version: '3.10'
+          python-version: 3.11
           dcs: etcd3
 
     steps:
