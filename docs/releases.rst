@@ -20,7 +20,7 @@ This version adds integration with `Citus <https://www.citusdata.com>`__ and mak
 
 - DCS failsafe mode (Alexander Kukushkin, Polina Bungina)
 
-  If the feature is enabled it will allow Patroni cluster survive temporary DCS outages. You can find more details in the :ref:`documentation <dcs_failsafe_mode>`.
+  If the feature is enabled it will allow Patroni cluster to survive temporary DCS outages. You can find more details in the :ref:`documentation <dcs_failsafe_mode>`.
 
 - Citus support (Alexander, Polina, Jelte Fennema)
 
