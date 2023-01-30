@@ -11,7 +11,7 @@ This version adds integration with `Citus <https://www.citusdata.com>`__ and mak
 .. warning::
    - Version 3.0.0 is the last release supporting Python 2.7. Upcoming release will drop support of Python versions older than 3.7.
 
-   - The RAFT support is deprecated. We will do our best maintaining it, but take neither guaranty nor responsibility on possible issues.
+   - The RAFT support is deprecated. We will do our best to maintain it, but take neither guarantee nor responsibility for possible issues.
 
    - This version is the first step in getting rid of the "master", in favor of "primary". Upgrading to the next major release will work reliably only if you run at least 3.0.0.
 
