@@ -12,9 +12,10 @@ TL;DR
 
 There are only a few simple rules you need to follow:
 
-1. Citus extension must be available on all nodes. Absolute minimum supported
-   Citus version is 10.0, but, to take all benefits from transparent
-   switchovers and restarts of workers we recommend using at least Citus 11.2.
+1. `Citus <https://github.com/citusdata/citus>`__ database extension to
+   PostgreSQL must be available on all nodes.  Absolute minimum supported Citus
+   version is 10.0, but, to take all benefits from transparent switchovers and
+   restarts of workers we recommend using at least Citus 11.2.
 2. Cluster name (``scope``) must be the same for all Citus nodes!
 3. Superuser credentials must be the same on coordinator and all worker
    nodes, and ``pg_hba.conf`` should allow superuser access between all nodes.
@@ -51,8 +52,10 @@ patronictl
 ----------
 
 Coordinator and worker clusters are physically different PostgreSQL/Patroni
-clusters that are just logically groupped together using Citus. Therefore in
-most cases it is not possible to manage them as a single entity.
+clusters that are just logically groupped together using the
+`Citus <https://github.com/citusdata/citus>`__ database extension to
+PostgreSQL. Therefore in most cases it is not possible to manage them as a
+single entity.
 
 It results in two major differences in ``patronictl`` behaviour when
 ``patroni.yaml`` has the ``citus`` section comparing with the usual:
