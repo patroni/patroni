@@ -110,12 +110,14 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - uses: nolar/setup-k3d-k3s@v1
       if: matrix.dcs == 'kubernetes'
-    - name: Add postgresql apt repo
+    - name: Add postgresql and citus apt repo
       run: |
         sudo apt-get update -y
-        sudo apt-get install -y wget ca-certificates gnupg
+        sudo apt-get install -y wget ca-certificates gnupg debian-archive-keyring apt-transport-https
         sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
         sudo sh -c 'wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg'
+        sudo sh -c 'echo "deb [signed-by=/etc/apt/trusted.gpg.d/citusdata_community.gpg] https://repos.citusdata.com/community/ubuntu/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/citusdata_community.list'
+        sudo sh -c 'wget -qO - https://repos.citusdata.com/community/gpgkey | gpg --dearmor > /etc/apt/trusted.gpg.d/citusdata_community.gpg'
       if: matrix.os == 'ubuntu'
     - name: Install dependencies
       run: python .github/workflows/install_deps.py
