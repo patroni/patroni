@@ -27,7 +27,7 @@ RUN set -ex \
                             python3-etcd python3-kazoo python3-pip busybox \
                             net-tools iputils-ping --fix-missing \
     && curl https://install.citusdata.com/community/deb.sh | bash \
-    && apt-get -y install postgresql-$PG_MAJOR-citus-11.1 \
+    && apt-get -y install postgresql-$PG_MAJOR-citus-11.2 \
     && pip3 install dumb-init \
 \
     # Cleanup all locales but en_US.UTF-8
