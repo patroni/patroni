@@ -65,6 +65,7 @@ Feature: basic replication
     Then I receive a response returncode 0
     And postgres2 role is the primary after 24 seconds
     And Response on GET http://127.0.0.1:8010/history contains recovery after 10 seconds
+    And there is a postgres2_cb.log with "on_role_change master batman" in postgres2 data directory
     When I issue a PATCH request to http://127.0.0.1:8010/config with {"synchronous_mode": null, "master_start_timeout": 0}
     Then I receive a response code 200
     When I add the table bar to postgres2
