@@ -201,6 +201,8 @@ class PatroniController(AbstractController):
         config['name'] = name
         config['postgresql']['data_dir'] = self._data_dir.replace('\\', '/')
         config['postgresql']['basebackup'] = [{'checkpoint': 'fast'}]
+        config['postgresql']['callbacks'] = {
+            'on_role_change': '{0} features/callback2.py {1}'.format(self._context.pctl.PYTHON, name)}
         config['postgresql']['use_unix_socket'] = os.name != 'nt'  # windows doesn't yet support unix-domain sockets
         config['postgresql']['use_unix_socket_repl'] = os.name != 'nt'
         config['postgresql']['pgpass'] = os.path.join(tempfile.gettempdir(), 'pgpass_' + name).replace('\\', '/')
