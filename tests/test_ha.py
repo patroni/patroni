@@ -199,21 +199,20 @@ class TestHa(PostgresInit):
     @patch('socket.getaddrinfo', socket_getaddrinfo)
     @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.etcd']))
     @patch.object(etcd.Client, 'read', etcd_read)
+    @patch.object(AbstractEtcdClientWithFailover, '_get_machines_list', Mock(return_value=['http://remotehost:2379']))
     def setUp(self):
         super(TestHa, self).setUp()
-        with patch.object(AbstractEtcdClientWithFailover, 'machines') as mock_machines:
-            mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-            self.p.set_state('running')
-            self.p.set_role('replica')
-            self.p.postmaster_start_time = MagicMock(return_value=str(postmaster_start_time))
-            self.p.can_create_replica_without_replication_connection = MagicMock(return_value=False)
-            self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'scope': 'test',
-                                       'name': 'foo', 'retry_timeout': 10},
-                              'citus': {'database': 'citus', 'group': None}})
-            self.ha = Ha(MockPatroni(self.p, self.e))
-            self.ha.old_cluster = self.e.get_cluster()
-            self.ha.cluster = get_cluster_initialized_without_leader()
-            self.ha.load_cluster_from_dcs = Mock()
+        self.p.set_state('running')
+        self.p.set_role('replica')
+        self.p.postmaster_start_time = MagicMock(return_value=str(postmaster_start_time))
+        self.p.can_create_replica_without_replication_connection = MagicMock(return_value=False)
+        self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'scope': 'test',
+                                   'name': 'foo', 'retry_timeout': 10},
+                          'citus': {'database': 'citus', 'group': None}})
+        self.ha = Ha(MockPatroni(self.p, self.e))
+        self.ha.old_cluster = self.e.get_cluster()
+        self.ha.cluster = get_cluster_initialized_without_leader()
+        self.ha.load_cluster_from_dcs = Mock()
 
     def test_update_lock(self):
         self.ha.is_failsafe_mode = true
