@@ -3,6 +3,16 @@
 Release notes
 =============
 
+Version 3.0.1
+-------------
+
+**Bugfixes**
+
+- Pass proper role name to an ``on_role_change`` callback script'. (Alexander Kukushkin, Polina Bungina)
+
+  Patroni used to erroneously pass ``promoted`` role to an ``on_role_change`` callback script on promotion. The passed role name changed back to ``master``. This regression was introduced in 3.0.0.
+
+
 Version 3.0.0
 -------------
 
