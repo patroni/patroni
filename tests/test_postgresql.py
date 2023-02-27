@@ -675,14 +675,16 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='replica'))
     @patch.object(Bootstrap, 'running_custom_bootstrap', PropertyMock(return_value=True))
-    @patch.object(Bootstrap, 'keep_existing_recovery_conf', PropertyMock(return_value=True))
+    @patch.object(Postgresql, 'controldata', Mock(return_value={'max_connections setting': '200',
+                                                                'max_worker_processes setting': '20',
+                                                                'max_locks_per_xact setting': '100',
+                                                                'max_wal_senders setting': 10}))
     def test__build_effective_configuration(self):
-        with patch.object(Postgresql, 'controldata',
-                          Mock(return_value={'max_connections setting': '200',
-                                             'max_worker_processes setting': '20',
-                                             'max_locks_per_xact setting': '100',
-                                             'max_wal_senders setting': 10})):
-            self.p.cancellable.cancel()
+        self.p.cancellable.cancel()
+        self.p.config.write_recovery_conf({'pause_at_recovery_target': 'false'})
+        self.assertFalse(self.p.start())
+        self.assertTrue(self.p.pending_restart)
+        with patch.object(Bootstrap, 'keep_existing_recovery_conf', PropertyMock(return_value=True)):
             self.assertFalse(self.p.start())
             self.assertTrue(self.p.pending_restart)
 
