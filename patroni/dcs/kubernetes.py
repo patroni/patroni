@@ -698,8 +698,7 @@ class Kubernetes(AbstractDCS):
         self._namespace = config.get('namespace') or 'default'
         self._role_label = config.get('role_label', 'role')
         self._ca_certs = os.environ.get('PATRONI_KUBERNETES_CACERT', config.get('cacert')) or SERVICE_CERT_FILENAME
-        config['namespace'] = ''
-        super(Kubernetes, self).__init__(config)
+        super(Kubernetes, self).__init__({**config, 'namespace': ''})
         if self._citus_group:
             self._labels[self._CITUS_LABEL] = self._citus_group
 
