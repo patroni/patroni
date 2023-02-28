@@ -1094,12 +1094,22 @@ class ConfigHandler(object):
                 effective_configuration[name] = cvalue
                 self._postgresql.set_pending_restart(True)
 
-        # If we are using custom bootstrap with PITR it could fail when values
-        # like max_connections are increased, therefore we disable hot_standby.
-        if self._postgresql.bootstrap.running_custom_bootstrap and \
-                (self._postgresql.bootstrap.keep_existing_recovery_conf or self._recovery_conf):
-            effective_configuration['hot_standby'] = 'off'
-            self._postgresql.set_pending_restart(True)
+        # If we are using custom bootstrap with PITR it could fail when values like max_connections
+        # are increased, therefore we disable hot_standby if recovery_target_action == 'promote'.
+        if self._postgresql.bootstrap.running_custom_bootstrap:
+            disable_hot_standby = False
+            if self._postgresql.bootstrap.keep_existing_recovery_conf:
+                disable_hot_standby = True  # trust that pgBackRest does the right thing
+            # `pause_at_recovery_target` has no effect if hot_standby is not enabled, therefore we consider only 9.5+
+            elif self._postgresql.major_version >= 90500 and self._recovery_params:
+                pause_at_recovery_target = parse_bool(self._recovery_params.get('pause_at_recovery_target'))
+                recovery_target_action = self._recovery_params.get(
+                    'recovery_target_action', 'promote' if pause_at_recovery_target is False else 'pause')
+                disable_hot_standby = recovery_target_action == 'promote'
+
+            if disable_hot_standby:
+                effective_configuration['hot_standby'] = 'off'
+                self._postgresql.set_pending_restart(True)
 
         return effective_configuration
 
