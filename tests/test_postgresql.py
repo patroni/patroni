@@ -679,10 +679,14 @@ class TestPostgresql(BaseTestPostgresql):
                                                                 'max_worker_processes setting': '20',
                                                                 'max_locks_per_xact setting': '100',
                                                                 'max_wal_senders setting': 10}))
-    def test__build_effective_configuration(self):
+    @patch('patroni.postgresql.config.logger.warning')
+    def test_effective_configuration(self, mock_logger):
         self.p.cancellable.cancel()
         self.p.config.write_recovery_conf({'pause_at_recovery_target': 'false'})
         self.assertFalse(self.p.start())
+        mock_logger.assert_called_once()
+        self.assertTrue('is missing from pg_controldata output' in mock_logger.call_args[0][0])
+
         self.assertTrue(self.p.pending_restart)
         with patch.object(Bootstrap, 'keep_existing_recovery_conf', PropertyMock(return_value=True)):
             self.assertFalse(self.p.start())
