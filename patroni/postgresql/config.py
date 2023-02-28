@@ -6,7 +6,7 @@ import socket
 import stat
 import time
 
-from six.moves.urllib_parse import urlparse, parse_qsl, unquote
+from urllib.parse import urlparse, parse_qsl, unquote
 
 from .validator import CaseInsensitiveDict, recovery_parameters,\
         transform_postgresql_parameter_value, transform_recovery_parameter_value

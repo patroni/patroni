@@ -14,7 +14,6 @@ import json
 import logging
 import os
 import random
-import six
 import subprocess
 import sys
 import tempfile
@@ -25,7 +24,7 @@ from click import ClickException
 from collections import defaultdict
 from contextlib import contextmanager
 from prettytable import ALL, FRAME, PrettyTable
-from six.moves.urllib_parse import urlparse
+from urllib.parse import urlparse
 
 try:
     from ydiff import markup_to_pager, PatchStream
@@ -203,7 +202,7 @@ def print_output(columns, rows, alignment=None, fmt='pretty', header=None, delim
             for r in ([columns] if columns else []) + rows:
                 click.echo(delimiter.join(map(str, r)))
         else:
-            hrules = ALL if any(any(isinstance(c, six.string_types) and '\n' in c for c in r) for r in rows) else FRAME
+            hrules = ALL if any(any(isinstance(c, str) and '\n' in c for c in r) for r in rows) else FRAME
             table = PatronictlPrettyTable(header, columns, hrules=hrules)
             table.align = 'l'
             for k, v in (alignment or {}).items():
@@ -875,7 +874,7 @@ def output_members(obj, cluster, name, extended=False, fmt='pretty', group=None)
             member.update(cluster=name, member=member['name'], group=g,
                           host=member.get('host', ''), tl=member.get('timeline', ''),
                           role=member['role'].replace('_', ' ').title(),
-                          lag_in_mb=round(lag/1024/1024) if isinstance(lag, six.integer_types) else lag,
+                          lag_in_mb=round(lag/1024/1024) if isinstance(lag, int) else lag,
                           pending_restart='*' if member.get('pending_restart') else '')
 
             if append_port and member['host'] and member.get('port'):
@@ -1084,8 +1083,7 @@ def show_diff(before_editing, after_editing):
     if sys.stdout.isatty():
         buf = io.StringIO()
         for line in unified_diff:
-            # Force cast to unicode as difflib on Python 2.7 returns a mix of unicode and str.
-            buf.write(six.text_type(line))
+            buf.write(str(line))
         buf.seek(0)
 
         class opts:

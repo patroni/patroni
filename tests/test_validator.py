@@ -4,10 +4,10 @@ import socket
 import tempfile
 import unittest
 
+from io import StringIO
 from mock import Mock, patch, mock_open
 from patroni.dcs import dcs_modules
 from patroni.validator import schema
-from six import StringIO
 
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 config = {

@@ -4,8 +4,6 @@ import shlex
 import tempfile
 import time
 
-from six import string_types
-
 from ..dcs import RemoteMember
 from ..psycopg import quote_ident, quote_literal
 from ..utils import deep_compare
@@ -43,11 +41,11 @@ class Bootstrap(object):
                     user_options.append('--{0}={1}'.format(k, v))
         elif isinstance(options, list):
             for opt in options:
-                if isinstance(opt, string_types) and option_is_allowed(opt):
+                if isinstance(opt, str) and option_is_allowed(opt):
                     user_options.append('--{0}'.format(opt))
                 elif isinstance(opt, dict):
                     keys = list(opt.keys())
-                    if len(keys) != 1 or not isinstance(opt[keys[0]], string_types) or not option_is_allowed(keys[0]):
+                    if len(keys) != 1 or not isinstance(opt[keys[0]], str) or not option_is_allowed(keys[0]):
                         error_handler('Error when parsing {0} key-value option {1}: only one key-value is allowed'
                                       ' and value should be a string'.format(tool, opt[keys[0]]))
                     user_options.append('--{0}={1}'.format(keys[0], opt[keys[0]]))

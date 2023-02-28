@@ -10,9 +10,9 @@ import urllib3
 
 from collections import defaultdict, namedtuple
 from consul import ConsulException, NotFound, base
+from http.client import HTTPException
 from urllib3.exceptions import HTTPError
-from six.moves.urllib.parse import urlencode, urlparse, quote
-from six.moves.http_client import HTTPException
+from urllib.parse import urlencode, urlparse, quote
 
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState,\
         TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re

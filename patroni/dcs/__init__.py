@@ -7,15 +7,14 @@ import logging
 import os
 import pkgutil
 import re
-import six
 import sys
 import time
 
 from collections import defaultdict, namedtuple
 from copy import deepcopy
 from random import randint
-from six.moves.urllib_parse import urlparse, urlunparse, parse_qsl
 from threading import Event, Lock
+from urllib.parse import urlparse, urlunparse, parse_qsl
 
 from ..exceptions import PatroniFatalException
 from ..utils import deep_compare, parse_bool, uri
@@ -654,8 +653,7 @@ def catch_return_false_exception(func):
     return wrapper
 
 
-@six.add_metaclass(abc.ABCMeta)
-class AbstractDCS(object):
+class AbstractDCS(abc.ABC):
 
     _INITIALIZE = 'initialize'
     _CONFIG = 'config'
@@ -676,7 +674,7 @@ class AbstractDCS(object):
         """
         self._name = config['name']
         self._base_path = re.sub('/+', '/', '/'.join(['', config.get('namespace', 'service'), config['scope']]))
-        self._citus_group = str(config['group']) if isinstance(config.get('group'), six.integer_types) else None
+        self._citus_group = str(config['group']) if isinstance(config.get('group'), int) else None
         self._set_loop_wait(config.get('loop_wait', 10))
 
         self._ctl = bool(config.get('patronictl', False))

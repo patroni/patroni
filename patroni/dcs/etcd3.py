@@ -4,7 +4,6 @@ import etcd
 import json
 import logging
 import os
-import six
 import socket
 import sys
 import time
@@ -176,20 +175,6 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         self._cluster_version = None
         self.version_prefix = '/v3beta'
         super(Etcd3Client, self).__init__(config, dns_resolver, cache_ttl)
-
-        if six.PY2:  # pragma: no cover
-            # Old grpc-gateway sometimes sends double 'transfer-encoding: chunked' headers,
-            # what breaks the old (python2.7) httplib.HTTPConnection (it closes the socket).
-            def dedup_addheader(httpm, key, value):
-                prev = httpm.dict.get(key)
-                if prev is None:
-                    httpm.dict[key] = value
-                elif key != 'transfer-encoding' or prev != value:
-                    combined = ", ".join((prev, value))
-                    httpm.dict[key] = combined
-
-            import httplib
-            httplib.HTTPMessage.addheader = dedup_addheader
 
         try:
             self.authenticate()

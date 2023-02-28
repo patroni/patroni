@@ -3,7 +3,6 @@ import os
 import re
 import shlex
 import shutil
-import six
 import subprocess
 import time
 
@@ -475,7 +474,7 @@ class Postgresql(object):
                         return prev
             except Exception as e:
                 logger.error('Exception when parsing WAL pg_%sdump output: %r', self.wal_name, e)
-            if isinstance(checkpoint_lsn, six.integer_types):
+            if isinstance(checkpoint_lsn, int):
                 return checkpoint_lsn
 
     def is_running(self):

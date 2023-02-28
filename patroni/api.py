@@ -7,15 +7,14 @@ import traceback
 import dateutil.parser
 import datetime
 import os
-import six
 import socket
 import sys
 
-from ipaddress import ip_address, ip_network as _ip_network
-from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
-from six.moves.socketserver import ThreadingMixIn
-from six.moves.urllib_parse import urlparse, parse_qs
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from ipaddress import ip_address, ip_network
+from socketserver import ThreadingMixIn
 from threading import Thread
+from urllib.parse import urlparse, parse_qs
 
 from . import psycopg
 from .exceptions import PostgresConnectionException, PostgresException
@@ -24,10 +23,6 @@ from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Ret
     RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json
 
 logger = logging.getLogger(__name__)
-
-
-def ip_network(value):
-    return _ip_network(value.decode('utf-8') if six.PY2 else value, False)
 
 
 class RestApiHandler(BaseHTTPRequestHandler):
@@ -172,7 +167,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 if instance_tag_value is None:
                     status_code = 503
                     break
-                if not isinstance(instance_tag_value, six.string_types):
+                if not isinstance(instance_tag_value, str):
                     instance_tag_value = str(instance_tag_value).lower()
                 if instance_tag_value != qs_value:
                     status_code = 503
@@ -768,7 +763,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def __resolve_ips(host, port):
         try:
             for _, _, _, _, sa in socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM, socket.IPPROTO_TCP):
-                yield ip_network(sa[0])
+                yield ip_network(sa[0], False)
         except Exception as e:
             logger.error('Failed to resolve %s: %r', host, e)
 
@@ -789,8 +784,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
     def check_access(self, rh):
         if self.__allowlist or self.__allowlist_include_members:
-            incoming_ip = rh.client_address[0]
-            incoming_ip = ip_address(incoming_ip.decode('utf-8') if six.PY2 else incoming_ip)
+            incoming_ip = ip_address(rh.client_address[0])
             if not any(incoming_ip in net for net in self.__allowlist + tuple(self.__members_ips())):
                 return rh._write_response(403, 'Access is denied')
 
@@ -915,7 +909,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             for v in value:
                 if '/' in v:  # netmask
                     try:
-                        yield ip_network(v)
+                        yield ip_network(v, False)
                     except Exception as e:
                         logger.error('Invalid value "%s" in the allowlist: %r', v, e)
                 else:  # ip or hostname, try to resolve it
@@ -935,7 +929,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.http_extra_headers = config.get('http_extra_headers') or {}
         self.http_extra_headers.update((config.get('https_extra_headers') or {}) if ssl_options.get('certfile') else {})
 
-        if isinstance(config.get('verify_client'), six.string_types):
+        if isinstance(config.get('verify_client'), str):
             ssl_options['verify_client'] = config['verify_client'].lower()
 
         if self.__listen != config['listen'] or self.__ssl_options != ssl_options or self._received_new_cert:

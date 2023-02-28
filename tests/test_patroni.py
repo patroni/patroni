@@ -6,6 +6,7 @@ import time
 import unittest
 
 import patroni.config as config
+from http.server import HTTPServer
 from mock import Mock, PropertyMock, patch
 from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
@@ -15,7 +16,6 @@ from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
 from patroni import check_psycopg
 from patroni.__main__ import Patroni, main as _main, patroni_main
-from six.moves import BaseHTTPServer, builtins
 from threading import Thread
 
 from . import psycopg_connect, SleepException
@@ -44,7 +44,7 @@ class MockFrozenImporter(object):
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())
 @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
 @patch.object(Postgresql, 'call_nowait', Mock())
-@patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
+@patch.object(HTTPServer, '__init__', Mock())
 @patch.object(AsyncExecutor, 'run', Mock())
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
@@ -63,7 +63,7 @@ class TestPatroni(unittest.TestCase):
 
     @patch('pkgutil.iter_importers', Mock(return_value=[MockFrozenImporter()]))
     @patch('sys.frozen', Mock(return_value=True), create=True)
-    @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
+    @patch.object(HTTPServer, '__init__', Mock())
     @patch.object(etcd.Client, 'read', etcd_read)
     @patch.object(Thread, 'start', Mock())
     @patch.object(AbstractEtcdClientWithFailover, 'machines', PropertyMock(return_value=['http://remotehost:2379']))
@@ -196,7 +196,7 @@ class TestPatroni(unittest.TestCase):
         self.p.shutdown()
 
     def test_check_psycopg(self):
-        with patch.object(builtins, '__import__', Mock(side_effect=ImportError)):
+        with patch('builtins.__import__', Mock(side_effect=ImportError)):
             self.assertRaises(SystemExit, check_psycopg)
-        with patch.object(builtins, '__import__', mock_import):
+        with patch('builtins.__import__', mock_import):
             self.assertRaises(SystemExit, check_psycopg)

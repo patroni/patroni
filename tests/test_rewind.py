@@ -3,7 +3,6 @@ from mock import Mock, PropertyMock, patch, mock_open
 from patroni.postgresql import Postgresql
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.rewind import Rewind
-from six.moves import builtins
 
 from . import BaseTestPostgresql, MockCursor, psycopg_connect
 
@@ -193,7 +192,7 @@ class TestRewind(BaseTestPostgresql):
         m = mock_open(read_data='/usr/lib/postgres/9.6/bin/postgres "-D" "data/postgresql0" \
 "--listen_addresses=127.0.0.1" "--port=5432" "--hot_standby=on" "--wal_level=hot_standby" \
 "--wal_log_hints=on" "--max_wal_senders=5" "--max_replication_slots=5"\n')
-        with patch.object(builtins, 'open', m):
+        with patch('builtins.open', m):
             data = self.r.read_postmaster_opts()
             self.assertEqual(data['wal_level'], 'hot_standby')
             self.assertEqual(int(data['max_replication_slots']), 5)

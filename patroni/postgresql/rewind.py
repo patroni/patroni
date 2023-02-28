@@ -3,7 +3,6 @@ import os
 import re
 import shlex
 import shutil
-import six
 import subprocess
 
 from threading import Lock, Thread
@@ -152,7 +151,7 @@ class Rewind(object):
         else:  # otherwise analyze pg_controldata output
             in_recovery, timeline, lsn = self._get_local_timeline_lsn_from_controldata()
 
-        log_lsn = format_lsn(lsn) if isinstance(lsn, six.integer_types) else lsn
+        log_lsn = format_lsn(lsn) if isinstance(lsn, int) else lsn
         logger.info('Local timeline=%s lsn=%s', timeline, log_lsn)
         return in_recovery, timeline, lsn
 
@@ -215,7 +214,7 @@ class Rewind(object):
                 elif primary_timeline > 1:
                     cur.execute('TIMELINE_HISTORY {0}'.format(primary_timeline))
                     history = cur.fetchone()[1]
-                    if not isinstance(history, six.string_types):
+                    if not isinstance(history, str):
                         history = bytes(history).decode('utf-8')
                     logger.debug('primary: history=%s', history)
         except Exception:

@@ -7,7 +7,6 @@ import psutil
 import re
 import shutil
 import signal
-import six
 import subprocess
 import sys
 import tempfile
@@ -17,12 +16,11 @@ import yaml
 
 import patroni.psycopg as psycopg
 
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from patroni.request import PatroniRequest
-from six.moves.BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 
 
-@six.add_metaclass(abc.ABCMeta)
-class AbstractController(object):
+class AbstractController(abc.ABC):
 
     def __init__(self, context, name, work_directory, output_dir):
         self._context = context

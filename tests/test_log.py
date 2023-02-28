@@ -7,7 +7,7 @@ import yaml
 from mock import Mock, patch
 from patroni.config import Config
 from patroni.log import PatroniLogger
-from six.moves.queue import Queue, Full
+from queue import Queue, Full
 
 _LOG = logging.getLogger(__name__)
 
