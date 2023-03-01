@@ -15,7 +15,8 @@ from psutil import TimeoutExpired
 from threading import current_thread, Lock
 
 from .bootstrap import Bootstrap
-from .callback_executor import CallbackExecutor
+from .callback_executor import ACTION_NOOP, ACTION_ON_START, ACTION_ON_STOP,\
+    ACTION_ON_RESTART, ACTION_ON_RELOAD, ACTION_ON_ROLE_CHANGE, CallbackExecutor
 from .cancellable import CancellableSubprocess
 from .config import ConfigHandler, mtime
 from .connection import Connection, get_connection_cursor
@@ -30,13 +31,6 @@ from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_emp
 
 
 logger = logging.getLogger(__name__)
-
-ACTION_ON_START = "on_start"
-ACTION_ON_STOP = "on_stop"
-ACTION_ON_RESTART = "on_restart"
-ACTION_ON_RELOAD = "on_reload"
-ACTION_ON_ROLE_CHANGE = "on_role_change"
-ACTION_NOOP = "noop"
 
 STATE_RUNNING = 'running'
 STATE_REJECT = 'rejecting connections'
