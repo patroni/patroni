@@ -865,8 +865,7 @@ class Postgresql(object):
         # Don't try to call pg_controldata during backup restore
         if self._version_file_exists() and self.state != 'creating replica':
             try:
-                env = os.environ.copy()
-                env.update(LANG='C', LC_ALL='C')
+                env = {**os.environ, 'LANG': 'C', 'LC_ALL': 'C'}
                 data = subprocess.check_output([self.pgcommand('pg_controldata'), self._data_dir], env=env)
                 if data:
                     data = filter(lambda e: ':' in e, data.decode('utf-8').splitlines())
@@ -878,8 +877,7 @@ class Postgresql(object):
 
     def waldump(self, timeline, lsn, limit):
         cmd = self.pgcommand('pg_{0}dump'.format(self.wal_name))
-        env = os.environ.copy()
-        env.update(LANG='C', LC_ALL='C', PGDATA=self._data_dir)
+        env = {**os.environ, 'LANG': 'C', 'LC_ALL': 'C', 'PGDATA': self._data_dir}
         try:
             waldump = subprocess.Popen([cmd, '-t', str(timeline), '-s', str(lsn), '-n', str(limit)],
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
