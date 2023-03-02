@@ -112,7 +112,7 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
     }
 
 
-Retrieve the Patroni metrics Prometheus format through the ``GET /metrics`` endpoint.
+Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` endpoint.
 
 .. code-block:: bash
 	$ curl http://localhost:8008/metrics
