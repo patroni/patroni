@@ -14,7 +14,7 @@ from threading import RLock
 from . import psycopg
 from .async_executor import AsyncExecutor, CriticalTask
 from .exceptions import DCSError, PostgresConnectionException, PatroniFatalException
-from .postgresql import ACTION_ON_START, ACTION_ON_ROLE_CHANGE
+from .postgresql.callback_executor import CallbackAction
 from .postgresql.misc import postgres_version_to_int
 from .postgresql.rewind import Rewind
 from .utils import polling_loop, tzutc, is_standby_cluster as _is_standby_cluster, parse_int
@@ -567,7 +567,7 @@ class Ha(object):
                 self._rewind.trigger_check_diverged_lsn()
             elif role == 'standby_leader' and self.state_handler.role != role:
                 self.state_handler.set_role(role)
-                self.state_handler.call_nowait(ACTION_ON_ROLE_CHANGE)
+                self.state_handler.call_nowait(CallbackAction.ON_ROLE_CHANGE)
 
         return follow_reason
 
@@ -1502,7 +1502,7 @@ class Ha(object):
         self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
         self.dcs.take_leader()
         self.set_is_leader(True)
-        self.state_handler.call_nowait(ACTION_ON_START)
+        self.state_handler.call_nowait(CallbackAction.ON_START)
         self.load_cluster_from_dcs()
 
         return 'initialized a new cluster'
@@ -1700,7 +1700,7 @@ class Ha(object):
                 if not self.state_handler.cb_called:
                     if not self.state_handler.is_leader():
                         self._rewind.trigger_check_diverged_lsn()
-                    self.state_handler.call_nowait(ACTION_ON_START)
+                    self.state_handler.call_nowait(CallbackAction.ON_START)
                 if create_slots and self.cluster.leader:
                     err = self._async_executor.try_run_async('copy_logical_slots',
                                                              self.state_handler.slots_handler.copy_logical_slots,

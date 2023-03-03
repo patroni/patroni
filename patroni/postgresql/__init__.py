@@ -15,8 +15,7 @@ from psutil import TimeoutExpired
 from threading import current_thread, Lock
 
 from .bootstrap import Bootstrap
-from .callback_executor import ACTION_NOOP, ACTION_ON_START, ACTION_ON_STOP,\
-    ACTION_ON_RESTART, ACTION_ON_RELOAD, ACTION_ON_ROLE_CHANGE, CallbackExecutor
+from .callback_executor import CallbackAction, CallbackExecutor
 from .cancellable import CancellableSubprocess
 from .config import ConfigHandler, mtime
 from .connection import Connection, get_connection_cursor
@@ -490,21 +489,22 @@ class Postgresql(object):
     def cb_called(self):
         return self.__cb_called
 
-    def call_nowait(self, cb_name):
-        """ pick a callback command and call it without waiting for it to finish """
+    def call_nowait(self, cb_type: CallbackAction) -> None:
+        """pick a callback command and call it without waiting for it to finish """
         if self.bootstrapping:
             return
-        if cb_name in (ACTION_ON_START, ACTION_ON_STOP, ACTION_ON_RESTART, ACTION_ON_ROLE_CHANGE):
+        if cb_type in (CallbackAction.ON_START, CallbackAction.ON_STOP,
+                       CallbackAction.ON_RESTART, CallbackAction.ON_ROLE_CHANGE):
             self.__cb_called = True
 
-        if self.callback and cb_name in self.callback:
-            cmd = self.callback[cb_name]
+        if self.callback and cb_type.value in self.callback:
+            cmd = self.callback[cb_type.value]
             role = 'master' if self.role == 'promoted' else self.role
             try:
-                cmd = shlex.split(self.callback[cb_name]) + [cb_name, role, self.scope]
+                cmd = shlex.split(self.callback[cb_type.value]) + [cb_type.value, role, self.scope]
                 self._callback_executor.call(cmd)
             except Exception:
-                logger.exception('callback %s %s %s %s failed', cmd, cb_name, role, self.scope)
+                logger.exception('callback %s %s %s %s failed', cmd, cb_type.value, role, self.scope)
 
     @property
     def role(self):
@@ -570,7 +570,7 @@ class Postgresql(object):
             return True
 
         if not block_callbacks:
-            self.__cb_pending = ACTION_ON_START
+            self.__cb_pending = CallbackAction.ON_START
 
         self.set_role(role or self.get_postgres_role_from_data_directory())
 
@@ -672,7 +672,7 @@ class Postgresql(object):
             if not block_callbacks:
                 self.set_state('stopped')
                 if pg_signaled:
-                    self.call_nowait(ACTION_ON_STOP)
+                    self.call_nowait(CallbackAction.ON_STOP)
         else:
             logger.warning('pg_ctl stop failed')
             self.set_state('stop failed')
@@ -764,7 +764,7 @@ class Postgresql(object):
     def reload(self, block_callbacks=False):
         ret = self.pg_ctl('reload')
         if ret and not block_callbacks:
-            self.call_nowait(ACTION_ON_RELOAD)
+            self.call_nowait(CallbackAction.ON_RELOAD)
         return ret
 
     def check_for_startup(self):
@@ -800,7 +800,7 @@ class Postgresql(object):
             self.config.save_configuration_files(True)
             # TODO: __cb_pending can be None here after PostgreSQL restarts on its own. Do we want to call the callback?
             # Previously we didn't even notice.
-            action = self.__cb_pending or ACTION_ON_START
+            action = self.__cb_pending or CallbackAction.ON_START
             self.call_nowait(action)
             self.__cb_pending = None
 
@@ -832,7 +832,7 @@ class Postgresql(object):
         """
         self.set_state('restarting')
         if not block_callbacks:
-            self.__cb_pending = ACTION_ON_RESTART
+            self.__cb_pending = CallbackAction.ON_RESTART
         ret = self.stop(block_callbacks=True, before_shutdown=before_shutdown)\
             and self.start(timeout, task, True, role, after_start)
         if not ret and not self.is_starting():
@@ -937,7 +937,7 @@ class Postgresql(object):
         change_role = self.cb_called and (self.role in ('master', 'primary', 'demoted') or
                                           not {'standby_leader', 'replica'} - {self.role, role})
         if change_role:
-            self.__cb_pending = ACTION_NOOP
+            self.__cb_pending = CallbackAction.NOOP
 
         ret = True
         if self.is_running():
@@ -953,7 +953,7 @@ class Postgresql(object):
 
         if change_role:
             # TODO: postpone this until start completes, or maybe do even earlier
-            self.call_nowait(ACTION_ON_ROLE_CHANGE)
+            self.call_nowait(CallbackAction.ON_ROLE_CHANGE)
         return ret
 
     def _wait_promote(self, wait_seconds):
@@ -1006,7 +1006,7 @@ class Postgresql(object):
             self.set_role('promoted')
             if on_success is not None:
                 on_success()
-            self.call_nowait(ACTION_ON_ROLE_CHANGE)
+            self.call_nowait(CallbackAction.ON_ROLE_CHANGE)
             ret = self._wait_promote(wait_seconds)
         return ret
 

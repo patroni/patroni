@@ -1,17 +1,21 @@
 import logging
 
-from patroni.postgresql.cancellable import CancellableExecutor, CancellableSubprocess
+from enum import Enum
 from threading import Condition, Thread
 from typing import List
 
+from .cancellable import CancellableExecutor, CancellableSubprocess
+
 logger = logging.getLogger(__name__)
 
-ACTION_NOOP = "noop"
-ACTION_ON_START = "on_start"
-ACTION_ON_STOP = "on_stop"
-ACTION_ON_RESTART = "on_restart"
-ACTION_ON_RELOAD = "on_reload"
-ACTION_ON_ROLE_CHANGE = "on_role_change"
+
+class CallbackAction(str, Enum):
+    NOOP = "noop"
+    ON_START = "on_start"
+    ON_STOP = "on_stop"
+    ON_RESTART = "on_restart"
+    ON_RELOAD = "on_reload"
+    ON_ROLE_CHANGE = "on_role_change"
 
 
 class OnReloadExecutor(CancellableSubprocess):
@@ -22,7 +26,8 @@ class OnReloadExecutor(CancellableSubprocess):
         To achive it we always kill already running command including child processes."""
         self.cancel(kill=True)
         self._kill_children()
-        self._start_process(cmd, close_fds=True)
+        with self._lock:
+            self._start_process(cmd, close_fds=True)
 
 
 class CallbackExecutor(CancellableExecutor, Thread):
@@ -44,7 +49,7 @@ class CallbackExecutor(CancellableExecutor, Thread):
 
         :param cmd: command to be executed"""
 
-        if cmd[-3] == ACTION_ON_RELOAD:
+        if cmd[-3] == CallbackAction.ON_RELOAD.value:
             return self._on_reload_executor.call_nowait(cmd)
 
         self._kill_process()
