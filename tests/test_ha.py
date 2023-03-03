@@ -182,6 +182,8 @@ def run_async(self, func, args=()):
 @patch.object(CancellableSubprocess, 'call', Mock(return_value=0))
 @patch.object(Postgresql, 'get_replica_timeline', Mock(return_value=2))
 @patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=2))
+@patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))
+@patch.object(Postgresql, 'resume_wal_replay', Mock())
 @patch.object(ConfigHandler, 'restore_configuration_files', Mock())
 @patch.object(etcd.Client, 'write', etcd_write)
 @patch.object(etcd.Client, 'read', etcd_read)
@@ -449,7 +451,6 @@ class TestHa(PostgresInit):
         self.p.is_leader = false
         self.assertEqual(self.ha.run_cycle(), 'not promoting because failed to update leader lock in DCS')
 
-    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000))
     def test_follow(self):
         self.ha.cluster.is_unlocked = false
         self.p.is_leader = false

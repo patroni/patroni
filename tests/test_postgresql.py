@@ -114,6 +114,9 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertTrue(self.p.start())
         mock_is_running.return_value = None
 
+        with patch.object(Postgresql, 'ensure_major_version_is_known', Mock(return_value=False)):
+            self.assertIsNone(self.p.start())
+
         mock_postmaster = MockPostmaster()
         with patch.object(PostmasterProcess, 'start', return_value=mock_postmaster):
             pg_conf = os.path.join(self.p.data_dir, 'postgresql.conf')
@@ -323,6 +326,8 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.call_nowait('on_start')
         m = RemoteMember('1', {'restore_command': '2', 'primary_slot_name': 'foo', 'conn_kwargs': {'host': 'bar'}})
         self.p.follow(m)
+        with patch.object(Postgresql, 'ensure_major_version_is_known', Mock(return_value=False)):
+            self.assertIsNone(self.p.follow(m))
 
     @patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError))
     def test__query(self):
