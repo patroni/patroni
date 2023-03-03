@@ -497,14 +497,14 @@ class Postgresql(object):
                        CallbackAction.ON_RESTART, CallbackAction.ON_ROLE_CHANGE):
             self.__cb_called = True
 
-        if self.callback and cb_type.value in self.callback:
-            cmd = self.callback[cb_type.value]
+        if self.callback and cb_type in self.callback:
+            cmd = self.callback[cb_type]
             role = 'master' if self.role == 'promoted' else self.role
             try:
-                cmd = shlex.split(self.callback[cb_type.value]) + [cb_type.value, role, self.scope]
+                cmd = shlex.split(self.callback[cb_type]) + [cb_type, role, self.scope]
                 self._callback_executor.call(cmd)
             except Exception:
-                logger.exception('callback %s %s %s %s failed', cmd, cb_type.value, role, self.scope)
+                logger.exception('callback %s %r %s %s failed', cmd, cb_type, role, self.scope)
 
     @property
     def role(self):

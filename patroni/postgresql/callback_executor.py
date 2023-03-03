@@ -17,6 +17,9 @@ class CallbackAction(str, Enum):
     ON_RELOAD = "on_reload"
     ON_ROLE_CHANGE = "on_role_change"
 
+    def __repr__(self):
+        return self.value
+
 
 class OnReloadExecutor(CancellableSubprocess):
 
