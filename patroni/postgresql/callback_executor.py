@@ -52,7 +52,7 @@ class CallbackExecutor(CancellableExecutor, Thread):
 
         :param cmd: command to be executed"""
 
-        if cmd[-3] == CallbackAction.ON_RELOAD.value:
+        if cmd[-3] == CallbackAction.ON_RELOAD:
             return self._on_reload_executor.call_nowait(cmd)
 
         self._kill_process()
