@@ -26,7 +26,7 @@ class OnReloadExecutor(CancellableSubprocess):
     def call_nowait(self, cmd: List[str]) -> None:
         """Run one `on_reload` callback at most.
 
-        To achive it we always kill already running command including child processes."""
+        To achieve it we always kill already running command including child processes."""
         self.cancel(kill=True)
         self._kill_children()
         with self._lock:
