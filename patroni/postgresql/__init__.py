@@ -949,9 +949,8 @@ class Postgresql(object):
 
         :param member: The member to follow
         :param role: The desired role, normally 'replica', but could also be a 'standby_leader'
-        :path The desired role, normally 'replica', but could also be 'standby_leader'
         :param timeout: start timeout, how long should the `start()` method wait for postgres accepting connections
-        :param do_reload: indicates that after updating postgresql.conf we just need to to a reload instead of restart
+        :param do_reload: indicates that after updating postgresql.conf we just need to do a reload instead of restart
 
         :returns: True - if restart/reload were successfully performed,
                   False - if restart/reload failed
