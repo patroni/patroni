@@ -7,7 +7,7 @@ from patroni.exceptions import PostgresException
 logger = logging.getLogger(__name__)
 
 
-def postgres_version_to_int(pg_version):
+def postgres_version_to_int(pg_version: str) -> int:
     """Convert the server_version to integer
 
     >>> postgres_version_to_int('9.5.3')
@@ -45,7 +45,7 @@ def postgres_version_to_int(pg_version):
     return int(''.join('{0:02d}'.format(c) for c in components))
 
 
-def postgres_major_version_to_int(pg_version):
+def postgres_major_version_to_int(pg_version: str) -> int:
     """
     >>> postgres_major_version_to_int('10')
     100000
