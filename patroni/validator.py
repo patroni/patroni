@@ -365,6 +365,7 @@ schema = Schema({
           Optional("use_endpoints"): bool,
           Optional("pod_ip"): Or(is_ipv4_address, is_ipv6_address),
           Optional("ports"): [{"name": str, "port": int}],
+          Optional("retriable_http_codes"): Or(int, [int]),
           },
       }),
   Optional("citus"): {
