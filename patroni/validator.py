@@ -288,8 +288,8 @@ class Schema(object):
 
 
 def _get_type_name(python_type):
-    return {str: 'a string', int: 'and integer', float: 'a number', bool: 'a boolean',
-            list: 'an array', dict: 'a dictionary', str: "a string"}.get(
+    return {str: 'a string', int: 'and integer', float: 'a number',
+            bool: 'a boolean', list: 'an array', dict: 'a dictionary'}.get(
                     python_type, getattr(python_type, __name__, "unknown type"))
 
 
