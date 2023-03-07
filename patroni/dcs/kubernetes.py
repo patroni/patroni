@@ -521,7 +521,7 @@ class CoreV1ApiProxy(object):
         Handles two important cases:
         1. Depending on whether Patroni is configured to work with `ConfigMaps` or `Endpoints`
            it remaps "virtual" method names from `*_kind` to `*_endpoints` or `*_config_map`.
-        2. It handles HTTP error codes and reaises `KubernetesRetriableException`
+        2. It handles HTTP error codes and raises `KubernetesRetriableException`
            if the given error is supposed to be handled with retry."""
 
         if func.endswith('_kind'):
