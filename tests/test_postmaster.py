@@ -133,14 +133,20 @@ class TestPostmasterProcess(unittest.TestCase):
         c2.cmdline = Mock(return_value=["postgres: postgres postgres [local] idle"])
         c3 = Mock()
         c3.cmdline = Mock(side_effect=psutil.NoSuchProcess(123))
+        mock_wait.return_value = ([], [c2])
         with patch('psutil.Process.children', Mock(return_value=[c1, c2, c3])):
             proc = PostmasterProcess(123)
-            self.assertIsNone(proc.wait_for_user_backends_to_close())
-            mock_wait.assert_called_with([c2])
+            self.assertIsNone(proc.wait_for_user_backends_to_close(1))
+            mock_wait.assert_called_with([c2], 1)
+
+        mock_wait.return_value = ([c2], [])
+        with patch('psutil.Process.children', Mock(return_value=[c1, c2, c3])):
+            proc = PostmasterProcess(123)
+            proc.wait_for_user_backends_to_close(1)
 
         with patch('psutil.Process.children', Mock(side_effect=psutil.NoSuchProcess(123))):
             proc = PostmasterProcess(123)
-            self.assertIsNone(proc.wait_for_user_backends_to_close())
+            self.assertIsNone(proc.wait_for_user_backends_to_close(None))
 
     @patch('subprocess.Popen')
     @patch('os.setsid', Mock(), create=True)

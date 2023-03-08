@@ -155,12 +155,12 @@ class Bootstrap(object):
         self._postgresql.set_state('creating replica')
         self._postgresql.schedule_sanity_checks_after_pause()
 
-        is_remote_master = isinstance(clone_member, RemoteMember)
+        is_remote_member = isinstance(clone_member, RemoteMember)
 
         # get list of replica methods either from clone member or from
         # the config. If there is no configuration key, or no value is
         # specified, use basebackup
-        replica_methods = (clone_member.create_replica_methods if is_remote_master
+        replica_methods = (clone_member.create_replica_methods if is_remote_member
                            else self._postgresql.create_replica_methods) or ['basebackup']
 
         if clone_member and clone_member.conn_url:
@@ -212,7 +212,7 @@ class Bootstrap(object):
                                           "datadir": self._postgresql.data_dir,
                                           "connstring": connstring})
                 else:
-                    for param in ('no_params', 'no_master', 'keep_data'):
+                    for param in ('no_params', 'no_master', 'no_leader', 'keep_data'):
                         method_config.pop(param, None)
                 params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                 try:
@@ -269,7 +269,7 @@ class Bootstrap(object):
 
     def clone(self, clone_member):
         """
-             - initialize the replica from an existing member (master or replica)
+             - initialize the replica from an existing member (primary or replica)
              - initialize the replica using the replica creation method that
                works without the replication connection (i.e. restore from on-disk
                base backup)
@@ -315,12 +315,14 @@ END;$$""".format(quote_literal(name), quote_ident(name, self._postgresql.connect
         self._postgresql.query('SET log_statement TO none')
         self._postgresql.query('SET log_min_duration_statement TO -1')
         self._postgresql.query("SET log_min_error_statement TO 'log'")
+        self._postgresql.query("SET pg_stat_statements.track_utility to 'off'")
         try:
             self._postgresql.query(sql)
         finally:
             self._postgresql.query('RESET log_min_error_statement')
             self._postgresql.query('RESET log_min_duration_statement')
             self._postgresql.query('RESET log_statement')
+            self._postgresql.query('RESET pg_stat_statements.track_utility')
 
     def post_bootstrap(self, config, task):
         try:
@@ -343,7 +345,7 @@ END;$$""".format(quote_literal(name), quote_ident(name, self._postgresql.connect
 BEGIN
     SET local synchronous_commit = 'local';
     GRANT EXECUTE ON function pg_catalog.{0} TO {1};
-END;$$""".format(f, quote_ident(rewind['username'], self._postgresql.connection()))
+END;$$""".format(f, quote_ident(rewind['username'], postgresql.connection()))
                         postgresql.query(sql)
 
                 for name, value in (config.get('users') or {}).items():
@@ -375,6 +377,9 @@ END;$$""".format(f, quote_ident(rewind['username'], self._postgresql.connection(
                             postgresql.reload()
                             time.sleep(1)  # give a time to postgres to "reload" configuration files
                             postgresql.connection().close()  # close connection to reconnect with a new password
+                else:  # initdb
+                    # We may want create database and extension for citus
+                    self._postgresql.citus_handler.bootstrap()
         except Exception:
             logger.exception('post_bootstrap')
             task.complete(False)

@@ -7,12 +7,11 @@ Patroni has a rich REST API, which is used by Patroni itself during the leader r
 
 Health check endpoints
 ----------------------
-For all health check ``GET`` requests Patroni returns a JSON document with the status of the node, along with the HTTP status code. If you don't want or don't need the JSON document, you might consider using the ``OPTIONS`` method instead of ``GET``.
+For all health check ``GET`` requests Patroni returns a JSON document with the status of the node, along with the HTTP status code. If you don't want or don't need the JSON document, you might consider using the ``HEAD`` or ``OPTIONS`` method instead of ``GET``.
 
 - The following requests to Patroni REST API will return HTTP status code **200** only when the Patroni node is running as the primary with leader lock:
 
   - ``GET /``
-  - ``GET /master``
   - ``GET /primary``
   - ``GET /read-write``
 
@@ -33,7 +32,6 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
  In the following requests, since we are checking for the leader or standby-leader status, Patroni doesn't apply any of the user defined tags and they will be ignored.
   - ``GET /?tag_key1=value1&tag_key2=value2``
-  - ``GET /master?tag_key1=value1&tag_key2=value2``
   - ``GET /leader?tag_key1=value1&tag_key2=value2``
   - ``GET /primary?tag_key1=value1&tag_key2=value2``
   - ``GET /read-write?tag_key1=value1&tag_key2=value2``
@@ -58,7 +56,7 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
 - ``GET /health``: returns HTTP status code **200** only when PostgreSQL is up and running.
 
-- ``GET /liveness``: always returns HTTP status code **200** what only indicates that Patroni is running. Could be used for ``livenessProbe``.
+- ``GET /liveness``: returns HTTP status code **200** if Patroni heartbeat loop is properly running and **503** if the last run was more than ``ttl`` seconds ago on the primary or ``2*ttl`` on the replica. Could be used for ``livenessProbe``.
 
 - ``GET /readiness``: returns HTTP status code **200** when the Patroni node is running as the leader or when PostgreSQL is up and running. The endpoint could be used for ``readinessProbe`` when it is not possible to use Kubernetes endpoints for leader elections (OpenShift).
 
@@ -112,6 +110,66 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
         "scope": "batman"
       }
     }
+
+
+Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` endpoint.
+
+.. code-block:: bash
+
+	$ curl http://localhost:8008/metrics
+	
+	# HELP patroni_version Patroni semver without periods. \
+	# TYPE patroni_version gauge
+	patroni_version{scope="batman"} 020103
+	# HELP patroni_postgres_running Value is 1 if Postgres is running, 0 otherwise.
+	# TYPE patroni_postgres_running gauge
+	patroni_postgres_running{scope="batman"} 1
+	# HELP patroni_postmaster_start_time Epoch seconds since Postgres started.
+	# TYPE patroni_postmaster_start_time gauge
+	patroni_postmaster_start_time{scope="batman"} 1657656955.179243
+	# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.
+	# TYPE patroni_master gauge
+	patroni_master{scope="batman"} 1
+	# HELP patroni_xlog_location Current location of the Postgres transaction log, 0 if this node is not the leader.
+	# TYPE patroni_xlog_location counter
+	patroni_xlog_location{scope="batman"} 22320573386952
+	# HELP patroni_standby_leader Value is 1 if this node is the standby_leader, 0 otherwise.
+	# TYPE patroni_standby_leader gauge
+	patroni_standby_leader{scope="batman"} 0
+	# HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.
+	# TYPE patroni_replica gauge
+	patroni_replica{scope="batman"} 0
+	# HELP patroni_xlog_received_location Current location of the received Postgres transaction log, 0 if this node is not a replica.
+	# TYPE patroni_xlog_received_location counter
+	patroni_xlog_received_location{scope="batman"} 0
+	# HELP patroni_xlog_replayed_location Current location of the replayed Postgres transaction log, 0 if this node is not a replica.
+	# TYPE patroni_xlog_replayed_location counter
+	patroni_xlog_replayed_location{scope="batman"} 0
+	# HELP patroni_xlog_replayed_timestamp Current timestamp of the replayed Postgres transaction log, 0 if null.
+	# TYPE patroni_xlog_replayed_timestamp gauge
+	patroni_xlog_replayed_timestamp{scope="batman"} 0
+	# HELP patroni_xlog_paused Value is 1 if the Postgres xlog is paused, 0 otherwise.
+	# TYPE patroni_xlog_paused gauge
+	patroni_xlog_paused{scope="batman"} 0
+	# HELP patroni_postgres_server_version Version of Postgres (if running), 0 otherwise.
+	# TYPE patroni_postgres_server_version gauge
+	patroni_postgres_server_version {scope="batman"} 140004
+	# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.
+	# TYPE patroni_cluster_unlocked gauge
+	patroni_cluster_unlocked{scope="batman"} 0
+	# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.
+	# TYPE patroni_postgres_timeline counter
+	patroni_postgres_timeline{scope="batman"} 24
+	# HELP patroni_dcs_last_seen Epoch timestamp when DCS was last contacted successfully by Patroni.
+	# TYPE patroni_dcs_last_seen gauge
+	patroni_dcs_last_seen{scope="batman"} 1677658321
+	# HELP patroni_pending_restart Value is 1 if the node needs a restart, 0 otherwise.
+	# TYPE patroni_pending_restart gauge
+	patroni_pending_restart{scope="batman"} 1
+	# HELP patroni_is_paused Value is 1 if auto failover is disabled, 0 otherwise.
+	# TYPE patroni_is_paused gauge
+	patroni_is_paused{scope="batman"} 1
+
 
 Cluster status endpoints
 ------------------------
@@ -368,7 +426,7 @@ Restart endpoint
   - **restart_pending**: boolean, if set to ``true`` Patroni will restart PostgreSQL only when restart is pending in order to apply some changes in the PostgreSQL config.
   - **role**: perform restart only if the current role of the node matches with the role from the POST request.
   - **postgres_version**: perform restart only if the current version of postgres is smaller than specified in the POST request.
-  - **timeout**: how long we should wait before PostgreSQL starts accepting connections. Overrides ``master_start_timeout``.
+  - **timeout**: how long we should wait before PostgreSQL starts accepting connections. Overrides ``primary_start_timeout``.
   - **schedule**: timestamp with time zone, schedule the restart somewhere in the future.
 
 - ``DELETE /restart``: delete the scheduled restart

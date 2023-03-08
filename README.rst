@@ -12,7 +12,9 @@ Patroni is a template for you to create your own customized, high-availability s
 
 We call Patroni a "template" because it is far from being a one-size-fits-all or plug-and-play replication system. It will have its own caveats. Use wisely.
 
-Currently supported PostgreSQL versions: 9.3 to 14.
+Currently supported PostgreSQL versions: 9.3 to 15.
+
+**Note to Citus users**: Starting from 3.0 Patroni nicely integrates with the `Citus <https://github.com/citusdata/citus>`__ database extension to Postgres. Please check the `Citus support page <https://github.com/zalando/patroni/blob/master/docs/citus.rst>`__ in the Patroni documentation for more info about how to use Patroni high availability together with a Citus distributed cluster.
 
 **Note to Kubernetes users**: Patroni can run natively on top of Kubernetes. Take a look at the `Kubernetes <https://github.com/zalando/patroni/blob/master/docs/kubernetes.rst>`__ chapter of the Patroni documentation.
 
@@ -47,7 +49,7 @@ We report new releases information `here <https://github.com/zalando/patroni/rel
 Community
 =========
 
-There are two places to connect with the Patroni community: `on github <https://github.com/zalando/patroni>`__, via Issues and PRs, and on channel #patroni in the `PostgreSQL Slack <https://postgres-slack.herokuapp.com/>`__.  If you're using Patroni, or just interested, please join us.
+There are two places to connect with the Patroni community: `on github <https://github.com/zalando/patroni>`__, via Issues and PRs, and on channel `#patroni <https://postgresteam.slack.com/archives/C9XPYG92A>`__ in the `PostgreSQL Slack <https://postgresteam.slack.com/>`__.  If you're using Patroni, or just interested, please join us.
 
 ===================================
 Technical Requirements/Installation

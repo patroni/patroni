@@ -37,6 +37,10 @@ def validate_host_port(host_port, listen=False, multiple_hosts=False):
             hosts = hosts.split(",")
         else:
             hosts = [hosts]
+        if "*" in hosts:
+            if len(hosts) != 1:
+                raise ConfigParseError("expecting '*' alone")
+            hosts = [p[-1][0] for p in socket.getaddrinfo(None, port, 0, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)]
         for host in hosts:
             proto = socket.getaddrinfo(host, "", 0, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
             s = socket.socket(proto[0][0], socket.SOCK_STREAM)
@@ -363,9 +367,14 @@ schema = Schema({
           Optional("ports"): [{"name": str, "port": int}],
           },
       }),
+  Optional("citus"): {
+    "database": str,
+    "group": int
+  },
   "postgresql": {
     "listen": validate_host_port_listen_multiple_hosts,
     "connect_address": validate_connect_address,
+    Optional("proxy_address"): validate_connect_address,
     "authentication": {
       "replication": userattributes,
       "superuser": userattributes,

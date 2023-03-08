@@ -19,7 +19,7 @@ class ExhibitorEnsembleProvider(object):
         self._uri_path = uri_path
         self._poll_interval = poll_interval
         self._exhibitors = hosts
-        self._master_exhibitors = hosts
+        self._boot_exhibitors = hosts
         self._zookeeper_hosts = ''
         self._next_poll = None
         while not self.poll():
@@ -32,7 +32,7 @@ class ExhibitorEnsembleProvider(object):
 
         json = self._query_exhibitors(self._exhibitors)
         if not json:
-            json = self._query_exhibitors(self._master_exhibitors)
+            json = self._query_exhibitors(self._boot_exhibitors)
 
         if isinstance(json, dict) and 'servers' in json and 'port' in json:
             self._next_poll = time.time() + self._poll_interval
@@ -68,7 +68,7 @@ class Exhibitor(ZooKeeper):
         config['hosts'] = self._ensemble_provider.zookeeper_hosts
         super(Exhibitor, self).__init__(config)
 
-    def _load_cluster(self):
+    def _load_cluster(self, path, loader):
         if self._ensemble_provider.poll():
             self._client.set_hosts(self._ensemble_provider.zookeeper_hosts)
-        return super(Exhibitor, self)._load_cluster()
+        return super(Exhibitor, self)._load_cluster(path, loader)

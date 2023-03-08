@@ -50,12 +50,16 @@ class MockFrozenImporter(object):
 @patch.object(etcd.Client, 'read', etcd_read)
 class TestPatroni(unittest.TestCase):
 
+    @patch('sys.argv', ['patroni.py'])
     def test_no_config(self):
         self.assertRaises(SystemExit, patroni_main)
 
     @patch('sys.argv', ['patroni.py', '--validate-config', 'postgres0.yml'])
+    @patch('socket.socket.connect_ex', Mock(return_value=1))
     def test_validate_config(self):
         self.assertRaises(SystemExit, patroni_main)
+        with patch.object(config.Config, '__init__', Mock(return_value=None)):
+            self.assertRaises(SystemExit, patroni_main)
 
     @patch('pkgutil.iter_importers', Mock(return_value=[MockFrozenImporter()]))
     @patch('sys.frozen', Mock(return_value=True), create=True)
@@ -139,7 +143,8 @@ class TestPatroni(unittest.TestCase):
         self.p.api.start = Mock()
         self.p.logger.start = Mock()
         self.p.config._dynamic_configuration = {}
-        self.assertRaises(SleepException, self.p.run)
+        with patch('patroni.dcs.Cluster.is_unlocked', Mock(return_value=True)):
+            self.assertRaises(SleepException, self.p.run)
         with patch('patroni.config.Config.reload_local_configuration', Mock(return_value=False)):
             self.p.sighup_handler()
             self.assertRaises(SleepException, self.p.run)

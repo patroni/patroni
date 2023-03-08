@@ -59,22 +59,22 @@ class TestWALERestore(unittest.TestCase):
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
 
         with patch('patroni.psycopg.connect', Mock(side_effect=psycopg.Error("foo"))):
-            save_no_master = self.wale_restore.no_master
-            save_master_connection = self.wale_restore.master_connection
+            save_no_leader = self.wale_restore.no_leader
+            save_leader_connection = self.wale_restore.leader_connection
 
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
 
             with patch('time.sleep', mock_sleep):
-                self.wale_restore.no_master = 1
+                self.wale_restore.no_leader = 1
                 self.assertTrue(self.wale_restore.should_use_s3_to_create_replica())
                 # verify retries
                 self.assertEqual(sleeps[0], WALE_TEST_RETRIES)
 
-            self.wale_restore.master_connection = ''
+            self.wale_restore.leader_connection = ''
             self.assertTrue(self.wale_restore.should_use_s3_to_create_replica())
 
-            self.wale_restore.no_master = save_no_master
-            self.wale_restore.master_connection = save_master_connection
+            self.wale_restore.no_leader = save_no_leader
+            self.wale_restore.leader_connection = save_leader_connection
 
         with patch('subprocess.check_output', Mock(side_effect=subprocess.CalledProcessError(1, "cmd", "foo"))):
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())

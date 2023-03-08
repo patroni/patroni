@@ -1,7 +1,7 @@
 psycopg2-binary
 behave
 coverage
-flake8
+flake8>=3.0.0
 mock
 pytest-cov
 pytest

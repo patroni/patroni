@@ -22,7 +22,7 @@ Patroni configuration is stored in the DCS (Distributed Configuration Store). Th
 
 The local configuration can be either a single YAML file or a directory. When it is a directory, all YAML files in that directory are loaded one by one in sorted order. In case a key is defined in multiple files, the occurrence in the last file takes precedence.
 
-Some of the PostgreSQL parameters must hold the same values on the master and the replicas. For those, values set either in the local patroni configuration files or via the environment variables take no effect. To alter or set their values one must change the shared configuration in the DCS. Below is the actual list of such parameters together with the default values:
+Some of the PostgreSQL parameters must hold the same values on the primary and the replicas. For those, values set either in the local patroni configuration files or via the environment variables take no effect. To alter or set their values one must change the shared configuration in the DCS. Below is the actual list of such parameters together with the default values:
 
 - max_connections: 100
 - max_locks_per_transaction: 64
@@ -32,7 +32,7 @@ Some of the PostgreSQL parameters must hold the same values on the master and th
 - wal_log_hints: on
 - track_commit_timestamp: off
 
-For the parameters below, PostgreSQL does not require equal values among the master and all the replicas. However, considering the possibility of a replica to become the master at any time, it doesn't really make sense to set them differently; therefore, Patroni restricts setting their values to the Dynamic configuration
+For the parameters below, PostgreSQL does not require equal values among the primary and all the replicas. However, considering the possibility of a replica to become the primary at any time, it doesn't really make sense to set them differently; therefore, Patroni restricts setting their values to the Dynamic configuration
 
 - max_wal_senders: 5
 - max_replication_slots: 5
@@ -86,4 +86,4 @@ Also, the following Patroni configuration options can be changed only dynamicall
 Upon changing these options, Patroni will read the relevant section of the configuration stored in DCS and change its
 run-time values.
 
-Patroni nodes are dumping the state of the DCS options to disk upon for every change of the configuration into the file ``patroni.dynamic.json`` located in the Postgres data directory. Only the master is allowed to restore these options from the on-disk dump if these are completely absent from the DCS or if they are invalid.
+Patroni nodes are dumping the state of the DCS options to disk upon for every change of the configuration into the file ``patroni.dynamic.json`` located in the Postgres data directory. Only the leader is allowed to restore these options from the on-disk dump if these are completely absent from the DCS or if they are invalid.

@@ -4,17 +4,20 @@ import unittest
 
 
 from mock import Mock, PropertyMock, patch
+from threading import Thread
 
 from patroni import psycopg
 from patroni.dcs import Cluster, ClusterConfig, Member
 from patroni.postgresql import Postgresql
-from patroni.postgresql.slots import SlotsHandler, fsync_dir
+from patroni.postgresql.misc import fsync_dir
+from patroni.postgresql.slots import SlotsAdvanceThread, SlotsHandler
 
 from . import BaseTestPostgresql, psycopg_connect, MockCursor
 
 
 @patch('subprocess.call', Mock(return_value=0))
 @patch('patroni.psycopg.connect', psycopg_connect)
+@patch.object(Thread, 'start', Mock())
 @patch.object(Postgresql, 'is_running', Mock(return_value=True))
 class TestSlotsHandler(BaseTestPostgresql):
 
@@ -29,26 +32,30 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.p.start()
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}}}, 1)
         self.cluster = Cluster(True, config, self.leader, 0,
-                               [self.me, self.other, self.leadermem], None, None, None, {'ls': 12345})
+                               [self.me, self.other, self.leadermem], None, None, None, {'ls': 12345}, None)
 
     def test_sync_replication_slots(self):
         config = ClusterConfig(1, {'slots': {'test_3': {'database': 'a', 'plugin': 'b'},
                                              'A': 0, 'ls': 0, 'b': {'type': 'logical', 'plugin': '1'}},
                                    'ignore_slots': [{'name': 'blabla'}]}, 1)
         cluster = Cluster(True, config, self.leader, 0,
-                          [self.me, self.other, self.leadermem], None, None, None, {'test_3': 10})
+                          [self.me, self.other, self.leadermem], None, None, None, {'test_3': 10}, None)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg.OperationalError)):
             self.s.sync_replication_slots(cluster, False)
         self.p.set_role('standby_leader')
-        self.s.sync_replication_slots(cluster, False)
-        self.p.set_role('replica')
-        with patch.object(Postgresql, 'is_leader', Mock(return_value=False)):
+        with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(True, False))),\
+                patch('patroni.postgresql.slots.logger.debug') as mock_debug:
             self.s.sync_replication_slots(cluster, False)
-        self.p.set_role('master')
+            mock_debug.assert_called_once()
+        self.p.set_role('replica')
+        with patch.object(Postgresql, 'is_leader', Mock(return_value=False)),\
+                patch.object(SlotsHandler, 'drop_replication_slot') as mock_drop:
+            self.s.sync_replication_slots(cluster, False, paused=True)
+            mock_drop.assert_not_called()
+        self.p.set_role('primary')
         with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
             self.s.sync_replication_slots(cluster, False)
-        with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=True)),\
-                patch('patroni.dcs.logger.error', new_callable=Mock()) as errorlog_mock:
+        with patch('patroni.dcs.logger.error', new_callable=Mock()) as errorlog_mock:
             alias1 = Member(0, 'test-3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
             alias2 = Member(0, 'test.3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
             cluster.members.extend([alias1, alias2])
@@ -63,7 +70,8 @@ class TestSlotsHandler(BaseTestPostgresql):
     def test_process_permanent_slots(self):
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}},
                                    'ignore_slots': [{'name': 'blabla'}]}, 1)
-        cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None, None)
+        cluster = Cluster(True, config, self.leader, 0,
+                          [self.me, self.other, self.leadermem], None, None, None, None, None)
 
         self.s.sync_replication_slots(cluster, False)
         with patch.object(Postgresql, '_query') as mock_query:
@@ -89,6 +97,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.assertEqual(self.s.sync_replication_slots(self.cluster, False), [])
         self.s._schedule_load_slots = False
         with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError)),\
+                patch.object(SlotsAdvanceThread, 'schedule', Mock(return_value=(True, ['ls']))),\
                 patch.object(psycopg.OperationalError, 'diag') as mock_diag:
             type(mock_diag).sqlstate = PropertyMock(return_value='58P01')
             self.assertEqual(self.s.sync_replication_slots(self.cluster, False), ['ls'])
@@ -121,6 +130,7 @@ class TestSlotsHandler(BaseTestPostgresql):
     @patch.object(Postgresql, 'start', Mock(return_value=True))
     @patch.object(Postgresql, 'is_leader', Mock(return_value=False))
     def test_on_promote(self):
+        self.s.schedule_advance_slots({'foo': {'bar': 100}})
         self.s.copy_logical_slots(self.cluster, ['ls'])
         self.s.on_promote()
 
@@ -130,3 +140,18 @@ class TestSlotsHandler(BaseTestPostgresql):
     @patch('os.fsync', Mock(side_effect=OSError))
     def test_fsync_dir(self):
         self.assertRaises(OSError, fsync_dir, 'foo')
+
+    def test_slots_advance_thread(self):
+        with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError)),\
+                patch.object(psycopg.OperationalError, 'diag') as mock_diag:
+            type(mock_diag).sqlstate = PropertyMock(return_value='58P01')
+            self.s.schedule_advance_slots({'foo': {'bar': 100}})
+            self.s._advance.sync_slots()
+
+        with patch.object(SlotsAdvanceThread, 'sync_slots', Mock(side_effect=Exception)):
+            self.s._advance._condition.wait = Mock()
+            self.assertRaises(Exception, self.s._advance.run)
+
+        with patch.object(SlotsHandler, 'get_local_connection_cursor', Mock(side_effect=Exception)):
+            self.s.schedule_advance_slots({'foo': {'bar': 100}})
+            self.s._advance.sync_slots()

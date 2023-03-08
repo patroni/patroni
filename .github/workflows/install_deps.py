@@ -5,7 +5,6 @@ import subprocess
 import stat
 import sys
 import tarfile
-import time
 import zipfile
 
 
@@ -20,7 +19,7 @@ def install_requirements(what):
     requirements = ['mock>=2.0.0', 'flake8', 'pytest', 'pytest-cov'] if what == 'all' else ['behave']
     requirements += ['coverage']
     # try to split tests between psycopg2 and psycopg3
-    requirements += ['psycopg[binary]'] if sys.version_info >= (3, 6, 0) and\
+    requirements += ['psycopg[binary]'] if sys.version_info > (3, 7, 0) and\
         (sys.platform != 'darwin' or what == 'etcd3') else ['psycopg2-binary']
     for r in read('requirements.txt').split('\n'):
         r = r.strip()
@@ -30,6 +29,7 @@ def install_requirements(what):
                 requirements.append(r)
 
     subprocess.call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'])
+    subprocess.call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'wheel'])
     r = subprocess.call([sys.executable, '-m', 'pip', 'install'] + requirements)
     s = subprocess.call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'setuptools'])
     return s | r
@@ -45,10 +45,10 @@ def install_packages(what):
     packages['exhibitor'] = packages['zookeeper']
     packages = packages.get(what, [])
     ver = versions.get(what)
-    subprocess.call(['sudo', 'sed', '-i', 's/pgdg main.*$/pgdg main {0}/'.format(ver),
-                     '/etc/apt/sources.list.d/pgdg.list'])
+    if float(ver) >= 15:
+        packages += ['postgresql-{0}-citus-11.2'.format(ver)]
     subprocess.call(['sudo', 'apt-get', 'update', '-y'])
-    return subprocess.call(['sudo', 'apt-get', 'install', '-y', 'postgresql-' + ver, 'expect-dev', 'wget'] + packages)
+    return subprocess.call(['sudo', 'apt-get', 'install', '-y', 'postgresql-' + ver, 'expect-dev'] + packages)
 
 
 def get_file(url, name):
@@ -98,7 +98,7 @@ def unpack(archive, name):
 
 
 def install_etcd():
-    version = os.environ.get('ETCDVERSION', '3.3.13')
+    version = os.environ.get('ETCDVERSION', '3.4.23')
     platform = {'linux2': 'linux', 'win32': 'windows', 'cygwin': 'windows'}.get(sys.platform, sys.platform)
     dirname = 'etcd-v{0}-{1}-amd64'.format(version, platform)
     ext = 'tar.gz' if platform == 'linux' else 'zip'
@@ -110,59 +110,17 @@ def install_etcd():
 
 
 def install_postgres():
-    version = os.environ.get('PGVERSION', '14.1-1')
+    version = os.environ.get('PGVERSION', '15.1-1')
     platform = {'darwin': 'osx', 'win32': 'windows-x64', 'cygwin': 'windows-x64'}[sys.platform]
+    if platform == 'osx':
+        return subprocess.call(['brew', 'install', 'expect', 'postgresql@{0}'.format(version.split('.')[0])])
     name = 'postgresql-{0}-{1}-binaries.zip'.format(version, platform)
     get_file('http://get.enterprisedb.com/postgresql/' + name, name)
     unzip_all(name)
     bin_dir = os.path.join('pgsql', 'bin')
     for f in os.listdir(bin_dir):
         chmod_755(os.path.join(bin_dir, f))
-    subprocess.call(['pgsql/bin/postgres', '-V'])
-    return 0
-
-
-def setup_kubernetes():
-    get_file('https://storage.googleapis.com/minikube/k8sReleases/v1.7.0/localkube-linux-amd64', 'localkube')
-    chmod_755('localkube')
-
-    devnull = open(os.devnull, 'w')
-    subprocess.Popen(['sudo', 'nohup', './localkube', '--logtostderr=true', '--enable-dns=false'],
-                     stdout=devnull, stderr=devnull)
-    for _ in range(0, 120):
-        if subprocess.call(['wget', '-qO', '-', 'http://127.0.0.1:8080/'], stdout=devnull, stderr=devnull) == 0:
-            break
-        time.sleep(1)
-    else:
-        print('localkube did not start')
-        return 1
-
-    subprocess.call('sudo chmod 644 /var/lib/localkube/certs/*', shell=True)
-    print('Set up .kube/config')
-    kube = os.path.join(os.path.expanduser('~'), '.kube')
-    os.makedirs(kube)
-    with open(os.path.join(kube, 'config'), 'w') as f:
-        f.write("""apiVersion: v1
-clusters:
-- cluster:
-    certificate-authority: /var/lib/localkube/certs/ca.crt
-    server: https://127.0.0.1:8443
-  name: local
-contexts:
-- context:
-    cluster: local
-    user: myself
-  name: local
-current-context: local
-kind: Config
-preferences: {}
-users:
-- name: myself
-  user:
-    client-certificate: /var/lib/localkube/certs/apiserver.crt
-    client-key: /var/lib/localkube/certs/apiserver.key
-""")
-    return 0
+    return subprocess.call(['pgsql/bin/postgres', '-V'])
 
 
 def main():
@@ -171,8 +129,6 @@ def main():
     if what != 'all':
         if sys.platform.startswith('linux'):
             r = install_packages(what)
-            if r == 0 and what == 'kubernetes':
-                r = setup_kubernetes()
         else:
             r = install_postgres()
 

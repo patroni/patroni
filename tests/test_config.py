@@ -21,7 +21,9 @@ class TestConfig(unittest.TestCase):
     def test_set_dynamic_configuration(self):
         with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
             self.assertIsNone(self.config.set_dynamic_configuration({'foo': 'bar'}))
-        self.assertTrue(self.config.set_dynamic_configuration({'synchronous_mode': True, 'standby_cluster': {}}))
+        self.assertTrue(self.config.set_dynamic_configuration({'synchronous_mode': True,
+                                                               'standby_cluster': {}, 'master_start_timeout': 1}))
+        self.assertEqual(self.config.get('primary_start_timeout'), 1)
 
     def test_reload_local_configuration(self):
         os.environ.update({
@@ -31,6 +33,9 @@ class TestConfig(unittest.TestCase):
             'PATRONI_LOGLEVEL': 'ERROR',
             'PATRONI_LOG_LOGGERS': 'patroni.postmaster: WARNING, urllib3: DEBUG',
             'PATRONI_LOG_FILE_NUM': '5',
+            'PATRONI_CITUS_DATABASE': 'citus',
+            'PATRONI_CITUS_GROUP': '0',
+            'PATRONI_CITUS_HOST': '0',
             'PATRONI_RESTAPI_USERNAME': 'username',
             'PATRONI_RESTAPI_PASSWORD': 'password',
             'PATRONI_RESTAPI_LISTEN': '0.0.0.0:8008',
@@ -40,6 +45,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_RESTAPI_ALLOWLIST_INCLUDE_MEMBERS': 'on',
             'PATRONI_POSTGRESQL_LISTEN': '0.0.0.0:5432',
             'PATRONI_POSTGRESQL_CONNECT_ADDRESS': '127.0.0.1:5432',
+            'PATRONI_POSTGRESQL_PROXY_ADDRESS': '127.0.0.1:5433',
             'PATRONI_POSTGRESQL_DATA_DIR': 'data/postgres0',
             'PATRONI_POSTGRESQL_CONFIG_DIR': 'data/postgres0',
             'PATRONI_POSTGRESQL_PGPASS': '/tmp/pgpass0',

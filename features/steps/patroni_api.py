@@ -1,5 +1,4 @@
 import json
-import os
 import parse
 import shlex
 import subprocess
@@ -10,10 +9,8 @@ import yaml
 from behave import register_type, step, then
 from dateutil import tz
 from datetime import datetime, timedelta
-from patroni.request import PatroniRequest
 
 tzutc = tz.tzutc()
-request_executor = PatroniRequest({'ctl': {'auth': 'username:password'}})
 
 
 @parse.with_pattern(r'https?://(?:\w|\.|:|/)+')
@@ -73,11 +70,13 @@ def do_post_empty(context, url):
 
 @step('I issue a {request_method:w} request to {url:url} with {data}')
 def do_request(context, request_method, url, data):
+    if context.certfile:
+        url = url.replace('http://', 'https://')
     data = data and json.loads(data)
     try:
-        r = request_executor.request(request_method, url, data)
+        r = context.request_executor.request(request_method, url, data)
         if request_method == 'PATCH' and r.status == 409:
-            r = request_executor.request(request_method, url, data)
+            r = context.request_executor.request(request_method, url, data)
     except Exception:
         context.status_code = context.response = None
     else:
@@ -88,10 +87,7 @@ def do_request(context, request_method, url, data):
 def do_run(context, cmd):
     cmd = [sys.executable, '-m', 'coverage', 'run', '--source=patroni', '-p'] + shlex.split(cmd)
     try:
-        # XXX: Dirty hack! We need to take name/passwd from the config!
-        env = os.environ.copy()
-        env.update({'PATRONI_RESTAPI_USERNAME': 'username', 'PATRONI_RESTAPI_PASSWORD': 'password'})
-        response = subprocess.check_output(cmd, stderr=subprocess.STDOUT, env=env)
+        response = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
         context.status_code = 0
     except subprocess.CalledProcessError as e:
         response = e.output
@@ -113,6 +109,8 @@ def check_response(context, component, data):
         assert data.strip('"') in context.response, "response {0} does not contain {1}".format(context.response, data)
     else:
         assert component in context.response, "{0} is not part of the response".format(component)
+        if context.certfile:
+            data = data.replace('http://', 'https://')
         assert str(context.response[component]) == str(data), "{0} does not contain {1}".format(component, data)
 
 
@@ -135,11 +133,27 @@ def add_tag_to_config(context, tag, value, pg_name):
     context.pctl.add_tag_to_config(pg_name, tag, value)
 
 
-@then('Response on GET {url} contains {value} after {timeout:d} seconds')
-def check_http_response(context, url, value, timeout, negate=False):
+@then('Status code on GET {url:url} is {code:d} after {timeout:d} seconds')
+def check_http_code(context, url, code, timeout):
+    if context.certfile:
+        url = url.replace('http://', 'https://')
     timeout *= context.timeout_multiplier
     for _ in range(int(timeout)):
-        r = request_executor.request('GET', url)
+        r = context.request_executor.request('GET', url)
+        if int(code) == int(r.status):
+            break
+        time.sleep(1)
+    else:
+        assert False, "HTTP Status Code is not {0} after {1} seconds".format(code, timeout)
+
+
+@then('Response on GET {url:url} contains {value} after {timeout:d} seconds')
+def check_http_response(context, url, value, timeout, negate=False):
+    if context.certfile:
+        url = url.replace('http://', 'https://')
+    timeout *= context.timeout_multiplier
+    for _ in range(int(timeout)):
+        r = context.request_executor.request('GET', url)
         if (value in r.data.decode('utf-8')) != negate:
             break
         time.sleep(1)

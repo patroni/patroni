@@ -1,0 +1,32 @@
+global
+	maxconn 100
+
+defaults
+	log	global
+	mode	tcp
+	retries 2
+	timeout client 30m
+	timeout connect 4s
+	timeout server 30m
+	timeout check 5s
+
+listen stats
+	mode http
+	bind *:7000
+	stats enable
+	stats uri /
+
+listen coordinator
+	bind *:5000
+	option httpchk HEAD /primary
+	http-check expect status 200
+	default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
+{{range gets "/0/members/*"}}	server {{base .Key}} {{$data := json .Value}}{{base (replace (index (split $data.conn_url "/") 2) "@" "/" -1)}} maxconn 100 check check-ssl port {{index (split (index (split $data.api_url "/") 2) ":") 1}} verify required ca-file /etc/ssl/certs/ssl-cert-snakeoil.pem crt /etc/ssl/private/ssl-cert-snakeoil.crt
+{{end}}
+listen workers
+	bind *:5001
+	option httpchk HEAD /primary
+	http-check expect status 200
+	default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
+{{range gets "/*/members/*"}}{{$group := index (split .Key "/") 1}}{{if ne $group "0"}}	server {{base .Key}} {{$data := json .Value}}{{base (replace (index (split $data.conn_url "/") 2) "@" "/" -1)}} maxconn 100 check check-ssl port {{index (split (index (split $data.api_url "/") 2) ":") 1}} verify required ca-file /etc/ssl/certs/ssl-cert-snakeoil.pem crt /etc/ssl/private/ssl-cert-snakeoil.crt
+{{end}}{{end}}

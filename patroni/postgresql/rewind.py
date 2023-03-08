@@ -1,13 +1,15 @@
 import logging
 import os
+import re
 import shlex
+import shutil
 import six
 import subprocess
 
 from threading import Lock, Thread
 
 from .connection import get_connection_cursor
-from .misc import format_lsn, parse_history, parse_lsn
+from .misc import format_lsn, fsync_dir, parse_history, parse_lsn
 from ..async_executor import CriticalTask
 from ..dcs import Leader
 
@@ -124,7 +126,7 @@ class Rewind(object):
                 in_recovery = True
                 lsn = data.get('Minimum recovery ending location')
                 timeline = int(data.get("Min recovery ending loc's timeline"))
-                if lsn == '0/0' or timeline == 0:  # it was a master when it crashed
+                if lsn == '0/0' or timeline == 0:  # it was a primary when it crashed
                     data['Database cluster state'] = 'shut down'
             if data.get('Database cluster state') == 'shut down':
                 in_recovery = False
@@ -155,7 +157,7 @@ class Rewind(object):
         return in_recovery, timeline, lsn
 
     @staticmethod
-    def _log_master_history(history, i):
+    def _log_primary_history(history, i):
         start = max(0, i - 3)
         end = None if i + 4 >= len(history) else i + 2
         history_show = []
@@ -170,7 +172,7 @@ class Rewind(object):
             history_show.append('...')
             history_show.append(format_history_line(history[-1]))
 
-        logger.info('master: history=%s', '\n'.join(history_show))
+        logger.info('primary: history=%s', '\n'.join(history_show))
 
     def _conn_kwargs(self, member, auth):
         ret = member.conn_kwargs(auth)
@@ -187,7 +189,7 @@ class Rewind(object):
         if local_timeline is None or local_lsn is None:
             return
 
-        if isinstance(leader, Leader) and leader.member.data.get('role') != 'master':
+        if isinstance(leader, Leader) and leader.member.data.get('role') not in ('master', 'primary'):
             return
 
         # We want to use replication credentials when connecting to the "postgres" database in case if
@@ -204,20 +206,20 @@ class Rewind(object):
         try:
             with self._postgresql.get_replication_connection_cursor(**leader.conn_kwargs()) as cur:
                 cur.execute('IDENTIFY_SYSTEM')
-                master_timeline = cur.fetchone()[1]
-                logger.info('master_timeline=%s', master_timeline)
-                if local_timeline > master_timeline:  # Not always supported by pg_rewind
+                primary_timeline = cur.fetchone()[1]
+                logger.info('primary_timeline=%s', primary_timeline)
+                if local_timeline > primary_timeline:  # Not always supported by pg_rewind
                     need_rewind = True
-                elif local_timeline == master_timeline:
+                elif local_timeline == primary_timeline:
                     need_rewind = False
-                elif master_timeline > 1:
-                    cur.execute('TIMELINE_HISTORY {0}'.format(master_timeline))
+                elif primary_timeline > 1:
+                    cur.execute('TIMELINE_HISTORY {0}'.format(primary_timeline))
                     history = cur.fetchone()[1]
                     if not isinstance(history, six.string_types):
                         history = bytes(history).decode('utf-8')
-                    logger.debug('master: history=%s', history)
+                    logger.debug('primary: history=%s', history)
         except Exception:
-            return logger.exception('Exception when working with master via replication connection')
+            return logger.exception('Exception when working with primary via replication connection')
 
         if history is not None:
             history = list(parse_history(history))
@@ -238,7 +240,7 @@ class Rewind(object):
                     break
             else:
                 need_rewind = True
-            self._log_master_history(history, i)
+            self._log_primary_history(history, i)
 
         self._state = need_rewind and REWIND_STATUS.NEED or REWIND_STATUS.NOT_NEED
 
@@ -268,7 +270,7 @@ class Rewind(object):
                         if self._checkpoint_task.result is not None:
                             self._state = REWIND_STATUS.CHECKPOINT
                             self._checkpoint_task = None
-                elif self._postgresql.get_master_timeline() == self._postgresql.pg_control_timeline():
+                elif self._postgresql.get_primary_timeline() == self._postgresql.pg_control_timeline():
                     self._state = REWIND_STATUS.CHECKPOINT
                 else:
                     self._checkpoint_task = CriticalTask()
@@ -277,27 +279,36 @@ class Rewind(object):
     def checkpoint_after_promote(self):
         return self._state == REWIND_STATUS.CHECKPOINT
 
-    def _fetch_missing_wal(self, restore_command, wal_filename):
+    def _buid_archiver_command(self, command, wal_filename):
+        """Replace placeholders in the given archiver command's template.
+        Applicable for archive_command and restore_command.
+        Can also be used for archive_cleanup_command and recovery_end_command,
+        however %r value is always set to 000000010000000000000001."""
         cmd = ''
-        length = len(restore_command)
+        length = len(command)
         i = 0
         while i < length:
-            if restore_command[i] == '%' and i + 1 < length:
+            if command[i] == '%' and i + 1 < length:
                 i += 1
-                if restore_command[i] == 'p':
+                if command[i] == 'p':
                     cmd += os.path.join(self._postgresql.wal_dir, wal_filename)
-                elif restore_command[i] == 'f':
+                elif command[i] == 'f':
                     cmd += wal_filename
-                elif restore_command[i] == 'r':
+                elif command[i] == 'r':
                     cmd += '000000010000000000000001'
-                elif restore_command[i] == '%':
+                elif command[i] == '%':
                     cmd += '%'
                 else:
                     cmd += '%'
                     i -= 1
             else:
-                cmd += restore_command[i]
+                cmd += command[i]
             i += 1
+
+        return cmd
+
+    def _fetch_missing_wal(self, restore_command, wal_filename):
+        cmd = self._buid_archiver_command(restore_command, wal_filename)
 
         logger.info('Trying to fetch the missing wal: %s', cmd)
         return self._postgresql.cancellable.call(shlex.split(cmd)) == 0
@@ -314,6 +325,54 @@ class Rewind(object):
                     waldir, wal_filename = line[b:e].rsplit('/', 1)
                     if waldir.endswith('/pg_' + self._postgresql.wal_name) and len(wal_filename) == 24:
                         return wal_filename
+
+    def _archive_ready_wals(self):
+        """Try to archive WALs that have .ready files just in case
+        archive_mode was not set to 'always' before promote, while
+        after it the WALs were recycled on the promoted replica.
+        With this we prevent the entire loss of such WALs and the
+        consequent old leader's start failure."""
+        archive_mode = self._postgresql.get_guc_value('archive_mode')
+        archive_cmd = self._postgresql.get_guc_value('archive_command')
+        if archive_mode not in ('on', 'always') or not archive_cmd:
+            return
+
+        walseg_regex = re.compile(r'^[0-9A-F]{24}(\.partial){0,1}\.ready$')
+        status_dir = os.path.join(self._postgresql.wal_dir, 'archive_status')
+        try:
+            wals_to_archive = [f[:-6] for f in os.listdir(status_dir) if walseg_regex.match(f)]
+        except OSError as e:
+            return logger.error('Unable to list %s: %r', status_dir, e)
+
+        # skip fsync, as postgres --single or pg_rewind will anyway run it
+        for wal in sorted(wals_to_archive):
+            old_name = os.path.join(status_dir, wal + '.ready')
+            # wal file might have alredy been archived
+            if os.path.isfile(old_name) and os.path.isfile(os.path.join(self._postgresql.wal_dir, wal)):
+                cmd = self._buid_archiver_command(archive_cmd, wal)
+                # it is the author of archive_command, who is responsible
+                # for not overriding the WALs already present in archive
+                logger.info('Trying to archive %s: %s', wal, cmd)
+                if self._postgresql.cancellable.call(shlex.split(cmd)) == 0:
+                    new_name = os.path.join(status_dir, wal + '.done')
+                    try:
+                        shutil.move(old_name, new_name)
+                    except Exception as e:
+                        logger.error('Unable to rename %s to %s: %r', old_name, new_name, e)
+                else:
+                    logger.info('Failed to archive WAL segment %s', wal)
+
+    def _maybe_clean_pg_replslot(self):
+        """Clean pg_replslot directory if pg version is less then 11
+        (pg_rewind deletes $PGDATA/pg_replslot content only since pg11)."""
+        if self._postgresql.major_version < 110000:
+            replslot_dir = self._postgresql.slots_handler.pg_replslot_dir
+            try:
+                for f in os.listdir(replslot_dir):
+                    shutil.rmtree(os.path.join(replslot_dir, f))
+                fsync_dir(replslot_dir)
+            except Exception as e:
+                logger.warning('Unable to clean %s: %r', replslot_dir, e)
 
     def pg_rewind(self, r):
         # prepare pg_rewind connection
@@ -367,15 +426,17 @@ class Rewind(object):
         if self._postgresql.is_running() and not self._postgresql.stop(checkpoint=False):
             return logger.warning('Can not run pg_rewind because postgres is still running')
 
+        self._archive_ready_wals()
+
         # prepare pg_rewind connection
         r = self._conn_kwargs(leader, self._postgresql.config.rewind_credentials)
 
-        # 1. make sure that we are really trying to rewind from the master
+        # 1. make sure that we are really trying to rewind from the primary
         # 2. make sure that pg_control contains the new timeline by:
         #   running a checkpoint or
-        #   waiting until Patroni on the master will expose checkpoint_after_promote=True
+        #   waiting until Patroni on the primary will expose checkpoint_after_promote=True
         checkpoint_status = leader.checkpoint_after_promote if isinstance(leader, Leader) else None
-        if checkpoint_status is None:  # we are the standby-cluster leader or master still runs the old Patroni
+        if checkpoint_status is None:  # we are the standby-cluster leader or primary still runs the old Patroni
             # superuser credentials match rewind_credentials if the latter are not provided or we run 10 or older
             if self._postgresql.config.superuser == self._postgresql.config.rewind_credentials:
                 leader_status = self._postgresql.checkpoint(
@@ -390,14 +451,15 @@ class Rewind(object):
             return
 
         if self.pg_rewind(r):
+            self._maybe_clean_pg_replslot()
             self._state = REWIND_STATUS.SUCCESS
         else:
             if not self.check_leader_is_not_in_recovery(r):
-                logger.warning('Failed to rewind because master %s become unreachable', leader.name)
+                logger.warning('Failed to rewind because primary %s become unreachable', leader.name)
                 if not self.can_rewind:  # It is possible that the previous attempt damaged pg_control file!
                     self._state = REWIND_STATUS.FAILED
             else:
-                logger.error('Failed to rewind from healty master: %s', leader.name)
+                logger.error('Failed to rewind from healty primary: %s', leader.name)
                 self._state = REWIND_STATUS.FAILED
 
             if self.failed:
@@ -465,6 +527,7 @@ class Rewind(object):
             logger.exception('Unable to list %s', status_dir)
 
     def ensure_clean_shutdown(self):
+        self._archive_ready_wals()
         self.cleanup_archive_status()
 
         # Start in a single user mode and stop to produce a clean shutdown

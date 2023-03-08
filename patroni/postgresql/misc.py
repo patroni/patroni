@@ -1,11 +1,13 @@
+import errno
 import logging
+import os
 
 from patroni.exceptions import PostgresException
 
 logger = logging.getLogger(__name__)
 
 
-def postgres_version_to_int(pg_version):
+def postgres_version_to_int(pg_version: str) -> int:
     """Convert the server_version to integer
 
     >>> postgres_version_to_int('9.5.3')
@@ -43,7 +45,7 @@ def postgres_version_to_int(pg_version):
     return int(''.join('{0:02d}'.format(c) for c in components))
 
 
-def postgres_major_version_to_int(pg_version):
+def postgres_major_version_to_int(pg_version: str) -> int:
     """
     >>> postgres_major_version_to_int('10')
     100000
@@ -73,3 +75,16 @@ def parse_history(data):
 def format_lsn(lsn, full=False):
     template = '{0:X}/{1:08X}' if full else '{0:X}/{1:X}'
     return template.format(lsn >> 32, lsn & 0xFFFFFFFF)
+
+
+def fsync_dir(path):
+    if os.name != 'nt':
+        fd = os.open(path, os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        except OSError as e:
+            # Some filesystems don't like fsyncing directories and raise EINVAL. Ignoring it is usually safe.
+            if e.errno != errno.EINVAL:
+                raise
+        finally:
+            os.close(fd)

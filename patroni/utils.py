@@ -519,8 +519,8 @@ def enable_keepalive(sock, timeout, idle, cnt=3):
 def find_executable(executable, path=None):
     _, ext = os.path.splitext(executable)
 
-    if (sys.platform == 'win32') and (ext != '.exe'):
-        executable = executable + '.exe'
+    if (sys.platform == 'win32') and (ext == ''):
+        executable = executable + '.exe'  # Set default WIN extension
 
     if os.path.isfile(executable):
         return executable

@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import shutil
+import six
 import tempfile
 import yaml
 
@@ -32,7 +33,7 @@ _AUTH_ALLOWED_PARAMETERS = (
 
 def default_validator(conf):
     if not conf:
-        return "Config is empty."
+        raise ConfigParseError("Config is empty.")
 
 
 class Config(object):
@@ -58,16 +59,21 @@ class Config(object):
     PATRONI_CONFIG_VARIABLE = PATRONI_ENV_PREFIX + 'CONFIGURATION'
 
     __CACHE_FILENAME = 'patroni.dynamic.json'
+    __REMAP_KEYS = {
+        'master_start_timeout': 'primary_start_timeout',
+        'master_stop_timeout': 'primary_stop_timeout'
+    }
     __DEFAULT_CONFIG = {
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
         'maximum_lag_on_failover': 1048576,
         'maximum_lag_on_syncnode': -1,
         'check_timeline': False,
-        'master_start_timeout': 300,
-        'master_stop_timeout': 0,
+        'primary_start_timeout': 300,
+        'primary_stop_timeout': 0,
         'synchronous_mode': False,
         'synchronous_mode_strict': False,
         'synchronous_node_count': 1,
+        'failsafe_mode': False,
         'standby_cluster': {
             'create_replica_methods': '',
             'host': '',
@@ -223,18 +229,22 @@ class Config(object):
         config = deepcopy(self.__DEFAULT_CONFIG)
 
         for name, value in dynamic_configuration.items():
+            # allow copying master_start_timeout->primary_start_timeout when the latter isn't in dynamic_configuration
+            if name in self.__REMAP_KEYS and self.__REMAP_KEYS[name] not in dynamic_configuration:
+                name = self.__REMAP_KEYS[name]
             if name == 'postgresql':
                 for name, value in (value or {}).items():
                     if name == 'parameters':
                         config['postgresql'][name].update(self._process_postgresql_parameters(value))
-                    elif name not in ('connect_address', 'listen', 'data_dir', 'pgpass', 'authentication'):
+                    elif name not in ('connect_address', 'proxy_address', 'listen',
+                                      'config_dir', 'data_dir', 'pgpass', 'authentication'):
                         config['postgresql'][name] = deepcopy(value)
             elif name == 'standby_cluster':
                 for name, value in (value or {}).items():
                     if name in self.__DEFAULT_CONFIG['standby_cluster']:
                         config['standby_cluster'][name] = deepcopy(value)
             elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overridden from DCS
-                if name in ('synchronous_mode', 'synchronous_mode_strict'):
+                if name in ('synchronous_mode', 'synchronous_mode_strict', 'failsafe_mode'):
                     config[name] = value
                 else:
                     config[name] = int(value)
@@ -271,7 +281,8 @@ class Config(object):
                                         'cafile', 'ciphers', 'verify_client', 'http_extra_headers',
                                         'https_extra_headers', 'allowlist', 'allowlist_include_members'])
         _set_section_values('ctl', ['insecure', 'cacert', 'certfile', 'keyfile', 'keyfile_password'])
-        _set_section_values('postgresql', ['listen', 'connect_address', 'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
+        _set_section_values('postgresql', ['listen', 'connect_address', 'proxy_address',
+                                           'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
         _set_section_values('log', ['level', 'traceback_level', 'format', 'dateformat', 'max_queue_size',
                                     'dir', 'file_size', 'file_num', 'loggers'])
         _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs', 'password', 'bind_addr'])
@@ -351,18 +362,24 @@ class Config(object):
                 if suffix in ('HOST', 'HOSTS', 'PORT', 'USE_PROXIES', 'PROTOCOL', 'SRV', 'SRV_SUFFIX', 'URL', 'PROXY',
                               'CACERT', 'CERT', 'KEY', 'VERIFY', 'TOKEN', 'CHECKS', 'DC', 'CONSISTENCY',
                               'REGISTER_SERVICE', 'SERVICE_CHECK_INTERVAL', 'SERVICE_CHECK_TLS_SERVER_NAME',
-                              'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL', 'POD_IP',
-                              'PORTS', 'LABELS', 'BYPASS_API_SERVICE', 'KEY_PASSWORD', 'USE_SSL', 'SET_ACLS') and name:
+                              'SERVICE_TAGS', 'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL',
+                              'POD_IP', 'PORTS', 'LABELS', 'BYPASS_API_SERVICE', 'KEY_PASSWORD', 'USE_SSL', 'SET_ACLS',
+                              'GROUP', 'DATABASE') and name:
                     value = os.environ.pop(param)
-                    if suffix == 'PORT':
+                    if name == 'CITUS':
+                        if suffix == 'GROUP':
+                            value = parse_int(value)
+                        elif suffix != 'DATABASE':
+                            continue
+                    elif suffix == 'PORT':
                         value = value and parse_int(value)
-                    elif suffix in ('HOSTS', 'PORTS', 'CHECKS'):
+                    elif suffix in ('HOSTS', 'PORTS', 'CHECKS', 'SERVICE_TAGS'):
                         value = value and _parse_list(value)
                     elif suffix in ('LABELS', 'SET_ACLS'):
                         value = _parse_dict(value)
                     elif suffix in ('USE_PROXIES', 'REGISTER_SERVICE', 'USE_ENDPOINTS', 'BYPASS_API_SERVICE', 'VERIFY'):
                         value = parse_bool(value)
-                    if value:
+                    if value is not None:
                         ret[name.lower()][suffix.lower()] = value
         for dcs in ('etcd', 'etcd3'):
             if dcs in ret:
@@ -390,7 +407,11 @@ class Config(object):
     def _build_effective_configuration(self, dynamic_configuration, local_configuration):
         config = self._safe_copy_dynamic_configuration(dynamic_configuration)
         for name, value in local_configuration.items():
-            if name == 'postgresql':
+            if name == 'citus':  # remove invalid citus configuration
+                if isinstance(value, dict) and isinstance(value.get('group'), six.integer_types)\
+                        and isinstance(value.get('database'), six.string_types):
+                    config[name] = value
+            elif name == 'postgresql':
                 for name, value in (value or {}).items():
                     if name == 'parameters':
                         config['postgresql'][name].update(self._process_postgresql_parameters(value, True))
@@ -428,6 +449,12 @@ class Config(object):
         if 'name' not in config and 'name' in pg_config:
             config['name'] = pg_config['name']
 
+        # when bootstrapping the new Citus cluster (coordinator/worker) enable sync replication in global configuration
+        if 'citus' in config:
+            bootstrap = config.setdefault('bootstrap', {})
+            dcs = bootstrap.setdefault('dcs', {})
+            dcs.setdefault('synchronous_mode', True)
+
         updated_fields = (
             'name',
             'scope',
@@ -435,7 +462,8 @@ class Config(object):
             'synchronous_mode',
             'synchronous_mode_strict',
             'synchronous_node_count',
-            'maximum_lag_on_syncnode'
+            'maximum_lag_on_syncnode',
+            'citus'
         )
 
         pg_config.update({p: config[p] for p in updated_fields if p in config})
