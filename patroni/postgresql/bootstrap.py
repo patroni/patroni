@@ -59,7 +59,7 @@ class Bootstrap(object):
         return user_options
 
     def _initdb(self, config):
-        self._postgresql.set_state('initalizing new cluster')
+        self._postgresql.set_state('initializing new cluster')
         not_allowed_options = ('pgdata', 'nosync', 'pwfile', 'sync-only', 'version')
 
         def error_handler(e):
