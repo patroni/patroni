@@ -6,9 +6,9 @@ import sys
 import boto3
 
 from ..utils import Retry, RetryFailedError
-from ..request import get as requests_get
 
 from botocore.exceptions import ClientError
+from botocore.utils import IMDSFetcher
 
 logger = logging.getLogger(__name__)
 
@@ -21,14 +21,16 @@ class AWSConnection(object):
         self._retry = Retry(deadline=300, max_delay=30, max_tries=-1, retry_exceptions=(ClientError,))
         try:
             # get the instance id
-            r = requests_get('http://169.254.169.254/latest/dynamic/instance-identity/document', timeout=2.1)
+            fetcher = IMDSFetcher(timeout=2.1)
+            token = fetcher._fetch_metadata_token()
+            r = fetcher._get_request("/latest/dynamic/instance-identity/document", None, token)
         except Exception:
             logger.error('cannot query AWS meta-data')
             return
 
-        if r.status < 400:
+        if r.status_code < 400:
             try:
-                content = json.loads(r.data.decode('utf-8'))
+                content = json.loads(r.text)
                 self.instance_id = content['instanceId']
                 self.region = content['region']
             except Exception:
