@@ -4,16 +4,17 @@ Patroni Control
 
 import click
 import codecs
+import copy
 import datetime
 import dateutil.parser
 import dateutil.tz
-import copy
 import difflib
 import io
 import json
 import logging
 import os
 import random
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -34,7 +35,7 @@ except ImportError:  # pragma: no cover
 from .dcs import get_dcs as _get_dcs
 from .exceptions import PatroniException
 from .postgresql.misc import postgres_version_to_int
-from .utils import cluster_as_json, find_executable, patch_config, polling_loop, is_standby_cluster
+from .utils import cluster_as_json, patch_config, polling_loop, is_standby_cluster
 from .request import PatroniRequest
 from .version import __version__
 
@@ -1091,10 +1092,10 @@ def show_diff(before_editing, after_editing):
             width = 80
             tab_width = 8
             wrap = True
-            if find_executable('less'):
+            if shutil.which('less'):
                 pager = None
             else:
-                pager = 'more.com' if sys.platform == 'win32' else 'more'
+                pager = os.path.basename(shutil.which('more') or 'more')
             pager_options = None
 
         markup_to_pager(PatchStream(buf), opts)
@@ -1182,7 +1183,7 @@ def invoke_editor(before_editing, cluster_name):
     editor_cmd = os.environ.get('EDITOR')
     if not editor_cmd:
         for editor in ('editor', 'vi'):
-            editor_cmd = find_executable(editor)
+            editor_cmd = shutil.which(editor)
             if editor_cmd:
                 logging.debug('Setting fallback editor_cmd=%s', editor)
                 break

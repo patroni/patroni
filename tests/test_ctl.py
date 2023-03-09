@@ -559,8 +559,8 @@ class TestCtl(unittest.TestCase):
 
     @patch('sys.stdout.isatty', return_value=False)
     @patch('patroni.ctl.markup_to_pager')
-    @patch('patroni.ctl.find_executable', return_value=None)
-    def test_show_diff(self, mock_find_executable, mock_markup_to_pager, mock_isatty):
+    @patch('shutil.which', return_value=None)
+    def test_show_diff(self, mock_which, mock_markup_to_pager, mock_isatty):
         show_diff("foo:\n  bar: 1\n", "foo:\n  bar: 2\n")
         mock_markup_to_pager.assert_not_called()
 
@@ -571,7 +571,7 @@ class TestCtl(unittest.TestCase):
         show_diff("foo:\n  bar: 1\n", "foo:\n  bar: 2\n")
 
         # Test that unicode handling doesn't fail with an exception
-        mock_find_executable.return_value = '/usr/bin/less'
+        mock_which.return_value = '/usr/bin/less'
         show_diff(b"foo:\n  bar: \xc3\xb6\xc3\xb6\n".decode('utf-8'),
                   b"foo:\n  bar: \xc3\xbc\xc3\xbc\n".decode('utf-8'))
 
@@ -579,7 +579,7 @@ class TestCtl(unittest.TestCase):
     def test_invoke_editor(self, mock_subprocess_call):
         os.environ.pop('EDITOR', None)
         for e in ('', '/bin/vi'):
-            with patch('patroni.ctl.find_executable', Mock(return_value=e)):
+            with patch('shutil.which', Mock(return_value=e)):
                 self.assertRaises(PatroniCtlException, invoke_editor, 'foo: bar\n', 'test')
 
     @patch('patroni.ctl.get_dcs')

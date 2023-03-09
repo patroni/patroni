@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 import os
-import socket
 import re
+import shutil
+import socket
 import subprocess
 
-from .utils import find_executable, split_host_port, data_directory_is_empty
+from .utils import split_host_port, data_directory_is_empty
 from .dcs import dcs_modules
 from .exceptions import ConfigParseError
 
@@ -171,7 +172,7 @@ class Directory(object):
                         yield Result(False, "'{}' does not contain '{}'".format(name, path))
             if self.contains_executable:
                 for program in self.contains_executable:
-                    if not find_executable(program, name):
+                    if not shutil.which(program, path=name):
                         yield Result(False, "'{}' does not contain '{}'".format(name, program))
 
 
