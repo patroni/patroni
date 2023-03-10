@@ -317,6 +317,17 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
     def test_set_history_value(self):
         self.k.set_history_value('{}')
 
+    @patch('patroni.dcs.kubernetes.logger.warning')
+    def test_reload_config(self, mock_warning):
+        self.k.reload_config({'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10, 'retriable_http_codes': '401, 403 '})
+        self.assertEqual(self.k._api._retriable_http_codes, self.k._api._DEFAULT_RETRIABLE_HTTP_CODES | set([401, 403]))
+        self.k.reload_config({'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10, 'retriable_http_codes': 402})
+        self.assertEqual(self.k._api._retriable_http_codes, self.k._api._DEFAULT_RETRIABLE_HTTP_CODES | set([402]))
+        self.k.reload_config({'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10, 'retriable_http_codes': [405, 406]})
+        self.assertEqual(self.k._api._retriable_http_codes, self.k._api._DEFAULT_RETRIABLE_HTTP_CODES | set([405, 406]))
+        self.k.reload_config({'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10, 'retriable_http_codes': True})
+        mock_warning.assert_called_once()
+
 
 class TestKubernetesEndpoints(BaseTestKubernetes):
 
