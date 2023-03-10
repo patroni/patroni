@@ -79,12 +79,14 @@ body:
   validations:
     required: true
 
-- type: input
+- type: checkboxes
   id: issueSearch
   attributes:
     label: Have you tried to use GitHub issue search?
     description: Maybe there is already a similar issue solved.
-    placeholder: Yes/No
+    options:
+    - label: 'Yes'
+      required: true
   validations:
     required: true
 
