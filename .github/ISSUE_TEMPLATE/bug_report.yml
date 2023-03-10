@@ -35,7 +35,7 @@ body:
 - type: textarea
   id: environment
   attributes:
-    label: Patroni/PostgreSQL/DCS version (please run commands below)
+    label: Patroni/PostgreSQL/DCS version
     value: |
       -   Patroni version: 
       -   PostgreSQL version: 
