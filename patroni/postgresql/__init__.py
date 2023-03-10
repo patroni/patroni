@@ -12,9 +12,10 @@ from datetime import datetime
 from dateutil import tz
 from psutil import TimeoutExpired
 from threading import current_thread, Lock
+from typing import Optional
 
 from .bootstrap import Bootstrap
-from .callback_executor import CallbackExecutor
+from .callback_executor import CallbackAction, CallbackExecutor
 from .cancellable import CancellableSubprocess
 from .config import ConfigHandler, mtime
 from .connection import Connection, get_connection_cursor
@@ -24,18 +25,12 @@ from .postmaster import PostmasterProcess
 from .slots import SlotsHandler
 from .sync import SyncHandler
 from .. import psycopg
+from ..dcs import Member
 from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
 
 
 logger = logging.getLogger(__name__)
-
-ACTION_ON_START = "on_start"
-ACTION_ON_STOP = "on_stop"
-ACTION_ON_RESTART = "on_restart"
-ACTION_ON_RELOAD = "on_reload"
-ACTION_ON_ROLE_CHANGE = "on_role_change"
-ACTION_NOOP = "noop"
 
 STATE_RUNNING = 'running'
 STATE_REJECT = 'rejecting connections'
@@ -206,7 +201,10 @@ class Postgresql(object):
     def _version_file_exists(self):
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
 
-    def get_major_version(self):
+    def get_major_version(self) -> int:
+        """Reads major version from PG_VERSION file
+
+        :returns: major PostgreSQL version in integer format or 0 in case of missing file or errors"""
         if self._version_file_exists():
             try:
                 with open(self._version_file) as f:
@@ -495,21 +493,22 @@ class Postgresql(object):
     def cb_called(self):
         return self.__cb_called
 
-    def call_nowait(self, cb_name):
-        """ pick a callback command and call it without waiting for it to finish """
+    def call_nowait(self, cb_type: CallbackAction) -> None:
+        """pick a callback command and call it without waiting for it to finish """
         if self.bootstrapping:
             return
-        if cb_name in (ACTION_ON_START, ACTION_ON_STOP, ACTION_ON_RESTART, ACTION_ON_ROLE_CHANGE):
+        if cb_type in (CallbackAction.ON_START, CallbackAction.ON_STOP,
+                       CallbackAction.ON_RESTART, CallbackAction.ON_ROLE_CHANGE):
             self.__cb_called = True
 
-        if self.callback and cb_name in self.callback:
-            cmd = self.callback[cb_name]
+        if self.callback and cb_type in self.callback:
+            cmd = self.callback[cb_type]
             role = 'master' if self.role == 'promoted' else self.role
             try:
-                cmd = shlex.split(self.callback[cb_name]) + [cb_name, role, self.scope]
+                cmd = shlex.split(self.callback[cb_type]) + [cb_type, role, self.scope]
                 self._callback_executor.call(cmd)
             except Exception:
-                logger.exception('callback %s %s %s %s failed', cmd, cb_name, role, self.scope)
+                logger.exception('callback %s %r %s %s failed', cmd, cb_type, role, self.scope)
 
     @property
     def role(self):
@@ -562,7 +561,8 @@ class Postgresql(object):
         Waits for postmaster to open ports or terminate so pg_isready can be used to check startup completion
         or failure.
 
-        :returns: True if start was initiated and postmaster ports are open, False if start failed"""
+        :returns: True if start was initiated and postmaster ports are open,
+                  False if start failed, and None if postgres is still starting up"""
         # make sure we close all connections established against
         # the former node, otherwise, we might get a stalled one
         # after kill -9, which would report incorrect data to
@@ -575,7 +575,7 @@ class Postgresql(object):
             return True
 
         if not block_callbacks:
-            self.__cb_pending = ACTION_ON_START
+            self.__cb_pending = CallbackAction.ON_START
 
         self.set_role(role or self.get_postgres_role_from_data_directory())
 
@@ -583,8 +583,8 @@ class Postgresql(object):
         self._pending_restart = False
 
         try:
-            if not self._major_version:
-                self.configure_server_parameters()
+            if not self.ensure_major_version_is_known():
+                return None
             configuration = self.config.effective_configuration
         except Exception:
             return None
@@ -677,7 +677,7 @@ class Postgresql(object):
             if not block_callbacks:
                 self.set_state('stopped')
                 if pg_signaled:
-                    self.call_nowait(ACTION_ON_STOP)
+                    self.call_nowait(CallbackAction.ON_STOP)
         else:
             logger.warning('pg_ctl stop failed')
             self.set_state('stop failed')
@@ -769,7 +769,7 @@ class Postgresql(object):
     def reload(self, block_callbacks=False):
         ret = self.pg_ctl('reload')
         if ret and not block_callbacks:
-            self.call_nowait(ACTION_ON_RELOAD)
+            self.call_nowait(CallbackAction.ON_RELOAD)
         return ret
 
     def check_for_startup(self):
@@ -805,7 +805,7 @@ class Postgresql(object):
             self.config.save_configuration_files(True)
             # TODO: __cb_pending can be None here after PostgreSQL restarts on its own. Do we want to call the callback?
             # Previously we didn't even notice.
-            action = self.__cb_pending or ACTION_ON_START
+            action = self.__cb_pending or CallbackAction.ON_START
             self.call_nowait(action)
             self.__cb_pending = None
 
@@ -837,7 +837,7 @@ class Postgresql(object):
         """
         self.set_state('restarting')
         if not block_callbacks:
-            self.__cb_pending = ACTION_ON_RESTART
+            self.__cb_pending = CallbackAction.ON_RESTART
         ret = self.stop(block_callbacks=True, before_shutdown=before_shutdown)\
             and self.start(timeout, task, True, role, after_start)
         if not ret and not self.is_starting():
@@ -929,7 +929,27 @@ class Postgresql(object):
             except Exception:
                 logger.exception('Failed to read and parse %s', (history_path,))
 
-    def follow(self, member, role='replica', timeout=None, do_reload=False):
+    def follow(self,
+               member: Member,
+               role: Optional[str] = 'replica',
+               timeout: Optional[float] = None,
+               do_reload: Optional[bool] = False) -> Optional[bool]:
+        """Reconfigure postgres to follow a new member or use different recovery parameters.
+
+        Method may call `on_role_change` callback if role is changing.
+
+        :param member: The member to follow
+        :param role: The desired role, normally 'replica', but could also be a 'standby_leader'
+        :param timeout: start timeout, how long should the `start()` method wait for postgres accepting connections
+        :param do_reload: indicates that after updating postgresql.conf we just need to do a reload instead of restart
+
+        :returns: True - if restart/reload were successfully performed,
+                  False - if restart/reload failed
+                  None - if nothing was done or if Postgres is still in starting state after `timeout` seconds."""
+
+        if not self.ensure_major_version_is_known():
+            return None
+
         recovery_params = self.config.build_recovery_params(member)
         self.config.write_recovery_conf(recovery_params)
 
@@ -940,7 +960,7 @@ class Postgresql(object):
         change_role = self.cb_called and (self.role in ('master', 'primary', 'demoted') or
                                           not {'standby_leader', 'replica'} - {self.role, role})
         if change_role:
-            self.__cb_pending = ACTION_NOOP
+            self.__cb_pending = CallbackAction.NOOP
 
         ret = True
         if self.is_running():
@@ -956,7 +976,7 @@ class Postgresql(object):
 
         if change_role:
             # TODO: postpone this until start completes, or maybe do even earlier
-            self.call_nowait(ACTION_ON_ROLE_CHANGE)
+            self.call_nowait(CallbackAction.ON_ROLE_CHANGE)
         return ret
 
     def _wait_promote(self, wait_seconds):
@@ -1009,7 +1029,7 @@ class Postgresql(object):
             self.set_role('promoted')
             if on_success is not None:
                 on_success()
-            self.call_nowait(ACTION_ON_ROLE_CHANGE)
+            self.call_nowait(CallbackAction.ON_ROLE_CHANGE)
             ret = self._wait_promote(wait_seconds)
         return ret
 
@@ -1053,7 +1073,15 @@ class Postgresql(object):
     def configure_server_parameters(self):
         self._major_version = self.get_major_version()
         self.config.setup_server_parameters()
-        return True
+
+    def ensure_major_version_is_known(self) -> bool:
+        """Calls configure_server_parameters() if `_major_version` is not known
+
+        :returns: `True` if `_major_version` is set, otherwise `False`"""
+
+        if not self._major_version:
+            self.configure_server_parameters()
+        return self._major_version > 0
 
     def pg_wal_realpath(self):
         """Returns a dict containing the symlink (key) and target (value) for the wal directory"""
@@ -1146,8 +1174,7 @@ class Postgresql(object):
             2. sync replication slots, because it might happen that slots were removed
             3. get new 'Database system identifier' to make sure that it wasn't changed
         """
-        if not self._major_version:
-            self.configure_server_parameters()
+        self.ensure_major_version_is_known()
         self.slots_handler.schedule()
         self.citus_handler.schedule_cache_rebuild()
         self._sysid = None

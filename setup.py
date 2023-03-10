@@ -94,7 +94,7 @@ class Flake8(_Command):
         from flake8.main.cli import main
 
         logging.getLogger().setLevel(logging.ERROR)
-        main(self.targets())
+        raise SystemExit(main(self.targets()))
 
 
 class PyTest(_Command):

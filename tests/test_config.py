@@ -60,6 +60,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_KUBERNETES_LABELS': 'a: b: c',
             'PATRONI_KUBERNETES_SCOPE_LABEL': 'a',
             'PATRONI_KUBERNETES_PORTS': '[{"name": "postgresql"}]',
+            'PATRONI_KUBERNETES_RETRIABLE_HTTP_CODES': '401',
             'PATRONI_ZOOKEEPER_HOSTS': "'host1:2181','host2:2181'",
             'PATRONI_EXHIBITOR_HOSTS': 'host1,host2',
             'PATRONI_EXHIBITOR_PORT': '8181',

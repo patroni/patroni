@@ -59,6 +59,7 @@ config = {
         "use_endpoints": False,
         "pod_ip": "127.0.0.1",
         "ports": [{"name": "string", "port": 1000}],
+        "retriable_http_codes": [401],
     },
     "postgresql": {
         "listen": "127.0.0.2,::1:543",

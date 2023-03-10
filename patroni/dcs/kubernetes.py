@@ -16,6 +16,7 @@ from collections import defaultdict
 from copy import deepcopy
 from http.client import HTTPException
 from threading import Condition, Lock, Thread
+from typing import Any, Dict, List, Optional
 from urllib3.exceptions import HTTPError
 
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState,\
@@ -218,7 +219,7 @@ class K8sClient(object):
 
         _API_URL_PREFIX = '/api/v1/namespaces/'
 
-        def __init__(self, bypass_api_service=False):
+        def __init__(self, bypass_api_service: Optional[bool] = False) -> None:
             self._bypass_api_service = bypass_api_service
             self.pool_manager = urllib3.PoolManager(**k8s_config.pool_config)
             self._base_uri = k8s_config.server
@@ -486,11 +487,15 @@ class KubernetesRetriableException(k8s_client.rest.ApiException):
 
 
 class CoreV1ApiProxy(object):
+    """Proxy class to work with k8s_client.CoreV1Api() object"""
 
-    def __init__(self, use_endpoints=False, bypass_api_service=False):
+    _DEFAULT_RETRIABLE_HTTP_CODES = frozenset([500, 503, 504])
+
+    def __init__(self, use_endpoints: Optional[bool] = False, bypass_api_service: Optional[bool] = False) -> None:
         self._api_client = k8s_client.ApiClient(bypass_api_service)
         self._core_v1_api = k8s_client.CoreV1Api(self._api_client)
         self._use_endpoints = bool(use_endpoints)
+        self._retriable_http_codes = set(self._DEFAULT_RETRIABLE_HTTP_CODES)
 
     def configure_timeouts(self, loop_wait, retry_timeout, ttl):
         # Normally every loop_wait seconds we should have receive something from the socket.
@@ -502,10 +507,21 @@ class CoreV1ApiProxy(object):
         self._api_client.set_read_timeout(retry_timeout)
         self._api_client.set_api_servers_cache_ttl(loop_wait)
 
+    def configure_retriable_http_codes(self, retriable_http_codes: List[int]) -> None:
+        self._retriable_http_codes = self._DEFAULT_RETRIABLE_HTTP_CODES | set(retriable_http_codes)
+
     def refresh_api_servers_cache(self):
         self._api_client.refresh_api_servers_cache()
 
-    def __getattr__(self, func):
+    def __getattr__(self, func: str):
+        """Intercepts calls to `CoreV1Api` methods.
+
+        Handles two important cases:
+        1. Depending on whether Patroni is configured to work with `ConfigMaps` or `Endpoints`
+           it remaps "virtual" method names from `*_kind` to `*_endpoints` or `*_config_map`.
+        2. It handles HTTP error codes and raises `KubernetesRetriableException`
+           if the given error is supposed to be handled with retry."""
+
         if func.endswith('_kind'):
             func = func[:-4] + ('endpoints' if self._use_endpoints else 'config_map')
 
@@ -513,7 +529,7 @@ class CoreV1ApiProxy(object):
             try:
                 return getattr(self._core_v1_api, func)(*args, **kwargs)
             except k8s_client.rest.ApiException as e:
-                if e.status in (500, 503, 504) or e.headers and 'retry-after' in e.headers:  # XXX
+                if e.status in self._retriable_http_codes or e.headers and 'retry-after' in e.headers:
                     raise KubernetesRetriableException(e)
                 raise
         return wrapper
@@ -773,9 +789,23 @@ class Kubernetes(AbstractDCS):
     def set_retry_timeout(self, retry_timeout):
         self._retry.deadline = retry_timeout
 
-    def reload_config(self, config):
+    def reload_config(self, config: Dict[str, Any]) -> None:
+        """Handles dynamic config changes.
+
+        Either cause by changes in the local configuration file + SIGHUP or by changes of dynamic configuration"""
+
         super(Kubernetes, self).reload_config(config)
         self._api.configure_timeouts(self.loop_wait, self._retry.deadline, self.ttl)
+
+        # retriable_http_codes supposed to be either int, list of integers or comma-separated string with integers.
+        retriable_http_codes = config.get('retriable_http_codes', [])
+        if not isinstance(retriable_http_codes, list):
+            retriable_http_codes = [c.strip() for c in str(retriable_http_codes).split(',')]
+
+        try:
+            self._api.configure_retriable_http_codes([int(c) for c in retriable_http_codes])
+        except Exception as e:
+            logger.warning('Invalid value of retriable_http_codes = %s: %r', config['retriable_http_codes'], e)
 
     @staticmethod
     def member(pod):
