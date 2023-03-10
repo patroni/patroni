@@ -1,1 +1,5 @@
 blank_issues_enabled: false
+contact_links:
+- name: Question
+  url: https://postgresteam.slack.com/archives/C9XPYG92A
+  about: Please ask question about Patroni on Slack
