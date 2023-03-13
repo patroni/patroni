@@ -39,8 +39,7 @@ class MockIMDSFetcher(object):
 
     @staticmethod
     def _get_request(*args):
-        response = botocore.awsrequest.AWSResponse(url='', status_code=200, headers={}, raw=None)
-        return response
+        return botocore.awsrequest.AWSResponse(url='', status_code=200, headers={}, raw=None)
 
 
 @patch('boto3.resource', Mock(return_value=MockEc2Connection()))
