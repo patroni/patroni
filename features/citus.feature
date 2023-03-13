@@ -10,20 +10,20 @@ Feature: citus
     And I start postgres3 in citus group 1
     Then replication works from postgres0 to postgres1 after 15 seconds
     Then replication works from postgres2 to postgres3 after 15 seconds
-    And postgres0 is registered in the coordinator postgres0 as the worker in group 0
-    And postgres2 is registered in the coordinator postgres0 as the worker in group 1
+    And postgres0 is registered in the postgres0 as the worker in group 0
+    And postgres2 is registered in the postgres0 as the worker in group 1
 
   Scenario: coordinator failover updates pg_dist_node
     Given I run patronictl.py failover batman --group 0 --candidate postgres1 --force
     Then postgres1 role is the primary after 10 seconds
     And replication works from postgres1 to postgres0 after 15 seconds
     And "sync" key in a group 0 in DCS has sync_standby=postgres0 after 15 seconds
-    And postgres1 is registered in the coordinator postgres1 as the worker in group 0
+    And postgres1 is registered in the postgres2 as the worker in group 0
     When I run patronictl.py failover batman --group 0 --candidate postgres0 --force
     Then postgres0 role is the primary after 10 seconds
     And replication works from postgres0 to postgres1 after 15 seconds
     And "sync" key in a group 0 in DCS has sync_standby=postgres1 after 15 seconds
-    And postgres0 is registered in the coordinator postgres0 as the worker in group 0
+    And postgres0 is registered in the postgres2 as the worker in group 0
 
   Scenario: worker switchover doesn't break client queries on the coordinator
     Given I create a distributed table on postgres0
@@ -33,14 +33,14 @@ Feature: citus
     And postgres3 role is the primary after 10 seconds
     And replication works from postgres3 to postgres2 after 15 seconds
     And "sync" key in a group 1 in DCS has sync_standby=postgres2 after 15 seconds
-    And postgres3 is registered in the coordinator postgres0 as the worker in group 1
+    And postgres3 is registered in the postgres0 as the worker in group 1
     And a thread is still alive
     When I run patronictl.py switchover batman --group 1 --force
     Then I receive a response returncode 0
     And postgres2 role is the primary after 10 seconds
     And replication works from postgres2 to postgres3 after 15 seconds
     And "sync" key in a group 1 in DCS has sync_standby=postgres3 after 15 seconds
-    And postgres2 is registered in the coordinator postgres0 as the worker in group 1
+    And postgres2 is registered in the postgres0 as the worker in group 1
     And a thread is still alive
     When I stop a thread
     Then a distributed table on postgres0 has expected rows
@@ -52,7 +52,7 @@ Feature: citus
     Then I receive a response returncode 0
     And postgres2 role is the primary after 10 seconds
     And replication works from postgres2 to postgres3 after 15 seconds
-    And postgres2 is registered in the coordinator postgres0 as the worker in group 1
+    And postgres2 is registered in the postgres0 as the worker in group 1
     And a thread is still alive
     When I stop a thread
     Then a distributed table on postgres0 has expected rows
@@ -65,7 +65,7 @@ Feature: citus
     Then I receive a response returncode 0
     And I receive a response output "+ttl: 20"
     When I sleep for 2 seconds
-    Then postgres4 is registered in the coordinator postgres0 as the worker in group 2
+    Then postgres4 is registered in the postgres2 as the worker in group 2
     When I shut down postgres4
     Then There is a transaction in progress on postgres0 changing pg_dist_node
     When I run patronictl.py restart batman postgres2 --group 1 --force
