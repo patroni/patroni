@@ -29,7 +29,7 @@ This enables sync replication and the primary node will choose one of the nodes 
 Streaming Replication (asynchronous)
 ----------------------------------
 
-With only two data centers it would be better to have two independent etcd clusters and run Patroni ``standby_cluster`` in the second data center. If the first site is down, you can MANUALLY promote the ``standby_cluster``.
+With only two data centers it would be better to have two independent etcd clusters and run Patroni :ref:`standby cluster <standby_cluster>` in the second data center. If the first site is down, you can MANUALLY promote the ``standby_cluster``.
 
 The architecture diagram would be the following:
 
