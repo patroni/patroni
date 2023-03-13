@@ -20,7 +20,7 @@ The architecture diagram would be the following:
 
 .. image:: _static/multi-dc-synchronous-replication.png
 
-We must deploy a cluster of etcd, zookeeper or consul through the different DC, with a minimum of 3 nodes, one in each zone.
+We must deploy a cluster of etcd, ZooKeeper or Consul through the different DC, with a minimum of 3 nodes, one in each zone.
 
 Regarding postgres, we must deploy at least 2 nodes, in different DC. Then you have to set ``synchronous_mode: true`` in the global configuration (``patronictl edit-config``).
 
