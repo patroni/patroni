@@ -24,7 +24,7 @@ We must deploy a cluster of etcd, ZooKeeper or Consul through the different DC, 
 
 Regarding postgres, we must deploy at least 2 nodes, in different DC. Then you have to set ``synchronous_mode: true`` in the global configuration (``patronictl edit-config``).
 
-This enables sync replication and the master node will choose one of the nodes as synchronous.
+This enables sync replication and the primary node will choose one of the nodes as synchronous.
 
 Streaming Replication (asynchronous)
 ----------------------------------
