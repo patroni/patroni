@@ -196,17 +196,12 @@ class CitusHandler(Thread):
             return i, task
 
     def update_node(self, task):
-        if task.group == CITUS_COORDINATOR_GROUP_ID:
-            return self.query("SELECT pg_catalog.citus_set_coordinator_host(%s, %s, 'primary', 'default')",
-                              task.host, task.port)
-
-        if task.nodeid is None and task.event != 'before_demote':
-            task.nodeid = self.query("SELECT pg_catalog.citus_add_node(%s, %s, %s, 'primary', 'default')",
-                                     task.host, task.port, task.group).fetchone()[0]
-        elif task.nodeid is not None:
-            # XXX: statement_timeout?
+        if task.nodeid is not None:
             self.query('SELECT pg_catalog.citus_update_node(%s, %s, %s, true, %s)',
                        task.nodeid, task.host, task.port, task.cooldown)
+        elif task.event != 'before_demote':
+            task.nodeid = self.query("SELECT pg_catalog.citus_add_node(%s, %s, %s, 'primary', 'default')",
+                                     task.host, task.port, task.group).fetchone()[0]
 
     def process_task(self, task):
         """Updates a single row in `pg_dist_node` table, optionally in a transaction.
@@ -361,6 +356,11 @@ class CitusHandler(Thread):
                     cur.execute("INSERT INTO pg_catalog.pg_dist_authinfo VALUES"
                                 "(0, pg_catalog.current_user(), %s)",
                                 (self._postgresql.config.format_dsn(params),))
+
+                if self.is_coordinator():
+                    r = urlparse(self._postgresql.connection_string)
+                    cur.execute("SELECT pg_catalog.citus_set_coordinator_host(%s, %s, 'primary', 'default')",
+                                (r.hostname, r.port or 5432))
         finally:
             conn.close()
 

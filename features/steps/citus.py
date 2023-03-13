@@ -44,7 +44,7 @@ def start_citus(context, name, group):
     return context.pctl.start(name, custom_config={"citus": {"database": "postgres", "group": int(group)}})
 
 
-@step('{name1:w} is registered in the coordinator {name2:w} as the worker in group {group:d}')
+@step('{name1:w} is registered in the {name2:w} as the worker in group {group:d}')
 def check_registration(context, name1, name2, group):
     worker_port = int(context.pctl.query(name1, "SHOW port").fetchone()[0])
     r = context.pctl.query(name2, "SELECT nodeport FROM pg_catalog.pg_dist_node WHERE groupid = {0}".format(group))
