@@ -8,8 +8,8 @@ The high availability of a PostgreSQL cluster deployed in multiple data centers 
 
 In both cases, it is important to be clear about the following concepts:
 
-- Postgres can run as master only when it owns the leading key and can update the leading key.
-- You should run the odd number of etcd, zookeeper or consul nodes: 3 or 5!
+- Postgres can run as primary or standby leader only when it owns the leading key and can update the leading key.
+- You should run the odd number of etcd, ZooKeeper or Consul nodes: 3 or 5!
 
 Synchronous Replication
 ----------------------------
@@ -20,16 +20,16 @@ The architecture diagram would be the following:
 
 .. image:: _static/multi-dc-synchronous-replication.png
 
-We must deploy a cluster of etcd, zookeeper or consul through the different DC, with a minimum of 3 nodes, one in each zone.
+We must deploy a cluster of etcd, ZooKeeper or Consul through the different DC, with a minimum of 3 nodes, one in each zone.
 
 Regarding postgres, we must deploy at least 2 nodes, in different DC. Then you have to set ``synchronous_mode: true`` in the global configuration (``patronictl edit-config``).
 
-This enables sync replication and the master node will choose one of the nodes as synchronous.
+This enables sync replication and the primary node will choose one of the nodes as synchronous.
 
 Streaming Replication (asynchronous)
 ----------------------------------
 
-With only two data centers it would be better to have two independent etcd clusters and run Patroni ``standby_cluster`` in the second data center. If the first site is down, you can MANUALLY promote the ``standby_cluster``.
+With only two data centers it would be better to have two independent etcd clusters and run Patroni :ref:`standby cluster <standby_cluster>` in the second data center. If the first site is down, you can MANUALLY promote the ``standby_cluster``.
 
 The architecture diagram would be the following:
 
