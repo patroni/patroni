@@ -1,4 +1,5 @@
 import botocore
+import botocore.awsrequest
 import sys
 import unittest
 
