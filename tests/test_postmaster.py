@@ -4,7 +4,6 @@ import unittest
 
 from mock import Mock, patch, mock_open
 from patroni.postgresql.postmaster import PostmasterProcess
-from six.moves import builtins
 
 
 class MockProcess(object):
@@ -169,7 +168,7 @@ class TestPostmasterProcess(unittest.TestCase):
 
     @patch('psutil.Process.__init__', Mock(side_effect=psutil.NoSuchProcess(123)))
     def test_read_postmaster_pidfile(self):
-        with patch.object(builtins, 'open', Mock(side_effect=IOError)):
+        with patch('builtins.open', Mock(side_effect=IOError)):
             self.assertIsNone(PostmasterProcess.from_pidfile(''))
-        with patch.object(builtins, 'open', mock_open(read_data='123\n')):
+        with patch('builtins.open', mock_open(read_data='123\n')):
             self.assertIsNone(PostmasterProcess.from_pidfile(''))

@@ -2,7 +2,6 @@ import datetime
 import functools
 import json
 import logging
-import six
 import sys
 import time
 import uuid
@@ -880,7 +879,7 @@ class Ha(object):
                 not_allowed_reason = st.failover_limitation()
                 if not_allowed_reason:
                     logger.info('Member %s is %s', st.member.name, not_allowed_reason)
-                elif not isinstance(st.wal_position, six.integer_types):
+                elif not isinstance(st.wal_position, int):
                     logger.info('Member %s does not report wal_position', st.member.name)
                 elif cluster_lsn and st.wal_position < cluster_lsn or\
                         not cluster_lsn and self.is_lagging(st.wal_position):

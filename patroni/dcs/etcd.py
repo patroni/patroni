@@ -6,7 +6,6 @@ import logging
 import os
 import urllib3.util.connection
 import random
-import six
 import socket
 import time
 
@@ -14,12 +13,12 @@ from collections import defaultdict
 from copy import deepcopy
 from dns.exception import DNSException
 from dns import resolver
+from http.client import HTTPException
+from queue import Queue
+from threading import Thread
+from urllib.parse import urlparse
 from urllib3 import Timeout
 from urllib3.exceptions import HTTPError, ReadTimeoutError, ProtocolError
-from six.moves.queue import Queue
-from six.moves.http_client import HTTPException
-from six.moves.urllib_parse import urlparse
-from threading import Thread
 
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState,\
         TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
@@ -86,8 +85,7 @@ class DnsCachingResolver(Thread):
             return []
 
 
-@six.add_metaclass(abc.ABCMeta)
-class AbstractEtcdClientWithFailover(etcd.Client):
+class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
 
     def __init__(self, config, dns_resolver, cache_ttl=300):
         self._dns_resolver = dns_resolver
@@ -496,12 +494,12 @@ class AbstractEtcd(AbstractDCS):
             default_port = config.pop('port', 2379)
             protocol = config.get('protocol', 'http')
 
-            if isinstance(hosts, six.string_types):
+            if isinstance(hosts, str):
                 hosts = hosts.split(',')
 
             config['hosts'] = []
             for value in hosts:
-                if isinstance(value, six.string_types):
+                if isinstance(value, str):
                     config['hosts'].append(uri(protocol, split_host_port(value.strip(), default_port)))
         elif 'host' in config:
             host, port = split_host_port(config['host'], 2379)

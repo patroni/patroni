@@ -1,5 +1,4 @@
 import select
-import six
 import unittest
 
 from kazoo.client import KazooClient, KazooState
@@ -30,7 +29,7 @@ class MockKazooClient(Mock):
         return func(*args, **kwargs)
 
     def get(self, path, watch=None):
-        if not isinstance(path, six.string_types):
+        if not isinstance(path, str):
             raise TypeError("Invalid type for 'path' (string expected)")
         if path == '/broken/status':
             return (b'{', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
@@ -57,7 +56,7 @@ class MockKazooClient(Mock):
 
     @staticmethod
     def get_children(path, watch=None, include_data=False):
-        if not isinstance(path, six.string_types):
+        if not isinstance(path, str):
             raise TypeError("Invalid type for 'path' (string expected)")
         if path.startswith('/no_node'):
             raise NoNodeError
@@ -66,9 +65,9 @@ class MockKazooClient(Mock):
         return ['foo', 'bar', 'buzz']
 
     def create(self, path, value=b"", acl=None, ephemeral=False, sequence=False, makepath=False):
-        if not isinstance(path, six.string_types):
+        if not isinstance(path, str):
             raise TypeError("Invalid type for 'path' (string expected)")
-        if not isinstance(value, (six.binary_type,)):
+        if not isinstance(value, bytes):
             raise TypeError("Invalid type for 'value' (must be a byte string)")
         if b'Exception' in value:
             raise Exception
@@ -82,9 +81,9 @@ class MockKazooClient(Mock):
 
     @staticmethod
     def set(path, value, version=-1):
-        if not isinstance(path, six.string_types):
+        if not isinstance(path, str):
             raise TypeError("Invalid type for 'path' (string expected)")
-        if not isinstance(value, (six.binary_type,)):
+        if not isinstance(value, bytes):
             raise TypeError("Invalid type for 'value' (must be a byte string)")
         if path == '/service/bla/optime/leader':
             raise Exception
@@ -101,7 +100,7 @@ class MockKazooClient(Mock):
         return self.set(path, value, version) or Mock()
 
     def delete(self, path, version=-1, recursive=False):
-        if not isinstance(path, six.string_types):
+        if not isinstance(path, str):
             raise TypeError("Invalid type for 'path' (string expected)")
         self.exists = False
         if path == '/service/test/leader':

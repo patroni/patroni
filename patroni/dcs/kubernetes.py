@@ -7,7 +7,6 @@ import logging
 import os
 import random
 import socket
-import six
 import tempfile
 import time
 import urllib3
@@ -15,11 +14,10 @@ import yaml
 
 from collections import defaultdict
 from copy import deepcopy
-from urllib3 import Timeout
-from urllib3.exceptions import HTTPError
-from six.moves.http_client import HTTPException
+from http.client import HTTPException
 from threading import Condition, Lock, Thread
 from typing import Any, Dict, List, Optional
+from urllib3.exceptions import HTTPError
 
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState,\
         TimelineHistory, CITUS_COORDINATOR_GROUP_ID, citus_group_re
@@ -177,7 +175,7 @@ class K8sObject(object):
         if isinstance(value, dict):
             # we know that `annotations` and `labels` are dicts and therefore don't want to convert them into K8sObject
             return value if parent in {'annotations', 'labels'} and \
-                    all(isinstance(v, six.string_types) for v in value.values()) else cls(value)
+                    all(isinstance(v, str) for v in value.values()) else cls(value)
         elif isinstance(value, list):
             return [cls._wrap(None, v) for v in value]
         else:
@@ -377,7 +375,7 @@ class K8sClient(object):
             api_servers = len(api_servers_cache)
 
             if timeout:
-                if isinstance(timeout, six.integer_types + (float,)):
+                if isinstance(timeout, (int, float)):
                     timeout = urllib3.Timeout(total=timeout)
                 elif isinstance(timeout, tuple) and len(timeout) == 2:
                     timeout = urllib3.Timeout(connect=timeout[0], read=timeout[1])
@@ -576,7 +574,7 @@ class ObjectCache(Thread):
             raise
 
     def _watch(self, resource_version):
-        return self._func(_request_timeout=(self._retry.deadline, Timeout.DEFAULT_TIMEOUT),
+        return self._func(_request_timeout=(self._retry.deadline, urllib3.Timeout.DEFAULT_TIMEOUT),
                           _preload_content=False, watch=True, resource_version=resource_version)
 
     def set(self, name, value):

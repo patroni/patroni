@@ -17,7 +17,6 @@ from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.utils import RetryFailedError
-from six.moves import builtins
 from threading import Thread, current_thread
 
 from . import BaseTestPostgresql, MockCursor, MockPostmaster, psycopg_connect
@@ -231,7 +230,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertEqual(self.p.state, 'restart failed (restarting)')
 
     @patch('os.chmod', Mock())
-    @patch.object(builtins, 'open', MagicMock())
+    @patch('builtins.open', MagicMock())
     def test_write_pgpass(self):
         self.p.config.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo'})
         self.p.config.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo', 'password': 'bar'})
@@ -312,11 +311,11 @@ class TestPostgresql(BaseTestPostgresql):
 
         mock_read_auto = mock_open(read_data=read_data)
         mock_read_auto.return_value.__iter__ = lambda o: iter(o.readline, '')
-        with patch.object(builtins, 'open', Mock(side_effect=[mock_open()(), mock_read_auto(), IOError])),\
+        with patch('builtins.open', Mock(side_effect=[mock_open()(), mock_read_auto(), IOError])),\
                 patch('os.chmod', Mock()):
             self.p.config.write_postgresql_conf()
 
-        with patch.object(builtins, 'open', Mock(side_effect=[mock_open()(), IOError])), patch('os.chmod', Mock()):
+        with patch('builtins.open', Mock(side_effect=[mock_open()(), IOError])), patch('os.chmod', Mock()):
             self.p.config.write_postgresql_conf()
         self.p.config.write_recovery_conf({'foo': 'bar'})
         self.p.config.write_postgresql_conf()
@@ -552,9 +551,9 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
     def test_get_major_version(self):
-        with patch.object(builtins, 'open', mock_open(read_data='9.4')):
+        with patch('builtins.open', mock_open(read_data='9.4')):
             self.assertEqual(self.p.get_major_version(), 90400)
-        with patch.object(builtins, 'open', Mock(side_effect=Exception)):
+        with patch('builtins.open', Mock(side_effect=Exception)):
             self.assertEqual(self.p.get_major_version(), 0)
 
     def test_postmaster_start_time(self):

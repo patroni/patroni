@@ -5,7 +5,7 @@ import sys
 from copy import deepcopy
 from logging.handlers import RotatingFileHandler
 from patroni.utils import deep_compare
-from six.moves.queue import Queue, Full
+from queue import Queue, Full
 from threading import Lock, Thread
 
 _LOGGER = logging.getLogger(__name__)

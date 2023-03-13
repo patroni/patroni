@@ -514,21 +514,3 @@ def enable_keepalive(sock, timeout, idle, cnt=3):
 
     for opt in keepalive_socket_options(timeout, idle, cnt):
         sock.setsockopt(*opt)
-
-
-def find_executable(executable, path=None):
-    _, ext = os.path.splitext(executable)
-
-    if (sys.platform == 'win32') and (ext == ''):
-        executable = executable + '.exe'  # Set default WIN extension
-
-    if os.path.isfile(executable):
-        return executable
-
-    if path is None:
-        path = os.environ.get('PATH', os.defpath)
-
-    for p in path.split(os.pathsep):
-        f = os.path.join(p, executable)
-        if os.path.isfile(f):
-            return f

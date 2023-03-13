@@ -1,8 +1,7 @@
 import json
 import urllib3
-import six
 
-from six.moves.urllib_parse import urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse
 
 from .utils import USER_AGENT
 
@@ -51,7 +50,7 @@ class PatroniRequest(object):
         self._apply_pool_param('ca_certs', cacert)
 
     def request(self, method, url, body=None, **kwargs):
-        if body is not None and not isinstance(body, six.string_types):
+        if body is not None and not isinstance(body, str):
             body = json.dumps(body)
         return self._pool.request(method.upper(), url, body=body, **kwargs)
 

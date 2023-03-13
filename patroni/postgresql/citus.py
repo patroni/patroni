@@ -2,8 +2,8 @@ import logging
 import re
 import time
 
-from six.moves.urllib_parse import urlparse
 from threading import Condition, Event, Thread
+from urllib.parse import urlparse
 
 from .connection import Connection
 from ..dcs import CITUS_COORDINATOR_GROUP_ID

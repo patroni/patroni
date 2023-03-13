@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 import os
-import socket
 import re
+import shutil
+import socket
 import subprocess
 
-from six import string_types
-
-from .utils import find_executable, split_host_port, data_directory_is_empty
+from .utils import split_host_port, data_directory_is_empty
 from .dcs import dcs_modules
 from .exceptions import ConfigParseError
 
@@ -173,7 +172,7 @@ class Directory(object):
                         yield Result(False, "'{}' does not contain '{}'".format(name, path))
             if self.contains_executable:
                 for program in self.contains_executable:
-                    if not find_executable(program, name):
+                    if not shutil.which(program, path=name):
                         yield Result(False, "'{}' does not contain '{}'".format(name, program))
 
 
@@ -190,12 +189,12 @@ class Schema(object):
 
     def validate(self, data):
         self.data = data
-        if isinstance(self.validator, string_types):
-            yield Result(isinstance(self.data, string_types), "is not a string", level=1, data=self.data)
+        if isinstance(self.validator, str):
+            yield Result(isinstance(self.data, str), "is not a string", level=1, data=self.data)
         elif issubclass(type(self.validator), type):
             validator = self.validator
             if self.validator == str:
-                validator = string_types
+                validator = str
             yield Result(isinstance(self.data, validator),
                          "is not {}".format(_get_type_name(self.validator)), level=1, data=self.data)
         elif callable(self.validator):
@@ -290,8 +289,8 @@ class Schema(object):
 
 
 def _get_type_name(python_type):
-    return {str: 'a string', int: 'and integer', float: 'a number', bool: 'a boolean',
-            list: 'an array', dict: 'a dictionary', string_types: "a string"}.get(
+    return {str: 'a string', int: 'and integer', float: 'a number',
+            bool: 'a boolean', list: 'an array', dict: 'a dictionary'}.get(
                     python_type, getattr(python_type, __name__, "unknown type"))
 
 
@@ -302,11 +301,11 @@ def assert_(condition, message="Wrong value"):
 userattributes = {"username": "", Optional("password"): ""}
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 validate_host_port_list.expected_type = list
-comma_separated_host_port.expected_type = string_types
-validate_connect_address.expected_type = string_types
-validate_host_port_listen.expected_type = string_types
-validate_host_port_listen_multiple_hosts.expected_type = string_types
-validate_data_dir.expected_type = string_types
+comma_separated_host_port.expected_type = str
+validate_connect_address.expected_type = str
+validate_host_port_listen.expected_type = str
+validate_host_port_listen_multiple_hosts.expected_type = str
+validate_data_dir.expected_type = str
 validate_etcd = {
     Or("host", "hosts", "srv", "srv_suffix", "url", "proxy"): Case({
         "host": validate_host_port,
@@ -385,7 +384,7 @@ schema = Schema({
     Optional("bin_dir"): Directory(contains_executable=["pg_ctl", "initdb", "pg_controldata", "pg_basebackup",
                                                         "postgres", "pg_isready"]),
     Optional("parameters"): {
-      Optional("unix_socket_directories"): lambda s: assert_(all([isinstance(s, string_types), len(s)]))
+      Optional("unix_socket_directories"): lambda s: assert_(all([isinstance(s, str), len(s)]))
     },
     Optional("pg_hba"): [str],
     Optional("pg_ident"): [str],

@@ -4,10 +4,10 @@ import socket
 import tempfile
 import unittest
 
+from io import StringIO
 from mock import Mock, patch, mock_open
 from patroni.dcs import dcs_modules
 from patroni.validator import schema
-from six import StringIO
 
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 config = {
@@ -94,12 +94,16 @@ config = {
 
 directories = []
 files = []
+binaries = []
 
 
 def isfile_side_effect(arg):
-    if arg.endswith('.exe'):
-        arg = arg[:-4]
     return arg in files
+
+
+def which_side_effect(arg, path=None):
+    binary = arg if path is None else os.path.join(path, arg)
+    return arg if binary in binaries else None
 
 
 def isdir_side_effect(arg):
@@ -134,6 +138,7 @@ def parse_output(output):
 @patch('os.path.exists', Mock(side_effect=exists_side_effect))
 @patch('os.path.isdir', Mock(side_effect=isdir_side_effect))
 @patch('os.path.isfile', Mock(side_effect=isfile_side_effect))
+@patch('shutil.which', Mock(side_effect=which_side_effect))
 @patch('sys.stderr', new_callable=StringIO)
 @patch('sys.stdout', new_callable=StringIO)
 class TestValidator(unittest.TestCase):
@@ -141,6 +146,7 @@ class TestValidator(unittest.TestCase):
     def setUp(self):
         del files[:]
         del directories[:]
+        del binaries[:]
 
     def test_empty_config(self, mock_out, mock_err):
         errors = schema({})
@@ -191,12 +197,12 @@ class TestValidator(unittest.TestCase):
         directories.append(os.path.join(config["postgresql"]["data_dir"], "pg_wal"))
         files.append(os.path.join(config["postgresql"]["data_dir"], "global", "pg_control"))
         files.append(os.path.join(config["postgresql"]["data_dir"], "PG_VERSION"))
-        files.append(os.path.join(config["postgresql"]["bin_dir"], "pg_ctl"))
-        files.append(os.path.join(config["postgresql"]["bin_dir"], "initdb"))
-        files.append(os.path.join(config["postgresql"]["bin_dir"], "pg_controldata"))
-        files.append(os.path.join(config["postgresql"]["bin_dir"], "pg_basebackup"))
-        files.append(os.path.join(config["postgresql"]["bin_dir"], "postgres"))
-        files.append(os.path.join(config["postgresql"]["bin_dir"], "pg_isready"))
+        binaries.append(os.path.join(config["postgresql"]["bin_dir"], "pg_ctl"))
+        binaries.append(os.path.join(config["postgresql"]["bin_dir"], "initdb"))
+        binaries.append(os.path.join(config["postgresql"]["bin_dir"], "pg_controldata"))
+        binaries.append(os.path.join(config["postgresql"]["bin_dir"], "pg_basebackup"))
+        binaries.append(os.path.join(config["postgresql"]["bin_dir"], "postgres"))
+        binaries.append(os.path.join(config["postgresql"]["bin_dir"], "pg_isready"))
         with patch('patroni.validator.open', mock_open(read_data='12')):
             errors = schema(config)
         output = "\n".join(errors)

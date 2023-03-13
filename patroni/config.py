@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import shutil
-import six
 import tempfile
 import yaml
 
@@ -408,8 +407,8 @@ class Config(object):
         config = self._safe_copy_dynamic_configuration(dynamic_configuration)
         for name, value in local_configuration.items():
             if name == 'citus':  # remove invalid citus configuration
-                if isinstance(value, dict) and isinstance(value.get('group'), six.integer_types)\
-                        and isinstance(value.get('database'), six.string_types):
+                if isinstance(value, dict) and isinstance(value.get('group'), int)\
+                        and isinstance(value.get('database'), str):
                     config[name] = value
             elif name == 'postgresql':
                 for name, value in (value or {}).items():

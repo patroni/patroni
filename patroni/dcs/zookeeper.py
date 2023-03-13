@@ -1,7 +1,6 @@
 import json
 import logging
 import select
-import six
 import time
 
 from kazoo.client import KazooClient, KazooState, KazooRetry
@@ -63,10 +62,8 @@ class PatroniSequentialThreadingHandler(SequentialThreadingHandler):
 
         try:
             return super(PatroniSequentialThreadingHandler, self).select(*args, **kwargs)
-        except IOError as e:
-            raise (select.error(e.errno, e.strerror) if six.PY2 else e)
         except (TypeError, ValueError) as e:
-            raise (e if six.PY2 and isinstance(e, TypeError) else select.error(9, str(e)))
+            raise select.error(9, str(e))
 
 
 class PatroniKazooClient(KazooClient):

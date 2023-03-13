@@ -5,14 +5,13 @@ import io
 
 from mock import MagicMock, Mock, patch
 from patroni.config import Config, ConfigParseError
-from six.moves import builtins
 
 
 class TestConfig(unittest.TestCase):
 
     @patch('os.path.isfile', Mock(return_value=True))
     @patch('json.load', Mock(side_effect=Exception))
-    @patch.object(builtins, 'open', MagicMock())
+    @patch('builtins.open', MagicMock())
     def setUp(self):
         sys.argv = ['patroni.py']
         os.environ[Config.PATRONI_CONFIG_VARIABLE] = 'restapi: {}\npostgresql: {data_dir: foo}'
@@ -137,7 +136,7 @@ class TestConfig(unittest.TestCase):
                     new-attr: True
                     ''')
 
-        with patch.object(builtins, 'open', MagicMock(side_effect=open_mock)):
+        with patch('builtins.open', MagicMock(side_effect=open_mock)):
             config = Config('postgres0')
             self.assertEqual(config._local_configuration,
                              {'test': False, 'test2': {'child-1': 'somestring', 'child-2': 10},

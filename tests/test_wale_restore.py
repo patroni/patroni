@@ -6,7 +6,6 @@ import patroni.psycopg as psycopg
 from mock import Mock, PropertyMock, patch, mock_open
 from patroni.scripts import wale_restore
 from patroni.scripts.wale_restore import WALERestore, main as _main, get_major_version
-from six.moves import builtins
 from threading import current_thread
 
 from . import MockConnect, psycopg_connect
@@ -128,9 +127,9 @@ class TestWALERestore(unittest.TestCase):
 
     @patch('os.path.isfile', Mock(return_value=True))
     def test_get_major_version(self):
-        with patch.object(builtins, 'open', mock_open(read_data='9.4')):
+        with patch('builtins.open', mock_open(read_data='9.4')):
             self.assertEqual(get_major_version("data"), 9.4)
-        with patch.object(builtins, 'open', side_effect=OSError):
+        with patch('builtins.open', side_effect=OSError):
             self.assertEqual(get_major_version("data"), 0.0)
 
     @patch('os.path.islink', Mock(return_value=True))

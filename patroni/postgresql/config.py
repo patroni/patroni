@@ -6,7 +6,7 @@ import socket
 import stat
 import time
 
-from six.moves.urllib_parse import urlparse, parse_qsl, unquote
+from urllib.parse import urlparse, parse_qsl, unquote
 
 from .validator import CaseInsensitiveDict, recovery_parameters,\
         transform_postgresql_parameter_value, transform_recovery_parameter_value
@@ -768,9 +768,7 @@ class ConfigHandler(object):
             os.chmod(self._pgpass, stat.S_IWRITE | stat.S_IREAD)
             f.write(line)
 
-        env = os.environ.copy()
-        env['PGPASSFILE'] = self._pgpass
-        return env
+        return {**os.environ, 'PGPASSFILE': self._pgpass}
 
     def write_recovery_conf(self, recovery_params):
         self._recovery_params = recovery_params

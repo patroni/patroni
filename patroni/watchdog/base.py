@@ -1,7 +1,6 @@
 import abc
 import logging
 import platform
-import six
 import sys
 from threading import RLock
 
@@ -235,8 +234,7 @@ class Watchdog(object):
         return self.config.timing_slack >= 0 and self.impl.is_healthy
 
 
-@six.add_metaclass(abc.ABCMeta)
-class WatchdogBase(object):
+class WatchdogBase(abc.ABC):
     """A watchdog object when opened requires periodic calls to keepalive.
     When keepalive is not called within a timeout the system will be terminated."""
     is_null = False

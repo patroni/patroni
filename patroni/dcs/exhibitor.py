@@ -64,9 +64,7 @@ class Exhibitor(ZooKeeper):
     def __init__(self, config):
         interval = config.get('poll_interval', 300)
         self._ensemble_provider = ExhibitorEnsembleProvider(config['hosts'], config['port'], poll_interval=interval)
-        config = config.copy()
-        config['hosts'] = self._ensemble_provider.zookeeper_hosts
-        super(Exhibitor, self).__init__(config)
+        super(Exhibitor, self).__init__({**config, 'hosts': self._ensemble_provider.zookeeper_hosts})
 
     def _load_cluster(self, path, loader):
         if self._ensemble_provider.poll():

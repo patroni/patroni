@@ -18,7 +18,6 @@ from patroni.postgresql.rewind import Rewind
 from patroni.postgresql.slots import SlotsHandler
 from patroni.utils import tzutc
 from patroni.watchdog import Watchdog
-from six.moves import builtins
 
 from . import PostgresInit, MockPostmaster, psycopg_connect, requests_get
 from .test_etcd import socket_getaddrinfo, etcd_read, etcd_write
@@ -942,7 +941,7 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(), 'PAUSE: waiting to become primary after promote...')
 
     @patch('patroni.postgresql.mtime', Mock(return_value=1588316884))
-    @patch.object(builtins, 'open', mock_open(read_data='1\t0/40159C0\tno recovery target specified\n'))
+    @patch('builtins.open', mock_open(read_data='1\t0/40159C0\tno recovery target specified\n'))
     def test_process_healthy_standby_cluster_as_standby_leader(self):
         self.p.is_leader = false
         self.p.name = 'leader'
@@ -1274,7 +1273,7 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.get_effective_tags(), {'foo': 'bar'})
 
     @patch('patroni.postgresql.mtime', Mock(return_value=1588316884))
-    @patch.object(builtins, 'open', Mock(side_effect=Exception))
+    @patch('builtins.open', Mock(side_effect=Exception))
     def test_restore_cluster_config(self):
         self.ha.cluster.config.data.clear()
         self.ha.has_lock = true
@@ -1327,8 +1326,8 @@ class TestHa(PostgresInit):
                          "data directory is not accessible: [Errno 5] Input/output error: '{}'".format(self.p.data_dir))
 
     @patch('patroni.postgresql.mtime', Mock(return_value=1588316884))
-    @patch.object(builtins, 'open', mock_open(read_data=('1\t0/40159C0\tno recovery target specified\n\n'
-                                                         '2\t1/40159C0\tno recovery target specified\n')))
+    @patch('builtins.open', mock_open(read_data=('1\t0/40159C0\tno recovery target specified\n\n'
+                                                 '2\t1/40159C0\tno recovery target specified\n')))
     def test_update_cluster_history(self):
         self.ha.has_lock = true
         self.ha.cluster.is_unlocked = false
@@ -1392,7 +1391,7 @@ class TestHa(PostgresInit):
     @patch('os.close', Mock())
     @patch('os.rename', Mock())
     @patch('patroni.postgresql.Postgresql.is_starting', Mock(return_value=False))
-    @patch.object(builtins, 'open', mock_open())
+    @patch('builtins.open', mock_open())
     @patch.object(ConfigHandler, 'check_recovery_conf', Mock(return_value=(False, False)))
     @patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000))
     @patch.object(SlotsHandler, 'sync_replication_slots', Mock(return_value=['ls']))

@@ -3,14 +3,12 @@ from __future__ import print_function
 import abc
 import os
 import signal
-import six
 import sys
 
 from threading import Lock
 
 
-@six.add_metaclass(abc.ABCMeta)
-class AbstractPatroniDaemon(object):
+class AbstractPatroniDaemon(abc.ABC):
 
     def __init__(self, config):
         from patroni.log import PatroniLogger

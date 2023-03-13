@@ -5,14 +5,16 @@ import socket
 
 import patroni.psycopg as psycopg
 
+from http.server import HTTPServer
+from io import BytesIO as IO
 from mock import Mock, PropertyMock, patch
+from socketserver import ThreadingMixIn
+
 from patroni.api import RestApiHandler, RestApiServer
 from patroni.dcs import ClusterConfig, Member
 from patroni.ha import _MemberStatus
 from patroni.utils import tzutc
-from six import BytesIO as IO
-from six.moves import BaseHTTPServer
-from six.moves.socketserver import ThreadingMixIn
+
 from . import psycopg_connect, MockCursor
 from .test_ha import get_cluster_initialized_without_leader
 
@@ -175,7 +177,7 @@ class MockRestApiServer(RestApiServer):
 
 @patch('ssl.SSLContext.load_cert_chain', Mock())
 @patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
-@patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
+@patch.object(HTTPServer, '__init__', Mock())
 class TestRestApiHandler(unittest.TestCase):
 
     _authorization = '\nAuthorization: Basic dGVzdDp0ZXN0'
@@ -587,14 +589,14 @@ class TestRestApiServer(unittest.TestCase):
     @patch('ssl.SSLContext.load_cert_chain', Mock())
     @patch('ssl.SSLContext.set_ciphers', Mock())
     @patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
-    @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
+    @patch.object(HTTPServer, '__init__', Mock())
     def setUp(self):
         self.srv = MockRestApiServer(Mock(), '', {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required',
                                                   'ciphers': '!SSLv1:!SSLv2:!SSLv3:!TLSv1:!TLSv1.1',
                                                   'allowlist': ['127.0.0.1', '::1/128', '::1/zxc'],
                                                   'allowlist_include_members': True})
 
-    @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
+    @patch.object(HTTPServer, '__init__', Mock())
     def test_reload_config(self):
         bad_config = {'listen': 'foo'}
         self.assertRaises(ValueError, MockRestApiServer, None, '', bad_config)
@@ -622,7 +624,7 @@ class TestRestApiServer(unittest.TestCase):
         except Exception:
             self.assertIsNone(MockRestApiServer.handle_error(None, ('127.0.0.1', 55555)))
 
-    @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock(side_effect=socket.error))
+    @patch.object(HTTPServer, '__init__', Mock(side_effect=socket.error))
     def test_socket_error(self):
         self.assertRaises(socket.error, MockRestApiServer, Mock(), '', {'listen': '*:8008'})
 
