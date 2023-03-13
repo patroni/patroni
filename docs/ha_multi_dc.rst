@@ -8,7 +8,7 @@ The high availability of a PostgreSQL cluster deployed in multiple data centers 
 
 In both cases, it is important to be clear about the following concepts:
 
-- Postgres can run as master only when it owns the leading key and can update the leading key.
+- Postgres can run as primary or standby leader only when it owns the leading key and can update the leading key.
 - You should run the odd number of etcd, zookeeper or consul nodes: 3 or 5!
 
 Synchronous Replication
