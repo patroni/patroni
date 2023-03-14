@@ -28,12 +28,11 @@ class TestCtl(unittest.TestCase):
     TEST_ROLES = ('master', 'primary', 'leader')
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
+    @patch.object(AbstractEtcdClientWithFailover, '_get_machines_list', Mock(return_value=['http://remotehost:2379']))
     def setUp(self):
-        with patch.object(AbstractEtcdClientWithFailover, 'machines') as mock_machines:
-            mock_machines.__get__ = Mock(return_value=['http://remotehost:2379'])
-            self.runner = CliRunner()
-            self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'retry_timeout': 10},
-                              'citus': {'group': 0}}, 'foo', None)
+        self.runner = CliRunner()
+        self.e = get_dcs({'etcd': {'ttl': 30, 'host': 'ok:2379', 'retry_timeout': 10},
+                          'citus': {'group': 0}}, 'foo', None)
 
     @patch('patroni.ctl.logging.debug')
     def test_load_config(self, mock_logger_debug):

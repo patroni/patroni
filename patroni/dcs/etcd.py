@@ -16,6 +16,7 @@ from dns import resolver
 from http.client import HTTPException
 from queue import Queue
 from threading import Thread
+from typing import List, Optional
 from urllib.parse import urlparse
 from urllib3 import Timeout
 from urllib3.exceptions import HTTPError, ReadTimeoutError, ProtocolError
@@ -98,7 +99,6 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
         # Workaround for the case when https://github.com/jplana/python-etcd/pull/196 is not applied
         self.http.connection_pool_kw.pop('ssl_version', None)
         self._config = config
-        self._initial_machines_cache = []
         self._load_machines_cache()
         self._allow_reconnect = True
         # allow passing retry argument to api_execute in params
@@ -168,19 +168,12 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
         base_uri, cache = self._base_uri, self._machines_cache
         return ([base_uri] if base_uri in cache else []) + [machine for machine in cache if machine != base_uri]
 
-    @property
-    def machines(self):
-        """Original `machines` method(property) of `etcd.Client` class raise exception
-        when it failed to get list of etcd cluster members. This method is being called
-        only when request failed on one of the etcd members during `api_execute` call.
-        For us it's more important to execute original request rather then get new topology
-        of etcd cluster. So we will catch this exception and return empty list of machines.
-        Later, during next `api_execute` call we will forcefully update machines_cache.
+    def _get_machines_list(self, machines_cache: List[str]) -> List[str]:
+        """Gets list of members from Etcd cluster using API
 
-        Also this method implements the same timeout-retry logic as `api_execute`, because
-        the original method was retrying 2 times with the `read_timeout` on each node."""
-
-        machines_cache = self.machines_cache
+        :param machines_cache: initial list of Etcd members
+        :returns: list of clientURLs retrieved from Etcd cluster
+        :raises EtcdConnectionFailed: if failed"""
         kwargs = self._prepare_get_members(len(machines_cache))
 
         for base_uri in machines_cache:
@@ -197,6 +190,22 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
                 logger.error("Failed to get list of machines from %s%s: %r", base_uri, self.version_prefix, e)
 
         raise etcd.EtcdConnectionFailed('No more machines in the cluster')
+
+    @property
+    def machines(self) -> List[str]:
+        """Original `machines` method(property) of `etcd.Client` class raise exception
+        when it failed to get list of etcd cluster members. This method is being called
+        only when request failed on one of the etcd members during `api_execute` call.
+        For us it's more important to execute original request rather then get new topology
+        of etcd cluster. So we will catch this exception and return empty list of machines.
+        Later, during next `api_execute` call we will forcefully update machines_cache.
+
+        Also this method implements the same timeout-retry logic as `api_execute`, because
+        the original method was retrying 2 times with the `read_timeout` on each node.
+
+        After the next refactoring the whole logic was moved to the _get_machines_list() method."""
+
+        return self._get_machines_list(self.machines_cache)
 
     def set_read_timeout(self, timeout):
         self._read_timeout = timeout
@@ -367,36 +376,46 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
         # enforce resolving dns name,they might get new ips
         self._update_dns_cache(self._dns_resolver.remove, machines_cache)
 
-        # The etcd cluster could change its topology over time and depending on how we resolve the initial
-        # topology (list of hosts in the Patroni config or DNS records, A or SRV) we might get into the situation
-        # the the real topology doesn't match anymore with the topology resolved from the configuration file.
-        # In case if the "initial" topology is the same as before we will not override the `_machines_cache`.
-        ret = set(machines_cache) != set(self._initial_machines_cache)
-        if ret:
-            self._initial_machines_cache = self._machines_cache = machines_cache
-
-            # After filling up the initial list of machines_cache we should ask etcd-cluster about actual list
-            self._refresh_machines_cache(True)
+        # after filling up the initial list of machines_cache we should ask etcd-cluster about actual list
+        ret = self._refresh_machines_cache(machines_cache)
 
         self._update_machines_cache = False
         return ret
 
-    def _refresh_machines_cache(self, updating_cache=False):
+    def _refresh_machines_cache(self, machines_cache: Optional[List[str]] = None) -> bool:
+        """Get etcd cluster topology using Etcd API and put it to self._machines_cache
+
+        :param machines_cache: the list of nodes we want to run through executing API request
+                               in addition to values stored in the self._machines_cache
+        :returns: `True` if self._machines_cache was updated with new values
+        :raises EtcdException: if failed to get topology and `machines_cache` was specified.
+
+        The self._machines_cache will not be updated if nodes from the list are
+        not accessible or if they are not returning correct results."""
+
         if self._use_proxies:
-            self._machines_cache = self._get_machines_cache_from_config()
+            value = self._get_machines_cache_from_config()
         else:
             try:
-                self._machines_cache = self.machines
+                # we want to go through the list obtained from the config file + last known health topology
+                value = self._get_machines_list(list(set((machines_cache or []) + self.machines_cache)))
             except etcd.EtcdConnectionFailed:
-                if updating_cache:
-                    raise etcd.EtcdException("Could not get the list of servers, "
-                                             "maybe you provided the wrong "
-                                             "host(s) to connect to?")
-                return
+                value = []
+
+        if value:
+            ret = set(self._machines_cache) != set(value)
+            self._machines_cache = value
+        elif machines_cache:  # we are just starting or all nodes were not available at some point
+            raise etcd.EtcdException("Could not get the list of servers, "
+                                     "maybe you provided the wrong "
+                                     "host(s) to connect to?")
+        else:
+            return False
 
         if self._base_uri not in self._machines_cache:
             self.set_base_uri(self._machines_cache[0])
         self._machines_cache_updated = time.time()
+        return ret
 
     def set_base_uri(self, value):
         if self._base_uri != value:
