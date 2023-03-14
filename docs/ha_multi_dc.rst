@@ -26,7 +26,7 @@ Regarding postgres, we must deploy at least 2 nodes, in different DC. Then you h
 
 This enables sync replication and the primary node will choose one of the nodes as synchronous.
 
-Streaming Replication (asynchronous)
+Asynchronous Replication
 ----------------------------------
 
 With only two data centers it would be better to have two independent etcd clusters and run Patroni :ref:`standby cluster <standby_cluster>` in the second data center. If the first site is down, you can MANUALLY promote the ``standby_cluster``.
