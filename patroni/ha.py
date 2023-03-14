@@ -863,6 +863,7 @@ class Ha(object):
             'graceful':         dict(stop='fast', checkpoint=True, release=True, offline=False, async_req=False),
             'immediate':        dict(stop='immediate', checkpoint=False, release=True, offline=False, async_req=True),
             'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async_req=True),
+            'multisite':        dict(stop='fast', checkpoint=True, release=False, offline=True, async_req=False),
         }[mode]
 
         logger.info('Demoting self (%s)', mode)
@@ -882,9 +883,12 @@ class Ha(object):
                     self.release_leader_key_voluntarily(checkpoint_location)
                     status['released'] = True
 
+        if mode == 'multisite':
+            on_shutdown = self.patroni.multisite.on_shutdown
+
         self.state_handler.stop(mode_control['stop'], checkpoint=mode_control['checkpoint'],
                                 on_safepoint=self.watchdog.disable if self.watchdog.is_running else None,
-                                on_shutdown=on_shutdown if mode_control['release'] else None,
+                                on_shutdown=on_shutdown if mode_control['release'] or mode == 'multisite' else None,
                                 stop_timeout=self.master_stop_timeout())
         self.state_handler.set_role('demoted')
         self.set_is_leader(False)
@@ -895,6 +899,8 @@ class Ha(object):
                 with self._async_executor:
                     self.release_leader_key_voluntarily(checkpoint_location)
             time.sleep(2)  # Give a time to somebody to take the leader lock
+        if mode == 'multisite':
+            self.patroni.multisite.on_shutdown(self.state_handler.latest_checkpoint_location())
         if mode_control['offline']:
             node_to_follow, leader = None, None
         else:
@@ -956,6 +962,11 @@ class Ha(object):
         Cleans up failover key if failover conditions are not matched.
 
         :returns: action message if demote was initiated, None if no action was taken"""
+        multisite = self.patroni.multisite
+        if multisite.is_active and multisite.is_leader_site() and multisite.should_failover():
+            ret = self._async_executor.try_run_async('manual failover: multisite', self.demote, ('multisite',))
+            return ret or 'manual multisite switchover: demoting myself'
+
         failover = self.cluster.failover
         if not failover or (self.is_paused() and not self.state_handler.is_leader()):
             return
@@ -1003,7 +1014,7 @@ class Ha(object):
                 if failover:
                     if self.is_paused() and failover.leader and failover.candidate:
                         logger.info('Updating failover key after acquiring leader lock...')
-                        self.dcs.manual_failover('', failover.candidate, failover.scheduled_at, failover.index)
+                        self.dcs.manual_failover('', failover.candidate, failover.scheduled_at, index=failover.index)
                     else:
                         logger.info('Cleaning up failover key after acquiring leader lock...')
                         self.dcs.manual_failover('', '')

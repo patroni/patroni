@@ -2,6 +2,7 @@ import abc
 import logging
 from datetime import datetime
 from threading import Thread, Event
+import time
 import six
 
 from .dcs import Member
@@ -26,6 +27,9 @@ class AbstractSiteController(object):
     def get_active_standby_config(self):
         """Returns currently active configuration for standby leader"""
 
+    def is_leader_site(self):
+        return self.get_active_standby_config() is None
+
     def resolve_leader(self):
         """Try to become leader, update active config correspondingly.
 
@@ -43,6 +47,12 @@ class AbstractSiteController(object):
         pass
 
     def status(self):
+        pass
+
+    def should_failover(self):
+        return False
+
+    def on_shutdown(self, checkpoint_location):
         pass
 
 class SingleSiteController(AbstractSiteController):
@@ -82,12 +92,16 @@ class MultisiteController(Thread, AbstractSiteController):
         else:
             self._state_updater = None
 
+        self.switchover_timeout = msconfig.get('switchover_timeout', 300)
+
         self._heartbeat = Event()
         self._standby_config = None
         self._leader_resolved = Event()
         self._has_leader = False
         self._release = False
         self._status = None
+        self._failover_target = None
+        self._failover_timeout = None
 
         self._dcs_error = None
 
@@ -118,6 +132,13 @@ class MultisiteController(Thread, AbstractSiteController):
     def release(self):
         self._release = True
         self._heartbeat.set()
+
+    def should_failover(self):
+        return self._failover_target is not None and self._failover_target != self.name
+
+    def on_shutdown(self, checkpoint_location):
+        # TODO: check if we replicated everything to standby site
+        self.release()
 
     def _disconnected_operation(self):
         self._standby_config = {'restore_command': 'false'}
@@ -161,12 +182,20 @@ class MultisiteController(Thread, AbstractSiteController):
             if cluster.is_unlocked():
                 if self._release:
                     self._release = False
+                    self._disconnected_operation()
+                    return
+                if self._failover_target and self._failover_timeout > time.time():
+                    logger.info("Waiting for multisite failover to complete")
+                    self._disconnected_operation()
                     return
                 # Became leader of unlocked cluster
                 if self.dcs.attempt_to_acquire_leader():
                     logger.info("Became multisite leader")
                     self._standby_config = None
                     self._check_transition(leader=True, note="Acquired multisite leader status")
+                    if cluster.failover and cluster.failover.target_site and cluster.failover.target_site == self.name:
+                        logger.info("Cleaning up multisite failover key after acquiring leader status")
+                        self.dcs.manual_failover('', '')
                 # Failed to become leader, maybe someone else acquired lock, maybe we just failed
                 else:
                     logger.info("Failed to acquire multisite lock")
@@ -187,12 +216,14 @@ class MultisiteController(Thread, AbstractSiteController):
                         logger.info("Releasing multisite leader status")
                         self.dcs.delete_leader()
                         self._release = False
+                        self._disconnected_operation()
                         return
                     if self.dcs.update_leader(None):
                         logger.info("Updated multisite leader lease")
                         # Make sure we are disabled from standby mode
                         self._standby_config = None
                         self._check_transition(leader=True, note="Already have multisite leader status")
+                        self._check_for_failover(cluster)
                     else:
                         logger.error("Failed to update multisite leader status")
                         self._disconnected_operation()
@@ -222,6 +253,23 @@ class MultisiteController(Thread, AbstractSiteController):
                 self.touch_member()
             except DCSError as e:
                 pass
+
+    def _check_for_failover(self, cluster):
+        if cluster.failover and cluster.failover.target_site:
+            if cluster.failover.target_site == self.name:
+                logger.info("Cleaning up failover key targeting us")
+                self.dcs.manual_failover('', '')
+            elif not any(m.name == cluster.failover.target_site for m in cluster.members):
+                logger.info(f"Multisite failover target {cluster.failover.target_site} is not registered")
+            else:
+                if self._failover_target != cluster.failover.target_site:
+                    logger.info(f"Initiating multisite failover to {cluster.failover.target_site}")
+                    self._failover_timeout = time.time() + self.switchover_timeout
+                    # TODO: need to set timeout in DCS for more than two sites to avoid wrong site taking over
+                self._failover_target = cluster.failover.target_site
+        else:
+            self._failover_target = None
+            self._failover_timeout = None
 
     def touch_member(self):
         data = {

@@ -587,6 +587,29 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_POST_switchover(self):
         self.do_POST_failover(action='switchover')
 
+    @check_access
+    def do_POST_multisite_switchover(self):
+        request = self._read_json_content()
+        (status_code, data) = (400, '')
+        if not request:
+            return
+        if not self.server.patroni.multisite.is_active:
+            return self._write_response(400, 'Cluster is not in multisite mode')
+
+        scheduled_at = request.get('scheduled_at')
+        target_site = request.get('target_site')
+        logger.info("received multisite switchover request with target_site=%s scheduled_at=%s",
+                    target_site, scheduled_at)
+
+        if self.server.patroni.multisite.dcs.manual_failover(None, None, scheduled_at=scheduled_at, target_site=target_site):
+            data = 'multisite switchover scheduled'
+            status_code = 202
+        else:
+            data = 'failed to write multisite switchover key into DCS'
+            status_code = 503
+
+        self._write_response(status_code, data)
+
     def parse_request(self):
         """Override parse_request method to enrich basic functionality of `BaseHTTPRequestHandler` class
 

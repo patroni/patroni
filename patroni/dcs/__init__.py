@@ -281,7 +281,7 @@ class Leader(namedtuple('Leader', 'index,session,member')):
             return self.data.get('role') == 'master' and 'checkpoint_after_promote' not in self.data
 
 
-class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
+class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at,target_site')):
 
     """
     >>> 'Failover' in str(Failover.from_node(1, '{"leader": "cluster_leader"}'))
@@ -322,10 +322,10 @@ class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
         if data.get('scheduled_at'):
             data['scheduled_at'] = dateutil.parser.parse(data['scheduled_at'])
 
-        return Failover(index, data.get('leader'), data.get('member'), data.get('scheduled_at'))
+        return Failover(index, data.get('leader'), data.get('member'), data.get('scheduled_at'), data.get('target_site'))
 
     def __len__(self):
-        return int(bool(self.leader)) + int(bool(self.candidate))
+        return int(bool(self.leader)) + int(bool(self.candidate)) + int(bool(self.target_site))
 
 
 class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
@@ -837,7 +837,7 @@ class AbstractDCS(object):
     def set_failover_value(self, value, index=None):
         """Create or update `/failover` key"""
 
-    def manual_failover(self, leader, candidate, scheduled_at=None, index=None):
+    def manual_failover(self, leader, candidate, scheduled_at=None, target_site=None, index=None):
         failover_value = {}
         if leader:
             failover_value['leader'] = leader
@@ -847,6 +847,9 @@ class AbstractDCS(object):
 
         if scheduled_at:
             failover_value['scheduled_at'] = scheduled_at.isoformat()
+
+        if target_site:
+            failover_value['target_site'] = target_site
         return self.set_failover_value(json.dumps(failover_value, separators=(',', ':')), index)
 
     @abc.abstractmethod

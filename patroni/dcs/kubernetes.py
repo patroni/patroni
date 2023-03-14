@@ -1054,9 +1054,9 @@ class Kubernetes(AbstractDCS):
     def set_failover_value(self, value, index=None):
         """Unused"""
 
-    def manual_failover(self, leader, candidate, scheduled_at=None, index=None):
+    def manual_failover(self, leader, candidate, scheduled_at=None, target_site=None, index=None):
         annotations = {'leader': leader or None, 'member': candidate or None,
-                       'scheduled_at': scheduled_at and scheduled_at.isoformat()}
+                       'scheduled_at': scheduled_at and scheduled_at.isoformat(), 'target_site': target_site or None}
         patch = bool(self.cluster and isinstance(self.cluster.failover, Failover) and self.cluster.failover.index)
         return self.patch_or_create(self.failover_path, annotations, index, bool(index or patch), False)
 
