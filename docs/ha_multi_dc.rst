@@ -39,7 +39,8 @@ Automatic promotion is not possible, because DC2 will never able to figure out t
 
 You should not use ``pg_ctl promote`` in this scenario, you need "manually promote" the healthy cluster with ``patronictl edit-config`` and remove ``standby_cluster`` section from there.
 
-IMPORTANT: If the source cluster is still up and running and you promote the standby cluster you create a split-brain.
+.. warning::
+    If the source cluster is still up and running and you promote the standby cluster you create a split-brain.
 
 In case you want to return to the "initial" state, there are only two ways of resolving it:
 
