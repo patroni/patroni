@@ -32,6 +32,7 @@ Currently supported PostgreSQL versions: 9.3 to 15.
    security
    replica_bootstrap
    replication_modes
+   ha_multi_dc
    pause
    kubernetes
    watchdog
