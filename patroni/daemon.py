@@ -1,7 +1,7 @@
 """Daemon processes abstraction module.
 
-This module implements abstraction classes and functions for creating and managing daemon processes in Patroni through
-Web API and CLI interfaces.
+This module implements abstraction classes and functions for creating and managing daemon processes in Patroni.
+Currently it is only used for the main "Thread" of ``patroni`` and ``patroni_raft_controller`` commands.
 """
 from __future__ import print_function
 
@@ -9,11 +9,12 @@ import abc
 import os
 import signal
 import sys
-from typing import Any
-from patroni.config import Config
-from patroni.validator import Schema
 
 from threading import Lock
+
+from typing import Any, Optional
+from patroni.config import Config
+from patroni.validator import Schema
 
 
 class AbstractPatroniDaemon(abc.ABC):
@@ -96,7 +97,8 @@ class AbstractPatroniDaemon(abc.ABC):
 
         :param sighup: if it is related to a SIGHUP signal.
                        The sighup parameter could be used in the method overridden in a child class.
-        :param local: will be `True` if there are changes in the local configuration file."""
+        :param local: will be ``True`` if there are changes in the local configuration file.
+        """
         if local:
             self.logger.reload_config(self.config.get('log', {}))
 
