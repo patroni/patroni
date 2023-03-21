@@ -623,7 +623,7 @@ class Schema(object):
                 max_level = v.level
                 yield Result(v.status, v.error, path=v.path, level=v.level, data=v.data)
 
-    def _data_key(self, key: Union[str, Optional, Or]) -> Generator[str, None, None]:
+    def _data_key(self, key: Union[str, Optional, Or]) -> Iterator[str]:
         """Map a key from the ``validator`` dictionary to the corresponding key(s) in the ``data`` dictionary.
 
         :param key: key from the ``validator`` attribute.
