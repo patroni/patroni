@@ -50,7 +50,7 @@ class AbstractPatroniDaemon(abc.ABC):
         self._received_sighup = True
 
     def api_sigterm(self) -> bool:
-        """Guarantee only a single SIGTERM is being processed at once.
+        """Guarantee only a single SIGTERM is being processed.
 
         Flag the daemon as "SIGTERM received" with a lock-based approach.
 
