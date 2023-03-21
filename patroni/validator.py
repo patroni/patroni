@@ -367,11 +367,11 @@ class Directory(object):
         self.contains = contains
         self.contains_executable = contains_executable
 
-    def validate(self, name: str) -> Generator[Result, None, None]:
+    def validate(self, name: str) -> Iterator[Result]:
         """Check if the expected paths and executables can be found under *name* directory.
 
         :param name: path to the base directory against which paths and executables will be validated.
-        :return: a :class:`Result` object with the error message related to the failure, if any check fails.
+        :rtype: Iterator[:class:`Result`] objects with the error message related to the failure, if any check fails.
         """
         if not name:
             yield Result(False, "is an empty string")
