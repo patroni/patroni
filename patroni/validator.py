@@ -503,7 +503,7 @@ class Schema(object):
             :class:`Or`), then it iterates over it to validate each of the corresponding entries in *data* argument.
 
         :param data: configuration to be validated against ``validator``.
-        :return: result of a validation that has been performed.
+        :rtype: Iterator[:class:`Result`] objects with the error message related to the failure, if any check fails.
         """
         self.data = data
 
