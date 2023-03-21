@@ -11,10 +11,10 @@ import signal
 import sys
 
 from threading import Lock
+from typing import Any, Optional, Type
 
-from typing import Any, Optional
-from patroni.config import Config
-from patroni.validator import Schema
+from .config import Config
+from .validator import Schema
 
 
 class AbstractPatroniDaemon(abc.ABC):
