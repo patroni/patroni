@@ -55,7 +55,7 @@ class AbstractPatroniDaemon(abc.ABC):
 
         Flag the daemon as "SIGTERM received" with a lock-based approach.
 
-        :return: ``True`` if the daemon was flagged as "SIGTERM received".
+        :returns: ``True`` if the daemon was flagged as "SIGTERM received".
         """
         ret = False
         with self._sigterm_lock:
