@@ -573,10 +573,10 @@ class Schema(object):
             for i in self.iter_or():
                 yield i
 
-    def iter_dict(self) -> Generator[Result, None, None]:
+    def iter_dict(self) -> Iterator[Result]:
         """Iterate over a :class:`dict` based ``validator`` to validate the corresponding entries in ``data``.
 
-        :return: result of a validation that has been performed against the configuration.
+        :rtype: Iterator[:class:`Result`] objects with the error message related to the failure, if any check fails.
         """
         # One key in `validator` attribute (`key` variable) can be mapped to one or more keys in `data` attribute (`d`
         # variable), depending on the `key` type.
