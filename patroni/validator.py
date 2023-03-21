@@ -490,7 +490,7 @@ class Schema(object):
                 errors.append(str(i))
         return errors
 
-    def validate(self, data: Any) -> Generator[Result, None, None]:
+    def validate(self, data: Any) -> Iterator[Result]:
         """Perform all validations from the schema against the given configuration.
 
         It first checks that *data* argument type is compliant with the type of ``validator`` attribute.
