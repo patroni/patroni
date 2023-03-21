@@ -11,7 +11,7 @@ import shutil
 import socket
 import subprocess
 
-from typing import Any, Union, Generator, List
+from typing import Any, Union, Iterator, List, Optional as OptionalType
 
 from .utils import split_host_port, data_directory_is_empty
 from .dcs import dcs_modules
@@ -22,7 +22,7 @@ def data_directory_empty(data_dir: str) -> bool:
     """Check if PostgreSQL data directory is empty.
 
     :param data_dir: path to the PostgreSQL data directory to be checked.
-    :returns: True if the data directory is empty.
+    :returns: ``True`` if the data directory is empty.
     """
     if os.path.isfile(os.path.join(data_dir, "global", "pg_control")):
         return False
@@ -34,7 +34,7 @@ def validate_connect_address(address: str) -> bool:
 
     :param address: address to be validated in the format
         ``host:ip``.
-    :returns: True if the address is valid.
+    :returns: ``True`` if the address is valid.
     :raises :class:`patroni.exceptions.ConfigParseError`:
         * If the address is not in the expected format; or
         * If the host is set to not allowed values (``127.0.0.1``, ``0.0.0.0``, ``*``, ``::1``, or ``localhost``).
@@ -48,7 +48,8 @@ def validate_connect_address(address: str) -> bool:
     return True
 
 
-def validate_host_port(host_port: str, listen: Optional[bool] = False, multiple_hosts: Optiona[bool] = False) -> bool:
+def validate_host_port(host_port: str, listen: OptionalType[bool] = False,
+                       multiple_hosts: OptionalType[bool] = False) -> bool:
     """Check if host(s) and port are valid and available for usage.
 
     :param host_port: the host(s) and port to be validated. It can be in either of these formats
@@ -58,7 +59,7 @@ def validate_host_port(host_port: str, listen: Optional[bool] = False, multiple_
     :param listen: if the address is expected to be available for binding. ``False`` means it expects to connect to that
         address, and ``True`` that it expects to bind to that address.
     :param multiple_hosts: if *host_port* can contain multiple hosts.
-    :return: if the host(s) and port are valid.
+    :returns: ``True`` if the host(s) and port are valid.
     :raises: :class:`patroni.exceptions.ConfigParserError`:
         * If the *host_port* is not in the expected format; or
         * If ``*`` was specified along with more hosts in *host_port*; or
@@ -104,7 +105,7 @@ def validate_host_port_list(value: List[str]) -> bool:
     Call :func:`validate_host_port` with each item in *value*.
 
     :param value: list of host(s) and port items to be validated.
-    :return: if all items are valid.
+    :returns: ``True`` if all items are valid.
     """
     assert all([validate_host_port(v) for v in value]), "didn't pass the validation"
     return True
@@ -116,7 +117,7 @@ def comma_separated_host_port(string: str) -> bool:
     Call :func:`validate_host_port_list` with a list represented by the CSV *string*.
 
     :param string: comma-separated list of host and port items.
-    :return: if all items in the CSV string are valid.
+    :returns: ``True`` if all items in the CSV string are valid.
     """
     return validate_host_port_list([s.strip() for s in string.split(",")])
 
@@ -129,7 +130,7 @@ def validate_host_port_listen(host_port: str) -> bool:
     :param host_port: the host and port to be validated. Must be in the format
         `host:ip`.
 
-    :return: if the host and port are valid and available for binding.
+    :returns: ``True`` if the host and port are valid and available for binding.
     """
     return validate_host_port(host_port, listen=True)
 
@@ -143,7 +144,7 @@ def validate_host_port_listen_multiple_hosts(host_port: str) -> bool:
         * `host:ip`; or
         * `host_1,host_2,...,host_n:port`
 
-    :return: if the host(s) and port are valid and available for binding.
+    :returns: ``True`` if the host(s) and port are valid and available for binding.
     """
     return validate_host_port(host_port, listen=True, multiple_hosts=True)
 
@@ -152,7 +153,7 @@ def is_ipv4_address(ip: str) -> bool:
     """Check if *ip* is a valid IPv4 address.
 
     :param ip: the IP to be checked.
-    :return: if the IP is an IPv4 address.
+    :returns: ``True`` if the IP is an IPv4 address.
     :raises :class:`patroni.exceptions.ConfigParserError`: if *ip* is not a valid IPv4 address.
     """
     try:
@@ -166,7 +167,7 @@ def is_ipv6_address(ip: str) -> bool:
     """Check if *ip* is a valid IPv6 address.
 
     :param ip: the IP to be checked.
-    :return: if the IP is an IPv6 address.
+    :returns: ``True`` if the IP is an IPv6 address.
     :raises :class:`patroni.exceptions.ConfigParserError`: if *ip* is not a valid IPv6 address.
     """
     try:
@@ -183,7 +184,7 @@ def get_major_version(bin_dir: str = None) -> str:
 
     :param bin_dir: path to PostgreSQL binaries directory. If ``None`` it will use the first ``postgres`` binary that
         is found by subprocess in the ``PATH``.
-    :return: the PostgreSQL major version.
+    :returns: the PostgreSQL major version.
 
     :Example:
 
@@ -209,7 +210,7 @@ def validate_data_dir(data_dir: str) -> bool:
         * Point to a non-empty directory that seems to contain a valid PostgreSQL data directory.
 
     :param data_dir: the value of ``postgresql.data_dir`` configuration option.
-    :return: if the PostgreSQL data directory is valid.
+    :returns: ``True`` if the PostgreSQL data directory is valid.
     :raises :class:`patroni.exceptions.ConfigParserError`:
         * If no *data_dir* was given; or
         * If *data_dir* is a file and not a directory; or
@@ -250,8 +251,8 @@ class Result(object):
     :ivar error: error message if the validation failed, otherwise ``None``.
     """
 
-    def __init__(self, status: bool, error: Optional[str] = "didn't pass validation", level: Optional[int] = 0, path: Optional[str] = "",
-                 data: Optional[Any] = "") -> None:
+    def __init__(self, status: bool, error: OptionalType[str] = "didn't pass validation", level: OptionalType[int] = 0,
+                 path: OptionalType[str] = "", data: OptionalType[Any] = "") -> None:
         """Create a :class:`Result` object based on the given arguments.
 
         .. note::
@@ -358,7 +359,8 @@ class Directory(object):
     :param contains_executable: list of executable files that should exist directly under a given directory.
     """
 
-    def __init__(self, contains: Optional[List[str]] = None, contains_executable: Optional[List[str]] = None) -> None:
+    def __init__(self, contains: OptionalType[List[str]] = None,
+                 contains_executable: OptionalType[List[str]] = None) -> None:
         """Create a :class:`Directory` object.
 
         :param contains: list of paths that should exist relative to a given directory.
@@ -482,7 +484,7 @@ class Schema(object):
         """Perform validation of data using the rules defined in this schema.
 
         :param data: configuration to be validated against ``validator``.
-        :return:list of errors identified while validating the *data*, if any.
+        :returns: list of errors identified while validating the *data*, if any.
         """
         errors = []
         for i in self.validate(data):
@@ -667,7 +669,7 @@ def _get_type_name(python_type: Any) -> str:
                     python_type, getattr(python_type, __name__, "unknown type"))
 
 
-def assert_(condition: bool, message: Optional[str] = "Wrong value") -> None:
+def assert_(condition: bool, message: OptionalType[str] = "Wrong value") -> None:
     """Assert that a given condition is ``True``.
 
     If the assertion fails, then throw a message.
