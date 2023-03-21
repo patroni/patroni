@@ -22,7 +22,7 @@ def data_directory_empty(data_dir: str) -> bool:
     """Check if PostgreSQL data directory is empty.
 
     :param data_dir: path to the PostgreSQL data directory to be checked.
-    :return: if the data directory is empty.
+    :returns: True if the data directory is empty.
     """
     if os.path.isfile(os.path.join(data_dir, "global", "pg_control")):
         return False
