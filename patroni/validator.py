@@ -177,7 +177,7 @@ def is_ipv6_address(ip: str) -> bool:
     return True
 
 
-def get_major_version(bin_dir: str = None) -> str:
+def get_major_version(bin_dir: OptionalType[str] = None) -> str:
     """Get the major version of PostgreSQL.
 
     It is based on the output of ``postgres --version``.
