@@ -34,7 +34,7 @@ def validate_connect_address(address: str) -> bool:
 
     :param address: address to be validated in the format
         ``host:ip``.
-    :return: if the address is valid.
+    :returns: True if the address is valid.
     :raises :class:`patroni.exceptions.ConfigParseError`:
         * If the address is not in the expected format; or
         * If the host is set to not allowed values (``127.0.0.1``, ``0.0.0.0``, ``*``, ``::1``, or ``localhost``).
