@@ -667,7 +667,7 @@ def _get_type_name(python_type: Any) -> str:
                     python_type, getattr(python_type, __name__, "unknown type"))
 
 
-def assert_(condition: bool, message: str = "Wrong value") -> None:
+def assert_(condition: bool, message: Optional[str] = "Wrong value") -> None:
     """Assert that a given condition is ``True``.
 
     If the assertion fails, then throw a message.
