@@ -48,7 +48,7 @@ def validate_connect_address(address: str) -> bool:
     return True
 
 
-def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: bool = False) -> bool:
+def validate_host_port(host_port: str, listen: Optional[bool] = False, multiple_hosts: Optiona[bool] = False) -> bool:
     """Check if host(s) and port are valid and available for usage.
 
     :param host_port: the host(s) and port to be validated. It can be in either of these formats
