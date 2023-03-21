@@ -128,7 +128,7 @@ class AbstractPatroniDaemon(abc.ABC):
     def shutdown(self) -> None:
         """Shut the daemon down when a SIGTERM is received.
 
-        Shut down the logger thread and the daemon process.
+        Shut down the daemon process and the logger thread.
         """
         with self._sigterm_lock:
             self._received_sigterm = True
