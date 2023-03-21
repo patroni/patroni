@@ -596,13 +596,13 @@ class Schema(object):
                         yield Result(v.status, v.error,
                                      path=(d + ("." + v.path if v.path else "")), level=v.level, data=v.data)
 
-    def iter_or(self) -> Generator[Result, None, None]:
+    def iter_or(self) -> Iterator[Result]:
         """Perform all validations defined in an `Or` object for a given configuration option.
 
         This method can be only called against leaf nodes in the configuration tree. :class:`Or` objects defined in the
         ``validator`` keys will be handled by :func:`iter_dict` method.
 
-        :return: result of a validation that has been performed against the configuration.
+        :rtype: Iterator[:class:`Result`] objects with the error message related to the failure, if any check fails.
         """
         results = []
         for a in self.validator.args:
