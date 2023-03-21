@@ -250,8 +250,8 @@ class Result(object):
     :ivar error: error message if the validation failed, otherwise ``None``.
     """
 
-    def __init__(self, status: bool, error: str = "didn't pass validation", level: int = 0, path: str = "",
-                 data: Any = "") -> None:
+    def __init__(self, status: bool, error: Optional[str] = "didn't pass validation", level: Optional[int] = 0, path: Optional[str] = "",
+                 data: Optional[Any] = "") -> None:
         """Create a :class:`Result` object based on the given arguments.
 
         .. note::
