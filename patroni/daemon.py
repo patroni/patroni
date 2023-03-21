@@ -136,7 +136,7 @@ class AbstractPatroniDaemon(abc.ABC):
         self.logger.shutdown()
 
 
-def abstract_main(cls: AbstractPatroniDaemon, validator: Schema = None):
+def abstract_main(cls: AbstractPatroniDaemon, validator: Optional[Schema] = None):
     """Create the main entry point of a given daemon process.
 
     Expose a basic argument parser, parse the command-line arguments, and run the given daemon process.
