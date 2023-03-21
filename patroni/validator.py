@@ -540,12 +540,12 @@ class Schema(object):
         for i in self.iter():
             yield i
 
-    def iter(self) -> Generator[Result, None, None]:
+    def iter(self) -> Iterator[Result]:
         """Iterate over ``validator``, if it is an iterable object, to validate the corresponding entries in ``data``.
 
         Only :class:`dict`, :class:`list`, :class:`Directory` and :class:`Or` objects are considered iterable objects.
 
-        :return: result of a validation that has been performed against the configuration.
+        :rtype: Iterator[:class:`Result`] objects with the error message related to the failure, if any check fails.
         """
         if isinstance(self.validator, dict):
             if not isinstance(self.data, dict):
