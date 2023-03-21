@@ -628,8 +628,7 @@ class Schema(object):
 
         :param key: key from the ``validator`` attribute.
 
-        Yields:
-            Key that should be used to access corresponding value in the ``data`` attribute.
+        :rtype: Iterator[str], keys that should be used to access corresponding value in the ``data`` attribute.
         """
         # If the key was defined as a `str` object in `validator` attribute, then it is already the final key to access
         # the `data` dictionary.
