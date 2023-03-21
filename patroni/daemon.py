@@ -91,12 +91,12 @@ class AbstractPatroniDaemon(abc.ABC):
         with self._sigterm_lock:
             return self._received_sigterm
 
-    def reload_config(self, sighup: bool = False, local: bool = False) -> None:
-        """Reload logger configuration.
+    def reload_config(self, sighup: Optional[bool] = False, local: Optional[bool] = False) -> None:
+        """Reload configuration.
 
-        :param sighup: if it is related to a SIGHUP signal. Currently has no effect independently of the value.
-        :param local: if the local daemon's logger configuration should be reloaded.
-        """
+        :param sighup: if it is related to a SIGHUP signal.
+                       The sighup parameter could be used in the method overridden in a child class.
+        :param local: will be `True` if there are changes in the local configuration file."""
         if local:
             self.logger.reload_config(self.config.get('log', {}))
 
