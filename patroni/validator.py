@@ -358,7 +358,7 @@ class Directory(object):
     :param contains_executable: list of executable files that should exist directly under a given directory.
     """
 
-    def __init__(self, contains: List[str] = None, contains_executable: List[str] = None) -> None:
+    def __init__(self, contains: Optional[List[str]] = None, contains_executable: Optional[List[str]] = None) -> None:
         """Create a :class:`Directory` object.
 
         :param contains: list of paths that should exist relative to a given directory.
