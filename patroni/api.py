@@ -269,6 +269,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_replica gauge")
         metrics.append("patroni_replica{0} {1}".format(scope_label, int(postgres['role'] == 'replica')))
 
+        metrics.append("# HELP patroni_sync_standby Value is 1 if this node is a sync standby replica, 0 otherwise.")
+        metrics.append("# TYPE patroni_sync_standby gauge")
+        metrics.append("patroni_sync_standby{0} {1}".format(scope_label, postgres['sync_standby']))
+
         metrics.append("# HELP patroni_xlog_received_location Current location of the received"
                        " Postgres transaction log, 0 if this node is not a replica.")
         metrics.append("# TYPE patroni_xlog_received_location counter")
@@ -673,6 +677,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 'state': postgresql.state,
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] == 0 else 'master',
+                'sync_standby': 0,
                 'server_version': postgresql.server_version,
                 'xlog': ({
                     'received_location': row[4] or row[3],
@@ -685,6 +690,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
             if result['role'] == 'replica' and self.server.patroni.ha.is_standby_cluster():
                 result['role'] = postgresql.role
+
+            if result['role'] == 'replica' and self.server.patroni.ha.is_sync_standby():
+                result['sync_standby'] = 1
 
             if row[1] > 0:
                 result['timeline'] = row[1]
