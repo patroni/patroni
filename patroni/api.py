@@ -690,7 +690,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if result['role'] == 'replica' and self.server.patroni.ha.is_standby_cluster():
                 result['role'] = postgresql.role
 
-            if result['role'] == 'replica' and cluster.is_synchronous_mode()\
+            if result['role'] == 'replica' and cluster and cluster.is_synchronous_mode()\
                     and cluster.sync and postgresql.name in cluster.sync.members:
                 result['sync_standby'] = True
 
