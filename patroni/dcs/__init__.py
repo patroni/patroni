@@ -375,7 +375,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
     """
 
     @staticmethod
-    def from_node(index: Union[str, int], value: Union[str, Dict[str, Any]]):
+    def from_node(index: Union[str, int], value: Union[str, Dict[str, Any]]) -> 'SyncState':
         """
         >>> SyncState.from_node(1, None).leader is None
         True
@@ -400,7 +400,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
             return SyncState.empty(index)
 
     @staticmethod
-    def empty(index: Optional[Union[str, int]] = ''):
+    def empty(index: Optional[Union[str, int]] = '') -> 'SyncState':
         return SyncState(index, None, '')
 
     @property
@@ -821,8 +821,8 @@ class AbstractDCS(abc.ABC):
         if isinstance(groups, Cluster):  # Zookeeper could return a cached version
             cluster = groups
         else:
-            cluster = groups.pop(CITUS_COORDINATOR_GROUP_ID,
-                                 Cluster(None, None, None, None, [], None, None, None, None, None))
+            assert isinstance(groups, dict)
+            cluster = groups.pop(CITUS_COORDINATOR_GROUP_ID, Cluster.empty())
             cluster.workers.update(groups)
         return cluster
 
