@@ -14,6 +14,7 @@ from collections import defaultdict, namedtuple
 from copy import deepcopy
 from random import randint
 from threading import Event, Lock
+from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse, urlunparse, parse_qsl
 
 from ..exceptions import PatroniFatalException
@@ -374,7 +375,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
     """
 
     @staticmethod
-    def from_node(index, value):
+    def from_node(index: Union[str, int], value: Union[str, Dict[str, Any]]) -> 'SyncState':
         """
         >>> SyncState.from_node(1, None).leader is None
         True
@@ -389,27 +390,31 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         >>> SyncState.from_node(1, {"leader": "leader"}).leader == "leader"
         True
         """
-        if isinstance(value, dict):
-            data = value
-        elif value:
-            try:
-                data = json.loads(value)
-                if not isinstance(data, dict):
-                    data = {}
-            except (TypeError, ValueError):
-                data = {}
-        else:
-            data = {}
-        return SyncState(index, data.get('leader'), data.get('sync_standby'))
+        try:
+            if value and isinstance(value, str):
+                value = json.loads(value)
+            if not isinstance(value, dict):
+                return SyncState.empty(index)
+            return SyncState(index, value.get('leader'), value.get('sync_standby'))
+        except (TypeError, ValueError):
+            return SyncState.empty(index)
+
+    @staticmethod
+    def empty(index: Optional[Union[str, int]] = '') -> 'SyncState':
+        return SyncState(index, None, '')
 
     @property
-    def members(self):
-        """ Returns sync_standby in list """
-        return self.sync_standby and self.sync_standby.split(',') or []
+    def is_empty(self) -> bool:
+        """:returns: True if /sync key doesn't have a leader"""
+        return self.leader is None
 
-    def matches(self, name):
-        """
-        Returns if a node name matches one of the nodes in the sync state
+    @property
+    def members(self) -> List[str]:
+        """:returns: sync_standby as list"""
+        return list(filter(lambda a: a, [s.strip() for s in self.sync_standby.split(',')])) if self.sync_standby else []
+
+    def matches(self, name: str) -> bool:
+        """:returns: True if a node name matches one of the nodes in the sync state (including leader)
 
         >>> s = SyncState(1, 'foo', 'bar,zoo')
         >>> s.matches('foo')
@@ -470,6 +475,10 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,'
         if len(cls._fields) == len(args) + 1:
             args = args + ({},)
         return super(Cluster, cls).__new__(cls, *args)
+
+    @staticmethod
+    def empty():
+        return Cluster(None, None, None, 0, [], None, SyncState.empty(), None, None, None)
 
     @property
     def leader_name(self):
@@ -812,8 +821,8 @@ class AbstractDCS(abc.ABC):
         if isinstance(groups, Cluster):  # Zookeeper could return a cached version
             cluster = groups
         else:
-            cluster = groups.pop(CITUS_COORDINATOR_GROUP_ID,
-                                 Cluster(None, None, None, None, [], None, None, None, None, None))
+            assert isinstance(groups, dict)
+            cluster = groups.pop(CITUS_COORDINATOR_GROUP_ID, Cluster.empty())
             cluster.workers.update(groups)
         return cluster
 

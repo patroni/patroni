@@ -704,7 +704,7 @@ class Etcd(AbstractEtcd):
         try:
             cluster = loader(path)
         except etcd.EtcdKeyNotFound:
-            cluster = Cluster(None, None, None, None, [], None, None, None, None, None)
+            cluster = Cluster.empty()
         except Exception as e:
             self._handle_exception(e, 'get_cluster', raise_ex=EtcdError('Etcd is not responding properly'))
         self._has_failed = False

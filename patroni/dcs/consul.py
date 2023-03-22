@@ -409,7 +409,7 @@ class Consul(AbstractDCS):
         try:
             return loader(path)
         except NotFound:
-            return Cluster(None, None, None, None, [], None, None, None, None, None)
+            return Cluster.empty()
         except Exception:
             logger.exception('get_cluster')
             raise ConsulError('Consul is not responding properly')
