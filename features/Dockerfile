@@ -3,7 +3,12 @@ FROM patroni
 
 USER root
 RUN apt-get update \
-    && apt-get install -y python3-pip \
+    && apt-get reinstall init-system-helpers \
+    && apt-get install -y \
+      python3-pip \
+      rsync \
+      gcc \
+      python3-dev \
     && rm -rf /var/cache/apt \
     && python3 -m pip install --no-cache-dir tox \
     && chown -R postgres:postgres /home/postgres
