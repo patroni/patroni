@@ -1,7 +1,6 @@
 # Used only for running tests using tox, see ../tox.ini
 FROM patroni
 
-WORKDIR $PGHOME
 USER root
 RUN apt-get update \
     && apt-get install -y python3-pip \
