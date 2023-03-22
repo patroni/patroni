@@ -677,7 +677,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 'state': postgresql.state,
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] == 0 else 'master',
-                'sync_standby': 0,
                 'server_version': postgresql.server_version,
                 'xlog': ({
                     'received_location': row[4] or row[3],
