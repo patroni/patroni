@@ -1,5 +1,6 @@
 # Used only for running tests using tox, see ../tox.ini
-FROM patroni
+ARG PG_MAJOR
+FROM patroni:${PG_MAJOR}
 
 USER root
 RUN apt-get update \
