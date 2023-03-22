@@ -405,7 +405,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
 
     @property
     def is_empty(self) -> bool:
-        """:returns: True is /sync key doesn't have a leader"""
+        """:returns: True if /sync key doesn't have a leader"""
         return self.leader is None
 
     @property
