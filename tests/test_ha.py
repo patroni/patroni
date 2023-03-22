@@ -42,11 +42,11 @@ def get_cluster(initialize, leader, members, failover, sync, cluster_config=None
 
 
 def get_cluster_not_initialized_without_leader(cluster_config=None):
-    return get_cluster(None, None, [], None, SyncState(None, None, None), cluster_config)
+    return get_cluster(None, None, [], None, SyncState.empty(), cluster_config)
 
 
 def get_cluster_bootstrapping_without_leader(cluster_config=None):
-    return get_cluster("", None, [], None, SyncState(None, None, None), cluster_config)
+    return get_cluster("", None, [], None, SyncState.empty(), cluster_config)
 
 
 def get_cluster_initialized_without_leader(leader=False, failover=None, sync=None, cluster_config=None, failsafe=False):
@@ -72,7 +72,7 @@ def get_cluster_initialized_with_leader(failover=None, sync=None):
 
 def get_cluster_initialized_with_only_leader(failover=None, cluster_config=None):
     leader = get_cluster_initialized_without_leader(leader=True, failover=failover).leader
-    return get_cluster(True, leader, [leader.member], failover, None, cluster_config)
+    return get_cluster(True, leader, [leader.member], failover, SyncState.empty(), cluster_config)
 
 
 def get_standby_cluster_initialized_with_only_leader(failover=None, sync=None):

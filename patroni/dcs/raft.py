@@ -383,7 +383,7 @@ class Raft(AbstractDCS):
     def _cluster_loader(self, path):
         response = self._sync_obj.get(path, recursive=True)
         if not response:
-            return Cluster(None, None, None, None, [], None, None, None, None, None)
+            return Cluster.empty()
         nodes = {key[len(path):]: value for key, value in response.items()}
         return self._cluster_from_nodes(nodes)
 

@@ -590,7 +590,7 @@ class Ha(object):
         """
         if self.is_synchronous_mode():
             sync_node_count = self.patroni.config['synchronous_node_count']
-            current = self.cluster.sync.leader and self.cluster.sync.members or []
+            current = [] if self.cluster.sync.is_empty else self.cluster.sync.members
             picked, allow_promote = self.state_handler.sync_handler.current_state(self.cluster, sync_node_count,
                                                                                   self.patroni.config[
                                                                                       'maximum_lag_on_syncnode'])
@@ -625,7 +625,7 @@ class Ha(object):
                         cluster = self.dcs.get_cluster()
                     except DCSError:
                         return logger.warning("Could not get cluster state from DCS during process_sync_replication()")
-                    if cluster.sync.leader and cluster.sync.leader != self.state_handler.name:
+                    if not cluster.sync.is_empty and cluster.sync.leader != self.state_handler.name:
                         logger.info("Synchronous replication key updated by someone else")
                         return
                     if not self.dcs.write_sync_state(self.state_handler.name, allow_promote, index=cluster.sync.index):
@@ -633,7 +633,7 @@ class Ha(object):
                         return
                     logger.info("Synchronous standby status assigned to %s", allow_promote)
         else:
-            if self.cluster.sync.leader and self.dcs.delete_sync_state(index=self.cluster.sync.index):
+            if not self.cluster.sync.is_empty and self.dcs.delete_sync_state(index=self.cluster.sync.index):
                 logger.info("Disabled synchronous replication")
             self.state_handler.sync_handler.set_synchronous_standby_names([])
 
@@ -994,7 +994,7 @@ class Ha(object):
         all_known_members += self.cluster.members
 
         # When in sync mode, only last known primary and sync standby are allowed to promote automatically.
-        if self.is_synchronous_mode() and self.cluster.sync and self.cluster.sync.leader:
+        if self.is_synchronous_mode() and not self.cluster.sync.is_empty:
             if not self.cluster.sync.matches(self.state_handler.name):
                 return False
             # pick between synchronous candidates so we minimize unnecessary failovers/demotions
