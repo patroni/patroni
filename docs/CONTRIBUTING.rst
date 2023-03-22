@@ -60,7 +60,7 @@ Tox configuration in `tox.ini` has "environments" to run the following tasks:
 * test: unit tests for all available python interpreters with `pytest`,
   generates XML reports or HTML reports if a TTY is detected
 * dep: detect package dependency conflicts using `pipdeptree`
-* type: static type checking with `mypy`
+* type: static type checking with `pyright`
 * black: code formatting with `black`
 * docker-build: build docker image used for the `behave` env
 * docker-cmd: run arbitrary command with the above image

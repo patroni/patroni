@@ -2,7 +2,7 @@
   "include": [
     "patroni"
   ],
-  
+
   "exclude": [
     "**/__pycache__"
   ],
