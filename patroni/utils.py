@@ -70,7 +70,6 @@ def deep_compare(obj1: Dict, obj2: Dict) -> bool:
         >>> deep_compare({'1': {'2': [3, 4]}}, {'1': {'2': [3, 4]}})
         True
     """
-
     if set(list(obj1.keys())) != set(list(obj2.keys())):  # Objects have different sets of keys
         return False
 
@@ -255,7 +254,6 @@ def rint(value: float) -> int:
         >>> rint(1.5) == 2
         True
     """
-
     ret = round(value)
     return 2.0 * round(value / 2.0) if abs(ret - value) == 0.5 else ret
 
@@ -357,7 +355,6 @@ def parse_int(value: Any, base_unit: Optional[str] = None) -> int:
         >>> parse_int('4097.5kB', 'kB') == 4098
         True
     """
-
     val, unit = strtol(value)
     if val is None and unit.startswith('.') or unit and unit[0] in ('.', 'e', 'E'):
         val, unit = strtod(value)
@@ -448,7 +445,6 @@ def compare_values(vartype: str, unit: str, old_value: Any, new_value: Any) -> b
         >>> compare_values('integer', 'kB', 4098, '4097.5kB')
         True
     """
-
     converters = {
         'bool': lambda v1, v2: parse_bool(v1),
         'integer': parse_int,
@@ -465,7 +461,7 @@ def compare_values(vartype: str, unit: str, old_value: Any, new_value: Any) -> b
 
 
 def _sleep(interval: Union[int, float]) -> None:
-    """Wrapper for :func:`time.sleep`.
+    """Wrap :func:`time.sleep`.
 
     :param interval: Delay execution for a given number of seconds. The argument may be a floating point number for
         subsecond precision.
@@ -478,7 +474,7 @@ class RetryFailedError(PatroniException):
 
 
 class Retry(object):
-    """Helper for retrying a method in the face of retry-able exceptions
+    """Helper for retrying a method in the face of retry-able exceptions.
 
     :ivar max_tries: how many times to retry the command.
     :ivar delay: initial delay between retry attempts.
@@ -505,7 +501,6 @@ class Retry(object):
         :param deadline: timeout for operation retries.
         :param retry_exceptions: single exception or tuple
         """
-
         self.max_tries = max_tries
         self.delay = delay
         self.backoff = backoff
@@ -595,7 +590,7 @@ class Retry(object):
 
 
 def polling_loop(timeout: Union[int, float], interval: Optional[Union[int, float]] = 1) -> Iterator[int]:
-    """Returns an iterator that returns values every *interval* seconds until *timeout* has passed.
+    """Return an iterator that returns values every *interval* seconds until *timeout* has passed.
 
     .. note::
         Timeout is measured from start of iteration.
@@ -874,7 +869,7 @@ def data_directory_is_empty(data_dir: str) -> bool:
 
 
 def keepalive_intvl(timeout: int, idle: int, cnt: Optional[int] = 3) -> int:
-    """Calculates the value to be used as ``TCP_KEEPINTVL`` based on *timeout*, *idle*, and *cnt*.
+    """Calculate the value to be used as ``TCP_KEEPINTVL`` based on *timeout*, *idle*, and *cnt*.
 
     :param timeout: value for ``TCP_USER_TIMEOUT``.
     :param idle: value for ``TCP_KEEPIDLE``.
