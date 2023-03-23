@@ -601,11 +601,12 @@ class TestCtl(unittest.TestCase):
         mock_markup_to_pager.assert_not_called()
 
         # TTY with valid executable
-        mock_which.return_value = '/usr/bin/less'
+        mock_which.side_effect = [None, '/usr/bin/less', None]
         show_diff("foo:\n  bar: 1\n", "foo:\n  bar: 2\n")
         mock_markup_to_pager.assert_called_once()
 
         # Test that unicode handling doesn't fail with an exception
+        mock_which.side_effect = [None, '/usr/bin/less', None]
         show_diff(b"foo:\n  bar: \xc3\xb6\xc3\xb6\n".decode('utf-8'),
                   b"foo:\n  bar: \xc3\xbc\xc3\xbc\n".decode('utf-8'))
 
