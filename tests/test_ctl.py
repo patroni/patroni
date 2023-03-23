@@ -574,7 +574,7 @@ class TestCtl(unittest.TestCase):
             'No pager could be found. Either set PAGER environment variable with '
             'your pager or install either "less" or "more" in the host.'
         )
-        mock_env_get.assert_called_once_with('PAGER', None)
+        mock_env_get.assert_called_once_with('PAGER')
         mock_which.assert_has_calls([
             call('less'),
             call('more'),
@@ -592,7 +592,7 @@ class TestCtl(unittest.TestCase):
             'No pager could be found. Either set PAGER environment variable with '
             'your pager or install either "less" or "more" in the host.'
         )
-        mock_env_get.assert_called_once_with('PAGER', None)
+        mock_env_get.assert_called_once_with('PAGER')
         mock_which.assert_has_calls([
             call('random'),
             call('less'),
