@@ -4,7 +4,7 @@ import unittest
 
 from click.testing import CliRunner
 from datetime import datetime, timedelta
-from mock import patch, Mock
+from mock import patch, Mock, call
 from patroni.ctl import ctl, load_config, output_members, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, PatroniCtlException, apply_config_changes, \
     format_config_for_editing, show_diff, invoke_editor, format_pg_version, CONFIG_FILE_PATH, PatronictlPrettyTable
@@ -558,19 +558,54 @@ class TestCtl(unittest.TestCase):
 
     @patch('sys.stdout.isatty', return_value=False)
     @patch('patroni.ctl.markup_to_pager')
+    @patch('os.environ.get', return_value=None)
     @patch('shutil.which', return_value=None)
-    def test_show_diff(self, mock_which, mock_markup_to_pager, mock_isatty):
+    def test_show_diff(self, mock_which, mock_env_get, mock_markup_to_pager, mock_isatty):
+        # no TTY
         show_diff("foo:\n  bar: 1\n", "foo:\n  bar: 2\n")
         mock_markup_to_pager.assert_not_called()
 
+        # TTY but no PAGER nor executable
         mock_isatty.return_value = True
+        with self.assertRaises(PatroniCtlException) as e:
+            show_diff("foo:\n  bar: 1\n", "foo:\n  bar: 2\n")
+        self.assertEqual(
+            str(e.exception),
+            'No pager could be found. Either set PAGER environment variable with '
+            'your pager or install either "less" or "more" in the host.'
+        )
+        mock_env_get.assert_called_once_with('PAGER')
+        mock_which.assert_has_calls([
+            call('less'),
+            call('more'),
+        ])
+        mock_markup_to_pager.assert_not_called()
+
+        # TTY with PAGER set but invalid
+        mock_env_get.reset_mock()
+        mock_env_get.return_value = 'random'
+        mock_which.reset_mock()
+        with self.assertRaises(PatroniCtlException) as e:
+            show_diff("foo:\n  bar: 1\n", "foo:\n  bar: 2\n")
+        self.assertEqual(
+            str(e.exception),
+            'No pager could be found. Either set PAGER environment variable with '
+            'your pager or install either "less" or "more" in the host.'
+        )
+        mock_env_get.assert_called_once_with('PAGER')
+        mock_which.assert_has_calls([
+            call('random'),
+            call('less'),
+            call('more'),
+        ])
+        mock_markup_to_pager.assert_not_called()
+
+        # TTY with valid executable
+        mock_which.return_value = '/usr/bin/less'
         show_diff("foo:\n  bar: 1\n", "foo:\n  bar: 2\n")
         mock_markup_to_pager.assert_called_once()
 
-        show_diff("foo:\n  bar: 1\n", "foo:\n  bar: 2\n")
-
         # Test that unicode handling doesn't fail with an exception
-        mock_which.return_value = '/usr/bin/less'
         show_diff(b"foo:\n  bar: \xc3\xb6\xc3\xb6\n".decode('utf-8'),
                   b"foo:\n  bar: \xc3\xbc\xc3\xbc\n".decode('utf-8'))
 

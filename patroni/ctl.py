@@ -1092,11 +1092,27 @@ def show_diff(before_editing, after_editing):
             width = 80
             tab_width = 8
             wrap = True
-            if shutil.which('less'):
-                pager = None
-            else:
-                pager = os.path.basename(shutil.which('more') or 'more')
+            pager = next(
+                (
+                    os.path.basename(p)
+                    for p in (os.environ.get('PAGER'), "less", "more")
+                    if p is not None and shutil.which(p)
+                ),
+                None,
+            )
             pager_options = None
+
+        if opts.pager is None:
+            raise PatroniCtlException(
+                'No pager could be found. Either set PAGER environment variable with '
+                'your pager or install either "less" or "more" in the host.'
+            )
+
+        # if we end up selecting "less" as "pager" then we set "pager" attribute
+        # to "None". "less" is the default pager for "ydiff" module, and that
+        # module adds some command-line options to "less" when "pager" is "None"
+        if opts.pager == 'less':
+            opts.pager = None
 
         markup_to_pager(PatchStream(buf), opts)
     else:
