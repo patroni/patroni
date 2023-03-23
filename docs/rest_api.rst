@@ -139,6 +139,9 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.
 	# TYPE patroni_replica gauge
 	patroni_replica{scope="batman"} 0
+	# HELP patroni_sync_standby Value is 1 if this node is a sync standby replica, 0 otherwise.
+        # TYPE patroni_sync_standby gauge
+        patroni_sync_standby{scope="batman"} 0
 	# HELP patroni_xlog_received_location Current location of the received Postgres transaction log, 0 if this node is not a replica.
 	# TYPE patroni_xlog_received_location counter
 	patroni_xlog_received_location{scope="batman"} 0

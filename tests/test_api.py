@@ -184,6 +184,7 @@ class TestRestApiHandler(unittest.TestCase):
 
     def test_do_GET(self):
         MockPatroni.dcs.cluster.last_lsn = 20
+        MockPatroni.dcs.cluster.sync.members = [MockPostgresql.name]
         MockRestApiServer(RestApiHandler, 'GET /replica')
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M')
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=10MB')
@@ -196,7 +197,6 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'state': 'running'})):
             MockRestApiServer(RestApiHandler, 'GET /health')
         MockRestApiServer(RestApiHandler, 'GET /leader')
-        MockPatroni.dcs.cluster.sync.members = [MockPostgresql.name]
         MockPatroni.dcs.cluster.is_synchronous_mode = Mock(return_value=True)
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
             MockRestApiServer(RestApiHandler, 'GET /synchronous')
