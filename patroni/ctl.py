@@ -1095,7 +1095,7 @@ def show_diff(before_editing, after_editing):
             pager = next(
                 (
                     os.path.basename(p)
-                    for p in (os.environ.get('PAGER', None), "less", "more")
+                    for p in (os.environ.get('PAGER'), "less", "more")
                     if p is not None and shutil.which(p)
                 ),
                 None,
