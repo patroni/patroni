@@ -252,7 +252,7 @@ class Result(object):
     """
 
     def __init__(self, status: bool, error: OptionalType[str] = "didn't pass validation", level: OptionalType[int] = 0,
-                 path: OptionalType[str] = "", data: OptionalType[Any] = "") -> None:
+                 path: OptionalType[str] = "", data: OptionalType[Any] = "") -> 'Result':
         """Create a :class:`Result` object based on the given arguments.
 
         .. note::
@@ -290,7 +290,7 @@ class Case(object):
         them, if they are set.
     """
 
-    def __init__(self, schema: dict) -> None:
+    def __init__(self, schema: dict) -> 'Case':
         """Create a :class:`Case` object.
 
         :param schema: the schema for validating a set of attributes that may be available in the configuration.
@@ -317,7 +317,7 @@ class Or(object):
     validation functions and/or expected types for a given configuration option.
     """
 
-    def __init__(self, *args) -> None:
+    def __init__(self, *args) -> 'Or':
         """Create an :class:`Or` object.
 
         :param `*args`: any arguments that the caller wants to be stored in this :class:`Or` object.
@@ -342,7 +342,7 @@ class Optional(object):
     :ivar name: name of the configuration option.
     """
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str) -> 'Optional':
         """Create an :class:`Optional` object.
 
         :param name: name of the configuration option.
@@ -360,7 +360,7 @@ class Directory(object):
     """
 
     def __init__(self, contains: OptionalType[List[str]] = None,
-                 contains_executable: OptionalType[List[str]] = None) -> None:
+                 contains_executable: OptionalType[List[str]] = None) -> 'Directory':
         """Create a :class:`Directory` object.
 
         :param contains: list of paths that should exist relative to a given directory.
@@ -409,7 +409,7 @@ class Schema(object):
         * :class:`dict`: dictionary representing the YAML configuration tree.
     """
 
-    def __init__(self, validator: Any) -> None:
+    def __init__(self, validator: Any) -> 'Schema':
         """Create a :class:`Schema` object.
 
         .. note::
