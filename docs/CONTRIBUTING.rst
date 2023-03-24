@@ -8,7 +8,7 @@ Wanna contribute to Patroni? Yay - here is how!
 Chatting
 --------
 
-Just want to chat with other Patroni users?  Looking for interactive troubleshooting help? Join us on channel `#patroni <https://postgresteam.slack.com/archives/C9XPYG92A>`__ in the `PostgreSQL Slack <https://postgresteam.slack.com/>`__.
+Just want to chat with other Patroni users?  Looking for interactive troubleshooting help? Join us on channel `#patroni <https://postgresteam.slack.com/archives/C9XPYG92A>`__ in the `PostgreSQL Slack <https://join.slack.com/t/postgresteam/shared_invite/zt-1qj14i9sj-E9WqIFlvcOiHsEk2yFEMjA>`__.
 
 Running tests
 -------------
