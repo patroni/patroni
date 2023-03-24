@@ -441,7 +441,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         False
         >>> s.matches(None)
         False
-        >>> SyncState(1, None, None).matches('foo')
+        >>> SyncState.empty(1).matches('foo')
         False
         """
         ret = False
