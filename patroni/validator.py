@@ -397,7 +397,7 @@ class Schema(object):
 
     It contains all the configuration options that are available in each scope, including the validation(s) that should
     be performed against each one of them. The validations will be performed whenever the :class:`Schema` object is
-    called, or its :funct`validate` method is called.
+    called, or its :func:`validate` method is called.
 
     :ivar validator: validator of the configuration schema. Can be any of these
         * :class:`str`: defines that a string value is required; or
