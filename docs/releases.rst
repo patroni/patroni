@@ -20,6 +20,10 @@ Version 3.0.2
 
   It makes pager configurable via ``PAGER`` environment variable, which overrides default ``less`` and ``more``.
 
+- Make K8s retriable HTTP status code configurable (Alexander)
+
+  On some managed platforms it is possible to get status code ``401 Unauthorized``, which sometimes gets resolved after a few retries.
+
 
 **Improvements**
 
@@ -30,10 +34,6 @@ Version 3.0.2
 - Don't allow ``on_reload`` callback to kill other callbacks (Alexander)
 
   ``on_start``/``on_stop``/``on_role_change`` are usually used to add/remove Virtual IP and ``on_reload`` should not interfere with them.
-
-- Make K8s retriable HTTP status code configurable (Alexander)
-
-  On some managed platforms it is possible to get status code ``401 Unauthorized``, which sometimes gets resolved after a few retries.
 
 - Switched to ``IMDSFetcher`` in aws callback example script (Polina Bungina)
 
