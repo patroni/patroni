@@ -450,6 +450,10 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
             ret = name.lower() in self._str_to_list(search_str.lower())
         return ret
 
+    def leader_matches(self, name: Union[str, None]) -> bool:
+        """:returns: `True` if name is matching the `SyncState.leader` value."""
+        return name and not self.is_empty and name.lower() == self.leader.lower()
+
 
 class TimelineHistory(namedtuple('TimelineHistory', 'index,value,lines')):
     """Object representing timeline history file"""

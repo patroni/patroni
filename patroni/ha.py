@@ -626,7 +626,7 @@ class Ha(object):
                         cluster = self.dcs.get_cluster()
                     except DCSError:
                         return logger.warning("Could not get cluster state from DCS during process_sync_replication()")
-                    if not cluster.sync.is_empty and cluster.sync.leader != self.state_handler.name:
+                    if not cluster.sync.is_empty and not cluster.sync.leader_matches(self.state_handler.name):
                         logger.info("Synchronous replication key updated by someone else")
                         return
                     if not self.dcs.write_sync_state(self.state_handler.name, allow_promote, index=cluster.sync.index):
@@ -640,7 +640,7 @@ class Ha(object):
 
     def is_sync_standby(self, cluster: Cluster) -> bool:
         """:returns: True if given node is a synchronous standby"""
-        return cluster.leader and cluster.sync.leader == cluster.leader.name \
+        return cluster.leader and cluster.sync.leader_matches(cluster.leader.name) \
             and cluster.sync.matches(self.state_handler.name)
 
     def while_not_sync_standby(self, func):
@@ -865,7 +865,8 @@ class Ha(object):
                         logger.info('Wal position of %s is ahead of my wal position', st.member.name)
                         # In synchronous mode the former leader might be still accessible and even be ahead of us.
                         # We should not disqualify himself from the leader race in such a situation.
-                        if not self.is_synchronous_mode() or st.member.name != self.cluster.sync.leader:
+                        if not self.is_synchronous_mode() or self.cluster.sync.is_empty\
+                                or not self.cluster.sync.leader_matches(st.member.name):
                             return False
                         logger.info('Ignoring the former leader being ahead of us')
         return True
