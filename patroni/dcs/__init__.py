@@ -413,7 +413,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         """Splits a string by comma and returns list of strings
 
         :param value: a comma separated string
-        :returns: list of non-empty strings after splitting an input value by comme"""
+        :returns: list of non-empty strings after splitting an input value by comma"""
         return list(filter(lambda a: a, [s.strip() for s in value.split(',')]))
 
     @property
