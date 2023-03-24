@@ -275,7 +275,7 @@ class Result(object):
         else:
             self.error = None
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """Show configuration path and value. If the validation failed, also show the error message."""
         return str(self.path) + (" " + str(self.data) + " " + str(self._error) if self.error else "")
 
