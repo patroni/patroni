@@ -244,7 +244,7 @@ def validate_data_dir(data_dir: str) -> bool:
 class Result(object):
     """Represent the result of a given validation that was performed.
 
-    :ivar status: Iif the validation succeeded.
+    :ivar status: If the validation succeeded.
     :ivar path: YAML tree path of the configuration option.
     :ivar data: value of the configuration option.
     :ivar level: error level, in case of error.
