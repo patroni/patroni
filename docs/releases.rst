@@ -3,6 +3,62 @@
 Release notes
 =============
 
+Version 3.0.2
+-------------
+
+.. warning::
+    Version 3.0.2 dropped support of Python older than 3.6.
+
+
+**New features**
+
+- Added sync standby replica status to ``/metrics`` endpoint (Thomas von Dein, Alexander Kukushkin)
+
+  Before were only reporting ``primary``/``standby_leader``/``replica``.
+
+- User-friendly handling of ``PAGER`` in ``patronictl`` (Israel Barth Rubio)
+
+  It makes pager configurable via ``PAGER`` environment variable, which overrides default ``less`` and ``more``.
+
+- Make K8s retriable HTTP status code configurable (Alexander)
+
+  On some managed platforms it is possible to get status code ``401 Unauthorized``, which sometimes gets resolved after a few retries.
+
+
+**Improvements**
+
+- Set ``hot_standby`` to ``off`` during custom bootstrap only if ``recovery_target_action`` is set to ``promote`` (Alexander)
+
+  It was necessary to make ``recovery_target_action=pause`` work correctly.
+
+- Don't allow ``on_reload`` callback to kill other callbacks (Alexander)
+
+  ``on_start``/``on_stop``/``on_role_change`` are usually used to add/remove Virtual IP and ``on_reload`` should not interfere with them.
+
+- Switched to ``IMDSFetcher`` in aws callback example script (Polina Bungina)
+
+  The ``IMDSv2`` requires a token to work with and the ``IMDSFetcher`` handles it transparently.
+
+
+**Bugfixes**
+
+- Fixed ``patronictl switchover`` on Citus cluster running on Kubernetes (Lukáš Lalinský)
+
+  It didn't work for namespaces different from ``default``.
+
+- Don't write to ``PGDATA`` if major version is not known (Alexander)
+
+  If right after the start ``PGDATA`` was empty (maybe wasn't yet mounted), Patroni was making a false assumption about PostgreSQL version and falsely creating ``recovery.conf`` file even if the actual major version is v10+.
+
+- Fixed bug with Citus metadata after coordinator failover (Alexander)
+
+  The ``citus_set_coordinator_host()`` call doesn't cause metadata sync and the change was invisible on worker nodes. The issue is solved by switching to ``citus_update_node()``.
+
+- Use etcd hosts listed in the config file as a fallback when all etcd nodes "failed" (Alexander)
+
+  The etcd cluster may change topology over time and Patroni tries to follow it. If at some point all nodes became unreachable Patroni will use a combination of nodes from the config plus the last known topology when trying to reconnect.
+
+
 Version 3.0.1
 -------------
 
