@@ -405,7 +405,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
 
     @property
     def is_empty(self) -> bool:
-        """:returns: True if /sync key doesn't have a leader"""
+        """:returns: True if /sync key is not valid (doesn't have a leader)."""
         return not self.leader
 
     @staticmethod
@@ -422,12 +422,12 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         return self._str_to_list(self.sync_standby) if not self.is_empty and self.sync_standby else []
 
     def matches(self, name: Union[str, None], check_leader: Optional[bool] = False) -> bool:
-        """Checks if node is presented in the /sync state
+        """Checks if node is presented in the /sync state.
 
         Since PostgreSQL does case-insensitive checks for synchronous_standby_name we do it also.
         :param name: name of the node
         :param check_leader: by default the name is searched in members, check_leader=True will include leader to list
-        :returns: `True` if a node name matches one of the nodes in the sync state
+        :returns: `True` if the /sync key not :func:`is_empty` and a given name is among presented in the sync state
         >>> s = SyncState(1, 'foo', 'bar,zoo')
         >>> s.matches('foo')
         False

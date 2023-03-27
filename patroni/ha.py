@@ -639,7 +639,7 @@ class Ha(object):
             self.state_handler.sync_handler.set_synchronous_standby_names([])
 
     def is_sync_standby(self, cluster: Cluster) -> bool:
-        """:returns: `True` if given node is a synchronous standby"""
+        """:returns: `True` if the current node is a synchronous standby"""
         return cluster.leader and cluster.sync.leader_matches(cluster.leader.name) \
             and cluster.sync.matches(self.state_handler.name)
 
@@ -962,7 +962,7 @@ class Ha(object):
     def is_healthiest_node(self) -> bool:
         """Performs a series of checks to determine that the current node is the best candidate.
 
-        In case if manual failover/switchover is requested it calls :meth:`manual_failover_process_no_leader`.
+        In case if manual failover/switchover is requested it calls :func:`manual_failover_process_no_leader` method.
         :returns: `True` if the current node is among the best candidates to become the new leader."""
         if time.time() - self._released_leader_key_timestamp < self.dcs.ttl:
             logger.info('backoff: skip leader race after pre_promote script failure and releasing the lock voluntarily')
