@@ -475,7 +475,7 @@ class RetryFailedError(PatroniException):
 
 
 class Retry(object):
-    """Helper for retrying a method in the face of retry-able exceptions.
+    """Helper for retrying a method in the face of retryable exceptions.
 
     :ivar max_tries: how many times to retry the command.
     :ivar delay: initial delay between retry attempts.
