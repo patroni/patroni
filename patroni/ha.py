@@ -639,7 +639,7 @@ class Ha(object):
             self.state_handler.sync_handler.set_synchronous_standby_names([])
 
     def is_sync_standby(self, cluster: Cluster) -> bool:
-        """:returns: `True` if the current node is a synchronous standby"""
+        """:returns: `True` if the current node is a synchronous standby."""
         return cluster.leader and cluster.sync.leader_matches(cluster.leader.name) \
             and cluster.sync.matches(self.state_handler.name)
 
@@ -878,7 +878,8 @@ class Ha(object):
         :param members: list of members to check
         :param check_synchronous: consider only members that are known to be listed in /sync key when sync replication.
         :param cluster_lsn: to calculate replication lag and exclude member if it is laggin
-        :returns: `True` if there are members eligible to be the new leader"""
+        :returns: `True` if there are members eligible to be the new leader
+        """
         ret = False
         cluster_timeline = self.cluster.timeline
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
@@ -907,7 +908,8 @@ class Ha(object):
         """Handles manual failover/switchover when the old leader already stepped down.
 
         :returns: - `True` if the current node is the best candidate to become the new leader
-                  - `None` if the current node is running as a primary and requested candidate doesn't exist"""
+                  - `None` if the current node is running as a primary and requested candidate doesn't exist
+                  """
         failover = self.cluster.failover
         if failover.candidate:  # manual failover to specific member
             if failover.candidate == self.state_handler.name:  # manual failover to me
@@ -963,7 +965,8 @@ class Ha(object):
         """Performs a series of checks to determine that the current node is the best candidate.
 
         In case if manual failover/switchover is requested it calls :func:`manual_failover_process_no_leader` method.
-        :returns: `True` if the current node is among the best candidates to become the new leader."""
+        :returns: `True` if the current node is among the best candidates to become the new leader.
+        """
         if time.time() - self._released_leader_key_timestamp < self.dcs.ttl:
             logger.info('backoff: skip leader race after pre_promote script failure and releasing the lock voluntarily')
             return False

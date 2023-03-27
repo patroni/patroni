@@ -410,15 +410,16 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
 
     @staticmethod
     def _str_to_list(value: str) -> List[str]:
-        """Splits a string by comma and returns list of strings
+        """Splits a string by comma and returns list of strings.
 
         :param value: a comma separated string
-        :returns: list of non-empty strings after splitting an input value by comma"""
+        :returns: list of non-empty strings after splitting an input value by comma
+        """
         return list(filter(lambda a: a, [s.strip() for s in value.split(',')]))
 
     @property
     def members(self) -> List[str]:
-        """:returns: sync_standby as list"""
+        """:returns: sync_standby as list."""
         return self._str_to_list(self.sync_standby) if not self.is_empty and self.sync_standby else []
 
     def matches(self, name: Union[str, None], check_leader: Optional[bool] = False) -> bool:
