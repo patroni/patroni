@@ -5,7 +5,6 @@ ARG PGHOME=/home/postgres
 ARG PGDATA=$PGHOME/data
 ARG LC_ALL=C.UTF-8
 ARG LANG=C.UTF-8
-ARG NAME
 
 FROM postgres:${PG_MAJOR}
 
@@ -13,12 +12,8 @@ ARG PGHOME
 ARG PGDATA
 ARG LC_ALL
 ARG LANG
-ARG NAME
 
 ENV ETCDVERSION=3.3.13
-# CONFDVERSION=0.16.0
-
-ENV NAME=${NAME:-patroni-dev}
 
 USER root
 RUN set -ex \
@@ -49,21 +44,31 @@ RUN set -ex \
     && curl -sL "$ETCDURL/etcd-v$ETCDVERSION-linux-$(dpkg --print-architecture).tar.gz" \
        | tar xz -C /usr/local/bin --strip=1 --wildcards --no-anchored etcd etcdctl
 
-# For architectures such as aarch we need to get the respective GOARCH
-# so we can tell etcd we're ok with running an unsupported architecture.
+
 # This Dockerfile syntax only works with docker buildx and the syntax
 # line at the top of this file.
 COPY <<EOF /tox-wrapper.sh
 #!/usr/bin/env bash
 set -ex
+copy_output() {
+    if [[ -d "$PGHOME/src/features/output" && /src/features ]] ;then
+        cp -a "$PGHOME/src/features/output" "/src/features/output-\$HOSTNAME"
+        find "/src/features/output-\$HOSTNAME" -type f -exec chmod 666 {} \\;
+        find "/src/features/output-\$HOSTNAME" -type d -exec chmod 777 {} \\;
+    fi
+}
+trap 'copy_output' SIGTERM
+# For architectures such as aarch we need to get the respective GOARCH
+# so we can tell etcd we're ok with running an unsupported architecture.
 export ETCD_UNSUPPORTED_ARCH=$(go env GOARCH)
-exec tox "\$@"
+runuser -u postgres -- rsync -a --exclude=.tox /src/ "$PGHOME/src/"
+cd "$PGHOME/src"
+runuser -u postgres -w ETCD_UNSUPPORTED_ARCH -- "\$@" &
+wait $?
+copy_output
 EOF
 RUN chmod +x /tox-wrapper.sh
 
-USER postgres
-ENV PATH=/venv/bin:$PATH
-
 VOLUME /src
 
-ENTRYPOINT ["sleep", "infinity"]
+ENTRYPOINT ["/tox-wrapper.sh"]
