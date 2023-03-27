@@ -83,13 +83,14 @@ def deep_compare(obj1: Dict, obj2: Dict) -> bool:
 
 
 def patch_config(config: Dict, data: Dict) -> bool:
-    """Recursively patch *config* with *data*.
+    """Update and append to dictionary *config* from overrides in *data*.
 
     .. note::
 
         * If the value of a given key in *data* is ``None``, then the key is removed from *config*;
         * If a key is present in *data* but not in *config*, the key with the corresponding value is added to *config*
-        * For keys that are present on both sides it will compare the string representation of the corresponding values
+        * For keys that are present on both sides it will compare the string representation of the corresponding values,
+          if the comparison doesn't match override the value
 
     :param config: configuration to be patched.
     :param data: new configuration values to patch *config* with.
@@ -129,7 +130,7 @@ def parse_bool(value: Any) -> bool:
 
     :param value: value to be parsed to :class:`bool`.
 
-    :returns: the parsed value. If not able to parse, returns nothing.
+    :returns: the parsed value. If not able to parse, returns ``None``.
 
     :Example:
 
@@ -237,7 +238,7 @@ def strtod(value: Any) -> Tuple[float, str]:
 
 
 def rint(value: float) -> int:
-    """Round a given value to the nearest integer.
+    """Round a given floating point number to the nearest whole integer.
 
     :param value: value to be rounded.
 
@@ -259,7 +260,7 @@ def rint(value: float) -> int:
 
 
 def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: str) -> Union[int, float]:
-    """Convert *value* from *unit* to *base_unit*.
+    """Convert *value* as a *unit* of compute information or time to *base_unit*.
 
     :param value: value to be converted to the base unit.
     :param unit: unit of *value*. Accepts these units (case sensitive)
@@ -271,7 +272,7 @@ def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: str) ->
         * For space: ``B``, ``kB``, or ``MB``;
         * For time: ``ms``, ``s``, or ``min``.
 
-    :returns: *value* in *unit* converted to *base_unit*. Returns nothing if *unit* or *base_unit* is invalid.
+    :returns: *value* in *unit* converted to *base_unit*. Returns ``None`` if *unit* or *base_unit* is invalid.
 
     :Example:
 
@@ -319,12 +320,12 @@ def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: str) ->
 def parse_int(value: Any, base_unit: Optional[str] = None) -> int:
     """Parse *value* as an :class:`int`.
 
-    :param value: any value that can be handled either by :func:`strtol` or :func:`strtod`. If *value* contains an
+    :param value: any value that can be handled either by :func:`strtol` or :func:`strtod`. If *value* contains a
         unit, then *base_unit* must be given.
-    :param base_unit: an optional base unit to convert *value* to through :func:`convert_to_base_unit`. Not used if
-        *value* contains no unit.
+    :param base_unit: an optional base unit to convert *value* through :func:`convert_to_base_unit`. Not used if
+        *value* does not contain a unit.
 
-    :returns: the parsed value, if able to parse. Returns nothing otherwise.
+    :returns: the parsed value, if able to parse. Otherwise returns ``None``.
 
     :Example:
 
@@ -372,12 +373,12 @@ def parse_int(value: Any, base_unit: Optional[str] = None) -> int:
 def parse_real(value: Any, base_unit: Optional[str] = None) -> float:
     """Parse *value* as a :class:`float`.
 
-    :param value: any value that can be handled by :func:`strtod`. If *value* contains an unit, then *base_unit* must
+    :param value: any value that can be handled by :func:`strtod`. If *value* contains a unit, then *base_unit* must
         be given.
-    :param base_unit: an optional base unit to convert *value* to through :func:`convert_to_base_unit`. Not used if
-        *value* contains no unit.
+    :param base_unit: an optional base unit to convert *value* through :func:`convert_to_base_unit`. Not used if
+        *value* does not contain a unit.
 
-    :returns: the parsed value, if able to parse. Returns nothing otherwise.
+    :returns: the parsed value, if able to parse. Otherwise returns ``None``.
 
     :Example:
 
@@ -470,7 +471,7 @@ def _sleep(interval: Union[int, float]) -> None:
 
 
 class RetryFailedError(PatroniException):
-    """Raised when retrying an operation ultimately failed, after retrying the maximum number of attempts."""
+    """Maximum number of attempts exhausted in retry operation."""
 
 
 class Retry(object):
@@ -537,8 +538,8 @@ class Retry(object):
         """Set next cycle delay.
 
         It will be the minimum value between:
-        * current delay with ``backoff``; or
-        * ``max_delay``.
+            * current delay with ``backoff``; or
+            * ``max_delay``.
         """
         self._cur_delay = min(self._cur_delay * self.backoff, self.max_delay)
 
@@ -649,7 +650,7 @@ def split_host_port(value: str, default_port: int) -> Tuple[str, int]:
 
 def uri(proto: str, netloc: Union[List, Tuple[str, int], str], path: Optional[str] = '',
         user: Optional[str] = None) -> str:
-    """Get URI built using given arguments.
+    """Construct URI from given arguments.
 
     :param proto: the URI protocol.
     :param netloc: the URI host(s) and port. Can be specified in either way among
@@ -662,14 +663,14 @@ def uri(proto: str, netloc: Union[List, Tuple[str, int], str], path: Optional[st
             * ``host1,host2,...,hostn:port``.
 
         In all cases, each ``host`` portion of *netloc* can be either:
-        * A FQDN; or
+        * An FQDN; or
         * An IPv4 address; or
         * An IPv6 address, with or without square brackets.
 
     :param path: the URI path.
     :param user: the authenticating user, if any.
 
-    :returns: the built URI.
+    :returns: constructed URI.
     """
     host, port = netloc if isinstance(netloc, (list, tuple)) else split_host_port(netloc, 0)
     # If ``host`` contains ``:`` we consider it to be an IPv6 address, so we add square brackets if they are missing
@@ -714,13 +715,13 @@ def iter_response_objects(response: HTTPResponse) -> Iterator[Dict[str, Any]]:
 
 
 def is_standby_cluster(config: Union[Dict[str, Any], None]) -> bool:
-    """Check whether or not provided configuration describes a standby cluster.
+    """Check provided configuration describes a standby cluster.
 
     :param config: the configuration to be checked. It is expected to be the :class:`dict` that represents the value of
         the ``standby_cluster`` key in the main Patroni configuration. ``None`` can be used if ``standby_cluster`` is
         absent in the main Patroni configuration.
 
-    :returns: ``True`` if it is a Patroni standby cluster.
+    :returns: ``True`` if configuration is a Patroni standby cluster.
     """
     return isinstance(config, dict) and (config.get('host') or config.get('port') or config.get('restore_command'))
 
@@ -801,7 +802,7 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
 
 
 def is_subpath(d1: str, d2: str) -> bool:
-    """Check if *d2* is contained within *d1* after resolving symbolic links of both paths.
+    """Check if the file system path *d2* is contained within *d1* after resolving symbolic links.
 
     .. note::
         It will not check if the paths actually exist, it will only expand the paths and resolve any symbolic links
@@ -818,7 +819,7 @@ def is_subpath(d1: str, d2: str) -> bool:
 
 
 def validate_directory(d: str, msg: Optional[str] = "{} {}") -> None:
-    """Check if a directory exists and is writable.
+    """Ensure directory exists and is writable.
 
     .. note::
         If the directory does not exist, :func:`validate_directory` will attempt to create it.
@@ -826,8 +827,8 @@ def validate_directory(d: str, msg: Optional[str] = "{} {}") -> None:
     :param d: the directory to be checked.
     :param msg: a message to be thrown when raising :class:`PatroniException`, if any issue is faced. It must contain
         2 placeholders to be used by :func:`format`:
-        * The first placeholder will be replaced with *d*;
-        * The second placeholder will be replaced with the issue that was faced in :func:`validate_directory`.
+        * The first placeholder will be replaced with path *d*;
+        * The second placeholder will be replaced with the error condition.
 
     :raises :class:`PatroniException`: if any issue is observed while validating *d*. Can be thrown in these situations
         * *d* did not exist, and :func:`validate_directory` was not able to create it; or
