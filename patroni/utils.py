@@ -163,7 +163,7 @@ def strtol(value: Any, strict: Optional[bool] = True) -> Tuple[int, str]:
 
     :returns: the first item is the extracted long integer from *value*, and the second item is the remaining string of
         *value*. If not able to match a long integer in *value*, then the first item will be either ``None`` or ``1``
-        (depending on *strict* argument), and the second item will be the own *value*.
+        (depending on *strict* argument), and the second item will be the original *value*.
 
     :Example:
 
@@ -213,7 +213,7 @@ def strtod(value: Any) -> Tuple[float, str]:
 
     :returns: the first item is the extracted double precision from *value*, and the second item is the remaining
         string of *value*. If not able to match a double precision in *value*, then the first item will be ``None``,
-        and the second item will be the own *value*.
+        and the second item will be the original *value*.
 
     :Example:
 
