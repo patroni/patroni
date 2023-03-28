@@ -519,6 +519,7 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, request)
 
         cluster.leader.name = 'postgresql1'
+        cluster.sync.matches.return_value = False
         for cluster.is_synchronous_mode.return_value in (True, False):
             MockRestApiServer(RestApiHandler, request)
 

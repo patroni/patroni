@@ -405,32 +405,55 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
 
     @property
     def is_empty(self) -> bool:
-        """:returns: True if /sync key doesn't have a leader"""
-        return self.leader is None
+        """:returns: True if /sync key is not valid (doesn't have a leader)."""
+        return not self.leader
+
+    @staticmethod
+    def _str_to_list(value: str) -> List[str]:
+        """Splits a string by comma and returns list of strings.
+
+        :param value: a comma separated string
+        :returns: list of non-empty strings after splitting an input value by comma
+        """
+        return list(filter(lambda a: a, [s.strip() for s in value.split(',')]))
 
     @property
     def members(self) -> List[str]:
-        """:returns: sync_standby as list"""
-        return list(filter(lambda a: a, [s.strip() for s in self.sync_standby.split(',')])) if self.sync_standby else []
+        """:returns: sync_standby as list."""
+        return self._str_to_list(self.sync_standby) if not self.is_empty and self.sync_standby else []
 
-    def matches(self, name: str) -> bool:
-        """:returns: True if a node name matches one of the nodes in the sync state (including leader)
+    def matches(self, name: Union[str, None], check_leader: Optional[bool] = False) -> bool:
+        """Checks if node is presented in the /sync state.
 
+        Since PostgreSQL does case-insensitive checks for synchronous_standby_name we do it also.
+        :param name: name of the node
+        :param check_leader: by default the name is searched in members, check_leader=True will include leader to list
+        :returns: `True` if the /sync key not :func:`is_empty` and a given name is among presented in the sync state
         >>> s = SyncState(1, 'foo', 'bar,zoo')
         >>> s.matches('foo')
+        False
+        >>> s.matches('fOo', True)
         True
-        >>> s.matches('bar')
+        >>> s.matches('Bar')
         True
-        >>> s.matches('zoo')
+        >>> s.matches('zoO')
         True
         >>> s.matches('baz')
         False
         >>> s.matches(None)
         False
-        >>> SyncState(1, None, None).matches('foo')
+        >>> SyncState.empty(1).matches('foo')
         False
         """
-        return name is not None and name in [self.leader] + self.members
+        ret = False
+        if name and not self.is_empty:
+            search_str = (self.sync_standby or '') + (',' + self.leader if check_leader else '')
+            ret = name.lower() in self._str_to_list(search_str.lower())
+        return ret
+
+    def leader_matches(self, name: Union[str, None]) -> bool:
+        """:returns: `True` if name is matching the `SyncState.leader` value."""
+        return name and not self.is_empty and name.lower() == self.leader.lower()
 
 
 class TimelineHistory(namedtuple('TimelineHistory', 'index,value,lines')):

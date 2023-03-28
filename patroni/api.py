@@ -546,13 +546,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if leader and (not cluster.leader or cluster.leader.name != leader):
             return 'leader name does not match'
         if candidate:
-            if action == 'switchover' and cluster.is_synchronous_mode() and candidate not in cluster.sync.members:
+            if action == 'switchover' and cluster.is_synchronous_mode() and not cluster.sync.matches(candidate):
                 return 'candidate name does not match with sync_standby'
             members = [m for m in cluster.members if m.name == candidate]
             if not members:
                 return 'candidate does not exists'
         elif cluster.is_synchronous_mode():
-            members = [m for m in cluster.members if m.name in cluster.sync.members]
+            members = [m for m in cluster.members if cluster.sync.matches(m.name)]
             if not members:
                 return action + ' is not possible: can not find sync_standby'
         else:
@@ -690,7 +690,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 result['role'] = postgresql.role
 
             if result['role'] == 'replica' and cluster and cluster.is_synchronous_mode()\
-                    and cluster.sync and postgresql.name in cluster.sync.members:
+                    and cluster.sync.matches(postgresql.name):
                 result['sync_standby'] = True
 
             if row[1] > 0:

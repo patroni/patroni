@@ -9,6 +9,7 @@ import uuid
 from collections import namedtuple
 from multiprocessing.pool import ThreadPool
 from threading import RLock
+from typing import List, Optional, Union
 
 from . import psycopg
 from .async_executor import AsyncExecutor, CriticalTask
@@ -17,7 +18,7 @@ from .postgresql.callback_executor import CallbackAction
 from .postgresql.misc import postgres_version_to_int
 from .postgresql.rewind import Rewind
 from .utils import polling_loop, tzutc, is_standby_cluster as _is_standby_cluster, parse_int
-from .dcs import Cluster, Leader, RemoteMember
+from .dcs import Cluster, Leader, Member, RemoteMember
 
 logger = logging.getLogger(__name__)
 
@@ -625,7 +626,7 @@ class Ha(object):
                         cluster = self.dcs.get_cluster()
                     except DCSError:
                         return logger.warning("Could not get cluster state from DCS during process_sync_replication()")
-                    if not cluster.sync.is_empty and cluster.sync.leader != self.state_handler.name:
+                    if not cluster.sync.is_empty and not cluster.sync.leader_matches(self.state_handler.name):
                         logger.info("Synchronous replication key updated by someone else")
                         return
                     if not self.dcs.write_sync_state(self.state_handler.name, allow_promote, index=cluster.sync.index):
@@ -637,9 +638,10 @@ class Ha(object):
                 logger.info("Disabled synchronous replication")
             self.state_handler.sync_handler.set_synchronous_standby_names([])
 
-    def is_sync_standby(self, cluster):
-        return cluster.leader and cluster.sync.leader == cluster.leader.name \
-            and self.state_handler.name in cluster.sync.members
+    def is_sync_standby(self, cluster: Cluster) -> bool:
+        """:returns: `True` if the current node is a synchronous standby."""
+        return cluster.leader and cluster.sync.leader_matches(cluster.leader.name) \
+            and cluster.sync.matches(self.state_handler.name)
 
     def while_not_sync_standby(self, func):
         """Runs specified action while trying to make sure that the node is not assigned synchronous standby status.
@@ -863,16 +865,25 @@ class Ha(object):
                         logger.info('Wal position of %s is ahead of my wal position', st.member.name)
                         # In synchronous mode the former leader might be still accessible and even be ahead of us.
                         # We should not disqualify himself from the leader race in such a situation.
-                        if not self.is_synchronous_mode() or st.member.name != self.cluster.sync.leader:
+                        if not self.is_synchronous_mode() or self.cluster.sync.is_empty\
+                                or not self.cluster.sync.leader_matches(st.member.name):
                             return False
                         logger.info('Ignoring the former leader being ahead of us')
         return True
 
-    def is_failover_possible(self, members, check_synchronous=True, cluster_lsn=None):
+    def is_failover_possible(self, members: List[Member], check_synchronous: Optional[bool] = True,
+                             cluster_lsn: Optional[int] = 0) -> bool:
+        """Checks whether one of the members from the list can possibly win the leader race.
+
+        :param members: list of members to check
+        :param check_synchronous: consider only members that are known to be listed in /sync key when sync replication.
+        :param cluster_lsn: to calculate replication lag and exclude member if it is laggin
+        :returns: `True` if there are members eligible to be the new leader
+        """
         ret = False
         cluster_timeline = self.cluster.timeline
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
-        if check_synchronous and self.is_synchronous_mode():
+        if check_synchronous and self.is_synchronous_mode() and not self.cluster.sync.is_empty:
             members = [m for m in members if self.cluster.sync.matches(m.name)]
         if members:
             for st in self.fetch_nodes_statuses(members):
@@ -893,7 +904,12 @@ class Ha(object):
             logger.warning('manual failover: members list is empty')
         return ret
 
-    def manual_failover_process_no_leader(self):
+    def manual_failover_process_no_leader(self) -> Union[bool, None]:
+        """Handles manual failover/switchover when the old leader already stepped down.
+
+        :returns: - `True` if the current node is the best candidate to become the new leader
+                  - `None` if the current node is running as a primary and requested candidate doesn't exist
+                  """
         failover = self.cluster.failover
         if failover.candidate:  # manual failover to specific member
             if failover.candidate == self.state_handler.name:  # manual failover to me
@@ -901,8 +917,8 @@ class Ha(object):
             elif self.is_paused():
                 # Remove failover key if the node to failover has terminated to avoid waiting for it indefinitely
                 # In order to avoid attempts to delete this key from all nodes only the primary is allowed to do it.
-                if (not self.cluster.get_member(failover.candidate, fallback_to_leader=False) and
-                   self.state_handler.is_leader()):
+                if not self.cluster.get_member(failover.candidate, fallback_to_leader=False)\
+                        and self.state_handler.is_leader():
                     logger.warning("manual failover: removing failover key because failover candidate is not running")
                     self.dcs.manual_failover('', '', index=self.cluster.failover.index)
                     return None
@@ -910,7 +926,7 @@ class Ha(object):
 
             # in synchronous mode when our name is not in the /sync key
             # we shouldn't take any action even if the candidate is unhealthy
-            if self.is_synchronous_mode() and not self.cluster.sync.matches(self.state_handler.name):
+            if self.is_synchronous_mode() and not self.cluster.sync.matches(self.state_handler.name, True):
                 return False
 
             # find specific node and check that it is healthy
@@ -945,7 +961,12 @@ class Ha(object):
         members = [m for m in self.cluster.members if m.name != failover.leader]
         return self._is_healthiest_node(members, check_replication_lag=False)
 
-    def is_healthiest_node(self):
+    def is_healthiest_node(self) -> bool:
+        """Performs a series of checks to determine that the current node is the best candidate.
+
+        In case if manual failover/switchover is requested it calls :func:`manual_failover_process_no_leader` method.
+        :returns: `True` if the current node is among the best candidates to become the new leader.
+        """
         if time.time() - self._released_leader_key_timestamp < self.dcs.ttl:
             logger.info('backoff: skip leader race after pre_promote script failure and releasing the lock voluntarily')
             return False
@@ -973,7 +994,7 @@ class Ha(object):
         if self.cluster.failover:
             # When doing a switchover in synchronous mode only synchronous nodes and former leader are allowed to race
             if self.is_synchronous_mode() and self.cluster.failover.leader and \
-                    not self.cluster.sync.matches(self.state_handler.name):
+                    not self.cluster.sync.is_empty and not self.cluster.sync.matches(self.state_handler.name, True):
                 return False
             return self.manual_failover_process_no_leader()
 
@@ -995,10 +1016,10 @@ class Ha(object):
 
         # When in sync mode, only last known primary and sync standby are allowed to promote automatically.
         if self.is_synchronous_mode() and not self.cluster.sync.is_empty:
-            if not self.cluster.sync.matches(self.state_handler.name):
+            if not self.cluster.sync.matches(self.state_handler.name, True):
                 return False
             # pick between synchronous candidates so we minimize unnecessary failovers/demotions
-            members = {m.name: m for m in all_known_members if self.cluster.sync.matches(m.name)}
+            members = {m.name: m for m in all_known_members if self.cluster.sync.matches(m.name, True)}
         else:
             # run usual health check
             members = {m.name: m for m in all_known_members}

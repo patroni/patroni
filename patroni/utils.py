@@ -412,7 +412,7 @@ def cluster_as_json(cluster):
         if m.name == leader_name:
             config = cluster.config.data if cluster.config and cluster.config.modify_index else {}
             role = 'standby_leader' if is_standby_cluster(config.get('standby_cluster')) else 'leader'
-        elif m.name in cluster.sync.members:
+        elif cluster.sync.matches(m.name):
             role = 'sync_standby'
         else:
             role = 'replica'
