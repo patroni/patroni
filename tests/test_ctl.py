@@ -97,7 +97,7 @@ class TestCtl(unittest.TestCase):
                                     input='leader\nother\n2300-01-01T12:23:00\ny')
         assert result.exit_code == 0
 
-        with patch('patroni.dcs.Cluster.is_paused', Mock(return_value=True)):
+        with patch('patroni.config.GlobalConfig.is_paused', Mock(return_value=True)):
             result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
                                               '--force', '--scheduled', '2015-01-01T12:00:00'])
             assert result.exit_code == 1
@@ -308,7 +308,7 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force', '--scheduled', '2300-10-01T14:30'])
         assert 'Failed: flush scheduled restart' in result.output
 
-        with patch('patroni.dcs.Cluster.is_paused', Mock(return_value=True)):
+        with patch('patroni.config.GlobalConfig.is_paused', Mock(return_value=True)):
             result = self.runner.invoke(ctl,
                                         ['restart', 'alpha', 'other', '--force', '--scheduled', '2300-10-01T14:30'])
             assert result.exit_code == 1
@@ -490,7 +490,7 @@ class TestCtl(unittest.TestCase):
         assert 'Failed' in result.output
 
         mock_post.return_value.status = 200
-        with patch('patroni.dcs.Cluster.is_paused', Mock(return_value=True)):
+        with patch('patroni.config.GlobalConfig.is_paused', Mock(return_value=True)):
             result = self.runner.invoke(ctl, ['pause', 'dummy'])
             assert 'Cluster is already paused' in result.output
 
@@ -511,11 +511,11 @@ class TestCtl(unittest.TestCase):
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
 
         mock_post.return_value.status = 200
-        with patch('patroni.dcs.Cluster.is_paused', Mock(return_value=False)):
+        with patch('patroni.config.GlobalConfig.is_paused', Mock(return_value=False)):
             result = self.runner.invoke(ctl, ['resume', 'dummy'])
             assert 'Cluster is not paused' in result.output
 
-        with patch('patroni.dcs.Cluster.is_paused', Mock(return_value=True)):
+        with patch('patroni.config.GlobalConfig.is_paused', Mock(return_value=True)):
             result = self.runner.invoke(ctl, ['resume', 'dummy'])
             assert 'Success' in result.output
 

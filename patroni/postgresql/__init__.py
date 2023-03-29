@@ -12,7 +12,7 @@ from datetime import datetime
 from dateutil import tz
 from psutil import TimeoutExpired
 from threading import current_thread, Lock
-from typing import Optional
+from typing import Optional, Union
 
 from .bootstrap import Bootstrap
 from .callback_executor import CallbackAction, CallbackExecutor
@@ -25,7 +25,7 @@ from .postmaster import PostmasterProcess
 from .slots import SlotsHandler
 from .sync import SyncHandler
 from .. import psycopg
-from ..dcs import Member
+from ..dcs import Cluster, Member
 from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
 
@@ -351,7 +351,16 @@ class Postgresql(object):
                 self.config.write_postgresql_conf()
                 self.reload()
 
-    def reset_cluster_info_state(self, cluster, nofailover=None):
+    def reset_cluster_info_state(self, cluster: Union[Cluster, None], nofailover: Optional[bool] = None,
+                                 is_synchronous_mode: Optional[bool] = None) -> None:
+        """Reset monitoring query cache in the beginning of heart-beat loop.
+
+        :param cluster: currently known cluster state from DCS
+        :param nofailover: whether this node could become a new primary.
+                           Important when there are logical permanent replication slots because "nofailover"
+                           node could do cascading replication and should enable `hot_standby_feedback`
+        :param is_synchronous_mode: whether the synchronous replication is requested
+        """
         self._cluster_info_state = {}
         if cluster and cluster.config and cluster.config.modify_index:
             self._has_permanent_logical_slots =\
@@ -363,7 +372,7 @@ class Postgresql(object):
                 self._has_permanent_logical_slots or
                 cluster.should_enforce_hot_standby_feedback(self.name, nofailover, self.major_version))
 
-            self._is_synchronous_mode = cluster.is_synchronous_mode()
+            self._is_synchronous_mode = is_synchronous_mode
 
     def _cluster_info_state_get(self, name):
         if not self._cluster_info_state:

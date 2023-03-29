@@ -11,6 +11,7 @@ import tempfile
 import time
 
 from dateutil import tz
+from typing import Any, Dict
 
 from .exceptions import PatroniException
 from .version import __version__
@@ -398,20 +399,17 @@ def iter_response_objects(response):
         prev = chunk[idx:]
 
 
-def is_standby_cluster(config):
-    # Check whether or not provided configuration describes a standby cluster
-    return isinstance(config, dict) and (config.get('host') or config.get('port') or config.get('restore_command'))
-
-
-def cluster_as_json(cluster):
+def cluster_as_json(cluster, global_config=None) -> Dict[str, Any]:
+    if not global_config:
+        from patroni.config import get_global_config
+        global_config = get_global_config(cluster)
     leader_name = cluster.leader.name if cluster.leader else None
     cluster_lsn = cluster.last_lsn or 0
 
     ret = {'members': []}
     for m in cluster.members:
         if m.name == leader_name:
-            config = cluster.config.data if cluster.config and cluster.config.modify_index else {}
-            role = 'standby_leader' if is_standby_cluster(config.get('standby_cluster')) else 'leader'
+            role = 'standby_leader' if global_config.is_standby_cluster() else 'leader'
         elif cluster.sync.matches(m.name):
             role = 'sync_standby'
         else:
@@ -439,7 +437,7 @@ def cluster_as_json(cluster):
 
     # sort members by name for consistency
     ret['members'].sort(key=lambda m: m['name'])
-    if cluster.is_paused():
+    if global_config.is_paused():
         ret['pause'] = True
     if cluster.failover and cluster.failover.scheduled_at:
         ret['scheduled_switchover'] = {'at': cluster.failover.scheduled_at.isoformat()}

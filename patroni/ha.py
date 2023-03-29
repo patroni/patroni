@@ -17,7 +17,7 @@ from .exceptions import DCSError, PostgresConnectionException, PatroniFatalExcep
 from .postgresql.callback_executor import CallbackAction
 from .postgresql.misc import postgres_version_to_int
 from .postgresql.rewind import Rewind
-from .utils import polling_loop, tzutc, is_standby_cluster as _is_standby_cluster, parse_int
+from .utils import polling_loop, tzutc, parse_int
 from .dcs import Cluster, Leader, Member, RemoteMember
 
 logger = logging.getLogger(__name__)
@@ -136,6 +136,7 @@ class Ha(object):
         self._rewind = Rewind(self.state_handler)
         self.dcs = patroni.dcs
         self.cluster = None
+        self.global_config = self.patroni.config.get_global_config(None)
         self.old_cluster = None
         self._is_leader = False
         self._is_leader_lock = RLock()
@@ -166,33 +167,22 @@ class Ha(object):
         # used only in backoff after failing a pre_promote script
         self._released_leader_key_timestamp = 0
 
-    def check_mode(self, mode):
-        # Try to protect from the case when DCS was wiped out during pause
-        if self.cluster and self.cluster.config and self.cluster.config.modify_index:
-            return self.cluster.check_mode(mode)
-        else:
-            return self.patroni.config.check_mode(mode)
-
-    def primary_stop_timeout(self):
-        """ Primary stop timeout """
-        ret = parse_int(self.patroni.config['primary_stop_timeout'])
+    def primary_stop_timeout(self) -> Union[int, None]:
+        """:returns: "primary_stop_timeout" from the global configuration or `None` when not in synchronous mode."""
+        ret = parse_int(self.global_config.get('primary_stop_timeout'))
         return ret if ret and ret > 0 and self.is_synchronous_mode() else None
 
     def is_paused(self):
-        return self.check_mode('pause')
+        """:returns: `True` if in maintenance mode."""
+        return self.global_config.is_paused()
 
     def check_timeline(self):
-        return self.check_mode('check_timeline')
-
-    def get_standby_cluster_config(self):
-        if self.cluster and self.cluster.config and self.cluster.config.modify_index:
-            config = self.cluster.config.data
-        else:
-            config = self.patroni.config.dynamic_configuration
-        return config.get('standby_cluster')
+        """:returns: `True` if should check whether the timeline is latest during the leader race."""
+        return self.global_config.check_mode('check_timeline')
 
     def is_standby_cluster(self):
-        return _is_standby_cluster(self.get_standby_cluster_config())
+        """:returns: `True` if global configuration has a valid "standby_cluster" section."""
+        return self.global_config.is_standby_cluster()
 
     def is_leader(self):
         with self._is_leader_lock:
@@ -386,14 +376,15 @@ class Ha(object):
             else:
                 return 'failed to acquire initialize lock'
         else:
-            create_replica_methods = self.get_standby_cluster_config().get('create_replica_methods', []) \
+            create_replica_methods = self.global_config.get_standby_cluster_config().get('create_replica_methods', []) \
                                      if self.is_standby_cluster() else None
             can_bootstrap = self.state_handler.can_create_replica_without_replication_connection(create_replica_methods)
             concurrent_bootstrap = self.cluster.initialize == ""
             if can_bootstrap and not concurrent_bootstrap:
                 msg = 'bootstrap (without leader)'
                 return self._async_executor.try_run_async(msg, self.clone) or 'trying to ' + msg
-            return 'waiting for {0}leader to bootstrap'.format('standby_' if self.is_standby_cluster() else '')
+            return 'waiting for {0}leader to bootstrap'.format(
+                    'standby_' if self.is_standby_cluster() else '')
 
     def bootstrap_standby_leader(self):
         """ If we found 'standby' key in the configuration, we need to bootstrap
@@ -495,9 +486,7 @@ class Ha(object):
     def _get_node_to_follow(self, cluster):
         # determine the node to follow. If replicatefrom tag is set,
         # try to follow the node mentioned there, otherwise, follow the leader.
-        standby_config = self.get_standby_cluster_config()
-        is_standby_cluster = _is_standby_cluster(standby_config)
-        if is_standby_cluster and (self.cluster.is_unlocked() or self.has_lock(False)):
+        if self.is_standby_cluster() and (self.cluster.is_unlocked() or self.has_lock(False)):
             node_to_follow = self.get_remote_member()
         elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
             node_to_follow = cluster.get_member(self.patroni.replicatefrom)
@@ -511,7 +500,8 @@ class Ha(object):
             params = ('restore_command', 'archive_cleanup_command')
             for param in params:  # It is highly unlikely to happen, but we want to protect from the case
                 node_to_follow.data.pop(param, None)  # when above-mentioned params came from outside.
-            if is_standby_cluster:
+            if self.is_standby_cluster():
+                standby_config = self.global_config.get_standby_cluster_config()
                 node_to_follow.data.update({p: standby_config[p] for p in params if standby_config.get(p)})
 
         return node_to_follow
@@ -571,14 +561,17 @@ class Ha(object):
 
         return follow_reason
 
-    def is_synchronous_mode(self):
-        return self.check_mode('synchronous_mode')
+    def is_synchronous_mode(self) -> bool:
+        """:returns: `True` if synchronous replication is requested."""
+        return self.global_config.is_synchronous_mode()
 
     def is_synchronous_mode_strict(self):
-        return self.check_mode('synchronous_mode_strict')
+        """:returns: `True` if at least one synchronous node is required."""
+        return self.global_config.check_mode('synchronous_mode_strict')
 
     def is_failsafe_mode(self):
-        return self.check_mode('failsafe_mode')
+        """:returns: `True` if failsafe_mode is enabled in global configuration."""
+        return self.global_config.check_mode('failsafe_mode')
 
     def process_sync_replication(self):
         """Process synchronous standby beahvior.
@@ -1577,9 +1570,11 @@ class Ha(object):
         try:
             try:
                 self.load_cluster_from_dcs()
-                self.state_handler.reset_cluster_info_state(self.cluster, self.patroni.nofailover)
+                self.global_config = self.patroni.config.get_global_config(self.cluster)
+                self.state_handler.reset_cluster_info_state(self.cluster, self.patroni.nofailover,
+                                                            self.is_synchronous_mode())
             except Exception:
-                self.state_handler.reset_cluster_info_state(None, self.patroni.nofailover)
+                self.state_handler.reset_cluster_info_state(None)
                 raise
 
             if self.is_paused():
@@ -1862,7 +1857,7 @@ class Ha(object):
             member to stream. Config can be both patroni config or
             cluster.config.data
         """
-        cluster_params = self.get_standby_cluster_config()
+        cluster_params = self.global_config.get_standby_cluster_config()
 
         if cluster_params:
             name = member.name if member else 'remote_member:{}'.format(uuid.uuid1())

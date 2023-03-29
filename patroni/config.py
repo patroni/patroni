@@ -7,11 +7,13 @@ import yaml
 
 from collections import defaultdict
 from copy import deepcopy
-from patroni import PATRONI_ENV_PREFIX
-from patroni.exceptions import ConfigParseError
-from patroni.dcs import ClusterConfig
-from patroni.postgresql.config import CaseInsensitiveDict, ConfigHandler
-from patroni.utils import deep_compare, parse_bool, parse_int, patch_config
+from typing import Any, Dict, Optional, Union
+
+from . import PATRONI_ENV_PREFIX
+from .exceptions import ConfigParseError
+from .dcs import ClusterConfig, Cluster
+from .postgresql.config import CaseInsensitiveDict, ConfigHandler
+from .utils import deep_compare, parse_bool, parse_int, patch_config
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,72 @@ _AUTH_ALLOWED_PARAMETERS = (
 def default_validator(conf):
     if not conf:
         raise ConfigParseError("Config is empty.")
+
+
+class GlobalConfig(object):
+
+    """A class that wrapps global configuration and provides convinient methods to access/check values.
+
+    It is instantiated by calling :func:`Config.global_config` method which picks either a
+    configuration from provided :class:`Cluster` object (the most up-to-date) or from the
+    local cache if :class::`ClusterConfig` is not initialized or doesn't have a valid config.
+    """
+
+    def __init__(self, config: Dict[str, Any]) -> None:
+        """Initialize :class:`GlobalConfig` object.
+
+        :param config: current configuration either from
+                       :class:`ClusterConfig` or from :class:`Config.dynamic_configuration`
+        """
+        self.__config = config
+
+    def get(self, name: str) -> Any:
+        """Gets global configuration value by name.
+
+        :param name: parameter name
+        :returns: configuration value or `None` if it is missing
+        """
+        return self.__config.get(name)
+
+    def check_mode(self, mode: str) -> bool:
+        """Checks whether the certain parameter is enabled.
+
+        :param mode: parameter name could be: synchronous_mode, failsafe_mode, pause, check_timeline, and so on
+        :returns: `True` if *mode* is enabled in the global configuration.
+        """
+        return bool(parse_bool(self.__config.get(mode)))
+
+    def is_paused(self) -> bool:
+        """:returns: `True` if cluster is in maintenance mode."""
+        return self.check_mode('pause')
+
+    def is_synchronous_mode(self) -> bool:
+        """:returns: `True` if synchronous replication is requested."""
+        return self.check_mode('synchronous_mode')
+
+    def get_standby_cluster_config(self) -> Any:
+        """:returns: "standby_cluster" configuration."""
+        return self.get('standby_cluster')
+
+    def is_standby_cluster(self) -> bool:
+        """:returns: `True` if global configuration has a valid "standby_cluster" section."""
+        config = self.get_standby_cluster_config()
+        return isinstance(config, dict) and (config.get('host') or config.get('port') or config.get('restore_command'))
+
+
+def get_global_config(cluster: Union[Cluster, None], default: Optional[Dict] = None) -> GlobalConfig:
+    """Instantiates :class:`GlobalConfig` based on the input.
+
+    :param cluster: the currently known cluster state from DCS
+    :param default: default configuration, which will be used if there is no valid *cluster.config*
+    :returns: :class:`GlobalConfig` object
+    """
+    # Try to protect from the case when DCS was wiped out
+    if cluster and cluster.config and cluster.config.modify_index:
+        config = cluster.config.data
+    else:
+        config = default or {}
+    return GlobalConfig(deepcopy(config))
 
 
 class Config(object):
@@ -124,9 +192,6 @@ class Config(object):
     @property
     def dynamic_configuration(self):
         return deepcopy(self._dynamic_configuration)
-
-    def check_mode(self, mode):
-        return bool(parse_bool(self._dynamic_configuration.get(mode)))
 
     def _load_config_path(self, path):
         """
@@ -480,3 +545,13 @@ class Config(object):
 
     def copy(self):
         return deepcopy(self.__effective_configuration)
+
+    def get_global_config(self, cluster: Union[Cluster, None]) -> GlobalConfig:
+        """Instantiate :class:`GlobalConfig` based on input.
+
+        Use the configuration from provided *cluster* (the most up-to-date) or from the
+        local cache if *cluster.config* is not initialized or doesn't have a valid config.
+        :param cluster: the currently known cluster state from DCS
+        :returns: :class:`GlobalConfig` object
+        """
+        return get_global_config(cluster, self._dynamic_configuration)

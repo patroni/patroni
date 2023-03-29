@@ -488,6 +488,7 @@ class TestHa(PostgresInit):
     def test_check_failsafe_topology(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
+        self.ha.global_config = self.ha.patroni.config.get_global_config(self.ha.cluster)
         self.ha.dcs._last_failsafe = self.ha.cluster.failsafe
         self.assertEqual(self.ha.run_cycle(), 'demoting self because DCS is not accessible and I was a leader')
         self.ha.state_handler.name = self.ha.cluster.leader.name
@@ -507,6 +508,7 @@ class TestHa(PostgresInit):
     def test_no_dcs_connection_primary_failsafe(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
+        self.ha.global_config = self.ha.patroni.config.get_global_config(self.ha.cluster)
         self.ha.dcs._last_failsafe = self.ha.cluster.failsafe
         self.ha.state_handler.name = self.ha.cluster.leader.name
         self.assertEqual(self.ha.run_cycle(),
@@ -523,6 +525,7 @@ class TestHa(PostgresInit):
     def test_no_dcs_connection_replica_failsafe(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
+        self.ha.global_config = self.ha.patroni.config.get_global_config(self.ha.cluster)
         self.ha.update_failsafe({'name': 'leader', 'api_url': 'http://127.0.0.1:8008/patroni',
                                  'conn_url': 'postgres://127.0.0.1:5432/postgres', 'slots': {'foo': 1000}})
         self.p.is_leader = false
@@ -841,6 +844,7 @@ class TestHa(PostgresInit):
 
     def test__is_healthiest_node(self):
         self.ha.cluster = get_cluster_initialized_without_leader(sync=('postgresql1', self.p.name))
+        self.ha.global_config = self.ha.patroni.config.get_global_config(self.ha.cluster)
         self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.p.is_leader = false
         self.ha.fetch_node_status = get_node_status()  # accessible, in_recovery
@@ -1077,13 +1081,14 @@ class TestHa(PostgresInit):
 
     def test_primary_stop_timeout(self):
         self.assertEqual(self.ha.primary_stop_timeout(), None)
-        self.ha.patroni.config.set_dynamic_configuration({'primary_stop_timeout': 30})
+        self.ha.cluster.config.data.update({'primary_stop_timeout': 30})
+        self.ha.global_config = self.ha.patroni.config.get_global_config(self.ha.cluster)
         with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=True)):
             self.assertEqual(self.ha.primary_stop_timeout(), 30)
-        self.ha.patroni.config.set_dynamic_configuration({'primary_stop_timeout': 30})
         with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=False)):
             self.assertEqual(self.ha.primary_stop_timeout(), None)
-            self.ha.patroni.config.set_dynamic_configuration({'primary_stop_timeout': None})
+            self.ha.cluster.config.data['primary_stop_timeout'] = None
+            self.ha.global_config = self.ha.patroni.config.get_global_config(self.ha.cluster)
             self.assertEqual(self.ha.primary_stop_timeout(), None)
 
     @patch('patroni.postgresql.Postgresql.follow')
