@@ -119,7 +119,7 @@ def patch_config(config: Dict, data: Dict) -> bool:
     return is_changed
 
 
-def parse_bool(value: Any) -> bool:
+def parse_bool(value: Any) -> Union[bool, None]:
     """Parse a given value to a :class:`bool` object.
 
     .. note::
@@ -149,7 +149,7 @@ def parse_bool(value: Any) -> bool:
         return False
 
 
-def strtol(value: Any, strict: Optional[bool] = True) -> Tuple[int, str]:
+def strtol(value: Any, strict: Optional[bool] = True) -> Tuple[Union[int, None], str]:
     """Extract the long integer part from the beginning of a string that represents a configuration value.
 
     As most as possible close equivalent of ``strtol(3)`` C function (with base=0), which is used by postgres to parse
@@ -203,7 +203,7 @@ def strtol(value: Any, strict: Optional[bool] = True) -> Tuple[int, str]:
     return (None if strict else 1), value
 
 
-def strtod(value: Any) -> Tuple[float, str]:
+def strtod(value: Any) -> Tuple[Union[float, None], str]:
     """Extract the double precision part from the beginning of a string that reprensents a configuration value.
 
     As most as possible close equivalent of ``strtod(3)`` C function, which is used by postgres to parse parameter
@@ -259,7 +259,7 @@ def rint(value: float) -> int:
     return 2.0 * round(value / 2.0) if abs(ret - value) == 0.5 else ret
 
 
-def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: str) -> Union[int, float]:
+def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: str) -> Union[int, float, None]:
     """Convert *value* as a *unit* of compute information or time to *base_unit*.
 
     :param value: value to be converted to the base unit.
@@ -317,7 +317,7 @@ def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: str) ->
         return value
 
 
-def parse_int(value: Any, base_unit: Optional[str] = None) -> int:
+def parse_int(value: Any, base_unit: Optional[str] = None) -> Union[int, None]:
     """Parse *value* as an :class:`int`.
 
     :param value: any value that can be handled either by :func:`strtol` or :func:`strtod`. If *value* contains a
@@ -370,7 +370,7 @@ def parse_int(value: Any, base_unit: Optional[str] = None) -> int:
             return int(rint(val))
 
 
-def parse_real(value: Any, base_unit: Optional[str] = None) -> float:
+def parse_real(value: Any, base_unit: Optional[str] = None) -> Union[float, None]:
     """Parse *value* as a :class:`float`.
 
     :param value: any value that can be handled by :func:`strtod`. If *value* contains a unit, then *base_unit* must
@@ -489,8 +489,8 @@ class Retry(object):
 
     def __init__(self, max_tries: Optional[int] = 1, delay: Optional[float] = 0.1, backoff: Optional[int] = 2,
                  max_jitter: Optional[float] = 0.8, max_delay: Optional[int] = 3600,
-                 sleep_func: Callable[[Union[int, float]], None] = _sleep, deadline: Union[int, float] = None,
-                 retry_exceptions: Union[Exception, Tuple[Exception]] = PatroniException) -> None:
+                 sleep_func: Optional[Callable[[Union[int, float]], None]] = _sleep, deadline: Optional[Union[int, float]] = None,
+                 retry_exceptions: Optional[Union[Exception, Tuple[Exception]]] = PatroniException) -> None:
         """Create a :class:`Retry` instance for retrying function calls.
 
         :param max_tries: how many times to retry the command. ``-1`` means infinite tries.
@@ -514,7 +514,7 @@ class Retry(object):
         self.sleep_func = sleep_func
         self.retry_exceptions = retry_exceptions
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset the attempt counter, delay and stop time."""
         self._attempts = 0
         self._cur_delay = self.delay
@@ -527,14 +527,14 @@ class Retry(object):
                      deadline=self.deadline, retry_exceptions=self.retry_exceptions)
 
     @property
-    def sleeptime(self):
+    def sleeptime(self) -> float:
         """Get next cycle sleep time.
 
         It is based on the current delay plus a number up to ``max_jitter``.
         """
         return self._cur_delay + (random.randint(0, self.max_jitter) / 100.0)
 
-    def update_delay(self):
+    def update_delay(self) -> None:
         """Set next cycle delay.
 
         It will be the minimum value between:
@@ -544,11 +544,11 @@ class Retry(object):
         self._cur_delay = min(self._cur_delay * self.backoff, self.max_delay)
 
     @property
-    def stoptime(self):
+    def stoptime(self) -> Union[float, None]:
         """Get the current stop time."""
         return self._cur_stoptime
 
-    def __call__(self, func: Callable, *args: Any, **kwargs: Any) -> None:
+    def __call__(self, func: Callable, *args: Any, **kwargs: Any) -> Any:
         """Call a function *func* with arguments ``*args`` and ``*kwargs`` in a loop.
 
         *func* will be called until one of the following conditions is met:
