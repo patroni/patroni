@@ -8,7 +8,7 @@ from kazoo.protocol.states import KeeperState, ZnodeStat
 from kazoo.retry import RetryFailedError
 from mock import Mock, PropertyMock, patch
 from patroni.dcs.zookeeper import Cluster, Leader, PatroniKazooClient,\
-        PatroniSequentialThreadingHandler, ZooKeeper, ZooKeeperError
+    PatroniSequentialThreadingHandler, ZooKeeper, ZooKeeperError
 
 
 class MockKazooClient(Mock):

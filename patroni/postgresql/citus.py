@@ -326,7 +326,7 @@ class CitusHandler(Thread):
 
         task = self.add_task(event['type'], event['group'],
                              cluster.leader.conn_url,
-                             event['timeout'], event['cooldown']*1000)
+                             event['timeout'], event['cooldown'] * 1000)
         if task and event['type'] == 'before_demote':
             task.wait()
 

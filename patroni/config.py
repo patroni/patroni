@@ -221,8 +221,8 @@ class Config(object):
     @staticmethod
     def _process_postgresql_parameters(parameters, is_local=False):
         return {name: value for name, value in (parameters or {}).items()
-                if name not in ConfigHandler.CMDLINE_OPTIONS or
-                not is_local and ConfigHandler.CMDLINE_OPTIONS[name][1](value)}
+                if name not in ConfigHandler.CMDLINE_OPTIONS
+                or not is_local and ConfigHandler.CMDLINE_OPTIONS[name][1](value)}
 
     def _safe_copy_dynamic_configuration(self, dynamic_configuration):
         config = deepcopy(self.__DEFAULT_CONFIG)

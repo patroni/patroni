@@ -1,3 +1,4 @@
+# flake8: noqa: E241
 import datetime
 import functools
 import json
@@ -664,7 +665,7 @@ class Ha(object):
             if self.touch_member():
                 # Primary should notice the updated value during the next cycle. We will wait double that, if primary
                 # hasn't noticed the value by then not disabling sync replication is not likely to matter.
-                for _ in polling_loop(timeout=self.dcs.loop_wait*2, interval=2):
+                for _ in polling_loop(timeout=self.dcs.loop_wait * 2, interval=2):
                     try:
                         if not self.is_sync_standby(self.dcs.get_cluster()):
                             break
@@ -1280,10 +1281,10 @@ class Ha(object):
         if self.is_standby_cluster():
             return self.follow('cannot be a real primary in a standby cluster',
                                'no action. I am ({0}), a secondary, and following a standby leader ({1})'.format(
-                                    self.state_handler.name, lock_owner), refresh=False)
+                                   self.state_handler.name, lock_owner), refresh=False)
         return self.follow('demoting self because I do not have the lock and I was a leader',
                            'no action. I am ({0}), a secondary, and following a leader ({1})'.format(
-                                self.state_handler.name, lock_owner), refresh=False)
+                               self.state_handler.name, lock_owner), refresh=False)
 
     def evaluate_scheduled_restart(self):
         if self._async_executor.busy:  # Restart already in progress
@@ -1649,7 +1650,7 @@ class Ha(object):
                 if self.has_lock():
                     self.release_leader_key_voluntarily()
                     return 'released leader key voluntarily as data dir {0} and currently leader'.format(
-                                'empty' if data_directory_is_accessible else 'not accessible')
+                        'empty' if data_directory_is_accessible else 'not accessible')
 
                 if not data_directory_is_accessible:
                     return 'data directory is not accessible: {0}'.format(data_directory_error)

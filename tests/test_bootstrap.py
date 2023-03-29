@@ -132,7 +132,7 @@ class TestBootstrap(BaseTestPostgresql):
 
     @patch.object(CancellableSubprocess, 'call')
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=90600))
-    @patch.object(Postgresql, 'controldata',  Mock(return_value={'Database cluster state': 'in production'}))
+    @patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'in production'}))
     def test_custom_bootstrap(self, mock_cancellable_subprocess_call):
         self.p.config._config.pop('pg_hba')
         config = {'method': 'foo', 'foo': {'command': 'bar'}}

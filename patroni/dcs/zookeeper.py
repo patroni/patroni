@@ -28,7 +28,7 @@ class PatroniSequentialThreadingHandler(SequentialThreadingHandler):
         self.set_connect_timeout(connect_timeout)
 
     def set_connect_timeout(self, connect_timeout):
-        self._connect_timeout = max(1.0, connect_timeout/2.0)  # try to connect to zookeeper node during loop_wait/2
+        self._connect_timeout = max(1.0, connect_timeout / 2.0)  # try to connect to zookeeper node during loop_wait/2
 
     def create_connection(self, *args, **kwargs):
         """This method is trying to establish connection with one of the zookeeper nodes.
@@ -43,11 +43,11 @@ class PatroniSequentialThreadingHandler(SequentialThreadingHandler):
 
         args = list(args)
         if len(args) == 0:  # kazoo 2.6.0 slightly changed the way how it calls create_connection method
-            kwargs['timeout'] = max(self._connect_timeout, kwargs.get('timeout', self._connect_timeout*10)/10.0)
+            kwargs['timeout'] = max(self._connect_timeout, kwargs.get('timeout', self._connect_timeout * 10) / 10.0)
         elif len(args) == 1:
             args.append(self._connect_timeout)
         else:
-            args[1] = max(self._connect_timeout, args[1]/10.0)
+            args[1] = max(self._connect_timeout, args[1] / 10.0)
         return super(PatroniSequentialThreadingHandler, self).create_connection(*args, **kwargs)
 
     def select(self, *args, **kwargs):
@@ -134,7 +134,7 @@ class ZooKeeper(AbstractDCS):
         `write_leader_optime()` methods, which also may hang..."""
 
         ret = self._orig_kazoo_connect(*args)
-        return max(self.loop_wait - 2, 2)*1000, ret[1]
+        return max(self.loop_wait - 2, 2) * 1000, ret[1]
 
     def session_listener(self, state):
         if state in [KazooState.SUSPENDED, KazooState.LOST]:
@@ -385,12 +385,13 @@ class ZooKeeper(AbstractDCS):
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         member_data = self.__last_member_data or member and member.data
         #  We want to notify leader if some important fields in the member key changed by removing ZNode
-        if member and (self._client.client_id is not None and member.session != self._client.client_id[0] or
-                       not (deep_compare(member_data.get('tags', {}), data.get('tags', {})) and
-                            (member_data.get('state') == data.get('state') or
-                                'running' not in (member_data.get('state'), data.get('state'))) and
-                            member_data.get('version') == data.get('version') and
-                            member_data.get('checkpoint_after_promote') == data.get('checkpoint_after_promote'))):
+        if member and (self._client.client_id is not None and member.session != self._client.client_id[0]
+                       or not (deep_compare(member_data.get('tags', {}), data.get('tags', {}))
+                               and (member_data.get('state') == data.get('state')
+                                    or 'running' not in (member_data.get('state'), data.get('state')))
+                               and member_data.get('version') == data.get('version')
+                               and member_data.get('checkpoint_after_promote')
+                               == data.get('checkpoint_after_promote'))):
             try:
                 self._client.delete_async(self.member_path).get(timeout=1)
             except NoNodeError:

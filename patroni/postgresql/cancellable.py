@@ -29,7 +29,7 @@ class CancellableExecutor(object):
             self._process_cmd = cmd
             self._process = psutil.Popen(cmd, *args, **kwargs)
         except Exception:
-            return logger.exception('Failed to execute %s',  cmd)
+            return logger.exception('Failed to execute %s', cmd)
         return True
 
     def _kill_process(self):

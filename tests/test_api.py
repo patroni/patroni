@@ -393,8 +393,8 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(MockHa, 'is_failsafe_mode', Mock(return_value=False), create=True):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /failsafe HTTP/1.0' + self._authorization))
         with patch.object(MockHa, 'is_failsafe_mode', Mock(return_value=True), create=True):
-            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /failsafe HTTP/1.0' + self._authorization +
-                                                                   '\nContent-Length: 9\n\n{"a":"b"}'))
+            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /failsafe HTTP/1.0' + self._authorization
+                                                   + '\nContent-Length: 9\n\n{"a":"b"}'))
 
     @patch.object(MockPatroni, 'sighup_handler', Mock())
     def test_do_POST_reload(self):

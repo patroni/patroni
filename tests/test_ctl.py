@@ -469,7 +469,7 @@ class TestCtl(unittest.TestCase):
 
         scheduled_at = datetime.now(tzutc) + timedelta(seconds=600)
         mock_get_dcs.return_value.get_cluster = Mock(
-                return_value=get_cluster_initialized_with_leader(Failover(1, 'a', 'b', scheduled_at)))
+            return_value=get_cluster_initialized_with_leader(Failover(1, 'a', 'b', scheduled_at)))
         result = self.runner.invoke(ctl, ['flush', 'dummy', 'switchover'])
         assert result.output.startswith('Success: ')
 

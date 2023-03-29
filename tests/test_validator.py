@@ -23,7 +23,7 @@ config = {
             "loop_wait": 1000,
             "retry_timeout": 1000,
             "maximum_lag_on_failover": 1000
-            },
+        },
         "pg_hba": ["string"],
         "initdb": ["string", {"key": "value"}]
     },
@@ -49,7 +49,7 @@ config = {
         "password": "12345"
     },
     "zookeeper": {
-        "hosts":  "127.0.0.1:3379,127.0.0.1:3380"
+        "hosts": "127.0.0.1:3379,127.0.0.1:3380"
     },
     "kubernetes": {
         "namespace": "string",
@@ -85,10 +85,10 @@ config = {
         "device": "string"
     },
     "tags": {
-      "nofailover": False,
-      "clonefrom": False,
-      "noloadbalance": False,
-      "nosync": False
+        "nofailover": False,
+        "clonefrom": False,
+        "noloadbalance": False,
+        "nosync": False
     }
 }
 

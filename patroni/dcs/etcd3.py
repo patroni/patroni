@@ -14,7 +14,7 @@ from threading import Condition, Lock, Thread
 from urllib3.exceptions import ReadTimeoutError, ProtocolError
 
 from . import ClusterConfig, Cluster, Failover, Leader, Member, SyncState,\
-        TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
+    TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
 from .etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors
 from ..exceptions import DCSError, PatroniException
 from ..utils import deep_compare, enable_keepalive, iter_response_objects, RetryFailedError, USER_AGENT
@@ -411,15 +411,15 @@ class KVCache(Thread):
             new_value = kv.get('value')
 
             value_changed = old_value != new_value and \
-                (key == self._leader_key or key in (self._optime_key, self._status_key) and new_value is not None or
-                 key == self._config_key and old_value is not None and new_value is not None)
+                (key == self._leader_key or key in (self._optime_key, self._status_key) and new_value is not None
+                 or key == self._config_key and old_value is not None and new_value is not None)
 
             if value_changed:
                 logger.debug('%s changed from %s to %s', key, old_value, new_value)
 
             # We also want to wake up HA loop on replicas if leader optime (or status key) was updated
-            if value_changed and (key not in (self._optime_key, self._status_key) or
-                                  (self.get(self._leader_key) or {}).get('value') != self._name):
+            if value_changed and (key not in (self._optime_key, self._status_key)
+                                  or (self.get(self._leader_key) or {}).get('value') != self._name):
                 self._dcs.event.set()
 
     def _process_message(self, message):

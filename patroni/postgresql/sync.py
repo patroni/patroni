@@ -243,8 +243,8 @@ class SyncHandler(object):
         else:
             sync_param = next(iter(value), None)
 
-        if not (self._postgresql.config.set_synchronous_standby_names(sync_param) and
-                self._postgresql.state == 'running' and self._postgresql.is_leader()) or value == ['*']:
+        if not (self._postgresql.config.set_synchronous_standby_names(sync_param)
+                and self._postgresql.state == 'running' and self._postgresql.is_leader()) or value == ['*']:
             return
 
         time.sleep(0.1)  # Usualy it takes 1ms to reload postgresql.conf, but we will give it 100ms
