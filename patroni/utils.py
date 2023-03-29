@@ -467,7 +467,8 @@ class Retry(object):
 
     def __init__(self, max_tries: Optional[int] = 1, delay: Optional[float] = 0.1, backoff: Optional[int] = 2,
                  max_jitter: Optional[float] = 0.8, max_delay: Optional[int] = 3600,
-                 sleep_func: Optional[Callable[[Union[int, float]], None]] = _sleep, deadline: Optional[Union[int, float]] = None,
+                 sleep_func: Optional[Callable[[Union[int, float]], None]] = _sleep,
+                 deadline: Optional[Union[int, float]] = None,
                  retry_exceptions: Optional[Union[Exception, Tuple[Exception]]] = PatroniException) -> None:
         """Create a :class:`Retry` instance for retrying function calls.
 
