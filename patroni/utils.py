@@ -237,28 +237,6 @@ def strtod(value: Any) -> Tuple[Union[float, None], str]:
     return None, value
 
 
-def rint(value: float) -> int:
-    """Round a given floating point number to the nearest whole integer.
-
-    :param value: value to be rounded.
-
-    :returns: the rounded value.
-
-    :Example:
-
-        >>> rint(0.5) == 0
-        True
-
-        >>> rint(0.501) == 1
-        True
-
-        >>> rint(1.5) == 2
-        True
-    """
-    ret = round(value)
-    return 2.0 * round(value / 2.0) if abs(ret - value) == 0.5 else ret
-
-
 def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: str) -> Union[int, float, None]:
     """Convert *value* as a *unit* of compute information or time to *base_unit*.
 
@@ -312,7 +290,7 @@ def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: str) ->
 
         if unit in round_order:
             multiplier = convert[base_unit][round_order[unit]]
-            value = rint(value / float(multiplier)) * multiplier
+            value = round(value / float(multiplier)) * multiplier
 
         return value
 
@@ -363,11 +341,11 @@ def parse_int(value: Any, base_unit: Optional[str] = None) -> Union[int, None]:
     if val is not None:
         unit = unit.strip()
         if not unit:
-            return int(rint(val))
+            return round(val)
 
         val = convert_to_base_unit(val, unit, base_unit)
         if val is not None:
-            return int(rint(val))
+            return round(val)
 
 
 def parse_real(value: Any, base_unit: Optional[str] = None) -> Union[float, None]:
