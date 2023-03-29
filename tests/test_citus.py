@@ -16,7 +16,7 @@ class TestCitus(BaseTestPostgresql):
         self.cluster = get_cluster_initialized_with_leader()
         self.cluster.workers[1] = self.cluster
 
-    @patch('time.time', Mock(side_effect=[100, 130, 160, 190, 220, 250, 280]))
+    @patch('time.time', Mock(side_effect=[100, 130, 160, 190, 220, 250, 280, 310]))
     @patch('patroni.postgresql.citus.logger.exception', Mock(side_effect=SleepException))
     @patch('patroni.postgresql.citus.logger.warning')
     @patch('patroni.postgresql.citus.PgDistNode.wait', Mock())
