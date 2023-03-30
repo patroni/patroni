@@ -85,7 +85,8 @@ class GlobalConfig(object):
     def is_standby_cluster(self) -> bool:
         """:returns: `True` if global configuration has a valid "standby_cluster" section."""
         config = self.get_standby_cluster_config()
-        return isinstance(config, dict) and (config.get('host') or config.get('port') or config.get('restore_command'))
+        return isinstance(config, dict) and\
+            bool(config.get('host') or config.get('port') or config.get('restore_command'))
 
 
 def get_global_config(cluster: Union[Cluster, None], default: Optional[Dict] = None) -> GlobalConfig:
