@@ -1,10 +1,11 @@
 import etcd
+import mock
 import os
 import unittest
 
 from click.testing import CliRunner
 from datetime import datetime, timedelta
-from mock import patch, Mock, call
+from mock import patch, Mock
 from patroni.ctl import ctl, load_config, output_members, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, PatroniCtlException, apply_config_changes, \
     format_config_for_editing, show_diff, invoke_editor, format_pg_version, CONFIG_FILE_PATH, PatronictlPrettyTable
@@ -576,8 +577,8 @@ class TestCtl(unittest.TestCase):
         )
         mock_env_get.assert_called_once_with('PAGER')
         mock_which.assert_has_calls([
-            call('less'),
-            call('more'),
+            mock.call('less'),
+            mock.call('more'),
         ])
         mock_markup_to_pager.assert_not_called()
 
@@ -594,9 +595,9 @@ class TestCtl(unittest.TestCase):
         )
         mock_env_get.assert_called_once_with('PAGER')
         mock_which.assert_has_calls([
-            call('random'),
-            call('less'),
-            call('more'),
+            mock.call('random'),
+            mock.call('less'),
+            mock.call('more'),
         ])
         mock_markup_to_pager.assert_not_called()
 
