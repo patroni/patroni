@@ -353,7 +353,9 @@ class Postgresql(object):
 
     def reset_cluster_info_state(self, cluster: Union[Cluster, None], nofailover: Optional[bool] = None,
                                  is_synchronous_mode: Optional[bool] = None) -> None:
-        """Reset monitoring query cache in the beginning of heart-beat loop.
+        """Reset monitoring query cache.
+
+        It happens in the beginning of heart-beat loop and on change of `synchronous_standby_names`.
 
         :param cluster: currently known cluster state from DCS
         :param nofailover: whether this node could become a new primary.
