@@ -188,7 +188,7 @@ class TestRestApiHandler(unittest.TestCase):
     def test_do_GET(self):
         MockPatroni.dcs.cluster.last_lsn = 20
         MockPatroni.dcs.cluster.sync.members = [MockPostgresql.name]
-        with patch.object(GlobalConfig, 'is_synchronous_mode', Mock(return_value=True)):
+        with patch.object(GlobalConfig, 'is_synchronous_mode', PropertyMock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /replica')
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M')
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=10MB')
@@ -410,9 +410,7 @@ class TestRestApiHandler(unittest.TestCase):
     def test_do_POST_sigterm(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /sigterm HTTP/1.0' + self._authorization))
 
-    @patch.object(GlobalConfig, 'is_paused')
-    def test_do_POST_restart(self, mock_is_paused):
-        mock_is_paused.return_value = False
+    def test_do_POST_restart(self):
         request = 'POST /restart HTTP/1.0' + self._authorization
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
 
@@ -454,12 +452,12 @@ class TestRestApiHandler(unittest.TestCase):
                 request = make_request(role='primary', postgres_version='9.5.2')
                 MockRestApiServer(RestApiHandler, request)
 
-        mock_is_paused.return_value = True
-        MockRestApiServer(RestApiHandler, make_request(schedule='2016-08-42 12:45TZ+1', role='primary'))
-        # Valid timeout
-        MockRestApiServer(RestApiHandler, make_request(timeout='60s'))
-        # Invalid timeout
-        MockRestApiServer(RestApiHandler, make_request(timeout='42towels'))
+        with patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)):
+            MockRestApiServer(RestApiHandler, make_request(schedule='2016-08-42 12:45TZ+1', role='primary'))
+            # Valid timeout
+            MockRestApiServer(RestApiHandler, make_request(timeout='60s'))
+            # Invalid timeout
+            MockRestApiServer(RestApiHandler, make_request(timeout='42towels'))
 
     def test_do_DELETE_restart(self):
         for retval in (True, False):
@@ -491,13 +489,9 @@ class TestRestApiHandler(unittest.TestCase):
 
     @patch('time.sleep', Mock())
     @patch.object(MockPatroni, 'dcs')
-    @patch.object(GlobalConfig, 'is_paused')
-    @patch.object(GlobalConfig, 'is_synchronous_mode')
-    def test_do_POST_switchover(self, mock_is_synchronous_mode, mock_is_paused, dcs):
+    def test_do_POST_switchover(self, dcs):
         dcs.loop_wait = 10
         cluster = dcs.get_cluster.return_value
-        mock_is_synchronous_mode.return_value = False
-        mock_is_paused.return_value = False
 
         post = 'POST /switchover HTTP/1.0' + self._authorization + '\nContent-Length: '
 
@@ -511,12 +505,12 @@ class TestRestApiHandler(unittest.TestCase):
 
         request = post + '25\n\n{"leader": "postgresql1"}'
 
-        mock_is_paused.return_value = True
-        MockRestApiServer(RestApiHandler, request)
-
-        mock_is_paused.return_value = False
-        for mock_is_synchronous_mode.return_value in (True, False):
+        with patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)):
             MockRestApiServer(RestApiHandler, request)
+
+        for is_synchronous_mode in (True, False):
+            with patch.object(GlobalConfig, 'is_synchronous_mode', PropertyMock(return_value=is_synchronous_mode)):
+                MockRestApiServer(RestApiHandler, request)
 
         cluster.leader.name = 'postgresql2'
         request = post + '53\n\n{"leader": "postgresql1", "candidate": "postgresql2"}'
@@ -524,8 +518,9 @@ class TestRestApiHandler(unittest.TestCase):
 
         cluster.leader.name = 'postgresql1'
         cluster.sync.matches.return_value = False
-        for mock_is_synchronous_mode.return_value in (True, False):
-            MockRestApiServer(RestApiHandler, request)
+        for is_synchronous_mode in (True, False):
+            with patch.object(GlobalConfig, 'is_synchronous_mode', PropertyMock(return_value=is_synchronous_mode)):
+                MockRestApiServer(RestApiHandler, request)
 
         cluster.members = [Member(0, 'postgresql0', 30, {'api_url': 'http'}),
                            Member(0, 'postgresql2', 30, {'api_url': 'http'})]
@@ -559,11 +554,10 @@ class TestRestApiHandler(unittest.TestCase):
         request = post + '103\n\n{"leader": "postgresql1", "member": "postgresql2",' +\
                          ' "scheduled_at": "6016-02-15T18:13:30.568224+01:00"}'
         MockRestApiServer(RestApiHandler, request)
-        mock_is_paused.return_value = True
-        with patch.object(MockPatroni, 'dcs') as d:
+        with patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)),\
+                patch.object(MockPatroni, 'dcs') as d:
             d.manual_failover.return_value = False
             MockRestApiServer(RestApiHandler, request)
-        mock_is_paused.return_value = False
 
         # Exception: No timezone specified
         request = post + '97\n\n{"leader": "postgresql1", "member": "postgresql2",' +\

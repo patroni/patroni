@@ -122,7 +122,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             standby_leader_status_code = 200 if response.get('role') == 'standby_leader' else 503
         elif patroni.ha.is_leader():
             leader_status_code = 200
-            if global_config.is_standby_cluster():
+            if global_config.is_standby_cluster:
                 primary_status_code = replica_status_code = 503
                 standby_leader_status_code = 200 if response.get('role') in ('replica', 'standby_leader') else 503
             else:
@@ -445,7 +445,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if request:
             logger.debug("received restart request: {0}".format(request))
 
-        if self.server.patroni.config.get_global_config(cluster).is_paused() and 'schedule' in request:
+        if self.server.patroni.config.get_global_config(cluster).is_paused and 'schedule' in request:
             self._write_response(status_code, "Can't schedule restart in the paused state")
             return
 
@@ -558,7 +558,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         :returns: a string with the error message or `None` if good nodes are found
         """
-        is_synchronous_mode = self.server.patroni.config.get_global_config(cluster).is_synchronous_mode()
+        is_synchronous_mode = self.server.patroni.config.get_global_config(cluster).is_synchronous_mode
         if leader and (not cluster.leader or cluster.leader.name != leader):
             return 'leader name does not match'
         if candidate:
@@ -605,12 +605,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if not data and scheduled_at:
             if not leader:
                 data = 'Scheduled {0} is possible only from a specific leader'.format(action)
-            if not data and global_config.is_paused():
+            if not data and global_config.is_paused:
                 data = "Can't schedule {0} in the paused state".format(action)
             if not data:
                 (status_code, data, scheduled_at) = self.parse_schedule(scheduled_at, action)
 
-        if not data and global_config.is_paused() and not candidate:
+        if not data and global_config.is_paused and not candidate:
             data = action.title() + ' is possible only to a specific candidate in a paused state'
 
         if not data and not scheduled_at:
@@ -711,10 +711,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 })
             }
 
-            if result['role'] == 'replica' and global_config.is_standby_cluster():
+            if result['role'] == 'replica' and global_config.is_standby_cluster:
                 result['role'] = postgresql.role
 
-            if result['role'] == 'replica' and global_config.is_synchronous_mode()\
+            if result['role'] == 'replica' and global_config.is_synchronous_mode\
                     and cluster.sync.matches(postgresql.name):
                 result['sync_standby'] = True
 
@@ -734,7 +734,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 state = 'unknown'
             result = {'state': state, 'role': postgresql.role}
 
-        if global_config.is_paused():
+        if global_config.is_paused:
             result['pause'] = True
         if not cluster or cluster.is_unlocked():
             result['cluster_unlocked'] = True

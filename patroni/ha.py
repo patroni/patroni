@@ -17,7 +17,7 @@ from .exceptions import DCSError, PostgresConnectionException, PatroniFatalExcep
 from .postgresql.callback_executor import CallbackAction
 from .postgresql.misc import postgres_version_to_int
 from .postgresql.rewind import Rewind
-from .utils import polling_loop, tzutc, parse_int
+from .utils import polling_loop, tzutc
 from .dcs import Cluster, Leader, Member, RemoteMember
 
 logger = logging.getLogger(__name__)
@@ -169,12 +169,12 @@ class Ha(object):
 
     def primary_stop_timeout(self) -> Union[int, None]:
         """:returns: "primary_stop_timeout" from the global configuration or `None` when not in synchronous mode."""
-        ret = parse_int(self.global_config.get('primary_stop_timeout'))
-        return ret if ret and ret > 0 and self.is_synchronous_mode() else None
+        ret = self.global_config.primary_stop_timeout
+        return ret if ret > 0 and self.is_synchronous_mode() else None
 
     def is_paused(self):
         """:returns: `True` if in maintenance mode."""
-        return self.global_config.is_paused()
+        return self.global_config.is_paused
 
     def check_timeline(self):
         """:returns: `True` if should check whether the timeline is latest during the leader race."""
@@ -182,7 +182,7 @@ class Ha(object):
 
     def is_standby_cluster(self):
         """:returns: `True` if global configuration has a valid "standby_cluster" section."""
-        return self.global_config.is_standby_cluster()
+        return self.global_config.is_standby_cluster
 
     def is_leader(self):
         with self._is_leader_lock:
@@ -433,7 +433,7 @@ class Ha(object):
         self.watchdog.disable()
 
         if self.has_lock() and self.update_lock():
-            timeout = self.patroni.config['primary_start_timeout']
+            timeout = self.global_config.primary_start_timeout
             if timeout == 0:
                 # We are requested to prefer failing over to restarting primary. But see first if there
                 # is anyone to fail over to.
@@ -563,11 +563,7 @@ class Ha(object):
 
     def is_synchronous_mode(self) -> bool:
         """:returns: `True` if synchronous replication is requested."""
-        return self.global_config.is_synchronous_mode()
-
-    def is_synchronous_mode_strict(self):
-        """:returns: `True` if at least one synchronous node is required."""
-        return self.global_config.check_mode('synchronous_mode_strict')
+        return self.global_config.is_synchronous_mode
 
     def is_failsafe_mode(self):
         """:returns: `True` if failsafe_mode is enabled in global configuration."""
@@ -583,11 +579,11 @@ class Ha(object):
         promoting standbys that were guaranteed to be replicating synchronously.
         """
         if self.is_synchronous_mode():
-            sync_node_count = self.patroni.config['synchronous_node_count']
+            sync_node_count = self.global_config.synchronous_node_count
+            sync_node_maxlag = self.global_config.maximum_lag_on_syncnode
             current = [] if self.cluster.sync.is_empty else self.cluster.sync.members
             picked, allow_promote = self.state_handler.sync_handler.current_state(self.cluster, sync_node_count,
-                                                                                  self.patroni.config[
-                                                                                      'maximum_lag_on_syncnode'])
+                                                                                  sync_node_maxlag)
             if set(picked) != set(current):
                 # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
                 sync_common = list(set(current).intersection(set(allow_promote)))
@@ -600,7 +596,7 @@ class Ha(object):
                         return
 
                 # Update  db param and wait for x secs
-                if self.is_synchronous_mode_strict() and not picked:
+                if self.global_config.is_synchronous_mode_strict and not picked:
                     picked = ['*']
                     logger.warning("No standbys available!")
 
@@ -610,10 +606,8 @@ class Ha(object):
                 if picked and picked[0] != '*' and set(allow_promote) != set(picked) and not allow_promote:
                     # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
                     time.sleep(2)
-                    _, allow_promote = self.state_handler.sync_handler.current_state(self.cluster,
-                                                                                     sync_node_count,
-                                                                                     self.patroni.config[
-                                                                                         'maximum_lag_on_syncnode'])
+                    _, allow_promote = self.state_handler.sync_handler.current_state(self.cluster, sync_node_count,
+                                                                                     sync_node_maxlag)
                 if allow_promote and set(allow_promote) != set(sync_common):
                     try:
                         cluster = self.dcs.get_cluster()
@@ -741,7 +735,7 @@ class Ha(object):
                     # promotion until next cycle. TODO: trigger immediate retry of run_cycle
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
                 self.state_handler.sync_handler.set_synchronous_standby_names(
-                    ['*'] if self.is_synchronous_mode_strict() else [])
+                    ['*'] if self.global_config.is_synchronous_mode_strict else [])
             if self.state_handler.role not in ('master', 'promoted', 'primary'):
                 def on_success():
                     self._rewind.reset_state()
@@ -828,7 +822,7 @@ class Ha(object):
         :returns True when node is lagging
         """
         lag = (self.cluster.last_lsn or 0) - wal_position
-        return lag > self.patroni.config.get('maximum_lag_on_failover', 0)
+        return lag > self.global_config.maximum_lag_on_failover
 
     def _is_healthiest_node(self, members, check_replication_lag=True):
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
@@ -1369,7 +1363,7 @@ class Ha(object):
 
         # Now that restart is scheduled we can set timeout for startup, it will get reset
         # once async executor runs and main loop notices PostgreSQL as up.
-        timeout = restart_data.get('timeout', self.patroni.config['primary_start_timeout'])
+        timeout = restart_data.get('timeout', self.global_config.primary_start_timeout)
         self.set_start_timeout(timeout)
 
         def before_shutdown():
@@ -1432,7 +1426,7 @@ class Ha(object):
         """
         if self.has_lock() and self.update_lock():
             if self._async_executor.scheduled_action == 'doing crash recovery in a single user mode':
-                time_left = self.patroni.config['primary_start_timeout'] - (time.time() - self._crash_recovery_started)
+                time_left = self.global_config.primary_start_timeout - (time.time() - self._crash_recovery_started)
                 if time_left <= 0 and self.is_failover_possible(self.cluster.members):
                     logger.info("Demoting self because crash recovery is taking too long")
                     self.state_handler.cancellable.cancel(True)
@@ -1538,7 +1532,7 @@ class Ha(object):
                 self.demote('immediate-nolock')
                 return 'stopped PostgreSQL while starting up because leader key was lost'
 
-            timeout = self._start_timeout or self.patroni.config['primary_start_timeout']
+            timeout = self._start_timeout or self.global_config.primary_start_timeout
             time_left = timeout - self.state_handler.time_in_state()
 
             if time_left <= 0:
@@ -1571,8 +1565,7 @@ class Ha(object):
             try:
                 self.load_cluster_from_dcs()
                 self.global_config = self.patroni.config.get_global_config(self.cluster)
-                self.state_handler.reset_cluster_info_state(self.cluster, self.patroni.nofailover,
-                                                            self.is_synchronous_mode())
+                self.state_handler.reset_cluster_info_state(self.cluster, self.patroni.nofailover, self.global_config)
             except Exception:
                 self.state_handler.reset_cluster_info_state(None)
                 raise

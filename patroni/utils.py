@@ -698,6 +698,8 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
     """Get a JSON representation of *cluster*.
 
     :param cluster: the :class:`Cluster` object to be parsed as JSON.
+    :param global_config: optional :class:`GlobalConfig` object to check the cluster state.
+                          if not provided will be instantiated from the `Cluster.config`.
 
     :returns: JSON representation of *cluster*.
 
@@ -732,7 +734,7 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
     ret = {'members': []}
     for m in cluster.members:
         if m.name == leader_name:
-            role = 'standby_leader' if global_config.is_standby_cluster() else 'leader'
+            role = 'standby_leader' if global_config.is_standby_cluster else 'leader'
         elif cluster.sync.matches(m.name):
             role = 'sync_standby'
         else:
@@ -760,7 +762,7 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
 
     # sort members by name for consistency
     ret['members'].sort(key=lambda m: m['name'])
-    if global_config.is_paused():
+    if global_config.is_paused:
         ret['pause'] = True
     if cluster.failover and cluster.failover.scheduled_at:
         ret['scheduled_switchover'] = {'at': cluster.failover.scheduled_at.isoformat()}
