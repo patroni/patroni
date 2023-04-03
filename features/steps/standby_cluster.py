@@ -16,8 +16,8 @@ def start_patroni(context, name, cluster_name):
         "postgresql": {
             "callbacks": callbacks(context, name),
             "backup_restore": {
-                "command": (context.pctl.PYTHON + " features/backup_restore.py --sourcedir=" +
-                            os.path.join(context.pctl.patroni_path, 'data', 'basebackup').replace('\\', '/'))}
+                "command": (context.pctl.PYTHON + " features/backup_restore.py --sourcedir="
+                            + os.path.join(context.pctl.patroni_path, 'data', 'basebackup').replace('\\', '/'))}
         }
     })
 

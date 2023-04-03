@@ -35,7 +35,7 @@ def check_group_member(context, name, group, key, value, time_limit):
         except Exception:
             pass
         time.sleep(1)
-    assert False, ("{0} in a group {1} does not have {2}={3} (found {4}) in dcs" +
+    assert False, ("{0} in a group {1} does not have {2}={3} (found {4}) in dcs"
                    " after {5} seconds").format(name, group, key, value, response, time_limit)
 
 
@@ -93,7 +93,7 @@ def thread_is_alive(context):
 @step("I stop a thread")
 def stop_insert_thread(context):
     context.thread_stop_event.set()
-    context.thread.join(1*context.timeout_multiplier)
+    context.thread.join(1 * context.timeout_multiplier)
     assert not context.thread.is_alive(), "Thread is still alive"
 
 
@@ -114,4 +114,4 @@ def check_transaction(context, name):
 @step("a transaction finishes in {timeout:d} seconds")
 def check_transaction_timeout(context, timeout):
     assert (datetime.now(tzutc) - context.xact_start).seconds > timeout,\
-            "a transaction finished earlier than in {0} seconds".format(timeout)
+        "a transaction finished earlier than in {0} seconds".format(timeout)

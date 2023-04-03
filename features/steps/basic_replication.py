@@ -38,7 +38,7 @@ def toggle_wal_replay(context, action, pg_name):
     # pause or resume the wal replay process
     try:
         version = context.pctl.query(pg_name, "SHOW server_version_num").fetchone()[0]
-        wal_name = 'xlog' if int(version)/10000 < 10 else 'wal'
+        wal_name = 'xlog' if int(version) / 10000 < 10 else 'wal'
         context.pctl.query(pg_name, "SELECT pg_{0}_replay_{1}()".format(wal_name, action))
     except pg.Error as e:
         assert False, "Error during {0} wal recovery on {1}: {2}".format(action, pg_name, e)
