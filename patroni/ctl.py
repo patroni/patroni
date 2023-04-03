@@ -35,7 +35,7 @@ except ImportError:  # pragma: no cover
 from .dcs import get_dcs as _get_dcs
 from .exceptions import PatroniException
 from .postgresql.misc import postgres_version_to_int
-from .utils import cluster_as_json, patch_config, polling_loop, is_standby_cluster
+from .utils import cluster_as_json, patch_config, polling_loop
 from .request import PatroniRequest
 from .version import __version__
 
@@ -531,7 +531,8 @@ def parse_scheduled(scheduled):
 @option_force
 @click.pass_obj
 def reload(obj, cluster_name, member_names, group, force, role):
-    cluster = get_dcs(obj, cluster_name, group).get_cluster()
+    dcs = get_dcs(obj, cluster_name, group)
+    cluster = dcs.get_cluster()
 
     members = get_members(obj, cluster, cluster_name, member_names, role, force, 'reload', group=group)
 
@@ -541,7 +542,7 @@ def reload(obj, cluster_name, member_names, group, force, role):
             click.echo('No changes to apply on member {0}'.format(member.name))
         elif r.status == 202:
             click.echo('Reload request received for member {0} and will be processed within {1} seconds'.format(
-                member.name, cluster.config.data.get('loop_wait'))
+                member.name, cluster.config.data.get('loop_wait', dcs.loop_wait))
             )
         else:
             click.echo('Failed: reload for member {0}, status code={1}, ({2})'.format(
@@ -597,7 +598,8 @@ def restart(obj, cluster_name, group, member_names, force, role, p_any, schedule
         content['postgres_version'] = version
 
     if scheduled_at:
-        if cluster.is_paused():
+        from patroni.config import get_global_config
+        if get_global_config(cluster).is_paused:
             raise PatroniCtlException("Can't schedule restart in the paused state")
         content['schedule'] = scheduled_at.isoformat()
 
@@ -691,7 +693,8 @@ def _do_failover_or_switchover(obj, action, cluster_name, group, leader, candida
         if force or action == 'failover':
             leader = cluster.leader and cluster.leader.name
         else:
-            prompt = 'Standby Leader' if is_standby_cluster(cluster.config) else 'Primary'
+            from patroni.config import get_global_config
+            prompt = 'Standby Leader' if get_global_config(cluster).is_standby_cluster else 'Primary'
             leader = click.prompt(prompt, type=str, default=cluster.leader.member.name)
 
     if leader is not None and cluster.leader and cluster.leader.member.name != leader:
@@ -728,7 +731,8 @@ def _do_failover_or_switchover(obj, action, cluster_name, group, leader, candida
 
         scheduled_at = parse_scheduled(scheduled)
         if scheduled_at:
-            if cluster.is_paused():
+            from patroni.config import get_global_config
+            if get_global_config(cluster).is_paused:
                 raise PatroniCtlException("Can't schedule switchover in the paused state")
             scheduled_at_str = scheduled_at.isoformat()
 
@@ -1008,9 +1012,10 @@ def wait_until_pause_is_applied(dcs, paused, old_cluster):
 
 
 def toggle_pause(config, cluster_name, group, paused, wait):
+    from patroni.config import get_global_config
     dcs = get_dcs(config, cluster_name, group)
     cluster = dcs.get_cluster()
-    if cluster.is_paused() == paused:
+    if get_global_config(cluster).is_paused == paused:
         raise PatroniCtlException('Cluster is {0} paused'.format(paused and 'already' or 'not'))
 
     for member in get_all_members_leader_first(cluster):

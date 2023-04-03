@@ -12,7 +12,7 @@ from datetime import datetime
 from dateutil import tz
 from psutil import TimeoutExpired
 from threading import current_thread, Lock
-from typing import Optional
+from typing import Optional, Union, TYPE_CHECKING
 
 from .bootstrap import Bootstrap
 from .callback_executor import CallbackAction, CallbackExecutor
@@ -25,10 +25,12 @@ from .postmaster import PostmasterProcess
 from .slots import SlotsHandler
 from .sync import SyncHandler
 from .. import psycopg
-from ..dcs import Member
+from ..dcs import Cluster, Member
 from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
 
+if TYPE_CHECKING:  # pragma: no cover
+    from .config import GlobalConfig
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +67,7 @@ class Postgresql(object):
         self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
         self._pg_control = os.path.join(self._data_dir, 'global', 'pg_control')
         self._major_version = self.get_major_version()
+        self._global_config = None
 
         self._state_lock = Lock()
         self.set_state('stopped')
@@ -104,7 +107,6 @@ class Postgresql(object):
         self._cluster_info_state = {}
         self._has_permanent_logical_slots = True
         self._enforce_hot_standby_feedback = False
-        self._is_synchronous_mode = True
         self._cached_replica_timeline = None
 
         # Last known running process
@@ -180,7 +182,8 @@ class Postgresql(object):
                          "FROM pg_catalog.pg_stat_get_wal_senders() w," +
                          " pg_catalog.pg_stat_get_activity(w.pid)" +
                          " WHERE w.state = 'streaming') r)").format(self.wal_name, self.lsn_name)
-                        if self._is_synchronous_mode and self.role in ('master', 'primary') else "'on', '', NULL")
+                        if (not self._global_config or self._global_config.is_synchronous_mode)
+                        and self.role in ('master', 'primary', 'promoted') else "'on', '', NULL")
 
         if self._major_version >= 90600:
             extra = ("(SELECT pg_catalog.json_agg(s.*) FROM (SELECT slot_name, slot_type as type, datoid::bigint, " +
@@ -351,7 +354,18 @@ class Postgresql(object):
                 self.config.write_postgresql_conf()
                 self.reload()
 
-    def reset_cluster_info_state(self, cluster, nofailover=None):
+    def reset_cluster_info_state(self, cluster: Union[Cluster, None], nofailover: Optional[bool] = None,
+                                 global_config: Optional['GlobalConfig'] = None) -> None:
+        """Reset monitoring query cache.
+
+        It happens in the beginning of heart-beat loop and on change of `synchronous_standby_names`.
+
+        :param cluster: currently known cluster state from DCS
+        :param nofailover: whether this node could become a new primary.
+                           Important when there are logical permanent replication slots because "nofailover"
+                           node could do cascading replication and should enable `hot_standby_feedback`
+        :param global_config: last known :class:`GlobalConfig` object
+        """
         self._cluster_info_state = {}
         if cluster and cluster.config and cluster.config.modify_index:
             self._has_permanent_logical_slots =\
@@ -363,7 +377,7 @@ class Postgresql(object):
                 self._has_permanent_logical_slots or
                 cluster.should_enforce_hot_standby_feedback(self.name, nofailover, self.major_version))
 
-            self._is_synchronous_mode = cluster.is_synchronous_mode()
+            self._global_config = global_config
 
     def _cluster_info_state_get(self, name):
         if not self._cluster_info_state:

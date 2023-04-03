@@ -256,7 +256,6 @@ class TestEtcd(unittest.TestCase):
     def test_get_cluster(self):
         cluster = self.etcd.get_cluster()
         self.assertIsInstance(cluster, Cluster)
-        self.assertFalse(cluster.is_synchronous_mode())
         self.etcd._base_path = '/service/legacy'
         self.assertIsInstance(self.etcd.get_cluster(), Cluster)
         self.etcd._base_path = '/service/broken'

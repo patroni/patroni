@@ -28,8 +28,9 @@ from urllib3.response import HTTPResponse
 from .exceptions import PatroniException
 from .version import __version__
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from .dcs import Cluster
+    from .config import GlobalConfig
 
 tzutc = tz.tzutc()
 
@@ -693,22 +694,12 @@ def iter_response_objects(response: HTTPResponse) -> Iterator[Dict[str, Any]]:
         prev = chunk[idx:]
 
 
-def is_standby_cluster(config: Union[Dict[str, Any], None]) -> bool:
-    """Check provided configuration describes a standby cluster.
-
-    :param config: the configuration to be checked. It is expected to be the :class:`dict` that represents the value of
-        the ``standby_cluster`` key in the main Patroni configuration. ``None`` can be used if ``standby_cluster`` is
-        absent in the main Patroni configuration.
-
-    :returns: ``True`` if configuration is a Patroni standby cluster.
-    """
-    return isinstance(config, dict) and (config.get('host') or config.get('port') or config.get('restore_command'))
-
-
-def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
+def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] = None) -> Dict[str, Any]:
     """Get a JSON representation of *cluster*.
 
     :param cluster: the :class:`Cluster` object to be parsed as JSON.
+    :param global_config: optional :class:`GlobalConfig` object to check the cluster state.
+                          if not provided will be instantiated from the `Cluster.config`.
 
     :returns: JSON representation of *cluster*.
 
@@ -734,14 +725,16 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
         * ``from``: name of the member to be demoted;
         * ``to``: name of the member to be promoted.
     """
+    if not global_config:
+        from patroni.config import get_global_config
+        global_config = get_global_config(cluster)
     leader_name = cluster.leader.name if cluster.leader else None
     cluster_lsn = cluster.last_lsn or 0
 
     ret = {'members': []}
     for m in cluster.members:
         if m.name == leader_name:
-            config = cluster.config.data if cluster.config and cluster.config.modify_index else {}
-            role = 'standby_leader' if is_standby_cluster(config.get('standby_cluster')) else 'leader'
+            role = 'standby_leader' if global_config.is_standby_cluster else 'leader'
         elif cluster.sync.matches(m.name):
             role = 'sync_standby'
         else:
@@ -769,7 +762,7 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
 
     # sort members by name for consistency
     ret['members'].sort(key=lambda m: m['name'])
-    if cluster.is_paused():
+    if global_config.is_paused:
         ret['pause'] = True
     if cluster.failover and cluster.failover.scheduled_at:
         ret['scheduled_switchover'] = {'at': cluster.failover.scheduled_at.isoformat()}
