@@ -79,9 +79,9 @@ class Rewind(object):
         try:
             with get_connection_cursor(connect_timeout=3, options='-c statement_timeout=2000', **conn_kwargs) as cur:
                 cur.execute("SELECT NOT pg_catalog.pg_is_in_recovery()"
-                            + " AND ('x' || pg_catalog.substr(pg_catalog.pg_walfile_name("
-                            + " pg_catalog.pg_current_wal_lsn()), 1, 8))::bit(32)::int = timeline_id"
-                            + " FROM pg_catalog.pg_control_checkpoint()")
+                            " AND ('x' || pg_catalog.substr(pg_catalog.pg_walfile_name("
+                            " pg_catalog.pg_current_wal_lsn()), 1, 8))::bit(32)::int = timeline_id"
+                            " FROM pg_catalog.pg_control_checkpoint()")
                 if not cur.fetchone()[0]:
                     return 'leader has not run a checkpoint yet'
         except Exception:

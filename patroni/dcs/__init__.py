@@ -591,7 +591,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,'
                         disabled_permanent_logical_slots.append(name)
                     elif name in slots:
                         logger.error("Permanent logical replication slot {'%s': %s} is conflicting with"
-                                     + " physical replication slot for cluster member", name, value)
+                                     " physical replication slot for cluster member", name, value)
                     else:
                         slots[name] = value
                     continue

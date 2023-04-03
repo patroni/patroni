@@ -181,11 +181,11 @@ class SlotsHandler(object):
     def drop_replication_slot(self, name):
         """Returns a tuple(active, dropped)"""
         cursor = self._query(('WITH slots AS (SELECT slot_name, active'
-                              + ' FROM pg_catalog.pg_replication_slots WHERE slot_name = %s),'
-                              + ' dropped AS (SELECT pg_catalog.pg_drop_replication_slot(slot_name),'
-                              + ' true AS dropped FROM slots WHERE not active) '
-                              + 'SELECT active, COALESCE(dropped, false) FROM slots'
-                              + ' FULL OUTER JOIN dropped ON true'), name)
+                              ' FROM pg_catalog.pg_replication_slots WHERE slot_name = %s),'
+                              ' dropped AS (SELECT pg_catalog.pg_drop_replication_slot(slot_name),'
+                              ' true AS dropped FROM slots WHERE not active) '
+                              'SELECT active, COALESCE(dropped, false) FROM slots'
+                              ' FULL OUTER JOIN dropped ON true'), name)
         return cursor.fetchone() if cursor.rowcount == 1 else (False, False)
 
     def _drop_incorrect_slots(self, cluster, slots, paused):
@@ -217,8 +217,8 @@ class SlotsHandler(object):
             if name not in self._replication_slots and value['type'] == 'physical':
                 try:
                     self._query(("SELECT pg_catalog.pg_create_physical_replication_slot(%s{0})"
-                                 + " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots"
-                                 + " WHERE slot_type = 'physical' AND slot_name = %s)").format(
+                                 " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots"
+                                 " WHERE slot_type = 'physical' AND slot_name = %s)").format(
                                      immediately_reserve), name, name)
                 except Exception:
                     logger.exception("Failed to create physical replication slot '%s'", name)
@@ -248,8 +248,8 @@ class SlotsHandler(object):
                 for name, value in values.items():
                     try:
                         cur.execute("SELECT pg_catalog.pg_create_logical_replication_slot(%s, %s)"
-                                    + " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots"
-                                    + " WHERE slot_type = 'logical' AND slot_name = %s)",
+                                    " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots"
+                                    " WHERE slot_type = 'logical' AND slot_name = %s)",
                                     (name, value['plugin'], name))
                     except Exception as e:
                         logger.error("Failed to create logical replication slot '%s' plugin='%s': %r",
@@ -379,7 +379,7 @@ class SlotsHandler(object):
                             create_slots[r[0]] = slot
                         else:
                             logger.warning('Will not copy the logical slot "%s" due to the configuration mismatch: '
-                                           + 'configuration=%s, slot on the primary=%s', r[0], slots[r[0]], slot)
+                                           'configuration=%s, slot on the primary=%s', r[0], slots[r[0]], slot)
             except Exception as e:
                 logger.error("Failed to copy logical slots from the %s via postgresql connection: %r", leader.name, e)
 
