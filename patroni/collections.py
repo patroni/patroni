@@ -7,7 +7,7 @@ class CaseInsensitiveSet(MutableSet):
     """A case-insensitive ``set``-like object.
 
     Implements all methods and operations of :class:``MutableSet``. All values are expected to be strings.
-    The structure remembers the case of the last value set, however, querying and contains testing is case insensitive.
+    The structure remembers the case of the last value set, however, contains testing is case insensitive.
     """
     def __init__(self, values: Optional[Collection[str]] = None) -> None:
         self._values = {}
