@@ -4,7 +4,7 @@ import time
 
 from copy import deepcopy
 
-from .validator import CaseInsensitiveDict
+from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..psycopg import quote_ident as _quote_ident
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ SYNC_REP_PARSER_RE = re.compile(r"""
          | (?P<parenend> \) )
          | (?P<JUNK> . )
         """, re.X)
-_EMPTY_SSN = {'type': 'off', 'num': 0, 'members': CaseInsensitiveDict({})}
+_EMPTY_SSN = {'type': 'off', 'num': 0, 'members': CaseInsensitiveSet()}
 
 
 def quote_ident(value):
@@ -36,7 +36,7 @@ def parse_sync_standby_names(value):
     Returns dict with the following keys:
     * type: 'quorum'|'priority'
     * num: int
-    * members: CaseInsensitiveDict, with names as keys
+    * members: CaseInsensitiveSet, with name
     * has_star: bool - Present if true
     If the configuration value can not be parsed, raises a ValueError.
 
@@ -46,14 +46,14 @@ def parse_sync_standby_names(value):
     >>> parse_sync_standby_names('FiRsT')['type']
     'priority'
 
-    >>> parse_sync_standby_names('FiRsT')['members']
-    {'FiRsT': True}
+    >>> 'first' in parse_sync_standby_names('FiRsT')['members']
+    True
 
-    >>> parse_sync_standby_names('"1"')['members']
-    {'1': True}
+    >>> set(parse_sync_standby_names('"1"')['members'])
+    {'1'}
 
-    >>> parse_sync_standby_names(' a , b ')['members']
-    {'a': True, 'b': True}
+    >>> parse_sync_standby_names(' a , b ')['members'] == {'a', 'b'}
+    True
 
     >>> parse_sync_standby_names(' a , b ')['num']
     1
@@ -107,7 +107,7 @@ def parse_sync_standby_names(value):
     else:
         result = {'type': 'priority', 'num': 1}
         synclist = tokens
-    result['members'] = CaseInsensitiveDict({})
+    result['members'] = CaseInsensitiveSet()
     for i, (a_type, a_value, a_pos) in enumerate(synclist):
         if i % 2 == 1:  # odd elements are supposed to be commas
             if len(synclist) == i + 1:  # except the last token
@@ -117,12 +117,12 @@ def parse_sync_standby_names(value):
                 raise ValueError("Unparseable synchronous_standby_names value %r: ""Got token %s %r while"
                                  " expecting comma at %d" % (value, a_type, a_value, a_pos))
         elif a_type in {'ident', 'first', 'any'}:
-            result['members'][a_value] = True
+            result['members'].add(a_value)
         elif a_type == 'star':
-            result['members'][a_value] = True
+            result['members'].add(a_value)
             result['has_star'] = True
         elif a_type == 'dquot':
-            result['members'][a_value[1:-1].replace('""', '"')] = True
+            result['members'].add(a_value[1:-1].replace('""', '"'))
         else:
             raise ValueError("Unparseable synchronous_standby_names value %r: Unexpected token %s %r at %d" %
                              (value, a_type, a_value, a_pos))
