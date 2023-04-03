@@ -16,7 +16,7 @@ from collections import defaultdict
 from copy import deepcopy
 from http.client import HTTPException
 from threading import Condition, Lock, Thread
-from typing import Any, Dict, List, Optional
+from typing import Any, Collection, Dict, List, Optional, Union
 from urllib3.exceptions import HTTPError
 
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState,\
@@ -1267,11 +1267,26 @@ class Kubernetes(AbstractDCS):
     def set_sync_state_value(self, value, index=None):
         """Unused"""
 
-    def write_sync_state(self, leader, sync_standby, index=None):
-        return self.patch_or_create(self.sync_path, self.sync_state(leader, sync_standby), index, False)
+    def write_sync_state(self, leader: Union[str, None], sync_standby: Union[Collection[str], None],
+                         index: Optional[Union[int, str]] = None) -> bool:
+        """Prepare and write annotations to $SCOPE-sync Endpoint or ConfigMap.
 
-    def delete_sync_state(self, index=None):
-        return self.write_sync_state(None, None, index)
+        :param leader: name of the leader node that manages /sync key
+        :param sync_standby: collection of currently known synchronous standby node names
+        :param index: last known `resource_version` for conditional update of the object
+        :returns: `True` if update was successful
+        """
+        sync_state = self.sync_state(leader, sync_standby)
+        return self.patch_or_create(self.sync_path, sync_state, index, False)
+
+    def delete_sync_state(self, index: Optional[str] = None) -> bool:
+        """Patch annotations of $SCOPE-sync Endpoint or ConfigMap with empty values.
+
+        Effectively it removes "leader" and "sync_standby" annotations from the object.
+        :param index: last known `resource_version` for conditional update of the object
+        :returns: `True` if "delete" was successful
+        """
+        return self.write_sync_state(None, None, index=index)
 
     def watch(self, leader_index, timeout):
         if self.__do_not_watch:

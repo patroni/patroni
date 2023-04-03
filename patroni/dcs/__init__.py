@@ -14,7 +14,7 @@ from collections import defaultdict, namedtuple
 from copy import deepcopy
 from random import randint
 from threading import Event, Lock
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Collection, Dict, List, Optional, Union
 from urllib.parse import urlparse, urlunparse, parse_qsl
 
 from ..exceptions import PatroniFatalException
@@ -1024,13 +1024,24 @@ class AbstractDCS(abc.ABC):
         """Delete cluster from DCS"""
 
     @staticmethod
-    def sync_state(leader, sync_standby):
-        """Build sync_state dict
-           sync_standby dictionary key being kept for backward compatibility
+    def sync_state(leader: Union[str, None], sync_standby: Union[Collection[str], None]) -> Dict[str, Any]:
+        """Build sync_state dict.
+        The sync_standby key being kept for backward compatibility.
+        :param leader: name of the leader node that manages /sync key
+        :param sync_standby: collection of currently known synchronous standby node names
+        :returns: dictionary that later could be serialized to JSON or saved directly to DCS
         """
-        return {'leader': leader, 'sync_standby': sync_standby and ','.join(sorted(sync_standby)) or None}
+        return {'leader': leader, 'sync_standby': ','.join(sorted(sync_standby)) if sync_standby else None}
 
-    def write_sync_state(self, leader, sync_standby, index=None):
+    def write_sync_state(self, leader: Union[str, None], sync_standby: Union[Collection[str], None],
+                         index: Optional[Union[int, str]] = None) -> bool:
+        """Write the new synchronous state to DCS.
+        Calls :func:`sync_state` method to build a dict and than calls DCS specific :func:`set_sync_state_value` method.
+        :param leader: name of the leader node that manages /sync key
+        :param sync_standby: collection of currently known synchronous standby node names
+        :param index: for conditional update of the key/object
+        :returns: `True` if /sync key was successfully updated
+        """
         sync_value = self.sync_state(leader, sync_standby)
         return self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), index)
 
@@ -1039,8 +1050,13 @@ class AbstractDCS(abc.ABC):
         """"""
 
     @abc.abstractmethod
-    def set_sync_state_value(self, value, index=None):
-        """"""
+    def set_sync_state_value(self, value: str, index: Optional[Union[int, str]] = None) -> bool:
+        """Set synchronous state in DCS, should be implemented in the child class.
+
+        :param value: the new value of /sync key
+        :param index: for conditional update of the key/object
+        :returns: `True` if key/object was successfully updated
+        """
 
     @abc.abstractmethod
     def delete_sync_state(self, index=None):

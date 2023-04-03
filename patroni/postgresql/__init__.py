@@ -12,7 +12,7 @@ from datetime import datetime
 from dateutil import tz
 from psutil import TimeoutExpired
 from threading import current_thread, Lock
-from typing import Optional, Union, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
 from .bootstrap import Bootstrap
 from .callback_executor import CallbackAction, CallbackExecutor
@@ -30,7 +30,7 @@ from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
 
 if TYPE_CHECKING:  # pragma: no cover
-    from .config import GlobalConfig
+    from ..config import GlobalConfig
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +156,11 @@ class Postgresql(object):
     @property
     def lsn_name(self):
         return 'lsn' if self._major_version >= 100000 else 'location'
+
+    @property
+    def supports_multiple_sync(self) -> bool:
+        """:returns: `True` if Postgres version supports more than one synchronous node."""
+        return self._major_version >= 90600
 
     @property
     def cluster_info_query(self):
@@ -419,13 +424,16 @@ class Postgresql(object):
     def received_timeline(self):
         return self._cluster_info_state_get('received_tli')
 
-    def synchronous_commit(self):
+    def synchronous_commit(self) -> str:
+        """:returns: "synchronous_commit" GUC value."""
         return self._cluster_info_state_get('synchronous_commit')
 
-    def synchronous_standby_names(self):
+    def synchronous_standby_names(self) -> str:
+        """:returns: "synchronous_standby_names" GUC value."""
         return self._cluster_info_state_get('synchronous_standby_names')
 
-    def pg_stat_replication(self):
+    def pg_stat_replication(self) -> List[Dict[str, Any]]:
+        """:returns: a result set of 'SELECT * FROM pg_stat_replication'."""
         return self._cluster_info_state_get('pg_stat_replication') or []
 
     def is_leader(self):
@@ -924,7 +932,8 @@ class Postgresql(object):
             self._cached_replica_timeline = self.get_replica_timeline()
         return self._cached_replica_timeline
 
-    def get_primary_timeline(self):
+    def get_primary_timeline(self) -> int:
+        """:returns: current timeline if postgres is running as a primary or 0."""
         return self._cluster_info_state_get('timeline')
 
     def get_history(self, timeline):
