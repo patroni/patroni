@@ -377,14 +377,13 @@ class Ha(object):
                 return 'failed to acquire initialize lock'
         else:
             create_replica_methods = self.global_config.get_standby_cluster_config().get('create_replica_methods', []) \
-                                     if self.is_standby_cluster() else None
+                if self.is_standby_cluster() else None
             can_bootstrap = self.state_handler.can_create_replica_without_replication_connection(create_replica_methods)
             concurrent_bootstrap = self.cluster.initialize == ""
             if can_bootstrap and not concurrent_bootstrap:
                 msg = 'bootstrap (without leader)'
                 return self._async_executor.try_run_async(msg, self.clone) or 'trying to ' + msg
-            return 'waiting for {0}leader to bootstrap'.format(
-                    'standby_' if self.is_standby_cluster() else '')
+            return 'waiting for {0}leader to bootstrap'.format('standby_' if self.is_standby_cluster() else '')
 
     def bootstrap_standby_leader(self):
         """ If we found 'standby' key in the configuration, we need to bootstrap
@@ -651,7 +650,7 @@ class Ha(object):
             if self.touch_member():
                 # Primary should notice the updated value during the next cycle. We will wait double that, if primary
                 # hasn't noticed the value by then not disabling sync replication is not likely to matter.
-                for _ in polling_loop(timeout=self.dcs.loop_wait*2, interval=2):
+                for _ in polling_loop(timeout=self.dcs.loop_wait * 2, interval=2):
                     try:
                         if not self.is_sync_standby(self.dcs.get_cluster()):
                             break
@@ -970,7 +969,7 @@ class Ha(object):
         if self.state_handler.is_leader():
             # in pause leader is the healthiest only when no initialize or sysid matches with initialize!
             return not self.is_paused() or not self.cluster.initialize\
-                    or self.state_handler.sysid == self.cluster.initialize
+                or self.state_handler.sysid == self.cluster.initialize
 
         if self.is_paused():
             return False
@@ -1035,10 +1034,11 @@ class Ha(object):
                 PostgreSQL as quickly as possible without regard for data durability. May only be called synchronously.
         """
         mode_control = {
-            'offline':          dict(stop='fast', checkpoint=False, release=False, offline=True, async_req=False),
-            'graceful':         dict(stop='fast', checkpoint=True, release=True, offline=False, async_req=False),
-            'immediate':        dict(stop='immediate', checkpoint=False, release=True, offline=False, async_req=True),
-            'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async_req=True),
+            'offline':          dict(stop='fast',      checkpoint=False, release=False, offline=True,  async_req=False),  # noqa: E241,E501
+            'graceful':         dict(stop='fast',      checkpoint=True,  release=True,  offline=False, async_req=False),  # noqa: E241,E501
+            'immediate':        dict(stop='immediate', checkpoint=False, release=True,  offline=False, async_req=True),  # noqa: E241,E501
+            'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async_req=True),  # noqa: E241,E501
+
         }[mode]
 
         logger.info('Demoting self (%s)', mode)
@@ -1267,10 +1267,10 @@ class Ha(object):
         if self.is_standby_cluster():
             return self.follow('cannot be a real primary in a standby cluster',
                                'no action. I am ({0}), a secondary, and following a standby leader ({1})'.format(
-                                    self.state_handler.name, lock_owner), refresh=False)
+                                   self.state_handler.name, lock_owner), refresh=False)
         return self.follow('demoting self because I do not have the lock and I was a leader',
                            'no action. I am ({0}), a secondary, and following a leader ({1})'.format(
-                                self.state_handler.name, lock_owner), refresh=False)
+                               self.state_handler.name, lock_owner), refresh=False)
 
     def evaluate_scheduled_restart(self):
         if self._async_executor.busy:  # Restart already in progress
@@ -1287,8 +1287,8 @@ class Ha(object):
                 self.delete_future_restart()
                 return None
 
-        if (restart_data and
-           self.should_run_scheduled_action('restart', restart_data['schedule'], self.delete_future_restart)):
+        if restart_data\
+                and self.should_run_scheduled_action('restart', restart_data['schedule'], self.delete_future_restart):
             try:
                 ret, message = self.restart(restart_data, run_async=True)
                 if not ret:
@@ -1336,8 +1336,8 @@ class Ha(object):
         return ret
 
     def future_restart_scheduled(self):
-        return self.patroni.scheduled_restart.copy() if (self.patroni.scheduled_restart and
-                                                         isinstance(self.patroni.scheduled_restart, dict)) else None
+        return self.patroni.scheduled_restart.copy()\
+            if (self.patroni.scheduled_restart and isinstance(self.patroni.scheduled_restart, dict)) else None
 
     def restart_scheduled(self):
         return self._async_executor.scheduled_action == 'restart'
@@ -1637,7 +1637,7 @@ class Ha(object):
                 if self.has_lock():
                     self.release_leader_key_voluntarily()
                     return 'released leader key voluntarily as data dir {0} and currently leader'.format(
-                                'empty' if data_directory_is_accessible else 'not accessible')
+                        'empty' if data_directory_is_accessible else 'not accessible')
 
                 if not data_directory_is_accessible:
                     return 'data directory is not accessible: {0}'.format(data_directory_error)
@@ -1827,7 +1827,7 @@ class Ha(object):
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device
                 # but cannot shut down PostgreSQL. Root would be the obvious example. Would be nice to not kill the
                 # system due to a bad config.
-                logger.error("PostgreSQL shutdown failed, leader key not removed." +
+                logger.error("PostgreSQL shutdown failed, leader key not removed.%s",
                              (" Leaving watchdog running." if self.watchdog.is_running else ""))
 
     def watch(self, timeout):

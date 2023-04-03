@@ -5,7 +5,7 @@ import time
 
 from mock import Mock, PropertyMock, patch
 from patroni.dcs.raft import Cluster, DynMemberSyncObj, KVStoreTTL,\
-        Raft, RaftError, SyncObjUtility, TCPTransport, _TCPTransport
+    Raft, RaftError, SyncObjUtility, TCPTransport, _TCPTransport
 from pysyncobj import SyncObjConf, FAIL_REASON
 
 

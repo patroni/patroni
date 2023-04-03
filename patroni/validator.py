@@ -666,7 +666,7 @@ def _get_type_name(python_type: Any) -> str:
     """
     return {str: 'a string', int: 'an integer', float: 'a number',
             bool: 'a boolean', list: 'an array', dict: 'a dictionary'}.get(
-                    python_type, getattr(python_type, __name__, "unknown type"))
+                python_type, getattr(python_type, __name__, "unknown type"))
 
 
 def assert_(condition: bool, message: OptionalType[str] = "Wrong value") -> None:
@@ -699,89 +699,89 @@ validate_etcd = {
 }
 
 schema = Schema({
-  "name": str,
-  "scope": str,
-  "restapi": {
-    "listen": validate_host_port_listen,
-    "connect_address": validate_connect_address
-  },
-  Optional("bootstrap"): {
-    "dcs": {
-        Optional("ttl"): int,
-        Optional("loop_wait"): int,
-        Optional("retry_timeout"): int,
-        Optional("maximum_lag_on_failover"): int
+    "name": str,
+    "scope": str,
+    "restapi": {
+        "listen": validate_host_port_listen,
+        "connect_address": validate_connect_address
+    },
+    Optional("bootstrap"): {
+        "dcs": {
+            Optional("ttl"): int,
+            Optional("loop_wait"): int,
+            Optional("retry_timeout"): int,
+            Optional("maximum_lag_on_failover"): int
         },
-    "pg_hba": [str],
-    "initdb": [Or(str, dict)]
-  },
-  Or(*available_dcs): Case({
-      "consul": {
-          Or("host", "url"): Case({
-              "host": validate_host_port,
-              "url": str})
-          },
-      "etcd": validate_etcd,
-      "etcd3": validate_etcd,
-      "exhibitor": {
-          "hosts": [str],
-          "port": lambda i: assert_(int(i) <= 65535),
-          Optional("pool_interval"): int
-          },
-      "raft": {
-          "self_addr": validate_connect_address,
-          Optional("bind_addr"): validate_host_port_listen,
-          "partner_addrs": validate_host_port_list,
-          Optional("data_dir"): str,
-          Optional("password"): str
-          },
-      "zookeeper": {
-          "hosts": Or(comma_separated_host_port, [validate_host_port]),
-          },
-      "kubernetes": {
-          "labels": {},
-          Optional("namespace"): str,
-          Optional("scope_label"): str,
-          Optional("role_label"): str,
-          Optional("use_endpoints"): bool,
-          Optional("pod_ip"): Or(is_ipv4_address, is_ipv6_address),
-          Optional("ports"): [{"name": str, "port": int}],
-          Optional("retriable_http_codes"): Or(int, [int]),
-          },
-      }),
-  Optional("citus"): {
-    "database": str,
-    "group": int
-  },
-  "postgresql": {
-    "listen": validate_host_port_listen_multiple_hosts,
-    "connect_address": validate_connect_address,
-    Optional("proxy_address"): validate_connect_address,
-    "authentication": {
-      "replication": userattributes,
-      "superuser": userattributes,
-      "rewind":  userattributes
+        "pg_hba": [str],
+        "initdb": [Or(str, dict)]
     },
-    "data_dir": validate_data_dir,
-    Optional("bin_dir"): Directory(contains_executable=["pg_ctl", "initdb", "pg_controldata", "pg_basebackup",
-                                                        "postgres", "pg_isready"]),
-    Optional("parameters"): {
-      Optional("unix_socket_directories"): lambda s: assert_(all([isinstance(s, str), len(s)]))
+    Or(*available_dcs): Case({
+        "consul": {
+            Or("host", "url"): Case({
+                "host": validate_host_port,
+                "url": str})
+        },
+        "etcd": validate_etcd,
+        "etcd3": validate_etcd,
+        "exhibitor": {
+            "hosts": [str],
+            "port": lambda i: assert_(int(i) <= 65535),
+            Optional("pool_interval"): int
+        },
+        "raft": {
+            "self_addr": validate_connect_address,
+            Optional("bind_addr"): validate_host_port_listen,
+            "partner_addrs": validate_host_port_list,
+            Optional("data_dir"): str,
+            Optional("password"): str
+        },
+        "zookeeper": {
+            "hosts": Or(comma_separated_host_port, [validate_host_port]),
+        },
+        "kubernetes": {
+            "labels": {},
+            Optional("namespace"): str,
+            Optional("scope_label"): str,
+            Optional("role_label"): str,
+            Optional("use_endpoints"): bool,
+            Optional("pod_ip"): Or(is_ipv4_address, is_ipv6_address),
+            Optional("ports"): [{"name": str, "port": int}],
+            Optional("retriable_http_codes"): Or(int, [int]),
+        },
+    }),
+    Optional("citus"): {
+        "database": str,
+        "group": int
     },
-    Optional("pg_hba"): [str],
-    Optional("pg_ident"): [str],
-    Optional("pg_ctl_timeout"): int,
-    Optional("use_pg_rewind"): bool
-  },
-  Optional("watchdog"): {
-    Optional("mode"): lambda m: assert_(m in ["off", "automatic", "required"]),
-    Optional("device"): str
-  },
-  Optional("tags"): {
-    Optional("nofailover"): bool,
-    Optional("clonefrom"): bool,
-    Optional("noloadbalance"): bool,
-    Optional("replicatefrom"): str,
-    Optional("nosync"): bool
-  }
+    "postgresql": {
+        "listen": validate_host_port_listen_multiple_hosts,
+        "connect_address": validate_connect_address,
+        Optional("proxy_address"): validate_connect_address,
+        "authentication": {
+            "replication": userattributes,
+            "superuser": userattributes,
+            "rewind": userattributes
+        },
+        "data_dir": validate_data_dir,
+        Optional("bin_dir"): Directory(contains_executable=["pg_ctl", "initdb", "pg_controldata", "pg_basebackup",
+                                                            "postgres", "pg_isready"]),
+        Optional("parameters"): {
+            Optional("unix_socket_directories"): lambda s: assert_(all([isinstance(s, str), len(s)]))
+        },
+        Optional("pg_hba"): [str],
+        Optional("pg_ident"): [str],
+        Optional("pg_ctl_timeout"): int,
+        Optional("use_pg_rewind"): bool
+    },
+    Optional("watchdog"): {
+        Optional("mode"): lambda m: assert_(m in ["off", "automatic", "required"]),
+        Optional("device"): str
+    },
+    Optional("tags"): {
+        Optional("nofailover"): bool,
+        Optional("clonefrom"): bool,
+        Optional("noloadbalance"): bool,
+        Optional("replicatefrom"): str,
+        Optional("nosync"): bool
+    }
 })

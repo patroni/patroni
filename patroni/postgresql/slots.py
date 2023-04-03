@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 
 def compare_slots(s1, s2, dbid='database'):
-    return s1['type'] == s2['type'] and (s1['type'] == 'physical' or
-                                         s1.get(dbid) == s2.get(dbid) and s1['plugin'] == s2['plugin'])
+    return s1['type'] == s2['type'] and (s1['type'] == 'physical'
+                                         or s1.get(dbid) == s2.get(dbid) and s1['plugin'] == s2['plugin'])
 
 
 class SlotsAdvanceThread(Thread):
@@ -180,11 +180,11 @@ class SlotsHandler(object):
 
     def drop_replication_slot(self, name):
         """Returns a tuple(active, dropped)"""
-        cursor = self._query(('WITH slots AS (SELECT slot_name, active' +
-                              ' FROM pg_catalog.pg_replication_slots WHERE slot_name = %s),' +
-                              ' dropped AS (SELECT pg_catalog.pg_drop_replication_slot(slot_name),' +
-                              ' true AS dropped FROM slots WHERE not active) ' +
-                              'SELECT active, COALESCE(dropped, false) FROM slots' +
+        cursor = self._query(('WITH slots AS (SELECT slot_name, active'
+                              ' FROM pg_catalog.pg_replication_slots WHERE slot_name = %s),'
+                              ' dropped AS (SELECT pg_catalog.pg_drop_replication_slot(slot_name),'
+                              ' true AS dropped FROM slots WHERE not active) '
+                              'SELECT active, COALESCE(dropped, false) FROM slots'
                               ' FULL OUTER JOIN dropped ON true'), name)
         return cursor.fetchone() if cursor.rowcount == 1 else (False, False)
 
@@ -216,8 +216,8 @@ class SlotsHandler(object):
         for name, value in slots.items():
             if name not in self._replication_slots and value['type'] == 'physical':
                 try:
-                    self._query(("SELECT pg_catalog.pg_create_physical_replication_slot(%s{0})" +
-                                 " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots" +
+                    self._query(("SELECT pg_catalog.pg_create_physical_replication_slot(%s{0})"
+                                 " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots"
                                  " WHERE slot_type = 'physical' AND slot_name = %s)").format(
                                      immediately_reserve), name, name)
                 except Exception:
@@ -247,8 +247,8 @@ class SlotsHandler(object):
             with self.get_local_connection_cursor(dbname=database) as cur:
                 for name, value in values.items():
                     try:
-                        cur.execute("SELECT pg_catalog.pg_create_logical_replication_slot(%s, %s)" +
-                                    " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots" +
+                        cur.execute("SELECT pg_catalog.pg_create_logical_replication_slot(%s, %s)"
+                                    " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots"
                                     " WHERE slot_type = 'logical' AND slot_name = %s)",
                                     (name, value['plugin'], name))
                     except Exception as e:
@@ -378,7 +378,7 @@ class SlotsHandler(object):
                         if compare_slots(slot, slots[r[0]]):
                             create_slots[r[0]] = slot
                         else:
-                            logger.warning('Will not copy the logical slot "%s" due to the configuration mismatch: ' +
+                            logger.warning('Will not copy the logical slot "%s" due to the configuration mismatch: '
                                            'configuration=%s, slot on the primary=%s', r[0], slots[r[0]], slot)
             except Exception as e:
                 logger.error("Failed to copy logical slots from the %s via postgresql connection: %r", leader.name, e)

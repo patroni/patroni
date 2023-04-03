@@ -15,7 +15,7 @@ from urllib3.exceptions import HTTPError
 from urllib.parse import urlencode, urlparse, quote
 
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState,\
-        TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
+    TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
 from ..exceptions import DCSError
 from ..utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port, uri, USER_AGENT
 
@@ -63,7 +63,7 @@ class HTTPClient(object):
         self._ttl = None
 
     def set_read_timeout(self, timeout):
-        self._read_timeout = timeout/3.0
+        self._read_timeout = timeout / 3.0
 
     @property
     def ttl(self):
@@ -113,7 +113,7 @@ class HTTPClient(object):
                 # supplied maximum wait time to spread out the wake up time of any concurrent requests. This adds
                 # up to wait / 16 additional time to the maximum duration. Since our goal is actually getting a
                 # response rather read timeout we will add to the timeout a slightly bigger value.
-                kwargs['timeout'] = timeout + max(timeout/15.0, 1)
+                kwargs['timeout'] = timeout + max(timeout / 15.0, 1)
             else:
                 kwargs['timeout'] = self._read_timeout
             kwargs['headers'] = (headers or {}).copy()
@@ -267,7 +267,7 @@ class Consul(AbstractDCS):
         self._register_service = should_register_service
 
     def set_ttl(self, ttl):
-        if self._client.http.set_ttl(ttl/2.0):  # Consul multiplies the TTL by 2x
+        if self._client.http.set_ttl(ttl / 2.0):  # Consul multiplies the TTL by 2x
             self._session = None
             self.__do_not_watch = True
 
@@ -282,7 +282,7 @@ class Consul(AbstractDCS):
     def adjust_ttl(self):
         try:
             settings = self._client.agent.self()
-            min_ttl = (settings['Config']['SessionTTLMin'] or 10000000000)/1000000000.0
+            min_ttl = (settings['Config']['SessionTTLMin'] or 10000000000) / 1000000000.0
             logger.warning('Changing Session TTL from %s to %s', self._client.http.ttl, min_ttl)
             self._client.http.set_ttl(min_ttl)
         except Exception:

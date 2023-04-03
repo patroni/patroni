@@ -338,7 +338,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_is_paused gauge")
         metrics.append("patroni_is_paused{0} {1}".format(scope_label, int(postgres.get('pause', 0))))
 
-        self._write_response(200, '\n'.join(metrics)+'\n', content_type='text/plain')
+        self._write_response(200, '\n'.join(metrics) + '\n', content_type='text/plain')
 
     def _read_json_content(self, body_is_optional=False):
         if 'content-length' not in self.headers:
@@ -537,7 +537,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def poll_failover_result(self, leader, candidate, action):
         timeout = max(10, self.server.patroni.dcs.loop_wait)
-        for _ in range(0, timeout*2):
+        for _ in range(0, timeout * 2):
             time.sleep(1)
             try:
                 cluster = self.server.patroni.dcs.get_cluster()
@@ -861,7 +861,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             HTTPServer.__init__(self, info[0][-1][:2], RestApiHandler)
         except socket.error:
             logger.error(
-                    "Couldn't start a service on '%s:%s', please check your `restapi.listen` configuration", host, port)
+                "Couldn't start a service on '%s:%s', please check your `restapi.listen` configuration", host, port)
             raise
 
     def __initialize(self, listen, ssl_options):

@@ -22,7 +22,7 @@ from urllib3 import Timeout
 from urllib3.exceptions import HTTPError, ReadTimeoutError, ProtocolError
 
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState,\
-        TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
+    TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
 from ..exceptions import DCSError
 from ..request import get as requests_get
 from ..utils import Retry, RetryFailedError, split_host_port, uri, USER_AGENT
@@ -148,7 +148,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
             kwargs.update(retries=0, timeout=timeout)
         else:
             _, per_node_timeout, per_node_retries = self._calculate_timeouts(etcd_nodes)
-            connect_timeout = max(1, per_node_timeout/2)
+            connect_timeout = max(1, per_node_timeout / 2)
             kwargs.update(timeout=Timeout(connect=connect_timeout, total=per_node_timeout), retries=per_node_retries)
         return kwargs
 
@@ -233,8 +233,8 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
                     # whether the key didn't received an update or there is a network problem.
                     elif i + 1 < len(machines_cache):
                         self.set_base_uri(machines_cache[i + 1])
-                if (isinstance(fields, dict) and fields.get("wait") == "true" and
-                        isinstance(e, (ReadTimeoutError, ProtocolError))):
+                if (isinstance(fields, dict) and fields.get("wait") == "true"
+                   and isinstance(e, (ReadTimeoutError, ProtocolError))):
                     logger.debug("Watch timed out.")
                     raise etcd.EtcdWatchTimedOut("Watch timed out: {0}".format(e), cause=e)
                 logger.error("Request to server %s failed: %r", base_uri, e)
@@ -287,7 +287,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
                 retry.sleep_func(sleeptime)
                 retry.update_delay()
                 # We still have some time left. Partially reduce `machines_cache` and retry request
-                kwargs.update(timeout=Timeout(connect=max(1, timeout/2), total=timeout), retries=retries)
+                kwargs.update(timeout=Timeout(connect=max(1, timeout / 2), total=timeout), retries=retries)
                 machines_cache = machines_cache[:nodes]
 
     @staticmethod
@@ -584,7 +584,7 @@ class AbstractEtcd(AbstractDCS):
         ttl = int(ttl)
         ret = self._ttl != ttl
         self._ttl = ttl
-        self._client.set_machines_cache_ttl(ttl*10)
+        self._client.set_machines_cache_ttl(ttl * 10)
         return ret
 
     @property

@@ -47,7 +47,7 @@ class SyncObjUtility(object):
 
     def __init__(self, otherNodes, conf, retry_timeout=10):
         self._nodes = otherNodes
-        self._utility = TcpUtility(conf.password, retry_timeout/max(1, len(otherNodes)))
+        self._utility = TcpUtility(conf.password, retry_timeout / max(1, len(otherNodes)))
 
     def executeCommand(self, command):
         try:
@@ -83,8 +83,8 @@ class DynMemberSyncObj(SyncObj):
 
     def getMembers(self, args, callback):
         callback([{'addr': node.id, 'leader': node == self._getLeader(), 'status': CONNECTION_STATE.CONNECTED
-                   if self.isNodeConnected(node) else CONNECTION_STATE.DISCONNECTED} for node in self.otherNodes] +
-                 [{'addr': self.selfNode.id, 'leader': self._isLeader(), 'status': CONNECTION_STATE.CONNECTED}], None)
+                   if self.isNodeConnected(node) else CONNECTION_STATE.DISCONNECTED} for node in self.otherNodes]
+                 + [{'addr': self.selfNode.id, 'leader': self._isLeader(), 'status': CONNECTION_STATE.CONNECTED}], None)
 
     def _onTick(self, timeToWait=0.0):
         super(DynMemberSyncObj, self)._onTick(timeToWait)

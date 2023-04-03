@@ -249,9 +249,9 @@ def get_all_members(obj, cluster, group, role='leader'):
         role = {'primary': 'master', 'standby-leader': 'standby_leader'}.get(role, role)
         for cluster in clusters.values():
             if cluster.leader is not None and cluster.leader.name and\
-                    (role == 'leader' or
-                     cluster.leader.data.get('role') != 'master' and role == 'standby_leader' or
-                     cluster.leader.data.get('role') != 'standby_leader' and role == 'master'):
+                    (role == 'leader'
+                     or cluster.leader.data.get('role') != 'master' and role == 'standby_leader'
+                     or cluster.leader.data.get('role') != 'standby_leader' and role == 'master'):
                 yield cluster.leader.member
         return
 
@@ -879,7 +879,7 @@ def output_members(obj, cluster, name, extended=False, fmt='pretty', group=None)
             member.update(cluster=name, member=member['name'], group=g,
                           host=member.get('host', ''), tl=member.get('timeline', ''),
                           role=member['role'].replace('_', ' ').title(),
-                          lag_in_mb=round(lag/1024/1024) if isinstance(lag, int) else lag,
+                          lag_in_mb=round(lag / 1024 / 1024) if isinstance(lag, int) else lag,
                           pending_restart='*' if member.get('pending_restart') else '')
 
             if append_port and member['host'] and member.get('port'):
@@ -1254,7 +1254,7 @@ def edit_config(obj, cluster_name, group, force, quiet, kvpairs, pgkvpairs, appl
         after_editing, changed_data = apply_yaml_file(changed_data, apply_filename)
 
     if kvpairs or pgkvpairs:
-        all_pairs = list(kvpairs) + ['postgresql.parameters.'+v.lstrip() for v in pgkvpairs]
+        all_pairs = list(kvpairs) + ['postgresql.parameters.' + v.lstrip() for v in pgkvpairs]
         after_editing, changed_data = apply_config_changes(before_editing, changed_data, all_pairs)
 
     # If no changes were specified on the command line invoke editor

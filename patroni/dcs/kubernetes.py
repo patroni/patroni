@@ -20,10 +20,10 @@ from typing import Any, Dict, List, Optional
 from urllib3.exceptions import HTTPError
 
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState,\
-        TimelineHistory, CITUS_COORDINATOR_GROUP_ID, citus_group_re
+    TimelineHistory, CITUS_COORDINATOR_GROUP_ID, citus_group_re
 from ..exceptions import DCSError
 from ..utils import deep_compare, iter_response_objects, keepalive_socket_options,\
-        Retry, RetryFailedError, tzutc, uri, USER_AGENT
+    Retry, RetryFailedError, tzutc, uri, USER_AGENT
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +143,7 @@ class K8sConfig(object):
         if user.get('token'):
             self._make_headers(token=user['token'])
         elif 'username' in user and 'password' in user:
-            self._headers = self._make_headers(basic_auth=':'.join((user['username'],  user['password'])))
+            self._headers = self._make_headers(basic_auth=':'.join((user['username'], user['password'])))
 
     @property
     def server(self):
@@ -175,7 +175,7 @@ class K8sObject(object):
         if isinstance(value, dict):
             # we know that `annotations` and `labels` are dicts and therefore don't want to convert them into K8sObject
             return value if parent in {'annotations', 'labels'} and \
-                    all(isinstance(v, str) for v in value.values()) else cls(value)
+                all(isinstance(v, str) for v in value.values()) else cls(value)
         elif isinstance(value, list):
             return [cls._wrap(None, v) for v in value]
         else:
@@ -264,7 +264,7 @@ class K8sClient(object):
         def _get_api_servers(self, api_servers_cache):
             _, per_node_timeout, per_node_retries = self._calculate_timeouts(len(api_servers_cache))
             kwargs = {'headers': self._make_headers({}), 'preload_content': True, 'retries': per_node_retries,
-                      'timeout': urllib3.Timeout(connect=max(1, per_node_timeout/2.0), total=per_node_timeout)}
+                      'timeout': urllib3.Timeout(connect=max(1, per_node_timeout / 2.0), total=per_node_timeout)}
             path = self._API_URL_PREFIX + 'default/endpoints/kubernetes'
             for base_uri in api_servers_cache:
                 try:
@@ -382,7 +382,7 @@ class K8sClient(object):
                 retries = 0
             else:
                 _, timeout, retries = self._calculate_timeouts(api_servers)
-                timeout = urllib3.Timeout(connect=max(1, timeout/2.0), total=timeout)
+                timeout = urllib3.Timeout(connect=max(1, timeout / 2.0), total=timeout)
             kwargs.update(retries=retries, timeout=timeout)
 
             while True:
@@ -405,7 +405,8 @@ class K8sClient(object):
                     retry.sleep_func(sleeptime)
                     retry.update_delay()
                     # We still have some time left. Partially reduce `api_servers_cache` and retry request
-                    kwargs.update(timeout=urllib3.Timeout(connect=max(1, timeout/2.0), total=timeout), retries=retries)
+                    kwargs.update(timeout=urllib3.Timeout(connect=max(1, timeout / 2.0), total=timeout),
+                                  retries=retries)
                     api_servers_cache = api_servers_cache[:nodes]
 
         def call_api(self, method, path, headers=None, body=None, _retry=None,
@@ -503,7 +504,7 @@ class CoreV1ApiProxy(object):
         # to start worrying (send keepalive messages). Finally, the connection should be
         # considered as dead if we received nothing from the socket after the ttl seconds.
         self._api_client.pool_manager.connection_pool_kw['socket_options'] = \
-                list(keepalive_socket_options(ttl, int(loop_wait + retry_timeout)))
+            list(keepalive_socket_options(ttl, int(loop_wait + retry_timeout)))
         self._api_client.set_read_timeout(retry_timeout)
         self._api_client.set_api_servers_cache_ttl(loop_wait)
 
@@ -905,7 +906,7 @@ class Kubernetes(AbstractDCS):
         # get synchronization state
         sync = nodes.get(path + self._SYNC)
         metadata = sync and sync.metadata
-        sync = SyncState.from_node(metadata and metadata.resource_version,  metadata and metadata.annotations)
+        sync = SyncState.from_node(metadata and metadata.resource_version, metadata and metadata.annotations)
 
         return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
 

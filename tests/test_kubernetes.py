@@ -8,8 +8,8 @@ import unittest
 
 from mock import Mock, PropertyMock, mock_open, patch
 from patroni.dcs.kubernetes import Cluster, k8s_client, k8s_config, K8sConfig, K8sConnectionFailed,\
-        K8sException, K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException,\
-        Retry, RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
+    K8sException, K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException,\
+    Retry, RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
 from threading import Thread
 from . import MockResponse, SleepException
 
