@@ -8,8 +8,8 @@ import time
 
 from urllib.parse import urlparse, parse_qsl, unquote
 
-from .validator import CaseInsensitiveDict, recovery_parameters,\
-    transform_postgresql_parameter_value, transform_recovery_parameter_value
+from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
+from ..collections import CaseInsensitiveDict
 from ..dcs import RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException
 from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, \

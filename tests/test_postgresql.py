@@ -651,7 +651,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.p._global_config = GlobalConfig({'synchronous_mode': True, 'synchronous_mode_strict': True})
         self.p.config.get_server_parameters(config)
         self.p.config.set_synchronous_standby_names('foo')
-        self.assertTrue(str(self.p.config.get_server_parameters(config)).startswith('{'))
+        self.assertTrue(str(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
 
     @patch('time.sleep', Mock())
     def test__wait_for_connection_close(self):

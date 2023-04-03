@@ -10,9 +10,10 @@ from copy import deepcopy
 from typing import Any, Dict, Optional, Union
 
 from . import PATRONI_ENV_PREFIX
-from .exceptions import ConfigParseError
+from .collections import CaseInsensitiveDict
 from .dcs import ClusterConfig, Cluster
-from .postgresql.config import CaseInsensitiveDict, ConfigHandler
+from .exceptions import ConfigParseError
+from .postgresql.config import ConfigHandler
 from .utils import deep_compare, parse_bool, parse_int, patch_config
 
 logger = logging.getLogger(__name__)

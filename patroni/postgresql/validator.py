@@ -2,26 +2,11 @@ import abc
 import logging
 
 from collections import namedtuple
-from urllib3.response import HTTPHeaderDict
 
+from ..collections import CaseInsensitiveDict
 from ..utils import parse_bool, parse_int, parse_real
 
 logger = logging.getLogger(__name__)
-
-
-class CaseInsensitiveDict(HTTPHeaderDict):
-
-    def add(self, key, val):
-        self[key] = val
-
-    def __getitem__(self, key):
-        return self._container[key.lower()][1]
-
-    def __repr__(self):
-        return str(dict(self.items()))
-
-    def copy(self):
-        return CaseInsensitiveDict(self._container.values())
 
 
 class Bool(namedtuple('Bool', 'version_from,version_till')):
