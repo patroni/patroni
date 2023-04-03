@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse, urlunparse, parse_qsl
 
 from ..exceptions import PatroniFatalException
-from ..utils import deep_compare, parse_bool, uri
+from ..utils import deep_compare, uri
 
 CITUS_COORDINATOR_GROUP_ID = 0
 citus_group_re = re.compile('^(0|[1-9][0-9]*)$')
@@ -520,15 +520,6 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,'
         exclude = [exclude] + [self.leader.name] if self.leader else []
         candidates = [m for m in self.members if m.clonefrom and m.is_running and m.name not in exclude]
         return candidates[randint(0, len(candidates) - 1)] if candidates else self.leader
-
-    def check_mode(self, mode):
-        return bool(self.config and parse_bool(self.config.data.get(mode)))
-
-    def is_paused(self):
-        return self.check_mode('pause')
-
-    def is_synchronous_mode(self):
-        return self.check_mode('synchronous_mode')
 
     @property
     def __permanent_slots(self):

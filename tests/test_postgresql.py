@@ -10,6 +10,7 @@ from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 import patroni.psycopg as psycopg
 
 from patroni.async_executor import CriticalTask
+from patroni.config import GlobalConfig
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PostgresConnectionException, PatroniException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
@@ -644,9 +645,10 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertIsNone(self.p.wait_for_startup())
 
     def test_get_server_parameters(self):
-        config = {'synchronous_mode': True, 'parameters': {'wal_level': 'hot_standby'}, 'listen': '0'}
+        config = {'parameters': {'wal_level': 'hot_standby'}, 'listen': '0'}
+        self.p._global_config = GlobalConfig({'synchronous_mode': True})
         self.p.config.get_server_parameters(config)
-        config['synchronous_mode_strict'] = True
+        self.p._global_config = GlobalConfig({'synchronous_mode': True, 'synchronous_mode_strict': True})
         self.p.config.get_server_parameters(config)
         self.p.config.set_synchronous_standby_names('foo')
         self.assertTrue(str(self.p.config.get_server_parameters(config)).startswith('{'))

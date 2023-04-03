@@ -10,7 +10,7 @@ from urllib.parse import urlparse, parse_qsl, unquote
 
 from .validator import CaseInsensitiveDict, recovery_parameters,\
     transform_postgresql_parameter_value, transform_recovery_parameter_value
-from ..dcs import slot_name_from_member_name, RemoteMember
+from ..dcs import RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException
 from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, \
     validate_directory, is_subpath
@@ -838,9 +838,10 @@ class ConfigHandler(object):
         parameters = config['parameters'].copy()
         listen_addresses, port = split_host_port(config['listen'], 5432)
         parameters.update(cluster_name=self._postgresql.scope, listen_addresses=listen_addresses, port=str(port))
-        if config.get('synchronous_mode', False):
+        if not self._postgresql._global_config or self._postgresql._global_config.is_synchronous_mode:
             if self._synchronous_standby_names is None:
-                if config.get('synchronous_mode_strict', False):
+                if self._postgresql._global_config and self._postgresql._global_config.is_synchronous_mode_strict\
+                        and self._postgresql.role in ('master', 'primary', 'promoted'):
                     parameters['synchronous_standby_names'] = '*'
                 else:
                     parameters.pop('synchronous_standby_names', None)
