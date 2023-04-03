@@ -1,4 +1,3 @@
-# flake8: noqa: E241
 import datetime
 import functools
 import json
@@ -378,14 +377,13 @@ class Ha(object):
                 return 'failed to acquire initialize lock'
         else:
             create_replica_methods = self.global_config.get_standby_cluster_config().get('create_replica_methods', []) \
-                                     if self.is_standby_cluster() else None
+                if self.is_standby_cluster() else None
             can_bootstrap = self.state_handler.can_create_replica_without_replication_connection(create_replica_methods)
             concurrent_bootstrap = self.cluster.initialize == ""
             if can_bootstrap and not concurrent_bootstrap:
                 msg = 'bootstrap (without leader)'
                 return self._async_executor.try_run_async(msg, self.clone) or 'trying to ' + msg
-            return 'waiting for {0}leader to bootstrap'.format(
-                    'standby_' if self.is_standby_cluster() else '')
+            return 'waiting for {0}leader to bootstrap'.format('standby_' if self.is_standby_cluster() else '')
 
     def bootstrap_standby_leader(self):
         """ If we found 'standby' key in the configuration, we need to bootstrap
@@ -971,7 +969,7 @@ class Ha(object):
         if self.state_handler.is_leader():
             # in pause leader is the healthiest only when no initialize or sysid matches with initialize!
             return not self.is_paused() or not self.cluster.initialize\
-                    or self.state_handler.sysid == self.cluster.initialize
+                or self.state_handler.sysid == self.cluster.initialize
 
         if self.is_paused():
             return False
@@ -1036,10 +1034,11 @@ class Ha(object):
                 PostgreSQL as quickly as possible without regard for data durability. May only be called synchronously.
         """
         mode_control = {
-            'offline':          dict(stop='fast', checkpoint=False, release=False, offline=True, async_req=False),
-            'graceful':         dict(stop='fast', checkpoint=True, release=True, offline=False, async_req=False),
-            'immediate':        dict(stop='immediate', checkpoint=False, release=True, offline=False, async_req=True),
-            'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async_req=True),
+            'offline':          dict(stop='fast',      checkpoint=False, release=False, offline=True,  async_req=False),  # noqa: E241,E501
+            'graceful':         dict(stop='fast',      checkpoint=True,  release=True,  offline=False, async_req=False),  # noqa: E241,E501
+            'immediate':        dict(stop='immediate', checkpoint=False, release=True,  offline=False, async_req=True),  # noqa: E241,E501
+            'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async_req=True),  # noqa: E241,E501
+
         }[mode]
 
         logger.info('Demoting self (%s)', mode)
@@ -1288,8 +1287,8 @@ class Ha(object):
                 self.delete_future_restart()
                 return None
 
-        if (restart_data and
-           self.should_run_scheduled_action('restart', restart_data['schedule'], self.delete_future_restart)):
+        if restart_data\
+                and self.should_run_scheduled_action('restart', restart_data['schedule'], self.delete_future_restart):
             try:
                 ret, message = self.restart(restart_data, run_async=True)
                 if not ret:
@@ -1337,8 +1336,8 @@ class Ha(object):
         return ret
 
     def future_restart_scheduled(self):
-        return self.patroni.scheduled_restart.copy() if (self.patroni.scheduled_restart and
-                                                         isinstance(self.patroni.scheduled_restart, dict)) else None
+        return self.patroni.scheduled_restart.copy()\
+            if (self.patroni.scheduled_restart and isinstance(self.patroni.scheduled_restart, dict)) else None
 
     def restart_scheduled(self):
         return self._async_executor.scheduled_action == 'restart'
@@ -1828,7 +1827,7 @@ class Ha(object):
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device
                 # but cannot shut down PostgreSQL. Root would be the obvious example. Would be nice to not kill the
                 # system due to a bad config.
-                logger.error("PostgreSQL shutdown failed, leader key not removed." +
+                logger.error("PostgreSQL shutdown failed, leader key not removed.%s",
                              (" Leaving watchdog running." if self.watchdog.is_running else ""))
 
     def watch(self, timeout):
