@@ -2,7 +2,8 @@ import unittest
 
 from mock import Mock, patch
 from patroni.exceptions import PatroniException
-from patroni.utils import Retry, RetryFailedError, enable_keepalive, polling_loop, validate_directory
+from patroni.utils import Retry, RetryFailedError, enable_keepalive, polling_loop, validate_directory, \
+    shell_quote
 
 
 class TestUtils(unittest.TestCase):
@@ -40,6 +41,15 @@ class TestUtils(unittest.TestCase):
             for platform in ('linux2', 'darwin', 'other'):
                 with patch('sys.platform', platform):
                     self.assertIsNone(enable_keepalive(Mock(), 10, 5))
+
+    def test_shell_quote(self):
+        self.assertEqual(shell_quote('value'), 'value')
+        self.assertEqual(shell_quote('value with spaces'), "'value with spaces'")
+
+    @patch('sys.platform', 'win32')
+    def test_shell_quote_win(self):
+        self.assertEqual(shell_quote('value'), 'value')
+        self.assertEqual(shell_quote('value with spaces'), "value with spaces")
 
 
 @patch('time.sleep', Mock())

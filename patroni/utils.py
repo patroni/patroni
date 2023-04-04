@@ -911,3 +911,19 @@ def enable_keepalive(sock: socket.socket, timeout: int, idle: int, cnt: Optional
 
     for opt in keepalive_socket_options(timeout, idle, cnt):
         sock.setsockopt(*opt)
+
+
+def shell_quote(opt: str) -> str:
+    """Quote a string intended to be used as part of a shell command.
+
+    Applies quoting on POSIX compliant systems only, on `win32` platforms
+    will just return the original string unquoted.
+
+    :param opt: String to be quoted
+    :return: Quoted string
+
+    """
+    if sys.platform != 'win32' and not re.match(r'^[\'"]', opt):
+        from shlex import quote
+        return quote(opt)
+    return opt
