@@ -1,3 +1,4 @@
+import os
 import unittest
 
 from mock import Mock, patch
@@ -42,6 +43,7 @@ class TestUtils(unittest.TestCase):
                 with patch('sys.platform', platform):
                     self.assertIsNone(enable_keepalive(Mock(), 10, 5))
 
+    @unittest.skipIf(os.name == 'nt', "POSIX compliant systems only")
     def test_shell_quote(self):
         self.assertEqual(shell_quote('value'), 'value')
         self.assertEqual(shell_quote('value with spaces'), "'value with spaces'")
