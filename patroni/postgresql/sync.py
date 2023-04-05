@@ -3,13 +3,13 @@ import re
 import time
 
 from copy import deepcopy
-from typing import Any, Dict, Tuple, TYPE_CHECKING
+from typing import Any, Collection, Dict, Tuple, TYPE_CHECKING
 
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Cluster
 from ..psycopg import quote_ident as _quote_ident
 if TYPE_CHECKING:  # pragma: no cover
-    from ..postgresql import Postgresql
+    from . import Postgresql
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +240,7 @@ class SyncHandler(object):
 
         return candidates, sync_nodes
 
-    def set_synchronous_standby_names(self, sync: CaseInsensitiveSet) -> None:
+    def set_synchronous_standby_names(self, sync: Collection[str]) -> None:
         """Constructs and sets "synchronous_standby_names" GUC value.
 
         :param sync: set of nodes to sync to
