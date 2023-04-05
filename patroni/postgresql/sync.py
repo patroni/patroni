@@ -3,7 +3,7 @@ import re
 import time
 
 from copy import deepcopy
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Tuple, TYPE_CHECKING
 
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Cluster
@@ -240,20 +240,24 @@ class SyncHandler(object):
 
         return candidates, sync_nodes
 
-    def set_synchronous_standby_names(self, value: List[str]) -> None:
+    def set_synchronous_standby_names(self, sync: CaseInsensitiveSet) -> None:
         """Constructs and sets "synchronous_standby_names" GUC value.
 
-        :param value: list[str] - the list of wanted sync members"""
-        if value and value != ['*']:
-            value = [quote_ident(x) for x in value]
-
-        if self._postgresql.major_version >= 90600 and len(value) > 1:
-            sync_param = '{0} ({1})'.format(len(value), ','.join(value))
+        :param sync: set of nodes to sync to
+        """
+        has_asterisk = '*' in sync
+        if has_asterisk:
+            sync = ['*']
         else:
-            sync_param = next(iter(value), None)
+            sync = [quote_ident(x) for x in sync]
+
+        if self._postgresql.supports_multiple_sync and len(sync) > 1:
+            sync_param = '{0} ({1})'.format(len(sync), ','.join(sync))
+        else:
+            sync_param = next(iter(sync), None)
 
         if not (self._postgresql.config.set_synchronous_standby_names(sync_param)
-                and self._postgresql.state == 'running' and self._postgresql.is_leader()) or value == ['*']:
+                and self._postgresql.state == 'running' and self._postgresql.is_leader()) or has_asterisk:
             return
 
         time.sleep(0.1)  # Usualy it takes 1ms to reload postgresql.conf, but we will give it 100ms

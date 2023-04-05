@@ -473,7 +473,7 @@ class Ha(object):
                 node_to_follow = self._get_node_to_follow(self.cluster)
 
             if self.is_synchronous_mode():
-                self.state_handler.sync_handler.set_synchronous_standby_names([])
+                self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
         elif self.has_lock():
             msg = "starting as readonly because i had the session lock"
             node_to_follow = None
@@ -579,7 +579,7 @@ class Ha(object):
         promoting standbys that were guaranteed to be replicating synchronously.
         """
         if self.is_synchronous_mode():
-            current = CaseInsensitiveSet([] if self.cluster.sync.is_empty else self.cluster.sync.members)
+            current = CaseInsensitiveSet(self.cluster.sync.members)
             picked, allow_promote = self.state_handler.sync_handler.current_state(self.cluster)
 
             if picked != current:
@@ -621,7 +621,7 @@ class Ha(object):
         else:
             if not self.cluster.sync.is_empty and self.dcs.delete_sync_state(index=self.cluster.sync.index):
                 logger.info("Disabled synchronous replication")
-            self.state_handler.sync_handler.set_synchronous_standby_names([])
+            self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
 
     def is_sync_standby(self, cluster: Cluster) -> bool:
         """:returns: `True` if the current node is a synchronous standby."""
@@ -733,7 +733,7 @@ class Ha(object):
                     # promotion until next cycle. TODO: trigger immediate retry of run_cycle
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
                 self.state_handler.sync_handler.set_synchronous_standby_names(
-                    ['*'] if self.global_config.is_synchronous_mode_strict else [])
+                    CaseInsensitiveSet('*') if self.global_config.is_synchronous_mode_strict else CaseInsensitiveSet())
             if self.state_handler.role not in ('master', 'promoted', 'primary'):
                 def on_success():
                     self._rewind.reset_state()
@@ -1087,7 +1087,7 @@ class Ha(object):
                 node_to_follow, leader = None, None
 
         if self.is_synchronous_mode():
-            self.state_handler.sync_handler.set_synchronous_standby_names([])
+            self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
 
         # FIXME: with mode offline called from DCS exception handler and handle_long_action_in_progress
         # there could be an async action already running, calling follow from here will lead

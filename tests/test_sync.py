@@ -75,20 +75,26 @@ class TestSync(BaseTestPostgresql):
                         return line.strip()
 
         mock_reload = self.p.reload = Mock()
-        self.s.set_synchronous_standby_names(['n1'])
+        self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1']))
         self.assertEqual(value_in_conf(), "synchronous_standby_names = 'n1'")
         mock_reload.assert_called()
 
         mock_reload.reset_mock()
-        self.s.set_synchronous_standby_names(['n1'])
+        self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1']))
         mock_reload.assert_not_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = 'n1'")
 
-        self.s.set_synchronous_standby_names(['n1', 'n2'])
+        self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1', 'n2']))
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = '2 (n1,n2)'")
 
         mock_reload.reset_mock()
-        self.s.set_synchronous_standby_names([])
+        self.s.set_synchronous_standby_names(CaseInsensitiveSet([]))
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), None)
+
+        mock_reload.reset_mock()
+        self.p._global_config = GlobalConfig({'synchronous_mode': True})
+        self.s.set_synchronous_standby_names(CaseInsensitiveSet('*'))
+        mock_reload.assert_called()
+        self.assertEqual(value_in_conf(), "synchronous_standby_names = '*'")
