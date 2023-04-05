@@ -2,18 +2,22 @@
 # Used only for running tests using tox, see ../tox.ini
 ARG PG_MAJOR
 ARG PGHOME=/home/postgres
-ARG PGDATA=$PGHOME/data
 ARG LC_ALL=C.UTF-8
 ARG LANG=C.UTF-8
 
 FROM postgres:${PG_MAJOR}
 
 ARG PGHOME
-ARG PGDATA
 ARG LC_ALL
 ARG LANG
 
-ENV ETCDVERSION=3.3.13
+ENV PGHOME="$PGHOME"
+ENV LC_ALL="$LC_ALL"
+ENV LANG="$LANG"
+
+ARG ETCDVERSION=3.3.13
+ENV ETCDVERSION="$ETCDVERSION"
+ARG ETCDURL="https://github.com/coreos/etcd/releases/download/v$ETCDVERSION"
 
 USER root
 RUN set -ex \
@@ -40,7 +44,6 @@ RUN set -ex \
     && chown -R postgres:postgres /var/log /home/postgres \
     \
     # Download etcd \
-    && ETCDURL="https://github.com/coreos/etcd/releases/download/v$ETCDVERSION" \
     && curl -sL "$ETCDURL/etcd-v$ETCDVERSION-linux-$(dpkg --print-architecture).tar.gz" \
        | tar xz -C /usr/local/bin --strip=1 --wildcards --no-anchored etcd etcdctl
 
@@ -51,8 +54,8 @@ COPY <<EOF /tox-wrapper.sh
 #!/usr/bin/env bash
 set -ex
 copy_output() {
-    if [[ -d "$PGHOME/src/features/output" && /src/features ]] ;then
-        cp -a "$PGHOME/src/features/output" "/src/features/output-\$HOSTNAME"
+    if [[ -d "\$PGHOME/src/features/output" && /src/features ]] ;then
+        cp -a "\$PGHOME/src/features/output" "/src/features/output-\$HOSTNAME"
         find "/src/features/output-\$HOSTNAME" -type f -exec chmod 666 {} \\;
         find "/src/features/output-\$HOSTNAME" -type d -exec chmod 777 {} \\;
     fi
@@ -61,8 +64,8 @@ trap 'copy_output' SIGTERM
 # For architectures such as aarch we need to get the respective GOARCH
 # so we can tell etcd we're ok with running an unsupported architecture.
 export ETCD_UNSUPPORTED_ARCH=$(go env GOARCH)
-runuser -u postgres -- rsync -a --exclude=.tox /src/ "$PGHOME/src/"
-cd "$PGHOME/src"
+runuser -u postgres -- rsync -a --exclude=.tox /src/ "\$PGHOME/src/"
+cd "\$PGHOME/src"
 runuser -u postgres -w ETCD_UNSUPPORTED_ARCH -- "\$@" &
 wait $?
 copy_output
