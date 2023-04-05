@@ -13,6 +13,7 @@ from typing import List, Optional, Union
 
 from . import psycopg
 from .async_executor import AsyncExecutor, CriticalTask
+from .collections import CaseInsensitiveSet
 from .exceptions import DCSError, PostgresConnectionException, PatroniFatalException
 from .postgresql.callback_executor import CallbackAction
 from .postgresql.misc import postgres_version_to_int
@@ -472,7 +473,7 @@ class Ha(object):
                 node_to_follow = self._get_node_to_follow(self.cluster)
 
             if self.is_synchronous_mode():
-                self.state_handler.sync_handler.set_synchronous_standby_names([])
+                self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
         elif self.has_lock():
             msg = "starting as readonly because i had the session lock"
             node_to_follow = None
@@ -568,7 +569,7 @@ class Ha(object):
         """:returns: `True` if failsafe_mode is enabled in global configuration."""
         return self.global_config.check_mode('failsafe_mode')
 
-    def process_sync_replication(self):
+    def process_sync_replication(self) -> None:
         """Process synchronous standby beahvior.
 
         Synchronous standbys are registered in two places postgresql.conf and DCS. The order of updating them must
@@ -578,36 +579,34 @@ class Ha(object):
         promoting standbys that were guaranteed to be replicating synchronously.
         """
         if self.is_synchronous_mode():
-            sync_node_count = self.global_config.synchronous_node_count
-            sync_node_maxlag = self.global_config.maximum_lag_on_syncnode
-            current = [] if self.cluster.sync.is_empty else self.cluster.sync.members
-            picked, allow_promote = self.state_handler.sync_handler.current_state(self.cluster, sync_node_count,
-                                                                                  sync_node_maxlag)
-            if set(picked) != set(current):
+            current = CaseInsensitiveSet(self.cluster.sync.members)
+            picked, allow_promote = self.state_handler.sync_handler.current_state(self.cluster)
+
+            if picked != current:
                 # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
-                sync_common = list(set(current).intersection(set(allow_promote)))
-                if set(sync_common) != set(current):
-                    logger.info("Updating synchronous privilege temporarily from %s to %s", current, sync_common)
-                    if not self.dcs.write_sync_state(self.state_handler.name,
-                                                     sync_common or None,
+                sync_common = current & allow_promote
+                if sync_common != current:
+                    logger.info("Updating synchronous privilege temporarily from %s to %s",
+                                list(current), list(sync_common))
+                    if not self.dcs.write_sync_state(self.state_handler.name, sync_common,
                                                      index=self.cluster.sync.index):
                         logger.info('Synchronous replication key updated by someone else.')
                         return
 
-                # Update  db param and wait for x secs
+                # When strict mode and no suitable replication connections put "*" to synchronous_standby_names
                 if self.global_config.is_synchronous_mode_strict and not picked:
-                    picked = ['*']
+                    picked = CaseInsensitiveSet('*')
                     logger.warning("No standbys available!")
 
+                # Update postgresql.conf and wait 2 secs for changes to become active
                 logger.info("Assigning synchronous standby status to %s", picked)
                 self.state_handler.sync_handler.set_synchronous_standby_names(picked)
 
-                if picked and picked[0] != '*' and set(allow_promote) != set(picked) and not allow_promote:
+                if picked and picked != CaseInsensitiveSet('*') and allow_promote != picked and not allow_promote:
                     # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
                     time.sleep(2)
-                    _, allow_promote = self.state_handler.sync_handler.current_state(self.cluster, sync_node_count,
-                                                                                     sync_node_maxlag)
-                if allow_promote and set(allow_promote) != set(sync_common):
+                    _, allow_promote = self.state_handler.sync_handler.current_state(self.cluster)
+                if allow_promote and allow_promote != sync_common:
                     try:
                         cluster = self.dcs.get_cluster()
                     except DCSError:
@@ -618,11 +617,11 @@ class Ha(object):
                     if not self.dcs.write_sync_state(self.state_handler.name, allow_promote, index=cluster.sync.index):
                         logger.info("Synchronous replication key updated by someone else")
                         return
-                    logger.info("Synchronous standby status assigned to %s", allow_promote)
+                    logger.info("Synchronous standby status assigned to %s", list(allow_promote))
         else:
             if not self.cluster.sync.is_empty and self.dcs.delete_sync_state(index=self.cluster.sync.index):
                 logger.info("Disabled synchronous replication")
-            self.state_handler.sync_handler.set_synchronous_standby_names([])
+            self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
 
     def is_sync_standby(self, cluster: Cluster) -> bool:
         """:returns: `True` if the current node is a synchronous standby."""
@@ -734,7 +733,7 @@ class Ha(object):
                     # promotion until next cycle. TODO: trigger immediate retry of run_cycle
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
                 self.state_handler.sync_handler.set_synchronous_standby_names(
-                    ['*'] if self.global_config.is_synchronous_mode_strict else [])
+                    CaseInsensitiveSet('*') if self.global_config.is_synchronous_mode_strict else CaseInsensitiveSet())
             if self.state_handler.role not in ('master', 'promoted', 'primary'):
                 def on_success():
                     self._rewind.reset_state()
@@ -1088,7 +1087,7 @@ class Ha(object):
                 node_to_follow, leader = None, None
 
         if self.is_synchronous_mode():
-            self.state_handler.sync_handler.set_synchronous_standby_names([])
+            self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
 
         # FIXME: with mode offline called from DCS exception handler and handle_long_action_in_progress
         # there could be an async action already running, calling follow from here will lead

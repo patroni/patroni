@@ -35,7 +35,7 @@ class CaseInsensitiveSet(MutableSet):
     def discard(self, value: str) -> None:
         self._values.pop(value.lower(), None)
 
-    def issubset(self, other: 'CaseInsensitiveSet'):
+    def issubset(self, other: 'CaseInsensitiveSet') -> bool:
         return self <= other
 
 

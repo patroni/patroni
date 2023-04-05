@@ -108,9 +108,14 @@ class GlobalConfig(object):
         return default if ret is None else ret
 
     @property
+    def min_synchronous_nodes(self) -> int:
+        """:returns: the minimal number of synchronous nodes based on whether strict mode is requested or not."""
+        return 1 if self.is_synchronous_mode_strict else 0
+
+    @property
     def synchronous_node_count(self) -> int:
         """:returns: currently configured value from the global configuration or 1 if it is not set or invalid."""
-        return self.get_int('synchronous_node_count', 0)
+        return max(self.get_int('synchronous_node_count', 1), self.min_synchronous_nodes)
 
     @property
     def maximum_lag_on_failover(self) -> int:
