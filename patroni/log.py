@@ -162,6 +162,7 @@ class PatroniLogger(Thread):
     :ivar log_handler: log handler that is currently being used by the thread.
     :ivar log_handler_lock: lock used to modify ``log_handler``.
     """
+
     DEFAULT_LEVEL = 'INFO'
     DEFAULT_TRACEBACK_LEVEL = 'ERROR'
     DEFAULT_FORMAT = '%(asctime)s %(levelname)s: %(message)s'
@@ -171,8 +172,7 @@ class PatroniLogger(Thread):
     LOGGING_BROKEN_EXIT_CODE = 5
 
     def __init__(self) -> None:
-        """Create a new :class:`PatroniLogger` instance.
-        """
+        """Create a new :class:`PatroniLogger` instance."""
         super(PatroniLogger, self).__init__()
         self._queue_handler = QueueHandler()
         self._root_logger = logging.getLogger()
