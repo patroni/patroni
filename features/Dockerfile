@@ -60,6 +60,8 @@ copy_output() {
         find "/src/features/output-\$HOSTNAME" -type d -exec chmod 777 {} \\;
     fi
 }
+
+# Ensure the copy is ran if the container is stopped with `docker stop` or `docker kill`
 trap 'copy_output' SIGTERM
 # For architectures such as aarch we need to get the respective GOARCH
 # so we can tell etcd we're ok with running an unsupported architecture.
@@ -67,7 +69,9 @@ export ETCD_UNSUPPORTED_ARCH=$(go env GOARCH)
 runuser -u postgres -- rsync -a --exclude=.tox --exclude="features/output*" /src/ "\$PGHOME/src/"
 cd "\$PGHOME/src"
 runuser -u postgres -w ETCD_UNSUPPORTED_ARCH -- "\$@" &
-wait $?
+wait $!
+# SIGINT whilst child proc is running is not seen by trap so we run a copy here instead of using
+# trap copy_output SIGINT EXIT
 copy_output
 EOF
 RUN chmod +x /tox-wrapper.sh
