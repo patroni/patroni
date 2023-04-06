@@ -45,7 +45,7 @@ except ImportError:
         """Call ``psycopg.connect`` with ``*args`` and ``**kwargs``.
 
         .. note::
-            Will create ``server_version`` attribute in the returning connection so it keeps compatibility with the
+            Will create ``server_version`` attribute in the returning connection, so it keeps compatibility with the
             object that would be returned by ``psycopg2.connect``.
 
         :param args: positional arguments to call ``psycopg.connect`` with.
