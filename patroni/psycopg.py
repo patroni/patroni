@@ -87,14 +87,15 @@ def connect(*args: Any, **kwargs: Any) -> Any:
     .. note::
         The connection will have ``autocommit`` enabled.
 
+        It also enforces ``search_path=pg_catalog`` for non-replication connections to mitigate security issues as
+        Patroni relies on superuser connections.
+
     :param args: positional arguments to call ``connect`` function from ``psycopg`` module.
     :param kwargs: keyword arguments to call ``connect`` function from ``psycopg`` module.
 
     :returns: a connection to the database. Can be either a :class:`psycopg.Connection` if using ``psycopg3``, or a
         :class:`psycopg2.extensions.connection` if using ``psycopg2``.
     """
-    # Enforce search_path=pg_catalog for non-replication connections to mitigate security issues as Patroni relies on
-    # superuser connections
     if kwargs and 'replication' not in kwargs and kwargs.get('fallback_application_name') != 'Patroni ctl':
         options = [kwargs['options']] if 'options' in kwargs else []
         options.append('-c search_path=pg_catalog')
