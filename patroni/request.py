@@ -1,4 +1,4 @@
-"""Facilities for handling communication with Patroni' REST API."""
+"""Facilities for handling communication with Patroni's REST API."""
 import json
 import urllib3
 
@@ -12,9 +12,9 @@ from .dcs import Member
 
 
 class PatroniRequest(object):
-    """Wrapper for performing requests to Patroni' REST API.
+    """Wrapper for performing requests to Patroni's REST API.
 
-    It takes care of preparing the request manager with the configured settings before actually performing the request.
+    Prepares the request manager with the configured settings before performing the request.
     """
 
     def __init__(self, config: Union[Config, Dict[str, Any]], insecure: Optional[bool] = None) -> None:
@@ -32,7 +32,7 @@ class PatroniRequest(object):
         self.reload_config(config)
 
     @staticmethod
-    def _get_cfg_value(config: Union[Config, Dict[str, Any]], name) -> Union[Any, None]:
+    def _get_cfg_value(config: Union[Config, Dict[str, Any]], name: str) -> Union[Any, None]:
         """Get value of *name* setting in *config*.
 
         .. note::
@@ -61,7 +61,7 @@ class PatroniRequest(object):
         """Apply a given SSL related param to the request manager.
 
         :param config: Patroni YAML configuration.
-        :param name: prefix of the Patroni' SSL related setting name. Currently supports these:
+        :param name: prefix of the Patroni SSL related setting name. Currently, supports these:
             * ``cert``: gets translated to ``certfile``
             * ``key``: gets translated to ``keyfile``
 
@@ -113,7 +113,7 @@ class PatroniRequest(object):
         self._apply_pool_param('ca_certs', cacert)
 
     def request(self, method: str, url: str, body: Any = None, **kwargs: Any) -> urllib3.response.HTTPResponse:
-        """Perform a HTTP request.
+        """Perform an HTTP request.
 
         :param method: the HTTP method to be used, e.g. ``GET``.
         :param url: the URL to be requested.
@@ -147,7 +147,7 @@ class PatroniRequest(object):
 
 
 def get(url: str, verify: bool = True, **kwargs: Any) -> urllib3.response.HTTPResponse:
-    """Perform a HTTP GET request.
+    """Perform an HTTP GET request.
 
     .. note::
         It uses :class:`PatroniRequest` so all relevant configuration is applied before processing the request.
@@ -155,7 +155,7 @@ def get(url: str, verify: bool = True, **kwargs: Any) -> urllib3.response.HTTPRe
     :param url: full URL for this GET request.
     :param verify: if it should verify SSL certificates when processing the request.
 
-    :returns: the response returned upon request.
+    :returns: the response returned from the request.
     """
     http = PatroniRequest({}, not verify)
     return http.request('GET', url, **kwargs)
