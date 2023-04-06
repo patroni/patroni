@@ -104,7 +104,7 @@ def connect(*args: Any, **kwargs: Any) -> Any:
     return ret
 
 
-def quote_ident(value: Any, conn: Any = None):
+def quote_ident(value: Any, conn: Optional[Any] = None):
     """Quote *value* as a SQL identifier.
 
     :param value: value to be quoted.
