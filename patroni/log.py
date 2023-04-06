@@ -67,7 +67,7 @@ class QueueHandler(logging.Handler):
 
     def __init__(self) -> None:
         """Queue initialised and initial records_lost established."""
-        super().init()
+        super().__init__()
         self.queue = Queue()
         self._records_lost = 0
 
