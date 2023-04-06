@@ -112,7 +112,8 @@ class PatroniRequest(object):
         cacert = config.get('ctl', {}).get('cacert') or config.get('restapi', {}).get('cafile')
         self._apply_pool_param('ca_certs', cacert)
 
-    def request(self, method: str, url: str, body: Any = None, **kwargs: Any) -> urllib3.response.HTTPResponse:
+    def request(self, method: str, url: str, body: Optional[Any] = None,
+                **kwargs: Any) -> urllib3.response.HTTPResponse:
         """Perform an HTTP request.
 
         :param method: the HTTP method to be used, e.g. ``GET``.
@@ -126,8 +127,8 @@ class PatroniRequest(object):
             body = json.dumps(body)
         return self._pool.request(method.upper(), url, body=body, **kwargs)
 
-    def __call__(self, member: Member, method: str = 'GET', endpoint: str = None, data: Any = None,
-                 **kwargs: Any) -> urllib3.response.HTTPResponse:
+    def __call__(self, member: Member, method: Optional[str] = 'GET', endpoint: Optional[str] = None,
+                 data: Optional[Any] = None, **kwargs: Any) -> urllib3.response.HTTPResponse:
         """Turn :class:`PatroniRequest` into a callable object.
 
         When called, perform a request through the manager.
@@ -146,7 +147,7 @@ class PatroniRequest(object):
         return self.request(method, url, data, **kwargs)
 
 
-def get(url: str, verify: bool = True, **kwargs: Any) -> urllib3.response.HTTPResponse:
+def get(url: str, verify: Optional[bool] = True, **kwargs: Any) -> urllib3.response.HTTPResponse:
     """Perform an HTTP GET request.
 
     .. note::
