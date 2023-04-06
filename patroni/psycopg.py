@@ -25,7 +25,7 @@ try:
     if TYPE_CHECKING:
         from psycopg2.extensions import connection
 
-    def quote_literal(value: Any, conn: Optional[connection] = None) -> str:
+    def quote_literal(value: Any, conn: Optional["connection"] = None) -> str:
         """Quote *value* as a SQL literal.
 
         .. note::
