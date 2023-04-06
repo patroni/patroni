@@ -19,7 +19,9 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def debug_exception(logger_obj: logging.Logger, msg: str, *args: Any, **kwargs: Any) -> None:
-    """Handle :func:`exception` calls for *logger_obj*.
+    """Add full stack trace info to debug log messages and partial to others.
+    
+    Handle :func:`exception` calls for *logger_obj*.
 
     .. note::
         * If *logger_obj* log level is set to ``DEBUG``, then issue a ``DEBUG`` message with the complete stack trace;
@@ -40,7 +42,9 @@ def debug_exception(logger_obj: logging.Logger, msg: str, *args: Any, **kwargs: 
 
 
 def error_exception(logger_obj: logging.Logger, msg: str, *args: Any, **kwargs: Any) -> None:
-    """Handle :func:`exception` calls for *logger_obj*.
+    """Add full stack trace info to error messages.
+    
+    Handle :func:`exception` calls for *logger_obj*.
 
     .. note::
         * Issue an ``ERROR`` message with the complete stack trace.
@@ -55,19 +59,19 @@ def error_exception(logger_obj: logging.Logger, msg: str, *args: Any, **kwargs: 
 
 
 class QueueHandler(logging.Handler):
-    """Implements a queue-based logging handler.
+    """Queue-based logging handler.
 
     :ivar queue: queue to hold log messages that are pending to be flushed to the final destination.
     """
 
     def __init__(self) -> None:
         """Create a new :class:`QueueHandler` instance."""
-        logging.Handler.__init__(self)
+        super().init()
         self.queue = Queue()
         self._records_lost = 0
 
     def _put_record(self, record: logging.LogRecord) -> None:
-        """Asynchronously enqueue a record to be logged later.
+        """Asynchronously enqueue a log record.
 
         :param record: the record to be logged.
         """
@@ -110,12 +114,12 @@ class QueueHandler(logging.Handler):
 
     @property
     def records_lost(self) -> int:
-        """Get the number of log messages that have been lost while the queue was full."""
+        """Number of log messages that have been lost while the queue was full."""
         return self._records_lost
 
 
 class ProxyHandler(logging.Handler):
-    """Auxiliary class to proxy log records to the currently configured log handler.
+    """Handle log records in place of pending log handlers. 
 
     .. note::
         This is used to handle log messages while the logger thread has not started yet, in which case the queue-based
@@ -129,11 +133,11 @@ class ProxyHandler(logging.Handler):
 
         :param patroni_logger: the logger thread.
         """
-        logging.Handler.__init__(self)
+        super().__init__()
         self.patroni_logger = patroni_logger
 
     def emit(self, record: logging.LogRecord) -> None:
-        """Handle each log record that is emitted.
+        """Emit each log record that is handled.
 
         Will push the log record down to :func:`handle` method of the currently configured log handler.
 
@@ -143,7 +147,7 @@ class ProxyHandler(logging.Handler):
 
 
 class PatroniLogger(Thread):
-    """Take care of  logging for a daemon process.
+    """Logging thread for the Patroni daemon process.
 
     It is a 2-step logging approach. Any time a log message is issued it is initially enqueued in-memory, and then
     asynchronously flushed to the final destination by the logging thread.
@@ -327,10 +331,10 @@ class PatroniLogger(Thread):
 
     @property
     def queue_size(self) -> int:
-        """Get the current logging queue size."""
+        """Number of log records in the queue."""
         return self._queue_handler.queue.qsize()
 
     @property
     def records_lost(self) -> int:
-        """Get the number of logging records that have been lost while the queue was full."""
+        """Number of logging records that have been lost while the queue was full."""
         return self._queue_handler.records_lost
