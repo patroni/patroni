@@ -3,6 +3,7 @@ import os
 import shlex
 import tempfile
 import time
+from typing import List, Dict, Union, Callable, Tuple
 
 from ..dcs import RemoteMember
 from ..psycopg import quote_ident, quote_literal
@@ -26,7 +27,44 @@ class Bootstrap(object):
         return self._running_custom_bootstrap and self._keep_existing_recovery_conf
 
     @staticmethod
-    def process_user_options(tool, options, not_allowed_options, error_handler):
+    def process_user_options(tool: str,
+                             options: Union[Dict[str, str], List[Union[str, Dict[str, str]]]],
+                             not_allowed_options: Tuple[str, ...],
+                             error_handler: Callable) -> List:
+        """Format ``options`` in a list or dictionary format into command line long form arguments.
+
+        :Example:
+
+            The ``options`` can be defined as a dictionary of key, values to be converted into arguments:
+            >>> Bootstrap.process_user_options('foo', {'foo': 'bar'}, (), print)
+            ['--foo=bar']
+
+            Or as a list of single string arguments
+            >>> Bootstrap.process_user_options('foo', ['yes'], (), print)
+            ['--yes']
+
+            Or as a list of key, value options
+            >>> Bootstrap.process_user_options('foo', [{'foo': 'bar'}], (), print)
+            ['--foo=bar']
+
+            Or a combination of single and key, values
+            >>> Bootstrap.process_user_options('foo', ['yes', {'foo': 'bar'}], (), print)
+            ['--yes', '--foo=bar']
+
+        .. note::
+            The ``error_handler`` is called when any of these conditions are met:
+
+            * Key, value dictionaries in the list form contains multiple keys.
+            * If a key is listed in ``not_allowed_options``.
+            * If there was a problem parsing the format of a value, e.g. unbalanced quoting.
+            * If the options list is not in the required structure.
+
+        :param tool: The name of the tool used in error reports to ``error_handler``
+        :param options: Options to parse as a list of key, values or single values or a dictionary
+        :param not_allowed_options: List of keys that cannot be used in the list of key, value formatted options
+        :param error_handler: A function which will be called when an error condition is encountered
+        :return: List of long form arguments to pass to the named tool
+        """
         user_options = []
 
         def option_is_allowed(name):
