@@ -19,6 +19,7 @@ import socket
 import sys
 import tempfile
 import time
+from shlex import quote, shlex
 
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union, TYPE_CHECKING
 
@@ -923,7 +924,20 @@ def shell_quote(opt: str) -> str:
     :return: Quoted string
 
     """
-    if sys.platform != 'win32' and not re.match(r'^[\'"]', opt):
-        from shlex import quote
+    if sys.platform != 'win32' and not is_single_quoted_string(opt):
         return quote(opt)
     return opt
+
+
+def is_single_quoted_string(string: str) -> bool:
+    """Check if a string is a single fully quoted string and not multi-quoted using shlex.
+
+    :param string: The input string to check.
+    :return: True if the input string is a single fully quoted string, False otherwise.
+
+    """
+    lexer = shlex(string)
+    lexer.whitespace_split = False
+    lexer.whitespace = ''
+    tokens = list(lexer)
+    return len(tokens) == 1 and tokens[0][0] == tokens[0][-1] and tokens[0][0] in ('"', "'")
