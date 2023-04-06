@@ -3,7 +3,7 @@
 This module is able to handle both ``pyscopg2`` and ``psycopg3``, and it exposes a common interface for both.
 ``psycopg2`` takes precedence. ``psycopg3`` will only be used if ``psycopg2`` is either absent or older than ``2.5.4``.
 """
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 
 __all__ = ['connect', 'quote_ident', 'quote_literal', 'DatabaseError', 'Error', 'OperationalError', 'ProgrammingError']
@@ -15,12 +15,15 @@ try:
     if parse_version(__version__) < MIN_PSYCOPG2:
         raise ImportError
     from psycopg2 import connect as _connect, Error, DatabaseError, OperationalError, ProgrammingError
-    from psycopg2.extensions import adapt, connection
+    from psycopg2.extensions import adapt
 
     try:
         from psycopg2.extensions import quote_ident as _quote_ident
     except ImportError:
         _legacy = True
+
+    if TYPE_CHECKING:
+        from psycopg2.extensions import connection
 
     def quote_literal(value: Any, conn: Optional[connection] = None) -> str:
         """Quote *value* as a SQL literal.
