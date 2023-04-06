@@ -86,7 +86,10 @@ class Bootstrap(object):
                     if len(keys) != 1 or not isinstance(opt[keys[0]], str) or not option_is_allowed(keys[0]):
                         error_handler('Error when parsing {0} key-value option {1}: only one key-value is allowed'
                                       ' and value should be a string'.format(tool, opt[keys[0]]))
-                    user_options.append('--{0}={1}'.format(keys[0], shell_quote(opt[keys[0]])))
+                    try:
+                        user_options.append('--{0}={1}'.format(keys[0], shell_quote(opt[keys[0]])))
+                    except ValueError as err:
+                        error_handler('Format of {0} options map invalid: {1}'.format(tool, ' '.join(err.args)))
                 else:
                     error_handler('Error when parsing {0} option {1}: value should be string value'
                                   ' or a single key-value pair'.format(tool, opt))
