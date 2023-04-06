@@ -2,13 +2,16 @@
 import json
 import urllib3
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, TYPE_CHECKING
 
 from urllib.parse import urlparse, urlunparse
 
-from .config import Config
 from .utils import USER_AGENT
-from .dcs import Member
+
+
+if TYPE_CHECKING:
+    from .config import Config
+    from .dcs import Member
 
 
 class PatroniRequest(object):
@@ -17,7 +20,7 @@ class PatroniRequest(object):
     Prepares the request manager with the configured settings before performing the request.
     """
 
-    def __init__(self, config: Union[Config, Dict[str, Any]], insecure: Optional[bool] = None) -> None:
+    def __init__(self, config: Union['Config', Dict[str, Any]], insecure: Optional[bool] = None) -> None:
         """Create a new :class:`PatroniRequest` instance with given *config*.
 
         :param config: Patroni YAML configuration.
@@ -32,7 +35,7 @@ class PatroniRequest(object):
         self.reload_config(config)
 
     @staticmethod
-    def _get_cfg_value(config: Union[Config, Dict[str, Any]], name: str) -> Union[Any, None]:
+    def _get_cfg_value(config: Union['Config', Dict[str, Any]], name: str) -> Union[Any, None]:
         """Get value of *name* setting in *config*.
 
         .. note::
@@ -57,7 +60,7 @@ class PatroniRequest(object):
         else:
             self._pool.connection_pool_kw.pop(param, None)
 
-    def _apply_ssl_file_param(self, config: Union[Config, Dict[str, Any]], name: str) -> Union[str, None]:
+    def _apply_ssl_file_param(self, config: Union['Config', Dict[str, Any]], name: str) -> Union[str, None]:
         """Apply a given SSL related param to the request manager.
 
         :param config: Patroni YAML configuration.
@@ -74,7 +77,7 @@ class PatroniRequest(object):
         self._apply_pool_param(name + '_file', value)
         return value
 
-    def reload_config(self, config: Union[Config, Dict[str, Any]]) -> None:
+    def reload_config(self, config: Union['Config', Dict[str, Any]]) -> None:
         """Apply *config* to request manager.
 
         Configure these HTTP headers for requests:
@@ -127,7 +130,7 @@ class PatroniRequest(object):
             body = json.dumps(body)
         return self._pool.request(method.upper(), url, body=body, **kwargs)
 
-    def __call__(self, member: Member, method: Optional[str] = 'GET', endpoint: Optional[str] = None,
+    def __call__(self, member: 'Member', method: Optional[str] = 'GET', endpoint: Optional[str] = None,
                  data: Optional[Any] = None, **kwargs: Any) -> urllib3.response.HTTPResponse:
         """Turn :class:`PatroniRequest` into a callable object.
 
