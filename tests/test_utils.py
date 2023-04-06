@@ -2,6 +2,7 @@ import os
 import unittest
 
 from mock import Mock, patch
+
 from patroni.exceptions import PatroniException
 from patroni.utils import Retry, RetryFailedError, enable_keepalive, polling_loop, validate_directory, \
     shell_quote
@@ -45,8 +46,26 @@ class TestUtils(unittest.TestCase):
 
     @unittest.skipIf(os.name == 'nt', "POSIX compliant systems only")
     def test_shell_quote(self):
+        self.assertRaises(ValueError, shell_quote, 'value with a \' single quote')
+
         self.assertEqual(shell_quote('value'), 'value')
         self.assertEqual(shell_quote('value with spaces'), "'value with spaces'")
+
+        self.assertEqual(shell_quote(
+            'value "with" double quotes'),
+            '\'value "with" double quotes\'')
+        self.assertEqual(shell_quote(
+            '"value starting with" double quotes'),
+            '\'"value starting with" double quotes\'')
+        self.assertEqual(shell_quote(
+            '\'value starting with\' single quotes'),
+            '\'\'"\'"\'value starting with\'"\'"\' single quotes\'')
+        self.assertEqual(shell_quote(
+            '"double quoted value"'),
+            '"double quoted value"')
+        self.assertEqual(shell_quote(
+            '\'single quoted value\''),
+            '\'single quoted value\'')
 
     @patch('sys.platform', 'win32')
     def test_shell_quote_win(self):
@@ -67,6 +86,7 @@ class TestRetrySleeper(unittest.TestCase):
             else:
                 scope['times'] += 1
                 raise PatroniException('Failed!')
+
         return inner
 
     def test_reset(self):
