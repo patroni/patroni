@@ -20,7 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 
 def debug_exception(logger_obj: logging.Logger, msg: str, *args: Any, **kwargs: Any) -> None:
     """Add full stack trace info to debug log messages and partial to others.
-    
+
     Handle :func:`exception` calls for *logger_obj*.
 
     .. note::
@@ -43,11 +43,12 @@ def debug_exception(logger_obj: logging.Logger, msg: str, *args: Any, **kwargs: 
 
 def error_exception(logger_obj: logging.Logger, msg: str, *args: Any, **kwargs: Any) -> None:
     """Add full stack trace info to error messages.
-    
+
     Handle :func:`exception` calls for *logger_obj*.
 
     .. note::
-        * Issue an ``ERROR`` message with the complete stack trace.
+        * By default issue an ``ERROR`` message with the complete stack trace. If you do not want to show the complete
+        stack trace, call with ``exc_info=False``.
 
     :param logger_obj: logger for which :func:`exception` will be processed.
     :param msg: the message related to the exception to be logged.
@@ -119,7 +120,7 @@ class QueueHandler(logging.Handler):
 
 
 class ProxyHandler(logging.Handler):
-    """Handle log records in place of pending log handlers. 
+    """Handle log records in place of pending log handlers.
 
     .. note::
         This is used to handle log messages while the logger thread has not started yet, in which case the queue-based
