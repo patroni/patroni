@@ -177,7 +177,14 @@ class PatroniLogger(Thread):
     LOGGING_BROKEN_EXIT_CODE = 5
 
     def __init__(self) -> None:
-        """Create a new :class:`PatroniLogger` instance."""
+        """Prepare logging queue and proxy handlers as they become ready during daemon startup.
+
+        .. note::
+            While Patroni is starting up it keeps ``DEBUG`` log level, and writes log messages through a proxy handler.
+            Once the logger thread is finally started, it switches from that proxy handler to the queue based logger,
+            and applies the configured log settings. The switching is used to avoid that the logger thread prevents
+            Patroni from shutting down if any issue occurs in the meantime until the thread is properly started.
+        """
         super(PatroniLogger, self).__init__()
         self._queue_handler = QueueHandler()
         self._root_logger = logging.getLogger()
