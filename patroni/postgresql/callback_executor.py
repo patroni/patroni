@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 class CallbackAction(str, Enum):
     NOOP = "noop"
     ON_START = "on_start"
+    ON_PRE_STOP = "on_pre_stop"
     ON_STOP = "on_stop"
     ON_RESTART = "on_restart"
     ON_RELOAD = "on_reload"

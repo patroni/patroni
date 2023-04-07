@@ -717,6 +717,7 @@ class Postgresql(object):
 
         if not block_callbacks:
             self.set_state('stopping')
+            self.call_nowait(CallbackAction.ON_PRE_STOP)
 
         if before_shutdown:
             before_shutdown()
