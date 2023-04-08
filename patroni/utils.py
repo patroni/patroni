@@ -917,12 +917,11 @@ def enable_keepalive(sock: socket.socket, timeout: int, idle: int, cnt: Optional
 def shell_quote(opt: str) -> str:
     """Quote a string intended to be used as part of a shell command.
 
-    Applies quoting on POSIX compliant systems only, on `win32` platforms
+    Applies quoting on POSIX compliant systems only, on ``win32`` platforms
     will just return the original string unquoted.
 
     :param opt: String to be quoted
-    :return: Quoted string
-
+    :returns: Quoted string
     """
     if sys.platform != 'win32' and not is_single_quoted_string(opt):
         return quote(opt)
@@ -933,10 +932,10 @@ def is_single_quoted_string(string: str) -> bool:
     """Check if a string is a single fully quoted string and not multi-quoted using shlex.
 
     :param string: The input string to check.
-    :return: True if the input string is a single fully quoted string, False otherwise.
-
+    :returns: ``True`` if the input string is a single fully quoted string, ``False`` otherwise.
     """
     lexer = shlex(string)
+    # Next 2 assignments ensure shlex does not split the string on whitespace
     lexer.whitespace_split = False
     lexer.whitespace = ''
     tokens = list(lexer)
