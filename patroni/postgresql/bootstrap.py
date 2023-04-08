@@ -30,7 +30,7 @@ class Bootstrap(object):
     def process_user_options(tool: str,
                              options: Union[Dict[str, str], List[Union[str, Dict[str, str]]]],
                              not_allowed_options: Tuple[str, ...],
-                             error_handler: Callable) -> List:
+                             error_handler: Callable[[str], None]) -> List:
         """Format *options* in a list or dictionary format into command line long form arguments.
 
         :Example:
