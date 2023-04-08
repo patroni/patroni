@@ -301,7 +301,8 @@ PostgreSQL
             -  **on\_restart**: run this script when the postgres restarts (without changing role).
             -  **on\_role\_change**: run this script when the postgres is being promoted or demoted.
             -  **on\_start**: run this script when the postgres starts.
-            -  **on\_stop**: run this script when the postgres stops.
+            -  **on\_pre\_stop**: run this script just before the postgres stops.
+            -  **on\_stop**: run this script after the postgres stops.
     -  **connect\_address**: IP address + port through which Postgres is accessible from other nodes and applications.
     -  **proxy\_address**: IP address + port through which a connection pool (e.g. pgbouncer) running next to Postgres is accessible. The value is written to the member key in DCS as ``proxy_url`` and could be used/useful for service discovery.
     -  **create\_replica\_methods**: an ordered list of the create methods for turning a Patroni node into a new replica.
