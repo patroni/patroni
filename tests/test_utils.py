@@ -86,7 +86,6 @@ class TestRetrySleeper(unittest.TestCase):
             else:
                 scope['times'] += 1
                 raise PatroniException('Failed!')
-
         return inner
 
     def test_reset(self):
