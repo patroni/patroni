@@ -57,7 +57,7 @@ except ImportError:
         :returns: a connection to the database.
         """
         ret = __connect(*args, **kwargs)
-        ret.server_version = ret.pgconn.server_version  # compatibility with psycopg2
+        setattr(ret, 'server_version', ret.pgconn.server_version)  # compatibility with psycopg2
         return ret
 
     def _quote_ident(value: Any, conn: Connection) -> str:
