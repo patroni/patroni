@@ -717,7 +717,9 @@ class Postgresql(object):
 
         if not block_callbacks:
             self.set_state('stopping')
-            self.call_nowait(CallbackAction.ON_PRE_STOP)
+
+        # invoke user-directed before stop scripts
+        self._before_stop()
 
         if before_shutdown:
             before_shutdown()
@@ -1024,6 +1026,20 @@ class Postgresql(object):
         if ret is not None:
             logger.info('pre_promote script `%s` exited with %s', cmd, ret)
         return ret == 0
+
+    def _before_stop(self):
+        """
+        Synchronously run a script prior to stopping postgres
+        """
+
+        cmd = self.config.get('before_stop')
+        if not cmd:
+            return True
+
+        ret = self.cancellable.call(shlex.split(cmd))
+        if ret is not None:
+            logger.info('before_stop script `%s` exited with %s', cmd, ret)
+
 
     def promote(self, wait_seconds, task, before_promote=None, on_success=None):
         if self.role in ('promoted', 'master', 'primary'):
