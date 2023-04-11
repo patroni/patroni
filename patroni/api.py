@@ -759,15 +759,12 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def __init__(self, patroni, config):
         self.patroni = patroni
         self.__listen = None
+        self.request_queue_size = config.get('request_queue_size', 5)
         self.__ssl_options = None
         self.__ssl_serial_number = None
         self._received_new_cert = False
         self.reload_config(config)
         self.daemon = True
-
-    def server_activate(self):
-        # Called by constructor to activate the server.
-        self.socket.listen(self.request_queue_size)
 
     def query(self, sql, *params):
         cursor = None
@@ -969,8 +966,6 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         if isinstance(config.get('verify_client'), str):
             ssl_options['verify_client'] = config['verify_client'].lower()
-
-        self.request_queue_size = config.get('request_queue_size', 5)
 
         if self.__listen != config['listen'] or self.__ssl_options != ssl_options or self._received_new_cert:
             self.__initialize(config['listen'], ssl_options)
