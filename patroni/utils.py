@@ -19,7 +19,7 @@ import socket
 import sys
 import tempfile
 import time
-from shlex import quote, shlex
+from shlex import quote, split
 
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union, TYPE_CHECKING
 
@@ -923,20 +923,24 @@ def shell_quote(opt: str) -> str:
     :param opt: String to be quoted
     :returns: Quoted string
     """
-    if sys.platform != 'win32' and not is_single_quoted_string(opt):
-        return quote(opt)
+    if sys.platform != 'win32' and requires_quoting(str(opt)):
+        return quote(str(opt))
     return opt
 
 
-def is_single_quoted_string(string: str) -> bool:
-    """Check if a string is a single fully quoted string and not multi-quoted using shlex.
+def requires_quoting(string: str) -> bool:
+    """Check if string is unquoted.
+
+    .. note::
+        Checks if *string* can be unquoted and the result is a single string.
+        If the string cannot be unquoted or an attempt to do so results in an error being raised
+        from ``shlex.split`` then assume *string* requires quoting.
 
     :param string: The input string to check.
-    :returns: ``True`` if the input string is a single fully quoted string, ``False`` otherwise.
+    :returns: ``True`` if the string is not a single fully quoted string, or cannot be unquoted,
+              ``False`` if already quoted.
     """
-    lexer = shlex(string)
-    # Next 2 assignments ensure shlex does not split the string on whitespace
-    lexer.whitespace_split = False
-    lexer.whitespace = ''
-    tokens = list(lexer)
-    return len(tokens) == 1 and tokens[0][0] == tokens[0][-1] and tokens[0][0] in ('"', "'")
+    try:
+        return len(split(string)) > 1
+    except ValueError:
+        return True
