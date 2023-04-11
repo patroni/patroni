@@ -34,11 +34,11 @@ def debug_exception(self: logging.Logger, msg: object, *args: Any, **kwargs: Any
     :param kwargs: keyword arguments to be passed to :func:`self.debug` or :func:`loger_obj.error`.
     """
     kwargs.pop("exc_info", False)
-    if logger_obj.isEnabledFor(logging.DEBUG):
-        logger_obj.debug(msg, *args, exc_info=True, **kwargs)
+    if self.isEnabledFor(logging.DEBUG):
+        self.debug(msg, *args, exc_info=True, **kwargs)
     else:
         msg = "{0}, DETAIL: '{1}'".format(msg, sys.exc_info()[1])
-        logger_obj.error(msg, *args, exc_info=False, **kwargs)
+        self.error(msg, *args, exc_info=False, **kwargs)
 
 
 def error_exception(self: logging.Logger, msg: object, *args: Any, **kwargs: Any) -> None:
@@ -56,7 +56,7 @@ def error_exception(self: logging.Logger, msg: object, *args: Any, **kwargs: Any
     :param kwargs: keyword arguments to be passed to :func:`loger_obj.error`.
     """
     exc_info = kwargs.pop("exc_info", True)
-    logger_obj.error(msg, *args, exc_info=exc_info, **kwargs)
+    self.error(msg, *args, exc_info=exc_info, **kwargs)
 
 
 class QueueHandler(logging.Handler):
@@ -249,6 +249,7 @@ class PatroniLogger(Thread):
                 if not isinstance(self.log_handler, RotatingFileHandler):
                     new_handler = RotatingFileHandler(os.path.join(config['dir'], __name__))
                 handler = new_handler or self.log_handler
+                assert isinstance(handler, RotatingFileHandler)
                 handler.maxBytes = int(config.get('file_size', 25000000))
                 handler.backupCount = int(config.get('file_num', 4))
             else:
@@ -262,7 +263,7 @@ class PatroniLogger(Thread):
             olddateformat = (self._config or {}).get('dateformat') or None
             dateformat = config.get('dateformat') or None  # Convert empty string to `None`
 
-            if oldlogformat != logformat or olddateformat != dateformat or new_handler:
+            if (oldlogformat != logformat or olddateformat != dateformat or new_handler) and handler:
                 handler.setFormatter(logging.Formatter(logformat, dateformat))
 
             if new_handler:
