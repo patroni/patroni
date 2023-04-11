@@ -44,7 +44,7 @@ try:
 except ImportError:
     from psycopg import connect as __connect, sql, Error, DatabaseError, OperationalError, ProgrammingError, Connection
 
-    def _connect(*args: Any, **kwargs: Any) -> Connection:
+    def _connect(*args: Any, **kwargs: Any) -> Connection[Any]:
         """Call ``psycopg.connect`` with ``*args`` and ``**kwargs``.
 
         .. note::
@@ -60,7 +60,7 @@ except ImportError:
         setattr(ret, 'server_version', ret.pgconn.server_version)  # compatibility with psycopg2
         return ret
 
-    def _quote_ident(value: Any, conn: Connection) -> str:
+    def _quote_ident(value: Any, conn: Connection[Any]) -> str:
         """Quote *value* as a SQL identifier.
 
         :param value: value to be quoted.
@@ -70,7 +70,7 @@ except ImportError:
         """
         return sql.Identifier(value).as_string(conn)
 
-    def quote_literal(value: Any, conn: Optional[Connection] = None) -> str:
+    def quote_literal(value: Any, conn: Optional[Connection[Any]] = None) -> str:
         """Quote *value* as a SQL literal.
 
         :param value: value to be quoted.
