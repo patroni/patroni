@@ -18,20 +18,20 @@ from typing import Any, Dict
 _LOGGER = logging.getLogger(__name__)
 
 
-def debug_exception(logger_obj: logging.Logger, msg: str, *args: Any, **kwargs: Any) -> None:
+def debug_exception(self: logging.Logger, msg: object, *args: Any, **kwargs: Any) -> None:
     """Add full stack trace info to debug log messages and partial to others.
 
-    Handle :func:`exception` calls for *logger_obj*.
+    Handle :func:`exception` calls for *self*.
 
     .. note::
-        * If *logger_obj* log level is set to ``DEBUG``, then issue a ``DEBUG`` message with the complete stack trace;
-        * If *logger_obj* log level is ``INFO`` or higher, then issue an ``ERROR`` message with only the last line of
+        * If *self* log level is set to ``DEBUG``, then issue a ``DEBUG`` message with the complete stack trace;
+        * If *self* log level is ``INFO`` or higher, then issue an ``ERROR`` message with only the last line of
             the stack trace.
 
-    :param logger_obj: logger for which :func:`exception` will be processed.
+    :param self: logger for which :func:`exception` will be processed.
     :param msg: the message related to the exception to be logged.
-    :param args: positional arguments to be passed to :func:`logger_obj.debug` or :func:`loger_obj.error`.
-    :param kwargs: keyword arguments to be passed to :func:`logger_obj.debug` or :func:`loger_obj.error`.
+    :param args: positional arguments to be passed to :func:`self.debug` or :func:`loger_obj.error`.
+    :param kwargs: keyword arguments to be passed to :func:`self.debug` or :func:`loger_obj.error`.
     """
     kwargs.pop("exc_info", False)
     if logger_obj.isEnabledFor(logging.DEBUG):
@@ -41,16 +41,16 @@ def debug_exception(logger_obj: logging.Logger, msg: str, *args: Any, **kwargs: 
         logger_obj.error(msg, *args, exc_info=False, **kwargs)
 
 
-def error_exception(logger_obj: logging.Logger, msg: str, *args: Any, **kwargs: Any) -> None:
+def error_exception(self: logging.Logger, msg: object, *args: Any, **kwargs: Any) -> None:
     """Add full stack trace info to error messages.
 
-    Handle :func:`exception` calls for *logger_obj*.
+    Handle :func:`exception` calls for *self*.
 
     .. note::
         * By default issue an ``ERROR`` message with the complete stack trace. If you do not want to show the complete
         stack trace, call with ``exc_info=False``.
 
-    :param logger_obj: logger for which :func:`exception` will be processed.
+    :param self: logger for which :func:`exception` will be processed.
     :param msg: the message related to the exception to be logged.
     :param args: positional arguments to be passed to :func:`loger_obj.error`.
     :param kwargs: keyword arguments to be passed to :func:`loger_obj.error`.
@@ -124,7 +124,7 @@ class ProxyHandler(logging.Handler):
 
     .. note::
         This is used to handle log messages while the logger thread has not started yet, in which case the queue-based
-        handler is not yet configured.
+        handler is not yet started.
 
     :ivar patroni_logger: the logger thread.
     """
@@ -144,7 +144,8 @@ class ProxyHandler(logging.Handler):
 
         :param record: the recorded that was emitted.
         """
-        self.patroni_logger.log_handler.handle(record)
+        if self.patroni_logger.log_handler is not None:
+            self.patroni_logger.log_handler.handle(record)
 
 
 class PatroniLogger(Thread):
@@ -207,7 +208,7 @@ class PatroniLogger(Thread):
         .. note::
             It creates logger objects that are not defined yet in the log manager.
         """
-        loggers = deepcopy(self._config.get('loggers') or {})
+        loggers = deepcopy((self._config or {}).get('loggers') or {})
         for name, logger in self._root_logger.manager.loggerDict.items():
             # ``Placeholder`` is a node in the log manager for which no logger has been defined. We are interested only
             # in the ones that were defined
@@ -237,7 +238,7 @@ class PatroniLogger(Thread):
 
             self._root_logger.setLevel(config.get('level', PatroniLogger.DEFAULT_LEVEL))
             if config.get('traceback_level', PatroniLogger.DEFAULT_TRACEBACK_LEVEL).lower() == 'debug':
-                # show stack traces only if ``log.level`` is ``DEBUG``
+                # show stack traces only if ``log.traceback_level`` is ``DEBUG``
                 logging.Logger.exception = debug_exception
             else:
                 # show stack traces as ``ERROR`` log messages
@@ -304,6 +305,7 @@ class PatroniLogger(Thread):
 
         while True:
             self._close_old_handlers()
+            assert self.log_handler is not None
 
             record = self._queue_handler.queue.get(True)
             # special message that indicates Patroni is shutting down
