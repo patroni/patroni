@@ -703,7 +703,8 @@ schema = Schema({
     "scope": str,
     "restapi": {
         "listen": validate_host_port_listen,
-        "connect_address": validate_connect_address
+        "connect_address": validate_connect_address,
+        Optional("request_queue_size"): lambda i: assert_(0 <= int(i) <= 4096)
     },
     Optional("bootstrap"): {
         "dcs": {

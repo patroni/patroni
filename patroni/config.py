@@ -393,12 +393,12 @@ class Config(object):
                 if value is not None:
                     ret[first][second] = value
 
-        for second in ('max_queue_size', 'file_size', 'file_num'):
-            value = ret.get('log', {}).pop(second, None)
+        for first, second in (('rest_api', ('request_queue_size',)), ('log', ('max_queue_size', 'file_size', 'file_num'))):
+            value = ret.get(first, {}).pop(second, None)
             if value:
                 value = parse_int(value)
                 if value is not None:
-                    ret['log'][second] = value
+                    ret[first][second] = value
 
         def _parse_list(value):
             if not (value.strip().startswith('-') or '[' in value):
