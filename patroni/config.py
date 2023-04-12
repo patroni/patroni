@@ -394,7 +394,8 @@ class Config(object):
                 if value is not None:
                     ret[first][second] = value
 
-        for first, params in (('restapi', ('request_queue_size',)), ('log', ('max_queue_size', 'file_size', 'file_num'))):
+        for first, params in (('restapi', ('request_queue_size',)),
+                              ('log', ('max_queue_size', 'file_size', 'file_num'))):
             for second in params:
                 value = ret.get(first, {}).pop(second, None)
                 if value:
