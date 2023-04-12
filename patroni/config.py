@@ -378,7 +378,8 @@ class Config(object):
 
         _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile', 'keyfile_password',
                                         'cafile', 'ciphers', 'verify_client', 'http_extra_headers',
-                                        'https_extra_headers', 'allowlist', 'allowlist_include_members'])
+                                        'https_extra_headers', 'allowlist', 'allowlist_include_members',
+                                        'request_queue_size'])
         _set_section_values('ctl', ['insecure', 'cacert', 'certfile', 'keyfile', 'keyfile_password'])
         _set_section_values('postgresql', ['listen', 'connect_address', 'proxy_address',
                                            'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
@@ -393,12 +394,14 @@ class Config(object):
                 if value is not None:
                     ret[first][second] = value
 
-        for second in ('max_queue_size', 'file_size', 'file_num'):
-            value = ret.get('log', {}).pop(second, None)
-            if value:
-                value = parse_int(value)
-                if value is not None:
-                    ret['log'][second] = value
+        for first, params in (('restapi', ('request_queue_size',)),
+                              ('log', ('max_queue_size', 'file_size', 'file_num'))):
+            for second in params:
+                value = ret.get(first, {}).pop(second, None)
+                if value:
+                    value = parse_int(value)
+                    if value is not None:
+                        ret[first][second] = value
 
         def _parse_list(value):
             if not (value.strip().startswith('-') or '[' in value):

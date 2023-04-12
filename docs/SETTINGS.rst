@@ -352,6 +352,7 @@ REST API
         -  **allowlist\_include\_members**: (optional): If set to ``true`` it allows accessing unsafe REST API endpoints from other cluster members registered in DCS (IP address or hostname is taken from the members ``api_url``). Be careful, it might happen that OS will use a different IP for outgoing connections.
         -  **http\_extra\_headers**: (optional): HTTP headers let the REST API server pass additional information with an HTTP response.
         -  **https\_extra\_headers**: (optional): HTTPS headers let the REST API server pass additional information with an HTTP response when TLS is enabled. This will also pass additional information set in ``http_extra_headers``.
+        -  **request_queue_size**: (optional): Sets request queue size for TCP socket used by Patroni REST API.  Once the queue is full, further requests get a "Connection denied" error. The default value is 5.
 
 Here is an example of both **http_extra_headers** and **https_extra_headers**:
 
