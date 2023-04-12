@@ -923,8 +923,8 @@ def shell_quote(opt: str) -> str:
     :param opt: String to be quoted
     :returns: Quoted string
     """
-    if sys.platform != 'win32' and requires_quoting(str(opt)):
-        return quote(str(opt))
+    if sys.platform != 'win32' and requires_quoting(opt):
+        return quote(opt)
     return opt
 
 
