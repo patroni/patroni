@@ -3,7 +3,7 @@
 This module is able to handle both ``pyscopg2`` and ``psycopg3``, and it exposes a common interface for both.
 ``psycopg2`` takes precedence. ``psycopg3`` will only be used if ``psycopg2`` is either absent or older than ``2.5.4``.
 """
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, Optional
 
 
 __all__ = ['connect', 'quote_ident', 'quote_literal', 'DatabaseError', 'Error', 'OperationalError', 'ProgrammingError']
@@ -22,10 +22,7 @@ try:
     except ImportError:
         _legacy = True
 
-    if TYPE_CHECKING:
-        from psycopg2.extensions import connection
-
-    def quote_literal(value: Any, conn: Optional["connection"] = None) -> str:
+    def quote_literal(value: Any, conn: Optional[Any] = None) -> str:
         """Quote *value* as a SQL literal.
 
         .. note::
@@ -44,8 +41,8 @@ try:
 except ImportError:
     from psycopg import connect as __connect, sql, Error, DatabaseError, OperationalError, ProgrammingError, Connection
 
-    def _connect(*args: Any, **kwargs: Any) -> Connection[Any]:
-        """Call ``psycopg.connect`` with ``*args`` and ``**kwargs``.
+    def _connect(dsn: str, **kwargs: Any) -> Connection[Any]:
+        """Call ``psycopg.connect`` with ``dsn`` and ``**kwargs``.
 
         .. note::
             Will create ``server_version`` attribute in the returning connection, so it keeps compatibility with the
@@ -60,7 +57,7 @@ except ImportError:
         setattr(ret, 'server_version', ret.pgconn.server_version)  # compatibility with psycopg2
         return ret
 
-    def _quote_ident(value: Any, conn: Connection[Any]) -> str:
+    def _quote_ident(value: Any, conn: Connection) -> str:
         """Quote *value* as a SQL identifier.
 
         :param value: value to be quoted.
@@ -70,7 +67,7 @@ except ImportError:
         """
         return sql.Identifier(value).as_string(conn)
 
-    def quote_literal(value: Any, conn: Optional[Connection[Any]] = None) -> str:
+    def quote_literal(value: Any, conn: Optional[Any] = None) -> str:
         """Quote *value* as a SQL literal.
 
         :param value: value to be quoted.
