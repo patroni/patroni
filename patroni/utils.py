@@ -938,7 +938,7 @@ def requires_quoting(string: str) -> bool:
 
     :param string: The input string to check.
     :returns: ``True`` if the string is not a single fully quoted string, or cannot be unquoted,
-              ``False`` if already quoted.
+              ``False`` if already quoted or quoting is not required.
     """
     try:
         return len(split(string)) > 1
