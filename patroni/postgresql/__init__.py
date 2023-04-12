@@ -1036,10 +1036,12 @@ class Postgresql(object):
         if not cmd:
             return True
 
-        ret = self.cancellable.call(shlex.split(cmd))
-        if ret is not None:
-            logger.info('before_stop script `%s` exited with %s', cmd, ret)
-
+        try:
+            ret = self.cancellable.call(shlex.split(cmd))
+            if ret is not None:
+                logger.info('before_stop script `%s` exited with %s', cmd, ret)
+        except Exception as e:
+            logger.error('Exception when calling `%s`: %r', cmd, e)
 
     def promote(self, wait_seconds, task, before_promote=None, on_success=None):
         if self.role in ('promoted', 'master', 'primary'):
