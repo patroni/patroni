@@ -33,6 +33,11 @@ class Bootstrap(object):
                              error_handler: Callable[[str], None]) -> List:
         """Format *options* in a list or dictionary format into command line long form arguments.
 
+        .. note::
+            The format of the output of this method is to prepare arguments for use in the ``pg_ctl``
+            method of `self._postgres`, which will join all options together into a single space delimited
+           string passed to the argument ``-o``.
+
         :Example:
 
             The *options* can be defined as a dictionary of key, values to be converted into arguments:
@@ -50,6 +55,14 @@ class Bootstrap(object):
             Or a combination of single and key, values
             >>> Bootstrap.process_user_options('foo', ['yes', {'foo': 'bar'}], (), print)
             ['--yes', '--foo=bar']
+
+            Options that contain spaces will be quoted
+            >>> Bootstrap.process_user_options('foo', [{'foo': 'bar baz'}], (), print)
+            ["--foo='bar baz'"]
+
+            Options that are already quoted will remain so
+            >>> Bootstrap.process_user_options('foo', [{'foo': '"bar baz"'}], (), print)
+            ['--foo="bar baz"']
 
         .. note::
             The *error_handler* is called when any of these conditions are met:
