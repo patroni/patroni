@@ -48,12 +48,12 @@ except ImportError:
             Will create ``server_version`` attribute in the returning connection, so it keeps compatibility with the
             object that would be returned by ``psycopg2.connect``.
 
-        :param args: positional arguments to call ``psycopg.connect`` with.
+        :param dsn: DSN to call ``psycopg.connect`` with.
         :param kwargs: keyword arguments to call ``psycopg.connect`` with.
 
         :returns: a connection to the database.
         """
-        ret = __connect(*args, **kwargs)
+        ret = __connect(dsn, **kwargs)
         setattr(ret, 'server_version', ret.pgconn.server_version)  # compatibility with psycopg2
         return ret
 
