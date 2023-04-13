@@ -105,7 +105,7 @@ class QueueHandler(logging.Handler):
 
         Also check if we have previously lost any log record, and if so, log a ``WARNING`` message.
 
-        :param record: the recorded that was emitted.
+        :param record: the record that was emitted.
         """
         try:
             self._put_record(record)
@@ -142,7 +142,7 @@ class ProxyHandler(logging.Handler):
 
         Will push the log record down to :func:`handle` method of the currently configured log handler.
 
-        :param record: the recorded that was emitted.
+        :param record: the record that was emitted.
         """
         if self.patroni_logger.log_handler is not None:
             self.patroni_logger.log_handler.handle(record)
