@@ -19,7 +19,7 @@ import socket
 import sys
 import tempfile
 import time
-from shlex import quote, split
+from shlex import split
 
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union, TYPE_CHECKING
 
@@ -914,33 +914,30 @@ def enable_keepalive(sock: socket.socket, timeout: int, idle: int, cnt: Optional
         sock.setsockopt(*opt)
 
 
-def shell_quote(opt: str) -> str:
-    """Quote a string intended to be used as part of a shell command.
+def unquote(string: str) -> str:
+    """Unquote a fully quoted *string*.
 
-    Applies quoting on POSIX compliant systems only, on ``win32`` platforms
-    will just return the original string unquoted.
+    :Examples:
 
-    :param opt: String to be quoted
-    :returns: Quoted string
-    """
-    if sys.platform != 'win32' and requires_quoting(opt):
-        return quote(opt)
-    return opt
+        A *string* with quotes will have those quotes removed
+        >>> unquote('"a quoted string"')
+        'a quoted string'
 
+        A *string* with multiple quotes will be returned as is
+        >>> unquote('"a multi" "quoted string"')
+        '"a multi" "quoted string"'
 
-def requires_quoting(string: str) -> bool:
-    """Check if string is unquoted.
+        So will a *string* with unbalanced quotes
+        >>> unquote('unbalanced "quoted string')
+        'unbalanced "quoted string'
 
-    .. note::
-        Checks if *string* can be unquoted and the result is a single string.
-        If the string cannot be unquoted or an attempt to do so results in an error being raised
-        from ``shlex.split`` then assume *string* requires quoting.
-
-    :param string: The input string to check.
-    :returns: ``True`` if the string is not a single fully quoted string, or cannot be unquoted,
-              ``False`` if already quoted or quoting is not required.
+    :param string: The string to be checked for quoting.
+    :returns: The string with quotes removed, if it is a fully quoted single string,
+              or the original string if quoting is not detected, or unquoting was not possible.
     """
     try:
-        return len(split(string)) > 1
+        ret = split(string)
+        ret = ret[0] if len(ret) == 1 else string
     except ValueError:
-        return True
+        ret = string
+    return ret

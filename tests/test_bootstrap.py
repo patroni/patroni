@@ -119,14 +119,14 @@ class TestBootstrap(BaseTestPostgresql):
                     [{'key': 'value with spaces'}],
                     (), error_handler
                 ),
-                ["--key='value with spaces'"])
+                ["--key=value with spaces"])
             self.assertEqual(
                 self.b.process_user_options(
                     'initdb',
                     [{'key': "'value with spaces'"}],
                     (), error_handler
                 ),
-                ["--key='value with spaces'"])
+                ["--key=value with spaces"])
 
     @patch.object(CancellableSubprocess, 'call', Mock())
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))

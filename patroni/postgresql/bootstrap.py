@@ -7,7 +7,7 @@ from typing import List, Dict, Union, Callable, Tuple
 
 from ..dcs import RemoteMember
 from ..psycopg import quote_ident, quote_literal
-from ..utils import deep_compare, shell_quote
+from ..utils import deep_compare, unquote
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +34,8 @@ class Bootstrap(object):
         """Format *options* in a list or dictionary format into command line long form arguments.
 
         .. note::
-            The format of the output of this method is to prepare arguments for use in the ``pg_ctl``
-            method of `self._postgres`, which will join all options together into a single space delimited
-           string passed to the argument ``-o``.
+            The format of the output of this method is to prepare arguments for use in the ``initdb``
+            method of `self._postgres`.
 
         :Example:
 
@@ -56,20 +55,20 @@ class Bootstrap(object):
             >>> Bootstrap.process_user_options('foo', ['yes', {'foo': 'bar'}], (), print)
             ['--yes', '--foo=bar']
 
-            Options that contain spaces will be quoted
+            Options that contain spaces will passed as is to ``subprocess.call``
             >>> Bootstrap.process_user_options('foo', [{'foo': 'bar baz'}], (), print)
-            ["--foo='bar baz'"]
+            ['--foo=bar baz']
 
-            Options that are already quoted will remain so
+            Options that are quoted will be unquoted, so the quotes aren't interpreted
+            literally by the postgres command
             >>> Bootstrap.process_user_options('foo', [{'foo': '"bar baz"'}], (), print)
-            ['--foo="bar baz"']
+            ['--foo=bar baz']
 
         .. note::
             The *error_handler* is called when any of these conditions are met:
 
             * Key, value dictionaries in the list form contains multiple keys.
             * If a key is listed in *not_allowed_options*.
-            * If there was a problem parsing the format of a value, e.g. unbalanced quoting.
             * If the options list is not in the required structure.
 
         :param tool: The name of the tool used in error reports to *error_handler*
@@ -99,7 +98,7 @@ class Bootstrap(object):
                     if len(keys) != 1 or not isinstance(opt[keys[0]], str) or not option_is_allowed(keys[0]):
                         error_handler('Error when parsing {0} key-value option {1}: only one key-value is allowed'
                                       ' and value should be a string'.format(tool, opt[keys[0]]))
-                    user_options.append('--{0}={1}'.format(keys[0], shell_quote(opt[keys[0]])))
+                    user_options.append('--{0}={1}'.format(keys[0], unquote(opt[keys[0]])))
                 else:
                     error_handler('Error when parsing {0} option {1}: value should be string value'
                                   ' or a single key-value pair'.format(tool, opt))
@@ -125,9 +124,8 @@ class Bootstrap(object):
                 os.write(fd, self._postgresql.config.superuser['password'].encode('utf-8'))
                 os.close(fd)
                 options.append('--pwfile={0}'.format(pwfile))
-        options = ['-o', ' '.join(options)] if options else []
 
-        ret = self._postgresql.pg_ctl('initdb', *options)
+        ret = self._postgresql.initdb(*options)
         if pwfile:
             os.remove(pwfile)
         if ret:
