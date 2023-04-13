@@ -127,7 +127,7 @@ class PatroniRequest(object):
             body = json.dumps(body)
         return self._pool.request(method.upper(), url, body=body, **kwargs)
 
-    def __call__(self, member: Member, method: Optional[str] = 'GET', endpoint: Optional[str] = None,
+    def __call__(self, member: Member, method: str = 'GET', endpoint: Optional[str] = None,
                  data: Optional[Any] = None, **kwargs: Any) -> urllib3.response.HTTPResponse:
         """Turn :class:`PatroniRequest` into a callable object.
 
@@ -144,7 +144,6 @@ class PatroniRequest(object):
         if endpoint:
             scheme, netloc, _, _, _, _ = urlparse(url)
             url = urlunparse((scheme, netloc, endpoint, '', '', ''))
-        assert isinstance(method, str)
         return self.request(method, url, data, **kwargs)
 
 
