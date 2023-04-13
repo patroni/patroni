@@ -99,6 +99,29 @@ All other envs can be run with their respective env names:
    tox -e lint
    tox -e py39-test-lin
 
+It is also possible to select partial env lists using `factors`. For example, if you want to run
+all envs for python 3.10:
+
+.. code-block:: bash
+
+    tox -f py310
+
+This is equivalent to running all the envs listed below:
+
+.. code-block:: bash
+
+    $ tox -l -f py310
+    py310-test-lin
+    py310-test-mac
+    py310-test-win
+    py310-type-lin
+    py310-type-mac
+    py310-type-win
+    py310-behave-etcd-lin
+    py310-behave-etcd-win
+    py310-behave-etcd-mac
+
+
 You can list all configured combinations of environments with tox (>=v4) like so
 
 .. code-block:: bash
