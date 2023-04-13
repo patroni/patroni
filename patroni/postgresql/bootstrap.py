@@ -55,7 +55,7 @@ class Bootstrap(object):
             >>> Bootstrap.process_user_options('foo', ['yes', {'foo': 'bar'}], (), print)
             ['--yes', '--foo=bar']
 
-            Options that contain spaces will passed as is to ``subprocess.call``
+            Options that contain spaces are passed as is to ``subprocess.call``
             >>> Bootstrap.process_user_options('foo', [{'foo': 'bar baz'}], (), print)
             ['--foo=bar baz']
 
@@ -72,7 +72,7 @@ class Bootstrap(object):
             * If the options list is not in the required structure.
 
         :param tool: The name of the tool used in error reports to *error_handler*
-        :param options: Options to parse as a list of key, values or single values or a dictionary
+        :param options: Options to parse as a list of key, values or single values, or a dictionary
         :param not_allowed_options: List of keys that cannot be used in the list of key, value formatted options
         :param error_handler: A function which will be called when an error condition is encountered
         :returns: List of long form arguments to pass to the named tool
@@ -86,9 +86,9 @@ class Bootstrap(object):
             return ret
 
         if isinstance(options, dict):
-            for k, v in options.items():
-                if k and v:
-                    user_options.append('--{0}={1}'.format(k, v))
+            for key, val in options.items():
+                if key and val:
+                    user_options.append('--{0}={1}'.format(key, unquote(val)))
         elif isinstance(options, list):
             for opt in options:
                 if isinstance(opt, str) and option_is_allowed(opt):
