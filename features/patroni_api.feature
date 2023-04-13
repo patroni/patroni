@@ -79,12 +79,12 @@ Scenario: check API requests for the primary-replica pair in the pause mode
 	When I run patronictl.py reinit batman postgres1 --force
 	Then I receive a response returncode 0
 	And I receive a response output "Success: reinitialize for member postgres1"
+	And postgres1 role is the secondary after 15 seconds
+	And replication works from postgres0 to postgres1 after 20 seconds
 	When I run patronictl.py restart batman postgres0 --force
 	Then I receive a response returncode 0
 	And I receive a response output "Success: restart on member postgres0"
 	And postgres0 role is the primary after 5 seconds
-	When I sleep for 10 seconds
-	Then postgres1 role is the secondary after 15 seconds
 
 Scenario: check the switchover via the API in the pause mode
 	Given I issue a POST request to http://127.0.0.1:8008/switchover with {"leader": "postgres0", "candidate": "postgres1"}
