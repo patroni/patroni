@@ -718,7 +718,7 @@ class Postgresql(object):
         if not block_callbacks:
             self.set_state('stopping')
 
-        # invoke user-directed before stop scripts
+        # invoke user-directed before stop script
         self._before_stop()
 
         if before_shutdown:
@@ -1035,7 +1035,10 @@ class Postgresql(object):
         cmd = self.config.get('before_stop')
         if not cmd:
             return True
+        else:
+            self._do_before_stop(cmd)
 
+    def _do_before_stop(self, cmd):
         try:
             ret = self.cancellable.call(shlex.split(cmd))
             if ret is not None:
