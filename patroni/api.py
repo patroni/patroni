@@ -1,6 +1,8 @@
-"""Implement Patroni' REST API.
+"""Implement Patroni's REST API.
 
-It exposes a REST API so administrators can get status and perform operations through the web.
+Exposes a REST API of patroni operations functions, such as status, performance and management to web clients.
+
+Much of what can be achieved with the command line tool patronictl can be done via the API. Patroni CLI and daemon utilises the API to perform these functions.
 """
 
 import base64
@@ -46,7 +48,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * description of *status_code*.
 
         .. note::
-            This is usually useful for replying back to requests from softwares like HAProxy.
+            This is usually useful for replying back to requests from software like HAProxy.
 
         :param status_code: HTTP status code.
 
@@ -60,7 +62,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def _write_response(self, status_code: int, body: str, content_type: Optional[str] = 'text/html',
                         headers: Optional[Dict[str, Any]] = None) -> None:
-        """Write a HTTP response.
+        """Write an HTTP response.
 
         .. note::
             Besides ``Content-Type`` header, and the HTTP headers passed through *headers*, this function will also
@@ -86,7 +88,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.wfile.write(body.encode('utf-8'))
 
     def _write_json_response(self, status_code: int, response: Any) -> None:
-        """Write a HTTP response which content type is JSON.
+        """Write an HTTP response with a JSON content type.
 
         Call :func:`_write_response` with ``content_type`` as ``aplication/json``.
 
@@ -119,15 +121,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
         return wrapper
 
     def _write_status_response(self, status_code: int, response: Dict[str, Any]) -> None:
-        """Write a HTTP response with Patroni/Postgres status in JSON format.
+        """Write an HTTP response with Patroni/Postgres status in JSON format.
 
-        This function modifies *response* before sending it to the client. It will define the ``patroni`` key, which is
-        dictionary that contains 2 keys:
+        Modifies *response* before sending it to the client. Defines the ``patroni`` key, which is a
+        dictionary that contains the mandatory keys:
 
         * ``version``: Patroni version, e.g. ``3.0.2``;
         * ``scope``: value of ``scope`` setting from Patroni configuration.
 
-        Besides that it may also add the following keys, depending on the status of this Patroni / PostgreSQL node:
+        May also add the following optional keys, depending on the status of this Patroni/PostgreSQL node:
 
         * ``tags``: tags that were set through Patroni configuration merged with dinamically applied tags;
         * ``database_system_identifier``: ``Database system identifier`` from ``pg_controldata`` output;
@@ -170,9 +172,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         Is used for handling all health-checks requests. E.g. "GET /(primary|replica|sync|async|etc...)"
 
-        :param write_status_code_only: indicates that instead of normal HTTP response we should
-                                       send only HTTP Status Code and close the connection.
-                                       It is useful to when health-checks are executed by HAProxy.
+        :param write_status_code_only: indicates that instead of a normal HTTP response we should
+                                       send only the HTTP Status Code and close the connection.
+                                       Useful when health-checks are executed by HAProxy.
         """
         path = '/primary' if self.path == '/' else self.path
         response = self.get_postgresql_status()
@@ -283,7 +285,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET_liveness(self) -> None:
         """Handle a ``GET`` request to ``/liveness`` path.
 
-        Write a simple HTTP response which HTTP status can be:
+        Write a simple HTTP response with HTTP status:
             * ``200``:
                 * If the cluster is in maintenance mode; or
                 * If Patroni heartbeat loop is properly running;
@@ -322,7 +324,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET_patroni(self) -> None:
         """Handle a ``GET`` request to ``/patroni`` path.
 
-        Write a HTTP response through :func:`_write_status_reponse`, with HTTP status ``200``. It is the status of
+        Write an HTTP response through :func:`_write_status_reponse`, with HTTP status ``200`` and the status of
         Postgres.
         """
         response = self.get_postgresql_status(True)
@@ -331,8 +333,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET_cluster(self) -> None:
         """Handle a ``GET`` request to ``/cluster`` path.
 
-        Write a HTTP response with a JSON content based on the output of :func:`cluster_as_json`, with HTTP status
-        ``200``. It is the JSON representation of the cluster topology.
+        Write an HTTP response with JSON content based on the output of :func:`cluster_as_json`, with HTTP status
+        ``200`` and the JSON representation of the cluster topology.
         """
         cluster = self.server.patroni.dcs.get_cluster(True)
         global_config = self.server.patroni.config.get_global_config(cluster)
@@ -341,7 +343,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET_history(self) -> None:
         """Handle a ``GET`` request to ``/history`` path.
 
-        Write a HTTP response with a JSON content representing the history of events in the cluster, with HTTP status
+        Write an HTTP response with a JSON content representing the history of events in the cluster, with HTTP status
         ``200``.
         """
         cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
@@ -350,7 +352,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET_config(self) -> None:
         """Handle a ``GET`` request to ``/config`` path.
 
-        Write a HTTP response with a JSON content representing the Patroni configuration that is stored in the DCS,
+        Write an HTTP response with a JSON content representing the Patroni configuration that is stored in the DCS,
         with HTTP status ``200``.
 
         If the cluster information is not available in the DCS, then it will respond with no body and HTTP status
@@ -365,7 +367,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET_metrics(self) -> None:
         """Handle a ``GET`` request to ``/metrics`` path.
 
-        Write a HTTP response with plain text content in the format used by Prometheus, with HTTP status ``200``.
+        Write an HTTP response with plain text content in the format used by Prometheus, with HTTP status ``200``.
 
         The response contains the following items:
 
@@ -498,20 +500,20 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """Read JSON from HTTP request body.
 
         .. note::
-            It retrieves the request body based on `content-length` HTTP header. The body is expected to be a JSON
+            Retrieves the request body based on `content-length` HTTP header. The body is expected to be a JSON
             string with that length.
 
-            If request body is expected but `content-length` HTTP header is absent, then it writes a HTTP response
+            If request body is expected but `content-length` HTTP header is absent, then write an HTTP response
             with HTTP status ``411``.
 
-            If request body is expected but it contains nothing, or if an exception is faced, then it writes a HTTP
+            If request body is expected but contains nothing, or if an exception is faced, then write an HTTP
             response with HTTP status ``400``.
 
-        :param body_is_optional: if ``False`` then the request must contain a body. If ``True``, then it may or may not
+        :param body_is_optional: if ``False`` then the request must contain a body. If ``True``, then the request may or may not
             contain a body.
 
         :returns: deserialized JSON string from request body, if present. If body is absent, but *body_is_optional* is
-            ``True``, then it returns an empty dictionary. Returns ``None`` otherwise.
+            ``True``, then return an empty dictionary. Returns ``None`` otherwise.
         """
         if 'content-length' not in self.headers:
             return self.send_error(411) if not body_is_optional else {}
@@ -530,14 +532,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_PATCH_config(self) -> None:
         """Handle a ``PATCH`` request to ``/config`` path.
 
-        It updates the Patroni configuration based on the JSON request body, then writes a response with the new
+        Updates the Patroni configuration based on the JSON request body, then writes a response with the new
         configuration, with HTTP status ``200``.
 
         .. note::
-            If it suspects the configuration has been previously wiped out from DCS, then it writes a response with
+            If the configuration has been previously wiped out from DCS, then write a response with
             HTTP status ``503``.
 
-            If it faces any issue to apply a configuration value, then it writes a response with HTTP status ``409``.
+            If applying a configuration value fails, then write a response with HTTP status ``409``.
         """
         request = self._read_json_content()
         if request:
@@ -556,11 +558,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_PUT_config(self) -> None:
         """Handle a ``PUT`` request to ``/config`` path.
 
-        It overwrites the Patroni configuration based on the JSON request body, then writes a response with the new
+        Overwrites the Patroni configuration based on the JSON request body, then writes a response with the new
         configuration, with HTTP status ``200``.
 
         .. note::
-            If if faces any issue to apply the new configuration, then it writes a response with HTTP status ``502``.
+            If applying the new configuration fails, then write a response with HTTP status ``502``.
         """
         request = self._read_json_content()
         if request:
@@ -583,12 +585,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET_failsafe(self) -> None:
         """Handle a ``GET`` request to ``/failsafe`` path.
 
-        Writes a response which body is a JSON string containing all nodes that are known to Patroni at a given point
+        Writes a response with a JSON string body containing all nodes that are known to Patroni at a given point
         in time, with HTTP status ``200``. The JSON contains a dictionary, each key is the name of the Patroni node,
         and the corresponding value is the URI to access `/patroni` path of its REST API.
 
         .. note::
-            If ``failsafe_mode`` is not enabled, then it writes a response with HTTP status ``502``.
+            If ``failsafe_mode`` is not enabled, then write a response with HTTP status ``502``.
         """
         failsafe = self.server.patroni.dcs.failsafe
         if isinstance(failsafe, dict):
@@ -604,7 +606,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         the primary.
 
         .. note::
-            If ``failsafe_mode`` is not enabled, then it writes a response with HTTP status ``502``.
+            If ``failsafe_mode`` is not enabled, then write a response with HTTP status ``502``.
         """
         if self.server.patroni.ha.is_failsafe_mode():
             request = self._read_json_content()
@@ -631,7 +633,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     @staticmethod
     def parse_schedule(schedule: str,
                        action: str) -> Tuple[Union[int, None], Union[str, None], Union[datetime.datetime, None]]:
-        """Parse the given *schedule* and validate it`.
+        """Parse the given *schedule* and validate it.
 
         :param schedule: a string representing a timestamp, e.g. ``2023-04-14T20:27:00+00:00``.
         :param action: the action to be scheduled (``restart``, ``switchover``, or ``failover``).
@@ -666,7 +668,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_POST_restart(self) -> None:
         """Handle a ``POST`` request to ``/restart`` path.
 
-        It is used to restart postgres (or schedule a restart), mainly by ``patronictl restart``.
+        Used to restart postgres (or schedule a restart), mainly by ``patronictl restart``.
 
         The request body should be a JSON dictionary, and it can contain the following keys:
             * ``schedule``: timestamp at which the restart should occurr;
@@ -675,10 +677,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 * ``replica``.
             * ``postgres_version``: restart only nodes which PostgreSQL version is less than ``postgres_version``, e.g.
                 ``15.2``;
-            * ``timeout``: if restart takes longer than ``timeout`` it will return an error and fail over to a replica;
+            * ``timeout``: if restart takes longer than ``timeout`` return an error and fail over to a replica;
             * ``restart_pending``: if we shoud restart only nodes that have ``pending restart`` flag;
 
-        It writes a response, and the HTTP status code can be:
+        Response HTTP status codes:
             * ``200``: if successfully performed an immediate restart; or
             * ``202``: if successfully scheduled a restart for later; or
             * ``500``: if the cluster is in maintenance mode; or
@@ -758,9 +760,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_DELETE_restart(self) -> None:
         """Handle a ``DELETE`` request to ``/restart`` path.
 
-        It is used to remove a scheduled restart of PostgreSQL.
+        Used to remove a scheduled restart of PostgreSQL.
 
-        It writes a response, and the HTTP status code can be:
+        Response HTTP status codes:
             * ``200``: if a scheduled restart was removed; or
             * ``404``: if no scheduled restart could be found.
         """
@@ -776,7 +778,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_DELETE_switchover(self) -> None:
         """Handle a ``DELETE`` request to ``/switchover`` path.
 
-        It is used to remove a scheduled switchover in the cluster.
+        Used to remove a scheduled switchover in the cluster.
 
         It writes a response, and the HTTP status code can be:
             * ``200``: if a scheduled switchover was removed; or
@@ -802,7 +804,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         The request body may contain a JSON dictionary with the following key:
             * ``force``: ``True`` if we want to cancel an already running task in order to reinit a replica.
 
-        It writes a response, and the HTTP status code can be:
+        Response HTTP status codes:
             * ``200``: if the reinit operation has started; or
             * ``503``: if any error is returned by :func:`Ha.reinitialize`.
         """
@@ -829,7 +831,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :param action: the action that is ongoing (``switchover`` or ``failover``).
 
         :returns: a tuple composed of 2 items
-            * Suggested HTTP status code for a response:
+            * Response HTTP status codes:
                 * ``200``: if the operation succeeded; or
                 * ``503``: if the operation failed or timed out.
             * A status message about the operation.
@@ -852,7 +854,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         return 503, action.title() + ' status unknown'
 
     def is_failover_possible(self, cluster: Cluster, leader: str, candidate: str, action: str) -> Union[str, None]:
-        """Checks whether there are nodes that could take it over after demoting the primary.
+        """Checks whether there are nodes that could take over after demoting the primary.
 
         :param cluster: the Patroni cluster.
         :param leader: name of the current Patroni leader.
@@ -895,15 +897,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``scheduled_at``: a string representing the timestamp when to execute the switchover/failover, e.g.
                 ``2023-04-14T20:27:00+00:00``.
 
-        It writes a response, and the HTTP status code can be:
+        Response HTTP status codes:
             * ``202``: if operation has been scheduled;
             * ``412``: if operation is not possible;
-            * ``503``: if it was not able to register the operation to the DCS;
+            * ``503``: if unable to register the operation to the DCS;
             * HTTP status returned by :func:`parse_schedule`, if any error was observed while parsing the schedule;
             * HTTP status returned by :func:`poll_failover_result` if the operation has been processed immediately.
 
         .. note::
-            If it's not able to parse the request body, then the request is silently discarded.
+            If unable to parse the request body, then the request is silently discarded.
 
         :param action: the action to be performed (``switchover`` or ``failover``).
         """
@@ -971,7 +973,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         ``200``.
 
         .. note::
-            If it's not able to parse the request body, then the request is silently discarded.
+            If unable to parse the request body, then the request is silently discarded.
         """
         request = self._read_json_content()
         if not request:
@@ -1141,16 +1143,18 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
 
 class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
-    """Implement the Patroni REST API server.
+    """Patroni REST API server.
 
-    It is an asynchronous thread-based HTTP server.
+    An asynchronous thread-based HTTP server.
     """
 
     # On 3.7+ the `ThreadingMixIn` gathers all non-daemon worker threads in order to join on them at server close.
     daemon_threads = True  # Make worker threads "fire and forget" to prevent a memory leak.
 
     def __init__(self, patroni: Patroni, config: Dict[str, Any]) -> None:
-        """Create a :class:`RestApiServer` instance.
+        """Establish patroni configuration for the REST API daemon.
+        
+        Create a :class:`RestApiServer` instance.
 
         :param patroni: Patroni daemon process.
         :param config: ``restapi`` section of Patroni configuration.
@@ -1263,7 +1267,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def check_access(self, rh: RestApiHandler) -> Union[bool, None]:
         """Ensure client has enough privileges to perform a given request.
 
-        It will write a response back to the client if any issue is observed, and the HTTP status may be:
+        Write a response back to the client if any issue is observed, and the HTTP status may be:
             * ``401``: if ``Authorizarion`` header is missing or contain an invalid password;
             * ``403``: if:
                 * ``restapi.allowlist`` was configured, but client IP is not in the allowed list; or
@@ -1293,7 +1297,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def __has_dual_stack() -> bool:
         """Check if the system has support for dual stack sockets.
 
-        :returns: ``True`` if it has support dor dual stack sockets.
+        :returns: ``True`` if it has support for dual stack sockets.
         """
         if hasattr(socket, 'AF_INET6') and hasattr(socket, 'IPPROTO_IPV6') and hasattr(socket, 'IPV6_V6ONLY'):
             sock = None
@@ -1401,7 +1405,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def process_request_thread(self, request: socket.socket, client_address: Tuple[str, int]) -> None:
         """Process a request to the REST API.
 
-        It is a wrapper for :func:`ThreadingMixIn.process_request_thread` that additionaly:
+        Wrapper for :func:`ThreadingMixIn.process_request_thread` that additionally:
             * Enable TCP keepalivel
             * Perform SSL handshake (if a SSL socket).
 
@@ -1416,7 +1420,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def shutdown_request(self, request: socket.socket) -> None:
         """Shut down a request to the REST API.
 
-        It is a wrapper for :func:`HTTPServer.shutdown_request` that additionally:
+        Wrapper for :func:`HTTPServer.shutdown_request` that additionally:
             * Perform SSL shutdown handshake (if a SSL socket).
 
         :param request: socket to handle the client request.
