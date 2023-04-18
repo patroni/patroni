@@ -54,7 +54,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         :Example:
 
-        * ``_write_status_code_only(200)`` would write a response like ``HTTP/1.0 200 OK``.
+            * ``_write_status_code_only(200)`` would write a response like ``HTTP/1.0 200 OK``.
         """
         message = self.responses[status_code][0]
         self.wfile.write('{0} {1} {2}\r\n\r\n'.format(self.protocol_version, status_code, message).encode('utf-8'))
