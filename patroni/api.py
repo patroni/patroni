@@ -1530,8 +1530,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """
         enable_keepalive(request, 10, 3)
         if hasattr(request, 'context'):  # SSLSocket
-            assert type(request) == SSLSocket  # pyright
-            request.do_handshake()
+            # pyright
+            if isinstance(request, SSLSocket):
+                request.do_handshake()
         super(RestApiServer, self).process_request_thread(request, client_address)
 
     def shutdown_request(self, request: Union[socket.socket, SSLSocket]) -> None:
@@ -1544,8 +1545,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """
         if hasattr(request, 'context'):  # SSLSocket
             try:
-                assert type(request) == SSLSocket  # pyright
-                request.unwrap()
+                # pyright
+                if isinstance(request, SSLSocket):
+                    request.unwrap()
             except Exception as e:
                 logger.debug('Failed to shutdown SSL connection: %r', e)
         super(RestApiServer, self).shutdown_request(request)
