@@ -170,7 +170,44 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET(self, write_status_code_only: Optional[bool] = False) -> None:
         """Process all GET requests which can not be routed to other methods.
 
-        Is used for handling all health-checks requests. E.g. "GET /(primary|replica|sync|async|etc...)"
+        Is used for handling all health-checks requests. E.g. "GET /(primary|replica|sync|async|etc...)".
+
+        The (optional) query parameters and the HTTP response status depend on the requested path:
+            * ``/``, ``primary``, or ``read-write``:
+                * HTTP status ``200``: if a primary with the leader lock.
+            * ``/standby-leader``:
+                * HTTP status ``200``: if holds the leader lock in a standby cluster.
+            * ``/leader``:
+                * HTTP status ``200``: if holds the leader lock.
+            * ``/replica``:
+                * Query parameters:
+                    * ``lag``: only accept replication lag up to ``lag``. Accepts either an :class:`int`, which
+                        represents lag in bytes, or a :class:`str` representing lag in human readable format (e.g.
+                        ``10MB``).
+                    * Any custom parameter: will attempt to match them against node tags.
+                * HTTP status ``200``: if up and running as a standby and without ``noloadbalance`` tag.
+            * ``/read-only``:
+                * HTTP status ``200``: if up and running and without ``noloadbalance`` tag.
+            * ``/synchronous`` or ``/sync``:
+                * HTTP status ``200``: if up and running as a synchronous standby.
+            * ``/read-only-sync``:
+                * HTTP status ``200``: if up and running as a synchronous standby or primary.
+            * ``/asynchronous``:
+                * Query parameters:
+                    * ``lag``: only accept replication lag up to ``lag``. Accepts either an :class:`int`, which
+                        represents lag in bytes, or a :class:`str` representing lag in human readable format (e.g.
+                        ``10MB``).
+                * HTTP status ``200``: if up and running as an asynchronous standby.
+            * ``/health``:
+                * HTTP status ``200``: if up and running.
+
+        .. note::
+            If not able to honor the query parameter, or not able to match the condition described for HTTP status
+            ``200`` in each path above, then HTTP status will be ``503``.
+
+        .. note::
+            Independently of the requested path, if *write_status_code_only* is ``False``, then it always write an HTTP
+            response through :func:`_write_status_reponse`, with HTTP status ``200`` and the status of Postgres.
 
         :param write_status_code_only: indicates that instead of a normal HTTP response we should
                                        send only the HTTP Status Code and close the connection.
@@ -345,6 +382,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         Write an HTTP response with a JSON content representing the history of events in the cluster, with HTTP status
         ``200``.
+
+        The response contains a :class:`list` of failover/switchover events. Each item is a :class:`list` with the
+        following items:
+            * Timeline when the event occurred (class:`int`);
+            * LSN at which the event occurred (class:`int`);
+            * The reason for the event (class:`str`);
+            * Timestamp when the new timeline was created (class:`str`);
+            * Name of the involved Patroni node (class:`str`).
         """
         cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
         self._write_json_response(200, cluster.history and cluster.history.lines or [])
