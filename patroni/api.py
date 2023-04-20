@@ -1576,7 +1576,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                 self.__ssl_serial_number = on_disk_cert_serial_number
                 return True
 
-    def _build_allowlist(self, value: List[str]) -> Iterator[Union[IPv4Network, IPv6Network]]:
+    def _build_allowlist(self, value: Optional[List[str]]) -> Iterator[Union[IPv4Network, IPv6Network]]:
         """Resolve each entry in *value* to an IP network object.
 
         :param value: list of IPs and/or networks contained in ``restapi.allowlist`` setting. Each item can be a host,
