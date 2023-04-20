@@ -945,7 +945,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 logger.debug('Exception occurred during polling %s result: %s', action, e)
         return 503, action.title() + ' status unknown'
 
-    def is_failover_possible(self, cluster: Cluster, leader: str, candidate: str, action: str) -> Union[str, None]:
+    def is_failover_possible(self, cluster: Cluster, leader: Optional[str], candidate: Optional[str],
+                             action: str) -> Union[str, None]:
         """Checks whether there are nodes that could take over after demoting the primary.
 
         :param cluster: the Patroni cluster.
