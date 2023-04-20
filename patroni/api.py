@@ -932,7 +932,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         return action + ' is not possible: no good candidates have been found'
 
     @check_access
-    def do_POST_failover(self, action: Optional[str] = 'failover') -> None:
+    def do_POST_failover(self, action: str = 'failover') -> None:
         """Handle a ``POST`` request to ``/failover`` path.
 
         Handles manual failovers/switchovers, mainly from ``patronictl``.
