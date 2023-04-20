@@ -582,7 +582,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if 'content-length' not in self.headers:
             return self.send_error(411) if not body_is_optional else {}
         try:
-            content_length = int(self.headers.get('content-length'))
+            content_length = self.headers.get('content-length')
+            if self.headers.get('content-length') is None:
+                raise Exception('content-length header is missing')
+            content_length = int(content_length or 0)
             if content_length == 0 and body_is_optional:
                 return {}
             request = json.loads(self.rfile.read(content_length).decode('utf-8'))
