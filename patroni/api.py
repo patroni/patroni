@@ -1394,6 +1394,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                 return rh._write_response(403, 'Access is denied')
 
         if not hasattr(rh.request, 'getpeercert') or not rh.request.getpeercert():  # valid client cert isn't present
+            # pyright -- ``__ssl_options`` is initially created as ``None``, but right after that it is replaced with a
+            # dictionary through :func:`reload_config`.
+            assert type(self.__ssl_options) == dict
             if self.__protocol == 'https' and self.__ssl_options.get('verify_client') in ('required', 'optional'):
                 return rh._write_response(403, 'client certificate required')
 
