@@ -1053,6 +1053,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
             else:
                 data = 'failed to write {0} key into DCS'.format(action)
                 status_code = 503
+        # pyright thinks ``status_code`` can be ``None`` because ``parse_schedule`` call may return ``None``. However,
+        # if that's the case, ``status_code`` will be overwritten somewhere between ``parse_schedule`` and
+        # ``_write_response`` calls.
+        assert type(status_code) == int
         self._write_response(status_code, data)
 
     def do_POST_switchover(self) -> None:
