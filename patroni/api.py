@@ -16,6 +16,7 @@ import dateutil.parser
 import datetime
 import os
 import socket
+from ssl import SSLSocket
 import sys
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -1517,7 +1518,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if reloading_config:
             self.start()
 
-    def process_request_thread(self, request: socket.socket, client_address: Tuple[str, int]) -> None:
+    def process_request_thread(self, request: Union[socket.socket, SSLSocket], client_address: Tuple[str, int]) -> None:
         """Process a request to the REST API.
 
         Wrapper for :func:`ThreadingMixIn.process_request_thread` that additionally:
@@ -1529,10 +1530,11 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """
         enable_keepalive(request, 10, 3)
         if hasattr(request, 'context'):  # SSLSocket
+            assert type(request) == SSLSocket  # pyright
             request.do_handshake()
         super(RestApiServer, self).process_request_thread(request, client_address)
 
-    def shutdown_request(self, request: socket.socket) -> None:
+    def shutdown_request(self, request: Union[socket.socket, SSLSocket]) -> None:
         """Shut down a request to the REST API.
 
         Wrapper for :func:`HTTPServer.shutdown_request` that additionally:
@@ -1542,6 +1544,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """
         if hasattr(request, 'context'):  # SSLSocket
             try:
+                assert type(request) == SSLSocket  # pyright
                 request.unwrap()
             except Exception as e:
                 logger.debug('Failed to shutdown SSL connection: %r', e)
