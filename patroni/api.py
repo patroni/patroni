@@ -1427,7 +1427,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                     sock.close()
         return False
 
-    def __httpserver_init(self, host: str, port: int) -> None:
+    def __httpserver_init(self, host: Optional[str], port: int) -> None:
         """Start REST API HTTP server.
 
         .. note::
