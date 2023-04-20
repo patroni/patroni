@@ -835,6 +835,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 else:
                     data = "Another restart is already scheduled"
                     status_code = 409
+        # pyright thinks ``data`` can be ``None`` because ``parse_schedule`` call may return ``None``. However, if
+        # that's the case, ``data`` will be overwritten when the ``for`` loop ends
+        assert type(data) == str
         self._write_response(status_code, data)
 
     @check_access

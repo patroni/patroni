@@ -9,7 +9,7 @@ import uuid
 from collections import namedtuple
 from multiprocessing.pool import ThreadPool
 from threading import RLock
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 from . import psycopg
 from .async_executor import AsyncExecutor, CriticalTask
@@ -1341,7 +1341,7 @@ class Ha(object):
     def restart_scheduled(self):
         return self._async_executor.scheduled_action == 'restart'
 
-    def restart(self, restart_data, run_async=False):
+    def restart(self, restart_data, run_async=False) -> Tuple[bool, str]:
         """ conditional and unconditional restart """
         assert isinstance(restart_data, dict)
 
