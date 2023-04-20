@@ -589,7 +589,7 @@ def polling_loop(timeout: Union[int, float], interval: Optional[Union[int, float
         time.sleep(interval)
 
 
-def split_host_port(value: str, default_port: int) -> Tuple[str, int]:
+def split_host_port(value: str, default_port: Optional[int]) -> Tuple[str, int]:
     """Extract host(s) and port from *value*.
 
     :param value: string from where host(s) and port will be extracted. Accepts either of these formats
