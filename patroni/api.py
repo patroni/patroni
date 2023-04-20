@@ -1542,11 +1542,14 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                 logger.debug('Failed to shutdown SSL connection: %r', e)
         super(RestApiServer, self).shutdown_request(request)
 
-    def get_certificate_serial_number(self) -> str:
+    def get_certificate_serial_number(self) -> Union[str, None]:
         """Get serial number of the certificate used by the REST API.
 
         :returns: serial number of the certificate configured through ``restapi.certfile`` setting.
         """
+        # pyright -- ``__ssl_options`` is initially created as ``None``, but right after that it is replaced with a
+        # dictionary through :func:`reload_config`.
+        assert type(self.__ssl_options) == dict
         if self.__ssl_options.get('certfile'):
             import ssl
             try:
