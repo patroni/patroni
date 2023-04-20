@@ -1625,6 +1625,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             self.__initialize(config['listen'], ssl_options)
 
         self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')) if 'auth' in config else None
+        # pyright -- ``__listen`` is initially created as ``None``, but right after that it is replaced with a string
+        # through :func:`__initialize`.
+        assert type(self.__listen) == str
         self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
 
     @staticmethod
