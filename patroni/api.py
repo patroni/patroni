@@ -2,7 +2,8 @@
 
 Exposes a REST API of patroni operations functions, such as status, performance and management to web clients.
 
-Much of what can be achieved with the command line tool patronictl can be done via the API. Patroni CLI and daemon utilises the API to perform these functions.
+Much of what can be achieved with the command line tool patronictl can be done via the API. Patroni CLI and daemon
+utilises the API to perform these functions.
 """
 
 import base64
@@ -554,8 +555,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             If request body is expected but contains nothing, or if an exception is faced, then write an HTTP
             response with HTTP status ``400``.
 
-        :param body_is_optional: if ``False`` then the request must contain a body. If ``True``, then the request may or may not
-            contain a body.
+        :param body_is_optional: if ``False`` then the request must contain a body. If ``True``, then the request may or
+            may not contain a body.
 
         :returns: deserialized JSON string from request body, if present. If body is absent, but *body_is_optional* is
             ``True``, then return an empty dictionary. Returns ``None`` otherwise.
@@ -1198,7 +1199,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
     def __init__(self, patroni: Patroni, config: Dict[str, Any]) -> None:
         """Establish patroni configuration for the REST API daemon.
-        
+
         Create a :class:`RestApiServer` instance.
 
         :param patroni: Patroni daemon process.
