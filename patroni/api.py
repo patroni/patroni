@@ -1321,6 +1321,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         :returns: ``True`` if *key* matches the password configured for the REST API.
         """
+        # pyright -- ``__auth_key`` was already checked through the caller method (:func:`check_auth_header`).
+        assert self.__auth_key is not None
         return hmac.compare_digest(self.__auth_key, key.encode('utf-8'))
 
     def check_auth_header(self, auth_header: Union[str, None]) -> Union[str, None]:
