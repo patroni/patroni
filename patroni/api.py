@@ -208,7 +208,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         .. note::
             Independently of the requested path, if *write_status_code_only* is ``False``, then it always write an HTTP
-            response through :func:`_write_status_reponse`, with HTTP status ``200`` and the status of Postgres.
+            response through :func:`_write_status_reponse`, with the node status.
 
         :param write_status_code_only: indicates that instead of a normal HTTP response we should
                                        send only the HTTP Status Code and close the connection.
