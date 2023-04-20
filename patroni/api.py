@@ -1088,7 +1088,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             patroni.postgresql.citus_handler.handle_event(cluster, request)
         self._write_response(200, 'OK')
 
-    def parse_request(self) -> None:
+    def parse_request(self) -> bool:
         """Override :func:`parse_request` method to enrich basic functionality of :class:`BaseHTTPRequestHandler`.
 
         Original class can only invoke :func:`do_GET`, :func:`do_POST`, :func:`do_PUT`, etc method implementations if
@@ -1098,6 +1098,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``POST /other`` should invoke :func:`do_POST_other()`
 
         If the :func:`do_<REQUEST_METHOD>_<first_part_url>` method does not exists we'll fallback to original behavior.
+
+        :returns: ``True`` for success, ``False`` for failure; on failure, any relevant error response has already been
+        sent back.
         """
         ret = BaseHTTPRequestHandler.parse_request(self)
         if ret:
