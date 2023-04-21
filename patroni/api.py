@@ -41,6 +41,22 @@ logger = logging.getLogger(__name__)
 class RestApiHandler(BaseHTTPRequestHandler):
     """Define how to handle each of the requests that are made against the REST API server."""
 
+    def __init__(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
+                 client_address: Tuple[str, int], server: Union['RestApiServer', HTTPServer]) -> None:
+        """Create a :class:`RestApiHandler` instance.
+
+        .. note::
+            Currently not different from its superclass :func:`__init__`, and only used so ``pyright`` can understand
+            the type of ``server`` attribute.
+
+        :param request: client request to be processed.
+        :param client_address: address of the client connection.
+        :param server: HTTP server that received the request.
+        """
+        assert isinstance(server, RestApiServer)
+        super(RestApiHandler, self).__init__(request, client_address, server)
+        self.server: 'RestApiServer' = server
+
     def _write_status_code_only(self, status_code: int) -> None:
         """Write a response that is composed only of the HTTP status.
 
@@ -77,8 +93,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :param headers: dictionary of additional HTTP headers to set for the response. Each key is the header name, and
             the corresponding value is the value for the header in the response.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         # TODO: try-catch ConnectionResetError: [Errno 104] Connection reset by peer and log it in DEBUG level
         self.send_response(status_code)
         headers = headers or {}
@@ -148,8 +162,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :param response: represents the status of the PostgreSQL node, and is used as a basis for the HTTP response.
             This dictionary is built through :func:`get_postgresql_status`.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         patroni = self.server.patroni
         tags = patroni.ha.get_effective_tags()
         if tags:
@@ -219,8 +231,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
                                        send only the HTTP Status Code and close the connection.
                                        Useful when health-checks are executed by HAProxy.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         path = '/primary' if self.path == '/' else self.path
         response = self.get_postgresql_status()
 
@@ -337,8 +347,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``503`` if Patroni heartbeat loop last run was more than ``ttl`` setting ago on the primary (or twice the
                 value of ``ttl`` on a replica).
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         patroni = self.server.patroni
         is_primary = patroni.postgresql.role in ('master', 'primary') and patroni.postgresql.is_running()
         # We can tolerate Patroni problems longer on the replica.
@@ -359,8 +367,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 * If this PostgreSQL instance is up and running;
             * ``503``: if none of the previous conditions apply.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         patroni = self.server.patroni
         if patroni.ha.is_leader():
             status_code = 200
@@ -385,8 +391,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Write an HTTP response with JSON content based on the output of :func:`cluster_as_json`, with HTTP status
         ``200`` and the JSON representation of the cluster topology.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         cluster = self.server.patroni.dcs.get_cluster(True)
         global_config = self.server.patroni.config.get_global_config(cluster)
         self._write_json_response(200, cluster_as_json(cluster, global_config))
@@ -405,8 +409,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * Timestamp when the new timeline was created (class:`str`);
             * Name of the involved Patroni node (class:`str`).
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
         self._write_json_response(200, cluster.history and cluster.history.lines or [])
 
@@ -419,8 +421,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         If the cluster information is not available in the DCS, then it will respond with no body and HTTP status
         ``502`` instead.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
         if cluster.config:
             self._write_json_response(200, cluster.config.data)
@@ -455,8 +455,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         * ``patroni_pending_restart``: ``1`` if this PostgreSQL node is pending a restart, else ``0``;
         * ``patroni_is_paused``: ``1`` if Patroni is in maintenance node, else ``0``.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         postgres = self.get_postgresql_status(True)
         patroni = self.server.patroni
         epoch = datetime.datetime(1970, 1, 1, tzinfo=tzutc)
@@ -609,8 +607,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
             If applying a configuration value fails, then write a response with HTTP status ``409``.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         request = self._read_json_content()
         if request:
             cluster = self.server.patroni.dcs.get_cluster(True)
@@ -634,8 +630,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         .. note::
             If applying the new configuration fails, then write a response with HTTP status ``502``.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         request = self._read_json_content()
         if request:
             cluster = self.server.patroni.dcs.get_cluster()
@@ -651,8 +645,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         Schedules a reload to Patroni and writes a response with HTTP status `202`.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         self.server.patroni.sighup_handler()
         self._write_response(202, 'reload scheduled')
 
@@ -666,8 +658,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         .. note::
             If ``failsafe_mode`` is not enabled, then write a response with HTTP status ``502``.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         failsafe = self.server.patroni.dcs.failsafe
         if isinstance(failsafe, dict):
             self._write_json_response(200, failsafe)
@@ -684,8 +674,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         .. note::
             If ``failsafe_mode`` is not enabled, then write a response with HTTP status ``502``.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         if self.server.patroni.ha.is_failsafe_mode():
             request = self._read_json_content()
             if request:
@@ -704,8 +692,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         .. note::
             Only for behave testing on windows.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         if os.name == 'nt' and os.getenv('BEHAVE_DEBUG'):
             self.server.patroni.api_sigterm()
         self._write_response(202, 'shutdown scheduled')
@@ -777,8 +763,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         .. note::
             If it's not able to parse the request body, then the request is silently discarded.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         status_code = 500
         data = 'restart failed'
         request = self._read_json_content(body_is_optional=True)
@@ -851,8 +835,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``200``: if a scheduled restart was removed; or
             * ``404``: if no scheduled restart could be found.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         if self.server.patroni.ha.delete_future_restart():
             data = "scheduled restart deleted"
             code = 200
@@ -872,8 +854,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``404``: if no scheduled switchover could be found; or
             * ``409``: if not able to update the switchover info in the DCS.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         failover = self.server.patroni.dcs.get_cluster().failover
         if failover and failover.scheduled_at:
             if not self.server.patroni.dcs.manual_failover('', '', index=failover.index):
@@ -897,8 +877,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``200``: if the reinit operation has started; or
             * ``503``: if any error is returned by :func:`Ha.reinitialize`.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         request = self._read_json_content(body_is_optional=True)
 
         if request:
@@ -927,8 +905,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 * ``503``: if the operation failed or timed out.
             * A status message about the operation.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         timeout = max(10, self.server.patroni.dcs.loop_wait)
         for _ in range(0, timeout * 2):
             time.sleep(1)
@@ -957,8 +933,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         :returns: a string with the error message or ``None`` if good nodes are found.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         is_synchronous_mode = self.server.patroni.config.get_global_config(cluster).is_synchronous_mode
         if leader and (not cluster.leader or cluster.leader.name != leader):
             return 'leader name does not match'
@@ -1005,8 +979,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         :param action: the action to be performed (``switchover`` or ``failover``).
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         request = self._read_json_content()
         (status_code, data) = (400, '')
         if not request:
@@ -1077,8 +1049,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         .. note::
             If unable to parse the request body, then the request is silently discarded.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         request = self._read_json_content()
         if not request:
             return
@@ -1124,8 +1094,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         :returns: a list of rows that were fetched from the database.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         if not kwargs.get('retry', False):
             return self.server.query(sql, *params)
         retry = Retry(delay=1, retry_exceptions=PostgresConnectionException)
@@ -1168,8 +1136,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``failsafe_mode_is_active``: ``True`` if DCS failsafe mode is currently active;
             * ``dcs_last_seen``: epoch timestamp DCS was last reached by Patroni.
         """
-        assert type(self.server) is RestApiServer  # pyright
-
         postgresql = self.server.patroni.postgresql
         cluster = self.server.patroni.dcs.cluster
         global_config = self.server.patroni.config.get_global_config(cluster)
