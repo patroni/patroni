@@ -765,8 +765,9 @@ class AbstractDCS(abc.ABC):
     def set_ttl(self, ttl):
         """Set the new ttl value for leader key"""
 
+    @property
     @abc.abstractmethod
-    def ttl(self):
+    def ttl(self) -> int:
         """Get new ttl value"""
 
     @abc.abstractmethod
