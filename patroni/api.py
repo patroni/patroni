@@ -56,6 +56,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         assert isinstance(server, RestApiServer)
         super(RestApiHandler, self).__init__(request, client_address, server)
         self.server: 'RestApiServer' = server
+        self.__start_time: float = 0.0
+        self.path_query = None
 
     def _write_status_code_only(self, status_code: int) -> None:
         """Write a response that is composed only of the HTTP status.
@@ -347,7 +349,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``503`` if Patroni heartbeat loop last run was more than ``ttl`` setting ago on the primary (or twice the
                 value of ``ttl`` on a replica).
         """
-        patroni = self.server.patroni
+        patroni: Patroni = self.server.patroni
         is_primary = patroni.postgresql.role in ('master', 'primary') and patroni.postgresql.is_running()
         # We can tolerate Patroni problems longer on the replica.
         # On the primary the liveness probe most likely will start failing only after the leader key expired.
@@ -892,7 +894,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = 503
         self._write_response(status_code, data)
 
-    def poll_failover_result(self, leader: str, candidate: str, action: str) -> Tuple[int, str]:
+    def poll_failover_result(self, leader: str, candidate: Optional[str], action: str) -> Tuple[int, str]:
         """Poll failover/switchover operation until it finishes or times out.
 
         :param leader: name of the current Patroni leader.
@@ -1236,6 +1238,11 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         :param patroni: Patroni daemon process.
         :param config: ``restapi`` section of Patroni configuration.
         """
+        self.connection_string = None
+        self.__auth_key = None
+        self.__allowlist_include_members: Optional[bool] = None
+        self.__allowlist: Tuple[Union[IPv4Network, IPv6Network], ...] = ()
+        self.http_extra_headers = None
         self.patroni = patroni
         self.__listen = None
         self.request_queue_size = int(config.get('request_queue_size', 5))
@@ -1306,7 +1313,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                 return 'not authenticated'
 
     @staticmethod
-    def __resolve_ips(host: str, port: int) -> Iterator[Union[IPv4Network, IPv6Network]]:
+    def __resolve_ips(host: Optional[str], port: int) -> Iterator[Union[IPv4Network, IPv6Network]]:
         """Resolve *host* + *port* to one or more IP networks.
 
         :param host: hostname to be checked.
