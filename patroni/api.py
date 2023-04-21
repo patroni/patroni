@@ -68,7 +68,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * description of *status_code*.
 
         .. note::
-            This is usually useful for replying back to requests from software like HAProxy.
+            This is usually useful for replying to requests from software like HAProxy.
 
         :param status_code: HTTP status code.
 
@@ -110,13 +110,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def _write_json_response(self, status_code: int, response: Any) -> None:
         """Write an HTTP response with a JSON content type.
 
-        Call :func:`_write_response` with ``content_type`` as ``aplication/json``.
+        Call :func:`_write_response` with ``content_type`` as ``application/json``.
 
         :param status_code: response HTTP status code.
         :param response: value to be dumped as a JSON string and to be used as the response body.
         """
         self._write_response(status_code, json.dumps(response, default=str), content_type='application/json')
 
+    @staticmethod
     def check_access(func: Callable) -> Callable:
         """Check the source ip, authorization header, or client certificates.
 
@@ -151,11 +152,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         May also add the following optional keys, depending on the status of this Patroni/PostgreSQL node:
 
-        * ``tags``: tags that were set through Patroni configuration merged with dinamically applied tags;
+        * ``tags``: tags that were set through Patroni configuration merged with dynamically applied tags;
         * ``database_system_identifier``: ``Database system identifier`` from ``pg_controldata`` output;
         * ``pending_restart``: ``True`` if PostgreSQL is pending to be restarted;
         * ``scheduled_restart``: a dictionary with a single key ``schedule``, which is the timestamp for the scheduled
-            restat;
+            restart;
         * ``watchdog_failed``: ``True`` if watchdog device is unhealthy;
         * ``logger_queue_size``: log queue length if it is longer than expected;
         * ``logger_records_lost``: number of log records that have been lost while the log queue was full.
@@ -202,7 +203,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``/replica``:
                 * Query parameters:
                     * ``lag``: only accept replication lag up to ``lag``. Accepts either an :class:`int`, which
-                        represents lag in bytes, or a :class:`str` representing lag in human readable format (e.g.
+                        represents lag in bytes, or a :class:`str` representing lag in human-readable format (e.g.
                         ``10MB``).
                     * Any custom parameter: will attempt to match them against node tags.
                 * HTTP status ``200``: if up and running as a standby and without ``noloadbalance`` tag.
@@ -215,7 +216,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``/asynchronous``:
                 * Query parameters:
                     * ``lag``: only accept replication lag up to ``lag``. Accepts either an :class:`int`, which
-                        represents lag in bytes, or a :class:`str` representing lag in human readable format (e.g.
+                        represents lag in bytes, or a :class:`str` representing lag in human-readable format (e.g.
                         ``10MB``).
                 * HTTP status ``200``: if up and running as an asynchronous standby.
             * ``/health``:
@@ -227,7 +228,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         .. note::
             Independently of the requested path, if *write_status_code_only* is ``False``, then it always write an HTTP
-            response through :func:`_write_status_reponse`, with the node status.
+            response through :func:`_write_status_response`, with the node status.
 
         :param write_status_code_only: indicates that instead of a normal HTTP response we should
                                        send only the HTTP Status Code and close the connection.
@@ -381,7 +382,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET_patroni(self) -> None:
         """Handle a ``GET`` request to ``/patroni`` path.
 
-        Write an HTTP response through :func:`_write_status_reponse`, with HTTP status ``200`` and the status of
+        Write an HTTP response through :func:`_write_status_response`, with HTTP status ``200`` and the status of
         Postgres.
         """
         response = self.get_postgresql_status(True)
@@ -451,7 +452,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         * ``patroni_xlog_paused``: ``pg_is_wal_replay_paused()``;
         * ``patroni_postgres_server_version``: Postgres version without periods, e.g. ``150002`` for Postgres ``15.2``;
         * ``patroni_cluster_unlocked``: ``1`` if no one holds the leader lock, else ``0``;
-        * ``patroni_failsafe_mode_is_active``: ``1`` if failmode is currently active, else ``0``;
+        * ``patroni_failsafe_mode_is_active``: ``1`` if ``failmode`` is currently active, else ``0``;
         * ``patroni_postgres_timeline``: PostgreSQL timeline based on current WAL file name;
         * ``patroni_dcs_last_seen``: epoch timestamp when DCS was last contacted successfully;
         * ``patroni_pending_restart``: ``1`` if this PostgreSQL node is pending a restart, else ``0``;
@@ -692,7 +693,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Schedule a shutdown and write a response with HTTP status ``202``.
 
         .. note::
-            Only for behave testing on windows.
+            Only for behave testing on Windows.
         """
         if os.name == 'nt' and os.getenv('BEHAVE_DEBUG'):
             self.server.patroni.api_sigterm()
@@ -739,14 +740,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Used to restart postgres (or schedule a restart), mainly by ``patronictl restart``.
 
         The request body should be a JSON dictionary, and it can contain the following keys:
-            * ``schedule``: timestamp at which the restart should occurr;
+            * ``schedule``: timestamp at which the restart should occur;
             * ``role``: restart only nodes which role is ``role``. Can be either:
                 * ``primary`` (or ``master``); or
                 * ``replica``.
             * ``postgres_version``: restart only nodes which PostgreSQL version is less than ``postgres_version``, e.g.
                 ``15.2``;
             * ``timeout``: if restart takes longer than ``timeout`` return an error and fail over to a replica;
-            * ``restart_pending``: if we shoud restart only nodes that have ``pending restart`` flag;
+            * ``restart_pending``: if we should restart only nodes that have ``pending restart`` flag;
 
         Response HTTP status codes:
             * ``200``: if successfully performed an immediate restart; or
@@ -1070,7 +1071,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``GET /uri1/part2`` request should invoke :func:`do_GET_uri1()`
             * ``POST /other`` should invoke :func:`do_POST_other()`
 
-        If the :func:`do_<REQUEST_METHOD>_<first_part_url>` method does not exists we'll fallback to original behavior.
+        If the :func:`do_<REQUEST_METHOD>_<first_part_url>` method does not exist we'll fall back to original behavior.
 
         :returns: ``True`` for success, ``False`` for failure; on failure, any relevant error response has already been
         sent back.
@@ -1115,7 +1116,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``postmaster_start_time``: ``pg_postmaster_start_time()``;
             * ``role``: ``replica`` or ``master`` based on ``pg_is_in_recovery()`` output;
             * ``server_version``: Postgres version without periods, e.g. ``150002`` for Postgres ``15.2``;
-            * ``xlog``: dictionary. Its strucutre depends on ``role``:
+            * ``xlog``: dictionary. Its structure depends on ``role``:
                 * If ``master``:
                     * ``location``: ``pg_current_wal_lsn()``
                 * If ``replica``:
@@ -1212,7 +1213,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args) -> None:
         """Log a custom ``debug`` message.
 
-        Additionally to *fmt*, the log entry contains the client IP address and the current latency of the request.
+        Additionally, to *fmt*, the log entry contains the client IP address and the current latency of the request.
 
         :param fmt: printf-style format string message to be logged.
         :param args: arguments to be applied as inputs to *fmt*.
@@ -1291,7 +1292,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def check_basic_auth_key(self, key: str) -> bool:
         """Check if *key* matches the password configured for the REST API.
 
-        :param key: the password received through the Basic authorization header of a HTTP request.
+        :param key: the password received through the Basic authorization header of an HTTP request.
 
         :returns: ``True`` if *key* matches the password configured for the REST API.
         """
@@ -1354,7 +1355,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """Ensure client has enough privileges to perform a given request.
 
         Write a response back to the client if any issue is observed, and the HTTP status may be:
-            * ``401``: if ``Authorizarion`` header is missing or contain an invalid password;
+            * ``401``: if ``Authorization`` header is missing or contain an invalid password;
             * ``403``: if:
                 * ``restapi.allowlist`` was configured, but client IP is not in the allowed list; or
                 * ``restapi.allowlist_include_members`` is enabled, but client IP is not in the members list; or
@@ -1405,7 +1406,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """Start REST API HTTP server.
 
         .. note::
-            If system has no support for dual stack sockets, then IPv4 is preffered over IPv6.
+            If system has no support for dual stack sockets, then IPv4 is preferred over IPv6.
 
         :param host: host to bind REST API to.
         :param port: port to bind REST API to.
@@ -1496,7 +1497,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         Wrapper for :func:`ThreadingMixIn.process_request_thread` that additionally:
             * Enable TCP keepalivel
-            * Perform SSL handshake (if a SSL socket).
+            * Perform SSL handshake (if an SSL socket).
 
         :param request: socket to handle the client request.
         :param client_address: tuple containing the client IP and port.
