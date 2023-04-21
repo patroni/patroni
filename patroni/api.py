@@ -103,7 +103,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             headers['Content-Type'] = content_type
         for name, value in headers.items():
             self.send_header(name, value)
-        for name, value in self.server.http_extra_headers.items():
+        for name, value in (self.server.http_extra_headers or {}).items():
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body.encode('utf-8'))
