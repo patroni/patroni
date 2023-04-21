@@ -57,7 +57,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         super(RestApiHandler, self).__init__(request, client_address, server)
         self.server: 'RestApiServer' = server
         self.__start_time: float = 0.0
-        self.path_query = None
+        self.path_query = {}
 
     def _write_status_code_only(self, status_code: int) -> None:
         """Write a response that is composed only of the HTTP status.
