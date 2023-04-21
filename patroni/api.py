@@ -731,7 +731,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             logger.exception('Invalid scheduled %s time: %s', action, schedule)
             error = 'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601'
             status_code = 422
-        return (status_code, error, scheduled_at)
+        return status_code, error, scheduled_at
 
     @check_access
     def do_POST_restart(self) -> None:
