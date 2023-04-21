@@ -41,18 +41,19 @@ logger = logging.getLogger(__name__)
 class RestApiHandler(BaseHTTPRequestHandler):
     """Define how to handle each of the requests that are made against the REST API server."""
 
-    def __init__(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
-                 client_address: Tuple[str, int], server: Union['RestApiServer', HTTPServer]) -> None:
-        """Create a :class:`RestApiHandler` instance.
+    # Comment from pyi stub file. These unions can cause typing errors with IDEs, e.g. PyCharm
+    #
+    # Those are technically of types, respectively:
+    # * _RequestType = Union[socket.socket, Tuple[bytes, socket.socket]]
+    # * _AddressType = Tuple[str, int]
+    # But there are some concerns that having unions here would cause
+    # too much inconvenience to people using it (see
+    # https://github.com/python/typeshed/pull/384#issuecomment-234649696)
 
-        .. note::
-            Currently not different from its superclass :func:`__init__`, and only used so ``pyright`` can understand
-            the type of ``server`` attribute.
+    def __init__(self, request: Any,
+                 client_address: Any,
+                 server: Union['RestApiServer', HTTPServer]) -> None:
 
-        :param request: client request to be processed.
-        :param client_address: address of the client connection.
-        :param server: HTTP server that received the request.
-        """
         assert isinstance(server, RestApiServer)
         super(RestApiHandler, self).__init__(request, client_address, server)
         self.server: 'RestApiServer' = server
