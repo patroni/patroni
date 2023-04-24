@@ -233,6 +233,17 @@ class Postgresql(object):
         pg_ctl = [self.pgcommand('pg_ctl'), cmd]
         return subprocess.call(pg_ctl + ['-D', self._data_dir] + list(args), **kwargs) == 0
 
+    def initdb(self, *args: str, **kwargs: Any) -> bool:
+        """Builds and executes the initdb command.
+
+        :param args: List of arguments to be joined into the initdb command.
+        :param kwargs: Keyword arguments to pass to ``subprocess.call``.
+
+        :returns: ``True`` if the result of ``subprocess.call`, the exit code, is ``0``.
+        """
+        initdb = [self.pgcommand('initdb')] + list(args) + [self.data_dir]
+        return subprocess.call(initdb, **kwargs) == 0
+
     def pg_isready(self):
         """Runs pg_isready to see if PostgreSQL is accepting connections.
 

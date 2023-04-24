@@ -19,6 +19,7 @@ import socket
 import sys
 import tempfile
 import time
+from shlex import split
 
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union, TYPE_CHECKING
 
@@ -911,3 +912,32 @@ def enable_keepalive(sock: socket.socket, timeout: int, idle: int, cnt: Optional
 
     for opt in keepalive_socket_options(timeout, idle, cnt):
         sock.setsockopt(*opt)
+
+
+def unquote(string: str) -> str:
+    """Unquote a fully quoted *string*.
+
+    :Examples:
+
+        A *string* with quotes will have those quotes removed
+        >>> unquote('"a quoted string"')
+        'a quoted string'
+
+        A *string* with multiple quotes will be returned as is
+        >>> unquote('"a multi" "quoted string"')
+        '"a multi" "quoted string"'
+
+        So will a *string* with unbalanced quotes
+        >>> unquote('unbalanced "quoted string')
+        'unbalanced "quoted string'
+
+    :param string: The string to be checked for quoting.
+    :returns: The string with quotes removed, if it is a fully quoted single string,
+              or the original string if quoting is not detected, or unquoting was not possible.
+    """
+    try:
+        ret = split(string)
+        ret = ret[0] if len(ret) == 1 else string
+    except ValueError:
+        ret = string
+    return ret
