@@ -1534,7 +1534,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """
         # pyright -- ``__ssl_options`` is initially created as ``None``, but right after that it is replaced with a
         # dictionary through :func:`reload_config`.
-        assert type(self.__ssl_options) == dict
+        assert isinstance(self.__ssl_options, dict)
         if self.__ssl_options.get('certfile'):
             import ssl
             try:
