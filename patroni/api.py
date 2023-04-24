@@ -1211,16 +1211,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.__start_time = time.time()
         BaseHTTPRequestHandler.handle_one_request(self)
 
-    def log_message(self, fmt, *args) -> None:
+    def log_message(self, format: str, *args) -> None:
         """Log a custom ``debug`` message.
 
-        Additionally, to *fmt*, the log entry contains the client IP address and the current latency of the request.
+        Additionally, to *format*, the log entry contains the client IP address and the current latency of the request.
 
-        :param fmt: printf-style format string message to be logged.
-        :param args: arguments to be applied as inputs to *fmt*.
+        :param format: printf-style format string message to be logged.
+        :param args: arguments to be applied as inputs to *format*.
         """
         latency = 1000.0 * (time.time() - self.__start_time)
-        logger.debug("API thread: %s - - %s latency: %0.3f ms", self.client_address[0], fmt % args, latency)
+        logger.debug("API thread: %s - - %s latency: %0.3f ms", self.client_address[0], format % args, latency)
 
 
 class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
