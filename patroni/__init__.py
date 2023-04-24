@@ -30,10 +30,9 @@ def check_psycopg(_min_psycopg2: Tuple[int, ...] = MIN_PSYCOPG2,
     # try psycopg2
     try:
         from psycopg2 import __version__
-        __version = str(__version__)
-        if _parse_version(__version) >= _min_psycopg2:
+        if _parse_version(__version__) >= _min_psycopg2:
             return
-        version_str = __version.split(' ')[0]
+        version_str = __version__.split(' ')[0]
     except ImportError:
         version_str = None
 
