@@ -20,7 +20,7 @@ import sys
 import tempfile
 import time
 
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union, TYPE_CHECKING
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Type, Union, TYPE_CHECKING
 
 from dateutil import tz
 from urllib3.response import HTTPResponse
@@ -470,7 +470,8 @@ class Retry(object):
                  max_jitter: Optional[float] = 0.8, max_delay: Optional[int] = 3600,
                  sleep_func: Optional[Callable[[Union[int, float]], None]] = _sleep,
                  deadline: Optional[Union[int, float]] = None,
-                 retry_exceptions: Optional[Union[Any, Tuple[Any]]] = PatroniException) -> None:
+                 retry_exceptions: Optional[Union[Type[Exception],
+                                                  Tuple[Type[Exception], ...]]] = PatroniException) -> None:
         """Create a :class:`Retry` instance for retrying function calls.
 
         :param max_tries: how many times to retry the command. ``-1`` means infinite tries.
