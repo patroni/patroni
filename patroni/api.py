@@ -38,6 +38,30 @@ from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Ret
 logger = logging.getLogger(__name__)
 
 
+def check_access(func: Callable) -> Callable:
+    """Check the source ip, authorization header, or client certificates.
+
+    .. note::
+        The actual logic to check access is implemented through :func:`RestApiServer.check_access`.
+
+    :param func: function to be decorated.
+
+    :returns: a decorator that executes *func* only if :func:`RestApiServer.check_access` returns ``True``.
+
+    :Example:
+
+        @check_access
+        def do_PUT_foo():
+            pass
+    """
+
+    def wrapper(self, *args, **kwargs):
+        if self.server.check_access(self):
+            return func(self, *args, **kwargs)
+
+    return wrapper
+
+
 class RestApiHandler(BaseHTTPRequestHandler):
     """Define how to handle each of the requests that are made against the REST API server."""
 
@@ -117,30 +141,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :param response: value to be dumped as a JSON string and to be used as the response body.
         """
         self._write_response(status_code, json.dumps(response, default=str), content_type='application/json')
-
-    @staticmethod
-    def check_access(func: Callable) -> Callable:
-        """Check the source ip, authorization header, or client certificates.
-
-        .. note::
-            The actual logic to check access is implemented through :func:`RestApiServer.check_access`.
-
-        :param func: function to be decorated.
-
-        :returns: a decorator that executes *func* only if :func:`RestApiServer.check_access` returns ``True``.
-
-        :Example:
-
-            @check_access
-            def do_PUT_foo():
-                pass
-        """
-
-        def wrapper(self, *args, **kwargs):
-            if self.server.check_access(self):
-                return func(self, *args, **kwargs)
-
-        return wrapper
 
     def _write_status_response(self, status_code: int, response: Dict[str, Any]) -> None:
         """Write an HTTP response with Patroni/Postgres status in JSON format.
