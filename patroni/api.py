@@ -38,7 +38,7 @@ from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Ret
 logger = logging.getLogger(__name__)
 
 
-def check_access(func: Callable) -> Callable:
+def check_access(func: Callable[['RestApiHandler'], None]) -> Callable[..., None]:
     """Check the source ip, authorization header, or client certificates.
 
     .. note::
@@ -55,7 +55,7 @@ def check_access(func: Callable) -> Callable:
             pass
     """
 
-    def wrapper(self, *args, **kwargs):
+    def wrapper(self: 'RestApiHandler', *args: Any, **kwargs: Any) -> None:
         if self.server.check_access(self):
             return func(self, *args, **kwargs)
 
@@ -82,7 +82,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         super(RestApiHandler, self).__init__(request, client_address, server)
         self.server: 'RestApiServer' = server
         self.__start_time: float = 0.0
-        self.path_query = {}
+        self.path_query: Dict[str, List[str]] = {}
 
     def _write_status_code_only(self, status_code: int) -> None:
         """Write a response that is composed only of the HTTP status.
