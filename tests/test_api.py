@@ -621,7 +621,7 @@ class TestRestApiServer(unittest.TestCase):
         try:
             raise Exception()
         except Exception:
-            self.assertIsNone(MockRestApiServer.handle_error(None, ('127.0.0.1', 55555)))
+            self.assertIsNone(self.srv.handle_error(None, ('127.0.0.1', 55555)))
 
     @patch.object(HTTPServer, '__init__', Mock(side_effect=socket.error))
     def test_socket_error(self):
