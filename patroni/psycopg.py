@@ -6,7 +6,7 @@ This module is able to handle both ``pyscopg2`` and ``psycopg3``, and it exposes
 from typing import Any, Optional, TYPE_CHECKING, Union
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Connection
-    from psycopg2 import connection
+    from psycopg2 import connection, cursor
 
 __all__ = ['connect', 'quote_ident', 'quote_literal', 'DatabaseError', 'Error', 'OperationalError', 'ProgrammingError']
 
@@ -59,7 +59,7 @@ except ImportError:
         setattr(ret, 'server_version', ret.pgconn.server_version)  # compatibility with psycopg2
         return ret
 
-    def _quote_ident(value: str, scope: Any) -> str:
+    def _quote_ident(value: Any, scope: Any) -> str:
         """Quote *value* as a SQL identifier.
 
         :param value: value to be quoted.
@@ -104,7 +104,7 @@ def connect(*args: Any, **kwargs: Any) -> Union['connection', 'Connection[Any]']
     return ret
 
 
-def quote_ident(value: Any, conn: Optional[Any] = None) -> str:
+def quote_ident(value: Any, conn: Optional[Union['cursor', 'connection', 'Connection[Any]']] = None) -> str:
     """Quote *value* as a SQL identifier.
 
     :param value: value to be quoted.
