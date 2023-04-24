@@ -1538,7 +1538,12 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if self.__ssl_options.get('certfile'):
             import ssl
             try:
-                crt = ssl._ssl._test_decode_cert(self.__ssl_options['certfile'])
+                # We silent pyright for this line otherwise it would complain about accessing a protected member from
+                # ``ssl``.
+                # There's already been thoughts about using ``cryptography`` module to get the serial number. However,
+                # given the overhead we decided to stick to ``_ssl``. Refer to the following discussion for more
+                # details: https://github.com/zalando/patroni/pull/1887#discussion_r597204638
+                crt = ssl._ssl._test_decode_cert(self.__ssl_options['certfile'])  # pyright: ignore
                 return crt.get('serialNumber')
             except ssl.SSLError as e:
                 logger.error('Failed to get serial number from certificate %s: %r', self.__ssl_options['certfile'], e)
