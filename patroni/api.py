@@ -826,7 +826,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     status_code = 409
         # pyright thinks ``data`` can be ``None`` because ``parse_schedule`` call may return ``None``. However, if
         # that's the case, ``data`` will be overwritten when the ``for`` loop ends
-        assert type(data) == str
+        assert isinstance(data, str)
         self._write_response(status_code, data)
 
     @check_access
@@ -1033,7 +1033,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         # pyright thinks ``status_code`` can be ``None`` because ``parse_schedule`` call may return ``None``. However,
         # if that's the case, ``status_code`` will be overwritten somewhere between ``parse_schedule`` and
         # ``_write_response`` calls.
-        assert type(status_code) == int
+        assert isinstance(status_code, int)
         self._write_response(status_code, data)
 
     def do_POST_switchover(self) -> None:
@@ -1374,7 +1374,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if not hasattr(rh.request, 'getpeercert') or not rh.request.getpeercert():  # valid client cert isn't present
             # pyright -- ``__ssl_options`` is initially created as ``None``, but right after that it is replaced with a
             # dictionary through :func:`reload_config`.
-            assert type(self.__ssl_options) == dict
+            assert isinstance(self.__ssl_options, dict)
             if self.__protocol == 'https' and self.__ssl_options.get('verify_client') in ('required', 'optional'):
                 return rh._write_response(403, 'client certificate required')
 
@@ -1602,7 +1602,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')) if 'auth' in config else None
         # pyright -- ``__listen`` is initially created as ``None``, but right after that it is replaced with a string
         # through :func:`__initialize`.
-        assert type(self.__listen) == str
+        assert isinstance(self.__listen, str)
         self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
 
     @staticmethod
