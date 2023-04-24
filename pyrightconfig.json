@@ -1,0 +1,28 @@
+{
+  "include": [
+    "patroni"
+  ],
+  
+  "exclude": [
+    "**/__pycache__"
+  ],
+
+  "ignore": [
+  ],
+
+  "defineConstant": {
+    "DEBUG": true
+  },
+
+  "stubPath": "typings/",
+
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+
+  "pythonVersion": "3.6",
+  "pythonPlatform": "All",
+
+  "typeCheckingMode": "strict"
+
+}
+//  "stubPath": "src/stubs",
