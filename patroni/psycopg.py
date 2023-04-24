@@ -43,7 +43,7 @@ try:
 except ImportError:
     from psycopg import connect as __connect, sql, Error, DatabaseError, OperationalError, ProgrammingError
 
-    def _connect(dsn: Optional[str], **kwargs: Any) -> 'Connection[Any]':
+    def _connect(dsn: Optional[str] = None, **kwargs: Any) -> 'Connection[Any]':
         """Call ``psycopg.connect`` with ``dsn`` and ``**kwargs``.
 
         .. note::
