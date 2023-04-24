@@ -11,7 +11,7 @@ import shutil
 import socket
 import subprocess
 
-from typing import Any, Union, Iterator, List, Optional as OptionalType
+from typing import Any, Dict, Union, Iterator, List, Optional as OptionalType
 
 from .utils import split_host_port, data_directory_is_empty
 from .dcs import dcs_modules
@@ -48,8 +48,7 @@ def validate_connect_address(address: str) -> bool:
     return True
 
 
-def validate_host_port(host_port: str, listen: OptionalType[bool] = False,
-                       multiple_hosts: OptionalType[bool] = False) -> bool:
+def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: bool = False) -> bool:
     """Check if host(s) and port are valid and available for usage.
 
     :param host_port: the host(s) and port to be validated. It can be in either of these formats
@@ -68,7 +67,7 @@ def validate_host_port(host_port: str, listen: OptionalType[bool] = False,
         * If :class:`socket.gaierror` is thrown by socket module when attempting to connect to the given address(es).
     """
     try:
-        hosts, port = split_host_port(host_port, None)
+        hosts, port = split_host_port(host_port, 1)
     except (ValueError, TypeError):
         raise ConfigParseError("contains a wrong value")
     else:
@@ -197,6 +196,7 @@ def get_major_version(bin_dir: OptionalType[str] = None) -> str:
         binary = os.path.join(bin_dir, 'postgres')
     version = subprocess.check_output([binary, '--version']).decode()
     version = re.match(r'^[^\s]+ [^\s]+ (\d+)(\.(\d+))?', version)
+    assert version is not None
     return '.'.join([version.group(1), version.group(3)]) if int(version.group(1)) < 10 else version.group(1)
 
 
@@ -251,8 +251,8 @@ class Result(object):
     :ivar error: error message if the validation failed, otherwise ``None``.
     """
 
-    def __init__(self, status: bool, error: OptionalType[str] = "didn't pass validation", level: OptionalType[int] = 0,
-                 path: OptionalType[str] = "", data: OptionalType[Any] = "") -> None:
+    def __init__(self, status: bool, error: OptionalType[str] = "didn't pass validation", level: int = 0,
+                 path: str = "", data: Any = "") -> None:
         """Create a :class:`Result` object based on the given arguments.
 
         .. note::
@@ -290,7 +290,7 @@ class Case(object):
         them, if they are set.
     """
 
-    def __init__(self, schema: dict) -> None:
+    def __init__(self, schema: Dict[str, Any]) -> None:
         """Create a :class:`Case` object.
 
         :param schema: the schema for validating a set of attributes that may be available in the configuration.
@@ -317,7 +317,7 @@ class Or(object):
     validation functions and/or expected types for a given configuration option.
     """
 
-    def __init__(self, *args) -> None:
+    def __init__(self, *args: Any) -> None:
         """Create an :class:`Or` object.
 
         :param `*args`: any arguments that the caller wants to be stored in this :class:`Or` object.
@@ -486,7 +486,7 @@ class Schema(object):
         :param data: configuration to be validated against ``validator``.
         :returns: list of errors identified while validating the *data*, if any.
         """
-        errors = []
+        errors: List[str] = []
         for i in self.validate(data):
             if not i.status:
                 errors.append(str(i))
@@ -533,14 +533,13 @@ class Schema(object):
             except Exception as e:
                 yield Result(False, "didn't pass validation: {}".format(e), data=self.data)
         elif isinstance(self.validator, dict):
-            if not len(self.validator):
+            if not isinstance(self.data, dict):
                 yield Result(isinstance(self.data, dict), "is not a dictionary", level=1, data=self.data)
         elif isinstance(self.validator, list):
             if not isinstance(self.data, list):
                 yield Result(isinstance(self.data, list), "is not a list", level=1, data=self.data)
                 return
-        for i in self.iter():
-            yield i
+        yield from self.iter()
 
     def iter(self) -> Iterator[Result]:
         """Iterate over ``validator``, if it is an iterable object, to validate the corresponding entries in ``data``.
@@ -553,12 +552,11 @@ class Schema(object):
             if not isinstance(self.data, dict):
                 yield Result(False, "is not a dictionary.", level=1)
             else:
-                for i in self.iter_dict():
-                    yield i
+                yield from self.iter_dict()
         elif isinstance(self.validator, list):
             if len(self.data) == 0:
                 yield Result(False, "is an empty list", data=self.data)
-            if len(self.validator) > 0:
+            if self.validator:
                 for key, value in enumerate(self.data):
                     # Although the value in the configuration (`data`) is expected to contain 1 or more entries, only
                     # the first validator defined in `validator` property list will be used. It is only defined as a
@@ -569,11 +567,9 @@ class Schema(object):
                         yield Result(v.status, v.error,
                                      path=(str(key) + ("." + v.path if v.path else "")), level=v.level, data=value)
         elif isinstance(self.validator, Directory):
-            for v in self.validator.validate(self.data):
-                yield v
+            yield from self.validator.validate(self.data)
         elif isinstance(self.validator, Or):
-            for i in self.iter_or():
-                yield i
+            yield from self.iter_or()
 
     def iter_dict(self) -> Iterator[Result]:
         """Iterate over a :class:`dict` based ``validator`` to validate the corresponding entries in ``data``.
@@ -606,14 +602,14 @@ class Schema(object):
 
         :rtype: Iterator[:class:`Result`] objects with the error message related to the failure, if any check fails.
         """
-        results = []
+        results: List[Result] = []
         for a in self.validator.args:
-            r = []
+            r: List[Result] = []
             # Each of the `Or` validators can throw 0 to many `Result` instances.
             for v in Schema(a).validate(self.data):
                 r.append(v)
             if any([x.status for x in r]) and not all([x.status for x in r]):
-                results += filter(lambda x: not x.status, r)
+                results += [x for x in r if not x.status]
             else:
                 results += r
         # None of the `Or` validators succeeded to validate `data`, so we report the issues back.
@@ -664,12 +660,12 @@ def _get_type_name(python_type: Any) -> str:
     Returns:
         User friendly name of the given Python type.
     """
-    return {str: 'a string', int: 'an integer', float: 'a number',
-            bool: 'a boolean', list: 'an array', dict: 'a dictionary'}.get(
-                python_type, getattr(python_type, __name__, "unknown type"))
+    types: Dict[Any, str] = {str: 'a string', int: 'an integer', float: 'a number',
+                             bool: 'a boolean', list: 'an array', dict: 'a dictionary'}
+    return types.get(python_type, getattr(python_type, __name__, "unknown type"))
 
 
-def assert_(condition: bool, message: OptionalType[str] = "Wrong value") -> None:
+def assert_(condition: bool, message: str = "Wrong value") -> None:
     """Assert that a given condition is ``True``.
 
     If the assertion fails, then throw a message.
@@ -680,14 +676,30 @@ def assert_(condition: bool, message: OptionalType[str] = "Wrong value") -> None
     assert condition, message
 
 
+class IntValidator(object):
+    expected_type = int
+
+    def __init__(self, min: OptionalType[int] = None, max: OptionalType[int] = None):
+        self.min = min
+        self.max = max
+
+    def __call__(self, value: int) -> None:
+        assert_((self.min is None or value >= self.min) and (self.max is None or value <= self.max))
+
+
+def validate_watchdog_mode(value: Any):
+    assert_(isinstance(value, (str, bool)), "expected type is not a string")
+    assert_(value in (False, "off", "automatic", "required"))
+
+
 userattributes = {"username": "", Optional("password"): ""}
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
-validate_host_port_list.expected_type = list
-comma_separated_host_port.expected_type = str
-validate_connect_address.expected_type = str
-validate_host_port_listen.expected_type = str
-validate_host_port_listen_multiple_hosts.expected_type = str
-validate_data_dir.expected_type = str
+setattr(validate_host_port_list, 'expected_type', list)
+setattr(comma_separated_host_port, 'expected_type', str)
+setattr(validate_connect_address, 'expected_type', str)
+setattr(validate_host_port_listen, 'expected_type', str)
+setattr(validate_host_port_listen_multiple_hosts, 'expected_type', str)
+setattr(validate_data_dir, 'expected_type', str)
 validate_etcd = {
     Or("host", "hosts", "srv", "srv_suffix", "url", "proxy"): Case({
         "host": validate_host_port,
@@ -704,7 +716,7 @@ schema = Schema({
     "restapi": {
         "listen": validate_host_port_listen,
         "connect_address": validate_connect_address,
-        Optional("request_queue_size"): lambda i: assert_(0 <= int(i) <= 4096)
+        Optional("request_queue_size"): IntValidator(0, 4096)
     },
     Optional("bootstrap"): {
         "dcs": {
@@ -726,7 +738,7 @@ schema = Schema({
         "etcd3": validate_etcd,
         "exhibitor": {
             "hosts": [str],
-            "port": lambda i: assert_(int(i) <= 65535),
+            "port": IntValidator(None, 65535),
             Optional("pool_interval"): int
         },
         "raft": {
@@ -767,7 +779,7 @@ schema = Schema({
         Optional("bin_dir"): Directory(contains_executable=["pg_ctl", "initdb", "pg_controldata", "pg_basebackup",
                                                             "postgres", "pg_isready"]),
         Optional("parameters"): {
-            Optional("unix_socket_directories"): lambda s: assert_(all([isinstance(s, str), len(s)]))
+            Optional("unix_socket_directories"): str
         },
         Optional("pg_hba"): [str],
         Optional("pg_ident"): [str],
@@ -775,7 +787,7 @@ schema = Schema({
         Optional("use_pg_rewind"): bool
     },
     Optional("watchdog"): {
-        Optional("mode"): lambda m: assert_(m in ["off", "automatic", "required"]),
+        Optional("mode"): validate_watchdog_mode,
         Optional("device"): str
     },
     Optional("tags"): {

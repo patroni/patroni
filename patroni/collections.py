@@ -1,16 +1,15 @@
 from collections import OrderedDict
-from collections.abc import MutableMapping, MutableSet
-from typing import Any, Collection, Dict, Iterable, Iterator, Optional, Tuple, Union
+from typing import Any, Collection, Dict, Iterator, MutableMapping, MutableSet, Optional
 
 
-class CaseInsensitiveSet(MutableSet):
+class CaseInsensitiveSet(MutableSet[str]):
     """A case-insensitive ``set``-like object.
 
     Implements all methods and operations of :class:``MutableSet``. All values are expected to be strings.
     The structure remembers the case of the last value set, however, contains testing is case insensitive.
     """
     def __init__(self, values: Optional[Collection[str]] = None) -> None:
-        self._values = {}
+        self._values: Dict[str, str] = {}
         for v in values or ():
             self.add(v)
 
@@ -39,7 +38,7 @@ class CaseInsensitiveSet(MutableSet):
         return self <= other
 
 
-class CaseInsensitiveDict(MutableMapping):
+class CaseInsensitiveDict(MutableMapping[str, Any]):
     """A case-insensitive ``dict``-like object.
 
     Implements all methods and operations of :class:``MutableMapping`` as well as dict's :func:``copy``.
@@ -47,8 +46,8 @@ class CaseInsensitiveDict(MutableMapping):
     and ``iter(instance)``, ``keys()``, ``items()``, ``iterkeys()``, and ``iteritems()`` will contain
     case-sensitive keys. However, querying and contains testing is case insensitive.
     """
-    def __init__(self, data: Optional[Union[Dict[str, Any], Iterable[Tuple[str, Any]]]] = None) -> None:
-        self._values = OrderedDict()
+    def __init__(self, data: Optional[Dict[str, Any]] = None) -> None:
+        self._values: OrderedDict[str, Any] = OrderedDict()
         self.update(data or {})
 
     def __setitem__(self, key: str, value: Any) -> None:
@@ -68,7 +67,7 @@ class CaseInsensitiveDict(MutableMapping):
         return len(self._values)
 
     def copy(self) -> 'CaseInsensitiveDict':
-        return CaseInsensitiveDict(self._values.values())
+        return CaseInsensitiveDict({v[0]: v[1] for v in self._values.values()})
 
     def __repr__(self) -> str:
         return '<{0}{1} at {2:x}>'.format(type(self).__name__, dict(self.items()), id(self))

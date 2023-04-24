@@ -10,6 +10,7 @@ from pysyncobj.dns_resolver import globalDnsResolver
 from pysyncobj.node import TCPNode
 from pysyncobj.transport import TCPTransport, CONNECTION_STATE
 from pysyncobj.utility import TcpUtility
+from typing import Any, Callable, Collection, Dict, List, Optional, Union
 
 from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory, citus_group_re
 from ..exceptions import DCSError
@@ -24,11 +25,12 @@ class RaftError(DCSError):
 
 class _TCPTransport(TCPTransport):
 
-    def __init__(self, syncObj, selfNode, otherNodes):
+    def __init__(self, syncObj: 'DynMemberSyncObj', selfNode: Optional[TCPNode],
+                 otherNodes: Collection[TCPNode]) -> None:
         super(_TCPTransport, self).__init__(syncObj, selfNode, otherNodes)
         self.setOnUtilityMessageCallback('members', syncObj.getMembers)
 
-    def _connectIfNecessarySingle(self, node):
+    def _connectIfNecessarySingle(self, node: TCPNode) -> bool:
         try:
             return super(_TCPTransport, self)._connectIfNecessarySingle(node)
         except Exception as e:
@@ -36,7 +38,7 @@ class _TCPTransport(TCPTransport):
             return False
 
 
-def resolve_host(self):
+def resolve_host(self: TCPNode) -> Optional[str]:
     return globalDnsResolver().resolve(self.host)
 
 
@@ -45,17 +47,17 @@ setattr(TCPNode, 'ip', property(resolve_host))
 
 class SyncObjUtility(object):
 
-    def __init__(self, otherNodes, conf, retry_timeout=10):
+    def __init__(self, otherNodes: Collection[Union[str, TCPNode]], conf: SyncObjConf, retry_timeout: int = 10) -> None:
         self._nodes = otherNodes
         self._utility = TcpUtility(conf.password, retry_timeout / max(1, len(otherNodes)))
 
-    def executeCommand(self, command):
+    def executeCommand(self, command: List[Any]) -> Any:
         try:
             return self._utility.executeCommand(self.__node, command)
         except Exception:
             return None
 
-    def getMembers(self):
+    def getMembers(self) -> Optional[List[str]]:
         for self.__node in self._nodes:
             response = self.executeCommand(['members'])
             if response:
@@ -64,7 +66,8 @@ class SyncObjUtility(object):
 
 class DynMemberSyncObj(SyncObj):
 
-    def __init__(self, selfAddress, partnerAddrs, conf, retry_timeout=10):
+    def __init__(self, selfAddress: Optional[str], partnerAddrs: Collection[str],
+                 conf: SyncObjConf, retry_timeout: int = 10) -> None:
         self.__early_apply_local_log = selfAddress is not None
         self.applied_local_log = False
 
@@ -81,12 +84,12 @@ class DynMemberSyncObj(SyncObj):
             thread.daemon = True
             thread.start()
 
-    def getMembers(self, args, callback):
+    def getMembers(self, args: Any, callback: Callable[[Any, Any], Any]) -> None:
         callback([{'addr': node.id, 'leader': node == self._getLeader(), 'status': CONNECTION_STATE.CONNECTED
                    if self.isNodeConnected(node) else CONNECTION_STATE.DISCONNECTED} for node in self.otherNodes]
                  + [{'addr': self.selfNode.id, 'leader': self._isLeader(), 'status': CONNECTION_STATE.CONNECTED}], None)
 
-    def _onTick(self, timeToWait=0.0):
+    def _onTick(self, timeToWait: float = 0.0):
         super(DynMemberSyncObj, self)._onTick(timeToWait)
 
         # The SyncObj calls onReady callback only when cluster got the leader and is ready for writes.
@@ -98,11 +101,12 @@ class DynMemberSyncObj(SyncObj):
 
 class KVStoreTTL(DynMemberSyncObj):
 
-    def __init__(self, on_ready, on_set, on_delete, **config):
+    def __init__(self, on_ready: Optional[Callable[..., Any]], on_set: Optional[Callable[[str, Dict[str, Any]], None]],
+                 on_delete: Optional[Callable[[str], None]], **config: Any) -> None:
         self.__thread = None
         self.__on_set = on_set
         self.__on_delete = on_delete
-        self.__limb = {}
+        self.__limb: Dict[str, Dict[str, Any]] = {}
         self.set_retry_timeout(int(config.get('retry_timeout') or 10))
 
         self_addr = config.get('self_addr')
@@ -128,22 +132,22 @@ class KVStoreTTL(DynMemberSyncObj):
                            onReady=on_ready, dynamicMembershipChange=True)
 
         super(KVStoreTTL, self).__init__(self_addr, partner_addrs, conf, self.__retry_timeout)
-        self.__data = {}
+        self.__data: Dict[str, Dict[str, Any]] = {}
 
     @staticmethod
-    def __check_requirements(old_value, **kwargs):
-        return ('prevExist' not in kwargs or bool(kwargs['prevExist']) == bool(old_value)) and \
-            ('prevValue' not in kwargs or old_value and old_value['value'] == kwargs['prevValue']) and \
-            (not kwargs.get('prevIndex') or old_value and old_value['index'] == kwargs['prevIndex'])
+    def __check_requirements(old_value: Dict[str, Any], **kwargs: Any) -> bool:
+        return bool(('prevExist' not in kwargs or bool(kwargs['prevExist']) == bool(old_value))
+                    and ('prevValue' not in kwargs or old_value and old_value['value'] == kwargs['prevValue'])
+                    and (not kwargs.get('prevIndex') or old_value and old_value['index'] == kwargs['prevIndex']))
 
-    def set_retry_timeout(self, retry_timeout):
+    def set_retry_timeout(self, retry_timeout: int) -> None:
         self.__retry_timeout = retry_timeout
 
-    def retry(self, func, *args, **kwargs):
+    def retry(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         event = threading.Event()
         ret = {'result': None, 'error': -1}
 
-        def callback(result, error):
+        def callback(result: Any, error: Any) -> None:
             ret.update(result=result, error=error)
             event.set()
 
@@ -167,7 +171,7 @@ class KVStoreTTL(DynMemberSyncObj):
         return False
 
     @replicated
-    def _set(self, key, value, **kwargs):
+    def _set(self, key: str, value: Dict[str, Any], **kwargs: Any) -> bool:
         old_value = self.__data.get(key, {})
         if not self.__check_requirements(old_value, **kwargs):
             return False
@@ -181,29 +185,30 @@ class KVStoreTTL(DynMemberSyncObj):
             self.__on_set(key, value)
         return True
 
-    def set(self, key, value, ttl=None, handle_raft_error=True, **kwargs):
+    def set(self, key: str, value: str, ttl: Optional[int] = None,
+            handle_raft_error: bool = True, **kwargs: Any) -> bool:
         old_value = self.__data.get(key, {})
         if not self.__check_requirements(old_value, **kwargs):
             return False
 
-        value = {'value': value, 'updated': time.time()}
-        value['created'] = old_value.get('created', value['updated'])
+        data: Dict[str, Any] = {'value': value, 'updated': time.time()}
+        data['created'] = old_value.get('created', data['updated'])
         if ttl:
-            value['expire'] = value['updated'] + ttl
+            data['expire'] = data['updated'] + ttl
         try:
-            return self.retry(self._set, key, value, **kwargs)
+            return self.retry(self._set, key, data, **kwargs)
         except RaftError:
             if not handle_raft_error:
                 raise
             return False
 
-    def __pop(self, key):
+    def __pop(self, key: str) -> None:
         self.__data.pop(key)
         if self.__on_delete:
             self.__on_delete(key)
 
     @replicated
-    def _delete(self, key, recursive=False, **kwargs):
+    def _delete(self, key: str, recursive: bool = False, **kwargs: Any) -> bool:
         if recursive:
             for k in list(self.__data.keys()):
                 if k.startswith(key):
@@ -214,7 +219,7 @@ class KVStoreTTL(DynMemberSyncObj):
             self.__pop(key)
         return True
 
-    def delete(self, key, recursive=False, **kwargs):
+    def delete(self, key: str, recursive: bool = False, **kwargs: Any) -> bool:
         if not recursive and not self.__check_requirements(self.__data.get(key, {}), **kwargs):
             return False
         try:
@@ -223,32 +228,32 @@ class KVStoreTTL(DynMemberSyncObj):
             return False
 
     @staticmethod
-    def __values_match(old, new):
+    def __values_match(old: Dict[str, Any], new: Dict[str, Any]) -> bool:
         return all(old.get(n) == new.get(n) for n in ('created', 'updated', 'expire', 'value'))
 
     @replicated
-    def _expire(self, key, value, callback=None):
+    def _expire(self, key: str, value: Dict[str, Any], callback: Optional[Callable[..., Any]] = None) -> None:
         current = self.__data.get(key)
         if current and self.__values_match(current, value):
             self.__pop(key)
 
-    def __expire_keys(self):
+    def __expire_keys(self) -> None:
         for key, value in self.__data.items():
             if value and 'expire' in value and value['expire'] <= time.time() and \
                     not (key in self.__limb and self.__values_match(self.__limb[key], value)):
                 self.__limb[key] = value
 
-                def callback(*args):
+                def callback(*args: Any) -> None:
                     if key in self.__limb and self.__values_match(self.__limb[key], value):
                         self.__limb.pop(key)
                 self._expire(key, value, callback=callback)
 
-    def get(self, key, recursive=False):
+    def get(self, key: str, recursive: bool = False) -> Union[None, Dict[str, Any], Dict[str, Dict[str, Any]]]:
         if not recursive:
             return self.__data.get(key)
         return {k: v for k, v in self.__data.items() if k.startswith(key)}
 
-    def _onTick(self, timeToWait=0.0):
+    def _onTick(self, timeToWait: float = 0.0) -> None:
         super(KVStoreTTL, self)._onTick(timeToWait)
 
         if self._isLeader():
@@ -256,17 +261,17 @@ class KVStoreTTL(DynMemberSyncObj):
         else:
             self.__limb.clear()
 
-    def _autoTickThread(self):
+    def _autoTickThread(self) -> None:
         self.__destroying = False
         while not self.__destroying:
             self.doTick(self.conf.autoTickPeriod)
 
-    def startAutoTick(self):
+    def startAutoTick(self) -> None:
         self.__thread = threading.Thread(target=self._autoTickThread)
         self.__thread.daemon = True
         self.__thread.start()
 
-    def destroy(self):
+    def destroy(self) -> None:
         if self.__thread:
             self.__destroying = True
             self.__thread.join()
@@ -275,7 +280,7 @@ class KVStoreTTL(DynMemberSyncObj):
 
 class Raft(AbstractDCS):
 
-    def __init__(self, config):
+    def __init__(self, config: Dict[str, Any]) -> None:
         super(Raft, self).__init__(config)
         self._ttl = int(config.get('ttl') or 30)
 
@@ -290,7 +295,7 @@ class Raft(AbstractDCS):
             else:
                 logger.info('waiting on raft')
 
-    def _on_set(self, key, value):
+    def _on_set(self, key: str, value: Dict[str, Any]) -> None:
         leader = (self._sync_obj.get(self.leader_path) or {}).get('value')
         if key == value['created'] == value['updated'] and \
                 (key.startswith(self.members_path) or key == self.leader_path and leader != self._name) or \
@@ -298,29 +303,29 @@ class Raft(AbstractDCS):
                 key in (self.config_path, self.sync_path):
             self.event.set()
 
-    def _on_delete(self, key):
+    def _on_delete(self, key: str) -> None:
         if key == self.leader_path:
             self.event.set()
 
-    def set_ttl(self, ttl):
+    def set_ttl(self, ttl: int) -> Optional[bool]:
         self._ttl = ttl
 
     @property
-    def ttl(self):
+    def ttl(self) -> int:
         return self._ttl
 
-    def set_retry_timeout(self, retry_timeout):
+    def set_retry_timeout(self, retry_timeout: int) -> None:
         self._sync_obj.set_retry_timeout(retry_timeout)
 
-    def reload_config(self, config):
+    def reload_config(self, config: Dict[str, Any]) -> None:
         super(Raft, self).reload_config(config)
         globalDnsResolver().setTimeouts(self.ttl, self.loop_wait)
 
     @staticmethod
-    def member(key, value):
+    def member(key: str, value: Dict[str, Any]) -> Member:
         return Member.from_node(value['index'], os.path.basename(key), None, value['value'])
 
-    def _cluster_from_nodes(self, nodes):
+    def _cluster_from_nodes(self, nodes: Dict[str, Any]) -> Cluster:
         # get initialize flag
         initialize = nodes.get(self._INITIALIZE)
         initialize = initialize and initialize['value']
@@ -348,7 +353,7 @@ class Raft(AbstractDCS):
             slots = None
 
         try:
-            last_lsn = int(last_lsn)
+            last_lsn = int(last_lsn or '')
         except Exception:
             last_lsn = 0
 
@@ -380,79 +385,81 @@ class Raft(AbstractDCS):
 
         return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
 
-    def _cluster_loader(self, path):
+    def _cluster_loader(self, path: str) -> Cluster:
         response = self._sync_obj.get(path, recursive=True)
         if not response:
             return Cluster.empty()
         nodes = {key[len(path):]: value for key, value in response.items()}
         return self._cluster_from_nodes(nodes)
 
-    def _citus_cluster_loader(self, path):
-        clusters = defaultdict(dict)
+    def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+        clusters: Dict[int, Dict[str, Any]] = defaultdict(dict)
         response = self._sync_obj.get(path, recursive=True)
-        for key, value in response.items():
+        for key, value in (response or {}).items():
             key = key[len(path):].split('/', 1)
             if len(key) == 2 and citus_group_re.match(key[0]):
                 clusters[int(key[0])][key[1]] = value
         return {group: self._cluster_from_nodes(nodes) for group, nodes in clusters.items()}
 
-    def _load_cluster(self, path, loader):
+    def _load_cluster(
+            self, path: str, loader: Callable[[str], Union[Cluster, Dict[int, Cluster]]]
+    ) -> Union[Cluster, Dict[int, Cluster]]:
         return loader(path)
 
-    def _write_leader_optime(self, last_lsn):
+    def _write_leader_optime(self, last_lsn: str) -> bool:
         return self._sync_obj.set(self.leader_optime_path, last_lsn, timeout=1)
 
-    def _write_status(self, value):
+    def _write_status(self, value: str) -> bool:
         return self._sync_obj.set(self.status_path, value, timeout=1)
 
-    def _write_failsafe(self, value):
+    def _write_failsafe(self, value: str) -> bool:
         return self._sync_obj.set(self.failsafe_path, value, timeout=1)
 
-    def _update_leader(self):
+    def _update_leader(self) -> bool:
         ret = self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl,
                                  handle_raft_error=False, prevValue=self._name)
         if not ret and self._sync_obj.get(self.leader_path) is None:
             ret = self.attempt_to_acquire_leader()
         return ret
 
-    def attempt_to_acquire_leader(self):
+    def attempt_to_acquire_leader(self) -> bool:
         return self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl, handle_raft_error=False, prevExist=False)
 
-    def set_failover_value(self, value, index=None):
+    def set_failover_value(self, value: str, index: Optional[int] = None) -> bool:
         return self._sync_obj.set(self.failover_path, value, prevIndex=index)
 
-    def set_config_value(self, value, index=None):
+    def set_config_value(self, value: str, index: Optional[int] = None) -> bool:
         return self._sync_obj.set(self.config_path, value, prevIndex=index)
 
-    def touch_member(self, data):
-        data = json.dumps(data, separators=(',', ':'))
-        return self._sync_obj.set(self.member_path, data, self._ttl, timeout=2)
+    def touch_member(self, data: Dict[str, Any]) -> bool:
+        value = json.dumps(data, separators=(',', ':'))
+        return self._sync_obj.set(self.member_path, value, self._ttl, timeout=2)
 
-    def take_leader(self):
+    def take_leader(self) -> bool:
         return self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl)
 
-    def initialize(self, create_new=True, sysid=''):
+    def initialize(self, create_new: bool = True, sysid: str = '') -> bool:
         return self._sync_obj.set(self.initialize_path, sysid, prevExist=(not create_new))
 
-    def _delete_leader(self):
+    def _delete_leader(self) -> bool:
         return self._sync_obj.delete(self.leader_path, prevValue=self._name, timeout=1)
 
-    def cancel_initialization(self):
+    def cancel_initialization(self) -> bool:
         return self._sync_obj.delete(self.initialize_path)
 
-    def delete_cluster(self):
+    def delete_cluster(self) -> bool:
         return self._sync_obj.delete(self.client_path(''), recursive=True)
 
-    def set_history_value(self, value):
+    def set_history_value(self, value: str) -> bool:
         return self._sync_obj.set(self.history_path, value)
 
-    def set_sync_state_value(self, value, index=None):
+    def set_sync_state_value(self, value: str, index: Optional[int] = None) -> bool:
         return self._sync_obj.set(self.sync_path, value, prevIndex=index)
 
-    def delete_sync_state(self, index=None):
+    def delete_sync_state(self, index: Optional[int] = None) -> bool:
         return self._sync_obj.delete(self.sync_path, prevIndex=index)
 
-    def watch(self, leader_index, timeout):
+    def watch(self, leader_index: Optional[int], timeout: float) -> bool:
         try:
             return super(Raft, self).watch(leader_index, timeout)
         finally:

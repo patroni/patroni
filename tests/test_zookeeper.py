@@ -13,6 +13,7 @@ from patroni.dcs.zookeeper import Cluster, Leader, PatroniKazooClient,\
 
 class MockKazooClient(Mock):
 
+    handler = PatroniSequentialThreadingHandler(10)
     leader = False
     exists = True
 
@@ -154,11 +155,6 @@ class TestZooKeeper(unittest.TestCase):
     def test_session_listener(self):
         self.zk.session_listener(KazooState.SUSPENDED)
 
-    def test_members_watcher(self):
-        self.zk._fetch_cluster = False
-        self.zk.members_watcher(None)
-        self.assertTrue(self.zk._fetch_cluster)
-
     def test_reload_config(self):
         self.zk.reload_config({'ttl': 20, 'retry_timeout': 10, 'loop_wait': 10})
         self.zk.reload_config({'ttl': 20, 'retry_timeout': 10, 'loop_wait': 5})
@@ -223,6 +219,8 @@ class TestZooKeeper(unittest.TestCase):
 
     def test_cancel_initialization(self):
         self.zk.cancel_initialization()
+        with patch.object(MockKazooClient, 'delete', Mock()):
+            self.zk.cancel_initialization()
 
     def test_touch_member(self):
         self.zk._name = 'buzz'

@@ -1,5 +1,6 @@
 import abc
 import dateutil.parser
+import datetime
 import importlib
 import inspect
 import json
@@ -10,15 +11,17 @@ import re
 import sys
 import time
 
-from collections import defaultdict, namedtuple
+from collections import defaultdict
 from copy import deepcopy
 from random import randint
 from threading import Event, Lock
-from typing import Any, Collection, Dict, List, Optional, Union
+from typing import Any, Callable, Collection, Dict, List, NamedTuple, Optional, Set, Tuple, Union, TYPE_CHECKING
 from urllib.parse import urlparse, urlunparse, parse_qsl
 
 from ..exceptions import PatroniFatalException
 from ..utils import deep_compare, uri
+if TYPE_CHECKING:  # pragma: no cover
+    from ..config import Config
 
 CITUS_COORDINATOR_GROUP_ID = 0
 citus_group_re = re.compile('^(0|[1-9][0-9]*)$')
@@ -26,7 +29,7 @@ slot_name_re = re.compile('^[a-z0-9_]{1,63}$')
 logger = logging.getLogger(__name__)
 
 
-def slot_name_from_member_name(member_name):
+def slot_name_from_member_name(member_name: str) -> str:
     """Translate member name to valid PostgreSQL slot name.
 
     PostgreSQL replication slot names must be valid PostgreSQL names. This function maps the wider space of
@@ -34,7 +37,7 @@ def slot_name_from_member_name(member_name):
     are replaced with underscores, other characters are encoded as their unicode codepoint. Name is truncated
     to 64 characters. Multiple different member names may map to a single slot name."""
 
-    def replace_char(match):
+    def replace_char(match: Any) -> str:
         c = match.group(0)
         return '_' if c in '-.' else "u{:04d}".format(ord(c))
 
@@ -42,7 +45,7 @@ def slot_name_from_member_name(member_name):
     return slot_name[0:63]
 
 
-def parse_connection_string(value):
+def parse_connection_string(value: str) -> Tuple[str, Union[str, None]]:
     """Original Governor stores connection strings for each cluster members if a following format:
         postgres://{username}:{password}@{connect_address}/postgres
     Since each of our patroni instances provides own REST API endpoint it's good to store this information
@@ -59,7 +62,7 @@ def parse_connection_string(value):
     return conn_url, api_url
 
 
-def dcs_modules():
+def dcs_modules() -> List[str]:
     """Get names of DCS modules, depending on execution environment. If being packaged with PyInstaller,
     modules aren't discoverable dynamically by scanning source directory because `FrozenImporter` doesn't
     implement `iter_modules` method. But it is still possible to find all potential DCS modules by
@@ -69,20 +72,20 @@ def dcs_modules():
     module_prefix = __package__ + '.'
 
     if getattr(sys, 'frozen', False):
-        toc = set()
+        toc: Set[str] = set()
         # dcs_dirname may contain a dot, which causes pkgutil.iter_importers()
         # to misinterpret the path as a package name. This can be avoided
         # altogether by not passing a path at all, because PyInstaller's
         # FrozenImporter is a singleton and registered as top-level finder.
         for importer in pkgutil.iter_importers():
             if hasattr(importer, 'toc'):
-                toc |= importer.toc
+                toc |= getattr(importer, 'toc')
         return [module for module in toc if module.startswith(module_prefix) and module.count('.') == 2]
     else:
         return [module_prefix + name for _, name, is_pkg in pkgutil.iter_modules([dcs_dirname]) if not is_pkg]
 
 
-def get_dcs(config):
+def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
     modules = dcs_modules()
 
     for module_name in modules:
@@ -103,7 +106,7 @@ def get_dcs(config):
             except ImportError:
                 logger.debug('Failed to import %s', module_name)
 
-    available_implementations = []
+    available_implementations: List[str] = []
     for module_name in modules:
         name = module_name.split('.')[-1]
         try:
@@ -116,8 +119,11 @@ def get_dcs(config):
 Available implementations: """ + ', '.join(sorted(set(available_implementations))))
 
 
-class Member(namedtuple('Member', 'index,name,session,data')):
+_Version = Union[int, str]
+_Session = Union[int, float, str, None]
 
+
+class Member(NamedTuple):
     """Immutable object (namedtuple) which represents single member of PostgreSQL cluster.
     Consists of the following fields:
     :param index: modification index of a given member key in a Configuration Store
@@ -127,30 +133,34 @@ class Member(namedtuple('Member', 'index,name,session,data')):
 
     There are two mandatory keys in a data:
     conn_url: connection string containing host, user and password which could be used to access this member.
-    api_url: REST API url of patroni instance"""
+    api_url: REST API url of patroni instance
+    """
+    index: _Version
+    name: str
+    session: _Session
+    data: Dict[str, Any]
 
     @staticmethod
-    def from_node(index, name, session, data):
+    def from_node(index: _Version, name: str, session: _Session, value: str) -> 'Member':
         """
         >>> Member.from_node(-1, '', '', '{"conn_url": "postgres://foo@bar/postgres"}') is not None
         True
         >>> Member.from_node(-1, '', '', '{')
         Member(index=-1, name='', session='', data={})
         """
-        if data.startswith('postgres'):
-            conn_url, api_url = parse_connection_string(data)
+        if value.startswith('postgres'):
+            conn_url, api_url = parse_connection_string(value)
             data = {'conn_url': conn_url, 'api_url': api_url}
         else:
             try:
-                data = json.loads(data)
-                if not isinstance(data, dict):
-                    data = {}
-            except (TypeError, ValueError):
-                data = {}
+                data = json.loads(value)
+                assert isinstance(data, dict)
+            except (AssertionError, TypeError, ValueError):
+                data: Dict[str, Any] = {}
         return Member(index, name, session, data)
 
     @property
-    def conn_url(self):
+    def conn_url(self) -> Optional[str]:
         conn_url = self.data.get('conn_url')
         if conn_url:
             return conn_url
@@ -161,13 +171,13 @@ class Member(namedtuple('Member', 'index,name,session,data')):
             self.data['conn_url'] = conn_url
             return conn_url
 
-    def conn_kwargs(self, auth=None):
+    def conn_kwargs(self, auth: Union[Any, Dict[str, Any], None] = None) -> Dict[str, Any]:
         defaults = {
             "host": None,
             "port": None,
             "dbname": None
         }
-        ret = self.data.get('conn_kwargs')
+        ret: Optional[Dict[str, Any]] = self.data.get('conn_kwargs')
         if ret:
             defaults.update(ret)
             ret = defaults
@@ -191,35 +201,35 @@ class Member(namedtuple('Member', 'index,name,session,data')):
         return ret
 
     @property
-    def api_url(self):
+    def api_url(self) -> Optional[str]:
         return self.data.get('api_url')
 
     @property
-    def tags(self):
+    def tags(self) -> Dict[str, Any]:
         return self.data.get('tags', {})
 
     @property
-    def nofailover(self):
+    def nofailover(self) -> bool:
         return self.tags.get('nofailover', False)
 
     @property
-    def replicatefrom(self):
+    def replicatefrom(self) -> Optional[str]:
         return self.tags.get('replicatefrom')
 
     @property
-    def clonefrom(self):
+    def clonefrom(self) -> bool:
         return self.tags.get('clonefrom', False) and bool(self.conn_url)
 
     @property
-    def state(self):
+    def state(self) -> str:
         return self.data.get('state', 'unknown')
 
     @property
-    def is_running(self):
+    def is_running(self) -> bool:
         return self.state == 'running'
 
     @property
-    def version(self):
+    def version(self) -> Optional[Tuple[int, ...]]:
         version = self.data.get('version')
         if version:
             try:
@@ -230,8 +240,8 @@ class Member(namedtuple('Member', 'index,name,session,data')):
 
 class RemoteMember(Member):
     """Represents a remote member (typically a primary) for a standby cluster"""
-    def __new__(cls, name, data):
-        return super(RemoteMember, cls).__new__(cls, None, name, None, data)
+    def __new__(cls, name: str, data: Dict[str, Any]) -> 'RemoteMember':
+        return super(RemoteMember, cls).__new__(cls, -1, name, None, data)
 
     @staticmethod
     def allowed_keys():
@@ -242,42 +252,47 @@ class RemoteMember(Member):
                 'recovery_min_apply_delay',
                 'no_replication_slot')
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         if name in RemoteMember.allowed_keys():
             return self.data.get(name)
 
 
-class Leader(namedtuple('Leader', 'index,session,member')):
-
+class Leader(NamedTuple):
     """Immutable object (namedtuple) which represents leader key.
+
     Consists of the following fields:
     :param index: modification index of a leader key in a Configuration Store
     :param session: either session id or just ttl in seconds
-    :param member: reference to a `Member` object which represents current leader (see `Cluster.members`)"""
+    :param member: reference to a `Member` object which represents current leader (see `Cluster.members`)
+    """
+    index: _Version
+    session: _Session
+    member: Member
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self.member.name
 
-    def conn_kwargs(self, auth=None):
+    def conn_kwargs(self, auth: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         return self.member.conn_kwargs(auth)
 
     @property
-    def conn_url(self):
+    def conn_url(self) -> Optional[str]:
         return self.member.conn_url
 
     @property
-    def data(self):
+    def data(self) -> Dict[str, Any]:
         return self.member.data
 
     @property
-    def timeline(self):
+    def timeline(self) -> Optional[int]:
         return self.data.get('timeline')
 
     @property
-    def checkpoint_after_promote(self):
+    def checkpoint_after_promote(self) -> Optional[bool]:
         """
         >>> Leader(1, '', Member.from_node(1, '', '', '{"version":"z"}')).checkpoint_after_promote
+
         """
         version = self.member.version
         # 1.5.6 is the last version which doesn't expose checkpoint_after_promote: false
@@ -285,7 +300,7 @@ class Leader(namedtuple('Leader', 'index,session,member')):
             return self.data.get('role') in ('master', 'primary') and 'checkpoint_after_promote' not in self.data
 
 
-class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
+class Failover(NamedTuple):
 
     """
     >>> 'Failover' in str(Failover.from_node(1, '{"leader": "cluster_leader"}'))
@@ -306,20 +321,26 @@ class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
     >>> 'abc' in Failover.from_node(1, 'abc:def')
     True
     """
+    index: _Version
+    leader: Optional[str]
+    candidate: Optional[str]
+    scheduled_at: Optional[datetime.datetime]
+
     @staticmethod
-    def from_node(index, value):
+    def from_node(index: _Version, value: Union[str, Dict[str, str]]) -> 'Failover':
         if isinstance(value, dict):
-            data = value
+            data: Dict[str, Any] = value
         elif value:
             try:
                 data = json.loads(value)
-                if not isinstance(data, dict):
-                    data = {}
+                assert isinstance(data, dict)
+            except AssertionError:
+                data = {}
             except ValueError:
                 t = [a.strip() for a in value.split(':')]
                 leader = t[0]
                 candidate = t[1] if len(t) > 1 else None
-                return Failover(index, leader, candidate, None) if leader or candidate else None
+                return Failover(index, leader, candidate, None)
         else:
             data = {}
 
@@ -328,54 +349,57 @@ class Failover(namedtuple('Failover', 'index,leader,candidate,scheduled_at')):
 
         return Failover(index, data.get('leader'), data.get('member'), data.get('scheduled_at'))
 
-    def __len__(self):
+    def __len__(self) -> int:
         return int(bool(self.leader)) + int(bool(self.candidate))
 
 
-class ClusterConfig(namedtuple('ClusterConfig', 'index,data,modify_index')):
+class ClusterConfig(NamedTuple):
+    index: _Version
+    data: Dict[str, Any]
+    modify_index: _Version
 
     @staticmethod
-    def from_node(index, data, modify_index=None):
+    def from_node(index: _Version, value: str, modify_index: Optional[_Version] = None) -> 'ClusterConfig':
         """
         >>> ClusterConfig.from_node(1, '{') is None
         False
         """
 
         try:
-            data = json.loads(data)
-        except (TypeError, ValueError):
-            data = None
+            data = json.loads(value)
+            assert isinstance(data, dict)
+        except (AssertionError, TypeError, ValueError):
+            data: Dict[str, Any] = {}
             modify_index = 0
-        if not isinstance(data, dict):
-            data = {}
         return ClusterConfig(index, data, index if modify_index is None else modify_index)
 
     @property
-    def permanent_slots(self):
-        return isinstance(self.data, dict) and (
-            self.data.get('permanent_replication_slots')
-            or self.data.get('permanent_slots') or self.data.get('slots')
-        ) or {}
+    def permanent_slots(self) -> Dict[str, Any]:
+        return self.data.get('permanent_replication_slots')\
+            or self.data.get('permanent_slots') or self.data.get('slots') or {}
 
     @property
-    def ignore_slots_matchers(self):
-        return isinstance(self.data, dict) and self.data.get('ignore_slots') or []
+    def ignore_slots_matchers(self) -> List[Dict[str, Any]]:
+        return self.data.get('ignore_slots') or []
 
     @property
-    def max_timelines_history(self):
+    def max_timelines_history(self) -> int:
         return self.data.get('max_timelines_history', 0)
 
 
-class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
+class SyncState(NamedTuple):
     """Immutable object (namedtuple) which represents last observed synhcronous replication state
 
     :param index: modification index of a synchronization key in a Configuration Store
     :param leader: reference to member that was leader
     :param sync_standby: synchronous standby list (comma delimited) which are last synchronized to leader
     """
+    index: Optional[_Version]
+    leader: Optional[str]
+    sync_standby: Optional[str]
 
     @staticmethod
-    def from_node(index: Union[str, int], value: Union[str, Dict[str, Any]]) -> 'SyncState':
+    def from_node(index: Optional[_Version], value: Union[str, Dict[str, Any], None]) -> 'SyncState':
         """
         >>> SyncState.from_node(1, None).leader is None
         True
@@ -393,15 +417,14 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         try:
             if value and isinstance(value, str):
                 value = json.loads(value)
-            if not isinstance(value, dict):
-                return SyncState.empty(index)
+            assert isinstance(value, dict)
             return SyncState(index, value.get('leader'), value.get('sync_standby'))
-        except (TypeError, ValueError):
+        except (AssertionError, TypeError, ValueError):
             return SyncState.empty(index)
 
     @staticmethod
-    def empty(index: Optional[Union[str, int]] = '') -> 'SyncState':
-        return SyncState(index, None, '')
+    def empty(index: Optional[_Version] = None) -> 'SyncState':
+        return SyncState(index, None, None)
 
     @property
     def is_empty(self) -> bool:
@@ -422,7 +445,7 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         """:returns: sync_standby as list."""
         return self._str_to_list(self.sync_standby) if not self.is_empty and self.sync_standby else []
 
-    def matches(self, name: Union[str, None], check_leader: Optional[bool] = False) -> bool:
+    def matches(self, name: Optional[str], check_leader: bool = False) -> bool:
         """Checks if node is presented in the /sync state.
 
         Since PostgreSQL does case-insensitive checks for synchronous_standby_name we do it also.
@@ -447,20 +470,26 @@ class SyncState(namedtuple('SyncState', 'index,leader,sync_standby')):
         """
         ret = False
         if name and not self.is_empty:
-            search_str = (self.sync_standby or '') + (',' + self.leader if check_leader else '')
+            search_str = (self.sync_standby or '') + (',' + (self.leader or '') if check_leader else '')
             ret = name.lower() in self._str_to_list(search_str.lower())
         return ret
 
-    def leader_matches(self, name: Union[str, None]) -> bool:
+    def leader_matches(self, name: Optional[str]) -> bool:
         """:returns: `True` if name is matching the `SyncState.leader` value."""
-        return name and not self.is_empty and name.lower() == self.leader.lower()
+        return bool(name and not self.is_empty and name.lower() == (self.leader or '').lower())
 
 
-class TimelineHistory(namedtuple('TimelineHistory', 'index,value,lines')):
+_HistoryTuple = Union[Tuple[int, int, str], Tuple[int, int, str, str], Tuple[int, int, str, str, str]]
+
+
+class TimelineHistory(NamedTuple):
     """Object representing timeline history file"""
+    index: _Version
+    value: Any
+    lines: List[_HistoryTuple]
 
     @staticmethod
-    def from_node(index, value):
+    def from_node(index: _Version, value: str) -> 'TimelineHistory':
         """
         >>> h = TimelineHistory.from_node(1, 2)
         >>> h.lines
@@ -468,16 +497,13 @@ class TimelineHistory(namedtuple('TimelineHistory', 'index,value,lines')):
         """
         try:
             lines = json.loads(value)
-        except (TypeError, ValueError):
-            lines = None
-        if not isinstance(lines, list):
-            lines = []
+            assert isinstance(lines, list)
+        except (AssertionError, TypeError, ValueError):
+            lines: List[_HistoryTuple] = []
         return TimelineHistory(index, value, lines)
 
 
-class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,'
-                                    'failover,sync,history,slots,failsafe,workers')):
-
+class Cluster(NamedTuple):
     """Immutable object (namedtuple) which represents PostgreSQL cluster.
     Consists of the following fields:
     :param initialize: shows whether this cluster has initialization key stored in DC or not.
@@ -491,55 +517,62 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,'
     :param history: reference to `TimelineHistory` object
     :param slots: state of permanent logical replication slots on the primary in the format: {"slot_name": int}
     :param failsafe: failsafe topology. Node is allowed to become the leader only if its name is found in this list.
-    :param workers: workers of the Citus cluster, optional. Format: {int(group): Cluster()}"""
-
-    def __new__(cls, *args):
-        # Make workers argument optional
-        if len(cls._fields) == len(args) + 1:
-            args = args + ({},)
-        return super(Cluster, cls).__new__(cls, *args)
+    :param workers: workers of the Citus cluster, optional. Format: {int(group): Cluster()}
+    """
+    initialize: Optional[str]
+    config: Optional[ClusterConfig]
+    leader: Optional[Leader]
+    last_lsn: int
+    members: List[Member]
+    failover: Optional[Failover]
+    sync: SyncState
+    history: Optional[TimelineHistory]
+    slots: Optional[Dict[str, int]]
+    failsafe: Optional[Dict[str, str]]
+    workers: Dict[int, 'Cluster'] = {}
 
     @staticmethod
-    def empty():
+    def empty() -> 'Cluster':
         return Cluster(None, None, None, 0, [], None, SyncState.empty(), None, None, None)
 
     @property
-    def leader_name(self):
+    def leader_name(self) -> Optional[str]:
         return self.leader and self.leader.name
 
-    def is_unlocked(self):
+    def is_unlocked(self) -> bool:
         return not self.leader_name
 
-    def has_member(self, member_name):
+    def has_member(self, member_name: str) -> bool:
         return any(m for m in self.members if m.name == member_name)
 
-    def get_member(self, member_name, fallback_to_leader=True):
+    def get_member(self, member_name: str, fallback_to_leader: bool = True) -> Union[Member, Leader, None]:
         return ([m for m in self.members if m.name == member_name] or [self.leader if fallback_to_leader else None])[0]
 
-    def get_clone_member(self, exclude):
-        exclude = [exclude] + [self.leader.name] if self.leader else []
+    def get_clone_member(self, exclude_name: str) -> Union[Member, Leader, None]:
+        exclude = [exclude_name] + [self.leader.name] if self.leader else []
         candidates = [m for m in self.members if m.clonefrom and m.is_running and m.name not in exclude]
         return candidates[randint(0, len(candidates) - 1)] if candidates else self.leader
 
     @property
-    def __permanent_slots(self):
+    def __permanent_slots(self) -> Dict[str, Union[Dict[str, Any], Any]]:
         return self.config and self.config.permanent_slots or {}
 
     @property
-    def __permanent_physical_slots(self):
+    def __permanent_physical_slots(self) -> Dict[str, Any]:
         return {name: value for name, value in self.__permanent_slots.items()
                 if not value or isinstance(value, dict) and value.get('type', 'physical') == 'physical'}
 
     @property
-    def __permanent_logical_slots(self):
+    def __permanent_logical_slots(self) -> Dict[str, Any]:
         return {name: value for name, value in self.__permanent_slots.items() if isinstance(value, dict)
                 and value.get('type', 'logical') == 'logical' and value.get('database') and value.get('plugin')}
 
     @property
-    def use_slots(self):
-        return self.config and (self.config.data.get('postgresql') or {}).get('use_slots', True)
+    def use_slots(self) -> bool:
+        return bool(self.config and (self.config.data.get('postgresql') or {}).get('use_slots', True))
 
-    def get_replication_slots(self, my_name, role, nofailover, major_version, show_error=False):
+    def get_replication_slots(self, my_name: str, role: str, nofailover: bool,
+                              major_version: int, show_error: bool = False) -> Dict[str, Any]:
         # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
         # the current primary, because that member would replicate from elsewhere. We still create the slot if
         # the replicatefrom destination member is currently not a member of the cluster (fallback to the
@@ -561,7 +594,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,'
 
         if len(slots) < len(slot_members):
             # Find which names are conflicting for a nicer error message
-            slot_conflicts = defaultdict(list)
+            slot_conflicts: Dict[str, List[str]] = defaultdict(list)
             for name in slot_members:
                 slot_conflicts[slot_name_from_member_name(name)].append(name)
             logger.error("Following cluster members share a replication slot name: %s",
@@ -569,7 +602,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,'
                                    for k, v in slot_conflicts.items() if len(v) > 1))
 
         # "merge" replication slots for members with permanent_replication_slots
-        disabled_permanent_logical_slots = []
+        disabled_permanent_logical_slots: List[str] = []
         for name, value in permanent_slots.items():
             if not slot_name_re.match(name):
                 logger.error("Invalid permanent replication slot name '%s'", name)
@@ -604,13 +637,13 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,'
 
         return slots
 
-    def has_permanent_logical_slots(self, my_name, nofailover, major_version=110000):
+    def has_permanent_logical_slots(self, my_name: str, nofailover: bool, major_version: int = 110000) -> bool:
         if major_version < 110000:
             return False
         slots = self.get_replication_slots(my_name, 'replica', nofailover, major_version).values()
         return any(v for v in slots if v.get("type") == "logical")
 
-    def should_enforce_hot_standby_feedback(self, my_name, nofailover, major_version):
+    def should_enforce_hot_standby_feedback(self, my_name: str, nofailover: bool, major_version: int) -> bool:
         """
         The hot_standby_feedback must be enabled if the current replica has logical slots
         or it is working as a cascading replica for the other node that has logical slots.
@@ -627,7 +660,7 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,'
             return any(self.should_enforce_hot_standby_feedback(m.name, m.nofailover, major_version) for m in members)
         return False
 
-    def get_my_slot_name_on_primary(self, my_name, replicatefrom):
+    def get_my_slot_name_on_primary(self, my_name: str, replicatefrom: Optional[str]) -> str:
         """
         P <-- I <-- L
         In case of cascading replication we have to check not our physical slot,
@@ -635,10 +668,11 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,'
         """
 
         m = self.get_member(replicatefrom, False) if replicatefrom else None
-        return self.get_my_slot_name_on_primary(m.name, m.replicatefrom) if m else slot_name_from_member_name(my_name)
+        return self.get_my_slot_name_on_primary(m.name, m.replicatefrom)\
+            if isinstance(m, Member) else slot_name_from_member_name(my_name)
 
     @property
-    def timeline(self):
+    def timeline(self) -> int:
         """
         >>> Cluster(0, 0, 0, 0, 0, 0, 0, 0, 0, None).timeline
         0
@@ -658,16 +692,16 @@ class Cluster(namedtuple('Cluster', 'initialize,config,leader,last_lsn,members,'
         return 0
 
     @property
-    def min_version(self):
-        return next(iter(sorted(filter(lambda v: v, [m.version for m in self.members])) + [None]))
+    def min_version(self) -> Optional[Tuple[int, ...]]:
+        return next(iter(sorted(filter(None, [m.version for m in self.members])) + [None]))
 
 
 class ReturnFalseException(Exception):
     pass
 
 
-def catch_return_false_exception(func):
-    def wrapper(*args, **kwargs):
+def catch_return_false_exception(func: Callable[..., Any]) -> Any:
+    def wrapper(*args: Any, **kwargs: Any):
         try:
             return func(*args, **kwargs)
         except ReturnFalseException:
@@ -690,7 +724,7 @@ class AbstractDCS(abc.ABC):
     _SYNC = 'sync'
     _FAILSAFE = 'failsafe'
 
-    def __init__(self, config):
+    def __init__(self, config: Dict[str, Any]) -> None:
         """
         :param config: dict, reference to config section of selected DCS.
             i.e.: `zookeeper` for zookeeper, `etcd` for etcd, etc...
@@ -701,16 +735,16 @@ class AbstractDCS(abc.ABC):
         self._set_loop_wait(config.get('loop_wait', 10))
 
         self._ctl = bool(config.get('patronictl', False))
-        self._cluster = None
-        self._cluster_valid_till = 0
+        self._cluster: Optional[Cluster] = None
+        self._cluster_valid_till: float = 0
         self._cluster_thread_lock = Lock()
-        self._last_lsn = ''
-        self._last_seen = 0
-        self._last_status = {}
-        self._last_failsafe = {}
+        self._last_lsn: int = 0
+        self._last_seen: int = 0
+        self._last_status: Dict[str, Any] = {}
+        self._last_failsafe: Optional[Dict[str, str]] = {}
         self.event = Event()
 
-    def client_path(self, path):
+    def client_path(self, path: str) -> str:
         components = [self._base_path]
         if self._citus_group:
             components.append(self._citus_group)
@@ -718,86 +752,88 @@ class AbstractDCS(abc.ABC):
         return '/'.join(components)
 
     @property
-    def initialize_path(self):
+    def initialize_path(self) -> str:
         return self.client_path(self._INITIALIZE)
 
     @property
-    def config_path(self):
+    def config_path(self) -> str:
         return self.client_path(self._CONFIG)
 
     @property
-    def members_path(self):
+    def members_path(self) -> str:
         return self.client_path(self._MEMBERS)
 
     @property
-    def member_path(self):
+    def member_path(self) -> str:
         return self.client_path(self._MEMBERS + self._name)
 
     @property
-    def leader_path(self):
+    def leader_path(self) -> str:
         return self.client_path(self._LEADER)
 
     @property
-    def failover_path(self):
+    def failover_path(self) -> str:
         return self.client_path(self._FAILOVER)
 
     @property
-    def history_path(self):
+    def history_path(self) -> str:
         return self.client_path(self._HISTORY)
 
     @property
-    def status_path(self):
+    def status_path(self) -> str:
         return self.client_path(self._STATUS)
 
     @property
-    def leader_optime_path(self):
+    def leader_optime_path(self) -> str:
         return self.client_path(self._LEADER_OPTIME)
 
     @property
-    def sync_path(self):
+    def sync_path(self) -> str:
         return self.client_path(self._SYNC)
 
     @property
-    def failsafe_path(self):
+    def failsafe_path(self) -> str:
         return self.client_path(self._FAILSAFE)
 
     @abc.abstractmethod
-    def set_ttl(self, ttl):
+    def set_ttl(self, ttl: int) -> Optional[bool]:
         """Set the new ttl value for leader key"""
 
+    @property
     @abc.abstractmethod
-    def ttl(self):
+    def ttl(self) -> int:
         """Get new ttl value"""
 
     @abc.abstractmethod
-    def set_retry_timeout(self, retry_timeout):
+    def set_retry_timeout(self, retry_timeout: int) -> None:
         """Set the new value for retry_timeout"""
 
-    def _set_loop_wait(self, loop_wait):
+    def _set_loop_wait(self, loop_wait: int) -> None:
         self._loop_wait = loop_wait
 
-    def reload_config(self, config):
+    def reload_config(self, config: Dict[str, Any]) -> None:
         self._set_loop_wait(config['loop_wait'])
         self.set_ttl(config['ttl'])
         self.set_retry_timeout(config['retry_timeout'])
 
     @property
-    def loop_wait(self):
+    def loop_wait(self) -> int:
         return self._loop_wait
 
     @property
-    def last_seen(self):
+    def last_seen(self) -> int:
         return self._last_seen
 
     @abc.abstractmethod
-    def _cluster_loader(self, path):
+    def _cluster_loader(self, path: Any) -> Cluster:
         """Load and build the `Cluster` object from DCS, which
         represents a single Patroni cluster.
 
         :param path: the path in DCS where to load Cluster(s) from.
         :returns: `Cluster`"""
 
-    def _citus_cluster_loader(self, path):
+    @abc.abstractmethod
+    def _citus_cluster_loader(self, path: Any) -> Union[Cluster, Dict[int, Cluster]]:
         """Load and build `Cluster` onjects from DCS that represent all
         Patroni clusters from a single Citus cluster.
 
@@ -805,7 +841,9 @@ class AbstractDCS(abc.ABC):
         :returns: all Citus groups as `dict`, with group ids as keys"""
 
     @abc.abstractmethod
-    def _load_cluster(self, path, loader):
+    def _load_cluster(
+            self, path: str, loader: Callable[[Any], Union[Cluster, Dict[int, Cluster]]]
+    ) -> Union[Cluster, Dict[int, Cluster]]:
         """Internally this method should call the `loader` method that
         will build `Cluster` object which represents current state and
         topology of the cluster in DCS. This method supposed to be
@@ -817,20 +855,26 @@ class AbstractDCS(abc.ABC):
         If the current node was running as a primary and exception
         raised, instance would be demoted."""
 
-    def _bypass_caches(self):
+    def _bypass_caches(self) -> None:
         """Used only in zookeeper"""
 
-    def is_citus_coordinator(self):
+    def __get_patroni_cluster(self, path: Optional[str] = None) -> Cluster:
+        if path is None:
+            path = self.client_path('')
+        cluster = self._load_cluster(path, self._cluster_loader)
+        assert isinstance(cluster, Cluster)
+        return cluster
+
+    def is_citus_coordinator(self) -> bool:
         return self._citus_group == str(CITUS_COORDINATOR_GROUP_ID)
 
-    def get_citus_coordinator(self):
+    def get_citus_coordinator(self) -> Optional[Cluster]:
         try:
-            path = '{0}/{1}/'.format(self._base_path, CITUS_COORDINATOR_GROUP_ID)
-            return self._load_cluster(path, self._cluster_loader)
+            return self.__get_patroni_cluster('{0}/{1}/'.format(self._base_path, CITUS_COORDINATOR_GROUP_ID))
         except Exception as e:
             logger.error('Failed to load Citus coordinator cluster from %s: %r', self.__class__.__name__, e)
 
-    def _get_citus_cluster(self):
+    def _get_citus_cluster(self) -> Cluster:
         groups = self._load_cluster(self._base_path + '/', self._citus_cluster_loader)
         if isinstance(groups, Cluster):  # Zookeeper could return a cached version
             cluster = groups
@@ -840,12 +884,11 @@ class AbstractDCS(abc.ABC):
             cluster.workers.update(groups)
         return cluster
 
-    def get_cluster(self, force=False):
+    def get_cluster(self, force: bool = False) -> Cluster:
         if force:
             self._bypass_caches()
         try:
-            cluster = self._get_citus_cluster() if self.is_citus_coordinator()\
-                else self._load_cluster(self.client_path(''), self._cluster_loader)
+            cluster = self._get_citus_cluster() if self.is_citus_coordinator() else self.__get_patroni_cluster()
         except Exception:
             self.reset_cluster()
             raise
@@ -860,33 +903,33 @@ class AbstractDCS(abc.ABC):
             return cluster
 
     @property
-    def cluster(self):
+    def cluster(self) -> Optional[Cluster]:
         with self._cluster_thread_lock:
             return self._cluster if self._cluster_valid_till > time.time() else None
 
-    def reset_cluster(self):
+    def reset_cluster(self) -> None:
         with self._cluster_thread_lock:
             self._cluster = None
             self._cluster_valid_till = 0
 
     @abc.abstractmethod
-    def _write_leader_optime(self, last_lsn):
+    def _write_leader_optime(self, last_lsn: str) -> bool:
         """write current WAL LSN into `/optime/leader` key in DCS
 
         :param last_lsn: absolute WAL LSN in bytes
         :returns: `!True` on success."""
 
-    def write_leader_optime(self, last_lsn):
+    def write_leader_optime(self, last_lsn: int) -> None:
         self.write_status({self._OPTIME: last_lsn})
 
     @abc.abstractmethod
-    def _write_status(self, value):
+    def _write_status(self, value: str) -> bool:
         """write current WAL LSN and confirmed_flush_lsn of permanent slots into the `/status` key in DCS
 
         :param value: status serialized in JSON forman
         :returns: `!True` on success."""
 
-    def write_status(self, value):
+    def write_status(self, value: Dict[str, Any]) -> None:
         if not deep_compare(self._last_status, value) and self._write_status(json.dumps(value, separators=(',', ':'))):
             self._last_status = value
         cluster = self.cluster
@@ -896,23 +939,23 @@ class AbstractDCS(abc.ABC):
             self._write_leader_optime(str(value[self._OPTIME]))
 
     @abc.abstractmethod
-    def _write_failsafe(self, value):
+    def _write_failsafe(self, value: str) -> bool:
         """Write current cluster topology to DCS that will be used by failsafe mechanism (if enabled).
 
         :param value: failsafe topology serialized in JSON format
         :returns: `!True` on success."""
 
-    def write_failsafe(self, value):
+    def write_failsafe(self, value: Dict[str, str]) -> None:
         if not (isinstance(self._last_failsafe, dict) and deep_compare(self._last_failsafe, value))\
                 and self._write_failsafe(json.dumps(value, separators=(',', ':'))):
             self._last_failsafe = value
 
     @property
-    def failsafe(self):
+    def failsafe(self) -> Optional[Dict[str, str]]:
         return self._last_failsafe
 
     @abc.abstractmethod
-    def _update_leader(self):
+    def _update_leader(self) -> bool:
         """Update leader key (or session) ttl
 
         :returns: `!True` if leader key (or session) has been updated successfully.
@@ -922,7 +965,8 @@ class AbstractDCS(abc.ABC):
         If update fails due to DCS not being accessible or because it is not able to
         process requests (hopefuly temporary), the ~DCSError exception should be raised."""
 
-    def update_leader(self, last_lsn, slots=None, failsafe=None):
+    def update_leader(self, last_lsn: int, slots: Optional[Dict[str, int]] = None,
+                      failsafe: Optional[Dict[str, str]] = None) -> bool:
         """Update leader key (or session) ttl and optime/leader
 
         :param last_lsn: absolute WAL LSN in bytes
@@ -931,7 +975,7 @@ class AbstractDCS(abc.ABC):
 
         ret = self._update_leader()
         if ret and last_lsn:
-            status = {self._OPTIME: last_lsn}
+            status: Dict[str, Any] = {self._OPTIME: last_lsn}
             if slots:
                 status['slots'] = slots
             self.write_status(status)
@@ -942,7 +986,7 @@ class AbstractDCS(abc.ABC):
         return ret
 
     @abc.abstractmethod
-    def attempt_to_acquire_leader(self):
+    def attempt_to_acquire_leader(self) -> bool:
         """Attempt to acquire leader lock
         This method should create `/leader` key with value=`~self._name`
         :returns: `!True` if key has been created successfully.
@@ -954,10 +998,11 @@ class AbstractDCS(abc.ABC):
         process requests (hopefuly temporary), the ~DCSError exception should be raised"""
 
     @abc.abstractmethod
-    def set_failover_value(self, value, index=None):
+    def set_failover_value(self, value: str, index: Optional[Any] = None) -> bool:
         """Create or update `/failover` key"""
 
-    def manual_failover(self, leader, candidate, scheduled_at=None, index=None):
+    def manual_failover(self, leader: str, candidate: str, scheduled_at: Optional[datetime.datetime] = None,
+                        index: Optional[Any] = None) -> bool:
         failover_value = {}
         if leader:
             failover_value['leader'] = leader
@@ -970,11 +1015,11 @@ class AbstractDCS(abc.ABC):
         return self.set_failover_value(json.dumps(failover_value, separators=(',', ':')), index)
 
     @abc.abstractmethod
-    def set_config_value(self, value, index=None):
+    def set_config_value(self, value: str, index: Optional[Any] = None) -> bool:
         """Create or update `/config` key"""
 
     @abc.abstractmethod
-    def touch_member(self, data):
+    def touch_member(self, data: Dict[str, Any]) -> bool:
         """Update member key in DCS.
         This method should create or update key with the name = '/members/' + `~self._name`
         and value = data in a given DCS.
@@ -985,13 +1030,13 @@ class AbstractDCS(abc.ABC):
         """
 
     @abc.abstractmethod
-    def take_leader(self):
+    def take_leader(self) -> bool:
         """This method should create leader key with value = `~self._name` and ttl=`~self.ttl`
         Since it could be called only on initial cluster bootstrap it could create this key regardless,
         overwriting the key if necessary."""
 
     @abc.abstractmethod
-    def initialize(self, create_new=True, sysid=""):
+    def initialize(self, create_new: bool = True, sysid: str = "") -> bool:
         """Race for cluster initialization.
 
         :param create_new: False if the key should already exist (in the case we are setting the system_id)
@@ -1002,11 +1047,11 @@ class AbstractDCS(abc.ABC):
         otherwise it should return `!False`"""
 
     @abc.abstractmethod
-    def _delete_leader(self):
+    def _delete_leader(self) -> bool:
         """Remove leader key from DCS.
         This method should remove leader key if current instance is the leader"""
 
-    def delete_leader(self, last_lsn=None):
+    def delete_leader(self, last_lsn: Optional[int] = None) -> bool:
         """Update optime/leader and voluntarily remove leader key from DCS.
         This method should remove leader key if current instance is the leader.
         :param last_lsn: latest checkpoint location in bytes"""
@@ -1016,15 +1061,15 @@ class AbstractDCS(abc.ABC):
         return self._delete_leader()
 
     @abc.abstractmethod
-    def cancel_initialization(self):
+    def cancel_initialization(self) -> bool:
         """ Removes the initialize key for a cluster """
 
     @abc.abstractmethod
-    def delete_cluster(self):
+    def delete_cluster(self) -> bool:
         """Delete cluster from DCS"""
 
     @staticmethod
-    def sync_state(leader: Union[str, None], sync_standby: Union[Collection[str], None]) -> Dict[str, Any]:
+    def sync_state(leader: Optional[str], sync_standby: Optional[Collection[str]]) -> Dict[str, Any]:
         """Build sync_state dict.
         The sync_standby key being kept for backward compatibility.
         :param leader: name of the leader node that manages /sync key
@@ -1033,8 +1078,8 @@ class AbstractDCS(abc.ABC):
         """
         return {'leader': leader, 'sync_standby': ','.join(sorted(sync_standby)) if sync_standby else None}
 
-    def write_sync_state(self, leader: Union[str, None], sync_standby: Union[Collection[str], None],
-                         index: Optional[Union[int, str]] = None) -> bool:
+    def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
+                         index: Optional[_Version] = None) -> bool:
         """Write the new synchronous state to DCS.
         Calls :func:`sync_state` method to build a dict and than calls DCS specific :func:`set_sync_state_value` method.
         :param leader: name of the leader node that manages /sync key
@@ -1046,11 +1091,11 @@ class AbstractDCS(abc.ABC):
         return self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), index)
 
     @abc.abstractmethod
-    def set_history_value(self, value):
+    def set_history_value(self, value: str) -> bool:
         """"""
 
     @abc.abstractmethod
-    def set_sync_state_value(self, value: str, index: Optional[Union[int, str]] = None) -> bool:
+    def set_sync_state_value(self, value: str, index: Optional[Any] = None) -> bool:
         """Set synchronous state in DCS, should be implemented in the child class.
 
         :param value: the new value of /sync key
@@ -1059,10 +1104,10 @@ class AbstractDCS(abc.ABC):
         """
 
     @abc.abstractmethod
-    def delete_sync_state(self, index=None):
+    def delete_sync_state(self, index: Optional[Any] = None) -> bool:
         """"""
 
-    def watch(self, leader_index, timeout):
+    def watch(self, leader_index: Optional[Any], timeout: float) -> bool:
         """If the current node is a leader it should just sleep.
         Any other node should watch for changes of leader key with a given timeout
 

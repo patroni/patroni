@@ -19,7 +19,7 @@ class TestConfig(unittest.TestCase):
 
     def test_set_dynamic_configuration(self):
         with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
-            self.assertIsNone(self.config.set_dynamic_configuration({'foo': 'bar'}))
+            self.assertFalse(self.config.set_dynamic_configuration({'foo': 'bar'}))
         self.assertTrue(self.config.set_dynamic_configuration({'standby_cluster': {}}))
 
     def test_reload_local_configuration(self):

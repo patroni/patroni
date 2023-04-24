@@ -5,6 +5,7 @@ import mock
 import socket
 import time
 import unittest
+import urllib3
 
 from mock import Mock, PropertyMock, mock_open, patch
 from patroni.dcs.kubernetes import Cluster, k8s_client, k8s_config, K8sConfig, K8sConnectionFailed,\
@@ -34,6 +35,9 @@ def mock_list_namespaced_config_map(*args, **kwargs):
     metadata.update({'name': 'test-1-leader', 'labels': {Kubernetes._CITUS_LABEL: '1'},
                      'annotations': {'leader': 'p-3', 'ttl': '30s'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
+    metadata.update({'name': 'test-2-config', 'labels': {Kubernetes._CITUS_LABEL: '2'}, 'annotations': {}})
+    items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
+
     metadata = k8s_client.V1ObjectMeta(resource_version='1')
     return k8s_client.V1ConfigMapList(metadata=metadata, items=items, kind='ConfigMapList')
 
@@ -403,13 +407,18 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         self.assertEqual(('create_config_service failed',), mock_logger_exception.call_args[0])
 
 
+def mock_watch(*args):
+    return urllib3.HTTPResponse()
+
+
 class TestCacheBuilder(BaseTestKubernetes):
 
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
-    @patch('patroni.dcs.kubernetes.ObjectCache._watch')
-    def test__build_cache(self, mock_response):
+    @patch('patroni.dcs.kubernetes.ObjectCache._watch', mock_watch)
+    @patch.object(urllib3.HTTPResponse, 'read_chunked')
+    def test__build_cache(self, mock_read_chunked):
         self.k._citus_group = '0'
-        mock_response.return_value.read_chunked.return_value = [json.dumps(
+        mock_read_chunked.return_value = [json.dumps(
             {'type': 'MODIFIED', 'object': {'metadata': {
                 'name': self.k.config_path, 'resourceVersion': '2', 'annotations': {self.k._CONFIG: 'foo'}}}}
         ).encode('utf-8'), ('\n' + json.dumps(
@@ -435,12 +444,13 @@ class TestCacheBuilder(BaseTestKubernetes):
         self.assertRaises(AttributeError, self.k._kinds._do_watch, '1')
 
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
-    @patch('patroni.dcs.kubernetes.ObjectCache._watch')
-    def test_kill_stream(self, mock_watch):
+    @patch('patroni.dcs.kubernetes.ObjectCache._watch', mock_watch)
+    @patch.object(urllib3.HTTPResponse, 'read_chunked', Mock(return_value=[]))
+    def test_kill_stream(self):
         self.k._kinds.kill_stream()
-        mock_watch.return_value.read_chunked.return_value = []
-        mock_watch.return_value.connection.sock.close.side_effect = Exception
-        self.k._kinds._do_watch('1')
-        self.k._kinds.kill_stream()
-        type(mock_watch.return_value).connection = PropertyMock(side_effect=Exception)
-        self.k._kinds.kill_stream()
+        with patch.object(urllib3.HTTPResponse, 'connection') as mock_connection:
+            mock_connection.sock.close.side_effect = Exception
+            self.k._kinds._do_watch('1')
+            self.k._kinds.kill_stream()
+        with patch.object(urllib3.HTTPResponse, 'connection', PropertyMock(side_effect=Exception)):
+            self.k._kinds.kill_stream()

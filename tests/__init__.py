@@ -23,6 +23,7 @@ class MockResponse(object):
 
     def __init__(self, status_code=200):
         self.status_code = status_code
+        self.headers = {'content-type': 'json'}
         self.content = '{}'
         self.reason = 'Not Found'
 
@@ -37,10 +38,6 @@ class MockResponse(object):
     @staticmethod
     def getheader(*args):
         return ''
-
-    @staticmethod
-    def getheaders():
-        return {'content-type': 'json'}
 
 
 def requests_get(url, method='GET', endpoint=None, data='', **kwargs):

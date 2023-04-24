@@ -7,7 +7,7 @@ import yaml
 
 from collections import defaultdict
 from copy import deepcopy
-from typing import Any, Dict, Optional, Union
+from typing import Any, Callable, Collection, Dict, List, Optional, Union
 
 from . import PATRONI_ENV_PREFIX
 from .collections import CaseInsensitiveDict
@@ -33,9 +33,10 @@ _AUTH_ALLOWED_PARAMETERS = (
 )
 
 
-def default_validator(conf):
+def default_validator(conf: Dict[str, Any]) -> List[str]:
     if not conf:
         raise ConfigParseError("Config is empty.")
+    return []
 
 
 class GlobalConfig(object):
@@ -86,7 +87,7 @@ class GlobalConfig(object):
         """:returns: `True` if at least one synchronous node is required."""
         return self.check_mode('synchronous_mode_strict')
 
-    def get_standby_cluster_config(self) -> Any:
+    def get_standby_cluster_config(self) -> Union[Dict[str, Any], Any]:
         """:returns: "standby_cluster" configuration."""
         return deepcopy(self.get('standby_cluster'))
 
@@ -142,7 +143,7 @@ class GlobalConfig(object):
             if 'primary_stop_timeout' in self.__config else self.get_int('master_stop_timeout', default)
 
 
-def get_global_config(cluster: Union[Cluster, None], default: Optional[Dict] = None) -> GlobalConfig:
+def get_global_config(cluster: Union[Cluster, None], default: Optional[Dict[str, Any]] = None) -> GlobalConfig:
     """Instantiates :class:`GlobalConfig` based on the input.
 
     :param cluster: the currently known cluster state from DCS
@@ -180,7 +181,7 @@ class Config(object):
     PATRONI_CONFIG_VARIABLE = PATRONI_ENV_PREFIX + 'CONFIGURATION'
 
     __CACHE_FILENAME = 'patroni.dynamic.json'
-    __DEFAULT_CONFIG = {
+    __DEFAULT_CONFIG: Dict[str, Any] = {
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
         'standby_cluster': {
             'create_replica_methods': '',
@@ -202,19 +203,21 @@ class Config(object):
         }
     }
 
-    def __init__(self, configfile, validator=default_validator):
+    def __init__(self, configfile: str,
+                 validator: Optional[Callable[[Dict[str, Any]], List[str]]] = default_validator) -> None:
         self._modify_index = -1
         self._dynamic_configuration = {}
 
         self.__environment_configuration = self._build_environment_configuration()
 
         # Patroni reads the configuration from the command-line argument if it exists, otherwise from the environment
-        self._config_file = configfile and os.path.exists(configfile) and configfile
+        self._config_file = configfile if configfile and os.path.exists(configfile) else None
         if self._config_file:
             self._local_configuration = self._load_config_file()
         else:
             config_env = os.environ.pop(self.PATRONI_CONFIG_VARIABLE, None)
             self._local_configuration = config_env and yaml.safe_load(config_env) or self.__environment_configuration
+
         if validator:
             errors = validator(self._local_configuration)
             if errors:
@@ -227,14 +230,14 @@ class Config(object):
         self._cache_needs_saving = False
 
     @property
-    def config_file(self):
+    def config_file(self) -> Union[str, None]:
         return self._config_file
 
     @property
-    def dynamic_configuration(self):
+    def dynamic_configuration(self) -> Dict[str, Any]:
         return deepcopy(self._dynamic_configuration)
 
-    def _load_config_path(self, path):
+    def _load_config_path(self, path: str) -> Dict[str, Any]:
         """
         If path is a file, loads the yml file pointed to by path.
         If path is a directory, loads all yml files in that directory in alphabetical order
@@ -248,20 +251,21 @@ class Config(object):
             logger.error('config path %s is neither directory nor file', path)
             raise ConfigParseError('invalid config path')
 
-        overall_config = {}
+        overall_config: Dict[str, Any] = {}
         for fname in files:
             with open(fname) as f:
                 config = yaml.safe_load(f)
                 patch_config(overall_config, config)
         return overall_config
 
-    def _load_config_file(self):
+    def _load_config_file(self) -> Dict[str, Any]:
         """Loads config.yaml from filesystem and applies some values which were set via ENV"""
+        assert self._config_file is not None
         config = self._load_config_path(self._config_file)
         patch_config(config, self.__environment_configuration)
         return config
 
-    def _load_cache(self):
+    def _load_cache(self) -> None:
         if os.path.isfile(self._cache_file):
             try:
                 with open(self._cache_file) as f:
@@ -269,7 +273,7 @@ class Config(object):
             except Exception:
                 logger.exception('Exception when loading file: %s', self._cache_file)
 
-    def save_cache(self):
+    def save_cache(self) -> None:
         if self._cache_needs_saving:
             tmpfile = fd = None
             try:
@@ -293,7 +297,7 @@ class Config(object):
                         logger.error('Can not remove temporary file %s', tmpfile)
 
     # configuration could be either ClusterConfig or dict
-    def set_dynamic_configuration(self, configuration):
+    def set_dynamic_configuration(self, configuration: Union[ClusterConfig, Dict[str, Any]]) -> bool:
         if isinstance(configuration, ClusterConfig):
             if self._modify_index == configuration.modify_index:
                 return False  # If the index didn't changed there is nothing to do
@@ -309,6 +313,7 @@ class Config(object):
                 return True
             except Exception:
                 logger.exception('Exception when setting dynamic_configuration')
+        return False
 
     def reload_local_configuration(self):
         if self.config_file:
@@ -325,12 +330,12 @@ class Config(object):
                 logger.exception('Exception when reloading local configuration from %s', self.config_file)
 
     @staticmethod
-    def _process_postgresql_parameters(parameters, is_local=False):
+    def _process_postgresql_parameters(parameters: Dict[str, Any], is_local: bool = False) -> Dict[str, Any]:
         return {name: value for name, value in (parameters or {}).items()
                 if name not in ConfigHandler.CMDLINE_OPTIONS
                 or not is_local and ConfigHandler.CMDLINE_OPTIONS[name][1](value)}
 
-    def _safe_copy_dynamic_configuration(self, dynamic_configuration):
+    def _safe_copy_dynamic_configuration(self, dynamic_configuration: Dict[str, Any]) -> Dict[str, Any]:
         config = deepcopy(self.__DEFAULT_CONFIG)
 
         for name, value in dynamic_configuration.items():
@@ -350,10 +355,10 @@ class Config(object):
         return config
 
     @staticmethod
-    def _build_environment_configuration():
-        ret = defaultdict(dict)
+    def _build_environment_configuration() -> Dict[str, Any]:
+        ret: Dict[str, Any] = defaultdict(dict)
 
-        def _popenv(name):
+        def _popenv(name: str) -> Union[str, None]:
             return os.environ.pop(PATRONI_ENV_PREFIX + name.upper(), None)
 
         for param in ('name', 'namespace', 'scope'):
@@ -361,7 +366,7 @@ class Config(object):
             if value:
                 ret[param] = value
 
-        def _fix_log_env(name, oldname):
+        def _fix_log_env(name: str, oldname: str) -> None:
             value = _popenv(oldname)
             name = PATRONI_ENV_PREFIX + 'LOG_' + name.upper()
             if value and name not in os.environ:
@@ -370,7 +375,7 @@ class Config(object):
         for name, oldname in (('level', 'loglevel'), ('format', 'logformat'), ('dateformat', 'log_datefmt')):
             _fix_log_env(name, oldname)
 
-        def _set_section_values(section, params):
+        def _set_section_values(section: str, params: List[str]) -> None:
             for param in params:
                 value = _popenv(section + '_' + param)
                 if value:
@@ -403,7 +408,7 @@ class Config(object):
                     if value is not None:
                         ret[first][second] = value
 
-        def _parse_list(value):
+        def _parse_list(value: str) -> Union[List[str], None]:
             if not (value.strip().startswith('-') or '[' in value):
                 value = '[{0}]'.format(value)
             try:
@@ -419,7 +424,7 @@ class Config(object):
                 if value:
                     ret[first][second] = value
 
-        def _parse_dict(value):
+        def _parse_dict(value: str) -> Union[Dict[str, Any], None]:
             if not value.strip().startswith('{'):
                 value = '{{{0}}}'.format(value)
             try:
@@ -436,8 +441,8 @@ class Config(object):
                     if value:
                         ret[first][second] = value
 
-        def _get_auth(name, params=None):
-            ret = {}
+        def _get_auth(name: str, params: Optional[Collection[str]] = None) -> Dict[str, str]:
+            ret: Dict[str, str] = {}
             for param in params or _AUTH_ALLOWED_PARAMETERS[:2]:
                 value = _popenv(name + '_' + param)
                 if value:
@@ -506,7 +511,8 @@ class Config(object):
 
         return ret
 
-    def _build_effective_configuration(self, dynamic_configuration, local_configuration):
+    def _build_effective_configuration(self, dynamic_configuration: Dict[str, Any],
+                                       local_configuration: Dict[str, Union[Dict[str, Any], Any]]) -> Dict[str, Any]:
         config = self._safe_copy_dynamic_configuration(dynamic_configuration)
         for name, value in local_configuration.items():
             if name == 'citus':  # remove invalid citus configuration
@@ -568,16 +574,16 @@ class Config(object):
 
         return config
 
-    def get(self, key, default=None):
+    def get(self, key: str, default: Optional[Any] = None) -> Any:
         return self.__effective_configuration.get(key, default)
 
-    def __contains__(self, key):
+    def __contains__(self, key: str) -> bool:
         return key in self.__effective_configuration
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> Any:
         return self.__effective_configuration[key]
 
-    def copy(self):
+    def copy(self) -> Dict[str, Any]:
         return deepcopy(self.__effective_configuration)
 
     def get_global_config(self, cluster: Union[Cluster, None]) -> GlobalConfig:

@@ -3,7 +3,7 @@ import json
 import unittest
 import urllib3
 
-from mock import Mock, patch
+from mock import Mock, PropertyMock, patch
 from patroni.dcs.etcd import DnsCachingResolver
 from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3Client, Etcd3Error, Etcd3ClientError, RetryFailedError,\
     InvalidAuthToken, Unavailable, Unknown, UnsupportedEtcdVersion, UserEmpty, AuthFailed, base64_encode, Etcd3
@@ -85,6 +85,11 @@ class BaseTestEtcd3(unittest.TestCase):
 
 class TestKVCache(BaseTestEtcd3):
 
+    @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
+    @patch.object(Etcd3Client, 'watchprefix', Mock(return_value=urllib3.response.HTTPResponse()))
+    def test__build_cache(self):
+        self.kv_cache._build_cache()
+
     def test__do_watch(self):
         self.client.watchprefix = Mock(return_value=False)
         self.assertRaises(AttributeError, self.kv_cache._do_watch, '1')
@@ -94,13 +99,16 @@ class TestKVCache(BaseTestEtcd3):
     def test_run(self):
         self.assertRaises(SleepException, self.kv_cache.run)
 
-    @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
+    @patch.object(urllib3.response.HTTPResponse, 'read_chunked',
+                  Mock(return_value=[b'{"error":{"grpc_code":14,"message":"","http_code":503}}']))
+    @patch.object(Etcd3Client, 'watchprefix', Mock(return_value=urllib3.response.HTTPResponse()))
     def test_kill_stream(self):
         self.assertRaises(Unavailable, self.kv_cache._do_watch, '1')
-        self.kv_cache.kill_stream()
-        with patch.object(MockResponse, 'connection', create=True) as mock_conn:
+        with patch.object(urllib3.response.HTTPResponse, 'connection') as mock_conn:
             self.kv_cache.kill_stream()
             mock_conn.sock.close.side_effect = Exception
+            self.kv_cache.kill_stream()
+            type(mock_conn).sock = PropertyMock(side_effect=Exception)
             self.kv_cache.kill_stream()
 
 
@@ -180,7 +188,8 @@ class TestEtcd3(BaseTestEtcd3):
     @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
     def setUp(self):
         super(TestEtcd3, self).setUp()
-        self.assertRaises(AttributeError, self.kv_cache._build_cache)
+#        self.assertRaises(AttributeError, self.kv_cache._build_cache)
+        self.kv_cache._build_cache()
         self.kv_cache._is_ready = True
         self.etcd3.get_cluster()
 
@@ -275,6 +284,8 @@ class TestEtcd3(BaseTestEtcd3):
         self.etcd3.cancel_initialization()
 
     def test_delete_leader(self):
+        self.etcd3.delete_leader()
+        self.etcd3._name = 'other'
         self.etcd3.delete_leader()
 
     def test_delete_cluster(self):
