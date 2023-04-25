@@ -333,20 +333,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self) -> None:
         """Handle an ``OPTIONS`` request.
 
-        Write a simple HTTP response that represents the current PostgreSQL status.
-
-        .. note::
-            Similar to :func:`do_HEAD`.
+        Write a simple HTTP response that represents the current PostgreSQL status. Send only `200 OK` or
+        `503 Service Unavailable` as a response and nothing more, particularly no headers.
         """
         self.do_GET(write_status_code_only=True)
 
     def do_HEAD(self) -> None:
         """Handle a ``HEAD`` request.
 
-        Write a simple HTTP response that represents the current PostgreSQL status.
-
-        .. note::
-            Similar to :func:`do_OPTIONS`.
+        Write a simple HTTP response that represents the current PostgreSQL status. Send only `200 OK` or
+        `503 Service Unavailable` as a response and nothing more, particularly no headers.
         """
         self.do_GET(write_status_code_only=True)
 
