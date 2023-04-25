@@ -1402,7 +1402,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                     sock.close()
         return False
 
-    def __httpserver_init(self, host: Optional[str], port: int) -> None:
+    def __httpserver_init(self, host: str, port: int) -> None:
         """Start REST API HTTP server.
 
         .. note::
@@ -1412,10 +1412,11 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         :param port: port to bind REST API to.
         """
         dual_stack = self.__has_dual_stack()
-        if host in ('', '*'):
-            host = None
+        hostname = host
+        if hostname in ('', '*'):
+            hostname = None
 
-        info = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
+        info = socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
         # in case dual stack is not supported we want IPv4 to be preferred over IPv6
         info.sort(key=lambda x: x[0] == socket.AF_INET, reverse=not dual_stack)
 
@@ -1424,7 +1425,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             HTTPServer.__init__(self, info[0][-1][:2], RestApiHandler)
         except socket.error:
             logger.error(
-                "Couldn't start a service on '%s:%s', please check your `restapi.listen` configuration", host, port)
+                "Couldn't start a service on '%s:%s', please check your `restapi.listen` configuration", hostname, port)
             raise
 
     def __initialize(self, listen: str, ssl_options: Dict[str, Any]) -> None:
@@ -1606,7 +1607,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         assert isinstance(self.__listen, str)
         self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
 
-    def handle_error(self, request: Union[socket.socket, Tuple[bytes, socket.socket]], client_address: Tuple[str, int]) -> None:
+    def handle_error(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
+                     client_address: Tuple[str, int]) -> None:
         """Handle any exception that is thrown while handling a request to the REST API.
 
         Logs ``WARNING`` messages with the client information, and the stack trace of the faced exception.
