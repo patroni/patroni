@@ -189,7 +189,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 response['logger_records_lost'] = lost
         self._write_json_response(status_code, response)
 
-    def do_GET(self, write_status_code_only: Optional[bool] = False) -> None:
+    def do_GET(self, write_status_code_only: bool = False) -> None:
         """Process all GET requests which can not be routed to other methods.
 
         Is used for handling all health-checks requests. E.g. "GET /(primary|replica|sync|async|etc...)".
@@ -563,7 +563,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         self._write_response(200, '\n'.join(metrics) + '\n', content_type='text/plain')
 
-    def _read_json_content(self, body_is_optional: Optional[bool] = False) -> Union[Dict[Any, Any], None]:
+    def _read_json_content(self, body_is_optional: bool = False) -> Optional[Dict[Any, Any]]:
         """Read JSON from HTTP request body.
 
         .. note::
@@ -591,7 +591,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             content_length = int(content_length or 0)
             if content_length == 0 and body_is_optional:
                 return {}
-            request = json.loads(self.rfile.read(content_length).decode('utf-8'))
+            request: Union[Dict[str, Any], Any] = json.loads(self.rfile.read(content_length).decode('utf-8'))
             if isinstance(request, dict) and (request or body_is_optional):
                 return request
         except Exception:
@@ -748,7 +748,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``postgres_version``: restart only nodes which PostgreSQL version is less than ``postgres_version``, e.g.
                 ``15.2``;
             * ``timeout``: if restart takes longer than ``timeout`` return an error and fail over to a replica;
-            * ``restart_pending``: if we should restart only nodes that have ``pending restart`` flag;
+            * ``restart_pending``: if we should restart only when have ``pending restart`` flag;
 
         Response HTTP status codes:
             * ``200``: if successfully performed an immediate restart; or
@@ -896,7 +896,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = 503
         self._write_response(status_code, data)
 
-    def poll_failover_result(self, leader: str, candidate: Optional[str], action: str) -> Tuple[int, str]:
+    def poll_failover_result(self, leader: Optional[str], candidate: Optional[str], action: str) -> Tuple[int, str]:
         """Poll failover/switchover operation until it finishes or times out.
 
         :param leader: name of the current Patroni leader.
@@ -927,7 +927,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         return 503, action.title() + ' status unknown'
 
     def is_failover_possible(self, cluster: Cluster, leader: Optional[str], candidate: Optional[str],
-                             action: str) -> Union[str, None]:
+                             action: str) -> Optional[str]:
         """Checks whether there are nodes that could take over after demoting the primary.
 
         :param cluster: the Patroni cluster.
@@ -967,7 +967,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         The request body should be a JSON dictionary, and it can contain the following keys:
             * ``leader``: name of the current leader in the cluster;
-            * ``candidate`` or ``member``: name of the Patroni node to be promoted;
+            * ``candidate``: name of the Patroni node to be promoted;
             * ``scheduled_at``: a string representing the timestamp when to execute the switchover/failover, e.g.
                 ``2023-04-14T20:27:00+00:00``.
 
@@ -1088,7 +1088,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 self.command = mname
         return ret
 
-    def query(self, sql: str, *params: Any, **kwargs: Any) -> List[Tuple]:
+    def query(self, sql: str, *params: Any, **kwargs: Any) -> List[Tuple[Any, ...]]:
         """Execute *sql* query with *params*.
 
         :param sql: the SQL statement to be run.
@@ -1103,7 +1103,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         retry = Retry(delay=1, retry_exceptions=PostgresConnectionException)
         return retry(self.server.query, sql, *params)
 
-    def get_postgresql_status(self, retry: Optional[bool] = False) -> Dict[str, Any]:
+    def get_postgresql_status(self, retry: bool = False) -> Dict[str, Any]:
         """Builds an object representing a status of "postgres".
 
         Some of the values are collected by executing a query and other are taken from the state stored in memory.
@@ -1244,7 +1244,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.__auth_key = None
         self.__allowlist_include_members: Optional[bool] = None
         self.__allowlist: Tuple[Union[IPv4Network, IPv6Network], ...] = ()
-        self.http_extra_headers = None
+        self.http_extra_headers: Dict[str, str] = {}
         self.patroni = patroni
         self.__listen = None
         self.request_queue_size = int(config.get('request_queue_size', 5))
@@ -1254,7 +1254,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.reload_config(config)
         self.daemon = True
 
-    def query(self, sql: str, *params: Any) -> List[Tuple]:
+    def query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
         """Execute *sql* query with *params*.
 
         :param sql: the SQL statement to be run.
@@ -1301,7 +1301,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         assert self.__auth_key is not None
         return hmac.compare_digest(self.__auth_key, key.encode('utf-8'))
 
-    def check_auth_header(self, auth_header: Union[str, None]) -> Union[str, None]:
+    def check_auth_header(self, auth_header: Optional[str]) -> Optional[str]:
         """Validate HTTP Basic authorization header, if present.
 
         :param auth_header: value of ``Authorization`` HTTP header, if present, else ``None``.
@@ -1315,7 +1315,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                 return 'not authenticated'
 
     @staticmethod
-    def __resolve_ips(host: Optional[str], port: int) -> Iterator[Union[IPv4Network, IPv6Network]]:
+    def __resolve_ips(host: str, port: int) -> Iterator[Union[IPv4Network, IPv6Network]]:
         """Resolve *host* + *port* to one or more IP networks.
 
         :param host: hostname to be checked.
@@ -1352,7 +1352,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                         except Exception as e:
                             logger.debug('Failed to parse url %s: %r', member.api_url, e)
 
-    def check_access(self, rh: RestApiHandler) -> Union[bool, None]:
+    def check_access(self, rh: RestApiHandler) -> Optional[bool]:
         """Ensure client has enough privileges to perform a given request.
 
         Write a response back to the client if any issue is observed, and the HTTP status may be:
@@ -1497,7 +1497,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """Process a request to the REST API.
 
         Wrapper for :func:`ThreadingMixIn.process_request_thread` that additionally:
-            * Enable TCP keepalivel
+            * Enable TCP keepalive
             * Perform SSL handshake (if an SSL socket).
 
         :param request: socket to handle the client request.
@@ -1527,7 +1527,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                 logger.debug('Failed to shutdown SSL connection: %r', e)
         super(RestApiServer, self).shutdown_request(request)
 
-    def get_certificate_serial_number(self) -> Union[str, None]:
+    def get_certificate_serial_number(self) -> Optional[str]:
         """Get serial number of the certificate used by the REST API.
 
         :returns: serial number of the certificate configured through ``restapi.certfile`` setting.
@@ -1548,7 +1548,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             except ssl.SSLError as e:
                 logger.error('Failed to get serial number from certificate %s: %r', self.__ssl_options['certfile'], e)
 
-    def reload_local_certificate(self) -> Union[bool, None]:
+    def reload_local_certificate(self) -> Optional[bool]:
         """Reload the SSL certificate used by the REST API.
 
         :return: ``True`` if a different certificate has been configured through ``restapi.certfile` setting, ``None``
