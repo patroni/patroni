@@ -114,8 +114,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.wfile.write('{0} {1} {2}\r\n\r\n'.format(self.protocol_version, status_code, message).encode('utf-8'))
         self.log_request(status_code)
 
-    def _write_response(self, status_code: int, body: str, content_type: Optional[str] = 'text/html',
-                        headers: Optional[Dict[str, Any]] = None) -> None:
+    def _write_response(self, status_code: int, body: str, content_type: str = 'text/html',
+                        headers: Optional[Dict[str, str]] = None) -> None:
         """Write an HTTP response.
 
         .. note::
