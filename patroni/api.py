@@ -1250,7 +1250,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.patroni = patroni
         self.__listen = None
         self.request_queue_size = int(config.get('request_queue_size', 5))
-        self.__ssl_options = None
+        self.__ssl_options: Dict[str, Any] = {}
         self.__ssl_serial_number = None
         self._received_new_cert = False
         self.reload_config(config)
@@ -1374,9 +1374,6 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                 return rh._write_response(403, 'Access is denied')
 
         if not hasattr(rh.request, 'getpeercert') or not rh.request.getpeercert():  # valid client cert isn't present
-            # pyright -- ``__ssl_options`` is initially created as ``None``, but right after that it is replaced with a
-            # dictionary through :func:`reload_config`.
-            assert isinstance(self.__ssl_options, dict)
             if self.__protocol == 'https' and self.__ssl_options.get('verify_client') in ('required', 'optional'):
                 return rh._write_response(403, 'client certificate required')
 
@@ -1534,9 +1531,6 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         :returns: serial number of the certificate configured through ``restapi.certfile`` setting.
         """
-        # pyright -- ``__ssl_options`` is initially created as ``None``, but right after that it is replaced with a
-        # dictionary through :func:`reload_config`.
-        assert isinstance(self.__ssl_options, dict)
         if self.__ssl_options.get('certfile'):
             import ssl
             try:
