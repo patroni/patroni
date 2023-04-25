@@ -1175,7 +1175,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 result['role'] = postgresql.role
 
             if result['role'] == 'replica' and global_config.is_synchronous_mode\
-                    and cluster.sync.matches(postgresql.name):
+                    and cluster and cluster.sync.matches(postgresql.name):
                 result['sync_standby'] = True
 
             if row[1] > 0:

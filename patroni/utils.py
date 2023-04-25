@@ -466,12 +466,11 @@ class Retry(object):
     :ivar retry_exceptions: single exception or tuple
     """
 
-    def __init__(self, max_tries: Optional[int] = 1, delay: Optional[float] = 0.1, backoff: Optional[int] = 2,
-                 max_jitter: Optional[float] = 0.8, max_delay: Optional[int] = 3600,
-                 sleep_func: Optional[Callable[[Union[int, float]], None]] = _sleep,
+    def __init__(self, max_tries: Optional[int] = 1, delay: float = 0.1, backoff: int = 2,
+                 max_jitter: float = 0.8, max_delay: int = 3600,
+                 sleep_func: Callable[[Union[int, float]], None] = _sleep,
                  deadline: Optional[Union[int, float]] = None,
-                 retry_exceptions: Optional[Union[Type[Exception],
-                                                  Tuple[Type[Exception], ...]]] = PatroniException) -> None:
+                 retry_exceptions: Union[Type[Exception], Tuple[Type[Exception], ...]] = PatroniException) -> None:
         """Create a :class:`Retry` instance for retrying function calls.
 
         :param max_tries: how many times to retry the command. ``-1`` means infinite tries.

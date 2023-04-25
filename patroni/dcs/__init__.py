@@ -841,7 +841,7 @@ class AbstractDCS(abc.ABC):
             cluster.workers.update(groups)
         return cluster
 
-    def get_cluster(self, force=False) -> Cluster:
+    def get_cluster(self, force: bool = False) -> Cluster:
         if force:
             self._bypass_caches()
         try:
@@ -861,7 +861,7 @@ class AbstractDCS(abc.ABC):
             return cluster
 
     @property
-    def cluster(self) -> Cluster:
+    def cluster(self) -> Optional[Cluster]:
         with self._cluster_thread_lock:
             return self._cluster if self._cluster_valid_till > time.time() else None
 
