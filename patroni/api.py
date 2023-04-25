@@ -77,7 +77,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def __init__(self, request: Any,
                  client_address: Any,
                  server: Union['RestApiServer', HTTPServer]) -> None:
+        """Create a :class:`RestApiHandler` instance.
 
+        .. note::
+            Currently not different from its superclass :func:`__init__`, and only used so ``pyright`` can understand
+            the type of ``server`` attribute.
+
+        :param request: client request to be processed.
+        :param client_address: address of the client connection.
+        :param server: HTTP server that received the request.
+        """
         assert isinstance(server, RestApiServer)
         super(RestApiHandler, self).__init__(request, client_address, server)
         self.server: 'RestApiServer' = server
