@@ -1135,12 +1135,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``timeline``: PostgreSQL primary node timeline;
             * ``replication``: :class:`list` of :class:`dict` entries, one for each replication connection. Each entry
                 contains the following keys:
-                * ``application_name``: ``pg_stat_get_activity().application_name``;
-                * ``client_addr``: ``pg_stat_get_activity().client_addr``;
-                * ``state``: ``pg_stat_get_wal_senders().state``;
-                * ``sync_priority``: ``pg_stat_get_wal_senders().sync_priority``;
-                * ``sync_state``: ``pg_stat_get_wal_senders().sync_state``;
-                * ``usename``: name of the role ``pg_stat_get_activity().usesysid``.
+                * ``application_name``: ``pg_stat_activity.application_name``;
+                * ``client_addr``: ``pg_stat_activity.client_addr``;
+                * ``state``: ``pg_stat_replication.state``;
+                * ``sync_priority``: ``pg_stat_replication.sync_priority``;
+                * ``sync_state``: ``pg_stat_replication.sync_state``;
+                * ``usename``: ``pg_stat_activity.usename``.
             * ``pause``: ``True`` if cluster is in maintenance mode;
             * ``cluster_unlocked``: ``True`` if cluster has no node holding the leader lock;
             * ``failsafe_mode_is_active``: ``True`` if DCS failsafe mode is currently active;
