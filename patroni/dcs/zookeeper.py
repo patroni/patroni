@@ -143,7 +143,7 @@ class ZooKeeper(AbstractDCS):
         if state in [KazooState.SUSPENDED, KazooState.LOST]:
             self.cluster_watcher(None)
 
-    def status_watcher(self, event: Optional[WatchedEvent]):
+    def status_watcher(self, event: Optional[WatchedEvent]) -> None:
         self._fetch_status = True
         self.event.set()
 

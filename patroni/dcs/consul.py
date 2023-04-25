@@ -13,7 +13,7 @@ from consul import ConsulException, NotFound, base
 from http.client import HTTPException
 from urllib3.exceptions import HTTPError
 from urllib.parse import urlencode, urlparse, quote
-from typing import Any, Callable, Dict, List, NamedTuple, Optional, Union, Tuple
+from typing import Any, Callable, Dict, List, Mapping, NamedTuple, Optional, Union, Tuple
 
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState,\
     TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
@@ -41,7 +41,7 @@ class InvalidSession(ConsulException):
 
 class Response(NamedTuple):
     code: int
-    headers: Any
+    headers: Union[Mapping[str, str], Mapping[bytes, bytes], None]
     body: str
     content: bytes
 
@@ -94,7 +94,8 @@ class HTTPClient(object):
                 raise ConsulInternalError(msg)
         return Response(response.status, response.headers, body, content)
 
-    def uri(self, path: str, params: Optional[Dict[str, Any]] = None) -> str:
+    def uri(self, path: str,
+            params: Union[None, Dict[str, Any], List[Tuple[str, Any]], Tuple[Tuple[str, Any], ...]] = None) -> str:
         return '{0}{1}{2}'.format(self.base_uri, path, params and '?' + urlencode(params) or '')
 
     def __getattr__(self, method: str) -> Callable[[Callable[[Response], Union[bool, Any, Tuple[str, Any]]],
@@ -137,7 +138,7 @@ class HTTPClient(object):
 
 class ConsulClient(base.Consul):
 
-    def __init__(self, *args: Any, **kwargs: Any):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         self._cert = kwargs.pop('cert', None)
         self._ca_cert = kwargs.pop('ca_cert', None)
         self.token = kwargs.get('token')

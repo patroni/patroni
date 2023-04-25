@@ -244,7 +244,7 @@ class RemoteMember(Member):
         return super(RemoteMember, cls).__new__(cls, -1, name, None, data)
 
     @staticmethod
-    def allowed_keys():
+    def allowed_keys() -> Tuple[str, ...]:
         return ('primary_slot_name',
                 'create_replica_methods',
                 'restore_command',
@@ -549,7 +549,7 @@ class Cluster(NamedTuple):
         return ([m for m in self.members if m.name == member_name] or [self.leader if fallback_to_leader else None])[0]
 
     def get_clone_member(self, exclude_name: str) -> Union[Member, Leader, None]:
-        exclude = [exclude_name] + [self.leader.name] if self.leader else []
+        exclude = [exclude_name] + ([self.leader.name] if self.leader else [])
         candidates = [m for m in self.members if m.clonefrom and m.is_running and m.name not in exclude]
         return candidates[randint(0, len(candidates) - 1)] if candidates else self.leader
 
@@ -1001,7 +1001,7 @@ class AbstractDCS(abc.ABC):
     def set_failover_value(self, value: str, index: Optional[Any] = None) -> bool:
         """Create or update `/failover` key"""
 
-    def manual_failover(self, leader: str, candidate: str, scheduled_at: Optional[datetime.datetime] = None,
+    def manual_failover(self, leader: Optional[str], candidate: Optional[str], scheduled_at: Optional[datetime.datetime] = None,
                         index: Optional[Any] = None) -> bool:
         failover_value = {}
         if leader:
@@ -1079,7 +1079,7 @@ class AbstractDCS(abc.ABC):
         return {'leader': leader, 'sync_standby': ','.join(sorted(sync_standby)) if sync_standby else None}
 
     def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
-                         index: Optional[_Version] = None) -> bool:
+                         index: Optional[Any] = None) -> bool:
         """Write the new synchronous state to DCS.
         Calls :func:`sync_state` method to build a dict and than calls DCS specific :func:`set_sync_state_value` method.
         :param leader: name of the leader node that manages /sync key

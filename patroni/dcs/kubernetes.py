@@ -246,7 +246,7 @@ class K8sClient(object):
         def set_api_servers_cache_ttl(self, ttl: int) -> None:
             self._api_servers_cache_ttl = ttl - 0.5
 
-        def set_base_uri(self, value: str):
+        def set_base_uri(self, value: str) -> None:
             logger.info('Selected new K8s API server endpoint %s', value)
             # We will connect by IP of the K8s master node which is not listed as alternative name
             self.pool_manager.connection_pool_kw['assert_hostname'] = False
@@ -1236,7 +1236,7 @@ class Kubernetes(AbstractDCS):
         """Unused"""
         raise NotImplementedError  # pragma: no cover
 
-    def manual_failover(self, leader: str, candidate: str,
+    def manual_failover(self, leader: Optional[str], candidate: Optional[str],
                         scheduled_at: Optional[datetime.datetime] = None, index: Optional[str] = None) -> bool:
         annotations = {'leader': leader or None, 'member': candidate or None,
                        'scheduled_at': scheduled_at and scheduled_at.isoformat()}
@@ -1313,7 +1313,7 @@ class Kubernetes(AbstractDCS):
         raise NotImplementedError  # pragma: no cover
 
     def write_sync_state(self, leader: Union[str, None], sync_standby: Union[Collection[str], None],
-                         index: Optional[Union[int, str]] = None) -> bool:
+                         index: Optional[str] = None) -> bool:
         """Prepare and write annotations to $SCOPE-sync Endpoint or ConfigMap.
 
         :param leader: name of the leader node that manages /sync key

@@ -315,7 +315,7 @@ class Config(object):
                 logger.exception('Exception when setting dynamic_configuration')
         return False
 
-    def reload_local_configuration(self):
+    def reload_local_configuration(self) -> Optional[bool]:
         if self.config_file:
             try:
                 configuration = self._load_config_file()
