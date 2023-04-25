@@ -1606,7 +1606,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         assert isinstance(self.__listen, str)
         self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
 
-    def handle_error(self, request: RestApiHandler, client_address: Tuple[str, int]) -> None:
+    def handle_error(self, request: Union[socket.socket, Tuple[bytes, socket.socket]], client_address: Tuple[str, int]) -> None:
         """Handle any exception that is thrown while handling a request to the REST API.
 
         Logs ``WARNING`` messages with the client information, and the stack trace of the faced exception.
