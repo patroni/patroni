@@ -16,7 +16,6 @@ import dateutil.parser
 import datetime
 import os
 import socket
-from ssl import SSLSocket
 import sys
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -1493,8 +1492,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if reloading_config:
             self.start()
 
-    def process_request_thread(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
-                               client_address: Tuple[str, int]) -> None:
+    def process_request_thread(self, request: socket.socket, client_address: Tuple[str, int]) -> None:
         """Process a request to the REST API.
 
         Wrapper for :func:`ThreadingMixIn.process_request_thread` that additionally:
@@ -1504,15 +1502,14 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         :param request: socket to handle the client request.
         :param client_address: tuple containing the client IP and port.
         """
-        assert isinstance(request, socket.socket)
         enable_keepalive(request, 10, 3)
         if hasattr(request, 'context'):  # SSLSocket
-            # pyright
-            if isinstance(request, SSLSocket):
+            from ssl import SSLSocket
+            if isinstance(request, SSLSocket):  # pyright
                 request.do_handshake()
         super(RestApiServer, self).process_request_thread(request, client_address)
 
-    def shutdown_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]]) -> None:
+    def shutdown_request(self, request: socket.socket) -> None:
         """Shut down a request to the REST API.
 
         Wrapper for :func:`HTTPServer.shutdown_request` that additionally:
@@ -1522,8 +1519,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """
         if hasattr(request, 'context'):  # SSLSocket
             try:
-                # pyright
-                if isinstance(request, SSLSocket):
+                from ssl import SSLSocket
+                if isinstance(request, SSLSocket):  # pyright
                     request.unwrap()
             except Exception as e:
                 logger.debug('Failed to shutdown SSL connection: %r', e)
