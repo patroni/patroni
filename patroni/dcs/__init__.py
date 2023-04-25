@@ -1001,8 +1001,8 @@ class AbstractDCS(abc.ABC):
     def set_failover_value(self, value: str, index: Optional[Any] = None) -> bool:
         """Create or update `/failover` key"""
 
-    def manual_failover(self, leader: Optional[str], candidate: Optional[str], scheduled_at: Optional[datetime.datetime] = None,
-                        index: Optional[Any] = None) -> bool:
+    def manual_failover(self, leader: Optional[str], candidate: Optional[str],
+                        scheduled_at: Optional[datetime.datetime] = None, index: Optional[Any] = None) -> bool:
         failover_value = {}
         if leader:
             failover_value['leader'] = leader
