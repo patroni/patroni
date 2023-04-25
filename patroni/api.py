@@ -1493,7 +1493,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if reloading_config:
             self.start()
 
-    def process_request_thread(self, request: Union[socket.socket, Tuple[bytes, socket.socket]], client_address: Tuple[str, int]) -> None:
+    def process_request_thread(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
+                               client_address: Tuple[str, int]) -> None:
         """Process a request to the REST API.
 
         Wrapper for :func:`ThreadingMixIn.process_request_thread` that additionally:
