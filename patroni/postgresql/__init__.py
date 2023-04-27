@@ -1027,18 +1027,14 @@ class Postgresql(object):
             logger.info('pre_promote script `%s` exited with %s', cmd, ret)
         return ret == 0
 
-    def _before_stop(self):
-        """
-        Synchronously run a script prior to stopping postgres
-        """
+    def _before_stop(self) -> None:
+        """Synchronously run a script prior to stopping postgres."""
 
         cmd = self.config.get('before_stop')
-        if not cmd:
-            return True
-        else:
+        if cmd:
             self._do_before_stop(cmd)
 
-    def _do_before_stop(self, cmd):
+    def _do_before_stop(self, cmd: str) -> None:
         try:
             ret = self.cancellable.call(shlex.split(cmd))
             if ret is not None:
