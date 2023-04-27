@@ -10,11 +10,13 @@ from kazoo.handlers.threading import AsyncResult, SequentialThreadingHandler
 from kazoo.protocol.states import KeeperState, WatchedEvent, ZnodeStat
 from kazoo.retry import RetryFailedError
 from kazoo.security import ACL, make_acl
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
 from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory, citus_group_re
 from ..exceptions import DCSError
 from ..utils import deep_compare
+if TYPE_CHECKING:  # pragma: no cover
+    from ..config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +154,7 @@ class ZooKeeper(AbstractDCS):
         if not event or event.state != KazooState.CONNECTED or event.path.startswith(self.client_path('')):
             self.status_watcher(event)
 
-    def reload_config(self, config: Dict[str, Any]) -> None:
+    def reload_config(self, config: Union['Config', Dict[str, Any]]) -> None:
         self.set_retry_timeout(config['retry_timeout'])
 
         loop_wait = config['loop_wait']

@@ -147,7 +147,7 @@ class PatroniRequest(object):
         return self.request(method, url, data, **kwargs)
 
 
-def get(url: str, verify: Optional[bool] = True, **kwargs: Any) -> urllib3.response.HTTPResponse:
+def get(url: str, verify: bool = True, **kwargs: Any) -> urllib3.response.HTTPResponse:
     """Perform an HTTP GET request.
 
     .. note::

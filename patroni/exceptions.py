@@ -1,11 +1,14 @@
+from typing import Any
+
+
 class PatroniException(Exception):
 
     """Parent class for all kind of exceptions related to selected distributed configuration store"""
 
-    def __init__(self, value):
+    def __init__(self, value: Any) -> None:
         self.value = value
 
-    def __str__(self):
+    def __str__(self) -> str:
         """
         >>> str(PatroniException('foo'))
         "'foo'"

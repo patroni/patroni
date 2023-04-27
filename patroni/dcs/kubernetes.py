@@ -15,15 +15,17 @@ import yaml
 from collections import defaultdict
 from copy import deepcopy
 from http.client import HTTPException
-from threading import Condition, Lock, Thread
-from typing import Any, Callable, Collection, Dict, List, Optional, Tuple, Type, Union
 from urllib3.exceptions import HTTPError
+from threading import Condition, Lock, Thread
+from typing import Any, Callable, Collection, Dict, List, Optional, Tuple, Type, Union, TYPE_CHECKING
 
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState,\
     TimelineHistory, CITUS_COORDINATOR_GROUP_ID, citus_group_re
 from ..exceptions import DCSError
 from ..utils import deep_compare, iter_response_objects, keepalive_socket_options,\
     Retry, RetryFailedError, tzutc, uri, USER_AGENT
+if TYPE_CHECKING:  # pragma: no cover
+    from ..config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -809,7 +811,7 @@ class Kubernetes(AbstractDCS):
     def set_retry_timeout(self, retry_timeout: int) -> None:
         self._retry.deadline = retry_timeout
 
-    def reload_config(self, config: Dict[str, Any]) -> None:
+    def reload_config(self, config: Union['Config', Dict[str, Any]]) -> None:
         """Handles dynamic config changes.
 
         Either cause by changes in the local configuration file + SIGHUP or by changes of dynamic configuration"""

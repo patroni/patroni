@@ -10,11 +10,13 @@ from pysyncobj.dns_resolver import globalDnsResolver
 from pysyncobj.node import TCPNode
 from pysyncobj.transport import TCPTransport, CONNECTION_STATE
 from pysyncobj.utility import TcpUtility
-from typing import Any, Callable, Collection, Dict, List, Optional, Union
+from typing import Any, Callable, Collection, Dict, List, Optional, Union, TYPE_CHECKING
 
 from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory, citus_group_re
 from ..exceptions import DCSError
 from ..utils import validate_directory
+if TYPE_CHECKING:  # pragma: no cover
+    from ..config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -317,7 +319,7 @@ class Raft(AbstractDCS):
     def set_retry_timeout(self, retry_timeout: int) -> None:
         self._sync_obj.set_retry_timeout(retry_timeout)
 
-    def reload_config(self, config: Dict[str, Any]) -> None:
+    def reload_config(self, config: Union['Config', Dict[str, Any]]) -> None:
         super(Raft, self).reload_config(config)
         globalDnsResolver().setTimeouts(self.ttl, self.loop_wait)
 

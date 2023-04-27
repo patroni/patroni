@@ -811,7 +811,7 @@ class AbstractDCS(abc.ABC):
     def _set_loop_wait(self, loop_wait: int) -> None:
         self._loop_wait = loop_wait
 
-    def reload_config(self, config: Dict[str, Any]) -> None:
+    def reload_config(self, config: Union['Config', Dict[str, Any]]) -> None:
         self._set_loop_wait(config['loop_wait'])
         self.set_ttl(config['ttl'])
         self.set_retry_timeout(config['retry_timeout'])

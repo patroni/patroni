@@ -13,12 +13,14 @@ from consul import ConsulException, NotFound, base
 from http.client import HTTPException
 from urllib3.exceptions import HTTPError
 from urllib.parse import urlencode, urlparse, quote
-from typing import Any, Callable, Dict, List, Mapping, NamedTuple, Optional, Union, Tuple
+from typing import Any, Callable, Dict, List, Mapping, NamedTuple, Optional, Union, Tuple, TYPE_CHECKING
 
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState,\
     TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
 from ..exceptions import DCSError
 from ..utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port, uri, USER_AGENT
+if TYPE_CHECKING:  # pragma: no cover
+    from ..config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -263,7 +265,7 @@ class Consul(AbstractDCS):
                 logger.info('waiting on consul')
                 time.sleep(5)
 
-    def reload_config(self, config: Dict[str, Any]) -> None:
+    def reload_config(self, config: Union['Config', Dict[str, Any]]) -> None:
         super(Consul, self).reload_config(config)
 
         consul_config = config.get('consul', {})
