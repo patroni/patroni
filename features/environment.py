@@ -1060,7 +1060,8 @@ def before_all(context):
     try:
         with open(os.devnull, 'w') as null:
             ret = subprocess.call(['openssl', 'req', '-nodes', '-new', '-x509', '-subj', '/CN=batman.patroni',
-                                   '-keyout', context.keyfile, '-out', context.certfile], stdout=null, stderr=null)
+                                   '--addext', 'subjectAltName=IP:127.0.0.1', '-keyout', context.keyfile,
+                                   '-out', context.certfile], stdout=null, stderr=null)
             if ret != 0:
                 raise Exception
     except Exception:
