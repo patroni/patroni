@@ -196,18 +196,18 @@ class TestPostgresql(BaseTestPostgresql):
         mock_postmaster.wait.side_effect = [psutil.TimeoutExpired(30), Mock()]
         self.assertTrue(self.p.stop(on_safepoint=mock_callback, stop_timeout=30))
 
-        # Ensure before_stop script is called when configured to                                                                       
-        self.p.config._config['before_stop'] = ':'                                                                                     
-        mock_postmaster.wait.side_effect = [psutil.TimeoutExpired(30), Mock()]                                                         
-        mock_cancellable_call.return_value = 0                                                                                         
-        with patch('patroni.postgresql.logger.info') as mock_logger:                                                                   
-            self.p.stop(on_safepoint=mock_callback, stop_timeout=30)                                                                   
-            self.assertEqual(mock_logger.call_args[0], ('before_stop script `%s` exited with %s', ':', 0))                             
-        mock_postmaster.wait.side_effect = [psutil.TimeoutExpired(30), Mock()]                                                         
-        mock_cancellable_call.side_effect = Exception                                                                                  
-        with patch('patroni.postgresql.logger.error') as mock_logger:                                                                  
-            self.p.stop(on_safepoint=mock_callback, stop_timeout=30)                                                                   
-            self.assertEqual(mock_logger.call_args_list[1][0][0], 'Exception when calling `%s`: %r')                                   
+        # Ensure before_stop script is called when configured to
+        self.p.config._config['before_stop'] = ':'
+        mock_postmaster.wait.side_effect = [psutil.TimeoutExpired(30), Mock()]
+        mock_cancellable_call.return_value = 0
+        with patch('patroni.postgresql.logger.info') as mock_logger:
+            self.p.stop(on_safepoint=mock_callback, stop_timeout=30)
+            self.assertEqual(mock_logger.call_args[0], ('before_stop script `%s` exited with %s', ':', 0))
+        mock_postmaster.wait.side_effect = [psutil.TimeoutExpired(30), Mock()]
+        mock_cancellable_call.side_effect = Exception
+        with patch('patroni.postgresql.logger.error') as mock_logger:
+            self.p.stop(on_safepoint=mock_callback, stop_timeout=30)
+            self.assertEqual(mock_logger.call_args_list[1][0][0], 'Exception when calling `%s`: %r')
 
         # Stop signal failed
         mock_postmaster.signal_stop.return_value = False
