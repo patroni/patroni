@@ -1,8 +1,9 @@
 import unittest
 
 from mock import Mock, patch
+
 from patroni.exceptions import PatroniException
-from patroni.utils import Retry, RetryFailedError, enable_keepalive, polling_loop, validate_directory
+from patroni.utils import Retry, RetryFailedError, enable_keepalive, polling_loop, validate_directory, unquote
 
 
 class TestUtils(unittest.TestCase):
@@ -40,6 +41,31 @@ class TestUtils(unittest.TestCase):
             for platform in ('linux2', 'darwin', 'other'):
                 with patch('sys.platform', platform):
                     self.assertIsNone(enable_keepalive(Mock(), 10, 5))
+
+    def test_unquote(self):
+        self.assertEqual(unquote('value'), 'value')
+        self.assertEqual(unquote('value with spaces'), "value with spaces")
+        self.assertEqual(unquote(
+            '"double quoted value"'),
+            'double quoted value')
+        self.assertEqual(unquote(
+            '\'single quoted value\''),
+            'single quoted value')
+        self.assertEqual(unquote(
+            'value "with" double quotes'),
+            'value "with" double quotes')
+        self.assertEqual(unquote(
+            '"value starting with" double quotes'),
+            '"value starting with" double quotes')
+        self.assertEqual(unquote(
+            '\'value starting with\' single quotes'),
+            '\'value starting with\' single quotes')
+        self.assertEqual(unquote(
+            'value with a \' single quote'),
+            'value with a \' single quote')
+        self.assertEqual(unquote(
+            '\'value with a \'"\'"\' single quote\''),
+            'value with a \' single quote')
 
 
 @patch('time.sleep', Mock())

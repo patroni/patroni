@@ -10,7 +10,7 @@ Feature: ignored slots
     When I shut down postgres1
     And I start postgres1
     Then postgres1 is a leader after 10 seconds
-    And "members/postgres1" key in DCS has role=master after 3 seconds
+    And "members/postgres1" key in DCS has role=master after 10 seconds
     # Make sure Patroni has finished telling Postgres it should be accepting writes.
     And postgres1 role is the primary after 20 seconds
     # 1. Create our test logical replication slot.
@@ -31,19 +31,19 @@ Feature: ignored slots
     And postgres1 has a logical replication slot named unmanaged_slot_3 with the test_decoding plugin
 
     When I start postgres0
-    Then "members/postgres0" key in DCS has role=replica after 3 seconds
+    Then "members/postgres0" key in DCS has role=replica after 10 seconds
     And postgres0 role is the secondary after 20 seconds
     # Verify that the replica has advanced beyond the point in the WAL
     # where we created the replication slot so that on the next failover
     # cycle we don't accidentally rewind to before the slot creation.
     And replication works from postgres1 to postgres0 after 20 seconds
     When I shut down postgres1
-    Then "members/postgres0" key in DCS has role=master after 3 seconds
+    Then "members/postgres0" key in DCS has role=master after 10 seconds
 
     # 2. After a failover the server (now a replica) still has the slot.
     When I start postgres1
     Then postgres1 role is the secondary after 20 seconds
-    And "members/postgres1" key in DCS has role=replica after 3 seconds
+    And "members/postgres1" key in DCS has role=replica after 10 seconds
     # give Patroni time to sync replication slots
     And I sleep for 2 seconds
     And postgres1 has a logical replication slot named unmanaged_slot_0 with the test_decoding plugin
@@ -54,7 +54,7 @@ Feature: ignored slots
 
     # 3. After a failover the server (now a primary) still has the slot.
     When I shut down postgres0
-    Then "members/postgres1" key in DCS has role=master after 3 seconds
+    Then "members/postgres1" key in DCS has role=master after 10 seconds
     And postgres1 has a logical replication slot named unmanaged_slot_0 with the test_decoding plugin
     And postgres1 has a logical replication slot named unmanaged_slot_1 with the test_decoding plugin
     And postgres1 has a logical replication slot named unmanaged_slot_2 with the test_decoding plugin

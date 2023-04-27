@@ -50,15 +50,15 @@ Scenario: check dynamic configuration change via DCS
 Scenario: check the scheduled restart
 	Given I issue a PATCH request to http://127.0.0.1:8008/config with {"postgresql": {"parameters": {"superuser_reserved_connections": "6"}}}
 	Then I receive a response code 200
-		And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 5 seconds
+	And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 5 seconds
 	Given I issue a scheduled restart at http://127.0.0.1:8008 in 5 seconds with {"role": "replica"}
 	Then I receive a response code 202
-		And I sleep for 8 seconds
-		And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 10 seconds
+	And I sleep for 8 seconds
+	And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 10 seconds
 	Given I issue a scheduled restart at http://127.0.0.1:8008 in 5 seconds with {"restart_pending": "True"}
 	Then I receive a response code 202
-		And Response on GET http://127.0.0.1:8008/patroni does not contain pending_restart after 10 seconds
-		And postgres0 role is the primary after 10 seconds
+	And Response on GET http://127.0.0.1:8008/patroni does not contain pending_restart after 10 seconds
+	And postgres0 role is the primary after 10 seconds
 
 Scenario: check API requests for the primary-replica pair in the pause mode
 	Given I start postgres1
@@ -79,12 +79,12 @@ Scenario: check API requests for the primary-replica pair in the pause mode
 	When I run patronictl.py reinit batman postgres1 --force
 	Then I receive a response returncode 0
 	And I receive a response output "Success: reinitialize for member postgres1"
+	And postgres1 role is the secondary after 30 seconds
+	And replication works from postgres0 to postgres1 after 20 seconds
 	When I run patronictl.py restart batman postgres0 --force
 	Then I receive a response returncode 0
 	And I receive a response output "Success: restart on member postgres0"
 	And postgres0 role is the primary after 5 seconds
-	When I sleep for 10 seconds
-	Then postgres1 role is the secondary after 15 seconds
 
 Scenario: check the switchover via the API in the pause mode
 	Given I issue a POST request to http://127.0.0.1:8008/switchover with {"leader": "postgres0", "candidate": "postgres1"}

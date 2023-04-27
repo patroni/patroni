@@ -759,6 +759,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def __init__(self, patroni, config):
         self.patroni = patroni
         self.__listen = None
+        self.request_queue_size = int(config.get('request_queue_size', 5))
         self.__ssl_options = None
         self.__ssl_serial_number = None
         self._received_new_cert = False

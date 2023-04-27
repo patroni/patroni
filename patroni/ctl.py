@@ -21,6 +21,8 @@ import tempfile
 import time
 import yaml
 
+from typing import Any, Dict, Union
+
 from click import ClickException
 from collections import defaultdict
 from contextlib import contextmanager
@@ -44,7 +46,8 @@ CONFIG_FILE_PATH = os.path.join(CONFIG_DIR_PATH, 'patronictl.yaml')
 DCS_DEFAULTS = {'zookeeper': {'port': 2181, 'template': "zookeeper:\n hosts: ['{host}:{port}']"},
                 'exhibitor': {'port': 8181, 'template': "exhibitor:\n hosts: [{host}]\n port: {port}"},
                 'consul': {'port': 8500, 'template': "consul:\n host: '{host}:{port}'"},
-                'etcd': {'port': 2379, 'template': "etcd:\n host: '{host}:{port}'"}}
+                'etcd': {'port': 2379, 'template': "etcd:\n host: '{host}:{port}'"},
+                'etcd3': {'port': 2379, 'template': "etcd3:\n host: '{host}:{port}'"}}
 
 
 class PatroniCtlException(ClickException):
@@ -90,7 +93,38 @@ class PatronictlPrettyTable(PrettyTable):
     _hrule = property(_get_hline, _set_hline)
 
 
-def parse_dcs(dcs):
+def parse_dcs(dcs: str) -> Union[Dict[str, Any], None]:
+    """Parse a DCS URL.
+
+    :param dcs: the DCS URL in the format ``DCS://HOST:PORT``. ``DCS`` can be one among
+        * ``consul``
+        * ``etcd``
+        * ``etcd3``
+        * ``exhibitor``
+        * ``zookeeper``
+
+        If ``DCS`` is not specified, it assumes ``etcd`` by default. If ``HOST`` is not specified, it assumes
+        ``localhost`` by default. If ``PORT`` is not specified, it assumes the default port of the given ``DCS``.
+
+    :returns: ``None`` if *dcs* is ``None``, otherwise a dictionary. The dictionary represents *dcs* as if it were
+        parsed from the Patroni configuration file.
+
+    :raises PatroniCtlException: if the DCS name in *dcs* is not valid.
+
+    :Example:
+
+        >>> parse_dcs('')
+        {'etcd': {'host': 'localhost:2379'}}
+
+        >>> parse_dcs('etcd://:2399')
+        {'etcd': {'host': 'localhost:2399'}}
+
+        >>> parse_dcs('etcd://test')
+        {'etcd': {'host': 'test:2379'}}
+
+        >>> parse_dcs('etcd3://random.com:2399')
+        {'etcd3': {'host': 'random.com:2399'}}
+    """
     if dcs is None:
         return None
     elif '//' not in dcs:
