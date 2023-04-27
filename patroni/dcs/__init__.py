@@ -572,7 +572,7 @@ class Cluster(NamedTuple):
         return bool(self.config and (self.config.data.get('postgresql') or {}).get('use_slots', True))
 
     def get_replication_slots(self, my_name: str, role: str, nofailover: bool,
-                              major_version: int, show_error: bool = False) -> Dict[str, Any]:
+                              major_version: int, show_error: bool = False) -> Dict[str, Dict[str, Any]]:
         # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
         # the current primary, because that member would replicate from elsewhere. We still create the slot if
         # the replicatefrom destination member is currently not a member of the cluster (fallback to the

@@ -3,7 +3,7 @@ import re
 import time
 
 from copy import deepcopy
-from typing import Any, Collection, Dict, Tuple, TYPE_CHECKING
+from typing import Any, Collection, Dict, List, Tuple, TYPE_CHECKING, Union
 
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Cluster
@@ -109,7 +109,7 @@ def parse_sync_standby_names(value: str) -> Dict[str, Any]:
         result = {'type': 'priority', 'num': int(tokens[0][1])}
         synclist = tokens[2:-1]
     else:
-        result = {'type': 'priority', 'num': 1}
+        result: Dict[str, Union[int, str, CaseInsensitiveSet]] = {'type': 'priority', 'num': 1}
         synclist = tokens
     result['members'] = CaseInsensitiveSet()
     for i, (a_type, a_value, a_pos) in enumerate(synclist):
@@ -165,7 +165,7 @@ class SyncHandler(object):
 
         # Invalidate cache of "sync" connections
         for app_name in list(self._ready_replicas.keys()):
-            if app_name not in self._ssn_data['members']:
+            if isinstance(self._ssn_data['members'], CaseInsensitiveSet) and app_name not in self._ssn_data['members']:
                 del self._ready_replicas[app_name]
 
         # Newly connected replicas will be counted as sync only when reached self._primary_flush_lsn
@@ -201,7 +201,7 @@ class SyncHandler(object):
                                if r[sort_col] is not None]
 
         members = CaseInsensitiveDict({m.name: m for m in cluster.members})
-        replica_list = []
+        replica_list: List[Tuple[int, str, str, int, bool]] = []
         # pg_stat_replication.sync_state has 4 possible states - async, potential, quorum, sync.
         # That is, alphabetically they are in the reversed order of priority.
         # Since we are doing reversed sort on (sync_state, lsn) tuples, it helps to keep the result
@@ -227,7 +227,8 @@ class SyncHandler(object):
         for pid, app_name, sync_state, replica_lsn, _ in sorted(replica_list, key=lambda x: x[4]):
             # if standby name is listed in the /sync key we can count it as synchronous, otherwice
             # it becomes really synchronous when sync_state = 'sync' and it is known that it managed to catch up
-            if app_name not in self._ready_replicas and app_name in self._ssn_data['members'] and\
+            if app_name not in self._ready_replicas and isinstance(self._ssn_data['members'], CaseInsensitiveSet)\
+                    and app_name in self._ssn_data['members'] and\
                     (cluster.sync.matches(app_name) or sync_state == 'sync' and replica_lsn >= self._primary_flush_lsn):
                 self._ready_replicas[app_name] = pid
 

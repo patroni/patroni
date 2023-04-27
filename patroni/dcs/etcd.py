@@ -74,10 +74,10 @@ class DnsCachingResolver(Thread):
                 response = new_response
         return response
 
-    def resolve_async(self, host: str, port: int, attempt: int = 0):
+    def resolve_async(self, host: str, port: int, attempt: int = 0) -> None:
         self._resolve_queue.put(((host, port), attempt))
 
-    def remove(self, host: str, port: int):
+    def remove(self, host: str, port: int) -> None:
         self._cache.pop((host, port), None)
 
     @staticmethod

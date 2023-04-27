@@ -13,7 +13,7 @@ import subprocess
 
 from typing import Any, Dict, Union, Iterator, List, Optional as OptionalType
 
-from .utils import split_host_port, data_directory_is_empty
+from .utils import parse_int, split_host_port, data_directory_is_empty
 from .dcs import dcs_modules
 from .exceptions import ConfigParseError
 
@@ -679,12 +679,23 @@ def assert_(condition: bool, message: str = "Wrong value") -> None:
 class IntValidator(object):
     expected_type = int
 
-    def __init__(self, min: OptionalType[int] = None, max: OptionalType[int] = None):
+    def __init__(self, min: OptionalType[int] = None, max: OptionalType[int] = None,
+                 base_unit: OptionalType[str] = None, raise_assert: bool = False) -> None:
         self.min = min
         self.max = max
+        self.base_unit = base_unit
+        self.raise_assert = raise_assert
 
-    def __call__(self, value: int) -> None:
-        assert_((self.min is None or value >= self.min) and (self.max is None or value <= self.max))
+    def __call__(self, value: Union[int, str]) -> bool:
+        if self.base_unit:
+            value = parse_int(value, self.base_unit) or ""
+        ret = isinstance(value, int)\
+            and (self.min is None or value >= self.min)\
+            and (self.max is None or value <= self.max)
+
+        if self.raise_assert:
+            assert_(ret)
+        return ret
 
 
 def validate_watchdog_mode(value: Any):
@@ -716,7 +727,7 @@ schema = Schema({
     "restapi": {
         "listen": validate_host_port_listen,
         "connect_address": validate_connect_address,
-        Optional("request_queue_size"): IntValidator(0, 4096)
+        Optional("request_queue_size"): IntValidator(min=0, max=4096, raise_assert=True)
     },
     Optional("bootstrap"): {
         "dcs": {
@@ -738,7 +749,7 @@ schema = Schema({
         "etcd3": validate_etcd,
         "exhibitor": {
             "hosts": [str],
-            "port": IntValidator(None, 65535),
+            "port": IntValidator(max=65535, raise_assert=True),
             Optional("pool_interval"): int
         },
         "raft": {

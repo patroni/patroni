@@ -136,8 +136,8 @@ class TestCitus(BaseTestPostgresql):
         self.assertEqual(parameters['shared_preload_libraries'], 'citus,foo,bar')
         self.assertEqual(parameters['wal_level'], 'logical')
 
-    @patch.object(CitusHandler, 'is_enabled', Mock(return_value=False))
     def test_bootstrap(self):
+        self.c._config = None
         self.c.bootstrap()
 
     def test_ignore_replication_slot(self):

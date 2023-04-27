@@ -299,7 +299,7 @@ def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: Optiona
         return value
 
 
-def parse_int(value: Any, base_unit: Optional[str] = None) -> Union[int, None]:
+def parse_int(value: Any, base_unit: Optional[str] = None) -> Optional[int]:
     """Parse *value* as an :class:`int`.
 
     :param value: any value that can be handled either by :func:`strtol` or :func:`strtod`. If *value* contains a
@@ -352,7 +352,7 @@ def parse_int(value: Any, base_unit: Optional[str] = None) -> Union[int, None]:
             return round(val)
 
 
-def parse_real(value: Any, base_unit: Optional[str] = None) -> Union[float, None]:
+def parse_real(value: Any, base_unit: Optional[str] = None) -> Optional[float]:
     """Parse *value* as a :class:`float`.
 
     :param value: any value that can be handled by :func:`strtod`. If *value* contains a unit, then *base_unit* must
@@ -383,7 +383,7 @@ def parse_real(value: Any, base_unit: Optional[str] = None) -> Union[float, None
         return convert_to_base_unit(val, unit, base_unit)
 
 
-def compare_values(vartype: str, unit: str, old_value: Any, new_value: Any) -> bool:
+def compare_values(vartype: str, unit: Optional[str], old_value: Any, new_value: Any) -> bool:
     """Check if *old_value* and *new_value* are equivalent after parsing them as *vartype*.
 
     :param vartpe: the target type to parse *old_value* and *new_value* before comparing them. Accepts any among of the
@@ -594,7 +594,7 @@ def polling_loop(timeout: Union[int, float], interval: Union[int, float] = 1) ->
         time.sleep(float(interval))
 
 
-def split_host_port(value: str, default_port: int) -> Tuple[str, int]:
+def split_host_port(value: str, default_port: Optional[int]) -> Tuple[str, int]:
     """Extract host(s) and port from *value*.
 
     :param value: string from where host(s) and port will be extracted. Accepts either of these formats

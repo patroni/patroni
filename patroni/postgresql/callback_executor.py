@@ -67,8 +67,10 @@ class CallbackExecutor(CancellableExecutor, Thread):
                     self._condition.wait()
                 cmd, self._cmd = self._cmd, None
 
-            with self._lock:
-                if not self._start_process(cmd, close_fds=True):
-                    continue
-            self._process.wait()
-            self._kill_children()
+            if cmd is not None:
+                with self._lock:
+                    if not self._start_process(cmd, close_fds=True):
+                        continue
+                if self._process:
+                    self._process.wait()
+                    self._kill_children()
