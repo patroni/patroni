@@ -12,7 +12,7 @@ from typing import Any, Collection, Dict, List, Optional, Union, Tuple, Type, TY
 
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
-from ..dcs import Member, RemoteMember, slot_name_from_member_name
+from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException
 from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, validate_directory, is_subpath
 from ..validator import IntValidator
@@ -480,7 +480,7 @@ class ConfigHandler(object):
                 f.writelines(self._config['pg_ident'])
             return True
 
-    def primary_conninfo_params(self, member: Member) -> Optional[Dict[str, Any]]:
+    def primary_conninfo_params(self, member: Union[Leader, Member, None]) -> Optional[Dict[str, Any]]:
         if not member or not member.conn_url or member.name == self._postgresql.name:
             return None
         ret = member.conn_kwargs(self.replication)
@@ -539,7 +539,7 @@ class ConfigHandler(object):
                     continue
             fd.write_param(name, value)
 
-    def build_recovery_params(self, member: Member) -> CaseInsensitiveDict:
+    def build_recovery_params(self, member: Union[Leader, Member, None]) -> CaseInsensitiveDict:
         recovery_params = CaseInsensitiveDict({p: v for p, v in (self.get('recovery_conf') or {}).items()
                                                if not p.lower().startswith('recovery_target')
                                                and p.lower() not in ('primary_conninfo', 'primary_slot_name')})
@@ -689,7 +689,7 @@ class ConfigHandler(object):
 
         return all(str(primary_conninfo.get(p)) == str(v) for p, v in wanted_primary_conninfo.items() if v is not None)
 
-    def check_recovery_conf(self, member: Member) -> Tuple[bool, bool]:
+    def check_recovery_conf(self, member: Union[Leader, Member, None]) -> Tuple[bool, bool]:
         """Returns a tuple. The first boolean element indicates that recovery params don't match
            and the second is set to `True` if the restart is required in order to apply new values"""
 

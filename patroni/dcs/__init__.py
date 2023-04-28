@@ -535,6 +535,14 @@ class Cluster(NamedTuple):
     def empty() -> 'Cluster':
         return Cluster(None, None, None, 0, [], None, SyncState.empty(), None, None, None)
 
+    def is_empty(self):
+        return self.initialize is None and self.config is None and self.leader is None and self.last_lsn == 0\
+            and self.members == [] and self.failover is None and self.sync.index is None\
+            and self.history is None and self.slots is None and self.failsafe is None and self.workers == {}
+
+    def __len__(self) -> int:
+        return int(not self.is_empty())
+
     @property
     def leader_name(self) -> Optional[str]:
         return self.leader and self.leader.name
@@ -965,7 +973,7 @@ class AbstractDCS(abc.ABC):
         If update fails due to DCS not being accessible or because it is not able to
         process requests (hopefuly temporary), the ~DCSError exception should be raised."""
 
-    def update_leader(self, last_lsn: int, slots: Optional[Dict[str, int]] = None,
+    def update_leader(self, last_lsn: Optional[int], slots: Optional[Dict[str, int]] = None,
                       failsafe: Optional[Dict[str, str]] = None) -> bool:
         """Update leader key (or session) ttl and optime/leader
 

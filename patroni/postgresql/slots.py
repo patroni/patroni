@@ -62,7 +62,7 @@ class SlotsAdvanceThread(Thread):
                 if not self._scheduled[database]:
                     self._scheduled.pop(database)
 
-    def sync_slots_in_database(self, database: str, slots: List[str]):
+    def sync_slots_in_database(self, database: str, slots: List[str]) -> None:
         with self._slots_handler.get_local_connection_cursor(dbname=database, options='-c statement_timeout=0') as cur:
             for slot in slots:
                 with self._condition:
@@ -297,8 +297,8 @@ class SlotsHandler(object):
         return create_slots + copy_slots
 
     def sync_replication_slots(self, cluster: Cluster, nofailover: bool,
-                               replicatefrom: Optional[str] = None, paused: bool = False) -> Optional[List[str]]:
-        ret = None
+                               replicatefrom: Optional[str] = None, paused: bool = False) -> List[str]:
+        ret = []
         if self._postgresql.major_version >= 90400 and cluster.config:
             try:
                 self.load_replication_slots()

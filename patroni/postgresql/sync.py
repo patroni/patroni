@@ -149,12 +149,12 @@ class SyncHandler(object):
         # "sync" replication connections, that were verified to reach self._primary_flush_lsn at some point
         self._ready_replicas = CaseInsensitiveDict({})  # keys: member names, values: connection pids
 
-    def _handle_synchronous_standby_names_change(self):
+    def _handle_synchronous_standby_names_change(self) -> None:
         """If synchronous_standby_names has changed we need to check that newly added replicas
         have reached self._primary_flush_lsn. Only after that they could be counted as sync."""
         synchronous_standby_names = self._postgresql.synchronous_standby_names()
         if synchronous_standby_names == self._synchronous_standby_names:
-            return False
+            return
 
         self._synchronous_standby_names = synchronous_standby_names
         try:

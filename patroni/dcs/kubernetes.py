@@ -168,10 +168,10 @@ class K8sConfig(object):
 
 class K8sObject(object):
 
-    def __init__(self, kwargs: Dict[str, Any]):
+    def __init__(self, kwargs: Dict[str, Any]) -> None:
         self._dict = {k: self._wrap(k, v) for k, v in kwargs.items()}
 
-    def get(self, name: str, default: Optional[Any] = None) -> Any:
+    def get(self, name: str, default: Optional[Any] = None) -> Optional[Any]:
         return self._dict.get(name, default)
 
     def __getattr__(self, name: str) -> Any:
@@ -473,7 +473,7 @@ class K8sClient(object):
 
     class _K8sObjectTemplate(K8sObject):
         """The template for objects which we create locally, e.g. k8s_client.V1ObjectMeta & co"""
-        def __init__(self, **kwargs: Any):
+        def __init__(self, **kwargs: Any) -> None:
             self._dict = {to_camel_case(k): v for k, v in kwargs.items()}
 
     def __init__(self) -> None:
@@ -493,7 +493,7 @@ k8s_config = K8sConfig()
 
 class KubernetesRetriableException(k8s_client.rest.ApiException):
 
-    def __init__(self, orig: K8sClient.rest.ApiException):
+    def __init__(self, orig: K8sClient.rest.ApiException) -> None:
         super(KubernetesRetriableException, self).__init__(orig.status, orig.reason)
         self.body = orig.body
         self.headers = orig.headers
@@ -545,7 +545,7 @@ class CoreV1ApiProxy(object):
         if func.endswith('_kind'):
             func = func[:-4] + ('endpoints' if self._use_endpoints else 'config_map')
 
-        def wrapper(*args: Any, **kwargs: Any):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return getattr(self._core_v1_api, func)(*args, **kwargs)
             except k8s_client.rest.ApiException as e:
@@ -559,8 +559,8 @@ class CoreV1ApiProxy(object):
         return self._use_endpoints
 
 
-def catch_kubernetes_errors(func: Callable[..., Any]):
-    def wrapper(self: 'Kubernetes', *args: Any, **kwargs: Any):
+def catch_kubernetes_errors(func: Callable[..., Any]) -> Callable[..., Any]:
+    def wrapper(self: 'Kubernetes', *args: Any, **kwargs: Any) -> Any:
         try:
             return self._run_and_handle_exceptions(func, self, *args, **kwargs)
         except KubernetesError:
@@ -572,7 +572,7 @@ class ObjectCache(Thread):
 
     def __init__(self, dcs: 'Kubernetes', func: Callable[..., Any], retry: Retry,
                  condition: Condition, name: Optional[str] = None) -> None:
-        Thread.__init__(self)
+        super(ObjectCache, self).__init__()
         self.daemon = True
         self._dcs = dcs
         self._func = func
@@ -1175,7 +1175,7 @@ class Kubernetes(AbstractDCS):
         return bool(self._run_and_handle_exceptions(self._patch_or_create, self.leader_path, annotations,
                                                     kind_resource_version, ips=ips, retry=_retry))
 
-    def update_leader(self, last_lsn: int, slots: Optional[Dict[str, int]] = None,
+    def update_leader(self, last_lsn: Optional[int], slots: Optional[Dict[str, int]] = None,
                       failsafe: Optional[Dict[str, str]] = None) -> bool:
         kind = self._kinds.get(self.leader_path)
         kind_annotations = kind and kind.metadata.annotations or {}
@@ -1314,7 +1314,7 @@ class Kubernetes(AbstractDCS):
         """Unused"""
         raise NotImplementedError  # pragma: no cover
 
-    def write_sync_state(self, leader: Union[str, None], sync_standby: Union[Collection[str], None],
+    def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
                          index: Optional[str] = None) -> bool:
         """Prepare and write annotations to $SCOPE-sync Endpoint or ConfigMap.
 

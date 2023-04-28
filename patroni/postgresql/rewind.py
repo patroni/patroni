@@ -30,7 +30,7 @@ class REWIND_STATUS(IntEnum):
 
 class Rewind(object):
 
-    def __init__(self, postgresql: Postgresql):
+    def __init__(self, postgresql: Postgresql) -> None:
         self._postgresql = postgresql
         self._checkpoint_task_lock = Lock()
         self.reset_state()
@@ -261,7 +261,7 @@ class Rewind(object):
 
         self._state = need_rewind and REWIND_STATUS.NEED or REWIND_STATUS.NOT_NEED
 
-    def rewind_or_reinitialize_needed_and_possible(self, leader: Union[Leader, RemoteMember]) -> bool:
+    def rewind_or_reinitialize_needed_and_possible(self, leader: Union[Leader, RemoteMember, None]) -> bool:
         if leader and leader.name != self._postgresql.name and leader.conn_url and self._state == REWIND_STATUS.CHECK:
             self._check_timeline_and_lsn(leader)
         return bool(leader and leader.conn_url) and self._state == REWIND_STATUS.NEED

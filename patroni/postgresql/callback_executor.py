@@ -17,7 +17,7 @@ class CallbackAction(str, Enum):
     ON_RELOAD = "on_reload"
     ON_ROLE_CHANGE = "on_role_change"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.value
 
 
@@ -60,7 +60,7 @@ class CallbackExecutor(CancellableExecutor, Thread):
             self._cmd = cmd
             self._condition.notify()
 
-    def run(self):
+    def run(self) -> None:
         while True:
             with self._condition:
                 if self._cmd is None:

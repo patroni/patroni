@@ -7,7 +7,7 @@
 :var DEC_RE: regular expression to match decimal numbers, signed or unsigned.
 :var HEX_RE: regular expression to match hex strings, signed or unsigned.
 :var DBL_RE: regular expression to match double precision numbers, signed or unsigned. Matches scientific notation too.
-:var WHITESPACE_re: regular expression to match whitespace characters
+:var WHITESPACE_RE: regular expression to match whitespace characters
 """
 import errno
 import logging

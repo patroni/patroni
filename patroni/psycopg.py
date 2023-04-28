@@ -63,7 +63,7 @@ except ImportError:
         """Quote *value* as a SQL identifier.
 
         :param value: value to be quoted.
-        :param conn: connection to evaluate the returning string into.
+        :param scope: connection to evaluate the returning string into.
 
         :returns: *value* quoted as a SQL identifier.
         """

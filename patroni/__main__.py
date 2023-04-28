@@ -38,7 +38,7 @@ class Patroni(AbstractPatroniDaemon):
 
         self.tags = self.get_tags()
         self.next_run = time.time()
-        self.scheduled_restart = {}
+        self.scheduled_restart: Dict[str, Any] = {}
 
     def load_dynamic_configuration(self) -> None:
         from patroni.exceptions import DCSError

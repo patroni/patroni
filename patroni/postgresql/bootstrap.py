@@ -7,7 +7,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
 from ..async_executor import CriticalTask
-from ..dcs import Member, RemoteMember
+from ..dcs import Leader, Member, RemoteMember
 from ..psycopg import quote_ident, quote_literal
 from ..utils import deep_compare, unquote
 
@@ -197,7 +197,7 @@ class Bootstrap(object):
                 return False
         return True
 
-    def create_replica(self, clone_member: Member) -> Optional[int]:
+    def create_replica(self, clone_member: Union[Leader, Member, None]) -> Optional[int]:
         """
             create the replica according to the replica_method
             defined by the user.  this is a list, so we need to
@@ -319,7 +319,7 @@ class Bootstrap(object):
 
         return ret
 
-    def clone(self, clone_member: Member) -> bool:
+    def clone(self, clone_member: Union[Leader, Member, None]) -> bool:
         """
              - initialize the replica from an existing member (primary or replica)
              - initialize the replica using the replica creation method that
