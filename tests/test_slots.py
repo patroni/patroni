@@ -7,9 +7,10 @@ from mock import Mock, PropertyMock, patch
 from threading import Thread
 
 from patroni import psycopg
-from patroni.dcs import Cluster, ClusterConfig, Member
+from patroni.dcs import Cluster, ClusterConfig, Member, SyncState
 from patroni.postgresql import Postgresql
-from patroni.postgresql.slots import SlotsAdvanceThread, SlotsHandler, fsync_dir
+from patroni.postgresql.misc import fsync_dir
+from patroni.postgresql.slots import SlotsAdvanceThread, SlotsHandler
 
 from . import BaseTestPostgresql, psycopg_connect, MockCursor
 
@@ -30,29 +31,31 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.s = self.p.slots_handler
         self.p.start()
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}}}, 1)
-        self.cluster = Cluster(True, config, self.leader, 0,
-                               [self.me, self.other, self.leadermem], None, None, None, {'ls': 12345})
+        self.cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem],
+                               None, SyncState.empty(), None, {'ls': 12345}, None)
 
     def test_sync_replication_slots(self):
         config = ClusterConfig(1, {'slots': {'test_3': {'database': 'a', 'plugin': 'b'},
                                              'A': 0, 'ls': 0, 'b': {'type': 'logical', 'plugin': '1'}},
                                    'ignore_slots': [{'name': 'blabla'}]}, 1)
-        cluster = Cluster(True, config, self.leader, 0,
-                          [self.me, self.other, self.leadermem], None, None, None, {'test_3': 10})
+        cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem],
+                          None, SyncState.empty(), None, {'test_3': 10}, None)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg.OperationalError)):
             self.s.sync_replication_slots(cluster, False)
         self.p.set_role('standby_leader')
-        self.s.sync_replication_slots(cluster, False)
+        with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(True, False))),\
+                patch('patroni.postgresql.slots.logger.debug') as mock_debug:
+            self.s.sync_replication_slots(cluster, False)
+            mock_debug.assert_called_once()
         self.p.set_role('replica')
         with patch.object(Postgresql, 'is_leader', Mock(return_value=False)),\
                 patch.object(SlotsHandler, 'drop_replication_slot') as mock_drop:
             self.s.sync_replication_slots(cluster, False, paused=True)
             mock_drop.assert_not_called()
-        self.p.set_role('master')
+        self.p.set_role('primary')
         with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
             self.s.sync_replication_slots(cluster, False)
-        with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=True)),\
-                patch('patroni.dcs.logger.error', new_callable=Mock()) as errorlog_mock:
+        with patch('patroni.dcs.logger.error', new_callable=Mock()) as errorlog_mock:
             alias1 = Member(0, 'test-3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
             alias2 = Member(0, 'test.3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
             cluster.members.extend([alias1, alias2])
@@ -67,7 +70,8 @@ class TestSlotsHandler(BaseTestPostgresql):
     def test_process_permanent_slots(self):
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}},
                                    'ignore_slots': [{'name': 'blabla'}]}, 1)
-        cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem], None, None, None, None)
+        cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem],
+                          None, SyncState.empty(), None, None, None)
 
         self.s.sync_replication_slots(cluster, False)
         with patch.object(Postgresql, '_query') as mock_query:

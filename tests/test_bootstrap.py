@@ -112,6 +112,7 @@ class TestBootstrap(BaseTestPostgresql):
         config = {'users': {'replicator': {'password': 'rep-pass', 'options': ['replication']}}}
 
         with patch.object(Postgresql, 'is_running', Mock(return_value=False)),\
+                patch.object(Postgresql, 'get_major_version', Mock(return_value=140000)),\
                 patch('multiprocessing.Process', Mock(side_effect=Exception)),\
                 patch('multiprocessing.get_context', Mock(side_effect=Exception), create=True):
             self.assertRaises(Exception, self.b.bootstrap, config)

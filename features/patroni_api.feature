@@ -14,9 +14,9 @@ Scenario: check API requests on a stand-alone server
 	Then I receive a response code 200
 	When I issue a GET request to http://127.0.0.1:8008/replica
 	Then I receive a response code 503
-	When I run patronictl.py reinit batman postgres0 --force
-	Then I receive a response returncode 0
-	And I receive a response output "Failed: reinitialize for member postgres0, status code=503, (I am the leader, can not reinitialize)"
+	When I issue a POST request to http://127.0.0.1:8008/reinitialize with {"force": true}
+	Then I receive a response code 503
+	And I receive a response text I am the leader, can not reinitialize
 	When I run patronictl.py switchover batman --master postgres0 --force
 	Then I receive a response returncode 1
 	And I receive a response output "Error: No candidates found to switchover to"
@@ -94,11 +94,11 @@ Scenario: check the switchover via the API in the pause mode
 	And postgres0 role is the secondary after 10 seconds
 	And replication works from postgres1 to postgres0 after 20 seconds
 	And "members/postgres0" key in DCS has state=running after 10 seconds
-	When I issue a GET request to http://127.0.0.1:8008/master
+	When I issue a GET request to http://127.0.0.1:8008/primary
 	Then I receive a response code 503
 	When I issue a GET request to http://127.0.0.1:8008/replica
 	Then I receive a response code 200
-	When I issue a GET request to http://127.0.0.1:8009/master
+	When I issue a GET request to http://127.0.0.1:8009/primary
 	Then I receive a response code 200
 	When I issue a GET request to http://127.0.0.1:8009/replica
 	Then I receive a response code 503
@@ -109,18 +109,18 @@ Scenario: check the scheduled switchover
 	And I receive a response output "Can't schedule switchover in the paused state"
 	When I run patronictl.py resume batman
 	Then I receive a response returncode 0
-	Given I issue a scheduled switchover from postgres1 to postgres0 in 5 seconds
+	Given I issue a scheduled switchover from postgres1 to postgres0 in 10 seconds
 	Then I receive a response returncode 0
 	And postgres0 is a leader after 20 seconds
 	And postgres0 role is the primary after 10 seconds
 	And postgres1 role is the secondary after 10 seconds
 	And replication works from postgres0 to postgres1 after 25 seconds
 	And "members/postgres1" key in DCS has state=running after 10 seconds
-	When I issue a GET request to http://127.0.0.1:8008/master
+	When I issue a GET request to http://127.0.0.1:8008/primary
 	Then I receive a response code 200
 	When I issue a GET request to http://127.0.0.1:8008/replica
 	Then I receive a response code 503
-	When I issue a GET request to http://127.0.0.1:8009/master
+	When I issue a GET request to http://127.0.0.1:8009/primary
 	Then I receive a response code 503
 	When I issue a GET request to http://127.0.0.1:8009/replica
 	Then I receive a response code 200

@@ -17,10 +17,11 @@ Dynamic configuration is stored in the DCS (Distributed Configuration Store) and
 -  **maximum\_lag\_on\_failover**: the maximum bytes a follower may lag to be able to participate in leader election.
 -  **maximum\_lag\_on\_syncnode**: the maximum bytes a synchronous follower may lag before it is considered as an unhealthy candidate and swapped by healthy asynchronous follower. Patroni utilize the max replica lsn if there is more than one follower, otherwise it will use leader's current wal lsn. Default is -1, Patroni will not take action to swap synchronous unhealthy follower when the value is set to 0 or below. Please set the value high enough so Patroni won't swap synchrounous follower fequently during high transaction volume.
 -  **max\_timelines\_history**: maximum number of timeline history items kept in DCS.  Default value: 0. When set to 0, it keeps the full history in DCS.
--  **master\_start\_timeout**: the amount of time a primary is allowed to recover from failures before failover is triggered (in seconds). Default is 300 seconds. When set to 0 failover is done immediately after a crash is detected if possible. When using asynchronous replication a failover can cause lost transactions. Worst case failover time for primary failure is: loop\_wait + master\_start\_timeout + loop\_wait, unless master\_start\_timeout is zero, in which case it's just loop\_wait. Set the value according to your durability/availability tradeoff.
-- **master\_stop\_timeout**: The number of seconds Patroni is allowed to wait when stopping Postgres and effective only when synchronous_mode is enabled. When set to > 0 and the synchronous_mode is enabled, Patroni sends SIGKILL to the postmaster if the stop operation is running for more than the value set by master_stop_timeout. Set the value according to your durability/availability tradeoff. If the parameter is not set or set <= 0, master_stop_timeout does not apply.
+-  **primary\_start\_timeout**: the amount of time a primary is allowed to recover from failures before failover is triggered (in seconds). Default is 300 seconds. When set to 0 failover is done immediately after a crash is detected if possible. When using asynchronous replication a failover can cause lost transactions. Worst case failover time for primary failure is: loop\_wait + primary\_start\_timeout + loop\_wait, unless primary\_start\_timeout is zero, in which case it's just loop\_wait. Set the value according to your durability/availability tradeoff.
+- **primary\_stop\_timeout**: The number of seconds Patroni is allowed to wait when stopping Postgres and effective only when synchronous_mode is enabled. When set to > 0 and the synchronous_mode is enabled, Patroni sends SIGKILL to the postmaster if the stop operation is running for more than the value set by primary\_stop\_timeout. Set the value according to your durability/availability tradeoff. If the parameter is not set or set <= 0, primary\_stop\_timeout does not apply.
 -  **synchronous\_mode**: turns on synchronous replication mode. In this mode a replica will be chosen as synchronous and only the latest leader and synchronous replica are able to participate in leader election. Synchronous mode makes sure that successfully committed transactions will not be lost at failover, at the cost of losing availability for writes when Patroni cannot ensure transaction durability. See :ref:`replication modes documentation <replication_modes>` for details.
 -  **synchronous\_mode\_strict**: prevents disabling synchronous replication if no synchronous replicas are available, blocking all client writes to the primary. See :ref:`replication modes documentation <replication_modes>` for details.
+-  **failsafe\_mode**: Enables :ref:`DCS Failsafe Mode <dcs_failsafe_mode>`. Defaults to `false`.
 -  **postgresql**:
     -  **use\_pg\_rewind**: whether or not to use pg_rewind. Defaults to `false`.
     -  **use\_slots**: whether or not to use replication slots. Defaults to `true` on PostgreSQL 9.4+.
@@ -111,6 +112,15 @@ Bootstrap configuration
                 -  **- createdb**
     -  **post\_bootstrap** or **post\_init**: An additional script that will be executed after initializing the cluster. The script receives a connection string URL (with the cluster superuser as a user name). The PGPASSFILE variable is set to the location of pgpass file.
 
+.. _citus_settings:
+
+Citus
+-----
+Enables integration Patroni with `Citus <https://docs.citusdata.com>`__. If configured, Patroni will take care of registering Citus worker nodes on the coordinator. You can find more information about Citus support :ref:`here <citus>`.
+
+-  **group**: the Citus group id, integer. Use ``0`` for coordinator and ``1``, ``2``, etc... for workers
+-  **database**: the database where ``citus`` extension should be created. Must be the same on the coordinator and all workers. Currently only one database is supported.
+
 .. _consul_settings:
 
 Consul
@@ -129,8 +139,8 @@ Most of the parameters are optional, but you have to specify one of the **host**
 -  **dc**: (optional) Datacenter to communicate with. By default the datacenter of the host is used.
 -  **consistency**: (optional) Select consul consistency mode. Possible values are ``default``, ``consistent``, or ``stale`` (more details in `consul API reference <https://www.consul.io/api/features/consistency.html/>`__)
 -  **checks**: (optional) list of Consul health checks used for the session. By default an empty list is used.
--  **register\_service**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**.
--  **service\_tags**: (optional) additional static tags to add to the Consul service apart from the role (``master``/``replica``/``standby-leader``).  By default an empty list is used.
+-  **register\_service**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, primary, replica, or standby-leader depending on the node's role. Defaults to **false**.
+-  **service\_tags**: (optional) additional static tags to add to the Consul service apart from the role (``master``/``primary``/``replica``/``standby-leader``). By default an empty list is used.
 -  **service\_check\_interval**: (optional) how often to perform health check against registered url. Defaults to '5s'.
 -  **service\_check\_tls\_server\_name**: (optional) overide SNI host when connecting via TLS, see also `consul agent check API reference <https://www.consul.io/api-docs/agent/check#tlsservername>`__.
 
@@ -183,7 +193,7 @@ ZooKeeper
 -  **key**: (optional) File with the client key.
 -  **key_password**: (optional) The client key password.
 -  **verify**: (optional) Whether to verify certificate or not. Defaults to ``true``.
--  **set_acls**: (optional) If set, configure Kazoo to apply a default ACL to each ZNode that it creates. ACLs will assume 'x509' schema and should be specified as a dictionary with the principal as the key and one or more permissions as a list in the value.  Permissions may be one of ``CREATE``, ``READ``, ``WRITE``, ``DELETE`` or ``ADMIN``.  For example, ``set_acls: {CN=principal1: [CREATE, READ], CN=principal2: [ALL]}``. 
+-  **set_acls**: (optional) If set, configure Kazoo to apply a default ACL to each ZNode that it creates. ACLs will assume 'x509' schema and should be specified as a dictionary with the principal as the key and one or more permissions as a list in the value.  Permissions may be one of ``CREATE``, ``READ``, ``WRITE``, ``DELETE`` or ``ADMIN``.  For example, ``set_acls: {CN=principal1: [CREATE, READ], CN=principal2: [ALL]}``.
 
 .. note::
     It is required to install ``kazoo>=2.6.0`` to support SSL.
@@ -208,12 +218,13 @@ Kubernetes
 -  **pod\_ip**: (optional) IP address of the pod Patroni is running in. This value is required when `use_endpoints` is enabled and is used to populate the leader endpoint subsets when the pod's PostgreSQL is promoted.
 -  **ports**: (optional) if the Service object has the name for the port, the same name must appear in the Endpoint object, otherwise service won't work. For example, if your service is defined as ``{Kind: Service, spec: {ports: [{name: postgresql, port: 5432, targetPort: 5432}]}}``, then you have to set ``kubernetes.ports: [{"name": "postgresql", "port": 5432}]`` and Patroni will use it for updating subsets of the leader Endpoint. This parameter is used only if `kubernetes.use_endpoints` is set.
 -  **cacert**: (optional) Specifies the file with the CA_BUNDLE file with certificates of trusted CAs to use while verifying Kubernetes API SSL certs. If not provided, patroni will use the value provided by the ServiceAccount secret.
+-  **retriable\_http\_codes**: (optional) list of HTTP status codes from K8s API to retry on. By default Patroni is retrying on ``500``, ``503``, and ``504``, or if K8s API response has ``retry-after`` HTTP header.
 
 
 .. _raft_settings:
 
-Raft
-----
+Raft (deprecated)
+-----------------
 -  **self\_addr**: ``ip:port`` to listen on for Raft connections. The ``self_addr`` must be accessible from other nodes of the cluster. If not set, the node will not participate in consensus.
 -  **bind\_addr**: (optional) ``ip:port`` to listen on for Raft connections. If not specified the ``self_addr`` will be used.
 -  **partner\_addrs**: list of other Patroni nodes in the cluster in format: ['ip1:port', 'ip2:port', 'etc...']
@@ -292,6 +303,7 @@ PostgreSQL
             -  **on\_start**: run this script when the postgres starts.
             -  **on\_stop**: run this script when the postgres stops.
     -  **connect\_address**: IP address + port through which Postgres is accessible from other nodes and applications.
+    -  **proxy\_address**: IP address + port through which a connection pool (e.g. pgbouncer) running next to Postgres is accessible. The value is written to the member key in DCS as ``proxy_url`` and could be used/useful for service discovery.
     -  **create\_replica\_methods**: an ordered list of the create methods for turning a Patroni node into a new replica.
        "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured as its
        own config item. See :ref:`custom replica creation methods documentation <custom_replica_creation>` for further explanation.
@@ -317,6 +329,8 @@ PostgreSQL
     -  **remove\_data\_directory\_on\_diverged\_timelines**: Patroni will remove the PostgreSQL data directory and recreate the replica if it notices that timelines are diverging and the former primary can not start streaming from the new primary. This option is useful when ``pg_rewind`` can not be used. While performing timelines divergence check on PostgreSQL v10 and older Patroni will try to connect with replication credential to the "postgres" database. Hence, such access should be allowed in the  pg_hba.conf. Default value is **false**.
     -  **replica\_method**: for each create_replica_methods other than basebackup, you would add a configuration section of the same name. At a minimum, this should include "command" with a full path to the actual script to be executed. Other configuration parameters will be passed along to the script in the form "parameter=value".
     -  **pre\_promote**: a fencing script that executes during a failover after acquiring the leader lock but before promoting the replica. If the script exits with a non-zero code, Patroni does not promote the replica and removes the leader key from DCS.
+
+.. _restapi_settings:
 
 REST API
 --------

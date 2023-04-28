@@ -164,6 +164,13 @@ class TestWatchdog(unittest.TestCase):
 
         watchdog.reload_config({'ttl': 60, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
         watchdog.keepalive()
+        self.assertTrue(watchdog.is_running)
+        self.assertEqual(watchdog.config.timeout, 60 - 5)
+
+        watchdog.reload_config({'ttl': 60, 'loop_wait': 15, 'watchdog': {'mode': 'required', 'safety_margin': -1}})
+        watchdog.keepalive()
+        self.assertTrue(watchdog.is_running)
+        self.assertEqual(watchdog.config.timeout, 60 // 2)
 
 
 class TestNullWatchdog(unittest.TestCase):

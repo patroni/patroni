@@ -1,8 +1,6 @@
 urllib3>=1.19.1,!=1.21
-ipaddress; python_version=="2.7"
 boto3
 PyYAML
-six >= 1.7
 kazoo>=1.3.1
 python-etcd>=0.4.3,<0.5
 python-consul>=0.7.1

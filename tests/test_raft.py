@@ -4,7 +4,8 @@ import tempfile
 import time
 
 from mock import Mock, PropertyMock, patch
-from patroni.dcs.raft import DynMemberSyncObj, KVStoreTTL, Raft, SyncObjUtility, TCPTransport, _TCPTransport
+from patroni.dcs.raft import Cluster, DynMemberSyncObj, KVStoreTTL,\
+        Raft, RaftError, SyncObjUtility, TCPTransport, _TCPTransport
 from pysyncobj import SyncObjConf, FAIL_REASON
 
 
@@ -79,6 +80,9 @@ class TestKVStoreTTL(unittest.TestCase):
         self.assertFalse(self.so.set('foo', 'bar', prevExist=False, ttl=30))
         self.assertFalse(self.so.retry(self.so._set, 'foo', {'value': 'buz', 'created': 1, 'updated': 1}, prevValue=''))
         self.assertTrue(self.so.retry(self.so._set, 'foo', {'value': 'buz', 'created': 1, 'updated': 1}))
+        with patch.object(KVStoreTTL, 'retry', Mock(side_effect=RaftError(''))):
+            self.assertFalse(self.so.set('foo', 'bar'))
+            self.assertRaises(RaftError, self.so.set, 'foo', 'bar', handle_raft_error=False)
 
     def test_delete(self):
         self.so.autoTickPeriod = 0.2
@@ -87,6 +91,8 @@ class TestKVStoreTTL(unittest.TestCase):
         self.assertFalse(self.so.delete('foo', prevValue='buz'))
         self.assertTrue(self.so.delete('foo', recursive=True))
         self.assertFalse(self.so.retry(self.so._delete, 'foo', prevValue=''))
+        with patch.object(KVStoreTTL, 'retry', Mock(side_effect=RaftError(''))):
+            self.assertFalse(self.so.delete('foo'))
 
     def test_expire(self):
         self.so.set('foo', 'bar', ttl=0.001)
@@ -102,7 +108,7 @@ class TestKVStoreTTL(unittest.TestCase):
             callback(True, return_values.pop(0))
 
         with patch('time.time', Mock(side_effect=[1, 100])):
-            self.assertFalse(self.so.retry(test))
+            self.assertRaises(RaftError, self.so.retry, test)
 
         self.assertTrue(self.so.retry(test))
         self.assertFalse(self.so.retry(test))
@@ -123,7 +129,8 @@ class TestRaft(unittest.TestCase):
 
     def test_raft(self):
         raft = Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'self_addr': '127.0.0.1:1234',
-                     'retry_timeout': 10, 'data_dir': self._TMP})
+                     'retry_timeout': 10, 'data_dir': self._TMP,
+                     'database': 'citus', 'group': 0})
         raft.reload_config({'retry_timeout': 20, 'ttl': 60, 'loop_wait': 10})
         self.assertTrue(raft._sync_obj.set(raft.members_path + 'legacy', '{"version":"2.0.0"}'))
         self.assertTrue(raft.touch_member(''))
@@ -131,19 +138,28 @@ class TestRaft(unittest.TestCase):
         self.assertTrue(raft.cancel_initialization())
         self.assertTrue(raft.set_config_value('{}'))
         self.assertTrue(raft.write_sync_state('foo', 'bar'))
+        raft._citus_group = '1'
         self.assertTrue(raft.manual_failover('foo', 'bar'))
-        raft.get_cluster()
+        raft._citus_group = '0'
+        cluster = raft.get_cluster()
+        self.assertIsInstance(cluster, Cluster)
+        self.assertIsInstance(cluster.workers[1], Cluster)
         self.assertTrue(raft._sync_obj.set(raft.status_path, '{"optime":1234567,"slots":{"ls":12345}}'))
         raft.get_cluster()
-        self.assertTrue(raft.update_leader('1'))
+        self.assertTrue(raft.update_leader('1', failsafe={'foo': 'bat'}))
+        self.assertTrue(raft._sync_obj.set(raft.failsafe_path, '{"foo"}'))
         self.assertTrue(raft._sync_obj.set(raft.status_path, '{'))
-        raft.get_cluster()
+        raft.get_citus_coordinator()
         self.assertTrue(raft.delete_sync_state())
         self.assertTrue(raft.delete_leader())
         self.assertTrue(raft.set_history_value(''))
         self.assertTrue(raft.delete_cluster())
+        raft._citus_group = '1'
+        self.assertTrue(raft.delete_cluster())
+        raft._citus_group = None
         raft.get_cluster()
         self.assertTrue(raft.take_leader())
+        raft.get_cluster()
         raft.watch(None, 0.001)
         raft._sync_obj.destroy()
 

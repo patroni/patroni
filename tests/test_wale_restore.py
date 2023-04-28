@@ -6,7 +6,6 @@ import patroni.psycopg as psycopg
 from mock import Mock, PropertyMock, patch, mock_open
 from patroni.scripts import wale_restore
 from patroni.scripts.wale_restore import WALERestore, main as _main, get_major_version
-from six.moves import builtins
 from threading import current_thread
 
 from . import MockConnect, psycopg_connect
@@ -59,22 +58,22 @@ class TestWALERestore(unittest.TestCase):
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
 
         with patch('patroni.psycopg.connect', Mock(side_effect=psycopg.Error("foo"))):
-            save_no_master = self.wale_restore.no_master
-            save_master_connection = self.wale_restore.master_connection
+            save_no_leader = self.wale_restore.no_leader
+            save_leader_connection = self.wale_restore.leader_connection
 
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
 
             with patch('time.sleep', mock_sleep):
-                self.wale_restore.no_master = 1
+                self.wale_restore.no_leader = 1
                 self.assertTrue(self.wale_restore.should_use_s3_to_create_replica())
                 # verify retries
                 self.assertEqual(sleeps[0], WALE_TEST_RETRIES)
 
-            self.wale_restore.master_connection = ''
+            self.wale_restore.leader_connection = ''
             self.assertTrue(self.wale_restore.should_use_s3_to_create_replica())
 
-            self.wale_restore.no_master = save_no_master
-            self.wale_restore.master_connection = save_master_connection
+            self.wale_restore.no_leader = save_no_leader
+            self.wale_restore.leader_connection = save_leader_connection
 
         with patch('subprocess.check_output', Mock(side_effect=subprocess.CalledProcessError(1, "cmd", "foo"))):
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
@@ -128,9 +127,9 @@ class TestWALERestore(unittest.TestCase):
 
     @patch('os.path.isfile', Mock(return_value=True))
     def test_get_major_version(self):
-        with patch.object(builtins, 'open', mock_open(read_data='9.4')):
+        with patch('builtins.open', mock_open(read_data='9.4')):
             self.assertEqual(get_major_version("data"), 9.4)
-        with patch.object(builtins, 'open', side_effect=OSError):
+        with patch('builtins.open', side_effect=OSError):
             self.assertEqual(get_major_version("data"), 0.0)
 
     @patch('os.path.islink', Mock(return_value=True))

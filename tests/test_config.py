@@ -5,14 +5,13 @@ import io
 
 from mock import MagicMock, Mock, patch
 from patroni.config import Config, ConfigParseError
-from six.moves import builtins
 
 
 class TestConfig(unittest.TestCase):
 
     @patch('os.path.isfile', Mock(return_value=True))
     @patch('json.load', Mock(side_effect=Exception))
-    @patch.object(builtins, 'open', MagicMock())
+    @patch('builtins.open', MagicMock())
     def setUp(self):
         sys.argv = ['patroni.py']
         os.environ[Config.PATRONI_CONFIG_VARIABLE] = 'restapi: {}\npostgresql: {data_dir: foo}'
@@ -21,7 +20,9 @@ class TestConfig(unittest.TestCase):
     def test_set_dynamic_configuration(self):
         with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
             self.assertIsNone(self.config.set_dynamic_configuration({'foo': 'bar'}))
-        self.assertTrue(self.config.set_dynamic_configuration({'synchronous_mode': True, 'standby_cluster': {}}))
+        self.assertTrue(self.config.set_dynamic_configuration({'synchronous_mode': True,
+                                                               'standby_cluster': {}, 'master_start_timeout': 1}))
+        self.assertEqual(self.config.get('primary_start_timeout'), 1)
 
     def test_reload_local_configuration(self):
         os.environ.update({
@@ -31,6 +32,9 @@ class TestConfig(unittest.TestCase):
             'PATRONI_LOGLEVEL': 'ERROR',
             'PATRONI_LOG_LOGGERS': 'patroni.postmaster: WARNING, urllib3: DEBUG',
             'PATRONI_LOG_FILE_NUM': '5',
+            'PATRONI_CITUS_DATABASE': 'citus',
+            'PATRONI_CITUS_GROUP': '0',
+            'PATRONI_CITUS_HOST': '0',
             'PATRONI_RESTAPI_USERNAME': 'username',
             'PATRONI_RESTAPI_PASSWORD': 'password',
             'PATRONI_RESTAPI_LISTEN': '0.0.0.0:8008',
@@ -40,6 +44,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_RESTAPI_ALLOWLIST_INCLUDE_MEMBERS': 'on',
             'PATRONI_POSTGRESQL_LISTEN': '0.0.0.0:5432',
             'PATRONI_POSTGRESQL_CONNECT_ADDRESS': '127.0.0.1:5432',
+            'PATRONI_POSTGRESQL_PROXY_ADDRESS': '127.0.0.1:5433',
             'PATRONI_POSTGRESQL_DATA_DIR': 'data/postgres0',
             'PATRONI_POSTGRESQL_CONFIG_DIR': 'data/postgres0',
             'PATRONI_POSTGRESQL_PGPASS': '/tmp/pgpass0',
@@ -55,6 +60,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_KUBERNETES_LABELS': 'a: b: c',
             'PATRONI_KUBERNETES_SCOPE_LABEL': 'a',
             'PATRONI_KUBERNETES_PORTS': '[{"name": "postgresql"}]',
+            'PATRONI_KUBERNETES_RETRIABLE_HTTP_CODES': '401',
             'PATRONI_ZOOKEEPER_HOSTS': "'host1:2181','host2:2181'",
             'PATRONI_EXHIBITOR_HOSTS': 'host1,host2',
             'PATRONI_EXHIBITOR_PORT': '8181',
@@ -130,7 +136,7 @@ class TestConfig(unittest.TestCase):
                     new-attr: True
                     ''')
 
-        with patch.object(builtins, 'open', MagicMock(side_effect=open_mock)):
+        with patch('builtins.open', MagicMock(side_effect=open_mock)):
             config = Config('postgres0')
             self.assertEqual(config._local_configuration,
                              {'test': False, 'test2': {'child-1': 'somestring', 'child-2': 10},

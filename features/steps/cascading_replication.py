@@ -11,11 +11,8 @@ def start_patroni_with_a_name_value_tag(context, name, tag_name, tag_value):
 
 @then('There is a {label} with "{content}" in {name:w} data directory')
 def check_label(context, label, content, name):
-    label = context.pctl.read_label(name, label)
-    if label is None:
-        label = ""
-    label = label.replace('\n', '\\n')
-    assert content in label, "\"{0}\" doesn't contain {1}".format(label, content)
+    value = (context.pctl.read_label(name, label) or '').replace('\n', '\\n')
+    assert content in value, "\"{0}\" in {1} doesn't contain {2}".format(value, label, content)
 
 
 @step('I create label with "{content:w}" in {name:w} data directory')

@@ -1,7 +1,6 @@
 import abc
 import logging
 import platform
-import six
 import sys
 from threading import RLock
 
@@ -215,6 +214,10 @@ class Watchdog(object):
                     self._activate()
                 if self.config.timeout != self.active_config.timeout:
                     self.impl.set_timeout(self.config.timeout)
+                    if self.is_running:
+                        logger.info("{0} updated with {1} second timeout, timing slack {2} seconds"
+                                    .format(self.impl.describe(), self.impl.get_timeout(), self.config.timing_slack))
+                self.active_config = self.config
         except WatchdogError as e:
             logger.error("Error while sending keepalive: %s", e)
 
@@ -231,8 +234,7 @@ class Watchdog(object):
         return self.config.timing_slack >= 0 and self.impl.is_healthy
 
 
-@six.add_metaclass(abc.ABCMeta)
-class WatchdogBase(object):
+class WatchdogBase(abc.ABC):
     """A watchdog object when opened requires periodic calls to keepalive.
     When keepalive is not called within a timeout the system will be terminated."""
     is_null = False

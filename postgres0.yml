@@ -5,16 +5,22 @@ name: postgresql0
 restapi:
   listen: 127.0.0.1:8008
   connect_address: 127.0.0.1:8008
+#  cafile: /etc/ssl/certs/ssl-cacert-snakeoil.pem
 #  certfile: /etc/ssl/certs/ssl-cert-snakeoil.pem
 #  keyfile: /etc/ssl/private/ssl-cert-snakeoil.key
 #  authentication:
 #    username: username
 #    password: password
 
-# ctl:
-#   insecure: false # Allow connections to SSL sites without certs
-#   certfile: /etc/ssl/certs/ssl-cert-snakeoil.pem
-#   cacert: /etc/ssl/certs/ssl-cacert-snakeoil.pem
+#ctl:
+#  insecure: false # Allow connections to Patroni REST API without verifying certificates
+#  certfile: /etc/ssl/certs/ssl-cert-snakeoil.pem
+#  keyfile: /etc/ssl/private/ssl-cert-snakeoil.key
+#  cacert: /etc/ssl/certs/ssl-cacert-snakeoil.pem
+
+#citus:
+#  database: citus
+#  group: 0  # coordinator
 
 etcd:
   #Provide host to do the initial discovery of the cluster topology:
@@ -45,7 +51,7 @@ bootstrap:
     loop_wait: 10
     retry_timeout: 10
     maximum_lag_on_failover: 1048576
-#    master_start_timeout: 300
+#    primary_start_timeout: 300
 #    synchronous_mode: false
     #standby_cluster:
       #host: 127.0.0.1
@@ -99,6 +105,8 @@ bootstrap:
 postgresql:
   listen: 127.0.0.1:5432
   connect_address: 127.0.0.1:5432
+
+#  proxy_address: 127.0.0.1:5433  # The address of connection pool (e.g., pgbouncer) running next to Patroni/Postgres. Only for service discovery.
   data_dir: data/postgresql0
 #  bin_dir:
 #  config_dir:

@@ -3,6 +3,285 @@
 Release notes
 =============
 
+Version 3.0.2
+-------------
+
+.. warning::
+    Version 3.0.2 dropped support of Python older than 3.6.
+
+
+**New features**
+
+- Added sync standby replica status to ``/metrics`` endpoint (Thomas von Dein, Alexander Kukushkin)
+
+  Before were only reporting ``primary``/``standby_leader``/``replica``.
+
+- User-friendly handling of ``PAGER`` in ``patronictl`` (Israel Barth Rubio)
+
+  It makes pager configurable via ``PAGER`` environment variable, which overrides default ``less`` and ``more``.
+
+- Make K8s retriable HTTP status code configurable (Alexander)
+
+  On some managed platforms it is possible to get status code ``401 Unauthorized``, which sometimes gets resolved after a few retries.
+
+
+**Improvements**
+
+- Set ``hot_standby`` to ``off`` during custom bootstrap only if ``recovery_target_action`` is set to ``promote`` (Alexander)
+
+  It was necessary to make ``recovery_target_action=pause`` work correctly.
+
+- Don't allow ``on_reload`` callback to kill other callbacks (Alexander)
+
+  ``on_start``/``on_stop``/``on_role_change`` are usually used to add/remove Virtual IP and ``on_reload`` should not interfere with them.
+
+- Switched to ``IMDSFetcher`` in aws callback example script (Polina Bungina)
+
+  The ``IMDSv2`` requires a token to work with and the ``IMDSFetcher`` handles it transparently.
+
+
+**Bugfixes**
+
+- Fixed ``patronictl switchover`` on Citus cluster running on Kubernetes (Lukáš Lalinský)
+
+  It didn't work for namespaces different from ``default``.
+
+- Don't write to ``PGDATA`` if major version is not known (Alexander)
+
+  If right after the start ``PGDATA`` was empty (maybe wasn't yet mounted), Patroni was making a false assumption about PostgreSQL version and falsely creating ``recovery.conf`` file even if the actual major version is v10+.
+
+- Fixed bug with Citus metadata after coordinator failover (Alexander)
+
+  The ``citus_set_coordinator_host()`` call doesn't cause metadata sync and the change was invisible on worker nodes. The issue is solved by switching to ``citus_update_node()``.
+
+- Use etcd hosts listed in the config file as a fallback when all etcd nodes "failed" (Alexander)
+
+  The etcd cluster may change topology over time and Patroni tries to follow it. If at some point all nodes became unreachable Patroni will use a combination of nodes from the config plus the last known topology when trying to reconnect.
+
+
+Version 3.0.1
+-------------
+
+**Bugfixes**
+
+- Pass proper role name to an ``on_role_change`` callback script'. (Alexander Kukushkin, Polina Bungina)
+
+  Patroni used to erroneously pass ``promoted`` role to an ``on_role_change`` callback script on promotion. The passed role name changed back to ``master``. This regression was introduced in 3.0.0.
+
+
+Version 3.0.0
+-------------
+
+This version adds integration with `Citus <https://www.citusdata.com>`__ and makes it possible to survive temporary DCS outages without demoting primary.
+
+.. warning::
+   - Version 3.0.0 is the last release supporting Python 2.7. Upcoming release will drop support of Python versions older than 3.7.
+
+   - The RAFT support is deprecated. We will do our best to maintain it, but take neither guarantee nor responsibility for possible issues.
+
+   - This version is the first step in getting rid of the "master", in favor of "primary". Upgrading to the next major release will work reliably only if you run at least 3.0.0.
+
+
+**New features**
+
+- DCS failsafe mode (Alexander Kukushkin, Polina Bungina)
+
+  If the feature is enabled it will allow Patroni cluster to survive temporary DCS outages. You can find more details in the :ref:`documentation <dcs_failsafe_mode>`.
+
+- Citus support (Alexander, Polina, Jelte Fennema)
+
+  Patroni enables easy deployment and management of `Citus <https://www.citusdata.com>`__ clusters with HA. Please check :ref:`here <citus>` page for more information.
+
+
+**Improvements**
+
+- Suppress recurring errors when dropping unknown but active replication slots (Michael Banck)
+
+  Patroni will still write these logs, but only in DEBUG.
+
+- Run only one monitoring query per HA loop (Alexander)
+
+  It wasn't the case if synchronous replication is enabled.
+
+- Keep only latest failed data directory (William Albertus Dembo)
+
+  If bootstrap failed Patroni used to rename $PGDATA folder with timestamp suffix. From now on the suffix will be ``.failed`` and if such folder exists it is removed before renaming.
+
+- Improved check of synchronous replication connections (Alexander)
+
+  When the new host is added to the ``synchronous_standby_names`` it will be set as synchronous in DCS only when it managed to catch up with the primary in addition to ``pg_stat_replication.sync_state = 'sync'``.
+
+
+**Removed functionality**
+
+- Remove ``patronictl scaffold`` (Alexander)
+
+  The only reason for having it was a hacky way of running standby clusters.
+
+
+Version 2.1.7
+-------------
+
+**Bugfixes**
+
+- Fixed little incompatibilities with legacy python modules (Alexander Kukushkin)
+
+  They prevented from building/running Patroni on Debian buster/Ubuntu bionic.
+
+
+Version 2.1.6
+-------------
+
+**Improvements**
+
+- Fix annoying exceptions on ssl socket shutdown (Alexander Kukushkin)
+
+  The HAProxy is closing connections as soon as it got the HTTP Status code leaving no time for Patroni to properly shutdown SSL connection.
+
+- Adjust example Dockerfile for arm64 (Polina Bungina)
+
+  Remove explicit ``amd64`` and ``x86_64``, don't remove ``libnss_files.so.*``.
+
+
+**Security improvements**
+
+- Enforce ``search_path=pg_catalog`` for non-replication connections (Alexander)
+
+  Since Patroni is heavily relying on superuser connections, we want to protect it from the possible attacks carried out using user-defined functions and/or operators in ``public`` schema with the same name and signature as the corresponding objects in ``pg_catalog``. For that, ``search_path=pg_catalog`` is enforced for all connections created by Patroni (except replication connections).
+
+- Prevent passwords from being recorded in ``pg_stat_statements`` (Feike Steenbergen)
+
+  It is achieved by setting ``pg_stat_statements.track_utility=off`` when creating users.
+
+
+**Bugfixes**
+
+- Declare ``proxy_address`` as optional (Denis Laxalde)
+
+  As it is effectively a non-required option.
+
+- Improve behaviour of the insecure option (Alexander)
+
+  Ctl's ``insecure`` option didn't work properly when client certificates were used for REST API requests.
+
+- Take watchdog configuration from ``bootstrap.dcs`` when the new cluster is bootstrapped (Matt Baker)
+
+  Patroni used to initially configure watchdog with defaults when bootstrapping a new cluster rather than taking configuration used to bootstrap the DCS.
+
+- Fix the way file extensions are treated while finding executables in WIN32 (Martín Marqués)
+
+  Only add ``.exe`` to a file name if it has no extension yet.
+
+- Fix Consul TTL setup (Alexander)
+
+  We used ``ttl/2.0`` when setting the value on the HTTPClient, but forgot to multiply the current value by 2 in the class' property. It was resulting in Consul TTL off by twice.
+
+
+**Removed functionality**
+
+- Remove ``patronictl configure`` (Polina)
+
+  There is no more need for a separate ``patronictl`` config creation.
+
+
+Version 2.1.5
+-------------
+
+This version enhances compatibility with PostgreSQL 15 and declares Etcd v3 support as production ready. The Patroni on Raft remains in Beta.
+
+**New features**
+
+- Improve ``patroni --validate-config`` (Denis Laxalde)
+
+  Exit with code 1 if config is invalid and print errors to stderr.
+
+- Don't drop replication slots in pause (Alexander Kukushkin)
+
+  Patroni is automatically creating/removing physical replication slots when members are joining/leaving the cluster. In pause slots will no longer be removed.
+
+- Support the ``HEAD`` request method for monitoring endpoints (Robert Cutajar)
+
+  If used instead of ``GET`` Patroni will return only the HTTP Status Code.
+
+- Support behave tests on Windows (Alexander)
+
+  Emulate graceful Patroni shutdown (``SIGTERM``) on Windows by introduce the new REST API endpoint ``POST /sigterm``.
+
+- Introduce ``postgresql.proxy_address`` (Alexander)
+
+  It will be written to the member key in DCS as the ``proxy_url`` and could be used/useful for service discovery.
+
+
+**Stability improvements**
+
+- Call ``pg_replication_slot_advance()`` from a thread (Alexander)
+
+  On busy clusters with many logical replication slots the ``pg_replication_slot_advance()`` call was affecting the main HA loop and could result in the member key expiration.
+
+- Archive possibly missing WALs before calling ``pg_rewind`` on the old primary (Polina Bungina)
+
+  If the primary crashed and was down during considerable time, some WAL files could be missing from archive and from the new primary. There is a chance that ``pg_rewind`` could remove these WAL files from the old primary making it impossible to start it as a standby. By archiving ``ready`` WAL files we not only mitigate this problem but in general improving continues archiving experience.
+
+- Ignore ``403`` errors when trying to create Kubernetes Service (Nick Hudson, Polina)
+
+  Patroni was spamming logs by unsuccessful attempts to create the service, which in fact could already exist.
+
+- Improve liveness probe (Alexander)
+
+  The liveness problem will start failing if the heartbeat loop is running longer than `ttl` on the primary or `2*ttl` on the replica. That will allow us to use it as an alternative for :ref:`watchdog <watchdog>` on Kubernetes.
+
+- Make sure only sync node tries to grab the lock when switchover (Alexander, Polina)
+
+  Previously there was a slim chance that up-to-date async member could become the leader if the manual switchover was performed without specifying the target.
+
+- Avoid cloning while bootstrap is running (Ants Aasma)
+
+  Do not allow a create replica method that does not require a leader to be triggered while the cluster bootstrap is running.
+
+- Compatibility with kazoo-2.9.0 (Alexander)
+
+  Depending on python version the ``SequentialThreadingHandler.select()`` method may raise ``TypeError`` and ``IOError`` exceptions if ``select()`` is called on the closed socket.
+
+- Explicitly shut down SSL connection before socket shutdown (Alexander)
+
+  Not doing it resulted in ``unexpected eof while reading`` errors with OpenSSL 3.0.
+
+- Compatibility with `prettytable>=2.2.0` (Alexander)
+
+  Due to the internal API changes the cluster name header was shown on the incorrect line.
+
+
+**Bugfixes**
+
+- Handle expired token for Etcd lease_grant (monsterxx03)
+
+  In case of error get the new token and retry request.
+
+- Fix bug in the ``GET /read-only-sync`` endpoint (Alexander)
+
+  It was introduced in previous release and effectively never worked.
+
+- Handle the case when data dir storage disappeared (Alexander)
+
+  Patroni is periodically checking that the PGDATA is there and not empty, but in case of issues with storage the ``os.listdir()`` is raising the ``OSError`` exception, breaking the heart-beat loop.
+
+- Apply ``master_stop_timeout`` when waiting for user backends to close (Alexander)
+
+  Something that looks like user backend could be in fact a background worker (e.g., Citus Maintenance Daemon) that is failing to stop.
+
+- Accept ``*:<port>`` for ``postgresql.listen`` (Denis)
+
+  The ``patroni --validate-config`` was complaining about it being invalid.
+
+- Timeouts fixes in Raft (Alexander)
+
+  When Patroni or patronictl are starting they try to get Raft cluster topology from known members. These calls were made without proper timeouts.
+
+- Forcefully update consul service if token was changed (John A. Lotoski)
+
+  Not doing so results in errors "rpc error making call: rpc error making call: ACL not found".
+
+
 Version 2.1.4
 -------------
 
@@ -1108,7 +1387,7 @@ Version 1.6.1
 
 - Kill all children along with the callback process before starting the new one (Alexander Kukushkin)
 
-  Not doing so makes it hard to implement callbacks in bash and eventually can lead to the situation when two callbacks are running at the same time. 
+  Not doing so makes it hard to implement callbacks in bash and eventually can lead to the situation when two callbacks are running at the same time.
 
 - Fix 'start failed' issue (Alexander Kukushkin)
 

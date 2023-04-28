@@ -43,20 +43,21 @@ class MockResponse(object):
         return {'content-type': 'json'}
 
 
-def requests_get(url, **kwargs):
+def requests_get(url, method='GET', endpoint=None, data='', **kwargs):
     members = '[{"id":14855829450254237642,"peerURLs":["http://localhost:2380","http://localhost:7001"],' +\
               '"name":"default","clientURLs":["http://localhost:2379","http://localhost:4001"]}]'
     response = MockResponse()
-    if url.startswith('http://local'):
+    if endpoint == 'failsafe':
+        response.content = 'Accepted'
+    elif url.startswith('http://local'):
         raise urllib3.exceptions.HTTPError()
     elif ':8011/patroni' in url:
-        response.content = '{"role": "replica", "xlog": {"received_location": 0}, "tags": {}}'
+        response.content = '{"role": "replica", "wal": {"received_location": 0}, "tags": {}}'
     elif url.endswith('/members'):
         response.content = '[{}]' if url.startswith('http://error') else members
     elif url.startswith('http://exhibitor'):
         response.content = '{"servers":["127.0.0.1","127.0.0.2","127.0.0.3"],"port":2181}'
     elif url.endswith(':8011/reinitialize'):
-        data = kwargs.get('data', '')
         if ' false}' in data:
             response.status_code = 503
             response.content = 'restarting after failure already in progress'
@@ -66,9 +67,8 @@ def requests_get(url, **kwargs):
 
 
 class MockPostmaster(object):
-    def __init__(self, is_running=True, is_single_master=False):
-        self.is_running = Mock(return_value=is_running)
-        self.is_single_master = Mock(return_value=is_single_master)
+    def __init__(self, pid=1):
+        self.is_running = Mock(return_value=self)
         self.wait_for_user_backends_to_close = Mock()
         self.signal_stop = Mock(return_value=None)
         self.wait = Mock()
@@ -97,8 +97,12 @@ class MockCursor(object):
             self.results = [('ls', 'logical', 'a', 'b', 100, 500, b'123456')]
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla', 'physical'), ('foobar', 'physical'), ('ls', 'logical', 'a', 'b', 5, 100, 500)]
+        elif sql.startswith('WITH slots AS (SELECT slot_name, active'):
+            self.results = [(False, True)]
         elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):
-            self.results = [(1, 2, 1, 0, False, 1, 1, None, None, [{"slot_name": "ls", "confirmed_flush_lsn": 12345}])]
+            self.results = [(1, 2, 1, 0, False, 1, 1, None, None,
+                             [{"slot_name": "ls", "confirmed_flush_lsn": 12345}],
+                             'on', 'n1', None)]
         elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
             self.results = [(False, 2)]
         elif sql.startswith('SELECT pg_catalog.pg_postmaster_start_time'):
@@ -123,6 +127,10 @@ class MockCursor(object):
                                  b'1\t0/40159C0\tno recovery target specified\n\n'
                                  b'2\t0/402DD98\tno recovery target specified\n\n'
                                  b'3\t0/403DD98\tno recovery target specified\n')]
+        elif sql.startswith('SELECT pg_catalog.citus_add_node'):
+            self.results = [(2,)]
+        elif sql.startswith('SELECT nodeid, groupid'):
+            self.results = [(1, 0, 'host1', 5432, 'primary'), (2, 1, 'host2', 5432, 'primary')]
         else:
             self.results = [(None, None, None, None, None, None, None, None, None, None)]
 
@@ -177,18 +185,19 @@ class PostgresInit(unittest.TestCase):
                    'force_parallel_mode': '1', 'constraint_exclusion': '',
                    'max_stack_depth': 'Z', 'vacuum_cost_limit': -1, 'vacuum_cost_delay': 200}
 
-    @patch('patroni.psycopg.connect', psycopg_connect)
+    @patch('patroni.psycopg._connect', psycopg_connect)
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
     @patch.object(ConfigHandler, 'replace_pg_hba', Mock())
     @patch.object(ConfigHandler, 'replace_pg_ident', Mock())
-    @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='master'))
+    @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='primary'))
     def setUp(self):
         data_dir = os.path.join('data', 'test0')
         self.p = Postgresql({'name': 'postgresql0', 'scope': 'batman', 'data_dir': data_dir,
                              'config_dir': data_dir, 'retry_timeout': 10,
                              'krbsrvname': 'postgres', 'pgpass': os.path.join(data_dir, 'pgpass0'),
-                             'listen': '127.0.0.2, 127.0.0.3:5432', 'connect_address': '127.0.0.2:5432',
+                             'listen': '127.0.0.2, 127.0.0.3:5432',
+                             'connect_address': '127.0.0.2:5432', 'proxy_address': '127.0.0.2:5433',
                              'authentication': {'superuser': {'username': 'foo', 'password': 'test'},
                                                 'replication': {'username': '', 'password': 'rep-pass'},
                                                 'rewind': {'username': 'rewind', 'password': 'test'}},
@@ -199,7 +208,8 @@ class PostgresInit(unittest.TestCase):
                              'pg_hba': ['host all all 0.0.0.0/0 md5'],
                              'pg_ident': ['krb realm postgres'],
                              'callbacks': {'on_start': 'true', 'on_stop': 'true', 'on_reload': 'true',
-                                           'on_restart': 'true', 'on_role_change': 'true'}})
+                                           'on_restart': 'true', 'on_role_change': 'true'},
+                             'citus': {'group': 0, 'database': 'citus'}})
 
 
 class BaseTestPostgresql(PostgresInit):
@@ -210,11 +220,13 @@ class BaseTestPostgresql(PostgresInit):
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
 
-        self.leadermem = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
+        self.leadermem = Member(0, 'leader', 28, {
+            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
         self.leader = Leader(-1, 28, self.leadermem)
         self.other = Member(0, 'test-1', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
-                                              'tags': {'replicatefrom': 'leader'}})
-        self.me = Member(0, 'test0', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres'})
+                                              'state': 'running', 'tags': {'replicatefrom': 'leader'}})
+        self.me = Member(0, 'test0', 28, {
+            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres'})
 
     def tearDown(self):
         if os.path.exists(self.p.data_dir):

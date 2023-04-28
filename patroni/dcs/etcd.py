@@ -6,20 +6,23 @@ import logging
 import os
 import urllib3.util.connection
 import random
-import six
 import socket
 import time
 
+from collections import defaultdict
+from copy import deepcopy
 from dns.exception import DNSException
 from dns import resolver
+from http.client import HTTPException
+from queue import Queue
+from threading import Thread
+from typing import List, Optional
+from urllib.parse import urlparse
 from urllib3 import Timeout
 from urllib3.exceptions import HTTPError, ReadTimeoutError, ProtocolError
-from six.moves.queue import Queue
-from six.moves.http_client import HTTPException
-from six.moves.urllib_parse import urlparse
-from threading import Thread
 
-from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState, TimelineHistory
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState,\
+        TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
 from ..exceptions import DCSError
 from ..request import get as requests_get
 from ..utils import Retry, RetryFailedError, split_host_port, uri, USER_AGENT
@@ -83,8 +86,7 @@ class DnsCachingResolver(Thread):
             return []
 
 
-@six.add_metaclass(abc.ABCMeta)
-class AbstractEtcdClientWithFailover(etcd.Client):
+class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
 
     def __init__(self, config, dns_resolver, cache_ttl=300):
         self._dns_resolver = dns_resolver
@@ -97,7 +99,6 @@ class AbstractEtcdClientWithFailover(etcd.Client):
         # Workaround for the case when https://github.com/jplana/python-etcd/pull/196 is not applied
         self.http.connection_pool_kw.pop('ssl_version', None)
         self._config = config
-        self._initial_machines_cache = []
         self._load_machines_cache()
         self._allow_reconnect = True
         # allow passing retry argument to api_execute in params
@@ -167,19 +168,12 @@ class AbstractEtcdClientWithFailover(etcd.Client):
         base_uri, cache = self._base_uri, self._machines_cache
         return ([base_uri] if base_uri in cache else []) + [machine for machine in cache if machine != base_uri]
 
-    @property
-    def machines(self):
-        """Original `machines` method(property) of `etcd.Client` class raise exception
-        when it failed to get list of etcd cluster members. This method is being called
-        only when request failed on one of the etcd members during `api_execute` call.
-        For us it's more important to execute original request rather then get new topology
-        of etcd cluster. So we will catch this exception and return empty list of machines.
-        Later, during next `api_execute` call we will forcefully update machines_cache.
+    def _get_machines_list(self, machines_cache: List[str]) -> List[str]:
+        """Gets list of members from Etcd cluster using API
 
-        Also this method implements the same timeout-retry logic as `api_execute`, because
-        the original method was retrying 2 times with the `read_timeout` on each node."""
-
-        machines_cache = self.machines_cache
+        :param machines_cache: initial list of Etcd members
+        :returns: list of clientURLs retrieved from Etcd cluster
+        :raises EtcdConnectionFailed: if failed"""
         kwargs = self._prepare_get_members(len(machines_cache))
 
         for base_uri in machines_cache:
@@ -196,6 +190,22 @@ class AbstractEtcdClientWithFailover(etcd.Client):
                 logger.error("Failed to get list of machines from %s%s: %r", base_uri, self.version_prefix, e)
 
         raise etcd.EtcdConnectionFailed('No more machines in the cluster')
+
+    @property
+    def machines(self) -> List[str]:
+        """Original `machines` method(property) of `etcd.Client` class raise exception
+        when it failed to get list of etcd cluster members. This method is being called
+        only when request failed on one of the etcd members during `api_execute` call.
+        For us it's more important to execute original request rather then get new topology
+        of etcd cluster. So we will catch this exception and return empty list of machines.
+        Later, during next `api_execute` call we will forcefully update machines_cache.
+
+        Also this method implements the same timeout-retry logic as `api_execute`, because
+        the original method was retrying 2 times with the `read_timeout` on each node.
+
+        After the next refactoring the whole logic was moved to the _get_machines_list() method."""
+
+        return self._get_machines_list(self.machines_cache)
 
     def set_read_timeout(self, timeout):
         self._read_timeout = timeout
@@ -216,10 +226,13 @@ class AbstractEtcdClientWithFailover(etcd.Client):
                 return response
             except (HTTPError, HTTPException, socket.error, socket.timeout) as e:
                 self.http.clear()
-                # switch to the next etcd node because we don't know exactly what happened,
-                # whether the key didn't received an update or there is a network problem.
-                if not retry and i + 1 < len(machines_cache):
-                    self.set_base_uri(machines_cache[i + 1])
+                if not retry:
+                    if len(machines_cache) == 1:
+                        self.set_base_uri(self._base_uri)  # trigger Etcd3 watcher restart
+                    # switch to the next etcd node because we don't know exactly what happened,
+                    # whether the key didn't received an update or there is a network problem.
+                    elif i + 1 < len(machines_cache):
+                        self.set_base_uri(machines_cache[i + 1])
                 if (isinstance(fields, dict) and fields.get("wait") == "true" and
                         isinstance(e, (ReadTimeoutError, ProtocolError))):
                     logger.debug("Watch timed out.")
@@ -363,36 +376,46 @@ class AbstractEtcdClientWithFailover(etcd.Client):
         # enforce resolving dns name,they might get new ips
         self._update_dns_cache(self._dns_resolver.remove, machines_cache)
 
-        # The etcd cluster could change its topology over time and depending on how we resolve the initial
-        # topology (list of hosts in the Patroni config or DNS records, A or SRV) we might get into the situation
-        # the the real topology doesn't match anymore with the topology resolved from the configuration file.
-        # In case if the "initial" topology is the same as before we will not override the `_machines_cache`.
-        ret = set(machines_cache) != set(self._initial_machines_cache)
-        if ret:
-            self._initial_machines_cache = self._machines_cache = machines_cache
-
-            # After filling up the initial list of machines_cache we should ask etcd-cluster about actual list
-            self._refresh_machines_cache(True)
+        # after filling up the initial list of machines_cache we should ask etcd-cluster about actual list
+        ret = self._refresh_machines_cache(machines_cache)
 
         self._update_machines_cache = False
         return ret
 
-    def _refresh_machines_cache(self, updating_cache=False):
+    def _refresh_machines_cache(self, machines_cache: Optional[List[str]] = None) -> bool:
+        """Get etcd cluster topology using Etcd API and put it to self._machines_cache
+
+        :param machines_cache: the list of nodes we want to run through executing API request
+                               in addition to values stored in the self._machines_cache
+        :returns: `True` if self._machines_cache was updated with new values
+        :raises EtcdException: if failed to get topology and `machines_cache` was specified.
+
+        The self._machines_cache will not be updated if nodes from the list are
+        not accessible or if they are not returning correct results."""
+
         if self._use_proxies:
-            self._machines_cache = self._get_machines_cache_from_config()
+            value = self._get_machines_cache_from_config()
         else:
             try:
-                self._machines_cache = self.machines
+                # we want to go through the list obtained from the config file + last known health topology
+                value = self._get_machines_list(list(set((machines_cache or []) + self.machines_cache)))
             except etcd.EtcdConnectionFailed:
-                if updating_cache:
-                    raise etcd.EtcdException("Could not get the list of servers, "
-                                             "maybe you provided the wrong "
-                                             "host(s) to connect to?")
-                return
+                value = []
+
+        if value:
+            ret = set(self._machines_cache) != set(value)
+            self._machines_cache = value
+        elif machines_cache:  # we are just starting or all nodes were not available at some point
+            raise etcd.EtcdException("Could not get the list of servers, "
+                                     "maybe you provided the wrong "
+                                     "host(s) to connect to?")
+        else:
+            return False
 
         if self._base_uri not in self._machines_cache:
             self.set_base_uri(self._machines_cache[0])
         self._machines_cache_updated = time.time()
+        return ret
 
     def set_base_uri(self, value):
         if self._base_uri != value:
@@ -457,6 +480,18 @@ class AbstractEtcd(AbstractDCS):
         if isinstance(raise_ex, Exception):
             raise raise_ex
 
+    def _run_and_handle_exceptions(self, method, *args, **kwargs):
+        retry = kwargs.pop('retry', self.retry)
+        try:
+            return retry(method, *args, **kwargs) if retry else method(*args, **kwargs)
+        except (RetryFailedError, etcd.EtcdConnectionFailed) as e:
+            raise self._client.ERROR_CLS(e)
+        except etcd.EtcdException as e:
+            self._handle_exception(e)
+            raise ReturnFalseException
+        except Exception as e:
+            self._handle_exception(e, raise_ex=self._client.ERROR_CLS('unexpected error'))
+
     @staticmethod
     def set_socket_options(sock, socket_options):
         if socket_options:
@@ -464,6 +499,7 @@ class AbstractEtcd(AbstractDCS):
                 sock.setsockopt(*opt)
 
     def get_etcd_client(self, config, client_cls):
+        config = deepcopy(config)
         if 'proxy' in config:
             config['use_proxies'] = True
             config['url'] = config['proxy']
@@ -477,12 +513,12 @@ class AbstractEtcd(AbstractDCS):
             default_port = config.pop('port', 2379)
             protocol = config.get('protocol', 'http')
 
-            if isinstance(hosts, six.string_types):
+            if isinstance(hosts, str):
                 hosts = hosts.split(',')
 
             config['hosts'] = []
             for value in hosts:
-                if isinstance(value, six.string_types):
+                if isinstance(value, str):
                     config['hosts'].append(uri(protocol, split_host_port(value.strip(), default_port)))
         elif 'host' in config:
             host, port = split_host_port(config['host'], 2379)
@@ -588,92 +624,111 @@ class Etcd(AbstractEtcd):
     def member(node):
         return Member.from_node(node.modifiedIndex, os.path.basename(node.key), node.ttl, node.value)
 
-    def _load_cluster(self):
+    def _cluster_from_nodes(self, etcd_index, nodes):
+        # get initialize flag
+        initialize = nodes.get(self._INITIALIZE)
+        initialize = initialize and initialize.value
+
+        # get global dynamic configuration
+        config = nodes.get(self._CONFIG)
+        config = config and ClusterConfig.from_node(config.modifiedIndex, config.value)
+
+        # get timeline history
+        history = nodes.get(self._HISTORY)
+        history = history and TimelineHistory.from_node(history.modifiedIndex, history.value)
+
+        # get last know leader lsn and slots
+        status = nodes.get(self._STATUS)
+        if status:
+            try:
+                status = json.loads(status.value)
+                last_lsn = status.get(self._OPTIME)
+                slots = status.get('slots')
+            except Exception:
+                slots = last_lsn = None
+        else:
+            last_lsn = nodes.get(self._LEADER_OPTIME)
+            last_lsn = last_lsn and last_lsn.value
+            slots = None
+
+        try:
+            last_lsn = int(last_lsn)
+        except Exception:
+            last_lsn = 0
+
+        # get list of members
+        members = [self.member(n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
+
+        # get leader
+        leader = nodes.get(self._LEADER)
+        if leader:
+            member = Member(-1, leader.value, None, {})
+            member = ([m for m in members if m.name == leader.value] or [member])[0]
+            index = etcd_index if etcd_index > leader.modifiedIndex else leader.modifiedIndex + 1
+            leader = Leader(index, leader.ttl, member)
+
+        # failover key
+        failover = nodes.get(self._FAILOVER)
+        if failover:
+            failover = Failover.from_node(failover.modifiedIndex, failover.value)
+
+        # get synchronization state
+        sync = nodes.get(self._SYNC)
+        sync = SyncState.from_node(sync and sync.modifiedIndex, sync and sync.value)
+
+        # get failsafe topology
+        failsafe = nodes.get(self._FAILSAFE)
+        try:
+            failsafe = json.loads(failsafe.value) if failsafe else None
+        except Exception:
+            failsafe = None
+
+        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
+
+    def _cluster_loader(self, path):
+        result = self.retry(self._client.read, path, recursive=True)
+        nodes = {node.key[len(result.key):].lstrip('/'): node for node in result.leaves}
+        return self._cluster_from_nodes(result.etcd_index, nodes)
+
+    def _citus_cluster_loader(self, path):
+        clusters = defaultdict(dict)
+        result = self.retry(self._client.read, path, recursive=True)
+        for node in result.leaves:
+            key = node.key[len(result.key):].lstrip('/').split('/', 1)
+            if len(key) == 2 and citus_group_re.match(key[0]):
+                clusters[int(key[0])][key[1]] = node
+        return {group: self._cluster_from_nodes(result.etcd_index, nodes) for group, nodes in clusters.items()}
+
+    def _load_cluster(self, path, loader):
         cluster = None
         try:
-            result = self.retry(self._client.read, self.client_path(''), recursive=True)
-            nodes = {node.key[len(result.key):].lstrip('/'): node for node in result.leaves}
-
-            # get initialize flag
-            initialize = nodes.get(self._INITIALIZE)
-            initialize = initialize and initialize.value
-
-            # get global dynamic configuration
-            config = nodes.get(self._CONFIG)
-            config = config and ClusterConfig.from_node(config.modifiedIndex, config.value)
-
-            # get timeline history
-            history = nodes.get(self._HISTORY)
-            history = history and TimelineHistory.from_node(history.modifiedIndex, history.value)
-
-            # get last know leader lsn and slots
-            status = nodes.get(self._STATUS)
-            if status:
-                try:
-                    status = json.loads(status.value)
-                    last_lsn = status.get(self._OPTIME)
-                    slots = status.get('slots')
-                except Exception:
-                    slots = last_lsn = None
-            else:
-                last_lsn = nodes.get(self._LEADER_OPTIME)
-                last_lsn = last_lsn and last_lsn.value
-                slots = None
-
-            try:
-                last_lsn = int(last_lsn)
-            except Exception:
-                last_lsn = 0
-
-            # get list of members
-            members = [self.member(n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
-
-            # get leader
-            leader = nodes.get(self._LEADER)
-            if leader:
-                member = Member(-1, leader.value, None, {})
-                member = ([m for m in members if m.name == leader.value] or [member])[0]
-                index = result.etcd_index if result.etcd_index > leader.modifiedIndex else leader.modifiedIndex + 1
-                leader = Leader(index, leader.ttl, member)
-
-            # failover key
-            failover = nodes.get(self._FAILOVER)
-            if failover:
-                failover = Failover.from_node(failover.modifiedIndex, failover.value)
-
-            # get synchronization state
-            sync = nodes.get(self._SYNC)
-            sync = SyncState.from_node(sync and sync.modifiedIndex, sync and sync.value)
-
-            cluster = Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots)
+            cluster = loader(path)
         except etcd.EtcdKeyNotFound:
-            cluster = Cluster(None, None, None, None, [], None, None, None, None)
+            cluster = Cluster.empty()
         except Exception as e:
             self._handle_exception(e, 'get_cluster', raise_ex=EtcdError('Etcd is not responding properly'))
         self._has_failed = False
         return cluster
 
     @catch_etcd_errors
-    def touch_member(self, data, permanent=False):
+    def touch_member(self, data):
         data = json.dumps(data, separators=(',', ':'))
-        return self._client.set(self.member_path, data, None if permanent else self._ttl)
+        return self._client.set(self.member_path, data, self._ttl)
 
     @catch_etcd_errors
     def take_leader(self):
         return self.retry(self._client.write, self.leader_path, self._name, ttl=self._ttl)
 
-    def attempt_to_acquire_leader(self, permanent=False):
+    def _do_attempt_to_acquire_leader(self):
         try:
-            return bool(self.retry(self._client.write,
-                                   self.leader_path,
-                                   self._name,
-                                   ttl=None if permanent else self._ttl,
-                                   prevExist=False))
+            return bool(self.retry(self._client.write, self.leader_path, self._name, ttl=self._ttl, prevExist=False))
         except etcd.EtcdAlreadyExist:
             logger.info('Could not take out TTL lock')
-        except (RetryFailedError, etcd.EtcdException):
-            pass
-        return False
+            return False
+
+    @catch_return_false_exception
+    def attempt_to_acquire_leader(self):
+        return self._run_and_handle_exceptions(self._do_attempt_to_acquire_leader, retry=None)
 
     @catch_etcd_errors
     def set_failover_value(self, value, index=None):
@@ -691,9 +746,20 @@ class Etcd(AbstractEtcd):
     def _write_status(self, value):
         return self._client.set(self.status_path, value)
 
+    def _do_update_leader(self):
+        try:
+            return self.retry(self._client.write, self.leader_path, self._name,
+                              prevValue=self._name, ttl=self._ttl) is not None
+        except etcd.EtcdKeyNotFound:
+            return self._do_attempt_to_acquire_leader()
+
     @catch_etcd_errors
+    def _write_failsafe(self, value):
+        return self._client.set(self.failsafe_path, value)
+
+    @catch_return_false_exception
     def _update_leader(self):
-        return self.retry(self._client.write, self.leader_path, self._name, prevValue=self._name, ttl=self._ttl)
+        return self._run_and_handle_exceptions(self._do_update_leader, retry=None)
 
     @catch_etcd_errors
     def initialize(self, create_new=True, sysid=""):

@@ -22,7 +22,6 @@ class Connection(object):
         with self._lock:
             if not self._connection or self._connection.closed != 0:
                 self._connection = psycopg.connect(**self._conn_kwargs)
-                self._connection.autocommit = True
                 self.server_version = self._connection.server_version
         return self._connection
 
@@ -42,7 +41,6 @@ class Connection(object):
 @contextmanager
 def get_connection_cursor(**kwargs):
     conn = psycopg.connect(**kwargs)
-    conn.autocommit = True
     with conn.cursor() as cur:
         yield cur
     conn.close()

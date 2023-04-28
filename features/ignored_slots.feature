@@ -52,7 +52,7 @@ Feature: ignored slots
     And postgres1 has a logical replication slot named unmanaged_slot_3 with the test_decoding plugin
     And postgres1 does not have a logical replication slot named dummy_slot
 
-    # 3. After a failover the server (now a master) still has the slot.
+    # 3. After a failover the server (now a primary) still has the slot.
     When I shut down postgres0
     Then "members/postgres1" key in DCS has role=master after 3 seconds
     And postgres1 has a logical replication slot named unmanaged_slot_0 with the test_decoding plugin

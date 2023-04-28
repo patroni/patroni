@@ -6,25 +6,18 @@ import socket
 import stat
 import time
 
-from six.moves.urllib_parse import urlparse, parse_qsl, unquote
+from urllib.parse import urlparse, parse_qsl, unquote
 
 from .validator import CaseInsensitiveDict, recovery_parameters,\
         transform_postgresql_parameter_value, transform_recovery_parameter_value
 from ..dcs import slot_name_from_member_name, RemoteMember
 from ..exceptions import PatroniFatalException
-from ..psycopg import quote_ident as _quote_ident
 from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, \
         validate_directory, is_subpath
 
 logger = logging.getLogger(__name__)
 
-SYNC_STANDBY_NAME_RE = re.compile(r'^[A-Za-z_][A-Za-z_0-9\$]*$')
 PARAMETER_RE = re.compile(r'([a-z_]+)\s*=\s*')
-
-
-def quote_ident(value):
-    """Very simplified version of quote_ident"""
-    return value if SYNC_STANDBY_NAME_RE.match(value) else _quote_ident(value)
 
 
 def conninfo_uri_parse(dsn):
@@ -536,24 +529,24 @@ class ConfigHandler(object):
             recovery_params.update({'recovery_target': '', 'recovery_target_name': '', 'recovery_target_time': '',
                                     'recovery_target_xid': '', 'recovery_target_lsn': ''})
 
-        is_remote_master = isinstance(member, RemoteMember)
+        is_remote_member = isinstance(member, RemoteMember)
         primary_conninfo = self.primary_conninfo_params(member)
         if primary_conninfo:
             use_slots = self.get('use_slots', True) and self._postgresql.major_version >= 90400
-            if use_slots and not (is_remote_master and member.no_replication_slot):
-                primary_slot_name = member.primary_slot_name if is_remote_master else self._postgresql.name
+            if use_slots and not (is_remote_member and member.no_replication_slot):
+                primary_slot_name = member.primary_slot_name if is_remote_member else self._postgresql.name
                 recovery_params['primary_slot_name'] = slot_name_from_member_name(primary_slot_name)
                 # We are a standby leader and are using a replication slot. Make sure we connect to
                 # the leader of the main cluster (in case more than one host is specified in the
                 # connstr) by adding 'target_session_attrs=read-write' to primary_conninfo.
-                if is_remote_master and 'target_sesions_attrs' not in primary_conninfo and\
+                if is_remote_member and 'target_sesions_attrs' not in primary_conninfo and\
                         self._postgresql.major_version >= 100000:
                     primary_conninfo['target_session_attrs'] = 'read-write'
             recovery_params['primary_conninfo'] = primary_conninfo
 
         # standby_cluster config might have different parameters, we want to override them
         standby_cluster_params = ['restore_command', 'archive_cleanup_command']\
-            + (['recovery_min_apply_delay'] if is_remote_master else [])
+            + (['recovery_min_apply_delay'] if is_remote_member else [])
         recovery_params.update({p: member.data.get(p) for p in standby_cluster_params if member and member.data.get(p)})
         return recovery_params
 
@@ -775,9 +768,7 @@ class ConfigHandler(object):
             os.chmod(self._pgpass, stat.S_IWRITE | stat.S_IREAD)
             f.write(line)
 
-        env = os.environ.copy()
-        env['PGPASSFILE'] = self._pgpass
-        return env
+        return {**os.environ, 'PGPASSFILE': self._pgpass}
 
     def write_recovery_conf(self, recovery_params):
         self._recovery_params = recovery_params
@@ -869,6 +860,9 @@ class ConfigHandler(object):
         elif self._postgresql.major_version:
             wal_keep_size = parse_int(parameters.pop('wal_keep_size', self.CMDLINE_OPTIONS['wal_keep_size'][0]), 'MB')
             parameters.setdefault('wal_keep_segments', int((wal_keep_size + 8) / 16))
+
+        self._postgresql.citus_handler.adjust_postgres_gucs(parameters)
+
         ret = CaseInsensitiveDict({k: v for k, v in parameters.items() if not self._postgresql.major_version or
                                    self._postgresql.major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 90100))[2]})
         ret.update({k: os.path.join(self._config_dir, ret[k]) for k in ('hba_file', 'ident_file') if k in ret})
@@ -1017,6 +1011,9 @@ class ConfigHandler(object):
         if not local_connection_address_changed:
             self.resolve_connection_addresses()
 
+        proxy_addr = config.get('proxy_address')
+        self._postgresql.proxy_url = uri('postgres', proxy_addr, self._postgresql.database) if proxy_addr else None
+
         if conf_changed:
             self.write_postgresql_conf()
 
@@ -1041,23 +1038,19 @@ class ConfigHandler(object):
         else:
             logger.info('No PostgreSQL configuration items changed, nothing to reload.')
 
-    def set_synchronous_standby(self, sync_members):
-        """Sets a node to be synchronous standby and if changed does a reload for PostgreSQL."""
-        if sync_members and sync_members != ['*']:
-            sync_members = [quote_ident(x) for x in sync_members]
-        if self._postgresql.major_version >= 90600 and len(sync_members) > 1:
-            sync_param = '{0} ({1})'.format(len(sync_members), ','.join(sync_members))
-        else:
-            sync_param = next(iter(sync_members), None)
-        if sync_param != self._synchronous_standby_names:
-            if sync_param is None:
+    def set_synchronous_standby_names(self, value):
+        """Updates synchronous_standby_names and reloads if necessary.
+        :returns: True if value was updated."""
+        if value != self._synchronous_standby_names:
+            if value is None:
                 self._server_parameters.pop('synchronous_standby_names', None)
             else:
-                self._server_parameters['synchronous_standby_names'] = sync_param
-            self._synchronous_standby_names = sync_param
+                self._server_parameters['synchronous_standby_names'] = value
+            self._synchronous_standby_names = value
             if self._postgresql.state == 'running':
                 self.write_postgresql_conf()
                 self._postgresql.reload()
+            return True
 
     @property
     def effective_configuration(self):
@@ -1070,7 +1063,7 @@ class ConfigHandler(object):
         As a workaround we will start it with the values from controldata and set `pending_restart`
         to true as an indicator that current values of parameters are not matching expectations."""
 
-        if self._postgresql.role == 'master':
+        if self._postgresql.role in ('master', 'primary'):
             return self._server_parameters
 
         options_mapping = {
@@ -1099,12 +1092,22 @@ class ConfigHandler(object):
                 effective_configuration[name] = cvalue
                 self._postgresql.set_pending_restart(True)
 
-        # If we are using custom bootstrap with PITR it could fail when values
-        # like max_connections are increased, therefore we disable hot_standby.
-        if self._postgresql.bootstrap.running_custom_bootstrap and \
-                (self._postgresql.bootstrap.keep_existing_recovery_conf or self._recovery_conf):
-            effective_configuration['hot_standby'] = 'off'
-            self._postgresql.set_pending_restart(True)
+        # If we are using custom bootstrap with PITR it could fail when values like max_connections
+        # are increased, therefore we disable hot_standby if recovery_target_action == 'promote'.
+        if self._postgresql.bootstrap.running_custom_bootstrap:
+            disable_hot_standby = False
+            if self._postgresql.bootstrap.keep_existing_recovery_conf:
+                disable_hot_standby = True  # trust that pgBackRest does the right thing
+            # `pause_at_recovery_target` has no effect if hot_standby is not enabled, therefore we consider only 9.5+
+            elif self._postgresql.major_version >= 90500 and self._recovery_params:
+                pause_at_recovery_target = parse_bool(self._recovery_params.get('pause_at_recovery_target'))
+                recovery_target_action = self._recovery_params.get(
+                    'recovery_target_action', 'promote' if pause_at_recovery_target is False else 'pause')
+                disable_hot_standby = recovery_target_action == 'promote'
+
+            if disable_hot_standby:
+                effective_configuration['hot_standby'] = 'off'
+                self._postgresql.set_pending_restart(True)
 
         return effective_configuration
 

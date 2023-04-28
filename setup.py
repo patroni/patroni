@@ -18,8 +18,8 @@ MAIN_PACKAGE = NAME
 DESCRIPTION = 'PostgreSQL High-Available orchestrator and CLI'
 LICENSE = 'The MIT License'
 URL = 'https://github.com/zalando/patroni'
-AUTHOR = 'Alexander Kukushkin, Dmitrii Dolgov, Oleksii Kliukin'
-AUTHOR_EMAIL = 'alexander.kukushkin@zalando.de, dmitrii.dolgov@zalando.de, alexk@hintbits.com'
+AUTHOR = 'Alexander Kukushkin, Polina Bungina'
+AUTHOR_EMAIL = 'akukushkin@microsoft.com, polina.bungina@zalando.de'
 KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd' +\
     ' zookeeper exhibitor consul streaming replication kubernetes k8s'
 
@@ -41,15 +41,13 @@ CLASSIFIERS = [
     'Operating System :: POSIX :: BSD :: FreeBSD',
     'Operating System :: Microsoft :: Windows',
     'Programming Language :: Python',
-    'Programming Language :: Python :: 2.7',
     'Programming Language :: Python :: 3',
-    'Programming Language :: Python :: 3.4',
-    'Programming Language :: Python :: 3.5',
     'Programming Language :: Python :: 3.6',
     'Programming Language :: Python :: 3.7',
     'Programming Language :: Python :: 3.8',
     'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11',
     'Programming Language :: Python :: Implementation :: CPython',
 ]
 
@@ -96,7 +94,7 @@ class Flake8(_Command):
         from flake8.main.cli import main
 
         logging.getLogger().setLevel(logging.ERROR)
-        main(self.targets())
+        raise SystemExit(main(self.targets()))
 
 
 class PyTest(_Command):
@@ -160,7 +158,6 @@ def setup_package(version):
         classifiers=CLASSIFIERS,
         packages=find_packages(exclude=['tests', 'tests.*']),
         package_data={MAIN_PACKAGE: ["*.json"]},
-        python_requires='>=2.7',
         install_requires=install_requires,
         extras_require=EXTRAS_REQUIRE,
         cmdclass=cmdclass,
@@ -171,14 +168,12 @@ def setup_package(version):
 if __name__ == '__main__':
     old_modules = sys.modules.copy()
     try:
-        from patroni import check_psycopg, fatal
+        from patroni import check_psycopg
         from patroni.version import __version__
     finally:
         sys.modules.clear()
         sys.modules.update(old_modules)
 
-    if sys.version_info < (2, 7, 0):
-        fatal('Patroni needs to be run with Python 2.7+')
     check_psycopg()
 
     setup_package(__version__)

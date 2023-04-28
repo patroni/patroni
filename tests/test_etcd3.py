@@ -30,13 +30,16 @@ def mock_urlopen(self, method, url, **kwargs):
         ret.content = json.dumps({
             "header": {"revision": "1"},
             "kvs": [
+                {"key": base64_encode('/patroni/test/1/initialize'),
+                 "value": base64_encode('12345'), "mod_revision": '1'},
                 {"key": base64_encode('/patroni/test/leader'),
                  "value": base64_encode('foo'), "lease": "bla", "mod_revision": '1'},
                 {"key": base64_encode('/patroni/test/members/foo'),
                  "value": base64_encode('{}'), "lease": "123", "mod_revision": '1'},
                 {"key": base64_encode('/patroni/test/members/bar'),
                  "value": base64_encode('{"version":"1.6.5"}'), "lease": "123", "mod_revision": '1'},
-                {"key": base64_encode('/patroni/test/failover'), "value": base64_encode('{}'), "mod_revision": '1'}
+                {"key": base64_encode('/patroni/test/failover'), "value": base64_encode('{}'), "mod_revision": '1'},
+                {"key": base64_encode('/patroni/test/failsafe'), "value": base64_encode('{'), "mod_revision": '1'}
             ]
         })
     elif url.endswith('/watch'):
@@ -206,6 +209,12 @@ class TestEtcd3(BaseTestEtcd3):
             mock_urlopen.side_effect = SleepException()
             self.assertRaises(Etcd3Error, self.etcd3.get_cluster)
 
+    def test__get_citus_cluster(self):
+        self.etcd3._citus_group = '0'
+        cluster = self.etcd3.get_cluster()
+        self.assertIsInstance(cluster, Cluster)
+        self.assertIsInstance(cluster.workers[1], Cluster)
+
     def test_touch_member(self):
         self.etcd3.touch_member({})
         self.etcd3._lease = 'bla'
@@ -215,12 +224,27 @@ class TestEtcd3(BaseTestEtcd3):
 
     def test__update_leader(self):
         self.etcd3._lease = None
-        self.etcd3.update_leader('123')
+        self.etcd3.update_leader('123', failsafe={'foo': 'bar'})
+        self.etcd3._last_lease_refresh = 0
         self.etcd3.update_leader('124')
+        with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(return_value=True)),\
+                patch('time.time', Mock(side_effect=[0, 100, 200, 300])):
+            self.assertRaises(Etcd3Error, self.etcd3.update_leader, '126')
+        self.etcd3._last_lease_refresh = 0
+        with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(side_effect=Unknown)):
+            self.assertFalse(self.etcd3.update_leader('125'))
+
+    def test_take_leader(self):
+        self.assertFalse(self.etcd3.take_leader())
 
     def test_attempt_to_acquire_leader(self):
-        self.etcd3._lease = None
         self.assertFalse(self.etcd3.attempt_to_acquire_leader())
+        with patch('time.time', Mock(side_effect=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 200])):
+            self.assertRaises(Etcd3Error, self.etcd3.attempt_to_acquire_leader)
+        with patch('time.time', Mock(side_effect=[0, 100, 200, 300, 400])):
+            self.assertRaises(Etcd3Error, self.etcd3.attempt_to_acquire_leader)
+        with patch.object(PatroniEtcd3Client, 'put', Mock(return_value=False)):
+            self.assertFalse(self.etcd3.attempt_to_acquire_leader())
 
     def test_set_ttl(self):
         self.etcd3.set_ttl(20)

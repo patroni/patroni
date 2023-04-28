@@ -4,12 +4,13 @@ import select
 import time
 
 from kazoo.client import KazooClient, KazooState, KazooRetry
-from kazoo.exceptions import NoNodeError, NodeExistsError, SessionExpiredError
+from kazoo.exceptions import ConnectionClosedError, NoNodeError, NodeExistsError, SessionExpiredError
 from kazoo.handlers.threading import SequentialThreadingHandler
 from kazoo.protocol.states import KeeperState
+from kazoo.retry import RetryFailedError
 from kazoo.security import make_acl
 
-from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory
+from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory, citus_group_re
 from ..exceptions import DCSError
 from ..utils import deep_compare
 
@@ -50,10 +51,18 @@ class PatroniSequentialThreadingHandler(SequentialThreadingHandler):
         return super(PatroniSequentialThreadingHandler, self).create_connection(*args, **kwargs)
 
     def select(self, *args, **kwargs):
-        """Python3 raises `ValueError` if socket is closed, because fd == -1"""
+        """
+        Python 3.XY may raise following exceptions if select/poll are called with an invalid socket:
+        - `ValueError`: because fd == -1
+        - `TypeError`: Invalid file descriptor: -1 (starting from kazoo 2.9)
+        Python 2.7 may raise the `IOError` instead of `socket.error` (starting from kazoo 2.9)
+
+        When it is appropriate we map these exceptions to `socket.error`.
+        """
+
         try:
             return super(PatroniSequentialThreadingHandler, self).select(*args, **kwargs)
-        except ValueError as e:
+        except (TypeError, ValueError) as e:
             raise select.error(9, str(e))
 
 
@@ -137,7 +146,11 @@ class ZooKeeper(AbstractDCS):
 
     def cluster_watcher(self, event):
         self._fetch_cluster = True
-        self.status_watcher(event)
+        if not event or event.state != KazooState.CONNECTED or event.path.startswith(self.client_path('')):
+            self.status_watcher(event)
+
+    def members_watcher(self, event):
+        self._fetch_cluster = True
 
     def reload_config(self, config):
         self.set_retry_timeout(config['retry_timeout'])
@@ -182,10 +195,10 @@ class ZooKeeper(AbstractDCS):
         except NoNodeError:
             return None
 
-    def get_status(self, leader):
+    def get_status(self, path, leader):
         watch = self.status_watcher if not leader or leader.name != self._name else None
 
-        status = self.get_node(self.status_path, watch)
+        status = self.get_node(path + self._STATUS, watch)
         if status:
             try:
                 status = json.loads(status[0])
@@ -194,7 +207,7 @@ class ZooKeeper(AbstractDCS):
             except Exception:
                 slots = last_lsn = None
         else:
-            last_lsn = self.get_node(self.leader_optime_path, watch)
+            last_lsn = self.get_node(path + self._LEADER_OPTIME, watch)
             last_lsn = last_lsn and last_lsn[0]
             slots = None
 
@@ -216,69 +229,78 @@ class ZooKeeper(AbstractDCS):
         except NoNodeError:
             return []
 
-    def load_members(self):
+    def load_members(self, path):
         members = []
-        for member in self.get_children(self.members_path, self.cluster_watcher):
-            data = self.get_node(self.members_path + member)
+        for member in self.get_children(path + self._MEMBERS, self.cluster_watcher):
+            data = self.get_node(path + self._MEMBERS + member)
             if data is not None:
                 members.append(self.member(member, *data))
         return members
 
-    def _inner_load_cluster(self):
+    def _cluster_loader(self, path):
         self._fetch_cluster = False
         self.event.clear()
-        nodes = set(self.get_children(self.client_path(''), self.cluster_watcher))
+        nodes = set(self.get_children(path, self.cluster_watcher))
         if not nodes:
             self._fetch_cluster = True
 
         # get initialize flag
-        initialize = (self.get_node(self.initialize_path) or [None])[0] if self._INITIALIZE in nodes else None
+        initialize = (self.get_node(path + self._INITIALIZE) or [None])[0] if self._INITIALIZE in nodes else None
 
         # get global dynamic configuration
-        config = self.get_node(self.config_path, watch=self.cluster_watcher) if self._CONFIG in nodes else None
+        config = self.get_node(path + self._CONFIG, watch=self.cluster_watcher) if self._CONFIG in nodes else None
         config = config and ClusterConfig.from_node(config[1].version, config[0], config[1].mzxid)
 
         # get timeline history
-        history = self.get_node(self.history_path, watch=self.cluster_watcher) if self._HISTORY in nodes else None
+        history = self.get_node(path + self._HISTORY, watch=self.cluster_watcher) if self._HISTORY in nodes else None
         history = history and TimelineHistory.from_node(history[1].mzxid, history[0])
 
         # get synchronization state
-        sync = self.get_node(self.sync_path, watch=self.cluster_watcher) if self._SYNC in nodes else None
+        sync = self.get_node(path + self._SYNC, watch=self.cluster_watcher) if self._SYNC in nodes else None
         sync = SyncState.from_node(sync and sync[1].version, sync and sync[0])
 
         # get list of members
-        members = self.load_members() if self._MEMBERS[:-1] in nodes else []
+        members = self.load_members(path) if self._MEMBERS[:-1] in nodes else []
 
         # get leader
-        leader = self.get_node(self.leader_path) if self._LEADER in nodes else None
+        leader = self.get_node(path + self._LEADER) if self._LEADER in nodes else None
         if leader:
-            client_id = self._client.client_id
-            if not self._ctl and leader[0] == self._name and client_id is not None \
-                    and client_id[0] != leader[1].ephemeralOwner:
-                logger.info('I am leader but not owner of the session. Removing leader node')
-                self._client.delete(self.leader_path)
-                leader = None
-
-            if leader:
-                member = Member(-1, leader[0], None, {})
-                member = ([m for m in members if m.name == leader[0]] or [member])[0]
-                leader = Leader(leader[1].version, leader[1].ephemeralOwner, member)
-                self._fetch_cluster = member.index == -1
+            member = Member(-1, leader[0], None, {})
+            member = ([m for m in members if m.name == leader[0]] or [member])[0]
+            leader = Leader(leader[1].version, leader[1].ephemeralOwner, member)
+            self._fetch_cluster = member.index == -1
 
         # get last known leader lsn and slots
-        last_lsn, slots = self.get_status(leader)
+        last_lsn, slots = self.get_status(path, leader)
 
         # failover key
-        failover = self.get_node(self.failover_path, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
+        failover = self.get_node(path + self._FAILOVER, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
         failover = failover and Failover.from_node(failover[1].version, failover[0])
 
-        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots)
+        # get failsafe topology
+        failsafe = self.get_node(path + self._FAILSAFE, watch=self.cluster_watcher) if self._FAILSAFE in nodes else None
+        try:
+            failsafe = json.loads(failsafe[0]) if failsafe else None
+        except Exception:
+            failsafe = None
 
-    def _load_cluster(self):
-        cluster = self.cluster
+        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
+
+    def _citus_cluster_loader(self, path):
+        fetch_cluster = False
+        ret = {}
+        for node in self.get_children(path, self.cluster_watcher):
+            if citus_group_re.match(node):
+                ret[int(node)] = self._cluster_loader(path + node + '/')
+                fetch_cluster = fetch_cluster or self._fetch_cluster
+        self._fetch_cluster = fetch_cluster
+        return ret
+
+    def _load_cluster(self, path, loader):
+        cluster = self.cluster if path == self._base_path + '/' else None
         if self._fetch_cluster or cluster is None:
             try:
-                cluster = self._client.retry(self._inner_load_cluster)
+                cluster = self._client.retry(loader, path)
             except Exception:
                 logger.exception('get_cluster')
                 self.cluster_watcher(None)
@@ -291,10 +313,12 @@ class ZooKeeper(AbstractDCS):
                 self.event.clear()
             else:
                 try:
-                    last_lsn, slots = self.get_status(cluster.leader)
+                    last_lsn, slots = self.get_status(self.client_path(''), cluster.leader)
                     self.event.clear()
-                    cluster = Cluster(cluster.initialize, cluster.config, cluster.leader, last_lsn,
-                                      cluster.members, cluster.failover, cluster.sync, cluster.history, slots)
+                    cluster = list(cluster)
+                    cluster[3] = last_lsn
+                    cluster[8] = slots
+                    cluster = Cluster(*cluster)
                 except Exception:
                     pass
         return cluster
@@ -313,11 +337,18 @@ class ZooKeeper(AbstractDCS):
             logger.exception('Failed to create %s', path)
         return False
 
-    def attempt_to_acquire_leader(self, permanent=False):
-        ret = self._create(self.leader_path, self._name.encode('utf-8'), retry=True, ephemeral=not permanent)
-        if not ret:
-            logger.info('Could not take out TTL lock')
-        return ret
+    def attempt_to_acquire_leader(self):
+        try:
+            self._client.retry(self._client.create, self.leader_path, self._name.encode('utf-8'),
+                               makepath=True, ephemeral=True)
+            return True
+        except (ConnectionClosedError, RetryFailedError) as e:
+            raise ZooKeeperError(e)
+        except Exception as e:
+            if not isinstance(e, NodeExistsError):
+                logger.error('Failed to create %s: %r', self.leader_path, e)
+        logger.info('Could not take out TTL lock')
+        return False
 
     def _set_or_create(self, key, value, index=None, retry=False, do_not_create_empty=False):
         value = value.encode('utf-8')
@@ -349,12 +380,15 @@ class ZooKeeper(AbstractDCS):
         return self._create(self.initialize_path, sysid, retry=True) if create_new \
             else self._client.retry(self._client.set, self.initialize_path, sysid)
 
-    def touch_member(self, data, permanent=False):
+    def touch_member(self, data):
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         member_data = self.__last_member_data or member and member.data
+        #  We want to notify leader if some important fields in the member key changed by removing ZNode
         if member and (self._client.client_id is not None and member.session != self._client.client_id[0] or
                        not (deep_compare(member_data.get('tags', {}), data.get('tags', {})) and
+                            (member_data.get('state') == data.get('state') or
+                                'running' not in (member_data.get('state'), data.get('state'))) and
                             member_data.get('version') == data.get('version') and
                             member_data.get('checkpoint_after_promote') == data.get('checkpoint_after_promote'))):
             try:
@@ -371,8 +405,7 @@ class ZooKeeper(AbstractDCS):
                 return True
         else:
             try:
-                self._client.create_async(self.member_path, encoded_data, makepath=True,
-                                          ephemeral=not permanent).get(timeout=1)
+                self._client.create_async(self.member_path, encoded_data, makepath=True, ephemeral=True).get(timeout=1)
                 self.__last_member_data = data
                 return True
             except Exception as e:
@@ -397,7 +430,32 @@ class ZooKeeper(AbstractDCS):
     def _write_status(self, value):
         return self._set_or_create(self.status_path, value)
 
+    def _write_failsafe(self, value):
+        return self._set_or_create(self.failsafe_path, value)
+
     def _update_leader(self):
+        cluster = self.cluster
+        session = cluster and isinstance(cluster.leader, Leader) and cluster.leader.session
+        if self._client.client_id and self._client.client_id[0] != session:
+            logger.warning('Recreating the leader ZNode due to ownership mismatch')
+            try:
+                self._client.retry(self._client.delete, self.leader_path)
+            except NoNodeError:
+                pass
+            except (ConnectionClosedError, RetryFailedError) as e:
+                raise ZooKeeperError(e)
+            except Exception as e:
+                logger.error('Failed to remove %s: %r', self.leader_path, e)
+                return False
+
+            try:
+                self._client.retry(self._client.create, self.leader_path,
+                                   self._name.encode('utf-8'), makepath=True, ephemeral=True)
+            except (ConnectionClosedError, RetryFailedError) as e:
+                raise ZooKeeperError(e)
+            except Exception as e:
+                logger.error('Failed to create %s: %r', self.leader_path, e)
+                return False
         return True
 
     def _delete_leader(self):

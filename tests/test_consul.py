@@ -4,7 +4,7 @@ import unittest
 from consul import ConsulException, NotFound
 from mock import Mock, PropertyMock, patch
 from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulInternalError, \
-                                ConsulError, ConsulClient, HTTPClient, InvalidSessionTTL, InvalidSession
+        ConsulError, ConsulClient, HTTPClient, InvalidSessionTTL, InvalidSession, RetryFailedError
 from . import SleepException
 
 
@@ -18,6 +18,8 @@ def kv_get(self, key, **kwargs):
     good_cls = ('6429',
                 [{'CreateIndex': 1334, 'Flags': 0, 'Key': key + 'failover', 'LockIndex': 0,
                   'ModifyIndex': 1334, 'Value': b''},
+                 {'CreateIndex': 1334, 'Flags': 0, 'Key': key + '1/initialize', 'LockIndex': 0,
+                  'ModifyIndex': 1334, 'Value': b'postgresql0'},
                  {'CreateIndex': 1334, 'Flags': 0, 'Key': key + 'initialize', 'LockIndex': 0,
                   'ModifyIndex': 1334, 'Value': b'postgresql0'},
                  {'CreateIndex': 2621, 'Flags': 0, 'Key': key + 'leader', 'LockIndex': 1,
@@ -34,6 +36,8 @@ def kv_get(self, key, **kwargs):
                   'ModifyIndex': 6429, 'Value': b'4496294792'},
                  {'CreateIndex': 1085, 'Flags': 0, 'Key': key + 'sync', 'LockIndex': 0,
                   'ModifyIndex': 6429, 'Value': b'{"leader": "leader", "sync_standby": null}'},
+                 {'CreateIndex': 1085, 'Flags': 0, 'Key': key + 'failsafe', 'LockIndex': 0,
+                  'ModifyIndex': 6429, 'Value': b'{'},
                  {'CreateIndex': 1085, 'Flags': 0, 'Key': key + 'status', 'LockIndex': 0,
                   'ModifyIndex': 6429, 'Value': b'{"optime":4496294792, "slots":{"ls":12345}}'}])
     if key == 'service/good/':
@@ -92,7 +96,7 @@ class TestConsul(unittest.TestCase):
                 'verify': 'on', 'cert': 'bar', 'cacert': 'buz', 'register_service': True})
         self.c = Consul({'ttl': 30, 'scope': 'test', 'name': 'postgresql1', 'host': 'localhost:1', 'retry_timeout': 10,
                          'register_service': True, 'service_check_tls_server_name': True})
-        self.c._base_path = '/service/good'
+        self.c._base_path = 'service/good'
         self.c.get_cluster()
 
     @patch('time.sleep', Mock(side_effect=SleepException))
@@ -113,18 +117,21 @@ class TestConsul(unittest.TestCase):
 
     @patch.object(consul.Consul.KV, 'delete', Mock())
     def test_get_cluster(self):
-        self.c._base_path = '/service/test'
+        self.c._base_path = 'service/test'
         self.assertIsInstance(self.c.get_cluster(), Cluster)
         self.assertIsInstance(self.c.get_cluster(), Cluster)
-        self.c._base_path = '/service/fail'
+        self.c._base_path = 'service/fail'
         self.assertRaises(ConsulError, self.c.get_cluster)
-        self.c._base_path = '/service/broken'
+        self.c._base_path = 'service/broken'
         self.assertIsInstance(self.c.get_cluster(), Cluster)
-        self.c._base_path = '/service/legacy'
+        self.c._base_path = 'service/legacy'
         self.assertIsInstance(self.c.get_cluster(), Cluster)
-        self.c._base_path = '/service/good'
-        self.c._session = 'fd4f44fe-2cac-bba5-a60b-304b51ff39b8'
-        self.assertIsInstance(self.c.get_cluster(), Cluster)
+
+    def test__get_citus_cluster(self):
+        self.c._citus_group = '0'
+        cluster = self.c.get_cluster()
+        self.assertIsInstance(cluster, Cluster)
+        self.assertIsInstance(cluster.workers[1], Cluster)
 
     @patch.object(consul.Consul.KV, 'delete', Mock(side_effect=[ConsulException, True, True, True]))
     @patch.object(consul.Consul.KV, 'put', Mock(side_effect=[True, ConsulException, InvalidSession]))
@@ -140,11 +147,15 @@ class TestConsul(unittest.TestCase):
         self.c.refresh_session = Mock(side_effect=ConsulError('foo'))
         self.assertFalse(self.c.touch_member({'balbla': 'blabla'}))
 
-    @patch.object(consul.Consul.KV, 'put', Mock(side_effect=InvalidSession))
+    @patch.object(consul.Consul.KV, 'put', Mock(side_effect=[InvalidSession, False, InvalidSession]))
     def test_take_leader(self):
         self.c.set_ttl(20)
-        self.c.refresh_session = Mock()
-        self.c.take_leader()
+        self.c._do_refresh_session = Mock()
+        self.assertFalse(self.c.take_leader())
+        with patch('time.time', Mock(side_effect=[0, 100])):
+            self.assertRaises(ConsulError, self.c.take_leader)
+        with patch('time.time', Mock(side_effect=[0, 0, 0, 0, 0, 0, 100])):
+            self.assertRaises(ConsulError, self.c.take_leader)
 
     @patch.object(consul.Consul.KV, 'put', Mock(return_value=True))
     def test_set_failover_value(self):
@@ -160,9 +171,26 @@ class TestConsul(unittest.TestCase):
         self.c.get_cluster()
         self.c.write_leader_optime('1')
 
-    @patch.object(consul.Consul.Session, 'renew', Mock())
-    def test_update_leader(self):
-        self.c.update_leader(12345)
+    @patch.object(consul.Consul.Session, 'renew')
+    @patch.object(consul.Consul.KV, 'put', Mock(side_effect=ConsulException))
+    def test_update_leader(self, mock_renew):
+        self.c._session = 'fd4f44fe-2cac-bba5-a60b-304b51ff39b8'
+        with patch.object(consul.Consul.KV, 'delete', Mock(return_value=True)):
+            with patch.object(consul.Consul.KV, 'put', Mock(return_value=True)):
+                self.assertTrue(self.c.update_leader(12345, failsafe={'foo': 'bar'}))
+            with patch.object(consul.Consul.KV, 'put', Mock(side_effect=ConsulException)):
+                self.assertFalse(self.c.update_leader(12345))
+            with patch('time.time', Mock(side_effect=[0, 0, 0, 0, 0, 100, 200, 300])):
+                self.assertRaises(ConsulError, self.c.update_leader, 12345)
+        with patch('time.time', Mock(side_effect=[0, 100, 200, 300])):
+            self.assertRaises(ConsulError, self.c.update_leader, 12345)
+        with patch.object(consul.Consul.KV, 'delete', Mock(side_effect=ConsulException)):
+            self.assertFalse(self.c.update_leader(12347))
+        mock_renew.side_effect = RetryFailedError('')
+        self.c._last_session_refresh = 0
+        self.assertRaises(ConsulError, self.c.update_leader, 12346)
+        mock_renew.side_effect = ConsulException
+        self.assertFalse(self.c.update_leader(12347))
 
     @patch.object(consul.Consul.KV, 'delete', Mock(return_value=True))
     def test_delete_leader(self):
@@ -201,7 +229,7 @@ class TestConsul(unittest.TestCase):
     def test_set_history_value(self):
         self.assertTrue(self.c.set_history_value('{}'))
 
-    @patch.object(consul.Consul.Agent.Service, 'register', Mock(side_effect=(False, True)))
+    @patch.object(consul.Consul.Agent.Service, 'register', Mock(side_effect=(False, True, True, True)))
     @patch.object(consul.Consul.Agent.Service, 'deregister', Mock(return_value=True))
     def test_update_service(self):
         d = {'role': 'replica', 'api_url': 'http://a/t', 'conn_url': 'pg://c:1', 'state': 'running'}
@@ -216,7 +244,11 @@ class TestConsul(unittest.TestCase):
         d['state'] = 'running'
         d['role'] = 'bla'
         self.assertIsNone(self.c.update_service({}, d))
+        for role in ('master', 'primary'):
+            d['role'] = role
+            self.assertTrue(self.c.update_service({}, d))
 
+    @patch.object(consul.Consul.KV, 'put', Mock(side_effect=ConsulException))
     def test_reload_config(self):
         self.assertEqual([], self.c._service_tags)
         self.c.reload_config({'consul': {'token': 'foo', 'register_service': True, 'service_tags': ['foo']},

@@ -10,7 +10,9 @@ Patroni is a template for you to create your own customized, high-availability s
 
 We call Patroni a "template" because it is far from being a one-size-fits-all or plug-and-play replication system. It will have its own caveats. Use wisely. There are many ways to run high availability with PostgreSQL; for a list, see the `PostgreSQL Documentation <https://wiki.postgresql.org/wiki/Replication,_Clustering,_and_Connection_Pooling>`__.
 
-Currently supported PostgreSQL versions: 9.3 to 14.
+Currently supported PostgreSQL versions: 9.3 to 15.
+
+**Note to Citus users**: Starting from 3.0 Patroni nicely integrates with the `Citus <https://github.com/citusdata/citus>`__ database extension to Postgres. Please check the :ref:`Citus support page <citus>` in the Patroni documentation for more info about how to use Patroni high availability together with a Citus distributed cluster.
 
 **Note to Kubernetes users**: Patroni can run natively on top of Kubernetes. Take a look at the :ref:`Kubernetes <kubernetes>` chapter of the Patroni documentation.
 
@@ -20,7 +22,9 @@ Currently supported PostgreSQL versions: 9.3 to 14.
    :caption: Contents:
 
    README
+   citus
    dynamic_configuration
+   dcs_failsafe_mode
    rest_api
    existing_data
    ENVIRONMENT
@@ -28,6 +32,7 @@ Currently supported PostgreSQL versions: 9.3 to 14.
    security
    replica_bootstrap
    replication_modes
+   ha_multi_dc
    pause
    kubernetes
    watchdog
