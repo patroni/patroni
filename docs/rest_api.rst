@@ -30,7 +30,8 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
 - ``GET /replica?tag_key1=value1&tag_key2=value2``: replica check endpoint. In addition, It will also check for user defined tags ``key1`` and ``key2`` and their respective values in the **tags** section of the yaml configuration management. If the tag isn't defined for an instance, or if the value in the yaml configuration doesn't match the querying value, it will return HTTP Status Code 503.
 
- In the following requests, since we are checking for the leader or standby-leader status, Patroni doesn't apply any of the user defined tags and they will be ignored.
+  In the following requests, since we are checking for the leader or standby-leader status, Patroni doesn't apply any of the user defined tags and they will be ignored.
+
   - ``GET /?tag_key1=value1&tag_key2=value2``
   - ``GET /leader?tag_key1=value1&tag_key2=value2``
   - ``GET /primary?tag_key1=value1&tag_key2=value2``
