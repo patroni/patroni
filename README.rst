@@ -119,7 +119,7 @@ kubernetes
 raft
     `pysyncobj` module in order to use python Raft implementation as DCS
 aws
-    `boto` in order to use AWS callbacks
+    `boto3` in order to use AWS callbacks
 
 For example, the command in order to install Patroni together with dependencies for Etcd as a DCS and AWS callbacks is:
 
