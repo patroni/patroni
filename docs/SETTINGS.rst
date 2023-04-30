@@ -121,7 +121,7 @@ Bootstrap configuration
 
       -  **admin**: the name of user
 
-         -  **password: zalando**:
+         -  **password**: (optional) password for the user
          -  **options**: list of options for CREATE USER statement
 
             -  **- createrole**
