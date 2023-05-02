@@ -13,7 +13,7 @@ Patroni and patronictl both store and retrieve data to/from the DCS.
 
 Despite DCS doesn't contain any sensitive information, it allows changing some of Patroni/Postgres configuration. Therefore the very first thing that should be protected is DCS itself.
 
-The details of protection depend on the type of DCS used. The authentication and encryption parameters (tokens/basic-auth/client certificates) for the supported types of DCS are covered in :ref:`SETTINGS <bootstrap_settings>`
+The details of protection depend on the type of DCS used. The authentication and encryption parameters (tokens/basic-auth/client certificates) for the supported types of DCS are covered in :ref:`settings <yaml_configuration>`.
 
 The general recommendation is to enable TLS for all DCS communication.
 
@@ -32,6 +32,6 @@ When TLS for the REST API is enabled and a PKI is established, mutual authentica
 
 The ``restapi`` section parameters enable TLS client authentication to the server. Depending on the value of the ``verify_client`` parameter, the API server requires a successful client certificate verification for both safe and unsafe API calls (``verify_client: required``), or only for unsafe API calls (``verify_client: optional``), or for no API calls (``verify_client: none``).
 
-The ``ctl`` section parameters enable TLS server authentication to the client (the ``patronictl`` tool which uses the same config as patroni). Set ``insecure: true`` to disable the server certificate verification by the client. See :ref:`SETTINGS <patronictl_settings>` for a detailed description of the TLS client parameters.
+The ``ctl`` section parameters enable TLS server authentication to the client (the ``patronictl`` tool which uses the same config as patroni). Set ``insecure: true`` to disable the server certificate verification by the client. See :ref:`settings <patronictl_settings>` for a detailed description of the TLS client parameters.
 
 Protecting the PostgreSQL database proper from unauthorized access is beyond the scope of this document and is covered in https://www.postgresql.org/docs/current/client-authentication.html
