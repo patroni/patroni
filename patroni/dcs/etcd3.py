@@ -789,7 +789,7 @@ class Etcd3(AbstractEtcd):
 
         value = json.dumps(data, separators=(',', ':'))
         try:
-            return self._client.put(self.member_path, value, self._lease)
+            return bool(self._client.put(self.member_path, value, self._lease))
         except LeaseNotFound:
             self._lease = None
             logger.error('Our lease disappeared from Etcd, can not "touch_member"')
@@ -840,23 +840,23 @@ class Etcd3(AbstractEtcd):
 
     @catch_etcd_errors
     def set_failover_value(self, value: str, index: Optional[str] = None) -> bool:
-        return self._client.put(self.failover_path, value, mod_revision=index)
+        return bool(self._client.put(self.failover_path, value, mod_revision=index))
 
     @catch_etcd_errors
     def set_config_value(self, value: str, index: Optional[str] = None) -> bool:
-        return self._client.put(self.config_path, value, mod_revision=index)
+        return bool(self._client.put(self.config_path, value, mod_revision=index))
 
     @catch_etcd_errors
     def _write_leader_optime(self, last_lsn: str) -> bool:
-        return self._client.put(self.leader_optime_path, last_lsn)
+        return bool(self._client.put(self.leader_optime_path, last_lsn))
 
     @catch_etcd_errors
     def _write_status(self, value: str) -> bool:
-        return self._client.put(self.status_path, value)
+        return bool(self._client.put(self.status_path, value))
 
     @catch_etcd_errors
     def _write_failsafe(self, value: str) -> bool:
-        return self._client.put(self.failsafe_path, value)
+        return bool(self._client.put(self.failsafe_path, value))
 
     @catch_return_false_exception
     def _update_leader(self) -> bool:
@@ -904,7 +904,7 @@ class Etcd3(AbstractEtcd):
 
     @catch_etcd_errors
     def set_history_value(self, value: str) -> bool:
-        return self._client.put(self.history_path, value)
+        return bool(self._client.put(self.history_path, value))
 
     @catch_etcd_errors
     def set_sync_state_value(self, value: str, index: Optional[str] = None) -> bool:

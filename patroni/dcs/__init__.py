@@ -701,7 +701,7 @@ class Cluster(NamedTuple):
 
     @property
     def min_version(self) -> Optional[Tuple[int, ...]]:
-        return next(iter(sorted(filter(None, [m.version for m in self.members])) + [None]))
+        return next(iter(sorted(m.version for m in self.members if m.version)), None)
 
 
 class ReturnFalseException(Exception):

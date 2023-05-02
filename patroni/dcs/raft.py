@@ -52,10 +52,12 @@ class SyncObjUtility(object):
     def __init__(self, otherNodes: Collection[Union[str, TCPNode]], conf: SyncObjConf, retry_timeout: int = 10) -> None:
         self._nodes = otherNodes
         self._utility = TcpUtility(conf.password, retry_timeout / max(1, len(otherNodes)))
+        self.__node = next(iter(otherNodes), None)
 
     def executeCommand(self, command: List[Any]) -> Any:
         try:
-            return self._utility.executeCommand(self.__node, command)
+            if self.__node:
+                return self._utility.executeCommand(self.__node, command)
         except Exception:
             return None
 

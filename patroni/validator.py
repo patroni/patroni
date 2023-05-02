@@ -677,16 +677,38 @@ def assert_(condition: bool, message: str = "Wrong value") -> None:
 
 
 class IntValidator(object):
+    """Validate an integer setting.
+
+    :cvar expected_type: the expect Python type for an integer setting (:class:`int`).
+    :ivar min: minimum allowed value for the setting, if any.
+    :ivar max: maximum allowed value for the setting, if any.
+    :ivar base_unit: the base unit to convert the value to before checking if it's within `min` and `max` range.
+    :ivar raise_assert: if an ``assert`` call should be performed regarding expected type and valid range.
+    """
     expected_type = int
 
     def __init__(self, min: OptionalType[int] = None, max: OptionalType[int] = None,
                  base_unit: OptionalType[str] = None, raise_assert: bool = False) -> None:
+        """Create an :class:`IntValidator` object with the given rules.
+
+        :param min: minimum allowed value for the setting, if any.
+        :param max: maximum allowed value for the setting, if any.
+        :param base_unit: the base unit to convert the value to before checking if it's within *min* and *max* range.
+        :param raise_assert: if an ``assert`` call should be performed regarding expected type and valid range.
+        """
         self.min = min
         self.max = max
         self.base_unit = base_unit
         self.raise_assert = raise_assert
 
     def __call__(self, value: Union[int, str]) -> bool:
+        """Check if *value* is a valid integer and within the expected range.
+
+        .. note::
+            If ``raise_assert`` is ``True`` and *value* is not valid, then an ``AssertionError`` will be triggered.
+        :param value: value to be checked against the rules defined for this :class:`IntValidator` instance.
+        :returns: ``True`` if *value* is valid and within the expected range.
+        """
         if self.base_unit:
             value = parse_int(value, self.base_unit) or ""
         ret = isinstance(value, int)\
@@ -698,7 +720,7 @@ class IntValidator(object):
         return ret
 
 
-def validate_watchdog_mode(value: Any):
+def validate_watchdog_mode(value: Any) -> None:
     assert_(isinstance(value, (str, bool)), "expected type is not a string")
     assert_(value in (False, "off", "automatic", "required"))
 

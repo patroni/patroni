@@ -156,7 +156,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
             kwargs.update(retries=0, timeout=timeout)
         else:
             _, per_node_timeout, per_node_retries = self._calculate_timeouts(etcd_nodes)
-            connect_timeout = max(1, per_node_timeout / 2)
+            connect_timeout = max(1.0, per_node_timeout / 2.0)
             kwargs.update(timeout=Timeout(connect=connect_timeout, total=per_node_timeout), retries=per_node_retries)
         return kwargs
 
@@ -301,7 +301,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
                 retry.sleep_func(sleeptime)
                 retry.update_delay()
                 # We still have some time left. Partially reduce `machines_cache` and retry request
-                kwargs.update(timeout=Timeout(connect=max(1, timeout / 2), total=timeout), retries=retries)
+                kwargs.update(timeout=Timeout(connect=max(1.0, timeout / 2.0), total=timeout), retries=retries)
                 machines_cache = machines_cache[:nodes]
 
     @staticmethod
@@ -485,10 +485,10 @@ class AbstractEtcd(AbstractDCS):
         super(AbstractEtcd, self).reload_config(config)
         self._client.reload_config(config.get(self.__class__.__name__.lower(), {}))
 
-    def retry(self, *args: Any, **kwargs: Any) -> Any:
+    def retry(self, method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         retry = self._retry.copy()
         kwargs['retry'] = retry
-        return retry(*args, **kwargs)
+        return retry(method, *args, **kwargs)
 
     def _handle_exception(self, e: Exception, name: str = '', do_sleep: bool = False,
                           raise_ex: Optional[Exception] = None) -> None:

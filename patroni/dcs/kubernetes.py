@@ -275,7 +275,7 @@ class K8sClient(object):
         def _get_api_servers(self, api_servers_cache: List[str]) -> List[str]:
             _, per_node_timeout, per_node_retries = self._calculate_timeouts(len(api_servers_cache))
             kwargs = {'headers': self._make_headers({}), 'preload_content': True, 'retries': per_node_retries,
-                      'timeout': urllib3.Timeout(connect=max(1, per_node_timeout / 2.0), total=per_node_timeout)}
+                      'timeout': urllib3.Timeout(connect=max(1.0, per_node_timeout / 2.0), total=per_node_timeout)}
             path = self._API_URL_PREFIX + 'default/endpoints/kubernetes'
             for base_uri in api_servers_cache:
                 try:
@@ -398,7 +398,7 @@ class K8sClient(object):
                 retries = 0
             else:
                 _, timeout, retries = self._calculate_timeouts(api_servers)
-                timeout = urllib3.Timeout(connect=max(1, timeout / 2.0), total=timeout)
+                timeout = urllib3.Timeout(connect=max(1.0, timeout / 2.0), total=timeout)
             kwargs.update(retries=retries, timeout=timeout)
 
             while True:
@@ -422,7 +422,7 @@ class K8sClient(object):
                     retry.sleep_func(sleeptime)
                     retry.update_delay()
                     # We still have some time left. Partially reduce `api_servers_cache` and retry request
-                    kwargs.update(timeout=urllib3.Timeout(connect=max(1, timeout / 2.0), total=timeout),
+                    kwargs.update(timeout=urllib3.Timeout(connect=max(1.0, timeout / 2.0), total=timeout),
                                   retries=retries)
                     api_servers_cache = api_servers_cache[:nodes]
 
@@ -774,10 +774,10 @@ class Kubernetes(AbstractDCS):
                                        label_selector=self._label_selector)
         self._kinds = ObjectCache(self, kinds_func, self._retry, self._condition, self._name)
 
-    def retry(self, *args: Any, **kwargs: Any) -> Any:
+    def retry(self, method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         retry = self._retry.copy()
         kwargs['_retry'] = retry
-        return retry(*args, **kwargs)
+        return retry(method, *args, **kwargs)
 
     @staticmethod
     def _run_and_handle_exceptions(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:

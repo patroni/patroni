@@ -254,8 +254,8 @@ class Consul(AbstractDCS):
             self.create_session()
         self._previous_loop_token = self._client.token
 
-    def retry(self, *args: Any, **kwargs: Any) -> Any:
-        return self._retry.copy()(*args, **kwargs)
+    def retry(self, method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        return self._retry.copy()(method, *args, **kwargs)
 
     def create_session(self) -> None:
         while not self._session:
