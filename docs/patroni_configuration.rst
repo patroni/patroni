@@ -65,7 +65,7 @@ There are some other Postgres parameters controlled by Patroni:
 
 To be on the safe side parameters from the above lists are not written into ``postgresql.conf``, but passed as a list of arguments to the ``pg_ctl start`` which gives them the highest precedence, even above `ALTER SYSTEM <https://www.postgresql.org/docs/current/static/sql-altersystem.html>`__
 
-There also are some parameters like **postgresql.listen**, **postgresql.data_dir** that **can be set only locally**, i.e. in the Patroni :ref:`config file <yaml_configuration>` or via :ref:`configuration <environment>` variable. In most cases the local configuration will override the dynamic configuration. 
+There also are some parameters like **postgresql.listen**, **postgresql.data_dir** that **can be set only locally**, i.e. in the Patroni :ref:`config file <yaml_configuration>` or via :ref:`configuration <environment>` variable. In most cases the local configuration will override the dynamic configuration.
 
 
 When applying the local or dynamic configuration options, the following actions are taken:
