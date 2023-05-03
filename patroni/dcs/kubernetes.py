@@ -990,8 +990,6 @@ class Kubernetes(AbstractDCS):
     @staticmethod
     def subsets_changed(last_observed_subsets: List[K8sObject], ip: str, ports: List[K8sObject]) -> bool:
         """
-        >>> Kubernetes.subsets_changed([], None, [])
-        True
         >>> ip = '1.2.3.4'
         >>> a = [k8s_client.V1EndpointAddress(ip=ip)]
         >>> s = [k8s_client.V1EndpointSubset(addresses=a)]
