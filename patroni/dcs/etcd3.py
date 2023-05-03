@@ -644,6 +644,7 @@ class Etcd3(AbstractEtcd):
         self.__do_not_watch = super(Etcd3, self).set_ttl(ttl)
         if self.__do_not_watch:
             self._lease = None
+        return None
 
     def _do_refresh_lease(self, force: bool = False, retry: Optional[Retry] = None) -> bool:
         if not force and self._lease and self._last_lease_refresh + self._loop_wait > time.time():

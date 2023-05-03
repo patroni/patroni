@@ -285,6 +285,7 @@ class Consul(AbstractDCS):
         if self._client.http.set_ttl(ttl / 2.0):  # Consul multiplies the TTL by 2x
             self._session = None
             self.__do_not_watch = True
+        return None
 
     @property
     def ttl(self) -> int:

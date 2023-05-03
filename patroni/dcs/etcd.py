@@ -650,6 +650,7 @@ class Etcd(AbstractEtcd):
 
     def set_ttl(self, ttl: int) -> Optional[bool]:
         self.__do_not_watch = super(Etcd, self).set_ttl(ttl)
+        return None
 
     @staticmethod
     def member(node: etcd.EtcdResult) -> Member:

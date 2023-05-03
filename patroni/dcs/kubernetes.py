@@ -803,6 +803,7 @@ class Kubernetes(AbstractDCS):
         ttl = int(ttl)
         self.__do_not_watch = self._ttl != ttl
         self._ttl = ttl
+        return None
 
     @property
     def ttl(self) -> int:
