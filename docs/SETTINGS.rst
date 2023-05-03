@@ -133,19 +133,21 @@ Enables integration Patroni with `Citus <https://docs.citusdata.com>`__. If conf
 
 Consul
 ------
-Most of the parameters are optional, but you have to specify one of the **host** or **url**
+Most of the parameters are optional, but you have to specify one of the **host** or **url**.
+
+Important: unless otherwise stated, a change is applied only after restarting the Patroni process (sending SIGHUP would not work).
 
 -  **host**: the host:port for the Consul local agent.
 -  **url**: url for the Consul local agent, in format: http(s)://host:port.
 -  **port**: (optional) Consul port.
 -  **scheme**: (optional) **http** or **https**, defaults to **http**.
--  **token**: (optional) ACL token.
+-  **token**: (optional; changing does not require a restart) ACL token.
 -  **verify**: (optional) whether to verify the SSL certificate for HTTPS requests.
 -  **cacert**: (optional) The ca certificate. If present it will enable validation.
 -  **cert**: (optional) file with the client certificate.
 -  **key**: (optional) file with the client key. Can be empty if the key is part of **cert**.
 -  **dc**: (optional) Datacenter to communicate with. By default the datacenter of the host is used.
--  **consistency**: (optional) Select consul consistency mode. Possible values are ``default``, ``consistent``, or ``stale`` (more details in `consul API reference <https://www.consul.io/api/features/consistency.html/>`__)
+-  **consistency**: (optional; changing does not require a restart) Select consul consistency mode. Possible values are ``default``, ``consistent``, or ``stale`` (more details in `consul API reference <https://www.consul.io/api/features/consistency.html/>`__)
 -  **checks**: (optional) list of Consul health checks used for the session. By default an empty list is used.
 -  **register\_service**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, primary, replica, or standby-leader depending on the node's role. Defaults to **false**.
 -  **service\_tags**: (optional) additional static tags to add to the Consul service apart from the role (``master``/``primary``/``replica``/``standby-leader``). By default an empty list is used.
