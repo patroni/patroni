@@ -91,7 +91,7 @@ kubernetes
 raft
     `pysyncobj` module in order to use python Raft implementation as DCS
 aws
-    `boto` in order to use AWS callbacks
+    `boto3` in order to use AWS callbacks
 
 For example, the command in order to install Patroni together with dependencies for Etcd as a DCS and AWS callbacks is:
 
@@ -145,7 +145,7 @@ run:
 YAML Configuration
 ------------------
 
-Go :ref:`here <settings>` for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/zalando/patroni/blob/master/postgres0.yml>`__.
+Go :ref:`here <yaml_configuration>` for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/zalando/patroni/blob/master/postgres0.yml>`__.
 
 
 Environment Configuration

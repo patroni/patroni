@@ -49,7 +49,7 @@ on at least two nodes, enable ``synchronous_mode_strict`` in addition to the
 ``synchronous_mode``. This parameter prevents Patroni from switching off the
 synchronous replication on the primary when no synchronous standby candidates
 are available. As a downside, the primary is not be available for writes
-(unless the Postgres transaction explicitly turns of ``synchronous_mode``),
+(unless the Postgres transaction explicitly turns off ``synchronous_mode``),
 blocking all client write requests until at least one synchronous replica comes
 up.
 

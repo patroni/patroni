@@ -1685,7 +1685,7 @@ This version implements support of permanent replication slots, adds support of 
 
 - Permanent replication slots (Alexander Kukushkin)
 
-  Permanent replication slots are preserved on failover/switchover, that is, Patroni on the new primary will create configured replication slots right after doing promote. Slots could be configured with the help of `patronictl edit-config`. The initial configuration could be also done in the :ref:`bootstrap.dcs <settings>`.
+  Permanent replication slots are preserved on failover/switchover, that is, Patroni on the new primary will create configured replication slots right after doing promote. Slots could be configured with the help of `patronictl edit-config`. The initial configuration could be also done in the :ref:`bootstrap.dcs <yaml_configuration>`.
 
 - Add pgbackrest support (Yogesh Sharma)
 
@@ -2530,7 +2530,7 @@ When upgrading from v0.90 or below, always upgrade all replicas before the maste
 
   Patroni SIGHUP or POST to /reload will make it re-read the configuration file.
 
-  See the :ref:`dynamic configuration <dynamic_configuration>`  for the details on which parameters can be changed and the order of processing difference configuration sources.
+  See the :ref:`Patroni configuration <patroni_configuration>` for the details on which parameters can be changed and the order of processing difference configuration sources.
 
   The configuration file format *has changed* since the v0.90. Patroni is still compatible with the old configuration files, but in order to take advantage of the bootstrap parameters one needs to change it. Users are encourage to update them by referring to the :ref:`dynamic configuration documentation page <dynamic_configuration>`.
 
