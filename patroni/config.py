@@ -335,16 +335,16 @@ class Config(object):
 
         for name, value in dynamic_configuration.items():
             if name == 'postgresql':
-                for p, v in (value or {}).items():
-                    if p == 'parameters':
-                        config['postgresql'][p].update(self._process_postgresql_parameters(v))
-                    elif p not in ('connect_address', 'proxy_address', 'listen',
-                                   'config_dir', 'data_dir', 'pgpass', 'authentication'):
-                        config['postgresql'][p] = deepcopy(v)
-            elif name in ('standby_cluster', 'watchdog'):
-                for p, v in (value or {}).items():
-                    if p in self.__DEFAULT_CONFIG[name]:
-                        config[name][p] = deepcopy(v)
+                for name, value in (value or {}).items():
+                    if name == 'parameters':
+                        config['postgresql'][name].update(self._process_postgresql_parameters(value))
+                    elif name not in ('connect_address', 'proxy_address', 'listen',
+                                      'config_dir', 'data_dir', 'pgpass', 'authentication'):
+                        config['postgresql'][name] = deepcopy(value)
+            elif name == 'standby_cluster':
+                for name, value in (value or {}).items():
+                    if name in self.__DEFAULT_CONFIG['standby_cluster']:
+                        config['standby_cluster'][name] = deepcopy(value)
             elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overridden from DCS
                 config[name] = int(value)
         return config
