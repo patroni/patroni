@@ -42,12 +42,14 @@ def synchronized(func: Callable[..., Any]) -> Callable[..., Any]:
 class WatchdogConfig(object):
     """Helper to contain a snapshot of configuration"""
     def __init__(self, config: Config) -> None:
-        self.mode = parse_mode(config['watchdog'].get('mode', 'automatic'))
+        watchdog_config = config.get("watchdog") or {'mode': 'automatic'}
+
+        self.mode = parse_mode(watchdog_config.get('mode', 'automatic'))
         self.ttl = config['ttl']
         self.loop_wait = config['loop_wait']
-        self.safety_margin = config['watchdog'].get('safety_margin', 5)
-        self.driver = config['watchdog'].get('driver', 'default')
-        self.driver_config = dict((k, v) for k, v in config['watchdog'].items()
+        self.safety_margin = watchdog_config.get('safety_margin', 5)
+        self.driver = watchdog_config.get('driver', 'default')
+        self.driver_config = dict((k, v) for k, v in watchdog_config.items()
                                   if k not in ['mode', 'safety_margin', 'driver'])
 
     def __eq__(self, other: Any) -> bool:
