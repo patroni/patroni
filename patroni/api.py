@@ -1269,7 +1269,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         cursor = None
         try:
             with self.patroni.postgresql.connection().cursor() as cursor:
-                cursor.execute(sql.encode('utf-8'), params)
+                cursor.execute(sql, params)
                 return [r for r in cursor]
         except psycopg.Error as e:
             if cursor and cursor.connection.closed == 0:
