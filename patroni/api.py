@@ -183,7 +183,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if patroni.postgresql.pending_restart:
             response['pending_restart'] = True
         response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
-        if patroni.scheduled_restart and isinstance(patroni.scheduled_restart, dict):
+        if patroni.scheduled_restart:
             response['scheduled_restart'] = patroni.scheduled_restart.copy()
             del response['scheduled_restart']['postmaster_start_time']
             response['scheduled_restart']['schedule'] = (response['scheduled_restart']['schedule']).isoformat()
@@ -467,7 +467,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         patroni = self.server.patroni
         epoch = datetime.datetime(1970, 1, 1, tzinfo=tzutc)
 
-        metrics = []
+        metrics: List[str] = []
 
         scope_label = '{{scope="{0}"}}'.format(patroni.postgresql.scope)
         metrics.append("# HELP patroni_version Patroni semver without periods.")
@@ -638,7 +638,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         request = self._read_json_content()
         if request:
             cluster = self.server.patroni.dcs.get_cluster()
-            if not deep_compare(request, cluster.config.data):
+            if not (cluster.config and deep_compare(request, cluster.config.data)):
                 value = json.dumps(request, separators=(',', ':'))
                 if not self.server.patroni.dcs.set_config_value(value):
                     return self.send_error(502)
@@ -915,7 +915,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             time.sleep(1)
             try:
                 cluster = self.server.patroni.dcs.get_cluster()
-                if not cluster.is_unlocked() and cluster.leader.name != leader:
+                if not cluster.is_unlocked() and cluster.leader and cluster.leader.name != leader:
                     if not candidate or candidate == cluster.leader.name:
                         return 200, 'Successfully {0}ed over to "{1}"'.format(action[:-4], cluster.leader.name)
                     else:
@@ -952,7 +952,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if not members:
                 return action + ' is not possible: can not find sync_standby'
         else:
-            members = [m for m in cluster.members if m.name != cluster.leader.name and m.api_url]
+            members = [m for m in cluster.members if not cluster.leader or m.name != cluster.leader.name and m.api_url]
             if not members:
                 return action + ' is not possible: cluster does not have members except leader'
         for st in self.server.patroni.ha.fetch_nodes_statuses(members):
@@ -1181,7 +1181,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if row[1] > 0:
                 result['timeline'] = row[1]
             else:
-                leader_timeline = None if not cluster or cluster.is_unlocked() else cluster.leader.timeline
+                leader_timeline = None\
+                    if not cluster or cluster.is_unlocked() or not cluster.leader else cluster.leader.timeline
                 result['timeline'] = postgresql.replica_cached_timeline(leader_timeline)
 
             if row[7]:
@@ -1192,7 +1193,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if state == 'running':
                 logger.exception('get_postgresql_status')
                 state = 'unknown'
-            result = {'state': state, 'role': postgresql.role}
+            result: Dict[str, Any] = {'state': state, 'role': postgresql.role}
 
         if global_config.is_paused:
             result['pause'] = True
@@ -1212,7 +1213,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.__start_time = time.time()
         BaseHTTPRequestHandler.handle_one_request(self)
 
-    def log_message(self, format: str, *args) -> None:
+    def log_message(self, format: str, *args: Any) -> None:
         """Log a custom ``debug`` message.
 
         Additionally, to *format*, the log entry contains the client IP address and the current latency of the request.
@@ -1268,7 +1269,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         cursor = None
         try:
             with self.patroni.postgresql.connection().cursor() as cursor:
-                cursor.execute(sql, params)
+                cursor.execute(sql.encode('utf-8'), params)
                 return [r for r in cursor]
         except psycopg.Error as e:
             if cursor and cursor.connection.closed == 0:
@@ -1346,10 +1347,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                     if member.api_url:
                         try:
                             r = urlparse(member.api_url)
-                            host = r.hostname
-                            port = r.port or (443 if r.scheme == 'https' else 80)
-                            for ip in self.__resolve_ips(host, port):
-                                yield ip
+                            if r.hostname:
+                                port = r.port or (443 if r.scheme == 'https' else 80)
+                                for ip in self.__resolve_ips(r.hostname, port):
+                                    yield ip
                         except Exception as e:
                             logger.debug('Failed to parse url %s: %r', member.api_url, e)
 
@@ -1536,14 +1537,11 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if self.__ssl_options.get('certfile'):
             import ssl
             try:
-                # We silent pyright for this line otherwise it would complain about accessing a protected member from
-                # ``ssl``.
-                # There's already been thoughts about using ``cryptography`` module to get the serial number. However,
-                # given the overhead we decided to stick to ``_ssl``. Refer to the following discussion for more
-                # details: https://github.com/zalando/patroni/pull/1887#discussion_r597204638
-                crt = ssl._ssl._test_decode_cert(self.__ssl_options['certfile'])  # pyright: ignore
-                return crt.get('serialNumber')
-            except ssl.SSLError as e:
+                ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                crts = ctx.load_verify_locations(self.__ssl_options['certfile'])
+                if crts:
+                    return crts[0].get('serialNumber')
+            except Exception as e:
                 logger.error('Failed to get serial number from certificate %s: %r', self.__ssl_options['certfile'], e)
 
     def reload_local_certificate(self) -> Optional[bool]:
