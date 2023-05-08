@@ -6,7 +6,7 @@ import time
 import six
 
 from .dcs import Member
-from .dcs.kubernetes import catch_kubernetes_errors, k8s_client
+from .dcs.kubernetes import catch_kubernetes_errors, Kubernetes
 from .exceptions import DCSError
 
 import kubernetes
@@ -357,3 +357,5 @@ class KubernetesStateManagement:
 
     def create_failover_event(self, event):
         self._events_api.create_namespaced_event(self.crd_namespace, event)
+
+    _run_and_handle_exceptions = staticmethod(Kubernetes._run_and_handle_exceptions)
