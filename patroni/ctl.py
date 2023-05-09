@@ -859,7 +859,7 @@ def failover(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
 @option_force
 @click.pass_obj
 def switchover(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
-               leader: Optional[str], candidate: Optional[str], force: bool, scheduled: Optional[str]):
+               leader: Optional[str], candidate: Optional[str], force: bool, scheduled: Optional[str]) -> None:
     _do_failover_or_switchover(obj, 'switchover', cluster_name, group, leader, candidate, force, scheduled)
 
 
