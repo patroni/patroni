@@ -398,6 +398,7 @@ class Postgresql(object):
                 self._has_permanent_logical_slots
                 or cluster.should_enforce_hot_standby_feedback(self.name, nofailover, self.major_version))
 
+        if global_config:
             self._global_config = global_config
 
     def _cluster_info_state_get(self, name: str) -> Optional[Any]:
