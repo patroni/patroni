@@ -3,14 +3,19 @@ import os
 import signal
 import time
 
+from typing import Any, Dict, Optional, TYPE_CHECKING
+
 from patroni.daemon import AbstractPatroniDaemon, abstract_main
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .config import Config
 
 logger = logging.getLogger(__name__)
 
 
 class Patroni(AbstractPatroniDaemon):
 
-    def __init__(self, config):
+    def __init__(self, config: 'Config') -> None:
         from patroni.api import RestApiServer
         from patroni.dcs import get_dcs
         from patroni.ha import Ha
@@ -33,9 +38,9 @@ class Patroni(AbstractPatroniDaemon):
 
         self.tags = self.get_tags()
         self.next_run = time.time()
-        self.scheduled_restart = {}
+        self.scheduled_restart: Dict[str, Any] = {}
 
-    def load_dynamic_configuration(self):
+    def load_dynamic_configuration(self) -> None:
         from patroni.exceptions import DCSError
         while True:
             try:
@@ -53,19 +58,19 @@ class Patroni(AbstractPatroniDaemon):
                 logger.warning('Can not get cluster from dcs')
                 time.sleep(5)
 
-    def get_tags(self):
+    def get_tags(self) -> Dict[str, Any]:
         return {tag: value for tag, value in self.config.get('tags', {}).items()
                 if tag not in ('clonefrom', 'nofailover', 'noloadbalance', 'nosync') or value}
 
     @property
-    def nofailover(self):
+    def nofailover(self) -> bool:
         return bool(self.tags.get('nofailover', False))
 
     @property
-    def nosync(self):
+    def nosync(self) -> bool:
         return bool(self.tags.get('nosync', False))
 
-    def reload_config(self, sighup=False, local=False):
+    def reload_config(self, sighup: bool = False, local: Optional[bool] = False) -> None:
         try:
             super(Patroni, self).reload_config(sighup, local)
             if local:
@@ -87,7 +92,7 @@ class Patroni(AbstractPatroniDaemon):
     def noloadbalance(self):
         return bool(self.tags.get('noloadbalance', False))
 
-    def schedule_next_run(self):
+    def schedule_next_run(self) -> None:
         self.next_run += self.dcs.loop_wait
         current_time = time.time()
         nap_time = self.next_run - current_time
@@ -100,12 +105,12 @@ class Patroni(AbstractPatroniDaemon):
         elif self.ha.watch(nap_time):
             self.next_run = time.time()
 
-    def run(self):
+    def run(self) -> None:
         self.api.start()
         self.next_run = time.time()
         super(Patroni, self).run()
 
-    def _run_cycle(self):
+    def _run_cycle(self) -> None:
         logger.info(self.ha.run_cycle())
 
         if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
@@ -117,7 +122,7 @@ class Patroni(AbstractPatroniDaemon):
 
         self.schedule_next_run()
 
-    def _shutdown(self):
+    def _shutdown(self) -> None:
         try:
             self.api.shutdown()
         except Exception:
@@ -128,7 +133,7 @@ class Patroni(AbstractPatroniDaemon):
             logger.exception('Exception during Ha.shutdown')
 
 
-def patroni_main():
+def patroni_main() -> None:
     from multiprocessing import freeze_support
     from patroni.validator import schema
 
@@ -136,18 +141,20 @@ def patroni_main():
     abstract_main(Patroni, schema)
 
 
-def main():
-    if os.getpid() != 1:
-        from patroni import check_psycopg
+def main() -> None:
+    from patroni import check_psycopg
 
-        check_psycopg()
+    check_psycopg()
+
+    if os.getpid() != 1:
         return patroni_main()
 
     # Patroni started with PID=1, it looks like we are in the container
+    from types import FrameType
     pid = 0
 
     # Looks like we are in a docker, so we will act like init
-    def sigchld_handler(signo, stack_frame):
+    def sigchld_handler(signo: int, stack_frame: Optional[FrameType]) -> None:
         try:
             while True:
                 ret = os.waitpid(-1, os.WNOHANG)
@@ -158,7 +165,7 @@ def main():
         except OSError:
             pass
 
-    def passtochild(signo, stack_frame):
+    def passtochild(signo: int, stack_frame: Optional[FrameType]):
         if pid:
             os.kill(pid, signo)
 

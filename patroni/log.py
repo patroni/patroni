@@ -13,7 +13,7 @@ from patroni.utils import deep_compare
 from queue import Queue, Full
 from threading import Lock, Thread
 
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional, Union
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class QueueHandler(logging.Handler):
     def __init__(self) -> None:
         """Queue initialised and initial records_lost established."""
         super().__init__()
-        self.queue = Queue()
+        self.queue: Queue[Union[logging.LogRecord, None]] = Queue()
         self._records_lost = 0
 
     def _put_record(self, record: logging.LogRecord) -> None:
@@ -189,10 +189,10 @@ class PatroniLogger(Thread):
         super(PatroniLogger, self).__init__()
         self._queue_handler = QueueHandler()
         self._root_logger = logging.getLogger()
-        self._config = None
+        self._config: Optional[Dict[str, Any]] = None
         self.log_handler = None
         self.log_handler_lock = Lock()
-        self._old_handlers = []
+        self._old_handlers: List[logging.Handler] = []
         # initially set log level to ``DEBUG`` while the logger thread has not started running yet. The daemon process
         # will later adjust all log related settings with what was provided through the user configuration file.
         self.reload_config({'level': 'DEBUG'})

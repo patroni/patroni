@@ -110,6 +110,11 @@ class TestWatchdog(unittest.TestCase):
         watchdog.keepalive()
         self.assertEqual(len(device.writes), 1)
 
+        watchdog.impl._fd, fd = None, watchdog.impl._fd
+        watchdog.keepalive()
+        self.assertEqual(len(device.writes), 1)
+        watchdog.impl._fd = fd
+
         watchdog.disable()
         self.assertFalse(device.open)
         self.assertEqual(device.writes[-1], b'V')

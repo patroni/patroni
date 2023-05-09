@@ -7,9 +7,9 @@
 :var DEC_RE: regular expression to match decimal numbers, signed or unsigned.
 :var HEX_RE: regular expression to match hex strings, signed or unsigned.
 :var DBL_RE: regular expression to match double precision numbers, signed or unsigned. Matches scientific notation too.
+:var WHITESPACE_RE: regular expression to match whitespace characters
 """
 import errno
-import json.decoder as json_decoder
 import logging
 import os
 import platform
@@ -21,9 +21,10 @@ import tempfile
 import time
 from shlex import split
 
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union, TYPE_CHECKING
+from typing import Any, Callable, Dict, Iterator, List, Optional, Union, Tuple, Type, TYPE_CHECKING
 
 from dateutil import tz
+from json import JSONDecoder
 from urllib3.response import HTTPResponse
 
 from .exceptions import PatroniException
@@ -42,9 +43,10 @@ OCT_RE = re.compile(r'^[-+]?0[0-7]*')
 DEC_RE = re.compile(r'^[-+]?(0|[1-9][0-9]*)')
 HEX_RE = re.compile(r'^[-+]?0x[0-9a-fA-F]+')
 DBL_RE = re.compile(r'^[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?')
+WHITESPACE_RE = re.compile(r'[ \t\n\r]*', re.VERBOSE | re.MULTILINE | re.DOTALL)
 
 
-def deep_compare(obj1: Dict, obj2: Dict) -> bool:
+def deep_compare(obj1: Dict[Any, Union[Any, Dict[Any, Any]]], obj2: Dict[Any, Union[Any, Dict[Any, Any]]]) -> bool:
     """Recursively compare two dictionaries to check if they are equal in terms of keys and values.
 
     .. note::
@@ -84,7 +86,7 @@ def deep_compare(obj1: Dict, obj2: Dict) -> bool:
     return True
 
 
-def patch_config(config: Dict, data: Dict) -> bool:
+def patch_config(config: Dict[Any, Union[Any, Dict[Any, Any]]], data: Dict[Any, Union[Any, Dict[Any, Any]]]) -> bool:
     """Update and append to dictionary *config* from overrides in *data*.
 
     .. note::
@@ -239,7 +241,7 @@ def strtod(value: Any) -> Tuple[Union[float, None], str]:
     return None, value
 
 
-def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: str) -> Union[int, float, None]:
+def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: Optional[str]) -> Union[int, float, None]:
     """Convert *value* as a *unit* of compute information or time to *base_unit*.
 
     :param value: value to be converted to the base unit.
@@ -268,7 +270,7 @@ def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: str) ->
         >>> convert_to_base_unit(1, 'GB', '512 MB') is None
         True
     """
-    convert = {
+    convert: Dict[str, Dict[str, Union[int, float]]] = {
         'B': {'B': 1, 'kB': 1024, 'MB': 1024 * 1024, 'GB': 1024 * 1024 * 1024, 'TB': 1024 * 1024 * 1024 * 1024},
         'kB': {'B': 1.0 / 1024, 'kB': 1, 'MB': 1024, 'GB': 1024 * 1024, 'TB': 1024 * 1024 * 1024},
         'MB': {'B': 1.0 / (1024 * 1024), 'kB': 1.0 / 1024, 'MB': 1, 'GB': 1024, 'TB': 1024 * 1024},
@@ -287,7 +289,7 @@ def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: str) ->
     else:
         base_value = 1
 
-    if base_unit in convert and unit in convert[base_unit]:
+    if base_value is not None and base_unit in convert and unit in convert[base_unit]:
         value *= convert[base_unit][unit] / float(base_value)
 
         if unit in round_order:
@@ -297,7 +299,7 @@ def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: str) ->
         return value
 
 
-def parse_int(value: Any, base_unit: Optional[str] = None) -> Union[int, None]:
+def parse_int(value: Any, base_unit: Optional[str] = None) -> Optional[int]:
     """Parse *value* as an :class:`int`.
 
     :param value: any value that can be handled either by :func:`strtol` or :func:`strtod`. If *value* contains a
@@ -350,7 +352,7 @@ def parse_int(value: Any, base_unit: Optional[str] = None) -> Union[int, None]:
             return round(val)
 
 
-def parse_real(value: Any, base_unit: Optional[str] = None) -> Union[float, None]:
+def parse_real(value: Any, base_unit: Optional[str] = None) -> Optional[float]:
     """Parse *value* as a :class:`float`.
 
     :param value: any value that can be handled by :func:`strtod`. If *value* contains a unit, then *base_unit* must
@@ -381,7 +383,7 @@ def parse_real(value: Any, base_unit: Optional[str] = None) -> Union[float, None
         return convert_to_base_unit(val, unit, base_unit)
 
 
-def compare_values(vartype: str, unit: str, old_value: Any, new_value: Any) -> bool:
+def compare_values(vartype: str, unit: Optional[str], old_value: Any, new_value: Any) -> bool:
     """Check if *old_value* and *new_value* are equivalent after parsing them as *vartype*.
 
     :param vartpe: the target type to parse *old_value* and *new_value* before comparing them. Accepts any among of the
@@ -426,7 +428,7 @@ def compare_values(vartype: str, unit: str, old_value: Any, new_value: Any) -> b
         >>> compare_values('integer', 'kB', 4098, '4097.5kB')
         True
     """
-    converters = {
+    converters: Dict[str, Callable[[str, Optional[str]], Union[None, bool, int, float, str]]] = {
         'bool': lambda v1, v2: parse_bool(v1),
         'integer': parse_int,
         'real': parse_real,
@@ -434,11 +436,11 @@ def compare_values(vartype: str, unit: str, old_value: Any, new_value: Any) -> b
         'string': lambda v1, v2: str(v1)
     }
 
-    convert = converters.get(vartype) or converters['string']
-    old_value = convert(old_value, None)
-    new_value = convert(new_value, unit)
+    converter = converters.get(vartype) or converters['string']
+    old_converted = converter(old_value, None)
+    new_converted = converter(new_value, unit)
 
-    return old_value is not None and new_value is not None and old_value == new_value
+    return old_converted is not None and new_converted is not None and old_converted == new_converted
 
 
 def _sleep(interval: Union[int, float]) -> None:
@@ -467,11 +469,11 @@ class Retry(object):
     :ivar retry_exceptions: single exception or tuple
     """
 
-    def __init__(self, max_tries: Optional[int] = 1, delay: Optional[float] = 0.1, backoff: Optional[int] = 2,
-                 max_jitter: Optional[float] = 0.8, max_delay: Optional[int] = 3600,
-                 sleep_func: Optional[Callable[[Union[int, float]], None]] = _sleep,
+    def __init__(self, max_tries: Optional[int] = 1, delay: float = 0.1, backoff: int = 2,
+                 max_jitter: float = 0.8, max_delay: int = 3600,
+                 sleep_func: Callable[[Union[int, float]], None] = _sleep,
                  deadline: Optional[Union[int, float]] = None,
-                 retry_exceptions: Optional[Union[Exception, Tuple[Exception]]] = PatroniException) -> None:
+                 retry_exceptions: Union[Type[Exception], Tuple[Type[Exception], ...]] = PatroniException) -> None:
         """Create a :class:`Retry` instance for retrying function calls.
 
         :param max_tries: how many times to retry the command. ``-1`` means infinite tries.
@@ -504,7 +506,7 @@ class Retry(object):
     def copy(self) -> 'Retry':
         """Return a clone of this retry manager."""
         return Retry(max_tries=self.max_tries, delay=self.delay, backoff=self.backoff,
-                     max_jitter=self.max_jitter / 100.0, max_delay=self.max_delay, sleep_func=self.sleep_func,
+                     max_jitter=self.max_jitter / 100.0, max_delay=int(self.max_delay), sleep_func=self.sleep_func,
                      deadline=self.deadline, retry_exceptions=self.retry_exceptions)
 
     @property
@@ -525,11 +527,11 @@ class Retry(object):
         self._cur_delay = min(self._cur_delay * self.backoff, self.max_delay)
 
     @property
-    def stoptime(self) -> Union[float, None]:
+    def stoptime(self) -> float:
         """Get the current stop time."""
-        return self._cur_stoptime
+        return self._cur_stoptime or 0
 
-    def __call__(self, func: Callable, *args: Any, **kwargs: Any) -> Any:
+    def __call__(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Call a function *func* with arguments ``*args`` and ``*kwargs`` in a loop.
 
         *func* will be called until one of the following conditions is met:
@@ -561,7 +563,9 @@ class Retry(object):
                     logger.warning('Retry got exception: %s', e)
                     raise RetryFailedError("Too many retry attempts")
                 self._attempts += 1
-                sleeptime = hasattr(e, 'sleeptime') and e.sleeptime or self.sleeptime
+                sleeptime = getattr(e, 'sleeptime', None)
+                if not isinstance(sleeptime, (int, float)):
+                    sleeptime = self.sleeptime
 
                 if self._cur_stoptime is not None and time.time() + sleeptime >= self._cur_stoptime:
                     logger.warning('Retry got exception: %s', e)
@@ -571,7 +575,7 @@ class Retry(object):
                 self.update_delay()
 
 
-def polling_loop(timeout: Union[int, float], interval: Optional[Union[int, float]] = 1) -> Iterator[int]:
+def polling_loop(timeout: Union[int, float], interval: Union[int, float] = 1) -> Iterator[int]:
     """Return an iterator that returns values every *interval* seconds until *timeout* has passed.
 
     .. note::
@@ -587,10 +591,10 @@ def polling_loop(timeout: Union[int, float], interval: Optional[Union[int, float
     while time.time() < end_time:
         yield iteration
         iteration += 1
-        time.sleep(interval)
+        time.sleep(float(interval))
 
 
-def split_host_port(value: str, default_port: int) -> Tuple[str, int]:
+def split_host_port(value: str, default_port: Optional[int]) -> Tuple[str, int]:
     """Extract host(s) and port from *value*.
 
     :param value: string from where host(s) and port will be extracted. Accepts either of these formats
@@ -625,11 +629,11 @@ def split_host_port(value: str, default_port: int) -> Tuple[str, int]:
     # If *value* contains ``:`` we consider it to be an IPv6 address, so we attempt to remove possible square brackets
     if ':' in t[0]:
         t[0] = ','.join([h.strip().strip('[]') for h in t[0].split(',')])
-    t.append(default_port)
+    t.append(str(default_port))
     return t[0], int(t[1])
 
 
-def uri(proto: str, netloc: Union[List, Tuple[str, int], str], path: Optional[str] = '',
+def uri(proto: str, netloc: Union[List[str], Tuple[str, Union[int, str]], str], path: Optional[str] = '',
         user: Optional[str] = None) -> str:
     """Construct URI from given arguments.
 
@@ -670,17 +674,15 @@ def iter_response_objects(response: HTTPResponse) -> Iterator[Dict[str, Any]]:
     :rtype: Iterator[:class:`dict`] with current JSON document.
     """
     prev = ''
-    decoder = json_decoder.JSONDecoder()
+    decoder = JSONDecoder()
     for chunk in response.read_chunked(decode_content=False):
-        if isinstance(chunk, bytes):
-            chunk = chunk.decode('utf-8')
-        chunk = prev + chunk
+        chunk = prev + chunk.decode('utf-8')
 
         length = len(chunk)
         # ``chunk`` is analyzed in parts. ``idx`` holds the position of the first character in the current part that is
         # neither space nor tab nor line-break, or in other words, the position in the ``chunk`` where it is likely
         # that a JSON document begins
-        idx = json_decoder.WHITESPACE.match(chunk, 0).end()
+        idx = WHITESPACE_RE.match(chunk, 0).end()  # pyright: ignore [reportOptionalMemberAccess]
         while idx < length:
             try:
                 # Get a JSON document from the chunk. ``message`` is a dictionary representing the JSON document, and
@@ -690,7 +692,7 @@ def iter_response_objects(response: HTTPResponse) -> Iterator[Dict[str, Any]]:
                 break
             else:
                 yield message
-                idx = json_decoder.WHITESPACE.match(chunk, idx).end()
+                idx = WHITESPACE_RE.match(chunk, idx).end()  # pyright: ignore [reportOptionalMemberAccess]
         # It is not usual that a ``chunk`` would contain more than one JSON document, but we handle that just in case
         prev = chunk[idx:]
 
@@ -732,7 +734,7 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
     leader_name = cluster.leader.name if cluster.leader else None
     cluster_lsn = cluster.last_lsn or 0
 
-    ret = {'members': []}
+    ret: Dict[str, Any] = {'members': []}
     for m in cluster.members:
         if m.name == leader_name:
             role = 'standby_leader' if global_config.is_standby_cluster else 'leader'
@@ -762,7 +764,8 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
         ret['members'].append(member)
 
     # sort members by name for consistency
-    ret['members'].sort(key=lambda m: m['name'])
+    cmp: Callable[[Dict[str, Any]], bool] = lambda m: m['name']
+    ret['members'].sort(key=cmp)
     if global_config.is_paused:
         ret['pause'] = True
     if cluster.failover and cluster.failover.scheduled_at:
@@ -791,7 +794,7 @@ def is_subpath(d1: str, d2: str) -> bool:
     return os.path.commonprefix([real_d1, real_d2 + os.path.sep]) == real_d1
 
 
-def validate_directory(d: str, msg: Optional[str] = "{} {}") -> None:
+def validate_directory(d: str, msg: str = "{} {}") -> None:
     """Ensure directory exists and is writable.
 
     .. note::
@@ -842,7 +845,7 @@ def data_directory_is_empty(data_dir: str) -> bool:
     return all(os.name != 'nt' and (n.startswith('.') or n == 'lost+found') for n in os.listdir(data_dir))
 
 
-def keepalive_intvl(timeout: int, idle: int, cnt: Optional[int] = 3) -> int:
+def keepalive_intvl(timeout: int, idle: int, cnt: int = 3) -> int:
     """Calculate the value to be used as ``TCP_KEEPINTVL`` based on *timeout*, *idle*, and *cnt*.
 
     :param timeout: value for ``TCP_USER_TIMEOUT``.
@@ -854,7 +857,7 @@ def keepalive_intvl(timeout: int, idle: int, cnt: Optional[int] = 3) -> int:
     return max(1, int(float(timeout - idle) / cnt))
 
 
-def keepalive_socket_options(timeout: int, idle: int, cnt: Optional[int] = 3) -> Iterator[Tuple[int, int, int]]:
+def keepalive_socket_options(timeout: int, idle: int, cnt: int = 3) -> Iterator[Tuple[int, int, int]]:
     """Get all keepalive related options to be set in a socket.
 
     :param timeout: value for ``TCP_USER_TIMEOUT``.
@@ -871,25 +874,27 @@ def keepalive_socket_options(timeout: int, idle: int, cnt: Optional[int] = 3) ->
     """
     yield (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
-    if sys.platform.startswith('linux'):
-        yield (socket.SOL_TCP, 18, int(timeout * 1000))  # TCP_USER_TIMEOUT
-        TCP_KEEPIDLE = getattr(socket, 'TCP_KEEPIDLE', None)
-        TCP_KEEPINTVL = getattr(socket, 'TCP_KEEPINTVL', None)
-        TCP_KEEPCNT = getattr(socket, 'TCP_KEEPCNT', None)
-    elif sys.platform.startswith('darwin'):
-        TCP_KEEPIDLE = 0x10  # (named "TCP_KEEPALIVE" in C)
-        TCP_KEEPINTVL = 0x101
-        TCP_KEEPCNT = 0x102
-    else:
+    if not (sys.platform.startswith('linux') or sys.platform.startswith('darwin')):
         return
 
-    intvl = keepalive_intvl(timeout, idle, cnt)
-    yield (socket.IPPROTO_TCP, TCP_KEEPIDLE, idle)
-    yield (socket.IPPROTO_TCP, TCP_KEEPINTVL, intvl)
-    yield (socket.IPPROTO_TCP, TCP_KEEPCNT, cnt)
+    if sys.platform.startswith('linux'):
+        yield (socket.SOL_TCP, 18, int(timeout * 1000))  # TCP_USER_TIMEOUT
+
+    # The socket constants from MacOS netinet/tcp.h are not exported by python's
+    # socket module, therefore we are using 0x10, 0x101, 0x102 constants.
+    TCP_KEEPIDLE = getattr(socket, 'TCP_KEEPIDLE', 0x10 if sys.platform.startswith('darwin') else None)
+    if TCP_KEEPIDLE is not None:
+        yield (socket.IPPROTO_TCP, TCP_KEEPIDLE, idle)
+    TCP_KEEPINTVL = getattr(socket, 'TCP_KEEPINTVL', 0x101 if sys.platform.startswith('darwin') else None)
+    if TCP_KEEPINTVL is not None:
+        intvl = keepalive_intvl(timeout, idle, cnt)
+        yield (socket.IPPROTO_TCP, TCP_KEEPINTVL, intvl)
+    TCP_KEEPCNT = getattr(socket, 'TCP_KEEPCNT', 0x102 if sys.platform.startswith('darwin') else None)
+    if TCP_KEEPCNT is not None:
+        yield (socket.IPPROTO_TCP, TCP_KEEPCNT, cnt)
 
 
-def enable_keepalive(sock: socket.socket, timeout: int, idle: int, cnt: Optional[int] = 3) -> Union[int, None]:
+def enable_keepalive(sock: socket.socket, timeout: int, idle: int, cnt: int = 3) -> None:
     """Enable keepalive for *sock*.
 
     Will set socket options depending on the platform, as per return of :func:`keepalive_socket_options`.
@@ -908,7 +913,7 @@ def enable_keepalive(sock: socket.socket, timeout: int, idle: int, cnt: Optional
     SIO_KEEPALIVE_VALS = getattr(socket, 'SIO_KEEPALIVE_VALS', None)
     if SIO_KEEPALIVE_VALS is not None:  # Windows
         intvl = keepalive_intvl(timeout, idle, cnt)
-        return sock.ioctl(SIO_KEEPALIVE_VALS, (1, idle * 1000, intvl * 1000))
+        sock.ioctl(SIO_KEEPALIVE_VALS, (1, idle * 1000, intvl * 1000))
 
     for opt in keepalive_socket_options(timeout, idle, cnt):
         sock.setsockopt(*opt)

@@ -11,10 +11,11 @@ import signal
 import sys
 
 from threading import Lock
-from typing import Any, Optional, Type
+from typing import Any, Optional, Type, TYPE_CHECKING
 
-from .config import Config
-from .validator import Schema
+if TYPE_CHECKING:  # pragma: no cover
+    from .config import Config
+    from .validator import Schema
 
 
 class AbstractPatroniDaemon(abc.ABC):
@@ -30,7 +31,7 @@ class AbstractPatroniDaemon(abc.ABC):
     :ivar config: configuration options for this daemon.
     """
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: 'Config') -> None:
         """Set up signal handlers, logging handler and configuration.
 
         :param config: configuration options for this daemon.
@@ -94,7 +95,7 @@ class AbstractPatroniDaemon(abc.ABC):
         with self._sigterm_lock:
             return self._received_sigterm
 
-    def reload_config(self, sighup: Optional[bool] = False, local: Optional[bool] = False) -> None:
+    def reload_config(self, sighup: bool = False, local: Optional[bool] = False) -> None:
         """Reload configuration.
 
         :param sighup: if it is related to a SIGHUP signal.
@@ -140,7 +141,7 @@ class AbstractPatroniDaemon(abc.ABC):
         self.logger.shutdown()
 
 
-def abstract_main(cls: Type[AbstractPatroniDaemon], validator: Optional[Schema] = None) -> None:
+def abstract_main(cls: Type[AbstractPatroniDaemon], validator: Optional['Schema'] = None) -> None:
     """Create the main entry point of a given daemon process.
 
     Expose a basic argument parser, parse the command-line arguments, and run the given daemon process.

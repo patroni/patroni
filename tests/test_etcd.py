@@ -138,7 +138,9 @@ class TestClient(unittest.TestCase):
     @patch.object(EtcdClient, '_get_machines_list',
                   Mock(return_value=['http://localhost:2379', 'http://localhost:4001']))
     def setUp(self):
-        self.client = EtcdClient({'srv': 'test', 'retry_timeout': 3}, DnsCachingResolver())
+        self.etcd = Etcd({'namespace': '/patroni/', 'ttl': 30, 'retry_timeout': 3,
+                          'srv': 'test', 'scope': 'test', 'name': 'foo'})
+        self.client = self.etcd._client
         self.client.http.request = http_request
         self.client.http.request_encode_body = http_request
 

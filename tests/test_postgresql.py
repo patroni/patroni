@@ -369,6 +369,10 @@ class TestPostgresql(BaseTestPostgresql):
     def test_latest_checkpoint_location(self, mock_popen):
         mock_popen.return_value.communicate.return_value = (None, None)
         self.assertEqual(self.p.latest_checkpoint_location(), 28163096)
+        with patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'shut down',
+                                                                        'Latest checkpoint location': 'k/1ADBC18',
+                                                                        "Latest checkpoint's TimeLineID": '1'})):
+            self.assertIsNone(self.p.latest_checkpoint_location())
         # 9.3 and 9.4 format
         mock_popen.return_value.communicate.side_effect = [
             (b'rmgr: XLOG        len (rec/tot):     72/   104, tx:          0, lsn: 0/01ADBC18, prev 0/01ADBBB8, '
@@ -518,10 +522,10 @@ class TestPostgresql(BaseTestPostgresql):
 
     def test_can_create_replica_without_replication_connection(self):
         self.p.config._config['create_replica_method'] = []
-        self.assertFalse(self.p.can_create_replica_without_replication_connection())
+        self.assertFalse(self.p.can_create_replica_without_replication_connection(None))
         self.p.config._config['create_replica_method'] = ['wale', 'basebackup']
         self.p.config._config['wale'] = {'command': 'foo', 'no_leader': 1}
-        self.assertTrue(self.p.can_create_replica_without_replication_connection())
+        self.assertTrue(self.p.can_create_replica_without_replication_connection(None))
 
     def test_replica_method_can_work_without_replication_connection(self):
         self.assertFalse(self.p.replica_method_can_work_without_replication_connection('basebackup'))

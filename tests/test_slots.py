@@ -111,6 +111,8 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.s.copy_logical_slots(self.cluster, ['ls'])
         with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError)):
             self.s.copy_logical_slots(self.cluster, ['foo'])
+        with patch.object(Cluster, 'leader', PropertyMock(return_value=None)):
+            self.s.copy_logical_slots(self.cluster, ['foo'])
 
     @patch.object(Postgresql, 'stop', Mock(return_value=True))
     @patch.object(Postgresql, 'start', Mock(return_value=True))
