@@ -5,11 +5,12 @@ import re
 import subprocess
 import time
 
-from mock import Mock, MagicMock, PropertyMock, patch, mock_open
+from mock import Mock, MagicMock, PropertyMock, patch, mock_open, call
 
 import patroni.psycopg as psycopg
 
 from patroni.async_executor import CriticalTask
+from patroni.collections import CaseInsensitiveDict
 from patroni.config import GlobalConfig
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PostgresConnectionException, PatroniException
@@ -17,6 +18,8 @@ from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
 from patroni.postgresql.postmaster import PostmasterProcess
+from patroni.postgresql.validator import (_parse_postgres_guc_validator, _load_postgres_guc_validators, Bool, Integer,
+                                          Real, Enum, EnumBool, String)
 from patroni.utils import RetryFailedError
 from threading import Thread, current_thread
 
@@ -739,3 +742,185 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=True))
     def test_handle_parameter_change(self):
         self.p.handle_parameter_change()
+
+    @patch('patroni.postgresql.validator.logger.warning')
+    def test_parse_postgres_guc_validator(self, mock_logger):
+        file = '/path/to/my_file.yaml'
+        parameter = 'my_parameter'
+
+        # validator with no type
+        validator = {
+            'version_from': 90300,
+            'version_till': None,
+        }
+        self.assertIsNone(_parse_postgres_guc_validator(file, parameter, validator))
+        mock_logger.assert_called_once_with(
+            'Validator for parameter `%s` in file `%s` contains no type.',
+            parameter,
+            file,
+        )
+
+        # validator with invalid type
+        mock_logger.reset_mock()
+        validator = {
+            'type': 'Random',
+            'version_from': 90300,
+            'version_till': None,
+        }
+        self.assertIsNone(_parse_postgres_guc_validator(file, parameter, validator))
+        mock_logger.assert_called_once_with(
+            'Unexpected validator type for parameter `%s` in file `%s`: `%s`.',
+            parameter,
+            file,
+            validator['type'],
+        )
+
+        # validator with missing attributes
+        mock_logger.reset_mock()
+        validator = {
+            'type': 'String',
+            'version_from': 90300,
+        }
+        self.assertIsNone(_parse_postgres_guc_validator(file, parameter, validator))
+        mock_logger.assert_called_once_with(
+            'Failed to parse `%s` validator for parameter `%s` (`%s`) from file `%s`: `%s`.',
+            validator['type'],
+            parameter,
+            file,
+            {'version_from': 90300},
+            "__init__() missing 1 required positional argument: 'version_till'",
+        )
+
+        # valid validators
+        mock_logger.reset_mock()
+
+        # Bool
+        validator = {
+            'type': 'Bool',
+            'version_from': 90300,
+            'version_till': None,
+        }
+        ret = _parse_postgres_guc_validator(file, parameter, validator)
+        self.assertIsInstance(ret, Bool)
+        self.assertEqual(
+            ret.__dict__,
+            Bool(validator['version_from'], validator['version_till']).__dict__,
+        )
+
+        # Integer
+        validator = {
+            'type': 'Integer',
+            'version_from': 90300,
+            'version_till': None,
+            'min_val': 1,
+            'max_val': 100,
+            'unit': None,
+        }
+        ret = _parse_postgres_guc_validator(file, parameter, validator)
+        self.assertIsInstance(ret, Integer)
+        self.assertEqual(
+            ret.__dict__,
+            Integer(validator['version_from'], validator['version_till'], validator['min_val'], validator['max_val'],
+                 validator['unit']).__dict__,
+        )
+
+        # Real
+        validator = {
+            'type': 'Real',
+            'version_from': 90300,
+            'version_till': None,
+            'min_val': 1.0,
+            'max_val': 100.0,
+            'unit': None,
+        }
+        ret = _parse_postgres_guc_validator(file, parameter, validator)
+        self.assertIsInstance(ret, Real)
+        self.assertEqual(
+            ret.__dict__,
+            Real(validator['version_from'], validator['version_till'], validator['min_val'], validator['max_val'],
+                 validator['unit']).__dict__,
+        )
+
+        # Enum
+        validator = {
+            'type': 'Enum',
+            'version_from': 90300,
+            'version_till': None,
+            'possible_values': ('abc', 'def'),
+        }
+        ret = _parse_postgres_guc_validator(file, parameter, validator)
+        self.assertIsInstance(ret, Enum)
+        self.assertEqual(
+            ret.__dict__,
+            Enum(validator['version_from'], validator['version_till'], validator['possible_values']).__dict__,
+        )
+
+        # EnumBool
+        validator = {
+            'type': 'EnumBool',
+            'version_from': 90300,
+            'version_till': None,
+            'possible_values': ('abc', 'def'),
+        }
+        ret = _parse_postgres_guc_validator(file, parameter, validator)
+        self.assertIsInstance(ret, EnumBool)
+        self.assertEqual(
+            ret.__dict__,
+            EnumBool(validator['version_from'], validator['version_till'], validator['possible_values']).__dict__,
+        )
+
+        # String
+        validator = {
+            'type': 'String',
+            'version_from': 90300,
+            'version_till': None,
+        }
+        ret = _parse_postgres_guc_validator(file, parameter, validator)
+        self.assertIsInstance(ret, String)
+        self.assertEqual(
+            ret.__dict__,
+            String(validator['version_from'], validator['version_till']).__dict__,
+        )
+
+        mock_logger.assert_not_called()
+    
+    def test_load_postgres_guc_validators(self):
+        # with empty section -> create
+        section = CaseInsensitiveDict()
+        file = '/path/to/my_file.yaml'
+        parameter = 'my_parameter'
+
+        config = {
+            'my_parameter': [{
+                'type': 'Bool',
+                'version_from': 90300,
+                'version_till': 90500,
+            }, {
+                'type': 'EnumBool',
+                'version_from': 90500,
+                'version_till': 90600,
+                'possible_values': [
+                    'always',
+                ],
+            }]
+        }
+        _load_postgres_guc_validators(section, config, file, parameter)
+        self.assertEqual(list(section.keys()), ['my_parameter'])
+        self.assertIsInstance(section['my_parameter'], tuple)
+        self.assertEqual(len(section['my_parameter']), 2)
+        self.assertIsInstance(section['my_parameter'][0], Bool)
+        self.assertIsInstance(section['my_parameter'][1], EnumBool)
+
+        # with non-empty section -> append
+        config = {
+            'my_parameter': [{
+                'type': 'String',
+                'version_from': 90600,
+                'version_till': None,
+            }]
+        }
+        _load_postgres_guc_validators(section, config, file, parameter)
+        self.assertEqual(list(section.keys()), ['my_parameter'])
+        self.assertIsInstance(section['my_parameter'], tuple)
+        self.assertEqual(len(section['my_parameter']), 3)
+        self.assertIsInstance(section['my_parameter'][2], String)

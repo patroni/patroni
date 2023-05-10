@@ -1,13 +1,17 @@
 import abc
+from copy import deepcopy
 import logging
 import os
 import sys
 import yaml
 
-from typing import Any, List, MutableMapping, Optional, Tuple, Union
+from typing import Any, Dict, List, MutableMapping, Optional, Tuple, Union, TYPE_CHECKING
 
 from ..collections import CaseInsensitiveDict
 from ..utils import parse_bool, parse_int, parse_real
+
+if TYPE_CHECKING:  # pragma: no cover
+    from types import ModuleType
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +145,116 @@ parameters = CaseInsensitiveDict()
 recovery_parameters = CaseInsensitiveDict()
 
 
-def _load_postgres_gucs_validators():
+def _get_module() -> 'ModuleType':
+    """Get a reference to the current module.
+
+    :returns: the module object.
+    """
+    return sys.modules[__name__]
+
+
+def _parse_postgres_guc_validator(file: str, parameter: str, validator: Dict[str, Any]
+                                  ) -> Union[Bool, Integer, Real, Enum, EnumBool, String, None]:
+    """Parse a given Postgres GUC *validator* into the corresponding Patroni validator object.
+
+    :param file: path to the file that was read. Used for logging purposes.
+    :param parameter: name of the parameter that *validator* belongs to. Used for logging purposes.
+    :param validator: a validator spec of *parameter*, found in an YAML file and already parsed as a Python object.
+
+    :returns: the Patroni validator object that corresponds to the specification found in *validator*. If any issue is
+        faced while parsing *validator*, then return ``None``.
+
+    :Example:
+
+        If a given validator was defined as follows in the YAML file:
+
+        ```yaml
+        - type: String
+          version_from: 90300
+          version_till: null
+
+        Then this method would receive *validator* as:
+
+        ```python
+        {
+            'type': 'String',
+            'version_from': 90300,
+            'versil_till': None
+        }
+        ```
+
+        And this method would return a :class:`String`:
+
+        ```python
+        String(90300, None)
+        ```
+    """
+    validator = deepcopy(validator)
+    try:
+        type_ = validator.pop('type')
+    except KeyError:
+        logger.warning('Validator for parameter `%s` in file `%s` contains no type.', parameter, file)
+        return None
+
+    if type_ not in ['Bool', 'Integer', 'Real', 'Enum', 'EnumBool', 'String']:
+        logger.warning('Unexpected validator type for parameter `%s` in file `%s`: `%s`.', parameter, file, type_)
+        return None
+
+    for key, value in validator.items():
+        # :func:`_transform_parameter_value` expects :class:`tuple` instead of :class:`list`
+        if isinstance(value, list):
+            tmp_value: List[Any] = value
+            validator[key] = tuple(tmp_value)
+
+    try:
+        return getattr(_get_module(), type_)(**validator)
+    except Exception as exc:
+        logger.warning('Failed to parse `%s` validator for parameter `%s` (`%s`) from file `%s`: `%s`.',
+                       type_, parameter, file, validator, str(exc))
+
+    return None
+
+
+def _load_postgres_guc_validators(section: CaseInsensitiveDict, config: Dict[str, Any], file: str,
+                                  parameter: str) -> None:
+    """Load *parameter* validators from *config* into *section*.
+
+    Loop over all validators of *parameter* and load each of them into *section*.
+
+    :param section: reference to either ``parameters`` or ``recovery_parameters`` variable of this module.
+    :param config: Python object corresponding to an YAML file, with values of either ``parameters`` or
+        ``recovery_parameters`` key, corresponding to given *section*.
+    :param file: path to the file that was read. Used by child functions for logging purposes.
+    :param parameter: name of the parameter found under *config* which validators should be parsed and loaded into
+        *section*.
+    """
+    for validator in config.get(parameter, {}):
+        validator_obj = _parse_postgres_guc_validator(file, parameter, validator)
+
+        if parameter not in section:
+            section[parameter] = ()
+
+        section[parameter] = section[parameter] + (validator_obj,)
+
+
+def _read_postgres_gucs_validators_file(file: str) -> Optional[Dict[str, Any]]:
+    """Read an YAML file and return the corresponding Python object.
+
+    :param file: path to the file to be read. It is expected to be encoded with ``UTF-8``, and to be a YAML document.
+
+    :returns: the YAML content parsed into a Python object. If any issue is faced while reading/parsing the file, then
+        return ``None``.
+    """
+    try:
+        with open(file, encoding='UTF-8') as stream:
+            return yaml.safe_load(stream)
+    except Exception as exc:
+        logger.warning('Unexpected issue while reading parameters file `%s`: `%s`.', file, str(exc))
+
+    return None
+
+
+def _load_postgres_gucs_validators() -> None:
     """Load all Postgres GUC validators from YAML files.
 
     Recursively walk through ``available_parameters`` directory and load validators of each found YAML file into
@@ -151,8 +264,8 @@ def _load_postgres_gucs_validators():
         * Sort files by name;
         * Load validators from YAML files that were found.
 
-    Any problem faced while reading or parsing files will be logged as a ``WARNING``, and the corresponding file or
-    validator will be ignored.
+    Any problem faced while reading or parsing files will be logged as a ``WARNING`` by the child function, and the
+    corresponding file or validator will be ignored.
 
     By default Patroni only ships the file ``0_postgres.yml``, which contains Community Postgres GUCs validators, but
     that behavior can be extended. For example: if a vendor wants to add GUC validators to Patroni for covering a custom
@@ -245,70 +358,27 @@ def _load_postgres_gucs_validators():
             version_till: null
         ```
     """
-    module = sys.modules[__name__]
-
+    module = _get_module()
     conf_dir = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         'available_parameters',
     )
+    yaml_files: List[str] = []
 
     for root, _, files in os.walk(conf_dir):
         for file in sorted(files):
-            if not file.lower().endswith(('.yml', '.yaml')):
-                continue
+            if file.lower().endswith(('.yml', '.yaml')):
+                yaml_files.append(os.path.join(root, file))
 
-            full_path = os.path.join(root, file)
-            try:
-                with open(full_path) as f:
-                    config = yaml.safe_load(f)
-            except Exception as e:
-                logger.warning('Unexpected issue while reading parameters file `{0}`: `{1}`.'.format(full_path, str(e)))
-                continue
+    for file in yaml_files:
+        config: Dict[str, Any] = _read_postgres_gucs_validators_file(file) or {}
 
-            for section in ['parameters', 'recovery_parameters']:
-                section_var = getattr(module, section)
+        for section in ['parameters', 'recovery_parameters']:
+            section_var = getattr(module, section)
 
-                for parameter, validators in config.get(section, {}).items():
-                    for validator in validators:
-                        try:
-                            type = validator.pop('type')
-                        except KeyError:
-                            logger.warning(
-                                'Validator for parameter `{0}` in file `{1}` contains no type.'.format(
-                                    parameter, full_path
-                                )
-                            )
-                            continue
-
-                        if type not in ['Bool', 'Integer', 'Real', 'Enum', 'EnumBool', 'String']:
-                            logger.warning(
-                                'Unexpected validator type for parameter `{0}` in file `{1}`: `{2}`.'.format(
-                                    parameter, full_path, type
-                                )
-                            )
-                            continue
-
-                        for key, value in validator.items():
-                            # :func:`_transform_parameter_value` expects :class:`tuple` instead of :class:`list`
-                            if isinstance(value, list):
-                                tmp_value: List[Any] = value
-                                validator[key] = tuple(tmp_value)
-
-                        try:
-                            validator_obj = getattr(module, type)(**validator)
-                        except Exception as e:
-                            logger.warning(
-                                'Failed to parse `{0}` validator for parameter `{1}` (`{2}`) '
-                                'from file {3}: `{4}`.'.format(
-                                    type, parameter, full_path, validator, str(e)
-                                )
-                            )
-                            continue
-
-                        if parameter not in section_var:
-                            section_var[parameter] = ()
-
-                        section_var[parameter] = section_var[parameter] + (validator_obj,)
+            config_section = config.get(section, {})
+            for parameter in config_section.keys():
+                _load_postgres_guc_validators(section_var, config_section, file, parameter)
 
 
 _load_postgres_gucs_validators()
