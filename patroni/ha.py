@@ -590,15 +590,15 @@ class Ha(object):
             picked, allow_promote = self.state_handler.sync_handler.current_state(self.cluster)
 
             if picked != current:
+                sync = self.cluster.sync
                 # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
                 sync_common = current & allow_promote
                 if sync_common != current:
                     logger.info("Updating synchronous privilege temporarily from %s to %s",
                                 list(current), list(sync_common))
-                    if not self.dcs.write_sync_state(self.state_handler.name, sync_common,
-                                                     index=self.cluster.sync.index):
-                        logger.info('Synchronous replication key updated by someone else.')
-                        return
+                    sync = self.dcs.write_sync_state(self.state_handler.name, sync_common, index=sync.index)
+                    if not sync:
+                        return logger.info('Synchronous replication key updated by someone else.')
 
                 # When strict mode and no suitable replication connections put "*" to synchronous_standby_names
                 if self.global_config.is_synchronous_mode_strict and not picked:
@@ -606,24 +606,16 @@ class Ha(object):
                     logger.warning("No standbys available!")
 
                 # Update postgresql.conf and wait 2 secs for changes to become active
-                logger.info("Assigning synchronous standby status to %s", picked)
+                logger.info("Assigning synchronous standby status to %s", list(picked))
                 self.state_handler.sync_handler.set_synchronous_standby_names(picked)
 
-                if picked and picked != CaseInsensitiveSet('*') and allow_promote != picked and not allow_promote:
+                if picked and picked != CaseInsensitiveSet('*') and allow_promote != picked:
                     # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
                     time.sleep(2)
                     _, allow_promote = self.state_handler.sync_handler.current_state(self.cluster)
                 if allow_promote and allow_promote != sync_common:
-                    try:
-                        cluster = self.dcs.get_cluster()
-                    except DCSError:
-                        return logger.warning("Could not get cluster state from DCS during process_sync_replication()")
-                    if not cluster.sync.is_empty and not cluster.sync.leader_matches(self.state_handler.name):
-                        logger.info("Synchronous replication key updated by someone else")
-                        return
-                    if not self.dcs.write_sync_state(self.state_handler.name, allow_promote, index=cluster.sync.index):
-                        logger.info("Synchronous replication key updated by someone else")
-                        return
+                    if not self.dcs.write_sync_state(self.state_handler.name, allow_promote, index=sync.index):
+                        return logger.info("Synchronous replication key updated by someone else")
                     logger.info("Synchronous standby status assigned to %s", list(allow_promote))
         else:
             if not self.cluster.sync.is_empty and self.dcs.delete_sync_state(index=self.cluster.sync.index):

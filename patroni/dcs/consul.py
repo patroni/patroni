@@ -658,8 +658,17 @@ class Consul(AbstractDCS):
         return True
 
     @catch_consul_errors
-    def set_sync_state_value(self, value: str, index: Optional[int] = None) -> bool:
-        return self.retry(self._client.kv.put, self.sync_path, value, cas=index)
+    def set_sync_state_value(self, value: str, index: Optional[int] = None) -> Union[int, bool]:
+        retry = self._retry.copy()
+        ret = retry(self._client.kv.put, self.sync_path, value, cas=index)
+        if ret:  # We have no other choise, only read after write :(
+            retry.deadline = retry.stoptime - time.time()
+            if retry.deadline < 0.5:
+                return False
+            _, ret = self.retry(self._client.kv.get, self.sync_path)
+            if ret and (ret.get('Value') or b'').decode('utf-8') == value:
+                return ret['ModifyIndex']
+        return False
 
     @catch_consul_errors
     def delete_sync_state(self, index: Optional[int] = None) -> bool:

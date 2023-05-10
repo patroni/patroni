@@ -625,7 +625,7 @@ class AbstractEtcd(AbstractDCS):
 def catch_etcd_errors(func: Callable[..., Any]) -> Any:
     def wrapper(self: AbstractEtcd, *args: Any, **kwargs: Any) -> Any:
         try:
-            retval = func(self, *args, **kwargs) is not None
+            retval = func(self, *args, **kwargs)
             self._has_failed = False
             return retval
         except (RetryFailedError, etcd.EtcdException) as e:
@@ -817,8 +817,8 @@ class Etcd(AbstractEtcd):
         return bool(self._client.write(self.history_path, value))
 
     @catch_etcd_errors
-    def set_sync_state_value(self, value: str, index: Optional[int] = None) -> bool:
-        return bool(self.retry(self._client.write, self.sync_path, value, prevIndex=index or 0))
+    def set_sync_state_value(self, value: str, index: Optional[int] = None) -> Union[int, bool]:
+        return self.retry(self._client.write, self.sync_path, value, prevIndex=index or 0).modifiedIndex
 
     @catch_etcd_errors
     def delete_sync_state(self, index: Optional[int] = None) -> bool:
