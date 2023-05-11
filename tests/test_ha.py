@@ -1206,7 +1206,7 @@ class TestHa(PostgresInit):
 
         # When we just became primary nobody is sync
         self.assertEqual(self.ha.enforce_primary_role('msg', 'promote msg'), 'promote msg')
-        mock_set_sync.assert_called_once_with(CaseInsensitiveSet())
+        mock_set_sync.assert_called_once_with(frozenset(), 0)
         mock_write_sync.assert_called_once_with('leader', None, 0, index=0)
 
         mock_set_sync.reset_mock()
@@ -1433,3 +1433,49 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.patroni.request.call_args[1]['timeout'], 2)
             mock_logger.assert_called()
             self.assertTrue(mock_logger.call_args[0][0].startswith('Request to Citus coordinator'))
+
+    def test_process_sync_replication_prepromote(self):
+        self.p._major_version = 90500
+        self.ha.cluster = get_cluster_initialized_without_leader(sync=('other', self.p.name + ',foo'))
+        self.ha.cluster.config.data.update({'synchronous_mode': 'quorum'})
+        self.ha.global_config = self.ha.patroni.config.get_global_config(self.ha.cluster)
+        self.p.is_leader = false
+        self.p.set_role('replica')
+        mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=None)
+        # Postgres 9.5, write_sync_state to DCS failed
+        self.assertEqual(self.ha.run_cycle(),
+                         'Postponing promotion because synchronous replication state was updated by somebody else')
+        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
+        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, None, 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][1], {'index': 0})
+
+        mock_set_sync = self.p.config.set_synchronous_standby_names = Mock()
+        mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=True)
+        # Postgres 9.5, our name is written to leader of the /sync key, while voters list and ssn is empty
+        self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
+        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, None, 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][1], {'index': 0})
+        self.assertEqual(mock_set_sync.call_count, 1)
+        self.assertEqual(mock_set_sync.call_args_list[0][0], (None,))
+
+        self.p._major_version = 90600
+        mock_set_sync.reset_mock()
+        mock_write_sync.reset_mock()
+        self.p.set_role('replica')
+        # Postgres 9.6, with quorum commit we avoid updating /sync key and put some nodes to ssn
+        self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+        self.assertEqual(mock_write_sync.call_count, 0)
+        self.assertEqual(mock_set_sync.call_count, 1)
+        self.assertEqual(mock_set_sync.call_args_list[0][0], ('2 (foo,other)',))
+
+        self.p._major_version = 150000
+        mock_set_sync.reset_mock()
+        self.p.set_role('replica')
+        self.p.name = 'nonsync'
+        self.ha.fetch_node_status = get_node_status()
+        # Postgres 15, with quorum commit. Non-sync node promoted we avoid updating /sync key and put some nodes to ssn
+        self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+        self.assertEqual(mock_write_sync.call_count, 0)
+        self.assertEqual(mock_set_sync.call_count, 1)
+        self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 3 (foo,other,postgresql0)',))
