@@ -465,7 +465,7 @@ def transform_postgresql_parameter_value(version: int, name: str, value: Any,
             *version*.
 
     :returns: The return value may be one among
-        * The own *value* if *name* seems to be an extension GUC; or
+        * The original *value* if *name* seems to be an extension GUC (contains a period '.'); or
         * ``None`` if **name** is a recovery GUC; or
         * *value* transformed to the expected format for GUC *name* in Postgres *version* using validators defined in
             ``parameters``. Can also return ``None``. See :func:`_transform_parameter_value`.
