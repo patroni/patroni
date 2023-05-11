@@ -1078,10 +1078,9 @@ class Kubernetes(AbstractDCS):
 
     @catch_kubernetes_errors
     def patch_or_create(self, name: str, annotations: Dict[str, Any], resource_version: Optional[str] = None,
-                        patch: bool = False, retry: bool = True, ips: Optional[List[str]] = None) -> bool:
+                        patch: bool = False, retry: bool = True, ips: Optional[List[str]] = None) -> K8sObject:
         try:
-            return bool(self._patch_or_create(name, annotations, resource_version,
-                                              patch, self.retry if retry else None, ips))
+            return self._patch_or_create(name, annotations, resource_version, patch, self.retry if retry else None, ips)
         except k8s_client.rest.ApiException as e:
             if e.status == 409 and resource_version:  # Conflict in resource_version
                 # Terminate watchers, it could be a sign that K8s API is in a failed state
@@ -1095,7 +1094,7 @@ class Kubernetes(AbstractDCS):
         if self._api.use_endpoints and not patch and not resource_version:
             self._should_create_config_service = True
             self._create_config_service()
-        return self.patch_or_create(self.config_path, annotations, resource_version, patch, retry)
+        return bool(self.patch_or_create(self.config_path, annotations, resource_version, patch, retry))
 
     def _create_config_service(self) -> None:
         metadata = k8s_client.V1ObjectMeta(namespace=self._namespace, name=self.config_path, labels=self._labels)
@@ -1242,7 +1241,7 @@ class Kubernetes(AbstractDCS):
         annotations = {'leader': leader or None, 'member': candidate or None,
                        'scheduled_at': scheduled_at and scheduled_at.isoformat()}
         patch = bool(self.cluster and isinstance(self.cluster.failover, Failover) and self.cluster.failover.index)
-        return self.patch_or_create(self.failover_path, annotations, index, bool(index or patch), False)
+        return bool(self.patch_or_create(self.failover_path, annotations, index, bool(index or patch), False))
 
     @property
     def _config_resource_version(self) -> Optional[str]:
@@ -1314,16 +1313,18 @@ class Kubernetes(AbstractDCS):
         raise NotImplementedError  # pragma: no cover
 
     def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
-                         index: Optional[str] = None) -> bool:
+                         index: Optional[str] = None) -> Optional[SyncState]:
         """Prepare and write annotations to $SCOPE-sync Endpoint or ConfigMap.
 
         :param leader: name of the leader node that manages /sync key
         :param sync_standby: collection of currently known synchronous standby node names
         :param index: last known `resource_version` for conditional update of the object
-        :returns: `True` if update was successful
+        :returns: the new :class:`SyncState` object or None
         """
         sync_state = self.sync_state(leader, sync_standby)
-        return self.patch_or_create(self.sync_path, sync_state, index, False)
+        ret = self.patch_or_create(self.sync_path, sync_state, index, False)
+        if not isinstance(ret, bool):
+            return SyncState.from_node(ret.metadata.resource_version, sync_state)
 
     def delete_sync_state(self, index: Optional[str] = None) -> bool:
         """Patch annotations of $SCOPE-sync Endpoint or ConfigMap with empty values.
@@ -1332,7 +1333,7 @@ class Kubernetes(AbstractDCS):
         :param index: last known `resource_version` for conditional update of the object
         :returns: `True` if "delete" was successful
         """
-        return self.write_sync_state(None, None, index=index)
+        return self.write_sync_state(None, None, index=index) is not None
 
     def watch(self, leader_index: Optional[str], timeout: float) -> bool:
         if self.__do_not_watch:

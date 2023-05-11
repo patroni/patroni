@@ -340,7 +340,8 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         return self.call_rpc('/lease/keepalive', {'ID': ID}, retry).get('result', {}).get('TTL')
 
     def txn(self, compare: Dict[str, Any], success: Dict[str, Any], retry: Optional[Retry] = None) -> Dict[str, Any]:
-        return self.call_rpc('/kv/txn', {'compare': [compare], 'success': [success]}, retry).get('succeeded', {})
+        ret = self.call_rpc('/kv/txn', {'compare': [compare], 'success': [success]}, retry)
+        return ret if ret.get('succeeded') else {}
 
     @_handle_auth_errors
     def put(self, key: str, value: str, lease: Optional[str] = None, create_revision: Optional[str] = None,
@@ -908,8 +909,9 @@ class Etcd3(AbstractEtcd):
         return bool(self._client.put(self.history_path, value))
 
     @catch_etcd_errors
-    def set_sync_state_value(self, value: str, index: Optional[str] = None) -> bool:
-        return self.retry(self._client.put, self.sync_path, value, mod_revision=index)
+    def set_sync_state_value(self, value: str, index: Optional[str] = None) -> Union[str, bool]:
+        return self.retry(self._client.put, self.sync_path, value, mod_revision=index)\
+            .get('header', {}).get('revision', False)
 
     @catch_etcd_errors
     def delete_sync_state(self, index: Optional[str] = None) -> bool:

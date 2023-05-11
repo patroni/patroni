@@ -370,11 +370,15 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         mock_read.side_effect = Exception
         self.assertFalse(self.k.update_leader('123'))
 
-    @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints',
+    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints',
                   Mock(side_effect=[k8s_client.rest.ApiException(500, ''),
                                     k8s_client.rest.ApiException(502, '')]), create=True)
     def test_delete_sync_state(self):
-        self.assertFalse(self.k.delete_sync_state())
+        self.assertFalse(self.k.delete_sync_state(1))
+
+    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', mock_namespaced_kind, create=True)
+    def test_write_sync_state(self):
+        self.assertIsNotNone(self.k.write_sync_state('a', ['b'], 1))
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod', mock_namespaced_kind, create=True)
     @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints', mock_namespaced_kind, create=True)

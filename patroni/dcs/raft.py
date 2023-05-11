@@ -142,7 +142,7 @@ class KVStoreTTL(DynMemberSyncObj):
     def __check_requirements(old_value: Dict[str, Any], **kwargs: Any) -> bool:
         return bool(('prevExist' not in kwargs or bool(kwargs['prevExist']) == bool(old_value))
                     and ('prevValue' not in kwargs or old_value and old_value['value'] == kwargs['prevValue'])
-                    and (not kwargs.get('prevIndex') or old_value and old_value['index'] == kwargs['prevIndex']))
+                    and (kwargs.get('prevIndex') is None or old_value and old_value['index'] == kwargs['prevIndex']))
 
     def set_retry_timeout(self, retry_timeout: int) -> None:
         self.__retry_timeout = retry_timeout
@@ -175,7 +175,7 @@ class KVStoreTTL(DynMemberSyncObj):
         return False
 
     @replicated
-    def _set(self, key: str, value: Dict[str, Any], **kwargs: Any) -> bool:
+    def _set(self, key: str, value: Dict[str, Any], **kwargs: Any) -> Union[bool, Dict[str, Any]]:
         old_value = self.__data.get(key, {})
         if not self.__check_requirements(old_value, **kwargs):
             return False
@@ -187,10 +187,10 @@ class KVStoreTTL(DynMemberSyncObj):
         self.__data[key] = value
         if self.__on_set:
             self.__on_set(key, value)
-        return True
+        return value
 
     def set(self, key: str, value: str, ttl: Optional[int] = None,
-            handle_raft_error: bool = True, **kwargs: Any) -> bool:
+            handle_raft_error: bool = True, **kwargs: Any) -> Union[bool, Dict[str, Any]]:
         old_value = self.__data.get(key, {})
         if not self.__check_requirements(old_value, **kwargs):
             return False
@@ -411,39 +411,40 @@ class Raft(AbstractDCS):
         return loader(path)
 
     def _write_leader_optime(self, last_lsn: str) -> bool:
-        return self._sync_obj.set(self.leader_optime_path, last_lsn, timeout=1)
+        return self._sync_obj.set(self.leader_optime_path, last_lsn, timeout=1) is not False
 
     def _write_status(self, value: str) -> bool:
-        return self._sync_obj.set(self.status_path, value, timeout=1)
+        return self._sync_obj.set(self.status_path, value, timeout=1) is not False
 
     def _write_failsafe(self, value: str) -> bool:
-        return self._sync_obj.set(self.failsafe_path, value, timeout=1)
+        return self._sync_obj.set(self.failsafe_path, value, timeout=1) is not False
 
     def _update_leader(self) -> bool:
         ret = self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl,
-                                 handle_raft_error=False, prevValue=self._name)
+                                 handle_raft_error=False, prevValue=self._name) is not False
         if not ret and self._sync_obj.get(self.leader_path) is None:
             ret = self.attempt_to_acquire_leader()
         return ret
 
     def attempt_to_acquire_leader(self) -> bool:
-        return self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl, handle_raft_error=False, prevExist=False)
+        return self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl,
+                                  handle_raft_error=False, prevExist=False) is not False
 
     def set_failover_value(self, value: str, index: Optional[int] = None) -> bool:
-        return self._sync_obj.set(self.failover_path, value, prevIndex=index)
+        return self._sync_obj.set(self.failover_path, value, prevIndex=index) is not False
 
     def set_config_value(self, value: str, index: Optional[int] = None) -> bool:
-        return self._sync_obj.set(self.config_path, value, prevIndex=index)
+        return self._sync_obj.set(self.config_path, value, prevIndex=index) is not False
 
     def touch_member(self, data: Dict[str, Any]) -> bool:
         value = json.dumps(data, separators=(',', ':'))
-        return self._sync_obj.set(self.member_path, value, self._ttl, timeout=2)
+        return self._sync_obj.set(self.member_path, value, self._ttl, timeout=2) is not False
 
     def take_leader(self) -> bool:
-        return self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl)
+        return self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl) is not False
 
     def initialize(self, create_new: bool = True, sysid: str = '') -> bool:
-        return self._sync_obj.set(self.initialize_path, sysid, prevExist=(not create_new))
+        return self._sync_obj.set(self.initialize_path, sysid, prevExist=(not create_new)) is not False
 
     def _delete_leader(self) -> bool:
         return self._sync_obj.delete(self.leader_path, prevValue=self._name, timeout=1)
@@ -455,10 +456,13 @@ class Raft(AbstractDCS):
         return self._sync_obj.delete(self.client_path(''), recursive=True)
 
     def set_history_value(self, value: str) -> bool:
-        return self._sync_obj.set(self.history_path, value)
+        return self._sync_obj.set(self.history_path, value) is not False
 
-    def set_sync_state_value(self, value: str, index: Optional[int] = None) -> bool:
-        return self._sync_obj.set(self.sync_path, value, prevIndex=index)
+    def set_sync_state_value(self, value: str, index: Optional[int] = None) -> Union[int, bool]:
+        ret = self._sync_obj.set(self.sync_path, value, prevIndex=index)
+        if isinstance(ret, dict):
+            return ret['index']
+        return ret
 
     def delete_sync_state(self, index: Optional[int] = None) -> bool:
         return self._sync_obj.delete(self.sync_path, prevIndex=index)

@@ -54,8 +54,11 @@ def mock_urlopen(self, method, url, **kwargs):
             ]}
         })[:-1].encode('utf-8'), b'}{"error":{"grpc_code":14,"message":"","http_code":503}}'])
     elif url.endswith('/kv/put') or url.endswith('/kv/txn'):
-        ret.status_code = 400
-        ret.content = '{"code":5,"error":"etcdserver: requested lease not found"}'
+        if base64_encode('/patroni/test/sync') in kwargs['body']:
+            ret.content = '{"header":{"revision":"1"},"succeeded":true}'
+        else:
+            ret.status_code = 400
+            ret.content = '{"code":5,"error":"etcdserver: requested lease not found"}'
     elif not url.endswith('/kv/deleterange'):
         raise Exception('Unexpected url: {0} {1} {2}'.format(method, url, kwargs))
     return ret
@@ -295,7 +298,7 @@ class TestEtcd3(BaseTestEtcd3):
         self.etcd3.set_history_value('')
 
     def test_set_sync_state_value(self):
-        self.etcd3.set_sync_state_value('')
+        self.etcd3.set_sync_state_value('', 1)
 
     def test_delete_sync_state(self):
         self.etcd3.delete_sync_state()

@@ -1087,28 +1087,30 @@ class AbstractDCS(abc.ABC):
         return {'leader': leader, 'sync_standby': ','.join(sorted(sync_standby)) if sync_standby else None}
 
     def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
-                         index: Optional[Any] = None) -> bool:
+                         index: Optional[Any] = None) -> Optional[SyncState]:
         """Write the new synchronous state to DCS.
         Calls :func:`sync_state` method to build a dict and than calls DCS specific :func:`set_sync_state_value` method.
         :param leader: name of the leader node that manages /sync key
         :param sync_standby: collection of currently known synchronous standby node names
         :param index: for conditional update of the key/object
-        :returns: `True` if /sync key was successfully updated
+        :returns: the new :class:`SyncState` object or None
         """
         sync_value = self.sync_state(leader, sync_standby)
-        return self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), index)
+        ret = self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), index)
+        if not isinstance(ret, bool):
+            return SyncState.from_node(ret, sync_value)
 
     @abc.abstractmethod
     def set_history_value(self, value: str) -> bool:
         """"""
 
     @abc.abstractmethod
-    def set_sync_state_value(self, value: str, index: Optional[Any] = None) -> bool:
+    def set_sync_state_value(self, value: str, index: Optional[Any] = None) -> Union[Any, bool]:
         """Set synchronous state in DCS, should be implemented in the child class.
 
         :param value: the new value of /sync key
         :param index: for conditional update of the key/object
-        :returns: `True` if key/object was successfully updated
+        :returns: version of the new object or `False` in case of error
         """
 
     @abc.abstractmethod
