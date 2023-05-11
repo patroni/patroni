@@ -245,9 +245,9 @@ def _load_postgres_guc_validators(section: CaseInsensitiveDict, config: Dict[str
 
     :rtype: yields any exception that is faced while parsing a validator spec into a Patroni validator object.
     """
-    for validator in config.get(parameter, {}):
+    for validator_spec in config.get(parameter, {}):
         try:
-            validator_obj = ValidatorFactory(validator)
+            validator = ValidatorFactory(validator_spec)
         except (ValidatorFactoryNoType, ValidatorFactorInvalidType, ValidatorFactoryInvalidSpec) as exc:
             yield exc
             continue
@@ -255,7 +255,7 @@ def _load_postgres_guc_validators(section: CaseInsensitiveDict, config: Dict[str
         if parameter not in section:
             section[parameter] = ()
 
-        section[parameter] = section[parameter] + (validator_obj,)
+        section[parameter] = section[parameter] + (validator,)
 
 
 class InvalidGucValidatorsFile(Exception):
