@@ -150,10 +150,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
         elif 'health' in path:
             status_code = 200 if response.get('state') == 'running' else 503
         elif cluster:  # dcs is available
+            is_quorum = response.get('quorum_standby')
             is_synchronous = response.get('sync_standby')
             if path in ('/sync', '/synchronous') and is_synchronous:
                 status_code = replica_status_code
-            elif path in ('/async', '/asynchronous') and not is_synchronous:
+            elif path == '/quorum' and is_quorum:
+                status_code = replica_status_code
+            elif path in ('/async', '/asynchronous') and not is_synchronous and not is_quorum:
                 status_code = replica_status_code
             elif path in ('/read-only-sync', '/read-only-synchronous'):
                 if 200 in (primary_status_code, standby_leader_status_code):
@@ -279,9 +282,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_replica gauge")
         metrics.append("patroni_replica{0} {1}".format(scope_label, int(postgres['role'] == 'replica')))
 
-        metrics.append("# HELP patroni_sync_standby Value is 1 if this node is a sync standby replica, 0 otherwise.")
+        metrics.append("# HELP patroni_sync_standby Value is 1 if this node is a sync standby, 0 otherwise.")
         metrics.append("# TYPE patroni_sync_standby gauge")
         metrics.append("patroni_sync_standby{0} {1}".format(scope_label, int(postgres.get('sync_standby', False))))
+
+        metrics.append("# HELP patroni_quorum_standby Value is 1 if this node is a quorum standby, 0 otherwise.")
+        metrics.append("# TYPE patroni_quorum_standby gauge")
+        metrics.append("patroni_quorum_standby{0} {1}".format(scope_label, int(postgres.get('quorum_standby', False))))
 
         metrics.append("# HELP patroni_xlog_received_location Current location of the received"
                        " Postgres transaction log, 0 if this node is not a replica.")
@@ -558,16 +565,17 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         :returns: a string with the error message or `None` if good nodes are found
         """
-        is_synchronous_mode = self.server.patroni.config.get_global_config(cluster).is_synchronous_mode
+        global_config = self.server.patroni.config.get_global_config(cluster)
         if leader and (not cluster.leader or cluster.leader.name != leader):
             return 'leader name does not match'
         if candidate:
-            if action == 'switchover' and is_synchronous_mode and not cluster.sync.matches(candidate):
+            if action == 'switchover' and global_config.is_synchronous_mode\
+                    and not global_config.is_quorum_commit_mode and not cluster.sync.matches(candidate):
                 return 'candidate name does not match with sync_standby'
             members = [m for m in cluster.members if m.name == candidate]
             if not members:
                 return 'candidate does not exists'
-        elif is_synchronous_mode:
+        elif global_config.is_synchronous_mode and not global_config.is_quorum_commit_mode:
             members = [m for m in cluster.members if cluster.sync.matches(m.name)]
             if not members:
                 return action + ' is not possible: can not find sync_standby'
@@ -716,7 +724,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
             if result['role'] == 'replica' and global_config.is_synchronous_mode\
                     and cluster.sync.matches(postgresql.name):
-                result['sync_standby'] = True
+                result['quorum_standby' if global_config.is_quorum_commit_mode else 'sync_standby'] = True
 
             if row[1] > 0:
                 result['timeline'] = row[1]

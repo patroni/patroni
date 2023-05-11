@@ -204,6 +204,9 @@ class TestRestApiHandler(unittest.TestCase):
                           Mock(return_value={'role': 'replica', 'sync_standby': True})):
             MockRestApiServer(RestApiHandler, 'GET /synchronous')
             MockRestApiServer(RestApiHandler, 'GET /read-only-sync')
+        with patch.object(RestApiHandler, 'get_postgresql_status',
+                          Mock(return_value={'role': 'replica', 'quorum_standby': True})):
+            MockRestApiServer(RestApiHandler, 'GET /quorum')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
             MockRestApiServer(RestApiHandler, 'GET /asynchronous')
         with patch.object(MockHa, 'is_leader', Mock(return_value=True)):

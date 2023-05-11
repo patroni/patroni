@@ -735,11 +735,12 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
     cluster_lsn = cluster.last_lsn or 0
 
     ret: Dict[str, Any] = {'members': []}
+    sync_role = 'quorum_standby' if global_config.is_quorum_commit_mode else 'sync_standby'
     for m in cluster.members:
         if m.name == leader_name:
             role = 'standby_leader' if global_config.is_standby_cluster else 'leader'
-        elif cluster.sync.matches(m.name):
-            role = 'sync_standby'
+        elif cluster.sync.matches(m.name, global_config.is_quorum_commit_mode):
+            role = sync_role
         else:
             role = 'replica'
 
