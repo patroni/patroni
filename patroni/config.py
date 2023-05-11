@@ -563,7 +563,7 @@ class Config(object):
         if 'citus' in config:
             bootstrap = config.setdefault('bootstrap', {})
             dcs = bootstrap.setdefault('dcs', {})
-            dcs.setdefault('synchronous_mode', True)
+            dcs.setdefault('synchronous_mode', 'quorum')
 
         updated_fields = (
             'name',

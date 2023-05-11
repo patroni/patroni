@@ -1102,7 +1102,7 @@ class TestHa(PostgresInit):
         self.ha.demote('immediate')
         follow.assert_called_once_with(None)
 
-    def test_process_sync_replication(self):
+    def test_process__multisync_replication(self):
         self.ha.has_lock = true
         mock_set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock()
         self.p.name = 'leader'
@@ -1479,3 +1479,66 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_write_sync.call_count, 0)
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 3 (foo,other,postgresql0)',))
+
+    def test_process_quorum_replication(self):
+        self.p._major_version = 150000
+        self.ha.has_lock = true
+        mock_set_sync = self.p.config.set_synchronous_standby_names = Mock()
+        self.p.name = 'leader'
+
+        self.ha.cluster.config.data.update({'synchronous_mode': 'quorum'})
+        self.ha.global_config = self.ha.patroni.config.get_global_config(self.ha.cluster)
+
+        mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=None)
+        # Test /sync key is attempted to set and failed when missing or invalid
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1, 1, CaseInsensitiveSet(['other']),
+                                                                         CaseInsensitiveSet(['other'])))
+        self.ha.run_cycle()
+        self.assertEqual(mock_write_sync.call_count, 1)
+        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, None, 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][1], {'index': None})
+        self.assertEqual(mock_set_sync.call_count, 0)
+
+        mock_write_sync = self.ha.dcs.write_sync_state = Mock(side_effect=[SyncState.empty(), None])
+        # Test /sync key is attempted to set and succeed when missing or invalid
+        with patch.object(SyncState, 'is_empty', Mock(side_effect=[True, False])):
+            self.ha.run_cycle()
+        self.assertEqual(mock_write_sync.call_count, 2)
+        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, None, 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][1], {'index': None})
+        self.assertEqual(mock_write_sync.call_args_list[1][0], (self.p.name, CaseInsensitiveSet(['other']), 0))
+        self.assertEqual(mock_write_sync.call_args_list[1][1], {'index': None})
+        self.assertEqual(mock_set_sync.call_count, 0)
+
+        self.p.sync_handler.current_state = Mock(side_effect=[_SyncState('quorum', 1, 0, CaseInsensitiveSet(['foo']),
+                                                                         CaseInsensitiveSet(['other'])),
+                                                              _SyncState('quorum', 1, 1, CaseInsensitiveSet(['foo']),
+                                                                         CaseInsensitiveSet(['foo']))])
+        mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=SyncState(1, 'leader', 'foo', 0))
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo'))
+        self.ha.cluster.config.data.update({'synchronous_mode': 'quorum'})
+        self.ha.global_config = self.ha.patroni.config.get_global_config(self.ha.cluster)
+        # Test the sync node is removed from voters, added to ssn
+        with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='other')),\
+                patch('time.sleep', Mock()):
+            self.ha.run_cycle()
+        self.assertEqual(mock_write_sync.call_count, 1)
+        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(), 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][1], {'index': 0})
+        self.assertEqual(mock_set_sync.call_count, 1)
+        self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (other)',))
+
+        # Test ANY 1 (*) when synchronous_mode_strict and no nodes available
+        self.ha.cluster.config.data.update({'synchronous_mode_strict': True})
+        self.ha.global_config = self.ha.patroni.config.get_global_config(self.ha.cluster)
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1, 0,
+                                                                         CaseInsensitiveSet(['other', 'foo']),
+                                                                         CaseInsensitiveSet()))
+        mock_write_sync.reset_mock()
+        mock_set_sync.reset_mock()
+        self.ha.run_cycle()
+        self.assertEqual(mock_write_sync.call_count, 1)
+        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(), 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][1], {'index': 0})
+        self.assertEqual(mock_set_sync.call_count, 1)
+        self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (*)',))
