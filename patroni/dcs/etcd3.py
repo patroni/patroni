@@ -910,7 +910,8 @@ class Etcd3(AbstractEtcd):
 
     @catch_etcd_errors
     def set_sync_state_value(self, value: str, index: Optional[str] = None) -> Union[str, bool]:
-        return self.retry(self._client.put, self.sync_path, value, mod_revision=index).get('header', {}).get('revision')
+        return self.retry(self._client.put, self.sync_path, value, mod_revision=index)\
+            .get('header', {}).get('revision', False)
 
     @catch_etcd_errors
     def delete_sync_state(self, index: Optional[str] = None) -> bool:
