@@ -190,6 +190,7 @@ class ValidatorFactory:
             - type: String
             version_from: 90300
             version_till: null
+            ```
 
             Then this method would receive *validator* as:
 
@@ -197,7 +198,7 @@ class ValidatorFactory:
             {
                 'type': 'String',
                 'version_from': 90300,
-                'versil_till': None
+                'version_till': None
             }
             ```
 
@@ -392,8 +393,11 @@ def _load_postgres_gucs_validators() -> None:
 
     for root, _, files in os.walk(conf_dir):
         for file in sorted(files):
+            full_path = os.path.join(root, file)
             if file.lower().endswith(('.yml', '.yaml')):
-                yaml_files.append(os.path.join(root, file))
+                yaml_files.append(full_path)
+            else:
+                logger.warning('Ignored a non-YAML file found under `available_parameters` directory: `%s`.', full_path)
 
     for file in yaml_files:
         try:

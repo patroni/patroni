@@ -216,7 +216,7 @@ class Postgresql(object):
 
     @property
     def available_gucs(self) -> CaseInsensitiveDict:
-        """GUCs available in this Postgres installation."""
+        """GUCs available in this Postgres server."""
         return self._available_gucs
 
     def _version_file_exists(self) -> bool:
@@ -1268,7 +1268,7 @@ class Postgresql(object):
     def _get_gucs(self) -> CaseInsensitiveDict:
         """Get all available GUCs based on ``postgres --describe-config`` output.
 
-        :returns: all available GUCs in the Postgres installation.
+        :returns: all available GUCs in the local Postgres server.
         """
         cmd = [self.pgcommand('postgres'), '--describe-config']
         # We could return a simple list of strings. However, a `CaseInsensitiveDict` allows for faster key lookups as
