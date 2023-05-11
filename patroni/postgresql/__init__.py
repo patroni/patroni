@@ -26,6 +26,7 @@ from .slots import SlotsHandler
 from .sync import SyncHandler
 from .. import psycopg
 from ..async_executor import CriticalTask
+from ..collections import CaseInsensitiveDict
 from ..dcs import Cluster, Leader, Member
 from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
@@ -130,6 +131,8 @@ class Postgresql(object):
         elif self.role in ('master', 'primary'):
             self.set_role('demoted')
 
+        self._available_gucs = self._get_gucs()
+
     @property
     def create_replica_methods(self) -> List[str]:
         return self.config.get('create_replica_methods', []) or self.config.get('create_replica_method', []) or []
@@ -210,6 +213,11 @@ class Postgresql(object):
             extra = "0, NULL, NULL, NULL, NULL" + extra
 
         return ("SELECT " + self.TL_LSN + ", {2}").format(self.wal_name, self.lsn_name, extra)
+
+    @property
+    def available_gucs(self) -> CaseInsensitiveDict:
+        """GUCs available in this Postgres installation."""
+        return self._available_gucs
 
     def _version_file_exists(self) -> bool:
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -1256,3 +1264,16 @@ class Postgresql(object):
         self.slots_handler.schedule()
         self.citus_handler.schedule_cache_rebuild()
         self._sysid = ''
+
+    def _get_gucs(self) -> CaseInsensitiveDict:
+        """Get all available GUCs based on ``postgres --describe-config`` output.
+
+        :returns: all available GUCs in the Postgres installation.
+        """
+        cmd = [self.pgcommand('postgres'), '--describe-config']
+        # We could return a simple list of strings. However, a `CaseInsensitiveDict` allows for faster key lookups as
+        # well as case insensitive lookups.
+        return CaseInsensitiveDict({
+            line.split('\t')[0]: True
+            for line in subprocess.check_output(cmd).decode('utf-8').strip().split('\n')
+        })
