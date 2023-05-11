@@ -78,9 +78,14 @@ class GlobalConfig(object):
         return self.check_mode('pause')
 
     @property
+    def is_quorum_commit_mode(self) -> bool:
+        """:returns: `True` if quorum commit replication is requested"""
+        return str(self.get('synchronous_mode')).lower() == 'quorum'
+
+    @property
     def is_synchronous_mode(self) -> bool:
         """:returns: `True` if synchronous replication is requested."""
-        return self.check_mode('synchronous_mode')
+        return self.check_mode('synchronous_mode') is True or self.is_quorum_commit_mode
 
     @property
     def is_synchronous_mode_strict(self) -> bool:

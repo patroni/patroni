@@ -3,7 +3,7 @@ import re
 import time
 
 from copy import deepcopy
-from typing import Collection, List, NamedTuple, Tuple, TYPE_CHECKING
+from typing import Collection, List, NamedTuple, Optional, Tuple, TYPE_CHECKING
 
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Cluster
@@ -153,6 +153,14 @@ def parse_sync_standby_names(value: str) -> _SSN:
     return _SSN(sync_type, has_star, num, members)
 
 
+class _SyncState(NamedTuple):
+    sync_type: str
+    numsync: int
+    numsync_confirmed: int
+    sync: CaseInsensitiveSet
+    active: CaseInsensitiveSet
+
+
 class SyncHandler(object):
     """Class responsible for working with the `synchronous_standby_names`.
 
@@ -196,7 +204,7 @@ class SyncHandler(object):
         self._postgresql.query('SELECT pg_catalog.txid_current()')  # Ensure some WAL traffic to move replication
         self._postgresql.reset_cluster_info_state(None)  # Reset internal cache to query fresh values
 
-    def current_state(self, cluster: Cluster) -> Tuple[CaseInsensitiveSet, CaseInsensitiveSet]:
+    def current_state(self, cluster: Cluster) -> _SyncState:
         """Finds best candidates to be the synchronous standbys.
 
         Current synchronous standby is always preferred, unless it has disconnected or does not want to be a
@@ -209,7 +217,8 @@ class SyncHandler(object):
           Please note that it will not also swap sync standbys in case where all replicas are hung.
         - `synchronous_node_count`: controlls how many nodes should be set as synchronous.
 
-        :returns: tuple of candidates :class:`CaseInsensitiveSet` and synchronous standbys :class:`CaseInsensitiveSet`.
+        :param cluster: current cluster topology from DCS
+        :returns: current synchronous replication state as a :class:`_SyncState` object
         """
         self._handle_synchronous_standby_names_change()
 
@@ -245,40 +254,78 @@ class SyncHandler(object):
             if self._postgresql.supports_multiple_sync else 1
         sync_node_maxlag = self._postgresql._global_config.maximum_lag_on_syncnode
 
-        candidates = CaseInsensitiveSet()
+        active = CaseInsensitiveSet()
         sync_nodes = CaseInsensitiveSet()
+        numsync_confirmed = 0
         # Prefer members without nofailover tag. We are relying on the fact that sorts are guaranteed to be stable.
-        for pid, app_name, sync_state, replica_lsn, _ in sorted(replica_list, key=lambda x: x[4]):
-            # if standby name is listed in the /sync key we can count it as synchronous, otherwice
-            # it becomes really synchronous when sync_state = 'sync' and it is known that it managed to catch up
-            if app_name not in self._ready_replicas and app_name in self._ssn_data.members and\
-                    (cluster.sync.matches(app_name) or sync_state == 'sync' and replica_lsn >= self._primary_flush_lsn):
-                self._ready_replicas[app_name] = pid
+        for pid, app_name, sync_state, replica_lsn, nofailover in sorted(replica_list, key=lambda x: x[4]):
+            if app_name not in self._ready_replicas and app_name in self._ssn_data.members:
+                if self._postgresql._global_config.is_quorum_commit_mode:
+                    # When quorum commit is enabled we can't check against cluster.sync because nodes
+                    # are written there when at least one of them caught up with _primary_flush_lsn.
+                    if replica_lsn >= self._primary_flush_lsn\
+                            and (sync_state == 'quorum' or (not self._postgresql.supports_quorum_commit
+                                                            and sync_state in ('sync', 'potential'))):
+                        self._ready_replicas[app_name] = pid
+                elif cluster.sync.matches(app_name) or sync_state == 'sync' and replica_lsn >= self._primary_flush_lsn:
+                    # if standby name is listed in the /sync key we can count it as synchronous, otherwise it becomes
+                    # "really" synchronous when sync_state = 'sync' and we known that it managed to catch up
+                    self._ready_replicas[app_name] = pid
 
             if sync_node_maxlag <= 0 or max_lsn - replica_lsn <= sync_node_maxlag:
-                candidates.add(app_name)
-                if sync_state == 'sync' and app_name in self._ready_replicas:
-                    sync_nodes.add(app_name)
-            if len(candidates) >= sync_node_count:
-                break
+                if self._postgresql._global_config.is_quorum_commit_mode:
+                    # add nodes with nofailover tag only to get enough "active" nodes
+                    if not nofailover or len(active) < sync_node_count:
+                        if app_name in self._ready_replicas:
+                            numsync_confirmed += 1
+                        active.add(app_name)
+                else:
+                    active.add(app_name)
+                    if sync_state == 'sync' and app_name in self._ready_replicas:
+                        sync_nodes.add(app_name)
+                        numsync_confirmed += 1
+                    if len(active) >= sync_node_count:
+                        break
 
-        return candidates, sync_nodes
+        if self._postgresql._global_config.is_quorum_commit_mode:
+            sync_nodes = CaseInsensitiveSet() if self._ssn_data.has_star else self._ssn_data.members
 
-    def set_synchronous_standby_names(self, sync: Collection[str]) -> None:
+        return _SyncState(
+            self._ssn_data.sync_type,
+            0 if self._ssn_data.has_star else self._ssn_data.num,
+            numsync_confirmed,
+            sync_nodes,
+            active)
+
+    def set_synchronous_standby_names(self, sync: Collection[str], num: Optional[int] = None) -> None:
         """Constructs and sets "synchronous_standby_names" GUC value.
 
         :param sync: set of nodes to sync to
+        :param num: specifies number of nodes to sync to. The *num* is set only in case if quorum commit is enabled
         """
-        has_asterisk = '*' in sync
+        # Special case. If sync nodes set is empty but requested num of sync nodes >= 1
+        # we want to set synchronous_standby_names to '*'
+        has_asterisk = '*' in sync or num and num >= 1 and not sync
         if has_asterisk:
             sync = ['*']
         else:
-            sync = [quote_ident(x) for x in sync]
+            sync = [quote_ident(x) for x in sorted(sync)]
 
         if self._postgresql.supports_multiple_sync and len(sync) > 1:
-            sync_param = '{0} ({1})'.format(len(sync), ','.join(sync))
+            if num is None:
+                num = len(sync)
+            sync_param = ','.join(sync)
         else:
             sync_param = next(iter(sync), None)
+
+        if TYPE_CHECKING:  # pragma: no cover
+            assert self._postgresql._global_config is not None
+
+        if self._postgresql._global_config.is_quorum_commit_mode and sync or\
+                self._postgresql.supports_multiple_sync and len(sync) > 1:
+            prefix = 'ANY ' if self._postgresql._global_config.is_quorum_commit_mode\
+                and self._postgresql.supports_quorum_commit else ''
+            sync_param = '{0}{1} ({2})'.format(prefix, num, sync_param)
 
         if not (self._postgresql.config.set_synchronous_standby_names(sync_param)
                 and self._postgresql.state == 'running' and self._postgresql.is_leader()) or has_asterisk:

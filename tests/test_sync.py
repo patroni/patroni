@@ -38,7 +38,8 @@ class TestSync(BaseTestPostgresql):
         # sync node is a bit behind of async, but we prefer it anyway
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=[self.leadermem.name,
                                                                               'on', pg_stat_replication]):
-            self.assertEqual(self.s.current_state(cluster), (CaseInsensitiveSet([self.leadermem.name]),
+            self.assertEqual(self.s.current_state(cluster), ('priority', 1, 1,
+                                                             CaseInsensitiveSet([self.leadermem.name]),
                                                              CaseInsensitiveSet([self.leadermem.name])))
 
         # prefer node with sync_state='potential', even if it is slightly behind of async
@@ -46,26 +47,46 @@ class TestSync(BaseTestPostgresql):
         for r in pg_stat_replication:
             r['write_lsn'] = r.pop('flush_lsn')
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_write', pg_stat_replication]):
-            self.assertEqual(self.s.current_state(cluster), (CaseInsensitiveSet([self.leadermem.name]),
-                                                             CaseInsensitiveSet()))
+            self.assertEqual(self.s.current_state(cluster), ('off', 0, 0, CaseInsensitiveSet(),
+                                                             CaseInsensitiveSet([self.leadermem.name])))
 
         # when there are no sync or potential candidates we pick async with the minimal replication lag
         for i, r in enumerate(pg_stat_replication):
             r.update(replay_lsn=3 - i, application_name=r['application_name'].upper())
         missing = pg_stat_replication.pop(0)
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_apply', pg_stat_replication]):
-            self.assertEqual(self.s.current_state(cluster), (CaseInsensitiveSet([self.me.name]), CaseInsensitiveSet()))
+            self.assertEqual(self.s.current_state(cluster), ('off', 0, 0, CaseInsensitiveSet(),
+                                                             CaseInsensitiveSet([self.me.name])))
 
         # unknown sync node is ignored
         missing.update(application_name='missing', sync_state='sync')
         pg_stat_replication.insert(0, missing)
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_apply', pg_stat_replication]):
-            self.assertEqual(self.s.current_state(cluster), (CaseInsensitiveSet([self.me.name]), CaseInsensitiveSet()))
+            self.assertEqual(self.s.current_state(cluster), ('off', 0, 0, CaseInsensitiveSet(),
+                                                             CaseInsensitiveSet([self.me.name])))
 
         # invalid synchronous_standby_names and empty pg_stat_replication
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['a b', 'remote_apply', None]):
             self.p._major_version = 90400
-            self.assertEqual(self.s.current_state(cluster), (CaseInsensitiveSet(), CaseInsensitiveSet()))
+            self.assertEqual(self.s.current_state(cluster), ('off', 0, 0, CaseInsensitiveSet(), CaseInsensitiveSet()))
+
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    def test_current_state_quorum(self):
+        self.p._global_config = GlobalConfig({'synchronous_mode': 'quorum'})
+        cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
+                          SyncState(0, self.me.name, self.leadermem.name, 0), None, None, None)
+
+        pg_stat_replication = [
+            {'pid': 100, 'application_name': self.leadermem.name, 'sync_state': 'quorum', 'flush_lsn': 1},
+            {'pid': 101, 'application_name': self.other.name, 'sync_state': 'quorum', 'flush_lsn': 2}]
+
+        # sync node is a bit behind of async, but we prefer it anyway
+        with patch.object(Postgresql, "_cluster_info_state_get",
+                          side_effect=['ANY 1 ({0},"{1}")'.format(self.leadermem.name, self.other.name),
+                                       'on', pg_stat_replication]):
+            self.assertEqual(self.s.current_state(cluster),
+                             ('quorum', 1, 2, CaseInsensitiveSet([self.other.name, self.leadermem.name]),
+                              CaseInsensitiveSet([self.leadermem.name, self.other.name])))
 
     def test_set_sync_standby(self):
         def value_in_conf():
@@ -84,6 +105,7 @@ class TestSync(BaseTestPostgresql):
         mock_reload.assert_not_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = 'n1'")
 
+        mock_reload.reset_mock()
         self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1', 'n2']))
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = '2 (n1,n2)'")
@@ -98,3 +120,35 @@ class TestSync(BaseTestPostgresql):
         self.s.set_synchronous_standby_names(CaseInsensitiveSet('*'))
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = '*'")
+
+        self.p._global_config = GlobalConfig({'synchronous_mode': 'quorum'})
+        mock_reload.reset_mock()
+        self.s.set_synchronous_standby_names([], 1)
+        mock_reload.assert_called()
+        self.assertEqual(value_in_conf(), "synchronous_standby_names = 'ANY 1 (*)'")
+
+        mock_reload.reset_mock()
+        self.s.set_synchronous_standby_names(['a', 'b'], 1)
+        mock_reload.assert_called()
+        self.assertEqual(value_in_conf(), "synchronous_standby_names = 'ANY 1 (a,b)'")
+
+        mock_reload.reset_mock()
+        self.s.set_synchronous_standby_names(['a', 'b'], 3)
+        mock_reload.assert_called()
+        self.assertEqual(value_in_conf(), "synchronous_standby_names = 'ANY 3 (a,b)'")
+
+        self.p._major_version = 90601
+        mock_reload.reset_mock()
+        self.s.set_synchronous_standby_names([], 1)
+        mock_reload.assert_called()
+        self.assertEqual(value_in_conf(), "synchronous_standby_names = '1 (*)'")
+
+        mock_reload.reset_mock()
+        self.s.set_synchronous_standby_names(['a', 'b'], 1)
+        mock_reload.assert_called()
+        self.assertEqual(value_in_conf(), "synchronous_standby_names = '1 (a,b)'")
+
+        mock_reload.reset_mock()
+        self.s.set_synchronous_standby_names(['a', 'b'], 3)
+        mock_reload.assert_called()
+        self.assertEqual(value_in_conf(), "synchronous_standby_names = '3 (a,b)'")
