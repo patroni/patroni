@@ -28,7 +28,7 @@ class TestSync(BaseTestPostgresql):
     @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
     def test_pick_sync_standby(self):
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
-                          SyncState(0, self.me.name, self.leadermem.name), None, None, None)
+                          SyncState(0, self.me.name, self.leadermem.name, 0), None, None, None)
 
         pg_stat_replication = [
             {'pid': 100, 'application_name': self.leadermem.name, 'sync_state': 'sync', 'flush_lsn': 1},

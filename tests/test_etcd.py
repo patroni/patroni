@@ -338,7 +338,7 @@ class TestEtcd(unittest.TestCase):
         self.assertTrue(self.etcd.watch(None, 1))
 
     def test_sync_state(self):
-        self.assertIsNone(self.etcd.write_sync_state('leader', None))
+        self.assertIsNone(self.etcd.write_sync_state('leader', None, 0))
         self.assertFalse(self.etcd.delete_sync_state())
 
     def test_set_history_value(self):

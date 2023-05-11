@@ -137,8 +137,8 @@ class TestRaft(unittest.TestCase):
         self.assertTrue(raft.initialize())
         self.assertTrue(raft.cancel_initialization())
         self.assertTrue(raft.set_config_value('{}'))
-        self.assertTrue(raft.write_sync_state('foo', 'bar'))
-        self.assertFalse(raft.write_sync_state('foo', 'bar', 1))
+        self.assertTrue(raft.write_sync_state('foo', 'bar', 0))
+        self.assertFalse(raft.write_sync_state('foo', 'bar', 0, 1))
         raft._citus_group = '1'
         self.assertTrue(raft.manual_failover('foo', 'bar'))
         raft._citus_group = '0'

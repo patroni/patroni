@@ -393,10 +393,13 @@ class SyncState(NamedTuple):
     :param index: modification index of a synchronization key in a Configuration Store
     :param leader: reference to member that was leader
     :param sync_standby: synchronous standby list (comma delimited) which are last synchronized to leader
+    :param quorum: if the node from sync_standby list is doing a leader race it should
+                   see at least quorum other nodes from the sync_standby + leader list
     """
     index: Optional[_Version]
     leader: Optional[str]
     sync_standby: Optional[str]
+    quorum: int
 
     @staticmethod
     def from_node(index: Optional[_Version], value: Union[str, Dict[str, Any], None]) -> 'SyncState':
@@ -418,13 +421,15 @@ class SyncState(NamedTuple):
             if value and isinstance(value, str):
                 value = json.loads(value)
             assert isinstance(value, dict)
-            return SyncState(index, value.get('leader'), value.get('sync_standby'))
+            leader = value.get('leader')
+            quorum = value.get('quorum')
+            return SyncState(index, leader, value.get('sync_standby'), int(quorum) if leader and quorum else 0)
         except (AssertionError, TypeError, ValueError):
             return SyncState.empty(index)
 
     @staticmethod
     def empty(index: Optional[_Version] = None) -> 'SyncState':
-        return SyncState(index, None, None)
+        return SyncState(index, None, None, 0)
 
     @property
     def is_empty(self) -> bool:
@@ -441,9 +446,14 @@ class SyncState(NamedTuple):
         return list(filter(lambda a: a, [s.strip() for s in value.split(',')]))
 
     @property
-    def members(self) -> List[str]:
+    def voters(self) -> List[str]:
         """:returns: sync_standby as list."""
         return self._str_to_list(self.sync_standby) if not self.is_empty and self.sync_standby else []
+
+    @property
+    def members(self) -> List[str]:
+        """:returns: leader and all voters as list"""
+        return [] if not self.leader else [self.leader] + self.voters
 
     def matches(self, name: Optional[str], check_leader: bool = False) -> bool:
         """Checks if node is presented in the /sync state.
@@ -452,7 +462,7 @@ class SyncState(NamedTuple):
         :param name: name of the node
         :param check_leader: by default the name is searched in members, check_leader=True will include leader to list
         :returns: `True` if the /sync key not :func:`is_empty` and a given name is among presented in the sync state
-        >>> s = SyncState(1, 'foo', 'bar,zoo')
+        >>> s = SyncState(1, 'foo', 'bar,zoo', 0)
         >>> s.matches('foo')
         False
         >>> s.matches('fOo', True)
@@ -1077,25 +1087,31 @@ class AbstractDCS(abc.ABC):
         """Delete cluster from DCS"""
 
     @staticmethod
-    def sync_state(leader: Optional[str], sync_standby: Optional[Collection[str]]) -> Dict[str, Any]:
+    def sync_state(leader: Optional[str], sync_standby: Optional[Collection[str]],
+                   quorum: Optional[int]) -> Dict[str, Any]:
         """Build sync_state dict.
         The sync_standby key being kept for backward compatibility.
         :param leader: name of the leader node that manages /sync key
         :param sync_standby: collection of currently known synchronous standby node names
+        :param quorum: if the node from sync_standby list is doing a leader race it should
+                       see at least quorum other nodes from the sync_standby + leader list
         :returns: dictionary that later could be serialized to JSON or saved directly to DCS
         """
-        return {'leader': leader, 'sync_standby': ','.join(sorted(sync_standby)) if sync_standby else None}
+        return {'leader': leader, 'quorum': quorum,
+                'sync_standby': ','.join(sorted(sync_standby)) if sync_standby else None}
 
     def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
-                         index: Optional[Any] = None) -> Optional[SyncState]:
+                         quorum: Optional[int], index: Optional[Any] = None) -> Optional[SyncState]:
         """Write the new synchronous state to DCS.
         Calls :func:`sync_state` method to build a dict and than calls DCS specific :func:`set_sync_state_value` method.
         :param leader: name of the leader node that manages /sync key
         :param sync_standby: collection of currently known synchronous standby node names
         :param index: for conditional update of the key/object
+        :param quorum: if the node from sync_standby list is doing a leader race it should
+                       see at least quorum other nodes from the sync_standby + leader list
         :returns: the new :class:`SyncState` object or None
         """
-        sync_value = self.sync_state(leader, sync_standby)
+        sync_value = self.sync_state(leader, sync_standby, quorum)
         ret = self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), index)
         if not isinstance(ret, bool):
             return SyncState.from_node(ret, sync_value)

@@ -1313,15 +1313,18 @@ class Kubernetes(AbstractDCS):
         raise NotImplementedError  # pragma: no cover
 
     def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
-                         index: Optional[str] = None) -> Optional[SyncState]:
+                         quorum: Optional[int], index: Optional[str] = None) -> Optional[SyncState]:
         """Prepare and write annotations to $SCOPE-sync Endpoint or ConfigMap.
 
         :param leader: name of the leader node that manages /sync key
         :param sync_standby: collection of currently known synchronous standby node names
+        :param quorum: if the node from sync_standby list is doing a leader race it should
+                       see at least quorum other nodes from the sync_standby + leader list
         :param index: last known `resource_version` for conditional update of the object
         :returns: the new :class:`SyncState` object or None
         """
-        sync_state = self.sync_state(leader, sync_standby)
+        sync_state = self.sync_state(leader, sync_standby, quorum)
+        sync_state['quorum'] = str(sync_state['quorum']) if sync_state['quorum'] is not None else None
         ret = self.patch_or_create(self.sync_path, sync_state, index, False)
         if not isinstance(ret, bool):
             return SyncState.from_node(ret.metadata.resource_version, sync_state)
@@ -1333,7 +1336,7 @@ class Kubernetes(AbstractDCS):
         :param index: last known `resource_version` for conditional update of the object
         :returns: `True` if "delete" was successful
         """
-        return self.write_sync_state(None, None, index=index) is not None
+        return self.write_sync_state(None, None, None, index=index) is not None
 
     def watch(self, leader_index: Optional[str], timeout: float) -> bool:
         if self.__do_not_watch:
