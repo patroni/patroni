@@ -138,7 +138,9 @@ class TestClient(unittest.TestCase):
     @patch.object(EtcdClient, '_get_machines_list',
                   Mock(return_value=['http://localhost:2379', 'http://localhost:4001']))
     def setUp(self):
-        self.client = EtcdClient({'srv': 'test', 'retry_timeout': 3}, DnsCachingResolver())
+        self.etcd = Etcd({'namespace': '/patroni/', 'ttl': 30, 'retry_timeout': 3,
+                          'srv': 'test', 'scope': 'test', 'name': 'foo'})
+        self.client = self.etcd._client
         self.client.http.request = http_request
         self.client.http.request_encode_body = http_request
 
@@ -336,7 +338,7 @@ class TestEtcd(unittest.TestCase):
         self.assertTrue(self.etcd.watch(None, 1))
 
     def test_sync_state(self):
-        self.assertFalse(self.etcd.write_sync_state('leader', None))
+        self.assertIsNone(self.etcd.write_sync_state('leader', None))
         self.assertFalse(self.etcd.delete_sync_state())
 
     def test_set_history_value(self):

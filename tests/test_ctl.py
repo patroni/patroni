@@ -9,7 +9,7 @@ from mock import patch, Mock, PropertyMock
 from patroni.ctl import ctl, load_config, output_members, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, PatroniCtlException, apply_config_changes, \
     format_config_for_editing, show_diff, invoke_editor, format_pg_version, CONFIG_FILE_PATH, PatronictlPrettyTable
-from patroni.dcs.etcd import AbstractEtcdClientWithFailover, Failover
+from patroni.dcs.etcd import AbstractEtcdClientWithFailover, Cluster, Failover
 from patroni.psycopg import OperationalError
 from patroni.utils import tzutc
 from prettytable import PrettyTable, ALL
@@ -639,6 +639,10 @@ class TestCtl(unittest.TestCase):
         self.runner.invoke(ctl, ['edit-config', 'dummy', '--force', '--apply', '-'], input='foo: bar')
         mock_get_dcs.return_value.set_config_value.return_value = True
         self.runner.invoke(ctl, ['edit-config', 'dummy', '--force', '--apply', '-'], input='foo: bar')
+        mock_get_dcs.return_value.get_cluster = Mock(return_value=Cluster.empty())
+        result = self.runner.invoke(ctl, ['edit-config', 'dummy'])
+        assert result.exit_code == 1
+        assert 'The config key does not exist in the cluster dummy' in result.output
 
     @patch('patroni.ctl.get_dcs')
     def test_version(self, mock_get_dcs):

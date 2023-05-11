@@ -140,14 +140,14 @@ class PatroniRequest(object):
 
         :returns: the response returned upon request.
         """
-        url = member.api_url
+        url = member.api_url or ''
         if endpoint:
             scheme, netloc, _, _, _, _ = urlparse(url)
             url = urlunparse((scheme, netloc, endpoint, '', '', ''))
         return self.request(method, url, data, **kwargs)
 
 
-def get(url: str, verify: Optional[bool] = True, **kwargs: Any) -> urllib3.response.HTTPResponse:
+def get(url: str, verify: bool = True, **kwargs: Any) -> urllib3.response.HTTPResponse:
     """Perform an HTTP GET request.
 
     .. note::

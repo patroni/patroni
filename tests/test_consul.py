@@ -15,6 +15,8 @@ def kv_get(self, key, **kwargs):
         return None, None
     if key == 'service/good/leader':
         return '1', None
+    if key == 'service/good/sync':
+        return '1', {'ModifyIndex': 1, 'Value': b'{}'}
     good_cls = ('6429',
                 [{'CreateIndex': 1334, 'Flags': 0, 'Key': key + 'failover', 'LockIndex': 0,
                   'ModifyIndex': 1334, 'Value': b''},
@@ -195,6 +197,8 @@ class TestConsul(unittest.TestCase):
     @patch.object(consul.Consul.KV, 'delete', Mock(return_value=True))
     def test_delete_leader(self):
         self.c.delete_leader()
+        self.c._name = 'other'
+        self.c.delete_leader()
 
     @patch.object(consul.Consul.KV, 'put', Mock(return_value=True))
     def test_initialize(self):
@@ -222,7 +226,11 @@ class TestConsul(unittest.TestCase):
     @patch.object(consul.Consul.KV, 'delete', Mock(return_value=True))
     @patch.object(consul.Consul.KV, 'put', Mock(return_value=True))
     def test_sync_state(self):
-        self.assertTrue(self.c.set_sync_state_value('{}'))
+        self.assertEqual(self.c.set_sync_state_value('{}'), 1)
+        with patch('time.time', Mock(side_effect=[1, 100, 1000])):
+            self.assertFalse(self.c.set_sync_state_value('{}'))
+        with patch.object(consul.Consul.KV, 'put', Mock(return_value=False)):
+            self.assertFalse(self.c.set_sync_state_value('{}'))
         self.assertTrue(self.c.delete_sync_state())
 
     @patch.object(consul.Consul.KV, 'put', Mock(return_value=True))

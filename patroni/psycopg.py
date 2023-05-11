@@ -3,8 +3,10 @@
 This module is able to handle both ``pyscopg2`` and ``psycopg3``, and it exposes a common interface for both.
 ``psycopg2`` takes precedence. ``psycopg3`` will only be used if ``psycopg2`` is either absent or older than ``2.5.4``.
 """
-from typing import Any, Optional
-
+from typing import Any, Optional, TYPE_CHECKING, Union
+if TYPE_CHECKING:  # pragma: no cover
+    from psycopg import Connection
+    from psycopg2 import connection, cursor
 
 __all__ = ['connect', 'quote_ident', 'quote_literal', 'DatabaseError', 'Error', 'OperationalError', 'ProgrammingError']
 
@@ -39,9 +41,9 @@ try:
             value.prepare(conn)
         return value.getquoted().decode('utf-8')
 except ImportError:
-    from psycopg import connect as __connect, sql, Error, DatabaseError, OperationalError, ProgrammingError, Connection
+    from psycopg import connect as __connect, sql, Error, DatabaseError, OperationalError, ProgrammingError
 
-    def _connect(dsn: str = "", **kwargs: Any) -> Any:
+    def _connect(dsn: Optional[str] = None, **kwargs: Any) -> 'Connection[Any]':
         """Call ``psycopg.connect`` with ``dsn`` and ``**kwargs``.
 
         .. note::
@@ -53,19 +55,19 @@ except ImportError:
 
         :returns: a connection to the database.
         """
-        ret = __connect(dsn, **kwargs)
+        ret = __connect(dsn or "", **kwargs)
         setattr(ret, 'server_version', ret.pgconn.server_version)  # compatibility with psycopg2
         return ret
 
-    def _quote_ident(value: Any, conn: Connection) -> str:
+    def _quote_ident(value: Any, scope: Any) -> str:
         """Quote *value* as a SQL identifier.
 
         :param value: value to be quoted.
-        :param conn: connection to evaluate the returning string into.
+        :param scope: connection to evaluate the returning string into.
 
         :returns: *value* quoted as a SQL identifier.
         """
-        return sql.Identifier(value).as_string(conn)
+        return sql.Identifier(value).as_string(scope)
 
     def quote_literal(value: Any, conn: Optional[Any] = None) -> str:
         """Quote *value* as a SQL literal.
@@ -78,7 +80,7 @@ except ImportError:
         return sql.Literal(value).as_string(conn)
 
 
-def connect(*args: Any, **kwargs: Any) -> Any:
+def connect(*args: Any, **kwargs: Any) -> Union['connection', 'Connection[Any]']:
     """Get a connection to the database.
 
     .. note::
@@ -102,7 +104,7 @@ def connect(*args: Any, **kwargs: Any) -> Any:
     return ret
 
 
-def quote_ident(value: Any, conn: Optional[Any] = None) -> str:
+def quote_ident(value: Any, conn: Optional[Union['cursor', 'connection', 'Connection[Any]']] = None) -> str:
     """Quote *value* as a SQL identifier.
 
     :param value: value to be quoted.

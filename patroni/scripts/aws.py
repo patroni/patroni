@@ -5,20 +5,22 @@ import logging
 import sys
 import boto3
 
-from ..utils import Retry, RetryFailedError
-
 from botocore.exceptions import ClientError
 from botocore.utils import IMDSFetcher
+
+from typing import Any, Optional
+
+from ..utils import Retry, RetryFailedError
 
 logger = logging.getLogger(__name__)
 
 
 class AWSConnection(object):
 
-    def __init__(self, cluster_name):
+    def __init__(self, cluster_name: Optional[str]) -> None:
         self.available = False
         self.cluster_name = cluster_name if cluster_name is not None else 'unknown'
-        self._retry = Retry(deadline=300, max_delay=30, max_tries=-1, retry_exceptions=(ClientError,))
+        self._retry = Retry(deadline=300, max_delay=30, max_tries=-1, retry_exceptions=ClientError)
         try:
             # get the instance id
             fetcher = IMDSFetcher(timeout=2.1)
@@ -38,13 +40,13 @@ class AWSConnection(object):
                 return
             self.available = True
 
-    def retry(self, *args, **kwargs):
+    def retry(self, *args: Any, **kwargs: Any) -> Any:
         return self._retry.copy()(*args, **kwargs)
 
-    def aws_available(self):
+    def aws_available(self) -> bool:
         return self.available
 
-    def _tag_ebs(self, conn, role):
+    def _tag_ebs(self, conn: Any, role: str) -> None:
         """ set tags, carrying the cluster name, instance role and instance id for the EBS storage """
         tags = [{'Key': 'Name', 'Value': 'spilo_' + self.cluster_name},
                 {'Key': 'Role', 'Value': role},
@@ -52,16 +54,16 @@ class AWSConnection(object):
         volumes = conn.volumes.filter(Filters=[{'Name': 'attachment.instance-id', 'Values': [self.instance_id]}])
         conn.create_tags(Resources=[v.id for v in volumes], Tags=tags)
 
-    def _tag_ec2(self, conn, role):
+    def _tag_ec2(self, conn: Any, role: str) -> None:
         """ tag the current EC2 instance with a cluster role """
         tags = [{'Key': 'Role', 'Value': role}]
         conn.create_tags(Resources=[self.instance_id], Tags=tags)
 
-    def on_role_change(self, new_role):
+    def on_role_change(self, new_role: str) -> bool:
         if not self.available:
             return False
         try:
-            conn = boto3.resource('ec2', region_name=self.region)
+            conn = boto3.resource('ec2', region_name=self.region)  # type: ignore
             self.retry(self._tag_ec2, conn, new_role)
             self.retry(self._tag_ebs, conn, new_role)
         except RetryFailedError:

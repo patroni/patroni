@@ -23,6 +23,7 @@ class MockResponse(object):
 
     def __init__(self, status_code=200):
         self.status_code = status_code
+        self.headers = {'content-type': 'json'}
         self.content = '{}'
         self.reason = 'Not Found'
 
@@ -37,10 +38,6 @@ class MockResponse(object):
     @staticmethod
     def getheader(*args):
         return ''
-
-    @staticmethod
-    def getheaders():
-        return {'content-type': 'json'}
 
 
 def requests_get(url, method='GET', endpoint=None, data='', **kwargs):
@@ -85,6 +82,8 @@ class MockCursor(object):
         self.description = [Mock()]
 
     def execute(self, sql, *params):
+        if isinstance(sql, bytes):
+            sql = sql.decode('utf-8')
         if sql.startswith('blabla'):
             raise psycopg.ProgrammingError()
         elif sql == 'CHECKPOINT' or sql.startswith('SELECT pg_catalog.pg_create_'):
@@ -98,7 +97,7 @@ class MockCursor(object):
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla', 'physical'), ('foobar', 'physical'), ('ls', 'logical', 'a', 'b', 5, 100, 500)]
         elif sql.startswith('WITH slots AS (SELECT slot_name, active'):
-            self.results = [(False, True)]
+            self.results = [(False, True)] if self.rowcount == 1 else [None]
         elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):
             self.results = [(1, 2, 1, 0, False, 1, 1, None, None,
                              [{"slot_name": "ls", "confirmed_flush_lsn": 12345}],

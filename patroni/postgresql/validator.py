@@ -1,7 +1,7 @@
 import abc
 import logging
 
-from collections import namedtuple
+from typing import Any, MutableMapping, Optional, Tuple, Union
 
 from ..collections import CaseInsensitiveDict
 from ..utils import parse_bool, parse_int, parse_real
@@ -9,23 +9,65 @@ from ..utils import parse_bool, parse_int, parse_real
 logger = logging.getLogger(__name__)
 
 
-class Bool(namedtuple('Bool', 'version_from,version_till')):
+class _Transformable(abc.ABC):
 
-    @staticmethod
-    def transform(name, value):
+    def __init__(self, version_from: int, version_till: Optional[int]) -> None:
+        self.__version_from = version_from
+        self.__version_till = version_till
+
+    @property
+    def version_from(self) -> int:
+        return self.__version_from
+
+    @property
+    def version_till(self) -> Optional[int]:
+        return self.__version_till
+
+    @abc.abstractmethod
+    def transform(self, name: str, value: Any) -> Optional[Any]:
+        """Verify that provided value is valid.
+
+        :param name: GUC's name
+        :param value: GUC's value
+        :returns: the value (sometimes clamped) or ``None`` if the value isn't valid
+        """
+
+
+class Bool(_Transformable):
+
+    def transform(self, name: str, value: Any) -> Optional[Any]:
         if parse_bool(value) is not None:
             return value
         logger.warning('Removing bool parameter=%s from the config due to the invalid value=%s', name, value)
 
 
-class Number(abc.ABC, namedtuple('Number', 'version_from,version_till,min_val,max_val,unit')):
+class Number(_Transformable):
+
+    def __init__(self, version_from: int, version_till: Optional[int],
+                 min_val: Union[int, float], max_val: Union[int, float], unit: Optional[str]) -> None:
+        super(Number, self).__init__(version_from, version_till)
+        self.__min_val = min_val
+        self.__max_val = max_val
+        self.__unit = unit
+
+    @property
+    def min_val(self) -> Union[int, float]:
+        return self.__min_val
+
+    @property
+    def max_val(self) -> Union[int, float]:
+        return self.__max_val
+
+    @property
+    def unit(self) -> Optional[str]:
+        return self.__unit
 
     @staticmethod
     @abc.abstractmethod
-    def parse(value, unit):
-        """parse value"""
+    def parse(value: Any, unit: Optional[str]) -> Optional[Any]:
+        """Convert provided value to unit."""
 
-    def transform(self, name, value):
+    def transform(self, name: str, value: Any) -> Union[int, float, None]:
         num_value = self.parse(value, self.unit)
         if num_value is not None:
             if num_value < self.min_val:
@@ -44,20 +86,28 @@ class Number(abc.ABC, namedtuple('Number', 'version_from,version_till,min_val,ma
 class Integer(Number):
 
     @staticmethod
-    def parse(value, unit):
+    def parse(value: Any, unit: Optional[str]) -> Optional[int]:
         return parse_int(value, unit)
 
 
 class Real(Number):
 
     @staticmethod
-    def parse(value, unit):
+    def parse(value: Any, unit: Optional[str]) -> Optional[float]:
         return parse_real(value, unit)
 
 
-class Enum(namedtuple('Enum', 'version_from,version_till,possible_values')):
+class Enum(_Transformable):
 
-    def transform(self, name, value):
+    def __init__(self, version_from: int, version_till: Optional[int], possible_values: Tuple[str, ...]) -> None:
+        super(Enum, self).__init__(version_from, version_till)
+        self.__possible_values = possible_values
+
+    @property
+    def possible_values(self) -> Tuple[str, ...]:
+        return self.__possible_values
+
+    def transform(self, name: str, value: Optional[Any]) -> Optional[Any]:
         if str(value).lower() in self.possible_values:
             return value
         logger.warning('Removing enum parameter=%s from the config due to the invalid value=%s', name, value)
@@ -65,16 +115,15 @@ class Enum(namedtuple('Enum', 'version_from,version_till,possible_values')):
 
 class EnumBool(Enum):
 
-    def transform(self, name, value):
+    def transform(self, name: str, value: Optional[Any]) -> Optional[Any]:
         if parse_bool(value) is not None:
             return value
         return super(EnumBool, self).transform(name, value)
 
 
-class String(namedtuple('String', 'version_from,version_till')):
+class String(_Transformable):
 
-    @staticmethod
-    def transform(name, value):
+    def transform(self, name: str, value: Optional[Any]) -> Optional[Any]:
         return value
 
 
@@ -511,17 +560,18 @@ recovery_parameters = CaseInsensitiveDict({
 })
 
 
-def _transform_parameter_value(validators, version, name, value):
-    validators = validators.get(name)
-    if validators:
-        for validator in (validators if isinstance(validators[0], tuple) else [validators]):
+def _transform_parameter_value(validators: MutableMapping[str, Union[_Transformable, Tuple[_Transformable, ...]]],
+                               version: int, name: str, value: Any) -> Optional[Any]:
+    name_validators = validators.get(name)
+    if name_validators:
+        for validator in (name_validators if isinstance(name_validators, tuple) else (name_validators,)):
             if version >= validator.version_from and\
                     (validator.version_till is None or version < validator.version_till):
                 return validator.transform(name, value)
     logger.warning('Removing unexpected parameter=%s value=%s from the config', name, value)
 
 
-def transform_postgresql_parameter_value(version, name, value):
+def transform_postgresql_parameter_value(version: int, name: str, value: Any) -> Optional[Any]:
     if '.' in name:
         return value
     if name in recovery_parameters:
@@ -529,5 +579,5 @@ def transform_postgresql_parameter_value(version, name, value):
     return _transform_parameter_value(parameters, version, name, value)
 
 
-def transform_recovery_parameter_value(version, name, value):
+def transform_recovery_parameter_value(version: int, name: str, value: Any) -> Optional[Any]:
     return _transform_parameter_value(recovery_parameters, version, name, value)

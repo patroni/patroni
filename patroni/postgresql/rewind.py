@@ -5,36 +5,46 @@ import shlex
 import shutil
 import subprocess
 
+from enum import IntEnum
 from threading import Lock, Thread
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 
+from . import Postgresql
 from .connection import get_connection_cursor
 from .misc import format_lsn, fsync_dir, parse_history, parse_lsn
 from ..async_executor import CriticalTask
-from ..dcs import Leader
+from ..dcs import Leader, RemoteMember
 
 logger = logging.getLogger(__name__)
 
-REWIND_STATUS = type('Enum', (), {'INITIAL': 0, 'CHECKPOINT': 1, 'CHECK': 2, 'NEED': 3,
-                                  'NOT_NEED': 4, 'SUCCESS': 5, 'FAILED': 6})
+
+class REWIND_STATUS(IntEnum):
+    INITIAL = 0
+    CHECKPOINT = 1
+    CHECK = 2
+    NEED = 3
+    NOT_NEED = 4
+    SUCCESS = 5
+    FAILED = 6
 
 
 class Rewind(object):
 
-    def __init__(self, postgresql):
+    def __init__(self, postgresql: Postgresql) -> None:
         self._postgresql = postgresql
         self._checkpoint_task_lock = Lock()
         self.reset_state()
 
     @staticmethod
-    def configuration_allows_rewind(data):
+    def configuration_allows_rewind(data: Dict[str, str]) -> bool:
         return data.get('wal_log_hints setting', 'off') == 'on' or data.get('Data page checksum version', '0') != '0'
 
     @property
-    def enabled(self):
-        return self._postgresql.config.get('use_pg_rewind')
+    def enabled(self) -> bool:
+        return bool(self._postgresql.config.get('use_pg_rewind'))
 
     @property
-    def can_rewind(self):
+    def can_rewind(self) -> bool:
         """ check if pg_rewind executable is there and that pg_controldata indicates
             we have either wal_log_hints or checksums turned on
         """
@@ -52,43 +62,45 @@ class Rewind(object):
         return self.configuration_allows_rewind(self._postgresql.controldata())
 
     @property
-    def should_remove_data_directory_on_diverged_timelines(self):
-        return self._postgresql.config.get('remove_data_directory_on_diverged_timelines')
+    def should_remove_data_directory_on_diverged_timelines(self) -> bool:
+        return bool(self._postgresql.config.get('remove_data_directory_on_diverged_timelines'))
 
     @property
-    def can_rewind_or_reinitialize_allowed(self):
+    def can_rewind_or_reinitialize_allowed(self) -> bool:
         return self.should_remove_data_directory_on_diverged_timelines or self.can_rewind
 
-    def trigger_check_diverged_lsn(self):
+    def trigger_check_diverged_lsn(self) -> None:
         if self.can_rewind_or_reinitialize_allowed and self._state != REWIND_STATUS.NEED:
             self._state = REWIND_STATUS.CHECK
 
     @staticmethod
-    def check_leader_is_not_in_recovery(conn_kwargs):
+    def check_leader_is_not_in_recovery(conn_kwargs: Dict[str, Any]) -> Optional[bool]:
         try:
             with get_connection_cursor(connect_timeout=3, options='-c statement_timeout=2000', **conn_kwargs) as cur:
                 cur.execute('SELECT pg_catalog.pg_is_in_recovery()')
-                if not cur.fetchone()[0]:
+                row = cur.fetchone()
+                if not row or not row[0]:
                     return True
                 logger.info('Leader is still in_recovery and therefore can\'t be used for rewind')
         except Exception:
             return logger.exception('Exception when working with leader')
 
     @staticmethod
-    def check_leader_has_run_checkpoint(conn_kwargs):
+    def check_leader_has_run_checkpoint(conn_kwargs: Dict[str, Any]) -> Optional[str]:
         try:
             with get_connection_cursor(connect_timeout=3, options='-c statement_timeout=2000', **conn_kwargs) as cur:
                 cur.execute("SELECT NOT pg_catalog.pg_is_in_recovery()"
                             " AND ('x' || pg_catalog.substr(pg_catalog.pg_walfile_name("
                             " pg_catalog.pg_current_wal_lsn()), 1, 8))::bit(32)::int = timeline_id"
                             " FROM pg_catalog.pg_control_checkpoint()")
-                if not cur.fetchone()[0]:
+                row = cur.fetchone()
+                if not row or not row[0]:
                     return 'leader has not run a checkpoint yet'
         except Exception:
             logger.exception('Exception when working with leader')
             return 'not accessible or not healty'
 
-    def _get_checkpoint_end(self, timeline, lsn):
+    def _get_checkpoint_end(self, timeline: int, lsn: int) -> int:
         """The checkpoint record size in WAL depends on postgres major version and platform (memory alignment).
         Hence, the only reliable way to figure out where it ends, read the record from file with the help of pg_waldump
         and parse the output. We are trying to read two records, and expect that it will fail to read the second one:
@@ -96,12 +108,12 @@ class Rewind(object):
         The error message contains information about LSN of the next record, which is exactly where checkpoint ends."""
 
         lsn8 = format_lsn(lsn, True)
-        lsn = format_lsn(lsn)
-        out, err = self._postgresql.waldump(timeline, lsn, 2)
+        lsn_str = format_lsn(lsn)
+        out, err = self._postgresql.waldump(timeline, lsn_str, 2)
         if out is not None and err is not None:
             out = out.decode('utf-8').rstrip().split('\n')
             err = err.decode('utf-8').rstrip().split('\n')
-            pattern = 'error in WAL record at {0}: invalid record length at '.format(lsn)
+            pattern = 'error in WAL record at {0}: invalid record length at '.format(lsn_str)
 
             if len(out) == 1 and len(err) == 1 and ', lsn: {0}, prev '.format(lsn8) in out[0] and pattern in err[0]:
                 i = err[0].find(pattern) + len(pattern)
@@ -117,20 +129,20 @@ class Rewind(object):
 
         return 0
 
-    def _get_local_timeline_lsn_from_controldata(self):
+    def _get_local_timeline_lsn_from_controldata(self) -> Tuple[Optional[bool], Optional[int], Optional[int]]:
         in_recovery = timeline = lsn = None
         data = self._postgresql.controldata()
         try:
             if data.get('Database cluster state') in ('shut down in recovery', 'in archive recovery'):
                 in_recovery = True
                 lsn = data.get('Minimum recovery ending location')
-                timeline = int(data.get("Min recovery ending loc's timeline"))
+                timeline = int(data.get("Min recovery ending loc's timeline", ""))
                 if lsn == '0/0' or timeline == 0:  # it was a primary when it crashed
                     data['Database cluster state'] = 'shut down'
             if data.get('Database cluster state') == 'shut down':
                 in_recovery = False
                 lsn = data.get('Latest checkpoint location')
-                timeline = int(data.get("Latest checkpoint's TimeLineID"))
+                timeline = int(data.get("Latest checkpoint's TimeLineID", ""))
         except (TypeError, ValueError):
             logger.exception('Failed to get local timeline and lsn from pg_controldata output')
 
@@ -143,7 +155,7 @@ class Rewind(object):
 
         return in_recovery, timeline, lsn
 
-    def _get_local_timeline_lsn(self):
+    def _get_local_timeline_lsn(self) -> Tuple[Optional[bool], Optional[int], Optional[int]]:
         if self._postgresql.is_running():  # if postgres is running - get timeline from replication connection
             in_recovery = True
             timeline = self._postgresql.received_timeline() or self._postgresql.get_replica_timeline()
@@ -156,14 +168,15 @@ class Rewind(object):
         return in_recovery, timeline, lsn
 
     @staticmethod
-    def _log_primary_history(history, i):
+    def _log_primary_history(history: List[Tuple[int, int, str]], i: int) -> None:
         start = max(0, i - 3)
         end = None if i + 4 >= len(history) else i + 2
-        history_show = []
+        history_show: List[str] = []
 
-        def format_history_line(line):
+        def format_history_line(line: Tuple[int, int, str]) -> str:
             return '{0}\t{1}\t{2}'.format(line[0], format_lsn(line[1]), line[2])
 
+        line = None
         for line in history[start:end]:
             history_show.append(format_history_line(line))
 
@@ -173,7 +186,7 @@ class Rewind(object):
 
         logger.info('primary: history=%s', '\n'.join(history_show))
 
-    def _conn_kwargs(self, member, auth):
+    def _conn_kwargs(self, member: Union[Leader, RemoteMember], auth: Dict[str, Any]) -> Dict[str, Any]:
         ret = member.conn_kwargs(auth)
         if not ret.get('dbname'):
             ret['dbname'] = self._postgresql.database
@@ -183,7 +196,7 @@ class Rewind(object):
             ret['target_session_attrs'] = 'read-write'
         return ret
 
-    def _check_timeline_and_lsn(self, leader):
+    def _check_timeline_and_lsn(self, leader: Union[Leader, RemoteMember]) -> None:
         in_recovery, local_timeline, local_lsn = self._get_local_timeline_lsn()
         if local_timeline is None or local_lsn is None:
             return
@@ -205,23 +218,28 @@ class Rewind(object):
         try:
             with self._postgresql.get_replication_connection_cursor(**leader.conn_kwargs()) as cur:
                 cur.execute('IDENTIFY_SYSTEM')
-                primary_timeline = cur.fetchone()[1]
-                logger.info('primary_timeline=%s', primary_timeline)
-                if local_timeline > primary_timeline:  # Not always supported by pg_rewind
-                    need_rewind = True
-                elif local_timeline == primary_timeline:
-                    need_rewind = False
-                elif primary_timeline > 1:
-                    cur.execute('TIMELINE_HISTORY {0}'.format(primary_timeline))
-                    history = cur.fetchone()[1]
-                    if not isinstance(history, str):
-                        history = bytes(history).decode('utf-8')
-                    logger.debug('primary: history=%s', history)
+                row = cur.fetchone()
+                if row:
+                    primary_timeline = row[1]
+                    logger.info('primary_timeline=%s', primary_timeline)
+                    if local_timeline > primary_timeline:  # Not always supported by pg_rewind
+                        need_rewind = True
+                    elif local_timeline == primary_timeline:
+                        need_rewind = False
+                    elif primary_timeline > 1:
+                        cur.execute('TIMELINE_HISTORY {0}'.format(primary_timeline).encode('utf-8'))
+                        row = cur.fetchone()
+                        if row:
+                            history = row[1]
+                            if not isinstance(history, str):
+                                history = bytes(history).decode('utf-8')
+                            logger.debug('primary: history=%s', history)
         except Exception:
             return logger.exception('Exception when working with primary via replication connection')
 
         if history is not None:
             history = list(parse_history(history))
+            i = len(history)
             for i, (parent_timeline, switchpoint, _) in enumerate(history):
                 if parent_timeline == local_timeline:
                     # We don't need to rewind when:
@@ -243,12 +261,12 @@ class Rewind(object):
 
         self._state = need_rewind and REWIND_STATUS.NEED or REWIND_STATUS.NOT_NEED
 
-    def rewind_or_reinitialize_needed_and_possible(self, leader):
+    def rewind_or_reinitialize_needed_and_possible(self, leader: Union[Leader, RemoteMember, None]) -> bool:
         if leader and leader.name != self._postgresql.name and leader.conn_url and self._state == REWIND_STATUS.CHECK:
             self._check_timeline_and_lsn(leader)
-        return leader and leader.conn_url and self._state == REWIND_STATUS.NEED
+        return bool(leader and leader.conn_url) and self._state == REWIND_STATUS.NEED
 
-    def __checkpoint(self, task, wakeup):
+    def __checkpoint(self, task: CriticalTask, wakeup: Callable[..., Any]) -> None:
         try:
             result = self._postgresql.checkpoint()
         except Exception as e:
@@ -258,7 +276,7 @@ class Rewind(object):
             if task.result:
                 wakeup()
 
-    def ensure_checkpoint_after_promote(self, wakeup):
+    def ensure_checkpoint_after_promote(self, wakeup: Callable[..., Any]) -> None:
         """After promote issue a CHECKPOINT from a new thread and asynchronously check the result.
         In case if CHECKPOINT failed, just check that timeline in pg_control was updated."""
 
@@ -275,10 +293,10 @@ class Rewind(object):
                     self._checkpoint_task = CriticalTask()
                     Thread(target=self.__checkpoint, args=(self._checkpoint_task, wakeup)).start()
 
-    def checkpoint_after_promote(self):
+    def checkpoint_after_promote(self) -> bool:
         return self._state == REWIND_STATUS.CHECKPOINT
 
-    def _buid_archiver_command(self, command, wal_filename):
+    def _buid_archiver_command(self, command: str, wal_filename: str) -> str:
         """Replace placeholders in the given archiver command's template.
         Applicable for archive_command and restore_command.
         Can also be used for archive_cleanup_command and recovery_end_command,
@@ -306,13 +324,13 @@ class Rewind(object):
 
         return cmd
 
-    def _fetch_missing_wal(self, restore_command, wal_filename):
+    def _fetch_missing_wal(self, restore_command: str, wal_filename: str) -> bool:
         cmd = self._buid_archiver_command(restore_command, wal_filename)
 
         logger.info('Trying to fetch the missing wal: %s', cmd)
         return self._postgresql.cancellable.call(shlex.split(cmd)) == 0
 
-    def _find_missing_wal(self, data):
+    def _find_missing_wal(self, data: bytes) -> Optional[str]:
         # could not open file "$PGDATA/pg_wal/0000000A00006AA100000068": No such file or directory
         pattern = 'could not open file "'
         for line in data.decode('utf-8').split('\n'):
@@ -325,7 +343,7 @@ class Rewind(object):
                     if waldir.endswith('/pg_' + self._postgresql.wal_name) and len(wal_filename) == 24:
                         return wal_filename
 
-    def _archive_ready_wals(self):
+    def _archive_ready_wals(self) -> None:
         """Try to archive WALs that have .ready files just in case
         archive_mode was not set to 'always' before promote, while
         after it the WALs were recycled on the promoted replica.
@@ -361,7 +379,7 @@ class Rewind(object):
                 else:
                     logger.info('Failed to archive WAL segment %s', wal)
 
-    def _maybe_clean_pg_replslot(self):
+    def _maybe_clean_pg_replslot(self) -> None:
         """Clean pg_replslot directory if pg version is less then 11
         (pg_rewind deletes $PGDATA/pg_replslot content only since pg11)."""
         if self._postgresql.major_version < 110000:
@@ -373,33 +391,33 @@ class Rewind(object):
             except Exception as e:
                 logger.warning('Unable to clean %s: %r', replslot_dir, e)
 
-    def pg_rewind(self, r):
+    def pg_rewind(self, r: Dict[str, Any]) -> bool:
         # prepare pg_rewind connection
         env = self._postgresql.config.write_pgpass(r)
         env.update(LANG='C', LC_ALL='C', PGOPTIONS='-c statement_timeout=0')
         dsn = self._postgresql.config.format_dsn(r, True)
         logger.info('running pg_rewind from %s', dsn)
 
-        restore_command = self._postgresql.config.get('recovery_conf', {}).get('restore_command') \
+        restore_command = (self._postgresql.config.get('recovery_conf') or {}).get('restore_command') \
             if self._postgresql.major_version < 120000 else self._postgresql.get_guc_value('restore_command')
 
         # Until v15 pg_rewind expected postgresql.conf to be inside $PGDATA, which is not the case on e.g. Debian
         pg_rewind_can_restore = restore_command and (self._postgresql.major_version >= 150000
                                                      or (self._postgresql.major_version >= 130000
-                                                         and self._postgresql.config._config_dir
+                                                         and self._postgresql.config.config_dir
                                                          == self._postgresql.data_dir))
 
         cmd = [self._postgresql.pgcommand('pg_rewind')]
         if pg_rewind_can_restore:
             cmd.append('--restore-target-wal')
             if self._postgresql.major_version >= 150000 and\
-                    self._postgresql.config._config_dir != self._postgresql.data_dir:
+                    self._postgresql.config.config_dir != self._postgresql.data_dir:
                 cmd.append('--config-file={0}'.format(self._postgresql.config.postgresql_conf))
 
         cmd.extend(['-D', self._postgresql.data_dir, '--source-server', dsn])
 
         while True:
-            results = {}
+            results: Dict[str, bytes] = {}
             ret = self._postgresql.cancellable.call(cmd, env=env, communicate=results)
 
             logger.info('pg_rewind exit code=%s', ret)
@@ -422,7 +440,7 @@ class Rewind(object):
                 logger.info('Failed to fetch WAL segment %s required for pg_rewind', missing_wal)
                 return False
 
-    def execute(self, leader):
+    def execute(self, leader: Union[Leader, RemoteMember]) -> Optional[bool]:
         if self._postgresql.is_running() and not self._postgresql.stop(checkpoint=False):
             return logger.warning('Can not run pg_rewind because postgres is still running')
 
@@ -471,26 +489,26 @@ class Rewind(object):
                         break
         return False
 
-    def reset_state(self):
+    def reset_state(self) -> None:
         self._state = REWIND_STATUS.INITIAL
         with self._checkpoint_task_lock:
             self._checkpoint_task = None
 
     @property
-    def is_needed(self):
+    def is_needed(self) -> bool:
         return self._state in (REWIND_STATUS.CHECK, REWIND_STATUS.NEED)
 
     @property
-    def executed(self):
+    def executed(self) -> bool:
         return self._state > REWIND_STATUS.NOT_NEED
 
     @property
-    def failed(self):
+    def failed(self) -> bool:
         return self._state == REWIND_STATUS.FAILED
 
-    def read_postmaster_opts(self):
+    def read_postmaster_opts(self) -> Dict[str, str]:
         """returns the list of option names/values from postgres.opts, Empty dict if read failed or no file"""
-        result = {}
+        result: Dict[str, str] = {}
         try:
             with open(os.path.join(self._postgresql.data_dir, 'postmaster.opts')) as f:
                 data = f.read()
@@ -502,7 +520,8 @@ class Rewind(object):
             logger.exception('Error when reading postmaster.opts')
         return result
 
-    def single_user_mode(self, communicate=None, options=None):
+    def single_user_mode(self, communicate: Optional[Dict[str, Any]] = None,
+                         options: Optional[Dict[str, str]] = None) -> Optional[int]:
         """run a given command in a single-user mode. If the command is empty - then just start and stop"""
         cmd = [self._postgresql.pgcommand('postgres'), '--single', '-D', self._postgresql.data_dir]
         for opt, val in sorted((options or {}).items()):
@@ -511,7 +530,7 @@ class Rewind(object):
         cmd.append('template1')
         return self._postgresql.cancellable.call(cmd, communicate=communicate)
 
-    def cleanup_archive_status(self):
+    def cleanup_archive_status(self) -> None:
         status_dir = os.path.join(self._postgresql.wal_dir, 'archive_status')
         try:
             for f in os.listdir(status_dir):
@@ -526,7 +545,7 @@ class Rewind(object):
         except OSError:
             logger.exception('Unable to list %s', status_dir)
 
-    def ensure_clean_shutdown(self):
+    def ensure_clean_shutdown(self) -> Optional[bool]:
         self._archive_ready_wals()
         self.cleanup_archive_status()
 
@@ -534,7 +553,7 @@ class Rewind(object):
         opts = self.read_postmaster_opts()
         opts.update({'archive_mode': 'on', 'archive_command': 'false'})
         self._postgresql.config.remove_recovery_conf()
-        output = {}
+        output: Dict[str, bytes] = {}
         ret = self.single_user_mode(communicate=output, options=opts)
         if ret != 0:
             logger.error('Crash recovery finished with code=%s', ret)

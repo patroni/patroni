@@ -4,41 +4,96 @@ import shlex
 import tempfile
 import time
 
-from ..dcs import RemoteMember
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
+
+from ..async_executor import CriticalTask
+from ..dcs import Leader, Member, RemoteMember
 from ..psycopg import quote_ident, quote_literal
-from ..utils import deep_compare
+from ..utils import deep_compare, unquote
+
+if TYPE_CHECKING:  # pragma: no cover
+    from . import Postgresql
 
 logger = logging.getLogger(__name__)
 
 
 class Bootstrap(object):
 
-    def __init__(self, postgresql):
+    def __init__(self, postgresql: 'Postgresql') -> None:
         self._postgresql = postgresql
         self._running_custom_bootstrap = False
 
     @property
-    def running_custom_bootstrap(self):
+    def running_custom_bootstrap(self) -> bool:
         return self._running_custom_bootstrap
 
     @property
-    def keep_existing_recovery_conf(self):
+    def keep_existing_recovery_conf(self) -> bool:
         return self._running_custom_bootstrap and self._keep_existing_recovery_conf
 
     @staticmethod
-    def process_user_options(tool, options, not_allowed_options, error_handler):
-        user_options = []
+    def process_user_options(tool: str,
+                             options: Union[Any, Dict[str, str], List[Union[str, Dict[str, Any]]]],
+                             not_allowed_options: Tuple[str, ...],
+                             error_handler: Callable[[str], None]) -> List[str]:
+        """Format *options* in a list or dictionary format into command line long form arguments.
 
-        def option_is_allowed(name):
+        .. note::
+            The format of the output of this method is to prepare arguments for use in the ``initdb``
+            method of `self._postgres`.
+
+        :Example:
+
+            The *options* can be defined as a dictionary of key, values to be converted into arguments:
+            >>> Bootstrap.process_user_options('foo', {'foo': 'bar'}, (), print)
+            ['--foo=bar']
+
+            Or as a list of single string arguments
+            >>> Bootstrap.process_user_options('foo', ['yes'], (), print)
+            ['--yes']
+
+            Or as a list of key, value options
+            >>> Bootstrap.process_user_options('foo', [{'foo': 'bar'}], (), print)
+            ['--foo=bar']
+
+            Or a combination of single and key, values
+            >>> Bootstrap.process_user_options('foo', ['yes', {'foo': 'bar'}], (), print)
+            ['--yes', '--foo=bar']
+
+            Options that contain spaces are passed as is to ``subprocess.call``
+            >>> Bootstrap.process_user_options('foo', [{'foo': 'bar baz'}], (), print)
+            ['--foo=bar baz']
+
+            Options that are quoted will be unquoted, so the quotes aren't interpreted
+            literally by the postgres command
+            >>> Bootstrap.process_user_options('foo', [{'foo': '"bar baz"'}], (), print)
+            ['--foo=bar baz']
+
+        .. note::
+            The *error_handler* is called when any of these conditions are met:
+
+            * Key, value dictionaries in the list form contains multiple keys.
+            * If a key is listed in *not_allowed_options*.
+            * If the options list is not in the required structure.
+
+        :param tool: The name of the tool used in error reports to *error_handler*
+        :param options: Options to parse as a list of key, values or single values, or a dictionary
+        :param not_allowed_options: List of keys that cannot be used in the list of key, value formatted options
+        :param error_handler: A function which will be called when an error condition is encountered
+        :returns: List of long form arguments to pass to the named tool
+        """
+        user_options: List[str] = []
+
+        def option_is_allowed(name: str) -> bool:
             ret = name not in not_allowed_options
             if not ret:
                 error_handler('{0} option for {1} is not allowed'.format(name, tool))
             return ret
 
         if isinstance(options, dict):
-            for k, v in options.items():
-                if k and v:
-                    user_options.append('--{0}={1}'.format(k, v))
+            for key, val in options.items():
+                if key and val:
+                    user_options.append('--{0}={1}'.format(key, unquote(val)))
         elif isinstance(options, list):
             for opt in options:
                 if isinstance(opt, str) and option_is_allowed(opt):
@@ -48,7 +103,7 @@ class Bootstrap(object):
                     if len(keys) != 1 or not isinstance(opt[keys[0]], str) or not option_is_allowed(keys[0]):
                         error_handler('Error when parsing {0} key-value option {1}: only one key-value is allowed'
                                       ' and value should be a string'.format(tool, opt[keys[0]]))
-                    user_options.append('--{0}={1}'.format(keys[0], opt[keys[0]]))
+                    user_options.append('--{0}={1}'.format(keys[0], unquote(opt[keys[0]])))
                 else:
                     error_handler('Error when parsing {0} option {1}: value should be string value'
                                   ' or a single key-value pair'.format(tool, opt))
@@ -56,11 +111,11 @@ class Bootstrap(object):
             error_handler('{0} options must be list or dict'.format(tool))
         return user_options
 
-    def _initdb(self, config):
+    def _initdb(self, config: Any) -> bool:
         self._postgresql.set_state('initializing new cluster')
         not_allowed_options = ('pgdata', 'nosync', 'pwfile', 'sync-only', 'version')
 
-        def error_handler(e):
+        def error_handler(e: str) -> None:
             raise Exception(e)
 
         options = self.process_user_options('initdb', config or [], not_allowed_options, error_handler)
@@ -74,9 +129,8 @@ class Bootstrap(object):
                 os.write(fd, self._postgresql.config.superuser['password'].encode('utf-8'))
                 os.close(fd)
                 options.append('--pwfile={0}'.format(pwfile))
-        options = ['-o', ' '.join(options)] if options else []
 
-        ret = self._postgresql.pg_ctl('initdb', *options)
+        ret = self._postgresql.initdb(*options)
         if pwfile:
             os.remove(pwfile)
         if ret:
@@ -85,7 +139,7 @@ class Bootstrap(object):
             self._postgresql.set_state('initdb failed')
         return ret
 
-    def _post_restore(self):
+    def _post_restore(self) -> None:
         self._postgresql.config.restore_configuration_files()
         self._postgresql.configure_server_parameters()
 
@@ -96,7 +150,7 @@ class Bootstrap(object):
         if os.path.exists(trigger_file):
             os.unlink(trigger_file)
 
-    def _custom_bootstrap(self, config):
+    def _custom_bootstrap(self, config: Any) -> bool:
         self._postgresql.set_state('running custom bootstrap script')
         params = [] if config.get('no_params') else ['--scope=' + self._postgresql.scope,
                                                      '--datadir=' + self._postgresql.data_dir]
@@ -116,7 +170,7 @@ class Bootstrap(object):
             self._postgresql.config.remove_recovery_conf()
         return True
 
-    def call_post_bootstrap(self, config):
+    def call_post_bootstrap(self, config: Dict[str, Any]) -> bool:
         """
         runs a script after initdb or custom bootstrap script is called and waits until completion.
         """
@@ -143,7 +197,7 @@ class Bootstrap(object):
                 return False
         return True
 
-    def create_replica(self, clone_member):
+    def create_replica(self, clone_member: Union[Leader, Member, None]) -> Optional[int]:
         """
             create the replica according to the replica_method
             defined by the user.  this is a list, so we need to
@@ -230,7 +284,7 @@ class Bootstrap(object):
         self._postgresql.set_state('stopped')
         return ret
 
-    def basebackup(self, conn_url, env, options):
+    def basebackup(self, conn_url: str, env: Dict[str, str], options: Dict[str, Any]) -> Optional[int]:
         # creates a replica data dir using pg_basebackup.
         # this is the default, built-in create_replica_methods
         # tries twice, then returns failure (as 1)
@@ -265,7 +319,7 @@ class Bootstrap(object):
 
         return ret
 
-    def clone(self, clone_member):
+    def clone(self, clone_member: Union[Leader, Member, None]) -> bool:
         """
              - initialize the replica from an existing member (primary or replica)
              - initialize the replica using the replica creation method that
@@ -278,7 +332,7 @@ class Bootstrap(object):
             self._post_restore()
         return ret
 
-    def bootstrap(self, config):
+    def bootstrap(self, config: Dict[str, Any]) -> bool:
         """ Initialize a new node from scratch and start it. """
         pg_hba = config.get('pg_hba', [])
         method = config.get('method') or 'initdb'
@@ -290,9 +344,9 @@ class Bootstrap(object):
             method = 'initdb'
             do_initialize = self._initdb
         return do_initialize(config.get(method)) and self._postgresql.config.append_pg_hba(pg_hba) \
-            and self._postgresql.config.save_configuration_files() and self._postgresql.start()
+            and self._postgresql.config.save_configuration_files() and bool(self._postgresql.start())
 
-    def create_or_update_role(self, name, password, options):
+    def create_or_update_role(self, name: str, password: Optional[str], options: List[str]) -> None:
         options = list(map(str.upper, options))
         if 'NOLOGIN' not in options and 'LOGIN' not in options:
             options.append('LOGIN')
@@ -322,7 +376,7 @@ END;$$""".format(quote_literal(name), quote_ident(name, self._postgresql.connect
             self._postgresql.query('RESET log_statement')
             self._postgresql.query('RESET pg_stat_statements.track_utility')
 
-    def post_bootstrap(self, config, task):
+    def post_bootstrap(self, config: Dict[str, Any], task: CriticalTask) -> Optional[bool]:
         try:
             postgresql = self._postgresql
             superuser = postgresql.config.superuser

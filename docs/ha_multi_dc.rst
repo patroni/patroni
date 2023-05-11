@@ -1,8 +1,8 @@
 .. _ha_multi_dc:
 
-=================
+===================
 HA multi datacenter
-=================
+===================
 
 The high availability of a PostgreSQL cluster deployed in multiple data centers is based on replication, which can be synchronous or asynchronous (`replication_modes <replication_modes.rst>`_).
 
@@ -22,7 +22,7 @@ The architecture diagram would be the following:
 
 We must deploy a cluster of etcd, ZooKeeper or Consul through the different DC, with a minimum of 3 nodes, one in each zone.
 
-Regarding postgres, we must deploy at least 2 nodes, in different DC. Then you have to set ``synchronous_mode: true`` in the global configuration (``patronictl edit-config``).
+Regarding postgres, we must deploy at least 2 nodes, in different DC. Then you have to set ``synchronous_mode: true`` in the global :ref:`dynamic configuration <dynamic_configuration>`.
 
 This enables sync replication and the primary node will choose one of the nodes as synchronous.
 
@@ -37,7 +37,7 @@ The architecture diagram would be the following:
 
 Automatic promotion is not possible, because DC2 will never able to figure out the state of DC1.
 
-You should not use ``pg_ctl promote`` in this scenario, you need "manually promote" the healthy cluster with ``patronictl edit-config`` and remove ``standby_cluster`` section from there.
+You should not use ``pg_ctl promote`` in this scenario, you need "manually promote" the healthy cluster by removing ``standby_cluster`` section from the :ref:`dynamic configuration <dynamic_configuration>`.
 
 .. warning::
     If the source cluster is still up and running and you promote the standby cluster you create a split-brain.
