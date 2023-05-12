@@ -32,9 +32,9 @@ if TYPE_CHECKING:  # pragma: no cover
     from psycopg2 import cursor
 
 try:
-    from ydiff import markup_to_pager, PatchStream
+    from ydiff import markup_to_pager, PatchStream  # pyright: ignore [reportMissingModuleSource]
 except ImportError:  # pragma: no cover
-    from cdiff import markup_to_pager, PatchStream
+    from cdiff import markup_to_pager, PatchStream  # pyright: ignore [reportMissingModuleSource]
 
 from .dcs import get_dcs as _get_dcs, AbstractDCS, Cluster, Member
 from .exceptions import PatroniException
@@ -1169,7 +1169,7 @@ def show_diff(before_editing: str, after_editing: str) -> None:
                 (
                     os.path.basename(p)
                     for p in (os.environ.get('PAGER'), "less", "more")
-                    if p is not None and shutil.which(p)
+                    if p is not None and bool(shutil.which(p))
                 ),
                 None,
             )
@@ -1396,7 +1396,8 @@ def version(obj: Dict[str, Any], cluster_name: str, group: Optional[int], member
 @click.pass_obj
 def history(obj: Dict[str, Any], cluster_name: str, group: Optional[int], fmt: str) -> None:
     cluster = get_dcs(obj, cluster_name, group).get_cluster()
-    history: List[List[Any]] = list(map(list, cluster.history and cluster.history.lines or []))
+    cluster_history = cluster.history.lines if cluster.history else []
+    history: List[List[Any]] = list(map(list, cluster_history))
     table_header_row = ['TL', 'LSN', 'Reason', 'Timestamp', 'New Leader']
     for line in history:
         if len(line) < len(table_header_row):
