@@ -399,9 +399,7 @@ class Directory(object):
                 for path in self.contains:
                     if not os.path.exists(os.path.join(name, path)):
                         yield Result(False, "'{}' does not contain '{}'".format(name, path))
-            res = self._check_executables(path=name)
-            if res:
-                yield Result(False, res)
+            yield from self._check_executables(path=name)
 
 
 class Schema(object):
