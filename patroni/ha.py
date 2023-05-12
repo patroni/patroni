@@ -100,10 +100,10 @@ class Failsafe(object):
     @property
     def leader(self) -> Optional[Leader]:
         with self._lock:
-            if self._last_update + self._dcs.ttl > time.time():
-                return Leader('', '', RemoteMember(self._name, {'api_url': self._api_url,
-                                                                'conn_url': self._conn_url,
-                                                                'slots': self._slots}))
+            if self._last_update + self._dcs.ttl > time.time() and self._name:
+                return Leader('', '', RemoteMember.from_name_and_data(self._name, {'api_url': self._api_url,
+                                                                                   'conn_url': self._conn_url,
+                                                                                   'slots': self._slots}))
 
     def update_cluster(self, cluster: Cluster) -> Cluster:
         # Enreach cluster with the real leader if there was a ping from it
@@ -800,9 +800,8 @@ class Ha(object):
             data['slots'] = self.state_handler.slots()
         except Exception:
             logger.exception('Exception when called state_handler.slots()')
-        members = [RemoteMember(name, {'api_url': url})
-                   for name, url in failsafe.items()
-                   if name != self.state_handler.name]
+        members = [RemoteMember.from_name_and_data(name, {'api_url': url})
+                   for name, url in failsafe.items() if name != self.state_handler.name]
         if not members:  # A sinlge node cluster
             return True
         pool = ThreadPool(len(members))
@@ -998,7 +997,8 @@ class Ha(object):
                 if failsafe_members and self.state_handler.name not in failsafe_members:
                     return False
                 # Race among not only existing cluster members, but also all known members from the failsafe config
-                all_known_members += [RemoteMember(name, {'api_url': url}) for name, url in failsafe_members.items()]
+                all_known_members += [RemoteMember.from_name_and_data(name, {'api_url': url})
+                                      for name, url in failsafe_members.items()]
         all_known_members += self.cluster.members
 
         # When in sync mode, only last known primary and sync standby are allowed to promote automatically.
@@ -1868,4 +1868,4 @@ class Ha(object):
                 data['conn_kwargs'] = conn_kwargs
 
         name = member.name if member else 'remote_member:{}'.format(uuid.uuid1())
-        return RemoteMember(name, data)
+        return RemoteMember.from_name_and_data(name, data)

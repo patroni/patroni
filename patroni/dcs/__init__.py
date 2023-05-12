@@ -240,7 +240,9 @@ class Member(NamedTuple):
 
 class RemoteMember(Member):
     """Represents a remote member (typically a primary) for a standby cluster"""
-    def __new__(cls, name: str, data: Dict[str, Any]) -> 'RemoteMember':
+
+    @classmethod
+    def from_name_and_data(cls, name: str, data: Dict[str, Any]) -> 'RemoteMember':
         return super(RemoteMember, cls).__new__(cls, -1, name, None, data)
 
     @staticmethod
