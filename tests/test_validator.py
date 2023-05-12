@@ -7,7 +7,7 @@ import unittest
 from io import StringIO
 from mock import Mock, patch, mock_open
 from patroni.dcs import dcs_modules
-from patroni.validator import schema
+from patroni.validator import schema, Directory, Schema
 
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 config = {
@@ -91,6 +91,14 @@ config = {
         "nosync": False
     }
 }
+
+config_2 = {
+    "some_dir": "very_interesting_dir"
+}
+
+schema2 = Schema({
+    "some_dir": Directory(contains=["very_interesting_subdir", "another_interesting_subdir"])
+})
 
 directories = []
 files = []
@@ -190,6 +198,14 @@ class TestValidator(unittest.TestCase):
         self.assertEqual(['consul.host', 'etcd.host', 'postgresql.bin_dir', 'postgresql.data_dir', 'postgresql.listen',
                           'raft.bind_addr', 'raft.self_addr', 'restapi.connect_address'], parse_output(output))
 
+    def test_bin_dir_is_empty_string_excutables_in_path(self, mock_out, mock_err):
+        binaries.extend(["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres", "pg_isready"])
+        c = copy.deepcopy(config)
+        c["postgresql"]["bin_dir"] = ""
+        errors = schema(c)
+        output = "\n".join(errors)
+        self.assertEqual(['raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
     def test_data_dir_contains_pg_version(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
@@ -250,3 +266,9 @@ class TestValidator(unittest.TestCase):
         output = "\n".join(errors)
         self.assertEqual(['kubernetes', 'postgresql.bin_dir', 'postgresql.data_dir',
                           'postgresql.pg_hba', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
+    def test_directory_contains(self, mock_out, mock_err):
+        directories.extend([config_2["some_dir"], os.path.join(config_2["some_dir"], "very_interesting_subdir")])
+        errors = schema2(config_2)
+        output = "\n".join(errors)
+        self.assertEqual(['some_dir'], parse_output(output))

@@ -369,6 +369,19 @@ class Directory(object):
         self.contains = contains
         self.contains_executable = contains_executable
 
+    def _check_executables(self, path: OptionalType[str] = None) -> Union[str, None]:
+        """Check that all executables from contains_executable list exist within the given directory or within PATH.
+
+        :param path: optional path to the base directory against which executables will be validated.
+                     If not provided, check within PATH.
+        :rtype: None if check succeds, otherwise the error message containing the missing executable name.
+        """
+        if not self.contains_executable:
+            return
+        for program in self.contains_executable:
+            if not shutil.which(program, path=path):
+                return f"does not contain '{program}'"
+
     def validate(self, name: str) -> Iterator[Result]:
         """Check if the expected paths and executables can be found under *name* directory.
 
@@ -376,7 +389,9 @@ class Directory(object):
         :rtype: Iterator[:class:`Result`] objects with the error message related to the failure, if any check fails.
         """
         if not name:
-            yield Result(False, "is an empty string")
+            res = self._check_executables()
+            if res:
+                yield Result(False, f"is an empty string but PATH {res}")
         elif not os.path.exists(name):
             yield Result(False, "Directory '{}' does not exist.".format(name))
         elif not os.path.isdir(name):
@@ -386,10 +401,9 @@ class Directory(object):
                 for path in self.contains:
                     if not os.path.exists(os.path.join(name, path)):
                         yield Result(False, "'{}' does not contain '{}'".format(name, path))
-            if self.contains_executable:
-                for program in self.contains_executable:
-                    if not shutil.which(program, path=name):
-                        yield Result(False, "'{}' does not contain '{}'".format(name, program))
+            res = self._check_executables(path=name)
+            if res:
+                yield Result(False, res)
 
 
 class Schema(object):
