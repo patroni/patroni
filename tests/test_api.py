@@ -180,6 +180,7 @@ class MockRestApiServer(RestApiServer):
 
 @patch('ssl.SSLContext.load_cert_chain', Mock())
 @patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
+@patch('ssl.SSLContext.load_verify_locations', Mock(return_value=[Mock()]))
 @patch.object(HTTPServer, '__init__', Mock())
 class TestRestApiHandler(unittest.TestCase):
 
@@ -588,6 +589,7 @@ class TestRestApiServer(unittest.TestCase):
     @patch('ssl.SSLContext.load_cert_chain', Mock())
     @patch('ssl.SSLContext.set_ciphers', Mock())
     @patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
+    @patch('ssl.SSLContext.load_verify_locations', Mock(return_value=[Mock()]))
     @patch.object(HTTPServer, '__init__', Mock())
     def setUp(self):
         self.srv = MockRestApiServer(Mock(), '', {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required',
@@ -621,24 +623,39 @@ class TestRestApiServer(unittest.TestCase):
         try:
             raise Exception()
         except Exception:
-            self.assertIsNone(MockRestApiServer.handle_error(None, ('127.0.0.1', 55555)))
+            self.assertIsNone(self.srv.handle_error(None, ('127.0.0.1', 55555)))
 
     @patch.object(HTTPServer, '__init__', Mock(side_effect=socket.error))
     def test_socket_error(self):
         self.assertRaises(socket.error, MockRestApiServer, Mock(), '', {'listen': '*:8008'})
 
+    def __create_socket(self):
+        sock = socket.socket()
+        try:
+            import ssl
+            ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+            ctx.check_hostname = False
+            sock = ctx.wrap_socket(sock=sock)
+            sock.do_handshake = Mock()
+            sock.unwrap = Mock(side_effect=Exception)
+        except Exception:
+            pass
+        return sock
+
     @patch.object(ThreadingMixIn, 'process_request_thread', Mock())
     def test_process_request_thread(self):
-        self.srv.process_request_thread(Mock(), '2')
+        self.srv.process_request_thread(self.__create_socket(), ('2', 54321))
 
     @patch.object(MockRestApiServer, 'process_request', Mock(side_effect=RuntimeError))
     @patch.object(MockRestApiServer, 'get_request')
     def test_process_request_error(self, mock_get_request):
-        mock_request = Mock()
-        mock_request.unwrap.side_effect = Exception
-        mock_get_request.return_value = (mock_request, ('127.0.0.1', 55555))
+        mock_get_request.return_value = (self.__create_socket(), ('127.0.0.1', 55555))
         self.srv._handle_request_noblock()
 
-    @patch('ssl._ssl._test_decode_cert', Mock())
+    @patch('ssl.SSLContext.load_verify_locations', Mock(return_value=[Mock()]))
     def test_reload_local_certificate(self):
         self.assertTrue(self.srv.reload_local_certificate())
+
+    @patch('ssl.SSLContext.load_verify_locations', Mock(side_effect=Exception))
+    def test_get_certificate_serial_number(self):
+        self.assertIsNone(self.srv.get_certificate_serial_number())
