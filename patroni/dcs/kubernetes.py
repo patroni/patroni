@@ -597,7 +597,8 @@ class ObjectCache(Thread):
         self._response_lock = Lock()  # protect the `self._response` from concurrent access
         self._object_cache: Dict[str, K8sObject] = {}
         self._object_cache_lock = Lock()
-        self._annotations_map = {self._dcs.leader_path: self._dcs._LEADER, self._dcs.config_path: self._dcs._CONFIG}
+        self._annotations_map = {self._dcs.leader_path: getattr(self._dcs, '_LEADER'),
+                                 self._dcs.config_path: getattr(self._dcs, '_CONFIG')}  # pyright
         self.start()
 
     def _list(self) -> K8sObject:

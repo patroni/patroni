@@ -403,7 +403,7 @@ class KVCache(Thread):
         self._leader_key = base64_encode(dcs.leader_path)
         self._optime_key = base64_encode(dcs.leader_optime_path)
         self._status_key = base64_encode(dcs.status_path)
-        self._name = base64_encode(dcs._name)
+        self._name = base64_encode(getattr(dcs, '_name'))  # pyright
         self._is_ready = False
         self._response = None
         self._response_lock = Lock()
