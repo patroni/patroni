@@ -250,7 +250,7 @@ class PatroniLogger(Thread):
                     new_handler = RotatingFileHandler(os.path.join(config['dir'], __name__))
                 handler = new_handler or self.log_handler
                 assert isinstance(handler, RotatingFileHandler)
-                handler.maxBytes = int(config.get('file_size', 25000000))
+                handler.maxBytes = int(config.get('file_size', 25000000))  # pyright: ignore [reportGeneralTypeIssues]
                 handler.backupCount = int(config.get('file_num', 4))
             else:
                 if self.log_handler is None or isinstance(self.log_handler, RotatingFileHandler):
