@@ -872,7 +872,8 @@ class AbstractDCS(abc.ABC):
         if path is None:
             path = self.client_path('')
         cluster = self._load_cluster(path, self._cluster_loader)
-        assert isinstance(cluster, Cluster)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(cluster, Cluster)
         return cluster
 
     def is_citus_coordinator(self) -> bool:
@@ -889,7 +890,6 @@ class AbstractDCS(abc.ABC):
         if isinstance(groups, Cluster):  # Zookeeper could return a cached version
             cluster = groups
         else:
-            assert isinstance(groups, dict)
             cluster = groups.pop(CITUS_COORDINATOR_GROUP_ID, Cluster.empty())
             cluster.workers.update(groups)
         return cluster

@@ -32,7 +32,7 @@ import sys
 import time
 
 from enum import IntEnum
-from typing import Any, List, NamedTuple, Optional, Tuple
+from typing import Any, List, NamedTuple, Optional, Tuple, TYPE_CHECKING
 
 from .. import psycopg
 
@@ -365,7 +365,8 @@ def main() -> int:
             break
         time.sleep(RETRY_SLEEP_INTERVAL)
 
-    assert exit_code is not None
+    if TYPE_CHECKING:  # pragma: no cover
+        assert exit_code is not None
     return exit_code
 
 

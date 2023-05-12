@@ -13,7 +13,7 @@ from collections import defaultdict
 from enum import IntEnum
 from urllib3.exceptions import ReadTimeoutError, ProtocolError
 from threading import Condition, Lock, Thread
-from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
 from . import ClusterConfig, Cluster, Failover, Leader, Member, SyncState,\
     TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
@@ -145,7 +145,8 @@ errCodeToClientError = {getattr(s, 'code'): s for s in Etcd3ClientError.__subcla
 def _raise_for_data(data: Union[bytes, str, Dict[str, Union[Any, Dict[str, Any]]]],
                     status_code: Optional[int] = None) -> Etcd3ClientError:
     try:
-        assert isinstance(data, dict)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(data, dict)
         data_error: Optional[Dict[str, Any]] = data.get('error') or data.get('Error')
         if isinstance(data_error, dict):  # streaming response
             status_code = data_error.get('http_code')
@@ -153,7 +154,8 @@ def _raise_for_data(data: Union[bytes, str, Dict[str, Union[Any, Dict[str, Any]]
             error: str = data_error['message']
         else:
             data_code = data.get('code') or data.get('Code')
-            assert not isinstance(data_code, dict)
+            if TYPE_CHECKING:  # pragma: no cover
+                assert not isinstance(data_code, dict)
             code = data_code
             error = str(data_error)
     except Exception:
@@ -634,12 +636,14 @@ class Etcd3(AbstractEtcd):
 
     @property
     def _client(self) -> PatroniEtcd3Client:
-        assert isinstance(self._abstract_client, PatroniEtcd3Client)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(self._abstract_client, PatroniEtcd3Client)
         return self._abstract_client
 
     def set_socket_options(self, sock: socket.socket,
                            socket_options: Optional[Collection[Tuple[int, int, int]]]) -> None:
-        assert self._retry.deadline is not None
+        if TYPE_CHECKING:  # pragma: no cover
+            assert self._retry.deadline is not None
         enable_keepalive(sock, self.ttl, int(self.loop_wait + self._retry.deadline))
 
     def set_ttl(self, ttl: int) -> Optional[bool]:
@@ -774,7 +778,8 @@ class Etcd3(AbstractEtcd):
         except Exception as e:
             self._handle_exception(e, 'get_cluster', raise_ex=Etcd3Error('Etcd is not responding properly'))
         self._has_failed = False
-        assert cluster is not None
+        if TYPE_CHECKING:  # pragma: no cover
+            assert cluster is not None
         return cluster
 
     @catch_etcd_errors

@@ -135,11 +135,14 @@ class K8sConfig(object):
 
         context = context or config['current-context']
         context_value = self._get_by_name(config, 'context', context)
-        assert isinstance(context_value, dict)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(context_value, dict)
         cluster = self._get_by_name(config, 'cluster', context_value['cluster'])
-        assert isinstance(cluster, dict)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(cluster, dict)
         user = self._get_by_name(config, 'user', context_value['user'])
-        assert isinstance(user, dict)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(user, dict)
 
         self._server = cluster['server'].rstrip('/')
         if self._server.startswith('https'):
@@ -281,7 +284,8 @@ class K8sClient(object):
                 try:
                     response = self.pool_manager.request('GET', base_uri + path, **kwargs)
                     endpoint = self._handle_server_response(response, True)
-                    assert isinstance(endpoint, K8sObject)
+                    if TYPE_CHECKING:  # pragma: no cover
+                        assert isinstance(endpoint, K8sObject)
                     for subset in endpoint.subsets:
                         for port in subset.ports:
                             if port.name == 'https' and port.protocol == 'TCP':
@@ -412,7 +416,8 @@ class K8sClient(object):
                     except Exception as e:
                         logger.debug('Failed to update list of K8s master nodes: %r', e)
 
-                    assert isinstance(retry, Retry)  # K8sConnectionFailed is raised only if retry is not None!
+                    if TYPE_CHECKING:  # pragma: no cover
+                        assert isinstance(retry, Retry)  # K8sConnectionFailed is raised only if retry is not None!
                     sleeptime = retry.sleeptime
                     remaining_time = (retry.stoptime or time.time()) - sleeptime - time.time()
                     nodes, timeout, retries = self._calculate_timeouts(api_servers, remaining_time)
@@ -819,7 +824,8 @@ class Kubernetes(AbstractDCS):
         Either cause by changes in the local configuration file + SIGHUP or by changes of dynamic configuration"""
 
         super(Kubernetes, self).reload_config(config)
-        assert self._retry.deadline is not None
+        if TYPE_CHECKING:  # pragma: no cover
+            assert self._retry.deadline is not None
         self._api.configure_timeouts(self.loop_wait, self._retry.deadline, self.ttl)
 
         # retriable_http_codes supposed to be either int, list of integers or comma-separated string with integers.
@@ -955,7 +961,8 @@ class Kubernetes(AbstractDCS):
     def __load_cluster(
             self, group: Optional[str], loader: Callable[[Dict[str, Any]], Union[Cluster, Dict[int, Cluster]]]
     ) -> Union[Cluster, Dict[int, Cluster]]:
-        assert self._retry.deadline is not None
+        if TYPE_CHECKING:  # pragma: no cover
+            assert self._retry.deadline is not None
         stop_time = time.time() + self._retry.deadline
         self._api.refresh_api_servers_cache()
         try:
@@ -979,7 +986,8 @@ class Kubernetes(AbstractDCS):
     def get_citus_coordinator(self) -> Optional[Cluster]:
         try:
             ret = self.__load_cluster(str(CITUS_COORDINATOR_GROUP_ID), self._cluster_loader)
-            assert isinstance(ret, Cluster)
+            if TYPE_CHECKING:  # pragma: no cover
+                assert isinstance(ret, Cluster)
             return ret
         except Exception as e:
             logger.error('Failed to load Citus coordinator cluster from Kubernetes: %r', e)

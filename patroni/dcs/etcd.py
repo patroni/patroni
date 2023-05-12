@@ -290,7 +290,8 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
                         etcd_nodes = len(machines_cache)
                 except Exception as e:
                     logger.debug('Failed to update list of etcd nodes: %r', e)
-                assert isinstance(retry, Retry)  # etcd.EtcdConnectionFailed is raised only if retry is not None!
+                if TYPE_CHECKING:  # pragma: no cover
+                    assert isinstance(retry, Retry)  # etcd.EtcdConnectionFailed is raised only if retry is not None!
                 sleeptime = retry.sleeptime
                 remaining_time = retry.stoptime - sleeptime - time.time()
                 nodes, timeout, retries = self._calculate_timeouts(etcd_nodes, remaining_time)
@@ -647,7 +648,8 @@ class Etcd(AbstractEtcd):
 
     @property
     def _client(self) -> EtcdClient:
-        assert isinstance(self._abstract_client, EtcdClient)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(self._abstract_client, EtcdClient)
         return self._abstract_client
 
     def set_ttl(self, ttl: int) -> Optional[bool]:
@@ -744,7 +746,8 @@ class Etcd(AbstractEtcd):
         except Exception as e:
             self._handle_exception(e, 'get_cluster', raise_ex=EtcdError('Etcd is not responding properly'))
         self._has_failed = False
-        assert cluster is not None
+        if TYPE_CHECKING:  # pragma: no cover
+            assert cluster is not None
         return cluster
 
     @catch_etcd_errors

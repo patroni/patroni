@@ -24,7 +24,7 @@ from socketserver import ThreadingMixIn
 from threading import Thread
 from urllib.parse import urlparse, parse_qs
 
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
 
 from . import psycopg
 from .__main__ import Patroni
@@ -86,7 +86,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :param client_address: address of the client connection.
         :param server: HTTP server that received the request.
         """
-        assert isinstance(server, RestApiServer)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(server, RestApiServer)
         super(RestApiHandler, self).__init__(request, client_address, server)
         self.server: 'RestApiServer' = server
         self.__start_time: float = 0.0
@@ -827,7 +828,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     status_code = 409
         # pyright thinks ``data`` can be ``None`` because ``parse_schedule`` call may return ``None``. However, if
         # that's the case, ``data`` will be overwritten when the ``for`` loop ends
-        assert isinstance(data, str)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(data, str)
         self.write_response(status_code, data)
 
     @check_access
@@ -1034,7 +1036,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         # pyright thinks ``status_code`` can be ``None`` because ``parse_schedule`` call may return ``None``. However,
         # if that's the case, ``status_code`` will be overwritten somewhere between ``parse_schedule`` and
         # ``write_response`` calls.
-        assert isinstance(status_code, int)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(status_code, int)
         self.write_response(status_code, data)
 
     def do_POST_switchover(self) -> None:
@@ -1300,7 +1303,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         :returns: ``True`` if *key* matches the password configured for the REST API.
         """
         # pyright -- ``__auth_key`` was already checked through the caller method (:func:`check_auth_header`).
-        assert self.__auth_key is not None
+        if TYPE_CHECKING:  # pragma: no cover
+            assert self.__auth_key is not None
         return hmac.compare_digest(self.__auth_key, key.encode('utf-8'))
 
     def check_auth_header(self, auth_header: Optional[str]) -> Optional[str]:
@@ -1603,7 +1607,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')) if 'auth' in config else None
         # pyright -- ``__listen`` is initially created as ``None``, but right after that it is replaced with a string
         # through :func:`__initialize`.
-        assert isinstance(self.__listen, str)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(self.__listen, str)
         self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
 
     def handle_error(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],

@@ -812,7 +812,8 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
     r = None
     try:
         member = cluster.leader.member if cluster.leader else candidate and cluster.get_member(candidate, False)
-        assert isinstance(member, Member)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(member, Member)
         r = request_patroni(member, 'post', action, failover_value)
 
         # probably old patroni, which doesn't support switchover yet

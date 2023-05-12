@@ -7,7 +7,7 @@ import yaml
 
 from collections import defaultdict
 from copy import deepcopy
-from typing import Any, Callable, Collection, Dict, List, Optional, Union
+from typing import Any, Callable, Collection, Dict, List, Optional, Union, TYPE_CHECKING
 
 from . import PATRONI_ENV_PREFIX
 from .collections import CaseInsensitiveDict
@@ -257,7 +257,8 @@ class Config(object):
 
     def _load_config_file(self) -> Dict[str, Any]:
         """Loads config.yaml from filesystem and applies some values which were set via ENV"""
-        assert self._config_file is not None
+        if TYPE_CHECKING:  # pragma: no cover
+            assert self._config_file is not None
         config = self._load_config_path(self._config_file)
         patch_config(config, self.__environment_configuration)
         return config
