@@ -559,10 +559,23 @@ class CoreV1ApiProxy(object):
         return self._use_endpoints
 
 
+def _run_and_handle_exceptions(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    try:
+        return method(*args, **kwargs)
+    except k8s_client.rest.ApiException as e:
+        if e.status == 403:
+            logger.exception('Permission denied')
+        elif e.status != 409:  # Object exists or conflict in resource_version
+            logger.exception('Unexpected error from Kubernetes API')
+        return False
+    except (RetryFailedError, K8sException) as e:
+        raise KubernetesError(e)
+
+
 def catch_kubernetes_errors(func: Callable[..., Any]) -> Callable[..., Any]:
     def wrapper(self: 'Kubernetes', *args: Any, **kwargs: Any) -> Any:
         try:
-            return self._run_and_handle_exceptions(func, self, *args, **kwargs)
+            return _run_and_handle_exceptions(func, self, *args, **kwargs)
         except KubernetesError:
             return False
     return wrapper
@@ -778,19 +791,6 @@ class Kubernetes(AbstractDCS):
         retry = self._retry.copy()
         kwargs['_retry'] = retry
         return retry(method, *args, **kwargs)
-
-    @staticmethod
-    def _run_and_handle_exceptions(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        try:
-            return method(*args, **kwargs)
-        except k8s_client.rest.ApiException as e:
-            if e.status == 403:
-                logger.exception('Permission denied')
-            elif e.status != 409:  # Object exists or conflict in resource_version
-                logger.exception('Unexpected error from Kubernetes API')
-            return False
-        except (RetryFailedError, K8sException) as e:
-            raise KubernetesError(e)
 
     def client_path(self, path: str) -> str:
         return super(Kubernetes, self).client_path(path)[1:].replace('/', '-')
@@ -1170,8 +1170,8 @@ class Kubernetes(AbstractDCS):
         if kind and (kind_annotations.get(self._LEADER) != self._name or kind_resource_version == resource_version):
             return False
 
-        return bool(self._run_and_handle_exceptions(self._patch_or_create, self.leader_path, annotations,
-                                                    kind_resource_version, ips=ips, retry=_retry))
+        return bool(_run_and_handle_exceptions(self._patch_or_create, self.leader_path, annotations,
+                                               kind_resource_version, ips=ips, retry=_retry))
 
     def update_leader(self, last_lsn: Optional[int], slots: Optional[Dict[str, int]] = None,
                       failsafe: Optional[Dict[str, str]] = None) -> bool:

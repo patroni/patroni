@@ -193,28 +193,7 @@ def build_range_request(key: str, range_end: Union[bytes, str, None] = None) -> 
 
 def _handle_auth_errors(func: Callable[..., Any]) -> Any:
     def wrapper(self: 'Etcd3Client', *args: Any, **kwargs: Any) -> Any:
-        def retry(ex: Exception) -> Any:
-            if self.username and self.password:
-                self.authenticate()
-                return func(self, *args, **kwargs)
-            else:
-                logger.fatal('Username or password not set, authentication is not possible')
-                raise ex
-
-        try:
-            return func(self, *args, **kwargs)
-        except (UserEmpty, PermissionDenied) as e:  # no token provided
-            # PermissionDenied is raised on 3.0 and 3.1
-            if self._cluster_version < (3, 3) and (not isinstance(e, PermissionDenied)
-                                                   or self._cluster_version < (3, 2)):
-                raise UnsupportedEtcdVersion('Authentication is required by Etcd cluster but not '
-                                             'supported on version lower than 3.3.0. Cluster version: '
-                                             '{0}'.format('.'.join(map(str, self._cluster_version))))
-            return retry(e)
-        except InvalidAuthToken as e:
-            logger.error('Invalid auth token: %s', self._token)
-            return retry(e)
-
+        return self.handle_auth_errors(func, *args, **kwargs)
     return wrapper
 
 
@@ -321,6 +300,29 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         else:
             self._token = response.get('token')
         return old_token != self._token
+
+    def handle_auth_errors(self: 'Etcd3Client', func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        def retry(ex: Exception) -> Any:
+            if self.username and self.password:
+                self.authenticate()
+                return func(self, *args, **kwargs)
+            else:
+                logger.fatal('Username or password not set, authentication is not possible')
+                raise ex
+
+        try:
+            return func(self, *args, **kwargs)
+        except (UserEmpty, PermissionDenied) as e:  # no token provided
+            # PermissionDenied is raised on 3.0 and 3.1
+            if self._cluster_version < (3, 3) and (not isinstance(e, PermissionDenied)
+                                                   or self._cluster_version < (3, 2)):
+                raise UnsupportedEtcdVersion('Authentication is required by Etcd cluster but not '
+                                             'supported on version lower than 3.3.0. Cluster version: '
+                                             '{0}'.format('.'.join(map(str, self._cluster_version))))
+            return retry(e)
+        except InvalidAuthToken as e:
+            logger.error('Invalid auth token: %s', self._token)
+            return retry(e)
 
     @_handle_auth_errors
     def range(self, key: str, range_end: Union[bytes, str, None] = None,
@@ -582,9 +584,9 @@ class PatroniEtcd3Client(Etcd3Client):
             self._kv_cache.condition.wait(timeout)
 
     def get_cluster(self, path: str) -> List[Dict[str, Any]]:
-        if self._kv_cache and self._etcd3._retry.deadline is not None and path.startswith(self._etcd3.cluster_prefix):
+        if self._kv_cache and path.startswith(self._etcd3.cluster_prefix):
             with self._kv_cache.condition:
-                self._wait_cache(self._etcd3._retry.deadline)
+                self._wait_cache(self.read_timeout)
                 ret = self._kv_cache.copy()
         else:
             ret = self._etcd3.retry(self.prefix, path).get('kvs', [])
@@ -621,7 +623,6 @@ class Etcd3(AbstractEtcd):
 
     def __init__(self, config: Dict[str, Any]) -> None:
         super(Etcd3, self).__init__(config, PatroniEtcd3Client, (DeadlineExceeded, Unavailable, FailedPrecondition))
-        assert isinstance(self._client, PatroniEtcd3Client)
         self.__do_not_watch = False
         self._lease = None
         self._last_lease_refresh = 0

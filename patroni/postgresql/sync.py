@@ -240,10 +240,10 @@ class SyncHandler(object):
             if len(replica_list) > 1 else self._postgresql.last_operation()
 
         if TYPE_CHECKING:  # pragma: no cover
-            assert self._postgresql._global_config is not None
-        sync_node_count = self._postgresql._global_config.synchronous_node_count\
+            assert self._postgresql.global_config is not None
+        sync_node_count = self._postgresql.global_config.synchronous_node_count\
             if self._postgresql.supports_multiple_sync else 1
-        sync_node_maxlag = self._postgresql._global_config.maximum_lag_on_syncnode
+        sync_node_maxlag = self._postgresql.global_config.maximum_lag_on_syncnode
 
         candidates = CaseInsensitiveSet()
         sync_nodes = CaseInsensitiveSet()

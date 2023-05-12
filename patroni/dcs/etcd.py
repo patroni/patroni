@@ -502,6 +502,17 @@ class AbstractEtcd(AbstractDCS):
         if isinstance(raise_ex, Exception):
             raise raise_ex
 
+    def handle_etcd_exceptions(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        try:
+            retval = func(self, *args, **kwargs)
+            self._has_failed = False
+            return retval
+        except (RetryFailedError, etcd.EtcdException) as e:
+            self._handle_exception(e)
+            return False
+        except Exception as e:
+            self._handle_exception(e, raise_ex=self._client.ERROR_CLS('unexpected error'))
+
     def _run_and_handle_exceptions(self, method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         retry = kwargs.pop('retry', self.retry)
         try:
@@ -624,16 +635,7 @@ class AbstractEtcd(AbstractDCS):
 
 def catch_etcd_errors(func: Callable[..., Any]) -> Any:
     def wrapper(self: AbstractEtcd, *args: Any, **kwargs: Any) -> Any:
-        try:
-            retval = func(self, *args, **kwargs)
-            self._has_failed = False
-            return retval
-        except (RetryFailedError, etcd.EtcdException) as e:
-            self._handle_exception(e)
-            return False
-        except Exception as e:
-            self._handle_exception(e, raise_ex=self._client.ERROR_CLS('unexpected error'))
-
+        return self.handle_etcd_exceptions(func, *args, **kwargs)
     return wrapper
 
 

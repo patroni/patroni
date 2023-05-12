@@ -34,7 +34,7 @@ def parse_mode(mode: Union[bool, str]) -> str:
 
 def synchronized(func: Callable[..., Any]) -> Callable[..., Any]:
     def wrapped(self: 'Watchdog', *args: Any, **kwargs: Any) -> Any:
-        with self._lock:
+        with self.lock:
             return func(self, *args, **kwargs)
     return wrapped
 
@@ -90,7 +90,7 @@ class Watchdog(object):
     def __init__(self, config: Config) -> None:
         self.config = WatchdogConfig(config)
         self.active_config: WatchdogConfig = self.config
-        self._lock = RLock()
+        self.lock = RLock()
         self.active = False
 
         if self.config.mode == MODE_OFF:
