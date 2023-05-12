@@ -389,9 +389,7 @@ class Directory(object):
         :rtype: Iterator[:class:`Result`] objects with the error message related to the failure, if any check fails.
         """
         if not name:
-            res = self._check_executables()
-            if res:
-                yield Result(False, f"is an empty string but PATH {res}")
+            yield from self._check_executables()
         elif not os.path.exists(name):
             yield Result(False, "Directory '{}' does not exist.".format(name))
         elif not os.path.isdir(name):
