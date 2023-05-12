@@ -596,7 +596,7 @@ class Ha(object):
                 if sync_common != current:
                     logger.info("Updating synchronous privilege temporarily from %s to %s",
                                 list(current), list(sync_common))
-                    sync = self.dcs.write_sync_state(self.state_handler.name, sync_common, index=sync.index)
+                    sync = self.dcs.write_sync_state(self.state_handler.name, sync_common, version=sync.version)
                     if not sync:
                         return logger.info('Synchronous replication key updated by someone else.')
 
@@ -614,11 +614,11 @@ class Ha(object):
                     time.sleep(2)
                     _, allow_promote = self.state_handler.sync_handler.current_state(self.cluster)
                 if allow_promote and allow_promote != sync_common:
-                    if not self.dcs.write_sync_state(self.state_handler.name, allow_promote, index=sync.index):
+                    if not self.dcs.write_sync_state(self.state_handler.name, allow_promote, version=sync.version):
                         return logger.info("Synchronous replication key updated by someone else")
                     logger.info("Synchronous standby status assigned to %s", list(allow_promote))
         else:
-            if not self.cluster.sync.is_empty and self.dcs.delete_sync_state(index=self.cluster.sync.index):
+            if not self.cluster.sync.is_empty and self.dcs.delete_sync_state(version=self.cluster.sync.version):
                 logger.info("Disabled synchronous replication")
             self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
 
@@ -727,7 +727,7 @@ class Ha(object):
             if self.is_synchronous_mode():
                 # Just set ourselves as the authoritative source of truth for now. We don't want to wait for standbys
                 # to connect. We will try finding a synchronous standby in the next cycle.
-                if not self.dcs.write_sync_state(self.state_handler.name, None, index=self.cluster.sync.index):
+                if not self.dcs.write_sync_state(self.state_handler.name, None, version=self.cluster.sync.version):
                     # Somebody else updated sync state, it may be due to us losing the lock. To be safe, postpone
                     # promotion until next cycle. TODO: trigger immediate retry of run_cycle
                     return 'Postponing promotion because synchronous replication state was updated by somebody else'
@@ -907,7 +907,7 @@ class Ha(object):
                 if not self.cluster.get_member(failover.candidate, fallback_to_leader=False)\
                         and self.state_handler.is_leader():
                     logger.warning("manual failover: removing failover key because failover candidate is not running")
-                    self.dcs.manual_failover('', '', index=failover.index)
+                    self.dcs.manual_failover('', '', version=failover.version)
                     return None
                 return False
 
@@ -1148,7 +1148,7 @@ class Ha(object):
 
         if (failover.scheduled_at and not
             self.should_run_scheduled_action("failover", failover.scheduled_at, lambda:
-                                             self.dcs.manual_failover('', '', index=failover.index))):
+                                             self.dcs.manual_failover('', '', version=failover.version))):
             return
 
         if not failover.leader or failover.leader == self.state_handler.name:
@@ -1178,7 +1178,7 @@ class Ha(object):
                            failover.leader, self.state_handler.name)
 
         logger.info('Cleaning up failover key')
-        self.dcs.manual_failover('', '', index=failover.index)
+        self.dcs.manual_failover('', '', version=failover.version)
 
     def process_unhealthy_cluster(self) -> str:
         """Cluster has no leader key"""
@@ -1189,7 +1189,7 @@ class Ha(object):
                 if failover:
                     if self.is_paused() and failover.leader and failover.candidate:
                         logger.info('Updating failover key after acquiring leader lock...')
-                        self.dcs.manual_failover('', failover.candidate, failover.scheduled_at, failover.index)
+                        self.dcs.manual_failover('', failover.candidate, failover.scheduled_at, failover.version)
                     else:
                         logger.info('Cleaning up failover key after acquiring leader lock...')
                         self.dcs.manual_failover('', '')
@@ -1839,11 +1839,11 @@ class Ha(object):
     def watch(self, timeout: float) -> bool:
         # watch on leader key changes if the postgres is running and leader is known and current node is not lock owner
         if self._async_executor.busy or not self.cluster or self.cluster.is_unlocked() or self.has_lock(False):
-            leader_index = None
+            leader_version = None
         else:
-            leader_index = self.cluster.leader.index if self.cluster.leader else None
+            leader_version = self.cluster.leader.version if self.cluster.leader else None
 
-        return self.dcs.watch(leader_index, timeout)
+        return self.dcs.watch(leader_version, timeout)
 
     def wakeup(self) -> None:
         """Call of this method will trigger the next run of HA loop if there is

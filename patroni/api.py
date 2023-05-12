@@ -615,12 +615,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
         request = self._read_json_content()
         if request:
             cluster = self.server.patroni.dcs.get_cluster(True)
-            if not (cluster.config and cluster.config.modify_index):
+            if not (cluster.config and cluster.config.modify_version):
                 return self.send_error(503)
             data = cluster.config.data.copy()
             if patch_config(data, request):
                 value = json.dumps(data, separators=(',', ':'))
-                if not self.server.patroni.dcs.set_config_value(value, cluster.config.index):
+                if not self.server.patroni.dcs.set_config_value(value, cluster.config.version):
                     return self.send_error(409)
             self.server.patroni.ha.wakeup()
             self._write_json_response(200, data)
@@ -861,7 +861,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         failover = self.server.patroni.dcs.get_cluster().failover
         if failover and failover.scheduled_at:
-            if not self.server.patroni.dcs.manual_failover('', '', index=failover.index):
+            if not self.server.patroni.dcs.manual_failover('', '', version=failover.version):
                 return self.send_error(409)
             else:
                 data = "scheduled switchover deleted"

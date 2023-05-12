@@ -1201,7 +1201,7 @@ class TestHa(PostgresInit):
         # When we just became primary nobody is sync
         self.assertEqual(self.ha.enforce_primary_role('msg', 'promote msg'), 'promote msg')
         mock_set_sync.assert_called_once_with(CaseInsensitiveSet())
-        mock_write_sync.assert_called_once_with('leader', None, index=0)
+        mock_write_sync.assert_called_once_with('leader', None, version=0)
 
         mock_set_sync.reset_mock()
 
@@ -1239,7 +1239,7 @@ class TestHa(PostgresInit):
         mock_acquire.assert_called_once()
         mock_follow.assert_not_called()
         mock_promote.assert_called_once()
-        mock_write_sync.assert_called_once_with('other', None, index=0)
+        mock_write_sync.assert_called_once_with('other', None, version=0)
 
     def test_disable_sync_when_restarting(self):
         self.ha.is_synchronous_mode = true

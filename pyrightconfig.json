@@ -19,7 +19,7 @@
   "reportMissingImports": true,
   "reportMissingTypeStubs": false,
 
-  "pythonVersion": "3.6",
+  "pythonVersion": "3.11",
   "pythonPlatform": "All",
 
   "typeCheckingMode": "strict"

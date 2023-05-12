@@ -1232,24 +1232,24 @@ class Kubernetes(AbstractDCS):
     def take_leader(self) -> bool:
         return self.attempt_to_acquire_leader()
 
-    def set_failover_value(self, value: str, index: Optional[str] = None) -> bool:
+    def set_failover_value(self, value: str, version: Optional[str] = None) -> bool:
         """Unused"""
         raise NotImplementedError  # pragma: no cover
 
     def manual_failover(self, leader: Optional[str], candidate: Optional[str],
-                        scheduled_at: Optional[datetime.datetime] = None, index: Optional[str] = None) -> bool:
+                        scheduled_at: Optional[datetime.datetime] = None, version: Optional[str] = None) -> bool:
         annotations = {'leader': leader or None, 'member': candidate or None,
                        'scheduled_at': scheduled_at and scheduled_at.isoformat()}
-        patch = bool(self.cluster and isinstance(self.cluster.failover, Failover) and self.cluster.failover.index)
-        return bool(self.patch_or_create(self.failover_path, annotations, index, bool(index or patch), False))
+        patch = bool(self.cluster and isinstance(self.cluster.failover, Failover) and self.cluster.failover.version)
+        return bool(self.patch_or_create(self.failover_path, annotations, version, bool(version or patch), False))
 
     @property
     def _config_resource_version(self) -> Optional[str]:
         config = self._kinds.get(self.config_path)
         return config and config.metadata.resource_version
 
-    def set_config_value(self, value: str, index: Optional[str] = None) -> bool:
-        return self.patch_or_create_config({self._CONFIG: value}, index, bool(self._config_resource_version), False)
+    def set_config_value(self, value: str, version: Optional[str] = None) -> bool:
+        return self.patch_or_create_config({self._CONFIG: value}, version, bool(self._config_resource_version), False)
 
     @catch_kubernetes_errors
     def touch_member(self, data: Dict[str, Any]) -> bool:
@@ -1279,7 +1279,8 @@ class Kubernetes(AbstractDCS):
 
     def initialize(self, create_new: bool = True, sysid: str = "") -> bool:
         cluster = self.cluster
-        resource_version = str(cluster.config.index) if cluster and cluster.config and cluster.config.index else None
+        resource_version = str(cluster.config.version)\
+            if cluster and cluster.config and cluster.config.version else None
         return self.patch_or_create_config({self._INITIALIZE: sysid}, resource_version)
 
     def _delete_leader(self) -> bool:
@@ -1308,34 +1309,34 @@ class Kubernetes(AbstractDCS):
     def set_history_value(self, value: str) -> bool:
         return self.patch_or_create_config({self._HISTORY: value}, None, bool(self._config_resource_version), False)
 
-    def set_sync_state_value(self, value: str, index: Optional[str] = None) -> bool:
+    def set_sync_state_value(self, value: str, version: Optional[str] = None) -> bool:
         """Unused"""
         raise NotImplementedError  # pragma: no cover
 
     def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
-                         index: Optional[str] = None) -> Optional[SyncState]:
+                         version: Optional[str] = None) -> Optional[SyncState]:
         """Prepare and write annotations to $SCOPE-sync Endpoint or ConfigMap.
 
         :param leader: name of the leader node that manages /sync key
         :param sync_standby: collection of currently known synchronous standby node names
-        :param index: last known `resource_version` for conditional update of the object
+        :param version: last known `resource_version` for conditional update of the object
         :returns: the new :class:`SyncState` object or None
         """
         sync_state = self.sync_state(leader, sync_standby)
-        ret = self.patch_or_create(self.sync_path, sync_state, index, False)
+        ret = self.patch_or_create(self.sync_path, sync_state, version, False)
         if not isinstance(ret, bool):
             return SyncState.from_node(ret.metadata.resource_version, sync_state)
 
-    def delete_sync_state(self, index: Optional[str] = None) -> bool:
+    def delete_sync_state(self, version: Optional[str] = None) -> bool:
         """Patch annotations of $SCOPE-sync Endpoint or ConfigMap with empty values.
 
         Effectively it removes "leader" and "sync_standby" annotations from the object.
-        :param index: last known `resource_version` for conditional update of the object
+        :param version: last known `resource_version` for conditional update of the object
         :returns: `True` if "delete" was successful
         """
-        return self.write_sync_state(None, None, index=index) is not None
+        return self.write_sync_state(None, None, version=version) is not None
 
-    def watch(self, leader_index: Optional[str], timeout: float) -> bool:
+    def watch(self, leader_version: Optional[str], timeout: float) -> bool:
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True

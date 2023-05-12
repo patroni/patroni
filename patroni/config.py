@@ -151,7 +151,7 @@ def get_global_config(cluster: Union[Cluster, None], default: Optional[Dict[str,
     :returns: :class:`GlobalConfig` object
     """
     # Try to protect from the case when DCS was wiped out
-    if cluster and cluster.config and cluster.config.modify_index:
+    if cluster and cluster.config and cluster.config.modify_version:
         config = cluster.config.data
     else:
         config = default or {}
@@ -202,7 +202,7 @@ class Config(object):
 
     def __init__(self, configfile: str,
                  validator: Optional[Callable[[Dict[str, Any]], List[str]]] = default_validator) -> None:
-        self._modify_index = -1
+        self._modify_version = -1
         self._dynamic_configuration = {}
 
         self.__environment_configuration = self._build_environment_configuration()
@@ -296,9 +296,9 @@ class Config(object):
     # configuration could be either ClusterConfig or dict
     def set_dynamic_configuration(self, configuration: Union[ClusterConfig, Dict[str, Any]]) -> bool:
         if isinstance(configuration, ClusterConfig):
-            if self._modify_index == configuration.modify_index:
-                return False  # If the index didn't changed there is nothing to do
-            self._modify_index = configuration.modify_index
+            if self._modify_version == configuration.modify_version:
+                return False  # If the version didn't changed there is nothing to do
+            self._modify_version = configuration.modify_version
             configuration = configuration.data
 
         if not deep_compare(self._dynamic_configuration, configuration):

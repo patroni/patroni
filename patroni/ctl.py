@@ -1052,7 +1052,7 @@ def flush(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
 
         logging.warning('Failing over to DCS')
         click.echo('{0} Could not find any accessible member of cluster {1}'.format(timestamp(), cluster_name))
-        dcs.manual_failover('', '', index=failover.index)
+        dcs.manual_failover('', '', version=failover.version)
 
 
 def wait_until_pause_is_applied(dcs: AbstractDCS, paused: bool, old_cluster: Cluster) -> None:
@@ -1060,7 +1060,7 @@ def wait_until_pause_is_applied(dcs: AbstractDCS, paused: bool, old_cluster: Clu
     config = get_global_config(old_cluster)
 
     click.echo("'{0}' request sent, waiting until it is recognized by all nodes".format(paused and 'pause' or 'resume'))
-    old = {m.name: m.index for m in old_cluster.members if m.api_url}
+    old = {m.name: m.version for m in old_cluster.members if m.api_url}
     loop_wait = config.get('loop_wait') or dcs.loop_wait
 
     cluster = None
@@ -1072,7 +1072,7 @@ def wait_until_pause_is_applied(dcs: AbstractDCS, paused: bool, old_cluster: Clu
         if TYPE_CHECKING:  # pragma: no cover
             assert cluster is not None
         remaining = [m.name for m in cluster.members if m.data.get('pause', False) != paused
-                     and m.name in old and old[m.name] != m.index]
+                     and m.name in old and old[m.name] != m.version]
         if remaining:
             return click.echo("{0} members didn't recognized pause state after {1} seconds"
                               .format(', '.join(remaining), loop_wait))
@@ -1347,7 +1347,7 @@ def edit_config(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
         return
 
     if force or click.confirm('Apply these changes?'):
-        if not dcs.set_config_value(json.dumps(changed_data), cluster.config.index):
+        if not dcs.set_config_value(json.dumps(changed_data), cluster.config.version):
             raise PatroniCtlException("Config modification aborted due to concurrent changes")
         click.echo("Configuration changed")
 

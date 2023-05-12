@@ -273,7 +273,7 @@ class ZooKeeper(AbstractDCS):
             member = Member(-1, leader[0], None, {})
             member = ([m for m in members if m.name == leader[0]] or [member])[0]
             leader = Leader(leader[1].version, leader[1].ephemeralOwner, member)
-            self._fetch_cluster = member.index == -1
+            self._fetch_cluster = member.version == -1
 
         # get last known leader lsn and slots
         last_lsn, slots = self.get_status(path, leader)
@@ -357,19 +357,19 @@ class ZooKeeper(AbstractDCS):
         logger.info('Could not take out TTL lock')
         return False
 
-    def _set_or_create(self, key: str, value: str, index: Optional[int] = None,
+    def _set_or_create(self, key: str, value: str, version: Optional[int] = None,
                        retry: bool = False, do_not_create_empty: bool = False) -> Union[int, bool]:
         value_bytes = value.encode('utf-8')
         try:
             if retry:
-                ret = self._client.retry(self._client.set, key, value_bytes, version=index or -1)
+                ret = self._client.retry(self._client.set, key, value_bytes, version=version or -1)
             else:
-                ret = self._client.set_async(key, value_bytes, version=index or -1).get(timeout=1)
+                ret = self._client.set_async(key, value_bytes, version=version or -1).get(timeout=1)
             return ret.version
         except NoNodeError:
             if do_not_create_empty and not value_bytes:
                 return True
-            elif index is None:
+            elif version is None:
                 if self._create(key, value_bytes, retry):
                     return 0
             else:
@@ -378,11 +378,11 @@ class ZooKeeper(AbstractDCS):
             logger.exception('Failed to update %s', key)
         return False
 
-    def set_failover_value(self, value: str, index: Optional[int] = None) -> bool:
-        return self._set_or_create(self.failover_path, value, index) is not False
+    def set_failover_value(self, value: str, version: Optional[int] = None) -> bool:
+        return self._set_or_create(self.failover_path, value, version) is not False
 
-    def set_config_value(self, value: str, index: Optional[int] = None) -> bool:
-        return self._set_or_create(self.config_path, value, index, retry=True) is not False
+    def set_config_value(self, value: str, version: Optional[int] = None) -> bool:
+        return self._set_or_create(self.config_path, value, version, retry=True) is not False
 
     def initialize(self, create_new: bool = True, sysid: str = "") -> bool:
         sysid_bytes = sysid.encode('utf-8')
@@ -494,14 +494,14 @@ class ZooKeeper(AbstractDCS):
     def set_history_value(self, value: str) -> bool:
         return self._set_or_create(self.history_path, value) is not False
 
-    def set_sync_state_value(self, value: str, index: Optional[int] = None) -> Union[int, bool]:
-        return self._set_or_create(self.sync_path, value, index, retry=True, do_not_create_empty=True)
+    def set_sync_state_value(self, value: str, version: Optional[int] = None) -> Union[int, bool]:
+        return self._set_or_create(self.sync_path, value, version, retry=True, do_not_create_empty=True)
 
-    def delete_sync_state(self, index: Optional[int] = None) -> bool:
-        return self.set_sync_state_value("{}", index) is not False
+    def delete_sync_state(self, version: Optional[int] = None) -> bool:
+        return self.set_sync_state_value("{}", version) is not False
 
-    def watch(self, leader_index: Optional[int], timeout: float) -> bool:
-        ret = super(ZooKeeper, self).watch(leader_index, timeout + 0.5)
+    def watch(self, leader_version: Optional[int], timeout: float) -> bool:
+        ret = super(ZooKeeper, self).watch(leader_version, timeout + 0.5)
         if ret and not self._fetch_status:
             self._fetch_cluster = True
         return ret or self._fetch_cluster

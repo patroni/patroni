@@ -841,12 +841,12 @@ class Etcd3(AbstractEtcd):
         return ret
 
     @catch_etcd_errors
-    def set_failover_value(self, value: str, index: Optional[str] = None) -> bool:
-        return bool(self._client.put(self.failover_path, value, mod_revision=index))
+    def set_failover_value(self, value: str, version: Optional[str] = None) -> bool:
+        return bool(self._client.put(self.failover_path, value, mod_revision=version))
 
     @catch_etcd_errors
-    def set_config_value(self, value: str, index: Optional[str] = None) -> bool:
-        return bool(self._client.put(self.config_path, value, mod_revision=index))
+    def set_config_value(self, value: str, version: Optional[str] = None) -> bool:
+        return bool(self._client.put(self.config_path, value, mod_revision=version))
 
     @catch_etcd_errors
     def _write_leader_optime(self, last_lsn: str) -> bool:
@@ -893,7 +893,7 @@ class Etcd3(AbstractEtcd):
     def _delete_leader(self) -> bool:
         cluster = self.cluster
         if cluster and isinstance(cluster.leader, Leader) and cluster.leader.name == self._name:
-            return self._client.deleterange(self.leader_path, mod_revision=cluster.leader.index)
+            return self._client.deleterange(self.leader_path, mod_revision=cluster.leader.version)
         return True
 
     @catch_etcd_errors
@@ -909,15 +909,15 @@ class Etcd3(AbstractEtcd):
         return bool(self._client.put(self.history_path, value))
 
     @catch_etcd_errors
-    def set_sync_state_value(self, value: str, index: Optional[str] = None) -> Union[str, bool]:
-        return self.retry(self._client.put, self.sync_path, value, mod_revision=index)\
+    def set_sync_state_value(self, value: str, version: Optional[str] = None) -> Union[str, bool]:
+        return self.retry(self._client.put, self.sync_path, value, mod_revision=version)\
             .get('header', {}).get('revision', False)
 
     @catch_etcd_errors
-    def delete_sync_state(self, index: Optional[str] = None) -> bool:
-        return self.retry(self._client.deleterange, self.sync_path, mod_revision=index)
+    def delete_sync_state(self, version: Optional[str] = None) -> bool:
+        return self.retry(self._client.deleterange, self.sync_path, mod_revision=version)
 
-    def watch(self, leader_index: Optional[str], timeout: float) -> bool:
+    def watch(self, leader_version: Optional[str], timeout: float) -> bool:
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True

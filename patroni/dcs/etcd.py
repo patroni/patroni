@@ -696,8 +696,8 @@ class Etcd(AbstractEtcd):
         if leader:
             member = Member(-1, leader.value, None, {})
             member = ([m for m in members if m.name == leader.value] or [member])[0]
-            index = etcd_index if etcd_index > leader.modifiedIndex else leader.modifiedIndex + 1
-            leader = Leader(index, leader.ttl, member)
+            version = etcd_index if etcd_index > leader.modifiedIndex else leader.modifiedIndex + 1
+            leader = Leader(version, leader.ttl, member)
 
         # failover key
         failover = nodes.get(self._FAILOVER)
@@ -766,12 +766,12 @@ class Etcd(AbstractEtcd):
         return self._run_and_handle_exceptions(self._do_attempt_to_acquire_leader, retry=None)
 
     @catch_etcd_errors
-    def set_failover_value(self, value: str, index: Optional[int] = None) -> bool:
-        return bool(self._client.write(self.failover_path, value, prevIndex=index or 0))
+    def set_failover_value(self, value: str, version: Optional[int] = None) -> bool:
+        return bool(self._client.write(self.failover_path, value, prevIndex=version or 0))
 
     @catch_etcd_errors
-    def set_config_value(self, value: str, index: Optional[int] = None) -> bool:
-        return bool(self._client.write(self.config_path, value, prevIndex=index or 0))
+    def set_config_value(self, value: str, version: Optional[int] = None) -> bool:
+        return bool(self._client.write(self.config_path, value, prevIndex=version or 0))
 
     @catch_etcd_errors
     def _write_leader_optime(self, last_lsn: str) -> bool:
@@ -817,24 +817,24 @@ class Etcd(AbstractEtcd):
         return bool(self._client.write(self.history_path, value))
 
     @catch_etcd_errors
-    def set_sync_state_value(self, value: str, index: Optional[int] = None) -> Union[int, bool]:
-        return self.retry(self._client.write, self.sync_path, value, prevIndex=index or 0).modifiedIndex
+    def set_sync_state_value(self, value: str, version: Optional[int] = None) -> Union[int, bool]:
+        return self.retry(self._client.write, self.sync_path, value, prevIndex=version or 0).modifiedIndex
 
     @catch_etcd_errors
-    def delete_sync_state(self, index: Optional[int] = None) -> bool:
-        return bool(self.retry(self._client.delete, self.sync_path, prevIndex=index or 0))
+    def delete_sync_state(self, version: Optional[int] = None) -> bool:
+        return bool(self.retry(self._client.delete, self.sync_path, prevIndex=version or 0))
 
-    def watch(self, leader_index: Optional[int], timeout: float) -> bool:
+    def watch(self, leader_version: Optional[int], timeout: float) -> bool:
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True
 
-        if leader_index:
+        if leader_version:
             end_time = time.time() + timeout
 
             while timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
-                    result = self._client.watch(self.leader_path, index=leader_index, timeout=timeout + 0.5)
+                    result = self._client.watch(self.leader_path, index=leader_version, timeout=timeout + 0.5)
                     self._has_failed = False
                     if result.action == 'compareAndSwap':
                         time.sleep(0.01)
