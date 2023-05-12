@@ -7,7 +7,7 @@ import unittest
 from io import StringIO
 from mock import Mock, patch, mock_open
 from patroni.dcs import dcs_modules
-from patroni.validator import schema
+from patroni.validator import schema, Directory, Schema
 
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 config = {
@@ -91,6 +91,16 @@ config = {
         "nosync": False
     }
 }
+
+config_2 = {
+    "some_dir": "very_interesting_dir"
+}
+
+schema2 = Schema({
+    "some_dir": Directory(contains=["very_interesting_subdir", "another_interesting_subdir"])
+})
+
+required_binaries = ["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres", "pg_isready"]
 
 directories = []
 files = []
@@ -190,6 +200,14 @@ class TestValidator(unittest.TestCase):
         self.assertEqual(['consul.host', 'etcd.host', 'postgresql.bin_dir', 'postgresql.data_dir', 'postgresql.listen',
                           'raft.bind_addr', 'raft.self_addr', 'restapi.connect_address'], parse_output(output))
 
+    def test_bin_dir_is_empty_string_excutables_in_path(self, mock_out, mock_err):
+        binaries.extend(required_binaries)
+        c = copy.deepcopy(config)
+        c["postgresql"]["bin_dir"] = ""
+        errors = schema(c)
+        output = "\n".join(errors)
+        self.assertEqual(['raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
     def test_data_dir_contains_pg_version(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
@@ -197,14 +215,11 @@ class TestValidator(unittest.TestCase):
         directories.append(os.path.join(config["postgresql"]["data_dir"], "pg_wal"))
         files.append(os.path.join(config["postgresql"]["data_dir"], "global", "pg_control"))
         files.append(os.path.join(config["postgresql"]["data_dir"], "PG_VERSION"))
-        binaries.append(os.path.join(config["postgresql"]["bin_dir"], "pg_ctl"))
-        binaries.append(os.path.join(config["postgresql"]["bin_dir"], "initdb"))
-        binaries.append(os.path.join(config["postgresql"]["bin_dir"], "pg_controldata"))
-        binaries.append(os.path.join(config["postgresql"]["bin_dir"], "pg_basebackup"))
-        binaries.append(os.path.join(config["postgresql"]["bin_dir"], "postgres"))
-        binaries.append(os.path.join(config["postgresql"]["bin_dir"], "pg_isready"))
+        binaries.extend(required_binaries)
+        c = copy.deepcopy(config)
+        c["postgresql"]["bin_dir"] = ""  # to cover postgres --version call from PATH
         with patch('patroni.validator.open', mock_open(read_data='12')):
-            errors = schema(config)
+            errors = schema(c)
         output = "\n".join(errors)
         self.assertEqual(['raft.bind_addr', 'raft.self_addr'], parse_output(output))
 
@@ -215,10 +230,10 @@ class TestValidator(unittest.TestCase):
         directories.append(os.path.join(config["postgresql"]["data_dir"], "pg_wal"))
         files.append(os.path.join(config["postgresql"]["data_dir"], "global", "pg_control"))
         files.append(os.path.join(config["postgresql"]["data_dir"], "PG_VERSION"))
+        binaries.extend([os.path.join(config["postgresql"]["bin_dir"], i) for i in required_binaries])
         c = copy.deepcopy(config)
         c["etcd"]["hosts"] = []
         c["postgresql"]["listen"] = '127.0.0.2,*:543'
-        del c["postgresql"]["bin_dir"]
         with patch('patroni.validator.open', mock_open(read_data='11')):
             errors = schema(c)
         output = "\n".join(errors)
@@ -227,18 +242,19 @@ class TestValidator(unittest.TestCase):
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
     def test_pg_wal_doesnt_exist(self, mock_out, mock_err):
+        binaries.extend([os.path.join(config["postgresql"]["bin_dir"], i) for i in required_binaries])
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
         files.append(os.path.join(config["postgresql"]["data_dir"], "global", "pg_control"))
         files.append(os.path.join(config["postgresql"]["data_dir"], "PG_VERSION"))
         c = copy.deepcopy(config)
-        del c["postgresql"]["bin_dir"]
         with patch('patroni.validator.open', mock_open(read_data='11')):
             errors = schema(c)
         output = "\n".join(errors)
         self.assertEqual(['postgresql.data_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
 
     def test_data_dir_is_empty_string(self, mock_out, mock_err):
+        binaries.extend(required_binaries)
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
         c = copy.deepcopy(config)
@@ -248,5 +264,11 @@ class TestValidator(unittest.TestCase):
         c["postgresql"]["bin_dir"] = ""
         errors = schema(c)
         output = "\n".join(errors)
-        self.assertEqual(['kubernetes', 'postgresql.bin_dir', 'postgresql.data_dir',
+        self.assertEqual(['kubernetes', 'postgresql.data_dir',
                           'postgresql.pg_hba', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
+    def test_directory_contains(self, mock_out, mock_err):
+        directories.extend([config_2["some_dir"], os.path.join(config_2["some_dir"], "very_interesting_subdir")])
+        errors = schema2(config_2)
+        output = "\n".join(errors)
+        self.assertEqual(['some_dir'], parse_output(output))
