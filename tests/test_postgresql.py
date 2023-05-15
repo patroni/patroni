@@ -5,7 +5,7 @@ import re
 import subprocess
 import time
 
-from mock import Mock, MagicMock, PropertyMock, patch, mock_open, call
+from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 
 import patroni.psycopg as psycopg
 
@@ -19,7 +19,7 @@ from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import (ValidatorFactoryNoType, ValidatorFactorInvalidType,
-                                          ValidatorFactoryInvalidSpec, InvalidGucValidatorsFile, ValidatorFactory,
+                                          ValidatorFactoryInvalidSpec, ValidatorFactory,
                                           _load_postgres_guc_validators, Bool, Integer, Real, Enum, EnumBool, String)
 from patroni.utils import RetryFailedError
 from threading import Thread, current_thread
@@ -745,9 +745,6 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.handle_parameter_change()
 
     def test_parse_postgres_guc_validator(self):
-        file = '/path/to/my_file.yaml'
-        parameter = 'my_parameter'
-
         # validator with no type
         validator = {
             'version_from': 90300,
@@ -766,7 +763,7 @@ class TestPostgresql(BaseTestPostgresql):
         with self.assertRaises(ValidatorFactorInvalidType) as e:
             ValidatorFactory(validator)
         self.assertEqual(str(e.exception), f'Unexpected validator type: `{validator["type"]}`.')
-        
+
         # validator with missing attributes
         validator = {
             'type': 'String',
@@ -780,7 +777,7 @@ class TestPostgresql(BaseTestPostgresql):
             f'Failed to parse `{type_}` validator (`{validator}`): `__init__() missing 1 required '
             'positional argument: \'version_till\'`.'
         )
-        
+
         # valid validators
         # Bool
         validator = {
@@ -809,7 +806,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertEqual(
             ret.__dict__,
             Integer(validator['version_from'], validator['version_till'], validator['min_val'], validator['max_val'],
-                 validator['unit']).__dict__,
+                    validator['unit']).__dict__,
         )
 
         # Real
@@ -869,7 +866,7 @@ class TestPostgresql(BaseTestPostgresql):
             ret.__dict__,
             String(validator['version_from'], validator['version_till']).__dict__,
         )
-    
+
     def test_load_postgres_guc_validators(self):
         # with empty section -> create
         section = CaseInsensitiveDict()
