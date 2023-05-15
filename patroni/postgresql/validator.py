@@ -396,7 +396,7 @@ def _load_postgres_gucs_validators() -> None:
             if file.lower().endswith(('.yml', '.yaml')):
                 yaml_files.append(full_path)
             else:
-                logger.warning('Ignored a non-YAML file found under `available_parameters` directory: `%s`.', full_path)
+                logger.info('Ignored a non-YAML file found under `available_parameters` directory: `%s`.', full_path)
 
     for file in yaml_files:
         try:
