@@ -766,8 +766,9 @@ class TestPostgresql(BaseTestPostgresql):
 
         # validator with missing attributes
         validator = {
-            'type': 'String',
+            'type': 'Integer',
             'version_from': 90300,
+            'min_val': 0,
         }
         with self.assertRaises(ValidatorFactoryInvalidSpec) as e:
             ValidatorFactory(validator)
@@ -775,7 +776,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertRegex(
             str(e.exception),
             rf"Failed to parse `{type_}` validator \(`{validator}`\): `(_Transformable\.)?__init__\(\) missing 1 "
-            "required positional argument: 'version_till'`."
+            "required positional argument: 'max_val'`."
         )
 
         # valid validators
@@ -805,7 +806,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertIsInstance(ret, Integer)
         self.assertEqual(
             ret.__dict__,
-            Integer(validator['version_from'], validator['version_till'], validator['min_val'], validator['max_val'],
+            Integer(validator['version_from'], validator['min_val'], validator['max_val'], validator['version_till'],
                     validator['unit']).__dict__,
         )
 
@@ -822,7 +823,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertIsInstance(ret, Real)
         self.assertEqual(
             ret.__dict__,
-            Real(validator['version_from'], validator['version_till'], validator['min_val'], validator['max_val'],
+            Real(validator['version_from'], validator['min_val'], validator['max_val'], validator['version_till'],
                  validator['unit']).__dict__,
         )
 
@@ -837,7 +838,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertIsInstance(ret, Enum)
         self.assertEqual(
             ret.__dict__,
-            Enum(validator['version_from'], validator['version_till'], validator['possible_values']).__dict__,
+            Enum(validator['version_from'], validator['possible_values'], validator['version_till']).__dict__,
         )
 
         # EnumBool
@@ -851,7 +852,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertIsInstance(ret, EnumBool)
         self.assertEqual(
             ret.__dict__,
-            EnumBool(validator['version_from'], validator['version_till'], validator['possible_values']).__dict__,
+            EnumBool(validator['version_from'], validator['possible_values'], validator['version_till']).__dict__,
         )
 
         # String
