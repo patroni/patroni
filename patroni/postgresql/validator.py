@@ -2,16 +2,12 @@ import abc
 from copy import deepcopy
 import logging
 import os
-import sys
 import yaml
 
-from typing import Any, Dict, Iterator, List, MutableMapping, Optional, Tuple, Union, TYPE_CHECKING
+from typing import Any, Dict, Iterator, List, MutableMapping, Optional, Tuple, Type, Union
 
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..utils import parse_bool, parse_int, parse_real
-
-if TYPE_CHECKING:  # pragma: no cover
-    from types import ModuleType
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +17,17 @@ class _Transformable(abc.ABC):
     def __init__(self, version_from: int, version_till: Optional[int]) -> None:
         self.__version_from = version_from
         self.__version_till = version_till
+
+    @classmethod
+    def get_subclasses(cls) -> Iterator[Type['_Transformable']]:
+        """Recursvely get all subclasses of :class:`_Transformable`.
+
+        :rtype: yields each subclass of :class:`_Transformable`.
+        """
+        for subclass in cls.__subclasses__():
+            for subsubclass in subclass.get_subclasses():
+                yield subsubclass
+            yield subclass
 
     @property
     def version_from(self) -> int:
@@ -145,14 +152,6 @@ parameters = CaseInsensitiveDict()
 recovery_parameters = CaseInsensitiveDict()
 
 
-def _get_module() -> 'ModuleType':
-    """Get a reference to the current module.
-
-    :returns: the module object.
-    """
-    return sys.modules[__name__]
-
-
 class ValidatorFactoryNoType(Exception):
     """Raised when a validator spec misses a type."""
 
@@ -168,9 +167,9 @@ class ValidatorFactoryInvalidSpec(Exception):
 class ValidatorFactory:
     """Factory class used to build Patroni validator objects based on the given specs."""
 
-    TYPES = ['Bool', 'Integer', 'Real', 'Enum', 'EnumBool', 'String']
+    TYPES: Dict[str, Type[_Transformable]] = {cls.__name__: cls for cls in _Transformable.get_subclasses()}
 
-    def __new__(cls, validator: Dict[str, Any]) -> Union[Bool, Integer, Real, Enum, EnumBool, String]:
+    def __new__(cls, validator: Dict[str, Any]) -> _Transformable:
         """Parse a given Postgres GUC *validator* into the corresponding Patroni validator object.
 
         :param validator: a validator spec for a given parameter. It usually comes from a parsed YAML file.
@@ -224,7 +223,7 @@ class ValidatorFactory:
                 validator[key] = tuple(tmp_value)
 
         try:
-            return getattr(_get_module(), type_)(**validator)
+            return cls.TYPES[type_](**validator)
         except Exception as exc:
             raise ValidatorFactoryInvalidSpec(
                 f'Failed to parse `{type_}` validator (`{validator}`): `{str(exc)}`.') from exc
@@ -383,7 +382,6 @@ def _load_postgres_gucs_validators() -> None:
             version_till: null
         ```
     """
-    module = _get_module()
     conf_dir = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         'available_parameters',
@@ -405,8 +403,13 @@ def _load_postgres_gucs_validators() -> None:
             logger.warning(str(exc))
             continue
 
+        mapping = {
+            'parameters': parameters,
+            'recovery_parameters': recovery_parameters,
+        }
+
         for section in ['parameters', 'recovery_parameters']:
-            section_var = getattr(module, section)
+            section_var = mapping[section]
 
             config_section = config.get(section, {})
             for parameter in config_section.keys():
