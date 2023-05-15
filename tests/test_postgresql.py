@@ -775,7 +775,7 @@ class TestPostgresql(BaseTestPostgresql):
         type_ = validator.pop('type')
         self.assertRegex(
             str(e.exception),
-            rf"Failed to parse `{type_}` validator \(`{validator}`\): `(_Transformable\.)?__init__\(\) missing 1 "
+            rf"Failed to parse `{type_}` validator \(`{validator}`\): `(Number\.)?__init__\(\) missing 1 "
             "required positional argument: 'max_val'`."
         )
 
