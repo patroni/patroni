@@ -418,7 +418,7 @@ def _load_postgres_gucs_validators() -> None:
 _load_postgres_gucs_validators()
 
 
-def _transform_parameter_value(validators: MutableMapping[str, Union[_Transformable, Tuple[_Transformable, ...]]],
+def _transform_parameter_value(validators: MutableMapping[str, Tuple[_Transformable, ...]],
                                version: int, name: str, value: Any,
                                available_gucs: CaseInsensitiveSet) -> Optional[Any]:
     """Validate *value* of GUC *name* for Postgres *version* using defined *validators* and *available_gucs*.
@@ -442,9 +442,9 @@ def _transform_parameter_value(validators: MutableMapping[str, Union[_Transforma
         * ``None`` if *name* is not present in *available_gucs*.
     """
     if name in available_gucs:
-        name_validators = validators.get(name)
+        name_validators: Tuple[_Transformable, ...] = validators.get(name, ())
         if name_validators:
-            for validator in (name_validators if isinstance(name_validators, tuple) else (name_validators,)):
+            for validator in name_validators:
                 if version >= validator.version_from and\
                         (validator.version_till is None or version < validator.version_till):
                     return validator.transform(name, value)
