@@ -26,7 +26,7 @@ from .slots import SlotsHandler
 from .sync import SyncHandler
 from .. import psycopg
 from ..async_executor import CriticalTask
-from ..collections import CaseInsensitiveDict
+from ..collections import CaseInsensitiveSet
 from ..dcs import Cluster, Leader, Member
 from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
@@ -215,7 +215,7 @@ class Postgresql(object):
         return ("SELECT " + self.TL_LSN + ", {2}").format(self.wal_name, self.lsn_name, extra)
 
     @property
-    def available_gucs(self) -> CaseInsensitiveDict:
+    def available_gucs(self) -> CaseInsensitiveSet:
         """GUCs available in this Postgres server."""
         return self._available_gucs
 
@@ -1265,15 +1265,12 @@ class Postgresql(object):
         self.citus_handler.schedule_cache_rebuild()
         self._sysid = ''
 
-    def _get_gucs(self) -> CaseInsensitiveDict:
+    def _get_gucs(self) -> CaseInsensitiveSet:
         """Get all available GUCs based on ``postgres --describe-config`` output.
 
         :returns: all available GUCs in the local Postgres server.
         """
         cmd = [self.pgcommand('postgres'), '--describe-config']
-        # We could return a simple list of strings. However, a `CaseInsensitiveDict` allows for faster key lookups as
-        # well as case insensitive lookups.
-        return CaseInsensitiveDict({
-            line.split('\t')[0]: True
-            for line in subprocess.check_output(cmd).decode('utf-8').strip().split('\n')
+        return CaseInsensitiveSet({
+            line.split('\t')[0] for line in subprocess.check_output(cmd).decode('utf-8').strip().split('\n')
         })

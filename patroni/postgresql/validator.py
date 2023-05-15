@@ -7,7 +7,7 @@ import yaml
 
 from typing import Any, Dict, Iterator, List, MutableMapping, Optional, Tuple, Union, TYPE_CHECKING
 
-from ..collections import CaseInsensitiveDict
+from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..utils import parse_bool, parse_int, parse_real
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -420,7 +420,7 @@ _load_postgres_gucs_validators()
 
 def _transform_parameter_value(validators: MutableMapping[str, Union[_Transformable, Tuple[_Transformable, ...]]],
                                version: int, name: str, value: Any,
-                               available_gucs: CaseInsensitiveDict) -> Optional[Any]:
+                               available_gucs: CaseInsensitiveSet) -> Optional[Any]:
     """Validate *value* of GUC *name* for Postgres *version* using defined *validators* and *available_gucs*.
 
     :param validators: a dictionary of all GUCs across all Postgres versions. Each key is the name of a Postgres GUC,
@@ -429,8 +429,8 @@ def _transform_parameter_value(validators: MutableMapping[str, Union[_Transforma
     :param version: Postgres version to validate the GUC against.
     :param name: name of the Postgres GUC.
     :param value: value of the Postgres GUC.
-    :param available_gucs: a dictionary of all GUCs available in Postgres *version*. Each key is the name of a Postgres
-        GUC, and the corresponding value is irrelevant. Used for a couple purposes:
+    :param available_gucs: a set of all GUCs available in Postgres *version*. Each item is the name of a Postgres
+        GUC. Used for a couple purposes:
         * Disallow writing GUCs to ``postgresql.conf`` (or ``recovery.conf``) that does not exist in Postgres *version*;
         * Avoid ignoring GUC *name* if it does not have a validator in *validators*, but is a valid GUC in Postgres
             *version*.
@@ -455,14 +455,14 @@ def _transform_parameter_value(validators: MutableMapping[str, Union[_Transforma
 
 
 def transform_postgresql_parameter_value(version: int, name: str, value: Any,
-                                         available_gucs: CaseInsensitiveDict) -> Optional[Any]:
+                                         available_gucs: CaseInsensitiveSet) -> Optional[Any]:
     """Validate *value* of GUC *name* for Postgres *version* using ``parameters`` and *available_gucs*.
 
     :param version: Postgres version to validate the GUC against.
     :param name: name of the Postgres GUC.
     :param value: value of the Postgres GUC.
-    :param available_gucs: a dictionary of all GUCs available in Postgres *version*. Each key is the name of a Postgres
-        GUC, and the corresponding value is irrelevant. Used for a couple purposes:
+    :param available_gucs: a set of all GUCs available in Postgres *version*. Each item is the name of a Postgres
+        GUC. Used for a couple purposes:
         * Disallow writing GUCs to ``postgresql.conf`` that does not exist in Postgres *version*;
         * Avoid ignoring GUC *name* if it does not have a validator in ``parameters``, but is a valid GUC in Postgres
             *version*.
@@ -484,14 +484,14 @@ def transform_postgresql_parameter_value(version: int, name: str, value: Any,
 
 
 def transform_recovery_parameter_value(version: int, name: str, value: Any,
-                                       available_gucs: CaseInsensitiveDict) -> Optional[Any]:
+                                       available_gucs: CaseInsensitiveSet) -> Optional[Any]:
     """Validate *value* of GUC *name* for Postgres *version* using ``recovery_parameters`` and *available_gucs*.
 
     :param version: Postgres version to validate the recovery GUC against.
     :param name: name of the Postgres recovery GUC.
     :param value: value of the Postgres recovery GUC.
-    :param available_gucs: a dictionary of all GUCs available in Postgres *version*. Each key is the name of a Postgres
-        GUC, and the corresponding value is irrelevant. Used for a couple purposes:
+    :param available_gucs: a set of all GUCs available in Postgres *version*. Each item is the name of a Postgres
+        GUC. Used for a couple purposes:
         * Disallow writing GUCs to ``recovery.conf`` (or ``postgresql.conf`` depending on *version*), that does not
         exist in Postgres *version*;
         * Avoid ignoring recovery GUC *name* if it does not have a validator in ``recovery_parameters``, but is a valid
