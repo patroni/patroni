@@ -20,14 +20,26 @@ RUN set -ex \
     && export DEBIAN_FRONTEND=noninteractive \
     && echo 'APT::Install-Recommends "0";\nAPT::Install-Suggests "0";' > /etc/apt/apt.conf.d/01norecommend \
     && apt-get update -y \
-    # postgres:10 is based on debian, which has the patroni package. We will install all required dependencies
+    # postgres:PG_MAJOR is based on debian, which has the patroni package. We will install all required dependencies
     && apt-cache depends patroni | sed -n -e 's/.*Depends: \(python3-.\+\)$/\1/p' \
             | grep -Ev '^python3-(sphinx|etcd|consul|kazoo|kubernetes)' \
             | xargs apt-get install -y vim curl less jq locales haproxy sudo \
                             python3-etcd python3-kazoo python3-pip busybox \
                             net-tools iputils-ping --fix-missing \
-    && curl https://install.citusdata.com/community/deb.sh | bash \
-    && apt-get -y install postgresql-$PG_MAJOR-citus-11.2 \
+    && if [ $(dpkg --print-architecture) = 'arm64' ]; then \
+        apt-get install -y postgresql-server-dev-$PG_MAJOR \
+                           git gcc make autoconf \
+                           libc6-dev flex libcurl4-gnutls-dev \
+                           libicu-dev libkrb5-dev liblz4-dev \
+                           libpam0g-dev libreadline-dev libselinux1-dev\
+                           libssl-dev libxslt1-dev libzstd-dev uuid-dev \
+        && git clone -b "main" https://github.com/citusdata/citus.git \
+        && MAKEFLAGS="-j $(grep -c ^processor /proc/cpuinfo)" \
+        && cd citus && ./configure && make install && cd ../ && rm -rf /citus; \
+    else \
+        curl https://install.citusdata.com/community/deb.sh | bash \
+        && apt-get -y install postgresql-$PG_MAJOR-citus-11.2; \
+    fi \
     && pip3 install dumb-init \
 \
     # Cleanup all locales but en_US.UTF-8
@@ -55,9 +67,19 @@ RUN set -ex \
     && curl -sL https://github.com/coreos/etcd/releases/download/v${ETCDVERSION}/etcd-v${ETCDVERSION}-linux-$(dpkg --print-architecture).tar.gz \
             | tar xz -C /usr/local/bin --strip=1 --wildcards --no-anchored etcd etcdctl \
 \
-    # Download confd
-    && curl -sL https://github.com/kelseyhightower/confd/releases/download/v${CONFDVERSION}/confd-${CONFDVERSION}-linux-$(dpkg --print-architecture) \
-            > /usr/local/bin/confd && chmod +x /usr/local/bin/confd \
+    && if [ $(dpkg --print-architecture) = 'arm64' ]; then \
+        # Build confd
+        curl -sL https://go.dev/dl/go1.20.4.linux-arm64.tar.gz | tar xz -C /usr/local go \
+        && export GOROOT=/usr/local/go && export PATH=$PATH:$GOROOT/bin \
+        && git clone --recurse-submodules https://github.com/kelseyhightower/confd.git \
+        && make -C confd \
+        && cp confd/bin/confd /usr/local/bin/confd \
+        && rm -rf /confd /usr/local/go; \
+    else \
+        # Download confd
+        curl -sL "https://github.com/kelseyhightower/confd/releases/download/v$CONFDVERSION/confd-$CONFDVERSION-linux-$(dpkg --print-architecture)" \
+            > /usr/local/bin/confd && chmod +x /usr/local/bin/confd; \
+    fi \
     # Prepare client cert for HAProxy
     && cat /etc/ssl/private/ssl-cert-snakeoil.key  /etc/ssl/certs/ssl-cert-snakeoil.pem > /etc/ssl/private/ssl-cert-snakeoil.crt \
 \
@@ -65,6 +87,9 @@ RUN set -ex \
     && apt-get purge -y --allow-remove-essential python3-pip gzip bzip2 util-linux e2fsprogs \
                 libmagic1 bsdmainutils login ncurses-bin libmagic-mgc e2fslibs bsdutils \
                 exim4-config gnupg-agent dirmngr libpython2.7-stdlib libpython2.7-minimal \
+                postgresql-server-dev-$PG_MAJOR git gcc make autoconf \
+                libc6-dev flex libcurl4-gnutls-dev libicu-dev libkrb5-dev liblz4-dev \
+                libpam0g-dev libreadline-dev libselinux1-dev libssl-dev libxslt1-dev libzstd-dev uuid-dev \
     && apt-get autoremove -y \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/* \

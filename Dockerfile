@@ -53,14 +53,26 @@ RUN set -ex \
     && curl -sL "https://github.com/coreos/etcd/releases/download/v$ETCDVERSION/etcd-v$ETCDVERSION-linux-$(dpkg --print-architecture).tar.gz" \
             | tar xz -C /usr/local/bin --strip=1 --wildcards --no-anchored etcd etcdctl \
 \
-    # Download confd
-    && curl -sL "https://github.com/kelseyhightower/confd/releases/download/v$CONFDVERSION/confd-$CONFDVERSION-linux-$(dpkg --print-architecture)" \
-            > /usr/local/bin/confd && chmod +x /usr/local/bin/confd \
+    && if [ $(dpkg --print-architecture) = 'arm64' ]; then \
+        # Build confd
+        apt-get install -y git make \
+        && curl -sL https://go.dev/dl/go1.20.4.linux-arm64.tar.gz | tar xz -C /usr/local go \
+        && export GOROOT=/usr/local/go && export PATH=$PATH:$GOROOT/bin \
+        && git clone --recurse-submodules https://github.com/kelseyhightower/confd.git \
+        && make -C confd \
+        && cp confd/bin/confd /usr/local/bin/confd \
+        && rm -rf /confd /usr/local/go; \
+    else \
+        # Download confd
+        curl -sL "https://github.com/kelseyhightower/confd/releases/download/v$CONFDVERSION/confd-$CONFDVERSION-linux-$(dpkg --print-architecture)" \
+            > /usr/local/bin/confd && chmod +x /usr/local/bin/confd; \
+    fi \
 \
     # Clean up all useless packages and some files
     && apt-get purge -y --allow-remove-essential python3-pip gzip bzip2 util-linux e2fsprogs \
                 libmagic1 bsdmainutils login ncurses-bin libmagic-mgc e2fslibs bsdutils \
                 exim4-config gnupg-agent dirmngr libpython2.7-stdlib libpython2.7-minimal \
+                git make \
     && apt-get autoremove -y \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/* \
