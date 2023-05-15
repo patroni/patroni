@@ -411,8 +411,8 @@ def _load_postgres_gucs_validators() -> None:
             config_section = config.get(section, {})
             for parameter in config_section.keys():
                 for exc in _load_postgres_guc_validators(section_var, config_section, parameter):
-                    logger.warning('Faced an issue while parsing a validator for parameter `%s`, from file `%s`: `%s`',
-                                   parameter, file, str(exc))
+                    logger.warning('Faced an issue while parsing a validator for parameter `%s`, from file `%s`: `%r`',
+                                   parameter, file, exc)
 
 
 _load_postgres_gucs_validators()
