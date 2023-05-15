@@ -60,7 +60,8 @@ RUN set -ex \
         && export GOROOT=/usr/local/go && export PATH=$PATH:$GOROOT/bin \
         && git clone --recurse-submodules https://github.com/kelseyhightower/confd.git \
         && make -C confd \
-        && cp confd/bin/confd /usr/local/bin/confd; \
+        && cp confd/bin/confd /usr/local/bin/confd \
+        && rm -rf /confd /usr/local/go; \
     else \
         # Download confd
         curl -sL "https://github.com/kelseyhightower/confd/releases/download/v$CONFDVERSION/confd-$CONFDVERSION-linux-$(dpkg --print-architecture)" \
@@ -71,6 +72,7 @@ RUN set -ex \
     && apt-get purge -y --allow-remove-essential python3-pip gzip bzip2 util-linux e2fsprogs \
                 libmagic1 bsdmainutils login ncurses-bin libmagic-mgc e2fslibs bsdutils \
                 exim4-config gnupg-agent dirmngr libpython2.7-stdlib libpython2.7-minimal \
+                git make \
     && apt-get autoremove -y \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/* \
