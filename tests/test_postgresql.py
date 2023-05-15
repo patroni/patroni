@@ -772,10 +772,10 @@ class TestPostgresql(BaseTestPostgresql):
         with self.assertRaises(ValidatorFactoryInvalidSpec) as e:
             ValidatorFactory(validator)
         type_ = validator.pop('type')
-        self.assertEqual(
+        self.assertRegex(
             str(e.exception),
-            f'Failed to parse `{type_}` validator (`{validator}`): `__init__() missing 1 required '
-            'positional argument: \'version_till\'`.'
+            rf"Failed to parse `{type_}` validator \(`{validator}`\): `(_Transformable\.)?__init__\(\) missing 1 "
+            "required positional argument: 'version_till'`."
         )
 
         # valid validators
