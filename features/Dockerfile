@@ -66,7 +66,17 @@ trap 'copy_output' SIGTERM
 # For architectures such as aarch we need to get the respective GOARCH
 # so we can tell etcd we're ok with running an unsupported architecture.
 export ETCD_UNSUPPORTED_ARCH=$(go env GOARCH)
-runuser -u postgres -- rsync -a --exclude=.tox --exclude="features/output*" /src/ "\$PGHOME/src/"
+cd /src
+runuser -u postgres -- \\
+    find . ! -readable 2>/dev/null \\
+    | sed 's|^./||' >/tmp/copy_exclude.lst \\
+    || true
+runuser -u postgres -- \\
+    rsync -a \\
+    --exclude=.tox \\
+    --exclude="features/output*" \\
+    --exclude-from="/tmp/copy_exclude.lst" \\
+    . "\$PGHOME/src/"
 cd "\$PGHOME/src"
 runuser -u postgres -w ETCD_UNSUPPORTED_ARCH -- "\$@" &
 wait $!
