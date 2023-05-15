@@ -1,3 +1,4 @@
+# pyright: reportConstantRedefinition=false
 import ctypes
 import os
 import platform

@@ -11,7 +11,7 @@ import shutil
 import socket
 import subprocess
 
-from typing import Any, Dict, Union, Iterator, List, Optional as OptionalType
+from typing import Any, Dict, Union, Iterator, List, Optional as OptionalType, TYPE_CHECKING
 
 from .utils import parse_int, split_host_port, data_directory_is_empty
 from .dcs import dcs_modules
@@ -196,7 +196,8 @@ def get_major_version(bin_dir: OptionalType[str] = None) -> str:
         binary = os.path.join(bin_dir, 'postgres')
     version = subprocess.check_output([binary, '--version']).decode()
     version = re.match(r'^[^\s]+ [^\s]+ (\d+)(\.(\d+))?', version)
-    assert version is not None
+    if TYPE_CHECKING:  # pragma: no cover
+        assert version is not None
     return '.'.join([version.group(1), version.group(3)]) if int(version.group(1)) < 10 else version.group(1)
 
 

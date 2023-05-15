@@ -192,7 +192,7 @@ class Postgresql(object):
                          "FROM pg_catalog.pg_stat_get_wal_senders() w,"
                          " pg_catalog.pg_stat_get_activity(w.pid)"
                          " WHERE w.state = 'streaming') r)").format(self.wal_name, self.lsn_name)
-                        if (not self._global_config or self._global_config.is_synchronous_mode)
+                        if (not self.global_config or self.global_config.is_synchronous_mode)
                         and self.role in ('master', 'primary', 'promoted') else "'on', '', NULL")
 
         if self._major_version >= 90600:
@@ -375,6 +375,10 @@ class Postgresql(object):
                 self.config.write_postgresql_conf()
                 self.reload()
 
+    @property
+    def global_config(self) -> Optional['GlobalConfig']:
+        return self._global_config
+
     def reset_cluster_info_state(self, cluster: Union[Cluster, None], nofailover: bool = False,
                                  global_config: Optional['GlobalConfig'] = None) -> None:
         """Reset monitoring query cache.
@@ -388,7 +392,7 @@ class Postgresql(object):
         :param global_config: last known :class:`GlobalConfig` object
         """
         self._cluster_info_state = {}
-        if cluster and cluster.config and cluster.config.modify_index:
+        if cluster and cluster.config and cluster.config.modify_version:
             self._has_permanent_logical_slots =\
                 cluster.has_permanent_logical_slots(self.name, nofailover, self.major_version)
 

@@ -24,7 +24,7 @@ from socketserver import ThreadingMixIn
 from threading import Thread
 from urllib.parse import urlparse, parse_qs
 
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
 
 from . import psycopg
 from .__main__ import Patroni
@@ -86,7 +86,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :param client_address: address of the client connection.
         :param server: HTTP server that received the request.
         """
-        assert isinstance(server, RestApiServer)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(server, RestApiServer)
         super(RestApiHandler, self).__init__(request, client_address, server)
         self.server: 'RestApiServer' = server
         self.__start_time: float = 0.0
@@ -113,8 +114,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.wfile.write('{0} {1} {2}\r\n\r\n'.format(self.protocol_version, status_code, message).encode('utf-8'))
         self.log_request(status_code)
 
-    def _write_response(self, status_code: int, body: str, content_type: str = 'text/html',
-                        headers: Optional[Dict[str, str]] = None) -> None:
+    def write_response(self, status_code: int, body: str, content_type: str = 'text/html',
+                       headers: Optional[Dict[str, str]] = None) -> None:
         """Write an HTTP response.
 
         .. note::
@@ -143,12 +144,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def _write_json_response(self, status_code: int, response: Any) -> None:
         """Write an HTTP response with a JSON content type.
 
-        Call :func:`_write_response` with ``content_type`` as ``application/json``.
+        Call :func:`write_response` with ``content_type`` as ``application/json``.
 
         :param status_code: response HTTP status code.
         :param response: value to be dumped as a JSON string and to be used as the response body.
         """
-        self._write_response(status_code, json.dumps(response, default=str), content_type='application/json')
+        self.write_response(status_code, json.dumps(response, default=str), content_type='application/json')
 
     def _write_status_response(self, status_code: int, response: Dict[str, Any]) -> None:
         """Write an HTTP response with Patroni/Postgres status in JSON format.
@@ -457,7 +458,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         * ``patroni_xlog_paused``: ``pg_is_wal_replay_paused()``;
         * ``patroni_postgres_server_version``: Postgres version without periods, e.g. ``150002`` for Postgres ``15.2``;
         * ``patroni_cluster_unlocked``: ``1`` if no one holds the leader lock, else ``0``;
-        * ``patroni_failsafe_mode_is_active``: ``1`` if ``failmode`` is currently active, else ``0``;
+        * ``patroni_failsafe_mode_is_active``: ``1`` if ``failsafe_mode`` is currently active, else ``0``;
         * ``patroni_postgres_timeline``: PostgreSQL timeline based on current WAL file name;
         * ``patroni_dcs_last_seen``: epoch timestamp when DCS was last contacted successfully;
         * ``patroni_pending_restart``: ``1`` if this PostgreSQL node is pending a restart, else ``0``;
@@ -565,7 +566,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_is_paused gauge")
         metrics.append("patroni_is_paused{0} {1}".format(scope_label, int(postgres.get('pause', 0))))
 
-        self._write_response(200, '\n'.join(metrics) + '\n', content_type='text/plain')
+        self.write_response(200, '\n'.join(metrics) + '\n', content_type='text/plain')
 
     def _read_json_content(self, body_is_optional: bool = False) -> Optional[Dict[Any, Any]]:
         """Read JSON from HTTP request body.
@@ -615,12 +616,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
         request = self._read_json_content()
         if request:
             cluster = self.server.patroni.dcs.get_cluster(True)
-            if not (cluster.config and cluster.config.modify_index):
+            if not (cluster.config and cluster.config.modify_version):
                 return self.send_error(503)
             data = cluster.config.data.copy()
             if patch_config(data, request):
                 value = json.dumps(data, separators=(',', ':'))
-                if not self.server.patroni.dcs.set_config_value(value, cluster.config.index):
+                if not self.server.patroni.dcs.set_config_value(value, cluster.config.version):
                     return self.send_error(409)
             self.server.patroni.ha.wakeup()
             self._write_json_response(200, data)
@@ -651,7 +652,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Schedules a reload to Patroni and writes a response with HTTP status `202`.
         """
         self.server.patroni.sighup_handler()
-        self._write_response(202, 'reload scheduled')
+        self.write_response(202, 'reload scheduled')
 
     def do_GET_failsafe(self) -> None:
         """Handle a ``GET`` request to ``/failsafe`` path.
@@ -684,7 +685,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if request:
                 message = self.server.patroni.ha.update_failsafe(request) or 'Accepted'
                 code = 200 if message == 'Accepted' else 500
-                self._write_response(code, message)
+                self.write_response(code, message)
         else:
             self.send_error(502)
 
@@ -699,7 +700,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         if os.name == 'nt' and os.getenv('BEHAVE_DEBUG'):
             self.server.patroni.api_sigterm()
-        self._write_response(202, 'shutdown scheduled')
+        self.write_response(202, 'shutdown scheduled')
 
     @staticmethod
     def parse_schedule(schedule: str,
@@ -779,7 +780,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             logger.debug("received restart request: {0}".format(request))
 
         if self.server.patroni.config.get_global_config(cluster).is_paused and 'schedule' in request:
-            self._write_response(status_code, "Can't schedule restart in the paused state")
+            self.write_response(status_code, "Can't schedule restart in the paused state")
             return
 
         for k in request:
@@ -827,8 +828,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     status_code = 409
         # pyright thinks ``data`` can be ``None`` because ``parse_schedule`` call may return ``None``. However, if
         # that's the case, ``data`` will be overwritten when the ``for`` loop ends
-        assert isinstance(data, str)
-        self._write_response(status_code, data)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(data, str)
+        self.write_response(status_code, data)
 
     @check_access
     def do_DELETE_restart(self) -> None:
@@ -846,7 +848,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         else:
             data = "no restarts are scheduled"
             code = 404
-        self._write_response(code, data)
+        self.write_response(code, data)
 
     @check_access
     def do_DELETE_switchover(self) -> None:
@@ -861,7 +863,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         failover = self.server.patroni.dcs.get_cluster().failover
         if failover and failover.scheduled_at:
-            if not self.server.patroni.dcs.manual_failover('', '', index=failover.index):
+            if not self.server.patroni.dcs.manual_failover('', '', version=failover.version):
                 return self.send_error(409)
             else:
                 data = "scheduled switchover deleted"
@@ -869,7 +871,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         else:
             data = "no switchover is scheduled"
             code = 404
-        self._write_response(code, data)
+        self.write_response(code, data)
 
     @check_access
     def do_POST_reinitialize(self) -> None:
@@ -895,7 +897,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             data = 'reinitialize started'
         else:
             status_code = 503
-        self._write_response(status_code, data)
+        self.write_response(status_code, data)
 
     def poll_failover_result(self, leader: Optional[str], candidate: Optional[str], action: str) -> Tuple[int, str]:
         """Poll failover/switchover operation until it finishes or times out.
@@ -1033,9 +1035,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = 503
         # pyright thinks ``status_code`` can be ``None`` because ``parse_schedule`` call may return ``None``. However,
         # if that's the case, ``status_code`` will be overwritten somewhere between ``parse_schedule`` and
-        # ``_write_response`` calls.
-        assert isinstance(status_code, int)
-        self._write_response(status_code, data)
+        # ``write_response`` calls.
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(status_code, int)
+        self.write_response(status_code, data)
 
     def do_POST_switchover(self) -> None:
         """Handle a ``POST`` request to ``/switchover`` path.
@@ -1062,7 +1065,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if patroni.postgresql.citus_handler.is_coordinator() and patroni.ha.is_leader():
             cluster = patroni.dcs.get_cluster(True)
             patroni.postgresql.citus_handler.handle_event(cluster, request)
-        self._write_response(200, 'OK')
+        self.write_response(200, 'OK')
 
     def parse_request(self) -> bool:
         """Override :func:`parse_request` method to enrich basic functionality of :class:`BaseHTTPRequestHandler`.
@@ -1242,7 +1245,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         :param patroni: Patroni daemon process.
         :param config: ``restapi`` section of Patroni configuration.
         """
-        self.connection_string = None
+        self.connection_string: str
         self.__auth_key = None
         self.__allowlist_include_members: Optional[bool] = None
         self.__allowlist: Tuple[Union[IPv4Network, IPv6Network], ...] = ()
@@ -1300,7 +1303,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         :returns: ``True`` if *key* matches the password configured for the REST API.
         """
         # pyright -- ``__auth_key`` was already checked through the caller method (:func:`check_auth_header`).
-        assert self.__auth_key is not None
+        if TYPE_CHECKING:  # pragma: no cover
+            assert self.__auth_key is not None
         return hmac.compare_digest(self.__auth_key, key.encode('utf-8'))
 
     def check_auth_header(self, auth_header: Optional[str]) -> Optional[str]:
@@ -1371,16 +1375,16 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if self.__allowlist or self.__allowlist_include_members:
             incoming_ip = ip_address(rh.client_address[0])
             if not any(incoming_ip in net for net in self.__allowlist + tuple(self.__members_ips())):
-                return rh._write_response(403, 'Access is denied')
+                return rh.write_response(403, 'Access is denied')
 
         if not hasattr(rh.request, 'getpeercert') or not rh.request.getpeercert():  # valid client cert isn't present
             if self.__protocol == 'https' and self.__ssl_options.get('verify_client') in ('required', 'optional'):
-                return rh._write_response(403, 'client certificate required')
+                return rh.write_response(403, 'client certificate required')
 
         reason = self.check_auth_header(rh.headers.get('Authorization'))
         if reason:
             headers = {'WWW-Authenticate': 'Basic realm="' + self.patroni.__class__.__name__ + '"'}
-            return rh._write_response(401, reason, headers=headers)
+            return rh.write_response(401, reason, headers=headers)
         return True
 
     @staticmethod
@@ -1603,7 +1607,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')) if 'auth' in config else None
         # pyright -- ``__listen`` is initially created as ``None``, but right after that it is replaced with a string
         # through :func:`__initialize`.
-        assert isinstance(self.__listen, str)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(self.__listen, str)
         self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
 
     def handle_error(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],

@@ -126,7 +126,7 @@ _Session = Union[int, float, str, None]
 class Member(NamedTuple):
     """Immutable object (namedtuple) which represents single member of PostgreSQL cluster.
     Consists of the following fields:
-    :param index: modification index of a given member key in a Configuration Store
+    :param version: modification version of a given member key in a Configuration Store
     :param name: name of PostgreSQL cluster member
     :param session: either session id or just ttl in seconds
     :param data: arbitrary data i.e. conn_url, api_url, xlog location, state, role, tags, etc...
@@ -135,18 +135,18 @@ class Member(NamedTuple):
     conn_url: connection string containing host, user and password which could be used to access this member.
     api_url: REST API url of patroni instance
     """
-    index: _Version
+    version: _Version
     name: str
     session: _Session
     data: Dict[str, Any]
 
     @staticmethod
-    def from_node(index: _Version, name: str, session: _Session, value: str) -> 'Member':
+    def from_node(version: _Version, name: str, session: _Session, value: str) -> 'Member':
         """
         >>> Member.from_node(-1, '', '', '{"conn_url": "postgres://foo@bar/postgres"}') is not None
         True
         >>> Member.from_node(-1, '', '', '{')
-        Member(index=-1, name='', session='', data={})
+        Member(version=-1, name='', session='', data={})
         """
         if value.startswith('postgres'):
             conn_url, api_url = parse_connection_string(value)
@@ -157,7 +157,7 @@ class Member(NamedTuple):
                 assert isinstance(data, dict)
             except (AssertionError, TypeError, ValueError):
                 data: Dict[str, Any] = {}
-        return Member(index, name, session, data)
+        return Member(version, name, session, data)
 
     @property
     def conn_url(self) -> Optional[str]:
@@ -229,7 +229,7 @@ class Member(NamedTuple):
         return self.state == 'running'
 
     @property
-    def version(self) -> Optional[Tuple[int, ...]]:
+    def patroni_version(self) -> Optional[Tuple[int, ...]]:
         version = self.data.get('version')
         if version:
             try:
@@ -240,7 +240,9 @@ class Member(NamedTuple):
 
 class RemoteMember(Member):
     """Represents a remote member (typically a primary) for a standby cluster"""
-    def __new__(cls, name: str, data: Dict[str, Any]) -> 'RemoteMember':
+
+    @classmethod
+    def from_name_and_data(cls, name: str, data: Dict[str, Any]) -> 'RemoteMember':
         return super(RemoteMember, cls).__new__(cls, -1, name, None, data)
 
     @staticmethod
@@ -261,11 +263,11 @@ class Leader(NamedTuple):
     """Immutable object (namedtuple) which represents leader key.
 
     Consists of the following fields:
-    :param index: modification index of a leader key in a Configuration Store
+    :param version: modification version of a leader key in a Configuration Store
     :param session: either session id or just ttl in seconds
     :param member: reference to a `Member` object which represents current leader (see `Cluster.members`)
     """
-    index: _Version
+    version: _Version
     session: _Session
     member: Member
 
@@ -294,7 +296,7 @@ class Leader(NamedTuple):
         >>> Leader(1, '', Member.from_node(1, '', '', '{"version":"z"}')).checkpoint_after_promote
 
         """
-        version = self.member.version
+        version = self.member.patroni_version
         # 1.5.6 is the last version which doesn't expose checkpoint_after_promote: false
         if version and version > (1, 5, 6):
             return self.data.get('role') in ('master', 'primary') and 'checkpoint_after_promote' not in self.data
@@ -321,13 +323,13 @@ class Failover(NamedTuple):
     >>> 'abc' in Failover.from_node(1, 'abc:def')
     True
     """
-    index: _Version
+    version: _Version
     leader: Optional[str]
     candidate: Optional[str]
     scheduled_at: Optional[datetime.datetime]
 
     @staticmethod
-    def from_node(index: _Version, value: Union[str, Dict[str, str]]) -> 'Failover':
+    def from_node(version: _Version, value: Union[str, Dict[str, str]]) -> 'Failover':
         if isinstance(value, dict):
             data: Dict[str, Any] = value
         elif value:
@@ -340,26 +342,26 @@ class Failover(NamedTuple):
                 t = [a.strip() for a in value.split(':')]
                 leader = t[0]
                 candidate = t[1] if len(t) > 1 else None
-                return Failover(index, leader, candidate, None)
+                return Failover(version, leader, candidate, None)
         else:
             data = {}
 
         if data.get('scheduled_at'):
             data['scheduled_at'] = dateutil.parser.parse(data['scheduled_at'])
 
-        return Failover(index, data.get('leader'), data.get('member'), data.get('scheduled_at'))
+        return Failover(version, data.get('leader'), data.get('member'), data.get('scheduled_at'))
 
     def __len__(self) -> int:
         return int(bool(self.leader)) + int(bool(self.candidate))
 
 
 class ClusterConfig(NamedTuple):
-    index: _Version
+    version: _Version
     data: Dict[str, Any]
-    modify_index: _Version
+    modify_version: _Version
 
     @staticmethod
-    def from_node(index: _Version, value: str, modify_index: Optional[_Version] = None) -> 'ClusterConfig':
+    def from_node(version: _Version, value: str, modify_version: Optional[_Version] = None) -> 'ClusterConfig':
         """
         >>> ClusterConfig.from_node(1, '{') is None
         False
@@ -370,8 +372,8 @@ class ClusterConfig(NamedTuple):
             assert isinstance(data, dict)
         except (AssertionError, TypeError, ValueError):
             data: Dict[str, Any] = {}
-            modify_index = 0
-        return ClusterConfig(index, data, index if modify_index is None else modify_index)
+            modify_version = 0
+        return ClusterConfig(version, data, version if modify_version is None else modify_version)
 
     @property
     def permanent_slots(self) -> Dict[str, Any]:
@@ -390,16 +392,16 @@ class ClusterConfig(NamedTuple):
 class SyncState(NamedTuple):
     """Immutable object (namedtuple) which represents last observed synhcronous replication state
 
-    :param index: modification index of a synchronization key in a Configuration Store
+    :param version: modification version of a synchronization key in a Configuration Store
     :param leader: reference to member that was leader
     :param sync_standby: synchronous standby list (comma delimited) which are last synchronized to leader
     """
-    index: Optional[_Version]
+    version: Optional[_Version]
     leader: Optional[str]
     sync_standby: Optional[str]
 
     @staticmethod
-    def from_node(index: Optional[_Version], value: Union[str, Dict[str, Any], None]) -> 'SyncState':
+    def from_node(version: Optional[_Version], value: Union[str, Dict[str, Any], None]) -> 'SyncState':
         """
         >>> SyncState.from_node(1, None).leader is None
         True
@@ -418,13 +420,13 @@ class SyncState(NamedTuple):
             if value and isinstance(value, str):
                 value = json.loads(value)
             assert isinstance(value, dict)
-            return SyncState(index, value.get('leader'), value.get('sync_standby'))
+            return SyncState(version, value.get('leader'), value.get('sync_standby'))
         except (AssertionError, TypeError, ValueError):
-            return SyncState.empty(index)
+            return SyncState.empty(version)
 
     @staticmethod
-    def empty(index: Optional[_Version] = None) -> 'SyncState':
-        return SyncState(index, None, None)
+    def empty(version: Optional[_Version] = None) -> 'SyncState':
+        return SyncState(version, None, None)
 
     @property
     def is_empty(self) -> bool:
@@ -484,12 +486,12 @@ _HistoryTuple = Union[Tuple[int, int, str], Tuple[int, int, str, str], Tuple[int
 
 class TimelineHistory(NamedTuple):
     """Object representing timeline history file"""
-    index: _Version
+    version: _Version
     value: Any
     lines: List[_HistoryTuple]
 
     @staticmethod
-    def from_node(index: _Version, value: str) -> 'TimelineHistory':
+    def from_node(version: _Version, value: str) -> 'TimelineHistory':
         """
         >>> h = TimelineHistory.from_node(1, 2)
         >>> h.lines
@@ -500,7 +502,7 @@ class TimelineHistory(NamedTuple):
             assert isinstance(lines, list)
         except (AssertionError, TypeError, ValueError):
             lines: List[_HistoryTuple] = []
-        return TimelineHistory(index, value, lines)
+        return TimelineHistory(version, value, lines)
 
 
 class Cluster(NamedTuple):
@@ -537,7 +539,7 @@ class Cluster(NamedTuple):
 
     def is_empty(self):
         return self.initialize is None and self.config is None and self.leader is None and self.last_lsn == 0\
-            and self.members == [] and self.failover is None and self.sync.index is None\
+            and self.members == [] and self.failover is None and self.sync.version is None\
             and self.history is None and self.slots is None and self.failsafe is None and self.workers == {}
 
     def __len__(self) -> int:
@@ -701,7 +703,7 @@ class Cluster(NamedTuple):
 
     @property
     def min_version(self) -> Optional[Tuple[int, ...]]:
-        return next(iter(sorted(m.version for m in self.members if m.version)), None)
+        return next(iter(sorted(m.patroni_version for m in self.members if m.patroni_version)), None)
 
 
 class ReturnFalseException(Exception):
@@ -870,7 +872,8 @@ class AbstractDCS(abc.ABC):
         if path is None:
             path = self.client_path('')
         cluster = self._load_cluster(path, self._cluster_loader)
-        assert isinstance(cluster, Cluster)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(cluster, Cluster)
         return cluster
 
     def is_citus_coordinator(self) -> bool:
@@ -887,7 +890,6 @@ class AbstractDCS(abc.ABC):
         if isinstance(groups, Cluster):  # Zookeeper could return a cached version
             cluster = groups
         else:
-            assert isinstance(groups, dict)
             cluster = groups.pop(CITUS_COORDINATOR_GROUP_ID, Cluster.empty())
             cluster.workers.update(groups)
         return cluster
@@ -1006,11 +1008,11 @@ class AbstractDCS(abc.ABC):
         process requests (hopefuly temporary), the ~DCSError exception should be raised"""
 
     @abc.abstractmethod
-    def set_failover_value(self, value: str, index: Optional[Any] = None) -> bool:
+    def set_failover_value(self, value: str, version: Optional[Any] = None) -> bool:
         """Create or update `/failover` key"""
 
     def manual_failover(self, leader: Optional[str], candidate: Optional[str],
-                        scheduled_at: Optional[datetime.datetime] = None, index: Optional[Any] = None) -> bool:
+                        scheduled_at: Optional[datetime.datetime] = None, version: Optional[Any] = None) -> bool:
         failover_value = {}
         if leader:
             failover_value['leader'] = leader
@@ -1020,10 +1022,10 @@ class AbstractDCS(abc.ABC):
 
         if scheduled_at:
             failover_value['scheduled_at'] = scheduled_at.isoformat()
-        return self.set_failover_value(json.dumps(failover_value, separators=(',', ':')), index)
+        return self.set_failover_value(json.dumps(failover_value, separators=(',', ':')), version)
 
     @abc.abstractmethod
-    def set_config_value(self, value: str, index: Optional[Any] = None) -> bool:
+    def set_config_value(self, value: str, version: Optional[Any] = None) -> bool:
         """Create or update `/config` key"""
 
     @abc.abstractmethod
@@ -1087,16 +1089,16 @@ class AbstractDCS(abc.ABC):
         return {'leader': leader, 'sync_standby': ','.join(sorted(sync_standby)) if sync_standby else None}
 
     def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
-                         index: Optional[Any] = None) -> Optional[SyncState]:
+                         version: Optional[Any] = None) -> Optional[SyncState]:
         """Write the new synchronous state to DCS.
         Calls :func:`sync_state` method to build a dict and than calls DCS specific :func:`set_sync_state_value` method.
         :param leader: name of the leader node that manages /sync key
         :param sync_standby: collection of currently known synchronous standby node names
-        :param index: for conditional update of the key/object
+        :param version: for conditional update of the key/object
         :returns: the new :class:`SyncState` object or None
         """
         sync_value = self.sync_state(leader, sync_standby)
-        ret = self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), index)
+        ret = self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), version)
         if not isinstance(ret, bool):
             return SyncState.from_node(ret, sync_value)
 
@@ -1105,23 +1107,23 @@ class AbstractDCS(abc.ABC):
         """"""
 
     @abc.abstractmethod
-    def set_sync_state_value(self, value: str, index: Optional[Any] = None) -> Union[Any, bool]:
+    def set_sync_state_value(self, value: str, version: Optional[Any] = None) -> Union[Any, bool]:
         """Set synchronous state in DCS, should be implemented in the child class.
 
         :param value: the new value of /sync key
-        :param index: for conditional update of the key/object
+        :param version: for conditional update of the key/object
         :returns: version of the new object or `False` in case of error
         """
 
     @abc.abstractmethod
-    def delete_sync_state(self, index: Optional[Any] = None) -> bool:
+    def delete_sync_state(self, version: Optional[Any] = None) -> bool:
         """"""
 
-    def watch(self, leader_index: Optional[Any], timeout: float) -> bool:
+    def watch(self, leader_version: Optional[Any], timeout: float) -> bool:
         """If the current node is a leader it should just sleep.
         Any other node should watch for changes of leader key with a given timeout
 
-        :param leader_index: index of a leader key
+        :param leader_version: version of a leader key
         :param timeout: timeout in seconds
         :returns: `!True` if you would like to reschedule the next run of ha cycle"""
 

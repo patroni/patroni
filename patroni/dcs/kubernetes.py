@@ -135,11 +135,14 @@ class K8sConfig(object):
 
         context = context or config['current-context']
         context_value = self._get_by_name(config, 'context', context)
-        assert isinstance(context_value, dict)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(context_value, dict)
         cluster = self._get_by_name(config, 'cluster', context_value['cluster'])
-        assert isinstance(cluster, dict)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(cluster, dict)
         user = self._get_by_name(config, 'user', context_value['user'])
-        assert isinstance(user, dict)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(user, dict)
 
         self._server = cluster['server'].rstrip('/')
         if self._server.startswith('https'):
@@ -281,7 +284,8 @@ class K8sClient(object):
                 try:
                     response = self.pool_manager.request('GET', base_uri + path, **kwargs)
                     endpoint = self._handle_server_response(response, True)
-                    assert isinstance(endpoint, K8sObject)
+                    if TYPE_CHECKING:  # pragma: no cover
+                        assert isinstance(endpoint, K8sObject)
                     for subset in endpoint.subsets:
                         for port in subset.ports:
                             if port.name == 'https' and port.protocol == 'TCP':
@@ -412,7 +416,8 @@ class K8sClient(object):
                     except Exception as e:
                         logger.debug('Failed to update list of K8s master nodes: %r', e)
 
-                    assert isinstance(retry, Retry)  # K8sConnectionFailed is raised only if retry is not None!
+                    if TYPE_CHECKING:  # pragma: no cover
+                        assert isinstance(retry, Retry)  # K8sConnectionFailed is raised only if retry is not None!
                     sleeptime = retry.sleeptime
                     remaining_time = (retry.stoptime or time.time()) - sleeptime - time.time()
                     nodes, timeout, retries = self._calculate_timeouts(api_servers, remaining_time)
@@ -559,10 +564,23 @@ class CoreV1ApiProxy(object):
         return self._use_endpoints
 
 
+def _run_and_handle_exceptions(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    try:
+        return method(*args, **kwargs)
+    except k8s_client.rest.ApiException as e:
+        if e.status == 403:
+            logger.exception('Permission denied')
+        elif e.status != 409:  # Object exists or conflict in resource_version
+            logger.exception('Unexpected error from Kubernetes API')
+        return False
+    except (RetryFailedError, K8sException) as e:
+        raise KubernetesError(e)
+
+
 def catch_kubernetes_errors(func: Callable[..., Any]) -> Callable[..., Any]:
     def wrapper(self: 'Kubernetes', *args: Any, **kwargs: Any) -> Any:
         try:
-            return self._run_and_handle_exceptions(func, self, *args, **kwargs)
+            return _run_and_handle_exceptions(func, self, *args, **kwargs)
         except KubernetesError:
             return False
     return wrapper
@@ -584,7 +602,8 @@ class ObjectCache(Thread):
         self._response_lock = Lock()  # protect the `self._response` from concurrent access
         self._object_cache: Dict[str, K8sObject] = {}
         self._object_cache_lock = Lock()
-        self._annotations_map = {self._dcs.leader_path: self._dcs._LEADER, self._dcs.config_path: self._dcs._CONFIG}
+        self._annotations_map = {self._dcs.leader_path: getattr(self._dcs, '_LEADER'),
+                                 self._dcs.config_path: getattr(self._dcs, '_CONFIG')}  # pyright
         self.start()
 
     def _list(self) -> K8sObject:
@@ -779,19 +798,6 @@ class Kubernetes(AbstractDCS):
         kwargs['_retry'] = retry
         return retry(method, *args, **kwargs)
 
-    @staticmethod
-    def _run_and_handle_exceptions(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        try:
-            return method(*args, **kwargs)
-        except k8s_client.rest.ApiException as e:
-            if e.status == 403:
-                logger.exception('Permission denied')
-            elif e.status != 409:  # Object exists or conflict in resource_version
-                logger.exception('Unexpected error from Kubernetes API')
-            return False
-        except (RetryFailedError, K8sException) as e:
-            raise KubernetesError(e)
-
     def client_path(self, path: str) -> str:
         return super(Kubernetes, self).client_path(path)[1:].replace('/', '-')
 
@@ -818,7 +824,8 @@ class Kubernetes(AbstractDCS):
         Either cause by changes in the local configuration file + SIGHUP or by changes of dynamic configuration"""
 
         super(Kubernetes, self).reload_config(config)
-        assert self._retry.deadline is not None
+        if TYPE_CHECKING:  # pragma: no cover
+            assert self._retry.deadline is not None
         self._api.configure_timeouts(self.loop_wait, self._retry.deadline, self.ttl)
 
         # retriable_http_codes supposed to be either int, list of integers or comma-separated string with integers.
@@ -954,7 +961,8 @@ class Kubernetes(AbstractDCS):
     def __load_cluster(
             self, group: Optional[str], loader: Callable[[Dict[str, Any]], Union[Cluster, Dict[int, Cluster]]]
     ) -> Union[Cluster, Dict[int, Cluster]]:
-        assert self._retry.deadline is not None
+        if TYPE_CHECKING:  # pragma: no cover
+            assert self._retry.deadline is not None
         stop_time = time.time() + self._retry.deadline
         self._api.refresh_api_servers_cache()
         try:
@@ -978,7 +986,8 @@ class Kubernetes(AbstractDCS):
     def get_citus_coordinator(self) -> Optional[Cluster]:
         try:
             ret = self.__load_cluster(str(CITUS_COORDINATOR_GROUP_ID), self._cluster_loader)
-            assert isinstance(ret, Cluster)
+            if TYPE_CHECKING:  # pragma: no cover
+                assert isinstance(ret, Cluster)
             return ret
         except Exception as e:
             logger.error('Failed to load Citus coordinator cluster from Kubernetes: %r', e)
@@ -1170,8 +1179,8 @@ class Kubernetes(AbstractDCS):
         if kind and (kind_annotations.get(self._LEADER) != self._name or kind_resource_version == resource_version):
             return False
 
-        return bool(self._run_and_handle_exceptions(self._patch_or_create, self.leader_path, annotations,
-                                                    kind_resource_version, ips=ips, retry=_retry))
+        return bool(_run_and_handle_exceptions(self._patch_or_create, self.leader_path, annotations,
+                                               kind_resource_version, ips=ips, retry=_retry))
 
     def update_leader(self, last_lsn: Optional[int], slots: Optional[Dict[str, int]] = None,
                       failsafe: Optional[Dict[str, str]] = None) -> bool:
@@ -1232,24 +1241,24 @@ class Kubernetes(AbstractDCS):
     def take_leader(self) -> bool:
         return self.attempt_to_acquire_leader()
 
-    def set_failover_value(self, value: str, index: Optional[str] = None) -> bool:
+    def set_failover_value(self, value: str, version: Optional[str] = None) -> bool:
         """Unused"""
         raise NotImplementedError  # pragma: no cover
 
     def manual_failover(self, leader: Optional[str], candidate: Optional[str],
-                        scheduled_at: Optional[datetime.datetime] = None, index: Optional[str] = None) -> bool:
+                        scheduled_at: Optional[datetime.datetime] = None, version: Optional[str] = None) -> bool:
         annotations = {'leader': leader or None, 'member': candidate or None,
                        'scheduled_at': scheduled_at and scheduled_at.isoformat()}
-        patch = bool(self.cluster and isinstance(self.cluster.failover, Failover) and self.cluster.failover.index)
-        return bool(self.patch_or_create(self.failover_path, annotations, index, bool(index or patch), False))
+        patch = bool(self.cluster and isinstance(self.cluster.failover, Failover) and self.cluster.failover.version)
+        return bool(self.patch_or_create(self.failover_path, annotations, version, bool(version or patch), False))
 
     @property
     def _config_resource_version(self) -> Optional[str]:
         config = self._kinds.get(self.config_path)
         return config and config.metadata.resource_version
 
-    def set_config_value(self, value: str, index: Optional[str] = None) -> bool:
-        return self.patch_or_create_config({self._CONFIG: value}, index, bool(self._config_resource_version), False)
+    def set_config_value(self, value: str, version: Optional[str] = None) -> bool:
+        return self.patch_or_create_config({self._CONFIG: value}, version, bool(self._config_resource_version), False)
 
     @catch_kubernetes_errors
     def touch_member(self, data: Dict[str, Any]) -> bool:
@@ -1279,7 +1288,8 @@ class Kubernetes(AbstractDCS):
 
     def initialize(self, create_new: bool = True, sysid: str = "") -> bool:
         cluster = self.cluster
-        resource_version = str(cluster.config.index) if cluster and cluster.config and cluster.config.index else None
+        resource_version = str(cluster.config.version)\
+            if cluster and cluster.config and cluster.config.version else None
         return self.patch_or_create_config({self._INITIALIZE: sysid}, resource_version)
 
     def _delete_leader(self) -> bool:
@@ -1308,34 +1318,34 @@ class Kubernetes(AbstractDCS):
     def set_history_value(self, value: str) -> bool:
         return self.patch_or_create_config({self._HISTORY: value}, None, bool(self._config_resource_version), False)
 
-    def set_sync_state_value(self, value: str, index: Optional[str] = None) -> bool:
+    def set_sync_state_value(self, value: str, version: Optional[str] = None) -> bool:
         """Unused"""
         raise NotImplementedError  # pragma: no cover
 
     def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
-                         index: Optional[str] = None) -> Optional[SyncState]:
+                         version: Optional[str] = None) -> Optional[SyncState]:
         """Prepare and write annotations to $SCOPE-sync Endpoint or ConfigMap.
 
         :param leader: name of the leader node that manages /sync key
         :param sync_standby: collection of currently known synchronous standby node names
-        :param index: last known `resource_version` for conditional update of the object
+        :param version: last known `resource_version` for conditional update of the object
         :returns: the new :class:`SyncState` object or None
         """
         sync_state = self.sync_state(leader, sync_standby)
-        ret = self.patch_or_create(self.sync_path, sync_state, index, False)
+        ret = self.patch_or_create(self.sync_path, sync_state, version, False)
         if not isinstance(ret, bool):
             return SyncState.from_node(ret.metadata.resource_version, sync_state)
 
-    def delete_sync_state(self, index: Optional[str] = None) -> bool:
+    def delete_sync_state(self, version: Optional[str] = None) -> bool:
         """Patch annotations of $SCOPE-sync Endpoint or ConfigMap with empty values.
 
         Effectively it removes "leader" and "sync_standby" annotations from the object.
-        :param index: last known `resource_version` for conditional update of the object
+        :param version: last known `resource_version` for conditional update of the object
         :returns: `True` if "delete" was successful
         """
-        return self.write_sync_state(None, None, index=index) is not None
+        return self.write_sync_state(None, None, version=version) is not None
 
-    def watch(self, leader_index: Optional[str], timeout: float) -> bool:
+    def watch(self, leader_version: Optional[str], timeout: float) -> bool:
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True
