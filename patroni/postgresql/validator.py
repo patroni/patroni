@@ -239,7 +239,6 @@ def _load_postgres_guc_validators(section: CaseInsensitiveDict, config: Dict[str
     :param section: reference to either ``parameters`` or ``recovery_parameters`` variable of this module.
     :param config: Python object corresponding to an YAML file, with values of either ``parameters`` or
         ``recovery_parameters`` key, corresponding to given *section*.
-    :param file: path to the file that was read. Used by child functions for logging purposes.
     :param parameter: name of the parameter found under *config* which validators should be parsed and loaded into
         *section*.
 
