@@ -115,6 +115,8 @@ class Postgresql(object):
         self._enforce_hot_standby_feedback = False
         self._cached_replica_timeline = None
 
+        self._available_gucs = self._get_gucs()
+
         # Last known running process
         self._postmaster_proc = None
 
@@ -130,8 +132,6 @@ class Postgresql(object):
                 self.reload()
         elif self.role in ('master', 'primary'):
             self.set_role('demoted')
-
-        self._available_gucs = self._get_gucs()
 
     @property
     def create_replica_methods(self) -> List[str]:
