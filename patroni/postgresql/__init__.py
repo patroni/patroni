@@ -115,8 +115,6 @@ class Postgresql(object):
         self._enforce_hot_standby_feedback = False
         self._cached_replica_timeline = None
 
-        self._available_gucs = self._get_gucs()
-
         # Last known running process
         self._postmaster_proc = None
 
@@ -217,7 +215,7 @@ class Postgresql(object):
     @property
     def available_gucs(self) -> CaseInsensitiveSet:
         """GUCs available in this Postgres server."""
-        return self._available_gucs
+        return self._get_gucs()
 
     def _version_file_exists(self) -> bool:
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
