@@ -142,11 +142,12 @@ class String(_Transformable):
 
 # Format:
 #  key  - parameter name
-#  value - tuple of tuples. Each sub-tuple represents a different validation of the GUC across postgres versions. If a
-#          GUC validation has never changed over time, then it will have a single sub-tuple. For example,
-#          `password_encryption` used to be a boolean GUC up to Postgres 10, at which point it started being an enum.
-#          In that case the value of `password_encryption` would be a tuple of 2 tuples, each one reprensenting a
-#          different validation rule.
+#  value - variable length tuple of `_Transformable` objects. Each object in the tuple represents a different
+#          validation of the GUC across postgres versions. If a GUC validation has never changed over time, then it will
+#          have a single object in the tuple. For example, `password_encryption` used to be a boolean GUC up to Postgres
+#          10, at which point it started being an enum. In that case the value of `password_encryption` would be a tuple
+#          of 2 `_Transformable` objects (`Bool` and `Enum`, respectively), each one reprensenting a different
+#          validation rule.
 parameters = CaseInsensitiveDict()
 recovery_parameters = CaseInsensitiveDict()
 
@@ -426,8 +427,9 @@ def _transform_parameter_value(validators: MutableMapping[str, Tuple[_Transforma
     """Validate *value* of GUC *name* for Postgres *version* using defined *validators* and *available_gucs*.
 
     :param validators: a dictionary of all GUCs across all Postgres versions. Each key is the name of a Postgres GUC,
-        and the corresponding value is a tuple of tuples. Each sub-tuple is a validation rule for the GUC for a given
-        range of Postgres versions. Should either contain recovery GUCs or general GUCs, not both.
+        and the corresponding value is a variable length tuple of :class:`_Transformable`. Each item is a validation
+        rule for the GUC for a given range of Postgres versions. Should either contain recovery GUCs or general GUCs,
+        not both.
     :param version: Postgres version to validate the GUC against.
     :param name: name of the Postgres GUC.
     :param value: value of the Postgres GUC.
