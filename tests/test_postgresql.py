@@ -92,6 +92,7 @@ Float8 argument passing:              by value
 Data page checksum version:           0
 """
 
+
 @patch('subprocess.call', Mock(return_value=0))
 @patch('patroni.psycopg.connect', psycopg_connect)
 @patch.object(Postgresql, 'available_gucs', mock_available_gucs)
