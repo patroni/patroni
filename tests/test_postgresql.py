@@ -18,7 +18,7 @@ from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
 from patroni.postgresql.postmaster import PostmasterProcess
-from patroni.postgresql.validator import (ValidatorFactoryNoType, ValidatorFactorInvalidType,
+from patroni.postgresql.validator import (ValidatorFactoryNoType, ValidatorFactoryInvalidType,
                                           ValidatorFactoryInvalidSpec, ValidatorFactory,
                                           _load_postgres_guc_validators, Bool, Integer, Real, Enum, EnumBool, String)
 from patroni.utils import RetryFailedError
@@ -760,7 +760,7 @@ class TestPostgresql(BaseTestPostgresql):
             'version_from': 90300,
             'version_till': None,
         }
-        with self.assertRaises(ValidatorFactorInvalidType) as e:
+        with self.assertRaises(ValidatorFactoryInvalidType) as e:
             ValidatorFactory(validator)
         self.assertEqual(str(e.exception), f'Unexpected validator type: `{validator["type"]}`.')
 

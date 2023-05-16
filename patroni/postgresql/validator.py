@@ -155,7 +155,7 @@ class ValidatorFactoryNoType(Exception):
     """Raised when a validator spec misses a type."""
 
 
-class ValidatorFactorInvalidType(Exception):
+class ValidatorFactoryInvalidType(Exception):
     """Raised when a validator spec contains an invalid type."""
 
 
@@ -176,7 +176,7 @@ class ValidatorFactory:
         :returns: the Patroni validator object that corresponds to the specification found in *validator*.
 
         :raises :class:`ValidatorFactoryNoType`: if *validator* contains no ``type`` key.
-        :raises :class:`ValidatorFactorInvalidType`: if ``type`` key from *validator* contains an invalid value.
+        :raises :class:`ValidatorFactoryInvalidType`: if ``type`` key from *validator* contains an invalid value.
         :raises :class:`ValidatorFactoryInvalidSpec`: if *validator* contains an invalid set of attributes for the
             given ``type``.
 
@@ -213,7 +213,7 @@ class ValidatorFactory:
             raise ValidatorFactoryNoType('Validator contains no type.') from exc
 
         if type_ not in cls.TYPES:
-            raise ValidatorFactorInvalidType(f'Unexpected validator type: `{type_}`.')
+            raise ValidatorFactoryInvalidType(f'Unexpected validator type: `{type_}`.')
 
         for key, value in validator.items():
             # :func:`_transform_parameter_value` expects :class:`tuple` instead of :class:`list`
@@ -229,7 +229,7 @@ class ValidatorFactory:
 
 
 def _load_postgres_guc_validators(section: CaseInsensitiveDict, config: Dict[str, Any], parameter: str) \
-        -> Iterator[Union[ValidatorFactoryNoType, ValidatorFactorInvalidType, ValidatorFactoryInvalidSpec]]:
+        -> Iterator[Union[ValidatorFactoryNoType, ValidatorFactoryInvalidType, ValidatorFactoryInvalidSpec]]:
     """Load *parameter* validators from *config* into *section*.
 
     Loop over all validators of *parameter* and load each of them into *section*.
@@ -245,7 +245,7 @@ def _load_postgres_guc_validators(section: CaseInsensitiveDict, config: Dict[str
     for validator_spec in config.get(parameter, {}):
         try:
             validator = ValidatorFactory(validator_spec)
-        except (ValidatorFactoryNoType, ValidatorFactorInvalidType, ValidatorFactoryInvalidSpec) as exc:
+        except (ValidatorFactoryNoType, ValidatorFactoryInvalidType, ValidatorFactoryInvalidSpec) as exc:
             yield exc
             continue
 
