@@ -25,8 +25,7 @@ class _Transformable(abc.ABC):
         :rtype: yields each subclass of :class:`_Transformable`.
         """
         for subclass in cls.__subclasses__():
-            for subsubclass in subclass.get_subclasses():
-                yield subsubclass
+            yield from subclass.get_subclasses()
             yield subclass
 
     @property
