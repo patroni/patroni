@@ -56,8 +56,8 @@ class Bool(_Transformable):
 
 class Number(_Transformable):
 
-    def __init__(self, version_from: int, min_val: Union[int, float], max_val: Union[int, float],
-                 version_till: Optional[int] = None, unit: Optional[str] = None) -> None:
+    def __init__(self, *, version_from: int, version_till: Optional[int] = None, min_val: Union[int, float],
+                 max_val: Union[int, float], unit: Optional[str] = None) -> None:
         super(Number, self).__init__(version_from, version_till)
         self.__min_val = min_val
         self.__max_val = max_val
@@ -112,7 +112,8 @@ class Real(Number):
 
 class Enum(_Transformable):
 
-    def __init__(self, version_from: int, possible_values: Tuple[str, ...], version_till: Optional[int] = None) -> None:
+    def __init__(self, *, version_from: int, version_till: Optional[int] = None,
+                 possible_values: Tuple[str, ...]) -> None:
         super(Enum, self).__init__(version_from, version_till)
         self.__possible_values = possible_values
 
