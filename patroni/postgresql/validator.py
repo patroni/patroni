@@ -509,4 +509,4 @@ def transform_recovery_parameter_value(version: int, name: str, value: Any,
     # Patroni, so we should be able to rely solely on Patroni validators as the source of truth.
     return _transform_parameter_value(
         recovery_parameters, version, name, value,
-        available_gucs if version < 120000 else CaseInsensitiveSet(recovery_parameters.keys()))
+        available_gucs if version >= 120000 else CaseInsensitiveSet(recovery_parameters.keys()))
