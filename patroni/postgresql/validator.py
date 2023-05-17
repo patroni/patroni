@@ -443,22 +443,16 @@ def _transform_parameter_value(validators: MutableMapping[str, Tuple[_Transforma
         * The own *value* if *name* is present in *available_gucs* but not in *validators*; or
         * ``None`` if *name* is not present in *available_gucs*.
     """
-    # Recovery settings are not present in `postgres --describe-config` output on Postgres <= 11, so we allow it to
-    # bypass this check. However, we will not allow Postgres <= 11 GUCs that have no validator defined in Patroni.
-    # NOTE: At the moment this change was done Postgres 11 was almost EOL, and had been likely extensively used with
-    # Patroni, so we should be able to rely solely on Patroni validators to keep doing their job.
-    if name in available_gucs or version < 120000:
+    if name in available_gucs:
         name_validators: Tuple[_Transformable, ...] = validators.get(name, ())
         if name_validators:
             for validator in name_validators:
                 if version >= validator.version_from and\
                         (validator.version_till is None or version < validator.version_till):
                     return validator.transform(name, value)
-        if name in available_gucs:
-            # Ideally we should have a validator in *validators*. However, if none is available, we will not discard a
-            # setting that exists in Postgres *version*, but rather allow the value with no validation. Postgres 11 (and
-            # before) recovery parameters are an exception to that rule as per above comment.
-            return value
+        # Ideally we should have a validator in *validators*. However, if none is available, we will not discard a
+        # setting that exists in Postgres *version*, but rather allow the value with no validation.
+        return value
     logger.warning('Removing unexpected parameter=%s value=%s from the config', name, value)
 
 
@@ -508,4 +502,11 @@ def transform_recovery_parameter_value(version: int, name: str, value: Any,
     :returns: *value* transformed to the expected format for recovery GUC *name* in Postgres *version* using validators
         defined in ``recovery_parameters``. It can also return ``None``. See :func:`_transform_parameter_value`.
     """
-    return _transform_parameter_value(recovery_parameters, version, name, value, available_gucs)
+    # Recovery settings are not present in ``postgres --describe-config`` output of Postgres <= 11. In that case we
+    # just pass down the list of settings defined in Patroni validators so :func:`_transform_parameter_value` will not
+    # discard the recovery GUCs when running Postgres <= 11.
+    # NOTE: At the moment this change was done Postgres 11 was almost EOL, and had been likely extensively used with
+    # Patroni, so we should be able to rely solely on Patroni validators as the source of truth.
+    return _transform_parameter_value(
+        recovery_parameters, version, name, value,
+        available_gucs if version < 120000 else CaseInsensitiveSet(recovery_parameters.keys()))
