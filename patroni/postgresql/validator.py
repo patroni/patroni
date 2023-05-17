@@ -443,16 +443,22 @@ def _transform_parameter_value(validators: MutableMapping[str, Tuple[_Transforma
         * The own *value* if *name* is present in *available_gucs* but not in *validators*; or
         * ``None`` if *name* is not present in *available_gucs*.
     """
-    if name in available_gucs:
+    # Recovery settings are not present in `postgres --describe-config` output on Postgres <= 11, so we allow it to
+    # bypass this check. However, we will not allow Postgres <= 11 GUCs that have no validator defined in Patroni.
+    # NOTE: At the moment this change was done Postgres 11 was almost EOL, and had been likely extensively used with
+    # Patroni, so we should be able to rely solely on Patroni validators to keep doing their job.
+    if name in available_gucs or version < 120000:
         name_validators: Tuple[_Transformable, ...] = validators.get(name, ())
         if name_validators:
             for validator in name_validators:
                 if version >= validator.version_from and\
                         (validator.version_till is None or version < validator.version_till):
                     return validator.transform(name, value)
-        # Ideally we should have a validator in *validators*. However, if none is available, we will not discard a
-        # setting that exists in Postgres *version*, but rather allow the value with no validation.
-        return value
+        if name in available_gucs:
+            # Ideally we should have a validator in *validators*. However, if none is available, we will not discard a
+            # setting that exists in Postgres *version*, but rather allow the value with no validation. Postgres 11 (and
+            # before) recovery parameters are an exception to that rule as per above comment.
+            return value
     logger.warning('Removing unexpected parameter=%s value=%s from the config', name, value)
 
 
