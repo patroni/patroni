@@ -43,10 +43,6 @@ Bootstrap configuration
       -  **- data-checksums**: Must be enabled when pg_rewind is needed on 9.3.
       -  **- encoding: UTF8**: default encoding for new databases.
       -  **- locale: UTF8**: default locale for new databases.
-   -  **pg\_hba**: list of lines that you should add to pg\_hba.conf.
-
-      -  **- host all all 0.0.0.0/0 md5**.
-      -  **- host replication replicator 127.0.0.1/32 md5**: A line like this is required for replication.
    -  **users**: Some additional users which need to be created after initializing new cluster
 
       -  **admin**: the name of user
@@ -270,7 +266,7 @@ PostgreSQL
    -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower.
    -  **custom\_conf** : path to an optional custom ``postgresql.conf`` file, that will be used in place of ``postgresql.base.conf``. The file must exist on all cluster nodes, be readable by PostgreSQL and will be included from its location on the real ``postgresql.conf``. Note that Patroni will not monitor this file for changes, nor backup it. However, its settings can still be overridden by Patroni's own configuration facilities - see :ref:`dynamic configuration <patroni_configuration>` for details.
    -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
-   -  **pg\_hba**: list of lines that Patroni will use to generate ``pg_hba.conf``. This parameter has higher priority than ``bootstrap.pg_hba``. Together with :ref:`dynamic configuration <dynamic_configuration>` it simplifies management of ``pg_hba.conf``.
+   -  **pg\_hba**: list of lines that Patroni will use to generate ``pg_hba.conf``. Together with :ref:`dynamic configuration <dynamic_configuration>` it simplifies management of ``pg_hba.conf``.
 
       -  **- host all all 0.0.0.0/0 md5**.
       -  **- host replication replicator 127.0.0.1/32 md5**: A line like this is required for replication.
