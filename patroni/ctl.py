@@ -59,6 +59,7 @@ DCS_DEFAULTS: Dict[str, Dict[str, Any]] = {
 
 class PatroniCtlException(click.ClickException):
     """Raised upon issues faced by ``patronictl`` utility."""
+
     pass
 
 
@@ -1168,7 +1169,6 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
         * trying to schedule a switchover in a cluster that is in maintenance mode; or
         * user aborts the operation.
     """
-
     dcs = get_dcs(obj, cluster_name, group)
     cluster = dcs.get_cluster()
     click.echo('Current cluster topology')
@@ -1380,7 +1380,7 @@ def generate_topology(level: int, member: Dict[str, Any],
         yield member
 
     for member in members:
-        yield from generate_topology(level + 1, member, topology):
+        yield from generate_topology(level + 1, member, topology)
 
 
 def topology_sort(members: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
@@ -1595,6 +1595,12 @@ def topology(ctx: click.Context, cluster_names: List[str], group: Optional[int],
 
 
 def timestamp(precision: int = 6) -> str:
+    """Get current timestamp with given *precision* as a string.
+
+    :param precision: Amount of digits to be present in the precision.
+
+    :returns: the current timestamp with given *precision*.
+    """
     return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:precision - 7]
 
 
@@ -1949,7 +1955,6 @@ def invoke_editor(before_editing: str, cluster_name: str) -> Tuple[str, Dict[str
         * No suitable editor can be found; or
         * Editor call exits with unexpected return code.
     """
-
     editor_cmd = os.environ.get('EDITOR')
     if not editor_cmd:
         for editor in ('editor', 'vi'):
