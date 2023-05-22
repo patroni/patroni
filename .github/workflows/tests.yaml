@@ -116,8 +116,8 @@ jobs:
         sudo apt-get install -y wget ca-certificates gnupg debian-archive-keyring apt-transport-https
         sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
         sudo sh -c 'wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg'
-        sudo sh -c 'echo "deb [signed-by=/etc/apt/trusted.gpg.d/citusdata_community.gpg] https://repos.citusdata.com/community/ubuntu/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/citusdata_community.list'
-        sudo sh -c 'wget -qO - https://repos.citusdata.com/community/gpgkey | gpg --dearmor > /etc/apt/trusted.gpg.d/citusdata_community.gpg'
+        sudo sh -c 'echo "deb [signed-by=/etc/apt/trusted.gpg.d/citusdata_community.gpg] https://packagecloud.io/citusdata/community/ubuntu/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/citusdata_community.list'
+        sudo sh -c 'wget -qO - https://packagecloud.io/citusdata/community/gpgkey | gpg --dearmor > /etc/apt/trusted.gpg.d/citusdata_community.gpg'
       if: matrix.os == 'ubuntu'
     - name: Install dependencies
       run: python .github/workflows/install_deps.py
@@ -172,3 +172,5 @@ jobs:
       run: python -m pip install -r requirements.txt psycopg2-binary psycopg
 
     - uses: jakebailey/pyright-action@v1
+      with:
+        version: 1.1.309
