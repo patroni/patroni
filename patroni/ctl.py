@@ -825,10 +825,10 @@ def query_member(obj: Dict[str, Any], cluster: Cluster, group: Optional[int],
         If an error occurs while executing *command*, then returns the following values in the tuple:
 
         * List with 2 items:
-        
+
           * Current timestamp;
           * Error message.
-        
+
         * ``None``.
     """
     from . import psycopg
@@ -1017,8 +1017,7 @@ def restart(obj: Dict[str, Any], cluster_name: str, group: Optional[int], member
     :param force: perform the restart without asking for confirmations.
     :param role: role to filter members. See :func:`get_all_members` for available options.
     :param p_any: restart a single and random member among the ones that match the given filters.
-    :param scheduled: timestamp when the restart should be scheduled to occur. If ``now`` the restart is performed
-        immediately.
+    :param scheduled: timestamp when the restart should be scheduled to occur. If ``now`` restart immediately.
     :param version: restart only members which Postgres version is less than *version*.
     :param pending: restart only members that are flagged as ``pending restart``.
     :param timeout: timeout for the restart operation. If timeout is reached a failover may occur in the cluster.
@@ -1162,7 +1161,7 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
     :param leader: name of the current leader member.
     :param candidate: name of a standby member to be promoted. Nodes that are tagged with ``nofailover`` cannot be used.
     :param force: perform the failover or switchover without asking for confirmations.
-    :param scheduled: timestamp when the switchover should be scheduled to occur. If ``now`` it is performed immediately.
+    :param scheduled: timestamp when the switchover should be scheduled to occur. If ``now`` perform immediately.
 
     :raises PatroniCtlException: if:
         * Patroni is running on a Citus cluster, but no *group* was specified; or
@@ -1338,8 +1337,7 @@ def switchover(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
     :param leader: name of the current leader member.
     :param candidate: name of a standby member to be promoted. Nodes that are tagged with ``nofailover`` cannot be used.
     :param force: perform the switchover without asking for confirmations.
-    :param scheduled: timestamp when the switchover should be scheduled to occur. If ``now`` it is performed
-        immediately.
+    :param scheduled: timestamp when the switchover should be scheduled to occur. If ``now`` perform immediately.
     """
     _do_failover_or_switchover(obj, 'switchover', cluster_name, group, leader, candidate, force, scheduled)
 
