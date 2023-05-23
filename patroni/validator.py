@@ -242,6 +242,31 @@ def validate_data_dir(data_dir: str) -> bool:
     return True
 
 
+def validate_binary_name(bin_name: str) -> bool:
+    """Validate the value of ``postgresql.binary_name[*bin_name*]`` configuration option.
+
+    If ``postgresql.data_dir`` is set and the value of the *bin_name* meets these conditions:
+
+        * The path join of ``postgresql.data_dir`` plus the *bin_name* value exists; and
+        * The path join as above is executable
+
+    If ``postgresql.data_dir`` is not set, then validate that the value of *bin_name* meets this
+    condition:
+
+        * Is found in the system PATH using ``which``
+
+    :param bin_name: the value of the ``postgresql.bin_name[*bin_name*]``
+    :returns: ``True`` if the conditions are true
+    :raises :class:`patroni.exceptions.ConfigParserError`: if:
+        * the path join of the ``postgresql.data_dir`` plus *bin_name* does not exist; or
+        * the path join as above is not executable; or
+        * the *bin_name* cannot be found in the system PATH
+
+    """
+    bin_dir = schema.data.get('postgresql', {}).get('bin_dir', None)
+    return bool(shutil.which(bin_name, path=bin_dir))
+
+
 class Result(object):
     """Represent the result of a given validation that was performed.
 
@@ -492,6 +517,7 @@ class Schema(object):
             instance.
         """
         self.validator = validator
+        # self.data: Any = None
 
     def __call__(self, data: Any) -> List[str]:
         """Perform validation of data using the rules defined in this schema.
@@ -823,6 +849,9 @@ schema = Schema({
             Optional("rewind"): userattributes
         },
         "data_dir": validate_data_dir,
+        Optional("bin_name"): {
+          Optional("postgres"): validate_binary_name,
+        },
         Optional("bin_dir", ""): Directory(contains_executable=["pg_ctl", "initdb", "pg_controldata", "pg_basebackup",
                                                                 "postgres", "pg_isready"]),
         Optional("parameters"): {
