@@ -20,9 +20,33 @@
 import os
 
 import sys
+import yaml
+from datetime import datetime
+
 sys.path.insert(0, os.path.abspath('..'))
 
 from patroni.version import __version__
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+with open(os.path.join(project_root, 'docs', 'metadata.yaml')) as meta_fh:
+    metadata = yaml.safe_load(meta_fh)
+
+module_dir = os.path.abspath(os.path.join(project_root, metadata.get('source_root', '.')))
+sys.path.insert(0, module_dir)
+
+# -- Project information -----------------------------------------------------
+
+project = metadata['project']
+author = metadata['author'][0]
+try:
+    copyright_year = datetime.strptime(metadata['date'], '%d/%m/%Y').year
+except TypeError:
+    copyright_year = metadata['date'].year
+copyright = '{}, {}'.format(copyright_year, author)
+
+excludes = ['tests', 'setup.py', 'conf']
+excludes.extend(metadata.get('excludes', []))
 
 # -- General configuration ------------------------------------------------
 
@@ -33,11 +57,21 @@ from patroni.version import __version__
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-extensions = ['sphinx.ext.intersphinx',
+extensions = [
+    'sphinx.ext.intersphinx',
     'sphinx.ext.todo',
     'sphinx.ext.mathjax',
     'sphinx.ext.ifconfig',
-    'sphinx.ext.viewcode']
+    'sphinx.ext.viewcode',
+
+    'sphinxcontrib.apidoc',  # For generating module docs from code
+    'sphinx.ext.autodoc',  # For generating module docs from docstrings
+    'sphinx.ext.napoleon',  # For Google and Numpy formatted docstrings
+]
+apidoc_module_dir = module_dir
+apidoc_output_dir = 'modules'
+apidoc_excluded_paths = excludes
+apidoc_separate_modules = True
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -50,11 +84,6 @@ source_suffix = '.rst'
 
 # The master toctree document.
 master_doc = 'index'
-
-# General information about the project.
-project = 'Patroni'
-copyright = '2015 Compose, Zalando SE'
-author = 'Zalando SE'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
