@@ -8,13 +8,6 @@ class PatroniException(Exception):
     def __init__(self, value: Any) -> None:
         self.value = value
 
-    def __str__(self) -> str:
-        """
-        >>> str(PatroniException('foo'))
-        "'foo'"
-        """
-        return repr(self.value)
-
 
 class PatroniFatalException(PatroniException):
     pass
