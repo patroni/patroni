@@ -16,7 +16,7 @@ networks:
 
 services:
     etcd1: &etcd
-        image: patroni-citus
+        image: ${PATRONI_TEST_IMAGE:-patroni-citus}
         networks: [ demo ]
         environment:
             ETCDCTL_API: 3
@@ -25,6 +25,7 @@ services:
             ETCD_INITIAL_CLUSTER: etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
             ETCD_INITIAL_CLUSTER_STATE: new
             ETCD_INITIAL_CLUSTER_TOKEN: tutorial
+            ETCD_UNSUPPORTED_ARCH: arm64
         container_name: demo-etcd1
         hostname: etcd1
         command: etcd -name etcd1 -initial-advertise-peer-urls http://etcd1:2380
@@ -42,7 +43,7 @@ services:
         command: etcd -name etcd3 -initial-advertise-peer-urls http://etcd3:2380
 
     haproxy:
-        image: patroni-citus
+        image: ${PATRONI_TEST_IMAGE:-patroni-citus}
         networks: [ demo ]
         env_file: docker/patroni.env
         hostname: haproxy
@@ -64,7 +65,7 @@ services:
             PGSSLROOTCERT: /etc/ssl/certs/ssl-cert-snakeoil.pem
 
     coord1:
-        image: patroni-citus
+        image: ${PATRONI_TEST_IMAGE:-patroni-citus}
         networks: [ demo ]
         env_file: docker/patroni.env
         hostname: coord1
@@ -75,7 +76,7 @@ services:
             PATRONI_CITUS_GROUP: 0
 
     coord2:
-        image: patroni-citus
+        image: ${PATRONI_TEST_IMAGE:-patroni-citus}
         networks: [ demo ]
         env_file: docker/patroni.env
         hostname: coord2
@@ -85,7 +86,7 @@ services:
             PATRONI_NAME: coord2
 
     coord3:
-        image: patroni-citus
+        image: ${PATRONI_TEST_IMAGE:-patroni-citus}
         networks: [ demo ]
         env_file: docker/patroni.env
         hostname: coord3
@@ -96,7 +97,7 @@ services:
 
 
     work1-1:
-        image: patroni-citus
+        image: ${PATRONI_TEST_IMAGE:-patroni-citus}
         networks: [ demo ]
         env_file: docker/patroni.env
         hostname: work1-1
@@ -107,7 +108,7 @@ services:
             PATRONI_CITUS_GROUP: 1
 
     work1-2:
-        image: patroni-citus
+        image: ${PATRONI_TEST_IMAGE:-patroni-citus}
         networks: [ demo ]
         env_file: docker/patroni.env
         hostname: work1-2
@@ -118,7 +119,7 @@ services:
 
 
     work2-1:
-        image: patroni-citus
+        image: ${PATRONI_TEST_IMAGE:-patroni-citus}
         networks: [ demo ]
         env_file: docker/patroni.env
         hostname: work2-1
@@ -129,7 +130,7 @@ services:
             PATRONI_CITUS_GROUP: 2
 
     work2-2:
-        image: patroni-citus
+        image: ${PATRONI_TEST_IMAGE:-patroni-citus}
         networks: [ demo ]
         env_file: docker/patroni.env
         hostname: work2-2

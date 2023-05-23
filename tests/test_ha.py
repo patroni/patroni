@@ -201,6 +201,7 @@ class TestHa(PostgresInit):
     @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.etcd']))
     @patch.object(etcd.Client, 'read', etcd_read)
     @patch.object(AbstractEtcdClientWithFailover, '_get_machines_list', Mock(return_value=['http://remotehost:2379']))
+    @patch.object(Config, '_load_cache', Mock())
     def setUp(self):
         super(TestHa, self).setUp()
         self.p.set_state('running')
@@ -1206,8 +1207,8 @@ class TestHa(PostgresInit):
 
         # When we just became primary nobody is sync
         self.assertEqual(self.ha.enforce_primary_role('msg', 'promote msg'), 'promote msg')
-        mock_set_sync.assert_called_once_with(frozenset(), 0)
-        mock_write_sync.assert_called_once_with('leader', None, 0, index=0)
+        mock_set_sync.assert_called_once_with(CaseInsensitiveSet(), 0)
+        mock_write_sync.assert_called_once_with('leader', None, 0, version=0)
 
         mock_set_sync.reset_mock()
 
@@ -1245,7 +1246,7 @@ class TestHa(PostgresInit):
         mock_acquire.assert_called_once()
         mock_follow.assert_not_called()
         mock_promote.assert_called_once()
-        mock_write_sync.assert_called_once_with('other', None, 0, index=0)
+        mock_write_sync.assert_called_once_with('other', None, 0, version=0)
 
     def test_disable_sync_when_restarting(self):
         self.ha.is_synchronous_mode = true
@@ -1447,7 +1448,7 @@ class TestHa(PostgresInit):
                          'Postponing promotion because synchronous replication state was updated by somebody else')
         self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
         self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, None, 0))
-        self.assertEqual(mock_write_sync.call_args_list[0][1], {'index': 0})
+        self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
 
         mock_set_sync = self.p.config.set_synchronous_standby_names = Mock()
         mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=True)
@@ -1455,7 +1456,7 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
         self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, None, 0))
-        self.assertEqual(mock_write_sync.call_args_list[0][1], {'index': 0})
+        self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], (None,))
 
@@ -1496,7 +1497,7 @@ class TestHa(PostgresInit):
         self.ha.run_cycle()
         self.assertEqual(mock_write_sync.call_count, 1)
         self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, None, 0))
-        self.assertEqual(mock_write_sync.call_args_list[0][1], {'index': None})
+        self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': None})
         self.assertEqual(mock_set_sync.call_count, 0)
 
         mock_write_sync = self.ha.dcs.write_sync_state = Mock(side_effect=[SyncState.empty(), None])
@@ -1505,9 +1506,9 @@ class TestHa(PostgresInit):
             self.ha.run_cycle()
         self.assertEqual(mock_write_sync.call_count, 2)
         self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, None, 0))
-        self.assertEqual(mock_write_sync.call_args_list[0][1], {'index': None})
+        self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': None})
         self.assertEqual(mock_write_sync.call_args_list[1][0], (self.p.name, CaseInsensitiveSet(['other']), 0))
-        self.assertEqual(mock_write_sync.call_args_list[1][1], {'index': None})
+        self.assertEqual(mock_write_sync.call_args_list[1][1], {'version': None})
         self.assertEqual(mock_set_sync.call_count, 0)
 
         self.p.sync_handler.current_state = Mock(side_effect=[_SyncState('quorum', 1, 0, CaseInsensitiveSet(['foo']),
@@ -1524,7 +1525,7 @@ class TestHa(PostgresInit):
             self.ha.run_cycle()
         self.assertEqual(mock_write_sync.call_count, 1)
         self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(), 0))
-        self.assertEqual(mock_write_sync.call_args_list[0][1], {'index': 0})
+        self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (other)',))
 
@@ -1539,6 +1540,6 @@ class TestHa(PostgresInit):
         self.ha.run_cycle()
         self.assertEqual(mock_write_sync.call_count, 1)
         self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(), 0))
-        self.assertEqual(mock_write_sync.call_args_list[0][1], {'index': 0})
+        self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (*)',))

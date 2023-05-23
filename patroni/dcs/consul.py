@@ -578,12 +578,12 @@ class Consul(AbstractDCS):
         return self.attempt_to_acquire_leader()
 
     @catch_consul_errors
-    def set_failover_value(self, value: str, index: Optional[int] = None) -> bool:
-        return self._client.kv.put(self.failover_path, value, cas=index)
+    def set_failover_value(self, value: str, version: Optional[int] = None) -> bool:
+        return self._client.kv.put(self.failover_path, value, cas=version)
 
     @catch_consul_errors
-    def set_config_value(self, value: str, index: Optional[int] = None) -> bool:
-        return self._client.kv.put(self.config_path, value, cas=index)
+    def set_config_value(self, value: str, version: Optional[int] = None) -> bool:
+        return self._client.kv.put(self.config_path, value, cas=version)
 
     @catch_consul_errors
     def _write_leader_optime(self, last_lsn: str) -> bool:
@@ -622,7 +622,8 @@ class Consul(AbstractDCS):
                     raise ConsulError('update_leader timeout')
                 logger.warning('Recreating the leader key due to session mismatch')
                 if cluster and cluster.leader:
-                    self._run_and_handle_exceptions(self._client.kv.delete, self.leader_path, cas=cluster.leader.index)
+                    self._run_and_handle_exceptions(self._client.kv.delete, self.leader_path,
+                                                    cas=cluster.leader.version)
 
                 retry.deadline = retry.stoptime - time.time()
                 if retry.deadline < 0.5:
@@ -653,14 +654,14 @@ class Consul(AbstractDCS):
     def _delete_leader(self) -> bool:
         cluster = self.cluster
         if cluster and isinstance(cluster.leader, Leader) and\
-                cluster.leader.name == self._name and isinstance(cluster.leader.index, int):
-            return self._client.kv.delete(self.leader_path, cas=cluster.leader.index)
+                cluster.leader.name == self._name and isinstance(cluster.leader.version, int):
+            return self._client.kv.delete(self.leader_path, cas=cluster.leader.version)
         return True
 
     @catch_consul_errors
-    def set_sync_state_value(self, value: str, index: Optional[int] = None) -> Union[int, bool]:
+    def set_sync_state_value(self, value: str, version: Optional[int] = None) -> Union[int, bool]:
         retry = self._retry.copy()
-        ret = retry(self._client.kv.put, self.sync_path, value, cas=index)
+        ret = retry(self._client.kv.put, self.sync_path, value, cas=version)
         if ret:  # We have no other choise, only read after write :(
             retry.deadline = retry.stoptime - time.time()
             if retry.deadline < 0.5:
@@ -671,21 +672,21 @@ class Consul(AbstractDCS):
         return False
 
     @catch_consul_errors
-    def delete_sync_state(self, index: Optional[int] = None) -> bool:
-        return self.retry(self._client.kv.delete, self.sync_path, cas=index)
+    def delete_sync_state(self, version: Optional[int] = None) -> bool:
+        return self.retry(self._client.kv.delete, self.sync_path, cas=version)
 
-    def watch(self, leader_index: Optional[int], timeout: float) -> bool:
+    def watch(self, leader_version: Optional[int], timeout: float) -> bool:
         self._last_session_refresh = 0
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True
 
-        if leader_index:
+        if leader_version:
             end_time = time.time() + timeout
             while timeout >= 1:
                 try:
-                    idx, _ = self._client.kv.get(self.leader_path, index=leader_index, wait=str(timeout) + 's')
-                    return str(idx) != str(leader_index)
+                    idx, _ = self._client.kv.get(self.leader_path, index=leader_version, wait=str(timeout) + 's')
+                    return str(idx) != str(leader_version)
                 except (ConsulException, HTTPException, HTTPError, socket.error, socket.timeout):
                     logger.exception('watch')
 

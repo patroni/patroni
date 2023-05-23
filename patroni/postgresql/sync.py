@@ -249,10 +249,10 @@ class SyncHandler(object):
             if len(replica_list) > 1 else self._postgresql.last_operation()
 
         if TYPE_CHECKING:  # pragma: no cover
-            assert self._postgresql._global_config is not None
-        sync_node_count = self._postgresql._global_config.synchronous_node_count\
+            assert self._postgresql.global_config is not None
+        sync_node_count = self._postgresql.global_config.synchronous_node_count\
             if self._postgresql.supports_multiple_sync else 1
-        sync_node_maxlag = self._postgresql._global_config.maximum_lag_on_syncnode
+        sync_node_maxlag = self._postgresql.global_config.maximum_lag_on_syncnode
 
         active = CaseInsensitiveSet()
         sync_nodes = CaseInsensitiveSet()
@@ -260,7 +260,7 @@ class SyncHandler(object):
         # Prefer members without nofailover tag. We are relying on the fact that sorts are guaranteed to be stable.
         for pid, app_name, sync_state, replica_lsn, nofailover in sorted(replica_list, key=lambda x: x[4]):
             if app_name not in self._ready_replicas and app_name in self._ssn_data.members:
-                if self._postgresql._global_config.is_quorum_commit_mode:
+                if self._postgresql.global_config.is_quorum_commit_mode:
                     # When quorum commit is enabled we can't check against cluster.sync because nodes
                     # are written there when at least one of them caught up with _primary_flush_lsn.
                     if replica_lsn >= self._primary_flush_lsn\
@@ -273,7 +273,7 @@ class SyncHandler(object):
                     self._ready_replicas[app_name] = pid
 
             if sync_node_maxlag <= 0 or max_lsn - replica_lsn <= sync_node_maxlag:
-                if self._postgresql._global_config.is_quorum_commit_mode:
+                if self._postgresql.global_config.is_quorum_commit_mode:
                     # add nodes with nofailover tag only to get enough "active" nodes
                     if not nofailover or len(active) < sync_node_count:
                         if app_name in self._ready_replicas:
@@ -287,7 +287,7 @@ class SyncHandler(object):
                     if len(active) >= sync_node_count:
                         break
 
-        if self._postgresql._global_config.is_quorum_commit_mode:
+        if self._postgresql.global_config.is_quorum_commit_mode:
             sync_nodes = CaseInsensitiveSet() if self._ssn_data.has_star else self._ssn_data.members
 
         return _SyncState(
@@ -319,11 +319,11 @@ class SyncHandler(object):
             sync_param = next(iter(sync), None)
 
         if TYPE_CHECKING:  # pragma: no cover
-            assert self._postgresql._global_config is not None
+            assert self._postgresql.global_config is not None
 
-        if self._postgresql._global_config.is_quorum_commit_mode and sync or\
+        if self._postgresql.global_config.is_quorum_commit_mode and sync or\
                 self._postgresql.supports_multiple_sync and len(sync) > 1:
-            prefix = 'ANY ' if self._postgresql._global_config.is_quorum_commit_mode\
+            prefix = 'ANY ' if self._postgresql.global_config.is_quorum_commit_mode\
                 and self._postgresql.supports_quorum_commit else ''
             sync_param = '{0}{1} ({2})'.format(prefix, num, sync_param)
 

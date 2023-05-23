@@ -860,9 +860,9 @@ class ConfigHandler(object):
         parameters = config['parameters'].copy()
         listen_addresses, port = split_host_port(config['listen'], 5432)
         parameters.update(cluster_name=self._postgresql.scope, listen_addresses=listen_addresses, port=str(port))
-        if not self._postgresql._global_config or self._postgresql._global_config.is_synchronous_mode:
+        if not self._postgresql.global_config or self._postgresql.global_config.is_synchronous_mode:
             if self._synchronous_standby_names is None:
-                if self._postgresql._global_config and self._postgresql._global_config.is_synchronous_mode_strict\
+                if self._postgresql.global_config and self._postgresql.global_config.is_synchronous_mode_strict\
                         and self._postgresql.role in ('master', 'primary', 'promoted'):
                     parameters['synchronous_standby_names'] = '*'
                 else:

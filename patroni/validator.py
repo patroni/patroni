@@ -11,7 +11,7 @@ import shutil
 import socket
 import subprocess
 
-from typing import Any, Dict, Union, Iterator, List, Optional as OptionalType
+from typing import Any, Dict, Union, Iterator, List, Optional as OptionalType, TYPE_CHECKING
 
 from .utils import parse_int, split_host_port, data_directory_is_empty
 from .dcs import dcs_modules
@@ -196,7 +196,8 @@ def get_major_version(bin_dir: OptionalType[str] = None) -> str:
         binary = os.path.join(bin_dir, 'postgres')
     version = subprocess.check_output([binary, '--version']).decode()
     version = re.match(r'^[^\s]+ [^\s]+ (\d+)(\.(\d+))?', version)
-    assert version is not None
+    if TYPE_CHECKING:  # pragma: no cover
+        assert version is not None
     return '.'.join([version.group(1), version.group(3)]) if int(version.group(1)) < 10 else version.group(1)
 
 
@@ -340,14 +341,17 @@ class Optional(object):
     """Mark a configuration option as optional.
 
     :ivar name: name of the configuration option.
+    :ivar default: value to set if the configuration option is not explicitly provided
     """
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, default: OptionalType[Any] = None) -> None:
         """Create an :class:`Optional` object.
 
         :param name: name of the configuration option.
+        :param default: value to set if the configuration option is not explicitly provided
         """
         self.name = name
+        self.default = default
 
 
 class Directory(object):
@@ -369,14 +373,27 @@ class Directory(object):
         self.contains = contains
         self.contains_executable = contains_executable
 
+    def _check_executables(self, path: OptionalType[str] = None) -> Iterator[Result]:
+        """Check that all executables from contains_executable list exist within the given directory or within PATH.
+
+        :param path: optional path to the base directory against which executables will be validated.
+                     If not provided, check within PATH.
+        :rtype: Iterator[:class:`Result`] objects with the error message containing the name of the executable,
+                if any check fails.
+        """
+        for program in self.contains_executable or []:
+            if not shutil.which(program, path=path):
+                yield Result(False, f"does not contain '{program}' in '{(path or '$PATH')}'")
+
     def validate(self, name: str) -> Iterator[Result]:
         """Check if the expected paths and executables can be found under *name* directory.
 
         :param name: path to the base directory against which paths and executables will be validated.
+                     Check against PATH if name is not provided.
         :rtype: Iterator[:class:`Result`] objects with the error message related to the failure, if any check fails.
         """
         if not name:
-            yield Result(False, "is an empty string")
+            yield from self._check_executables()
         elif not os.path.exists(name):
             yield Result(False, "Directory '{}' does not exist.".format(name))
         elif not os.path.isdir(name):
@@ -386,10 +403,7 @@ class Directory(object):
                 for path in self.contains:
                     if not os.path.exists(os.path.join(name, path)):
                         yield Result(False, "'{}' does not contain '{}'".format(name, path))
-            if self.contains_executable:
-                for program in self.contains_executable:
-                    if not shutil.which(program, path=name):
-                        yield Result(False, "'{}' does not contain '{}'".format(name, program))
+            yield from self._check_executables(path=name)
 
 
 class Schema(object):
@@ -471,8 +485,7 @@ class Schema(object):
         * It must contain a ``bind.host`` entry which value should be valid as per function ``validate_host``;
         * It must contain a ``bind.port`` entry which value should be an :class:`int` instance;
         * It must contain a ``aliases`` entry which value should be a :class:`list` of :class:`str` instances;
-        * It may optionally contain a ``data_directory`` entry. If not given it will assume the value
-            ``/var/lib/myapp``;
+        * It may optionally contain a ``data_directory`` entry, with a value which should be a string;
         * It must contain at least one of ``log_to_file`` or ``log_to_db``, with a value which should be a
             :class:`bool` instance;
         * It must contain a ``version`` entry which value should be either an :class:`int` or a :class:`float`
@@ -582,9 +595,11 @@ class Schema(object):
             for d in self._data_key(key):
                 if d not in self.data and not isinstance(key, Optional):
                     yield Result(False, "is not defined.", path=d)
-                elif d not in self.data and isinstance(key, Optional):
+                elif d not in self.data and isinstance(key, Optional) and key.default is None:
                     continue
                 else:
+                    if d not in self.data and isinstance(key, Optional):
+                        self.data[d] = key.default
                     validator = self.validator[key]
                     if isinstance(key, Or) and isinstance(self.validator[key], Case):
                         validator = self.validator[key]._schema[d]
@@ -806,11 +821,11 @@ schema = Schema({
         "authentication": {
             "replication": userattributes,
             "superuser": userattributes,
-            "rewind": userattributes
+            Optional("rewind"): userattributes
         },
         "data_dir": validate_data_dir,
-        Optional("bin_dir"): Directory(contains_executable=["pg_ctl", "initdb", "pg_controldata", "pg_basebackup",
-                                                            "postgres", "pg_isready"]),
+        Optional("bin_dir", ""): Directory(contains_executable=["pg_ctl", "initdb", "pg_controldata", "pg_basebackup",
+                                                                "postgres", "pg_isready"]),
         Optional("parameters"): {
             Optional("unix_socket_directories"): str
         },

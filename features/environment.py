@@ -7,6 +7,7 @@ import psutil
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -1060,10 +1061,11 @@ def before_all(context):
     try:
         with open(os.devnull, 'w') as null:
             ret = subprocess.call(['openssl', 'req', '-nodes', '-new', '-x509', '-subj', '/CN=batman.patroni',
-                                   '--addext', 'subjectAltName=IP:127.0.0.1', '-keyout', context.keyfile,
+                                   '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', context.keyfile,
                                    '-out', context.certfile], stdout=null, stderr=null)
             if ret != 0:
                 raise Exception
+            os.chmod(context.keyfile, stat.S_IWRITE | stat.S_IREAD)
     except Exception:
         context.keyfile = context.certfile = None
 

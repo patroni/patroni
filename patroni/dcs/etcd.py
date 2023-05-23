@@ -290,7 +290,8 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
                         etcd_nodes = len(machines_cache)
                 except Exception as e:
                     logger.debug('Failed to update list of etcd nodes: %r', e)
-                assert isinstance(retry, Retry)  # etcd.EtcdConnectionFailed is raised only if retry is not None!
+                if TYPE_CHECKING:  # pragma: no cover
+                    assert isinstance(retry, Retry)  # etcd.EtcdConnectionFailed is raised only if retry is not None!
                 sleeptime = retry.sleeptime
                 remaining_time = retry.stoptime - sleeptime - time.time()
                 nodes, timeout, retries = self._calculate_timeouts(etcd_nodes, remaining_time)
@@ -502,6 +503,17 @@ class AbstractEtcd(AbstractDCS):
         if isinstance(raise_ex, Exception):
             raise raise_ex
 
+    def handle_etcd_exceptions(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        try:
+            retval = func(self, *args, **kwargs)
+            self._has_failed = False
+            return retval
+        except (RetryFailedError, etcd.EtcdException) as e:
+            self._handle_exception(e)
+            return False
+        except Exception as e:
+            self._handle_exception(e, raise_ex=self._client.ERROR_CLS('unexpected error'))
+
     def _run_and_handle_exceptions(self, method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         retry = kwargs.pop('retry', self.retry)
         try:
@@ -624,16 +636,7 @@ class AbstractEtcd(AbstractDCS):
 
 def catch_etcd_errors(func: Callable[..., Any]) -> Any:
     def wrapper(self: AbstractEtcd, *args: Any, **kwargs: Any) -> Any:
-        try:
-            retval = func(self, *args, **kwargs)
-            self._has_failed = False
-            return retval
-        except (RetryFailedError, etcd.EtcdException) as e:
-            self._handle_exception(e)
-            return False
-        except Exception as e:
-            self._handle_exception(e, raise_ex=self._client.ERROR_CLS('unexpected error'))
-
+        return self.handle_etcd_exceptions(func, *args, **kwargs)
     return wrapper
 
 
@@ -645,7 +648,8 @@ class Etcd(AbstractEtcd):
 
     @property
     def _client(self) -> EtcdClient:
-        assert isinstance(self._abstract_client, EtcdClient)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(self._abstract_client, EtcdClient)
         return self._abstract_client
 
     def set_ttl(self, ttl: int) -> Optional[bool]:
@@ -696,8 +700,8 @@ class Etcd(AbstractEtcd):
         if leader:
             member = Member(-1, leader.value, None, {})
             member = ([m for m in members if m.name == leader.value] or [member])[0]
-            index = etcd_index if etcd_index > leader.modifiedIndex else leader.modifiedIndex + 1
-            leader = Leader(index, leader.ttl, member)
+            version = etcd_index if etcd_index > leader.modifiedIndex else leader.modifiedIndex + 1
+            leader = Leader(version, leader.ttl, member)
 
         # failover key
         failover = nodes.get(self._FAILOVER)
@@ -742,7 +746,8 @@ class Etcd(AbstractEtcd):
         except Exception as e:
             self._handle_exception(e, 'get_cluster', raise_ex=EtcdError('Etcd is not responding properly'))
         self._has_failed = False
-        assert cluster is not None
+        if TYPE_CHECKING:  # pragma: no cover
+            assert cluster is not None
         return cluster
 
     @catch_etcd_errors
@@ -766,12 +771,12 @@ class Etcd(AbstractEtcd):
         return self._run_and_handle_exceptions(self._do_attempt_to_acquire_leader, retry=None)
 
     @catch_etcd_errors
-    def set_failover_value(self, value: str, index: Optional[int] = None) -> bool:
-        return bool(self._client.write(self.failover_path, value, prevIndex=index or 0))
+    def set_failover_value(self, value: str, version: Optional[int] = None) -> bool:
+        return bool(self._client.write(self.failover_path, value, prevIndex=version or 0))
 
     @catch_etcd_errors
-    def set_config_value(self, value: str, index: Optional[int] = None) -> bool:
-        return bool(self._client.write(self.config_path, value, prevIndex=index or 0))
+    def set_config_value(self, value: str, version: Optional[int] = None) -> bool:
+        return bool(self._client.write(self.config_path, value, prevIndex=version or 0))
 
     @catch_etcd_errors
     def _write_leader_optime(self, last_lsn: str) -> bool:
@@ -817,24 +822,24 @@ class Etcd(AbstractEtcd):
         return bool(self._client.write(self.history_path, value))
 
     @catch_etcd_errors
-    def set_sync_state_value(self, value: str, index: Optional[int] = None) -> Union[int, bool]:
-        return self.retry(self._client.write, self.sync_path, value, prevIndex=index or 0).modifiedIndex
+    def set_sync_state_value(self, value: str, version: Optional[int] = None) -> Union[int, bool]:
+        return self.retry(self._client.write, self.sync_path, value, prevIndex=version or 0).modifiedIndex
 
     @catch_etcd_errors
-    def delete_sync_state(self, index: Optional[int] = None) -> bool:
-        return bool(self.retry(self._client.delete, self.sync_path, prevIndex=index or 0))
+    def delete_sync_state(self, version: Optional[int] = None) -> bool:
+        return bool(self.retry(self._client.delete, self.sync_path, prevIndex=version or 0))
 
-    def watch(self, leader_index: Optional[int], timeout: float) -> bool:
+    def watch(self, leader_version: Optional[int], timeout: float) -> bool:
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True
 
-        if leader_index:
+        if leader_version:
             end_time = time.time() + timeout
 
             while timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
-                    result = self._client.watch(self.leader_path, index=leader_index, timeout=timeout + 0.5)
+                    result = self._client.watch(self.leader_path, index=leader_version, timeout=timeout + 0.5)
                     self._has_failed = False
                     if result.action == 'compareAndSwap':
                         time.sleep(0.01)

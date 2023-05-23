@@ -10,7 +10,7 @@ from pysyncobj.dns_resolver import globalDnsResolver
 from pysyncobj.node import TCPNode
 from pysyncobj.transport import TCPTransport, CONNECTION_STATE
 from pysyncobj.utility import TcpUtility
-from typing import Any, Callable, Collection, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import Any, Callable, Collection, Dict, List, Optional, Set, Union, TYPE_CHECKING
 
 from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory, citus_group_re
 from ..exceptions import DCSError
@@ -114,7 +114,7 @@ class KVStoreTTL(DynMemberSyncObj):
         self.set_retry_timeout(int(config.get('retry_timeout') or 10))
 
         self_addr = config.get('self_addr')
-        partner_addrs = set(config.get('partner_addrs', []))
+        partner_addrs: Set[str] = set(config.get('partner_addrs', []))
         if config.get('patronictl'):
             if self_addr:
                 partner_addrs.add(self_addr)
@@ -430,11 +430,11 @@ class Raft(AbstractDCS):
         return self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl,
                                   handle_raft_error=False, prevExist=False) is not False
 
-    def set_failover_value(self, value: str, index: Optional[int] = None) -> bool:
-        return self._sync_obj.set(self.failover_path, value, prevIndex=index) is not False
+    def set_failover_value(self, value: str, version: Optional[int] = None) -> bool:
+        return self._sync_obj.set(self.failover_path, value, prevIndex=version) is not False
 
-    def set_config_value(self, value: str, index: Optional[int] = None) -> bool:
-        return self._sync_obj.set(self.config_path, value, prevIndex=index) is not False
+    def set_config_value(self, value: str, version: Optional[int] = None) -> bool:
+        return self._sync_obj.set(self.config_path, value, prevIndex=version) is not False
 
     def touch_member(self, data: Dict[str, Any]) -> bool:
         value = json.dumps(data, separators=(',', ':'))
@@ -458,17 +458,17 @@ class Raft(AbstractDCS):
     def set_history_value(self, value: str) -> bool:
         return self._sync_obj.set(self.history_path, value) is not False
 
-    def set_sync_state_value(self, value: str, index: Optional[int] = None) -> Union[int, bool]:
-        ret = self._sync_obj.set(self.sync_path, value, prevIndex=index)
+    def set_sync_state_value(self, value: str, version: Optional[int] = None) -> Union[int, bool]:
+        ret = self._sync_obj.set(self.sync_path, value, prevIndex=version)
         if isinstance(ret, dict):
             return ret['index']
         return ret
 
-    def delete_sync_state(self, index: Optional[int] = None) -> bool:
-        return self._sync_obj.delete(self.sync_path, prevIndex=index)
+    def delete_sync_state(self, version: Optional[int] = None) -> bool:
+        return self._sync_obj.delete(self.sync_path, prevIndex=version)
 
-    def watch(self, leader_index: Optional[int], timeout: float) -> bool:
+    def watch(self, leader_version: Optional[int], timeout: float) -> bool:
         try:
-            return super(Raft, self).watch(leader_index, timeout)
+            return super(Raft, self).watch(leader_version, timeout)
         finally:
             self.event.clear()

@@ -13,7 +13,7 @@ from patroni.utils import deep_compare
 from queue import Queue, Full
 from threading import Lock, Thread
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -249,8 +249,9 @@ class PatroniLogger(Thread):
                 if not isinstance(self.log_handler, RotatingFileHandler):
                     new_handler = RotatingFileHandler(os.path.join(config['dir'], __name__))
                 handler = new_handler or self.log_handler
-                assert isinstance(handler, RotatingFileHandler)
-                handler.maxBytes = int(config.get('file_size', 25000000))
+                if TYPE_CHECKING:  # pragma: no cover
+                    assert isinstance(handler, RotatingFileHandler)
+                handler.maxBytes = int(config.get('file_size', 25000000))  # pyright: ignore [reportGeneralTypeIssues]
                 handler.backupCount = int(config.get('file_num', 4))
             else:
                 if self.log_handler is None or isinstance(self.log_handler, RotatingFileHandler):
@@ -306,7 +307,8 @@ class PatroniLogger(Thread):
 
         while True:
             self._close_old_handlers()
-            assert self.log_handler is not None
+            if TYPE_CHECKING:  # pragma: no cover
+                assert self.log_handler is not None
 
             record = self._queue_handler.queue.get(True)
             # special message that indicates Patroni is shutting down

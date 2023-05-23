@@ -13,7 +13,7 @@ from collections import defaultdict
 from enum import IntEnum
 from urllib3.exceptions import ReadTimeoutError, ProtocolError
 from threading import Condition, Lock, Thread
-from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
 from . import ClusterConfig, Cluster, Failover, Leader, Member, SyncState,\
     TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
@@ -145,7 +145,8 @@ errCodeToClientError = {getattr(s, 'code'): s for s in Etcd3ClientError.__subcla
 def _raise_for_data(data: Union[bytes, str, Dict[str, Union[Any, Dict[str, Any]]]],
                     status_code: Optional[int] = None) -> Etcd3ClientError:
     try:
-        assert isinstance(data, dict)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(data, dict)
         data_error: Optional[Dict[str, Any]] = data.get('error') or data.get('Error')
         if isinstance(data_error, dict):  # streaming response
             status_code = data_error.get('http_code')
@@ -153,7 +154,8 @@ def _raise_for_data(data: Union[bytes, str, Dict[str, Union[Any, Dict[str, Any]]
             error: str = data_error['message']
         else:
             data_code = data.get('code') or data.get('Code')
-            assert not isinstance(data_code, dict)
+            if TYPE_CHECKING:  # pragma: no cover
+                assert not isinstance(data_code, dict)
             code = data_code
             error = str(data_error)
     except Exception:
@@ -193,28 +195,7 @@ def build_range_request(key: str, range_end: Union[bytes, str, None] = None) -> 
 
 def _handle_auth_errors(func: Callable[..., Any]) -> Any:
     def wrapper(self: 'Etcd3Client', *args: Any, **kwargs: Any) -> Any:
-        def retry(ex: Exception) -> Any:
-            if self.username and self.password:
-                self.authenticate()
-                return func(self, *args, **kwargs)
-            else:
-                logger.fatal('Username or password not set, authentication is not possible')
-                raise ex
-
-        try:
-            return func(self, *args, **kwargs)
-        except (UserEmpty, PermissionDenied) as e:  # no token provided
-            # PermissionDenied is raised on 3.0 and 3.1
-            if self._cluster_version < (3, 3) and (not isinstance(e, PermissionDenied)
-                                                   or self._cluster_version < (3, 2)):
-                raise UnsupportedEtcdVersion('Authentication is required by Etcd cluster but not '
-                                             'supported on version lower than 3.3.0. Cluster version: '
-                                             '{0}'.format('.'.join(map(str, self._cluster_version))))
-            return retry(e)
-        except InvalidAuthToken as e:
-            logger.error('Invalid auth token: %s', self._token)
-            return retry(e)
-
+        return self.handle_auth_errors(func, *args, **kwargs)
     return wrapper
 
 
@@ -322,6 +303,29 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             self._token = response.get('token')
         return old_token != self._token
 
+    def handle_auth_errors(self: 'Etcd3Client', func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        def retry(ex: Exception) -> Any:
+            if self.username and self.password:
+                self.authenticate()
+                return func(self, *args, **kwargs)
+            else:
+                logger.fatal('Username or password not set, authentication is not possible')
+                raise ex
+
+        try:
+            return func(self, *args, **kwargs)
+        except (UserEmpty, PermissionDenied) as e:  # no token provided
+            # PermissionDenied is raised on 3.0 and 3.1
+            if self._cluster_version < (3, 3) and (not isinstance(e, PermissionDenied)
+                                                   or self._cluster_version < (3, 2)):
+                raise UnsupportedEtcdVersion('Authentication is required by Etcd cluster but not '
+                                             'supported on version lower than 3.3.0. Cluster version: '
+                                             '{0}'.format('.'.join(map(str, self._cluster_version))))
+            return retry(e)
+        except InvalidAuthToken as e:
+            logger.error('Invalid auth token: %s', self._token)
+            return retry(e)
+
     @_handle_auth_errors
     def range(self, key: str, range_end: Union[bytes, str, None] = None,
               retry: Optional[Retry] = None) -> Dict[str, Any]:
@@ -401,7 +405,7 @@ class KVCache(Thread):
         self._leader_key = base64_encode(dcs.leader_path)
         self._optime_key = base64_encode(dcs.leader_optime_path)
         self._status_key = base64_encode(dcs.status_path)
-        self._name = base64_encode(dcs._name)
+        self._name = base64_encode(getattr(dcs, '_name'))  # pyright
         self._is_ready = False
         self._response = None
         self._response_lock = Lock()
@@ -582,9 +586,9 @@ class PatroniEtcd3Client(Etcd3Client):
             self._kv_cache.condition.wait(timeout)
 
     def get_cluster(self, path: str) -> List[Dict[str, Any]]:
-        if self._kv_cache and self._etcd3._retry.deadline is not None and path.startswith(self._etcd3.cluster_prefix):
+        if self._kv_cache and path.startswith(self._etcd3.cluster_prefix):
             with self._kv_cache.condition:
-                self._wait_cache(self._etcd3._retry.deadline)
+                self._wait_cache(self.read_timeout)
                 ret = self._kv_cache.copy()
         else:
             ret = self._etcd3.retry(self.prefix, path).get('kvs', [])
@@ -621,7 +625,6 @@ class Etcd3(AbstractEtcd):
 
     def __init__(self, config: Dict[str, Any]) -> None:
         super(Etcd3, self).__init__(config, PatroniEtcd3Client, (DeadlineExceeded, Unavailable, FailedPrecondition))
-        assert isinstance(self._client, PatroniEtcd3Client)
         self.__do_not_watch = False
         self._lease = None
         self._last_lease_refresh = 0
@@ -633,12 +636,14 @@ class Etcd3(AbstractEtcd):
 
     @property
     def _client(self) -> PatroniEtcd3Client:
-        assert isinstance(self._abstract_client, PatroniEtcd3Client)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(self._abstract_client, PatroniEtcd3Client)
         return self._abstract_client
 
     def set_socket_options(self, sock: socket.socket,
                            socket_options: Optional[Collection[Tuple[int, int, int]]]) -> None:
-        assert self._retry.deadline is not None
+        if TYPE_CHECKING:  # pragma: no cover
+            assert self._retry.deadline is not None
         enable_keepalive(sock, self.ttl, int(self.loop_wait + self._retry.deadline))
 
     def set_ttl(self, ttl: int) -> Optional[bool]:
@@ -773,7 +778,8 @@ class Etcd3(AbstractEtcd):
         except Exception as e:
             self._handle_exception(e, 'get_cluster', raise_ex=Etcd3Error('Etcd is not responding properly'))
         self._has_failed = False
-        assert cluster is not None
+        if TYPE_CHECKING:  # pragma: no cover
+            assert cluster is not None
         return cluster
 
     @catch_etcd_errors
@@ -841,12 +847,12 @@ class Etcd3(AbstractEtcd):
         return ret
 
     @catch_etcd_errors
-    def set_failover_value(self, value: str, index: Optional[str] = None) -> bool:
-        return bool(self._client.put(self.failover_path, value, mod_revision=index))
+    def set_failover_value(self, value: str, version: Optional[str] = None) -> bool:
+        return bool(self._client.put(self.failover_path, value, mod_revision=version))
 
     @catch_etcd_errors
-    def set_config_value(self, value: str, index: Optional[str] = None) -> bool:
-        return bool(self._client.put(self.config_path, value, mod_revision=index))
+    def set_config_value(self, value: str, version: Optional[str] = None) -> bool:
+        return bool(self._client.put(self.config_path, value, mod_revision=version))
 
     @catch_etcd_errors
     def _write_leader_optime(self, last_lsn: str) -> bool:
@@ -893,7 +899,7 @@ class Etcd3(AbstractEtcd):
     def _delete_leader(self) -> bool:
         cluster = self.cluster
         if cluster and isinstance(cluster.leader, Leader) and cluster.leader.name == self._name:
-            return self._client.deleterange(self.leader_path, mod_revision=cluster.leader.index)
+            return self._client.deleterange(self.leader_path, mod_revision=cluster.leader.version)
         return True
 
     @catch_etcd_errors
@@ -909,15 +915,15 @@ class Etcd3(AbstractEtcd):
         return bool(self._client.put(self.history_path, value))
 
     @catch_etcd_errors
-    def set_sync_state_value(self, value: str, index: Optional[str] = None) -> Union[str, bool]:
-        return self.retry(self._client.put, self.sync_path, value, mod_revision=index)\
+    def set_sync_state_value(self, value: str, version: Optional[str] = None) -> Union[str, bool]:
+        return self.retry(self._client.put, self.sync_path, value, mod_revision=version)\
             .get('header', {}).get('revision', False)
 
     @catch_etcd_errors
-    def delete_sync_state(self, index: Optional[str] = None) -> bool:
-        return self.retry(self._client.deleterange, self.sync_path, mod_revision=index)
+    def delete_sync_state(self, version: Optional[str] = None) -> bool:
+        return self.retry(self._client.deleterange, self.sync_path, mod_revision=version)
 
-    def watch(self, leader_index: Optional[str], timeout: float) -> bool:
+    def watch(self, leader_version: Optional[str], timeout: float) -> bool:
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True

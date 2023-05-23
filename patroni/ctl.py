@@ -32,9 +32,9 @@ if TYPE_CHECKING:  # pragma: no cover
     from psycopg2 import cursor
 
 try:
-    from ydiff import markup_to_pager, PatchStream
+    from ydiff import markup_to_pager, PatchStream  # pyright: ignore [reportMissingModuleSource]
 except ImportError:  # pragma: no cover
-    from cdiff import markup_to_pager, PatchStream
+    from cdiff import markup_to_pager, PatchStream  # pyright: ignore [reportMissingModuleSource]
 
 from .dcs import get_dcs as _get_dcs, AbstractDCS, Cluster, Member
 from .exceptions import PatroniException
@@ -812,7 +812,8 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
     r = None
     try:
         member = cluster.leader.member if cluster.leader else candidate and cluster.get_member(candidate, False)
-        assert isinstance(member, Member)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(member, Member)
         r = request_patroni(member, 'post', action, failover_value)
 
         # probably old patroni, which doesn't support switchover yet
@@ -1052,7 +1053,7 @@ def flush(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
 
         logging.warning('Failing over to DCS')
         click.echo('{0} Could not find any accessible member of cluster {1}'.format(timestamp(), cluster_name))
-        dcs.manual_failover('', '', index=failover.index)
+        dcs.manual_failover('', '', version=failover.version)
 
 
 def wait_until_pause_is_applied(dcs: AbstractDCS, paused: bool, old_cluster: Cluster) -> None:
@@ -1060,7 +1061,7 @@ def wait_until_pause_is_applied(dcs: AbstractDCS, paused: bool, old_cluster: Clu
     config = get_global_config(old_cluster)
 
     click.echo("'{0}' request sent, waiting until it is recognized by all nodes".format(paused and 'pause' or 'resume'))
-    old = {m.name: m.index for m in old_cluster.members if m.api_url}
+    old = {m.name: m.version for m in old_cluster.members if m.api_url}
     loop_wait = config.get('loop_wait') or dcs.loop_wait
 
     cluster = None
@@ -1072,7 +1073,7 @@ def wait_until_pause_is_applied(dcs: AbstractDCS, paused: bool, old_cluster: Clu
         if TYPE_CHECKING:  # pragma: no cover
             assert cluster is not None
         remaining = [m.name for m in cluster.members if m.data.get('pause', False) != paused
-                     and m.name in old and old[m.name] != m.index]
+                     and m.name in old and old[m.name] != m.version]
         if remaining:
             return click.echo("{0} members didn't recognized pause state after {1} seconds"
                               .format(', '.join(remaining), loop_wait))
@@ -1169,7 +1170,7 @@ def show_diff(before_editing: str, after_editing: str) -> None:
                 (
                     os.path.basename(p)
                     for p in (os.environ.get('PAGER'), "less", "more")
-                    if p is not None and shutil.which(p)
+                    if p is not None and bool(shutil.which(p))
                 ),
                 None,
             )
@@ -1347,7 +1348,7 @@ def edit_config(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
         return
 
     if force or click.confirm('Apply these changes?'):
-        if not dcs.set_config_value(json.dumps(changed_data), cluster.config.index):
+        if not dcs.set_config_value(json.dumps(changed_data), cluster.config.version):
             raise PatroniCtlException("Config modification aborted due to concurrent changes")
         click.echo("Configuration changed")
 
@@ -1396,7 +1397,8 @@ def version(obj: Dict[str, Any], cluster_name: str, group: Optional[int], member
 @click.pass_obj
 def history(obj: Dict[str, Any], cluster_name: str, group: Optional[int], fmt: str) -> None:
     cluster = get_dcs(obj, cluster_name, group).get_cluster()
-    history: List[List[Any]] = list(map(list, cluster.history and cluster.history.lines or []))
+    cluster_history = cluster.history.lines if cluster.history else []
+    history: List[List[Any]] = list(map(list, cluster_history))
     table_header_row = ['TL', 'LSN', 'Reason', 'Timestamp', 'New Leader']
     for line in history:
         if len(line) < len(table_header_row):
