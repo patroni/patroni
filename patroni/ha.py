@@ -147,6 +147,7 @@ class Ha(object):
         self._is_leader_lock = RLock()
         self._failsafe = Failsafe(patroni.dcs)
         self._was_paused = False
+        self._promote_time = 0
         self._leader_timeline = None
         self.recovering = False
         self._async_response = CriticalTask()
@@ -196,6 +197,8 @@ class Ha(object):
     def set_is_leader(self, value: bool) -> None:
         with self._is_leader_lock:
             self._is_leader = time.time() + self.dcs.ttl if value else 0
+            if not value:
+                self._promote_time = 0
 
     def load_cluster_from_dcs(self) -> None:
         cluster = self.dcs.get_cluster()
@@ -702,7 +705,16 @@ class Ha(object):
     def process_sync_replication(self) -> None:
         """Process synchronous replication beahvior on the primary."""
         if self.is_quorum_commit_mode():
-            self._process_quorum_replication()
+            # The synchronous_standby_names was adjusted right before promote.
+            # After that, when postgres has become a primary, we need to reflect this change
+            # in the /sync key. Further changes of synchronous_standby_names and /sync key should
+            # be postponed for `loop_wait` seconds, to give a chance to some replicas to start streaming.
+            # In opposite case the /sync key will end up without synchronous nodes.
+            if self.state_handler.is_leader():
+                if self._promote_time == 0 or time.time() - self._promote_time > self.dcs.loop_wait:
+                    self._process_quorum_replication()
+                if self._promote_time == 0:
+                    self._promote_time = time.time()
         elif self.is_synchronous_mode():
             self._process_multisync_replication()
         else:

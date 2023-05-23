@@ -1500,6 +1500,7 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': None})
         self.assertEqual(mock_set_sync.call_count, 0)
 
+        self.ha._promote_time = 1
         mock_write_sync = self.ha.dcs.write_sync_state = Mock(side_effect=[SyncState.empty(), None])
         # Test /sync key is attempted to set and succeed when missing or invalid
         with patch.object(SyncState, 'is_empty', Mock(side_effect=[True, False])):
