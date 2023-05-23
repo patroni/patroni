@@ -32,7 +32,9 @@ ADD entrypoint.sh /
 ENV PGSSLMODE=verify-ca PGSSLKEY=/etc/ssl/private/ssl-cert-snakeoil.key PGSSLCERT=/etc/ssl/certs/ssl-cert-snakeoil.pem PGSSLROOTCERT=/etc/ssl/certs/ssl-cert-snakeoil.pem
 
 RUN sed -i 's/^postgresql:/&\n  basebackup:\n    checkpoint: fast/' /entrypoint.sh \
-    && sed -i "s|^    postgresql:|&\n      pg_hba:\n      - local all all trust\n      - hostssl replication all all md5 clientcert=$PGSSLMODE\n      - hostssl all all all md5 clientcert=$PGSSLMODE\n      parameters:\n        max_connections: 100\n        shared_buffers: 16MB\n        ssl: 'on'\n        ssl_ca_file: $PGSSLROOTCERT\n        ssl_cert_file: $PGSSLCERT\n        ssl_key_file: $PGSSLKEY\n        citus.node_conninfo: 'sslrootcert=$PGSSLROOTCERT sslkey=$PGSSLKEY sslcert=$PGSSLCERT sslmode=$PGSSLMODE'|"  /entrypoint.sh \
+    && sed -i "s|^    postgresql:|&\n      parameters:\n        max_connections: 100\n        shared_buffers: 16MB\n        ssl: 'on'\n        ssl_ca_file: $PGSSLROOTCERT\n        ssl_cert_file: $PGSSLCERT\n        ssl_key_file: $PGSSLKEY\n        citus.node_conninfo: 'sslrootcert=$PGSSLROOTCERT sslkey=$PGSSLKEY sslcert=$PGSSLCERT sslmode=$PGSSLMODE'|"  /entrypoint.sh \
+    && sed -i 's/^      pg_hba:/&\n      - local all all trust/' /entrypoint.sh \
+    && sed -i "s/^\(.*\) \(.*\) \(.*\) \(.*\) \(.*\) md5.*$/\1 hostssl \3 \4 all md5 clientcert=$PGSSLMODE/" /entrypoint.sh \
     && sed -i "s#^    \(superuser\|replication\):#&\n      sslmode: $PGSSLMODE\n      sslkey: $PGSSLKEY\n      sslcert: $PGSSLCERT\n      sslrootcert: $PGSSLROOTCERT#" /entrypoint.sh
 
 EXPOSE 5432 8008
