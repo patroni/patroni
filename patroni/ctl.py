@@ -1,4 +1,4 @@
-"""Implement ``patronictl``: a command-line application to talk with the REST API and perform some operations.
+"""Implement ``patronictl``: a command-line application which utilises the REST API to perform cluster operations.
 
 :var CONFIG_DIR_PATH: path to Patroni configuration directory as per :func:`click.get_app_dir` output.
 :var CONFIG_FILE_PATH: default path to ``patronictl.yaml`` configuration file.
@@ -561,6 +561,7 @@ def get_members(obj: Dict[str, Any], cluster: Cluster, cluster_name: str, member
     .. note::
         Contain some filtering and checks processing that are common to several actions that are exposed
         by `patronictl`, like:
+
             * Get members of *cluster* that respect the given *member_names*, *role*, and *group*;
             * Bypass confirmations;
             * Prompt user for information that has not been passed through the command-line options;
@@ -817,13 +818,17 @@ def query_member(obj: Dict[str, Any], cluster: Cluster, group: Optional[int],
     :param connect_parameters: connection parameters to be passed down to :func:`get_cursor`, if *cursor* is ``None``.
 
     :returns: a tuple composed of two items:
+
         * List of rows returned by the executed *command*;
         * List of columns related to the rows returned by the executed *command*.
 
         If an error occurs while executing *command*, then returns the following values in the tuple:
+
         * List with 2 items:
-            * Current timestamp;
-            * Error message.
+        
+          * Current timestamp;
+          * Error message.
+        
         * ``None``.
     """
     from . import psycopg
@@ -865,11 +870,12 @@ def remove(obj: Dict[str, Any], cluster_name: str, group: Optional[int], fmt: st
     :param group: which Citus group should have its information wiped out of the DCS.
     :param fmt: the output table printing format. See :func:`print_output` for available options.
 
-    :raises PatroniCtlException: if
+    :raises PatroniCtlException: if:
         * Patroni is running on a Citus cluster, but no *group* was specified; or
         * *cluster_name* does not exist; or
         * user did not type the expected confirmation message when prompted for confirmation; or
         * use did not type the correct leader name when requesting removal of a healthy cluster.
+
     """
     dcs = get_dcs(obj, cluster_name, group)
     cluster = dcs.get_cluster()
@@ -1017,7 +1023,7 @@ def restart(obj: Dict[str, Any], cluster_name: str, group: Optional[int], member
     :param pending: restart only members that are flagged as ``pending restart``.
     :param timeout: timeout for the restart operation. If timeout is reached a failover may occur in the cluster.
 
-    :raises PatroniCtlException: if
+    :raises PatroniCtlException: if:
         * *version* could not be parsed; or
         * a restart is attempted against a cluster that is in maintenance mode.
     """
@@ -1156,9 +1162,9 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
     :param leader: name of the current leader member.
     :param candidate: name of a standby member to be promoted. Nodes that are tagged with ``nofailover`` cannot be used.
     :param force: perform the failover or switchover without asking for confirmations.
-    :param scheduled: timestamp when the switchover should be scheduled to occur. If ``now`` t is performed immediately.
+    :param scheduled: timestamp when the switchover should be scheduled to occur. If ``now`` it is performed immediately.
 
-    :raises PatroniCtlException: if
+    :raises PatroniCtlException: if:
         * Patroni is running on a Citus cluster, but no *group* was specified; or
         * a switchover was requested by the cluster has no leader; or
         * *leader* does not match the current leader of the cluster; or
@@ -1346,17 +1352,18 @@ def generate_topology(level: int, member: Dict[str, Any],
         The idea is to get a tree view of the members when printing their names. For example, suppose you have a
         cascading replication composed of 3 nodes, say ``postgresql0``, ``postgresql1``, and ``postgresql2``. This
         function would adjust their names to be like this:
-            * ``postgresql0`` -> ``postgresql0``
-            * ``postgresql1`` -> ``+ postgresql1``
-            * ``postgresql2`` -> ``  + postgresql2``
+
+        * ``'postgresql0'`` -> ``'postgresql0'``
+        * ``'postgresql1'`` -> ``'+ postgresql1'``
+        * ``'postgresql2'`` -> ``'  + postgresql2'``
 
         So, if you ever print their names line by line, you would see something like this:
 
-        ```
-        postgresql0
-        + postgresql1
-          + postgresql2
-        ```
+        .. code-block::
+
+            postgresql0
+            + postgresql1
+              + postgresql2
 
     :param level: the current level being inspected in the *topology*.
     :param member: information about the current member being inspected in *level* of *topology*. Should countain at
@@ -1439,15 +1446,16 @@ def output_members(obj: Dict[str, Any], cluster: Cluster, name: str,
     """Print information about the Patroni cluster and its members.
 
     Information is printed to console through :func:`print_output`, and contains:
+
         * ``Cluster``: name of the Patroni cluster, as per ``scope`` configuration;
         * ``Member``: name of the Patroni node, as per ``name`` configuration;
         * ``Host``: hostname (or IP) and port, as per ``postgresql.listen`` configuration;
         * ``Role``: ``Leader``, ``Standby Leader``, ``Sync Standby`` or ``Replica``;
         * ``State``: ``stopping``, ``stopped``, ``stop failed``, ``crashed``, ``running``, ``starting``,
-            ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``, ``initdb failed``,
-            ``running custom bootstrap script``, ``custom bootstrap failed``, or ``creating replica``;
+          ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``, ``initdb failed``,
+          ``running custom bootstrap script``, ``custom bootstrap failed``, or ``creating replica``;
         * ``TL``: current timeline in Postgres;
-        ``Lag in MB``: replication lag.
+          ``Lag in MB``: replication lag.
 
     Besides that it may also have:
         * ``Group``: Citus group ID -- showed only if Citus is enabled.
@@ -1699,8 +1707,8 @@ def toggle_pause(config: Dict[str, Any], cluster_name: str, group: Optional[int]
     :param wait: ``True`` if it should block until the operation is finished or ``false`` for returning immediately.
 
     :raises PatroniCtlException: if
-        * If ``pause`` state is already *paused*; or
-        * If cluster contains no accessible members.
+        * ``pause`` state is already *paused*; or
+        * cluster contains no accessible members.
     """
     from patroni.config import get_global_config
     dcs = get_dcs(config, cluster_name, group)
@@ -1794,7 +1802,7 @@ def show_diff(before_editing: str, after_editing: str) -> None:
 
     .. note::
         If tty it requires a pager program, and uses first found among:
-            * Program given by ``PAGER`` environemnt variable; or
+            * Program given by ``PAGER`` environment variable; or
             * ``less``; or
             * ``more``.
 
@@ -1869,7 +1877,7 @@ def apply_config_changes(before_editing: str, data: Dict[str, Any], kvpairs: Lis
     :param data: configuration data structure.
     :param kvpairs: list of strings containing key value pairs separated by ``=``.
 
-    :returns: tuple of human readable and parsed data structure after changes.
+    :returns: tuple of human-readable, parsed data structure after changes.
 
     :raises PatroniCtlException: if any entry in *kvpairs* is ``None`` or not in the expected format.
     """
@@ -1879,8 +1887,8 @@ def apply_config_changes(before_editing: str, data: Dict[str, Any], kvpairs: Lis
         """Recursively walk through *config* and update setting specified by *path* with *value*.
 
         :param config: configuration data structure with all settings found under *prefix* path.
-        :param path: dotted path split into a list of paths. Used to control the recursive calls and identify when a
-            leaf node is reached.
+        :param path: dotted path split by dot as delimiter into a list. Used to control the recursive calls and identify
+            when a leaf node is reached.
         :param value: value for configuration described by *path*. If ``None`` the configuration key is removed from
             *config*.
         :param prefix: previous parts of *path* that have already been opened by parent recursive calls. Used to know
@@ -1922,7 +1930,7 @@ def apply_yaml_file(data: Dict[str, Any], filename: str) -> Tuple[str, Dict[str,
     :param data: configuration data structure.
     :param filename: name of the YAML file, ``-`` is taken to mean standard input.
 
-    :returns: tuple of human readable and parsed data structure after changes.
+    :returns: tuple of human-readable and parsed data structure after changes.
     """
     changed_data = copy.deepcopy(data)
 
@@ -1949,7 +1957,7 @@ def invoke_editor(before_editing: str, cluster_name: str) -> Tuple[str, Dict[str
     :param before_editing: human representation before editing.
     :param cluster_name: name of the Patroni cluster.
 
-    :returns: tuple of human readable and parsed data structure after changes.
+    :returns: tuple of human-readable, parsed data structure after changes.
 
     :raises PatroniCtlException: if
         * No suitable editor can be found; or
@@ -2001,7 +2009,7 @@ def edit_config(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
 
     :param obj: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
-    :param group: filter which Citus group we should edit configuration of. If ``None``  edit from coordinator group.
+    :param group: filter which Citus group configuration we should edit. If ``None``  edit from coordinator group.
     :param force: if ``True`` apply config changes without asking for confirmations.
     :param quiet: if ``True`` skip showing config diff in the console.
     :param kvpairs: list of key value general parameters to be changed.
@@ -2069,7 +2077,7 @@ def show_config(obj: Dict[str, Any], cluster_name: str, group: Optional[int]) ->
 
     :param obj: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
-    :param group: filter which Citus group we should show configuration of. If ``None`` show from coordinator group.
+    :param group: filter which Citus group configuration we should show. If ``None`` show from coordinator group.
     """
     cluster = get_dcs(obj, cluster_name, group).get_cluster()
     if cluster.config:
@@ -2129,7 +2137,7 @@ def history(obj: Dict[str, Any], cluster_name: str, group: Optional[int], fmt: s
         * ``TL``: Postgres timeline when the event occurred;
         * ``LSN``: Postgres LSN, in bytes, when the event occurred;
         * ``Reason``: the reason that motivated the event, if any;
-        * ``Timestamp``: timestamp when the event ocurred;
+        * ``Timestamp``: timestamp when the event occurred;
         * ``New Leader``: the Postgres node that was promoted during the event.
 
     :param obj: Patroni configuration.
@@ -2154,7 +2162,7 @@ def format_pg_version(version: int) -> str:
 
     :param version: Postgres version represented as an integer.
 
-    :returns: Postgres version represented as a human readable string.
+    :returns: Postgres version represented as a human-readable string.
 
     :Example:
 
