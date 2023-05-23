@@ -774,7 +774,7 @@ schema = Schema({
             Optional("maximum_lag_on_failover"): int
         },
         "pg_hba": [str],
-        "initdb": [Or(str, dict)]
+        Optional("initdb"): [Or(str, dict)]
     },
     Or(*available_dcs): Case({
         "consul": {
