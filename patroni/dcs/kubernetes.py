@@ -1350,7 +1350,11 @@ class Kubernetes(AbstractDCS):
             self.__do_not_watch = False
             return True
 
+        # We want to give a bit more time to non-leader nodes to synchronize HA loops
+        if leader_version:
+            timeout += 0.5
+
         try:
-            return super(Kubernetes, self).watch(None, timeout + 0.5)
+            return super(Kubernetes, self).watch(None, timeout)
         finally:
             self.event.clear()

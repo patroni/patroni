@@ -306,7 +306,7 @@ class TestEtcd3(BaseTestEtcd3):
     def test_watch(self):
         self.etcd3.set_ttl(10)
         self.etcd3.watch(None, 0)
-        self.etcd3.watch(None, 0)
+        self.etcd3.watch('5', 0)
 
     def test_set_socket_options(self):
         with patch('socket.SIO_KEEPALIVE_VALS', 1, create=True):

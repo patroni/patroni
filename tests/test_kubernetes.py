@@ -315,7 +315,7 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
     def test_watch(self):
         self.k.set_ttl(10)
         self.k.watch(None, 0)
-        self.k.watch(None, 0)
+        self.k.watch('5', 0)
 
     def test_set_history_value(self):
         self.k.set_history_value('{}')

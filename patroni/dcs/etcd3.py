@@ -928,6 +928,10 @@ class Etcd3(AbstractEtcd):
             self.__do_not_watch = False
             return True
 
+        # We want to give a bit more time to non-leader nodes to synchronize HA loops
+        if leader_version:
+            timeout += 0.5
+
         try:
             return super(Etcd3, self).watch(None, timeout)
         finally:
