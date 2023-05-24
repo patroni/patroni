@@ -268,12 +268,12 @@ PostgreSQL
    -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
    -  **pg\_hba**: list of lines that Patroni will use to generate ``pg_hba.conf``. Patroni ignores this parameter if ``hba_file`` PostgreSQL parameter is set to a non-default value. Together with :ref:`dynamic configuration <dynamic_configuration>` this parameter simplifies management of ``pg_hba.conf``.
 
-      -  **- host all all 0.0.0.0/0 md5**.
+      -  **- host all all 0.0.0.0/0 md5**
       -  **- host replication replicator 127.0.0.1/32 md5**: A line like this is required for replication.
    -  **pg\_ident**: list of lines that Patroni will use to generate ``pg_ident.conf``. Patroni ignores this parameter if ``ident_file`` PostgreSQL parameter is set to a non-default value. Together with :ref:`dynamic configuration <dynamic_configuration>` this parameter simplifies management of ``pg_ident.conf``.
 
-      -  **- mapname1 systemname1 pguser1**.
-      -  **- mapname1 systemname2 pguser2**.
+      -  **- mapname1 systemname1 pguser1**
+      -  **- mapname1 systemname2 pguser2**
    -  **pg\_ctl\_timeout**: How long should pg_ctl wait when doing ``start``, ``stop`` or ``restart``. Default value is 60 seconds.
    -  **use\_pg\_rewind**: try to use pg\_rewind on the former leader when it joins cluster as a replica.
    -  **remove\_data\_directory\_on\_rewind\_failure**: If this option is enabled, Patroni will remove the PostgreSQL data directory and recreate the replica. Otherwise it will try to follow the new leader. Default value is **false**.
