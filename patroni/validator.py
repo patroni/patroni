@@ -773,7 +773,7 @@ schema = Schema({
             Optional("retry_timeout"): int,
             Optional("maximum_lag_on_failover"): int
         },
-        "initdb": [Or(str, dict)]
+        Optional("initdb"): [Or(str, dict)]
     },
     Or(*available_dcs): Case({
         "consul": {
