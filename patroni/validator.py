@@ -457,7 +457,7 @@ class BinDirectory(Directory):
     :cvar BINARIES: list of executable files that should exist directly under a given Postgres binary directory.
     """
 
-    BINARIES = ["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres", "pg_isready"]
+    BINARIES = ["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres", "pg_isready", "pg_rewind"]
 
     def validate(self, name: str) -> Iterator[Result]:
         """Check if the expected executables can be found under *name* binary directory.
@@ -904,6 +904,7 @@ schema = Schema({
             Optional("pg_basebackup"): validate_binary_name,
             Optional("postgres"): validate_binary_name,
             Optional("pg_isready"): validate_binary_name,
+            Optional("pg_rewind"): validate_binary_name,
         },
         Optional("bin_dir", ""): BinDirectory(),
         Optional("parameters"): {
