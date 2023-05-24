@@ -467,9 +467,7 @@ class BinDirectory(Directory):
 
         :yields: objects with the error message related to the failure, if any check fails.
         """
-        self.contains_executable: List[str] = []
-        for binary in self.BINARIES:
-            self.contains_executable.append(get_bin_name(binary))
+        self.contains_executable: List[str] = [get_bin_name(binary) for binary in self.BINARIES]
         yield from super().validate(name)
 
 
