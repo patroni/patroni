@@ -813,7 +813,7 @@ class Etcd3(AbstractEtcd):
             return retry(*args, **kwargs)
 
         try:
-            return _retry(self._client.put, self.leader_path, self._name, self._lease, 0)
+            return _retry(self._client.put, self.leader_path, self._name, self._lease, '0')
         except LeaseNotFound:
             logger.error('Our lease disappeared from Etcd. Will try to get a new one and retry attempt')
             self._lease = None
@@ -825,7 +825,7 @@ class Etcd3(AbstractEtcd):
             if retry.deadline < 1:
                 raise Etcd3Error('_do_attempt_to_acquire_leader timeout')
 
-            return _retry(self._client.put, self.leader_path, self._name, self._lease, 0)
+            return _retry(self._client.put, self.leader_path, self._name, self._lease, '0')
 
     @catch_return_false_exception
     def attempt_to_acquire_leader(self) -> bool:
@@ -893,7 +893,7 @@ class Etcd3(AbstractEtcd):
 
     @catch_etcd_errors
     def initialize(self, create_new: bool = True, sysid: str = ""):
-        return self.retry(self._client.put, self.initialize_path, sysid, None, 0 if create_new else None)
+        return self.retry(self._client.put, self.initialize_path, sysid, None, '0' if create_new else None)
 
     @catch_etcd_errors
     def _delete_leader(self) -> bool:
