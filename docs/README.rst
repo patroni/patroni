@@ -179,7 +179,7 @@ That said, here are some pieces of your infrastructure you should be sure to tes
 * Network (the network in front of your system as well as the NICs [physical or virtual] themselves)
 * Disk IO
 * file limits (nofile in Linux)
-* RAM. Even if you have oomkiller turned off as suggested, the unavailability of RAM could cause issues.
+* RAM. Even if you have oomkiller turned off, the unavailability of RAM could cause issues.
 * CPU
 * Virtualization Contention (overcommitting the hypervisor)
 * Any cgroup limitation (likely to be related to the above)
