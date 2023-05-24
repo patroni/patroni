@@ -20,7 +20,7 @@ from patroni.postgresql.callback_executor import CallbackAction
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import (ValidatorFactoryNoType, ValidatorFactoryInvalidType,
                                           ValidatorFactoryInvalidSpec, ValidatorFactory,
-                                          _load_postgres_guc_validators, Bool, Integer, Real, Enum, EnumBool, String)
+                                          _get_postgres_guc_validators, Bool, Integer, Real, Enum, EnumBool, String)
 from patroni.utils import RetryFailedError
 from threading import Thread, current_thread
 
@@ -746,7 +746,7 @@ class TestPostgresql(BaseTestPostgresql):
     def test_handle_parameter_change(self):
         self.p.handle_parameter_change()
 
-    def test_parse_postgres_guc_validator(self):
+    def test_validator_factory(self):
         # validator with no type
         validator = {
             'version_from': 90300,
@@ -872,13 +872,11 @@ class TestPostgresql(BaseTestPostgresql):
             String(version_from=validator['version_from'], version_till=validator['version_till']).__dict__,
         )
 
-    def test_load_postgres_guc_validators(self):
-        # with empty section -> create
-        section = CaseInsensitiveDict()
+    def test__get_postgres_guc_validators(self):
         parameter = 'my_parameter'
 
         config = {
-            'my_parameter': [{
+            parameter: [{
                 'type': 'Bool',
                 'version_from': 90300,
                 'version_till': 90500,
@@ -891,23 +889,8 @@ class TestPostgresql(BaseTestPostgresql):
                 ],
             }]
         }
-        list(_load_postgres_guc_validators(section, config, parameter))
-        self.assertEqual(list(section.keys()), ['my_parameter'])
-        self.assertIsInstance(section['my_parameter'], tuple)
-        self.assertEqual(len(section['my_parameter']), 2)
-        self.assertIsInstance(section['my_parameter'][0], Bool)
-        self.assertIsInstance(section['my_parameter'][1], EnumBool)
-
-        # with non-empty section -> append
-        config = {
-            'my_parameter': [{
-                'type': 'String',
-                'version_from': 90600,
-                'version_till': None,
-            }]
-        }
-        list(_load_postgres_guc_validators(section, config, parameter))
-        self.assertEqual(list(section.keys()), ['my_parameter'])
-        self.assertIsInstance(section['my_parameter'], tuple)
-        self.assertEqual(len(section['my_parameter']), 3)
-        self.assertIsInstance(section['my_parameter'][2], String)
+        ret = _get_postgres_guc_validators(config, parameter)
+        self.assertIsInstance(ret, tuple)
+        self.assertEqual(len(ret), 2)
+        self.assertIsInstance(ret[0], Bool)
+        self.assertIsInstance(ret[1], EnumBool)

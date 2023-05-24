@@ -22,7 +22,7 @@ class _Transformable(abc.ABC):
     def get_subclasses(cls) -> Iterator[Type['_Transformable']]:
         """Recursvely get all subclasses of :class:`_Transformable`.
 
-        :rtype: yields each subclass of :class:`_Transformable`.
+        :yields: each subclass of :class:`_Transformable`.
         """
         for subclass in cls.__subclasses__():
             yield from subclass.get_subclasses()
@@ -230,28 +230,26 @@ class ValidatorFactory:
                 f'Failed to parse `{type_}` validator (`{validator}`): `{str(exc)}`.') from exc
 
 
-def _load_postgres_guc_validators(section: CaseInsensitiveDict, config: Dict[str, Any], parameter: str) \
-        -> Iterator[Union[ValidatorFactoryNoType, ValidatorFactoryInvalidType, ValidatorFactoryInvalidSpec]]:
-    """Load *parameter* validators from *config* into *section*.
+def _get_postgres_guc_validators(config: Dict[str, Any], parameter: str) -> Tuple[_Transformable, ...]:
+    """Get all validators of *parameter* from *config*.
 
-    Loop over all validators of *parameter* and load each of them into *section*.
+    Loop over all validators specs of *parameter* and return them parsed as Patroni validators.
 
-    :param section: reference to either ``parameters`` or ``recovery_parameters`` variable of this module.
     :param config: Python object corresponding to an YAML file, with values of either ``parameters`` or
-        ``recovery_parameters`` key, corresponding to given *section*.
-    :param parameter: name of the parameter found under *config* which validators should be parsed and loaded into
-        *section*.
+        ``recovery_parameters`` key.
+    :param parameter: name of the parameter found under *config* which validators should be parsed and returned.
 
     :rtype: yields any exception that is faced while parsing a validator spec into a Patroni validator object.
     """
+    validators: List[_Transformable] = []
     for validator_spec in config.get(parameter, []):
         try:
             validator = ValidatorFactory(validator_spec)
+            validators.append(validator)
         except (ValidatorFactoryNoType, ValidatorFactoryInvalidType, ValidatorFactoryInvalidSpec) as exc:
-            yield exc
-            continue
+            logger.warning('Faced an issue while parsing a validator for parameter `%s`: `%r`', parameter, exc)
 
-        section[parameter] = section.get(parameter, ()) + (validator,)
+    return tuple(validators)
 
 
 class InvalidGucValidatorsFile(Exception):
@@ -401,6 +399,8 @@ def _load_postgres_gucs_validators() -> None:
             logger.warning(str(exc))
             continue
 
+        logger.debug(f'Parsing validators from file `{file}`.')
+
         mapping = {
             'parameters': parameters,
             'recovery_parameters': recovery_parameters,
@@ -411,9 +411,7 @@ def _load_postgres_gucs_validators() -> None:
 
             config_section = config.get(section, {})
             for parameter in config_section.keys():
-                for exc in _load_postgres_guc_validators(section_var, config_section, parameter):
-                    logger.warning('Faced an issue while parsing a validator for parameter `%s`, from file `%s`: `%r`',
-                                   parameter, file, exc)
+                section_var[parameter] = _get_postgres_guc_validators(config_section, parameter)
 
 
 _load_postgres_gucs_validators()
