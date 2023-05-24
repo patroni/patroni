@@ -280,7 +280,7 @@ def validate_binary_name(bin_name: str) -> bool:
         raise ConfigParseError("is an empty string")
     bin_dir = schema.data.get('postgresql', {}).get('bin_dir', None)
     if not shutil.which(bin_name, path=bin_dir):
-        raise ConfigParseError(f"does not contain '{bin_name}' in '{bin_dir}'")
+        raise ConfigParseError(f"does not contain '{bin_name}' in '{bin_dir or '$PATH'}'")
     return True
 
 
