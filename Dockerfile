@@ -155,14 +155,15 @@ WORKDIR $PGHOME
 
 RUN sed -i 's/env python/&3/' /patroni*.py \
     # "fix" patroni configs
-    && sed -i 's/^\(  connect_address:\|  - host\)/#&/' postgres?.yml \
     && sed -i 's/^  listen: 127.0.0.1/  listen: 0.0.0.0/' postgres?.yml \
     && sed -i "s|^\(  data_dir: \).*|\1$PGDATA|" postgres?.yml \
     && sed -i "s|^#\(  bin_dir: \).*|\1$PGBIN|" postgres?.yml \
     && sed -i 's/^  - encoding: UTF8/  - locale: en_US.UTF-8\n&/' postgres?.yml \
-    && sed -i 's/^\(scope\|name\|etcd\|  host\|  authentication\|  pg_hba\|  parameters\):/#&/' postgres?.yml \
+    && sed -i 's/^\(scope\|name\|etcd\|  host\|  authentication\|  connect_address\|  parameters\):/#&/' postgres?.yml \
     && sed -i 's/^    \(replication\|superuser\|rewind\|unix_socket_directories\|\(\(  \)\{0,1\}\(username\|password\)\)\):/#&/' postgres?.yml \
-    && sed -i 's/^      parameters:/      pg_hba:\n      - local all all trust\n      - host replication all all md5\n      - host all all all md5\n&\n        max_connections: 100/'  postgres?.yml \
+    && sed -i 's/^      parameters:/&\n        max_connections: 100/'  postgres?.yml \
+    && sed -i 's/^      pg_hba:/&\n      - local all all trust/' postgres?.yml \
+    && sed -i 's/^\(.*\) \(.*\) md5/\1 all md5/' postgres?.yml \
     && if [ "$COMPRESS" = "true" ]; then chmod u+s /usr/bin/sudo; fi \
     && chmod +s /bin/ping \
     && chown -R postgres:postgres "$PGHOME" /run /etc/haproxy
