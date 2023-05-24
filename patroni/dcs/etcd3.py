@@ -886,7 +886,7 @@ class Etcd3(AbstractEtcd):
 
                 try:
                     self._run_and_handle_exceptions(self._client.put, self.leader_path,
-                                                    self._name, self._lease, retry=_retry)
+                                                    self._name, self._lease, '0', retry=_retry)
                 except ReturnFalseException:
                     pass
         return bool(self._lease)
