@@ -10,8 +10,10 @@ RUN export DEBIAN_FRONTEND=noninteractive \
             | xargs apt-get install -y busybox vim-tiny curl jq less locales git python3-pip python3-wheel \
     ## Make sure we have a en_US.UTF-8 locale available
     && localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8 \
-    && curl https://install.citusdata.com/community/deb.sh | bash \
-    && apt-get -y install postgresql-15-citus-11.2 \
+    && echo "deb [signed-by=/etc/apt/trusted.gpg.d/citusdata_community.gpg] https://packagecloud.io/citusdata/community/debian/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/citusdata_community.list \
+    && curl -sL https://packagecloud.io/citusdata/community/gpgkey | gpg --dearmor > /etc/apt/trusted.gpg.d/citusdata_community.gpg \
+    && apt-get update -y \
+    && apt-get -y install postgresql-$PG_MAJOR-citus-11.3 \
     && pip3 install setuptools \
     && pip3 install 'git+https://github.com/zalando/patroni.git#egg=patroni[kubernetes]' \
     && PGHOME=/home/postgres \
@@ -32,7 +34,9 @@ ADD entrypoint.sh /
 ENV PGSSLMODE=verify-ca PGSSLKEY=/etc/ssl/private/ssl-cert-snakeoil.key PGSSLCERT=/etc/ssl/certs/ssl-cert-snakeoil.pem PGSSLROOTCERT=/etc/ssl/certs/ssl-cert-snakeoil.pem
 
 RUN sed -i 's/^postgresql:/&\n  basebackup:\n    checkpoint: fast/' /entrypoint.sh \
-    && sed -i "s|^    postgresql:|&\n      pg_hba:\n      - local all all trust\n      - hostssl replication all all md5 clientcert=$PGSSLMODE\n      - hostssl all all all md5 clientcert=$PGSSLMODE\n      parameters:\n        max_connections: 100\n        shared_buffers: 16MB\n        ssl: 'on'\n        ssl_ca_file: $PGSSLROOTCERT\n        ssl_cert_file: $PGSSLCERT\n        ssl_key_file: $PGSSLKEY\n        citus.node_conninfo: 'sslrootcert=$PGSSLROOTCERT sslkey=$PGSSLKEY sslcert=$PGSSLCERT sslmode=$PGSSLMODE'|"  /entrypoint.sh \
+    && sed -i "s|^    postgresql:|&\n      parameters:\n        max_connections: 100\n        shared_buffers: 16MB\n        ssl: 'on'\n        ssl_ca_file: $PGSSLROOTCERT\n        ssl_cert_file: $PGSSLCERT\n        ssl_key_file: $PGSSLKEY\n        citus.node_conninfo: 'sslrootcert=$PGSSLROOTCERT sslkey=$PGSSLKEY sslcert=$PGSSLCERT sslmode=$PGSSLMODE'|"  /entrypoint.sh \
+    && sed -i 's/^      pg_hba:/&\n      - local all all trust/' /entrypoint.sh \
+    && sed -i "s/^\(.*\) \(.*\) \(.*\) \(.*\) \(.*\) md5.*$/\1 hostssl \3 \4 all md5 clientcert=$PGSSLMODE/" /entrypoint.sh \
     && sed -i "s#^    \(superuser\|replication\):#&\n      sslmode: $PGSSLMODE\n      sslkey: $PGSSLKEY\n      sslcert: $PGSSLCERT\n      sslrootcert: $PGSSLROOTCERT#" /entrypoint.sh
 
 EXPOSE 5432 8008

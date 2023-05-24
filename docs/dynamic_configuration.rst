@@ -26,6 +26,16 @@ In order to change the dynamic configuration you can use either ``patronictl edi
    -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower. There is no recovery.conf anymore in PostgreSQL 12, but you may continue using this section, because Patroni handles it transparently.
    -  **parameters**: list of configuration settings for Postgres.
 
+   -  **pg\_hba**: list of lines that Patroni will use to generate ``pg_hba.conf``. Patroni ignores this parameter if ``hba_file`` PostgreSQL parameter is set to a non-default value.
+
+      -  **- host all all 0.0.0.0/0 md5**
+      -  **- host replication replicator 127.0.0.1/32 md5**: A line like this is required for replication.
+
+   -  **pg\_ident**: list of lines that Patroni will use to generate ``pg_ident.conf``. Patroni ignores this parameter if ``ident_file`` PostgreSQL parameter is set to a non-default value.
+
+      -  **- mapname1 systemname1 pguser1**
+      -  **- mapname1 systemname2 pguser2**
+
 -  **standby\_cluster**: if this section is defined, we want to bootstrap a standby cluster.
 
    -  **host**: an address of remote node

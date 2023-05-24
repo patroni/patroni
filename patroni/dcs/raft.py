@@ -10,7 +10,7 @@ from pysyncobj.dns_resolver import globalDnsResolver
 from pysyncobj.node import TCPNode
 from pysyncobj.transport import TCPTransport, CONNECTION_STATE
 from pysyncobj.utility import TcpUtility
-from typing import Any, Callable, Collection, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import Any, Callable, Collection, Dict, List, Optional, Set, Union, TYPE_CHECKING
 
 from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory, citus_group_re
 from ..exceptions import DCSError
@@ -114,7 +114,7 @@ class KVStoreTTL(DynMemberSyncObj):
         self.set_retry_timeout(int(config.get('retry_timeout') or 10))
 
         self_addr = config.get('self_addr')
-        partner_addrs = set(config.get('partner_addrs', []))
+        partner_addrs: Set[str] = set(config.get('partner_addrs', []))
         if config.get('patronictl'):
             if self_addr:
                 partner_addrs.add(self_addr)

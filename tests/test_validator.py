@@ -24,7 +24,6 @@ config = {
             "retry_timeout": 1000,
             "maximum_lag_on_failover": 1000
         },
-        "pg_hba": ["string"],
         "initdb": ["string", {"key": "value"}]
     },
     "consul": {

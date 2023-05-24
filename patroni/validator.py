@@ -773,7 +773,6 @@ schema = Schema({
             Optional("retry_timeout"): int,
             Optional("maximum_lag_on_failover"): int
         },
-        "pg_hba": [str],
         Optional("initdb"): [Or(str, dict)]
     },
     Or(*available_dcs): Case({

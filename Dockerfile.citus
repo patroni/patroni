@@ -37,8 +37,10 @@ RUN set -ex \
         && MAKEFLAGS="-j $(grep -c ^processor /proc/cpuinfo)" \
         && cd citus && ./configure && make install && cd ../ && rm -rf /citus; \
     else \
-        curl https://install.citusdata.com/community/deb.sh | bash \
-        && apt-get -y install postgresql-$PG_MAJOR-citus-11.2; \
+        echo "deb [signed-by=/etc/apt/trusted.gpg.d/citusdata_community.gpg] https://packagecloud.io/citusdata/community/debian/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/citusdata_community.list \
+        && curl -sL https://packagecloud.io/citusdata/community/gpgkey | gpg --dearmor > /etc/apt/trusted.gpg.d/citusdata_community.gpg \
+        && apt-get update -y \
+        && apt-get -y install postgresql-$PG_MAJOR-citus-11.3 \
     fi \
     && pip3 install dumb-init \
 \
@@ -88,7 +90,7 @@ RUN set -ex \
                 libmagic1 bsdmainutils login ncurses-bin libmagic-mgc e2fslibs bsdutils \
                 exim4-config gnupg-agent dirmngr libpython2.7-stdlib libpython2.7-minimal \
                 postgresql-server-dev-$PG_MAJOR git gcc make autoconf \
-                libc6-dev flex libcurl4-gnutls-dev libicu-dev libkrb5-dev liblz4-dev \
+                libc6-dev flex libicu-dev libkrb5-dev liblz4-dev \
                 libpam0g-dev libreadline-dev libselinux1-dev libssl-dev libxslt1-dev libzstd-dev uuid-dev \
     && apt-get autoremove -y \
     && apt-get clean -y \
@@ -174,16 +176,17 @@ WORKDIR $PGHOME
 
 RUN sed -i 's/env python/&3/' /patroni*.py \
     # "fix" patroni configs
-    && sed -i 's/^\(  connect_address:\|  - host\)/#&/' postgres?.yml \
     && sed -i 's/^  listen: 127.0.0.1/  listen: 0.0.0.0/' postgres?.yml \
     && sed -i "s|^\(  data_dir: \).*|\1$PGDATA|" postgres?.yml \
     && sed -i "s|^#\(  bin_dir: \).*|\1$PGBIN|" postgres?.yml \
     && sed -i 's/^  - encoding: UTF8/  - locale: en_US.UTF-8\n&/' postgres?.yml \
     && sed -i 's/^scope:/log:\n  loggers:\n    patroni.postgresql.citus: DEBUG\n#&/' postgres?.yml \
-    && sed -i 's/^\(name\|etcd\|  host\|  authentication\|  pg_hba\|  parameters\):/#&/' postgres?.yml \
+    && sed -i 's/^\(name\|etcd\|  host\|  authentication\|  connect_address\|  parameters\):/#&/' postgres?.yml \
     && sed -i 's/^    \(replication\|superuser\|rewind\|unix_socket_directories\|\(\(  \)\{0,1\}\(username\|password\)\)\):/#&/' postgres?.yml \
     && sed -i 's/^postgresql:/&\n  basebackup:\n    checkpoint: fast/' postgres?.yml \
-    && sed -i 's|^      parameters:|      pg_hba:\n      - local all all trust\n      - hostssl replication all all md5 clientcert=verify-ca\n      - hostssl all all all md5 clientcert=verify-ca\n&\n        max_connections: 100\n        shared_buffers: 16MB\n        ssl: "on"\n        ssl_ca_file: /etc/ssl/certs/ssl-cert-snakeoil.pem\n        ssl_cert_file: /etc/ssl/certs/ssl-cert-snakeoil.pem\n        ssl_key_file: /etc/ssl/private/ssl-cert-snakeoil.key\n        citus.node_conninfo: "sslrootcert=/etc/ssl/certs/ssl-cert-snakeoil.pem sslkey=/etc/ssl/private/ssl-cert-snakeoil.key sslcert=/etc/ssl/certs/ssl-cert-snakeoil.pem sslmode=verify-ca"|'  postgres?.yml \
+    && sed -i 's|^      parameters:|&\n        max_connections: 100\n        shared_buffers: 16MB\n        ssl: "on"\n        ssl_ca_file: /etc/ssl/certs/ssl-cert-snakeoil.pem\n        ssl_cert_file: /etc/ssl/certs/ssl-cert-snakeoil.pem\n        ssl_key_file: /etc/ssl/private/ssl-cert-snakeoil.key\n        citus.node_conninfo: "sslrootcert=/etc/ssl/certs/ssl-cert-snakeoil.pem sslkey=/etc/ssl/private/ssl-cert-snakeoil.key sslcert=/etc/ssl/certs/ssl-cert-snakeoil.pem sslmode=verify-ca"|'  postgres?.yml \
+    && sed -i 's/^      pg_hba:/&\n      - local all all trust/' postgres?.yml \
+    && sed -i 's/^\(.*\) \(.*\) \(.*\) \(.*\) \(.*\) md5.*$/\1 hostssl \3 \4 all md5 clientcert=verify-ca/' postgres?.yml \
     && sed -i 's/^#\(ctl\|  certfile\|  keyfile\)/\1/' postgres?.yml \
     && sed -i 's|^#  cafile: .*$|  verify_client: required\n  cafile: /etc/ssl/certs/ssl-cert-snakeoil.pem|' postgres?.yml \
     && sed -i 's|^#  cacert: .*$|  cacert: /etc/ssl/certs/ssl-cert-snakeoil.pem|' postgres?.yml \
