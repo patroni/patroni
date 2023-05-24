@@ -798,7 +798,7 @@ class Etcd(AbstractEtcd):
         return bool(self._client.set(self.failsafe_path, value))
 
     @catch_return_false_exception
-    def _update_leader(self) -> bool:
+    def _update_leader(self, leader: Leader) -> bool:
         return bool(self._run_and_handle_exceptions(self._do_update_leader, retry=None))
 
     @catch_etcd_errors

@@ -235,16 +235,17 @@ class TestEtcd3(BaseTestEtcd3):
             self.etcd3.touch_member({})
 
     def test__update_leader(self):
+        leader = self.etcd3.get_cluster().leader
         self.etcd3._lease = None
-        self.etcd3.update_leader('123', failsafe={'foo': 'bar'})
+        self.etcd3.update_leader(leader, '123', failsafe={'foo': 'bar'})
         self.etcd3._last_lease_refresh = 0
-        self.etcd3.update_leader('124')
+        self.etcd3.update_leader(leader, '124')
         with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(return_value=True)),\
                 patch('time.time', Mock(side_effect=[0, 100, 200, 300])):
-            self.assertRaises(Etcd3Error, self.etcd3.update_leader, '126')
+            self.assertRaises(Etcd3Error, self.etcd3.update_leader, leader, '126')
         self.etcd3._last_lease_refresh = 0
         with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(side_effect=Unknown)):
-            self.assertFalse(self.etcd3.update_leader('125'))
+            self.assertFalse(self.etcd3.update_leader(leader, '125'))
 
     def test_take_leader(self):
         self.assertFalse(self.etcd3.take_leader())

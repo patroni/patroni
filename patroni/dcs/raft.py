@@ -419,7 +419,7 @@ class Raft(AbstractDCS):
     def _write_failsafe(self, value: str) -> bool:
         return self._sync_obj.set(self.failsafe_path, value, timeout=1) is not False
 
-    def _update_leader(self) -> bool:
+    def _update_leader(self, leader: Leader) -> bool:
         ret = self._sync_obj.set(self.leader_path, self._name, ttl=self._ttl,
                                  handle_raft_error=False, prevValue=self._name) is not False
         if not ret and self._sync_obj.get(self.leader_path) is None:

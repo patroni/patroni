@@ -867,7 +867,7 @@ class Etcd3(AbstractEtcd):
         return bool(self._client.put(self.failsafe_path, value))
 
     @catch_return_false_exception
-    def _update_leader(self) -> bool:
+    def _update_leader(self, leader: Leader) -> bool:
         retry = self._retry.copy()
 
         def _retry(*args: Any, **kwargs: Any) -> Any:
@@ -876,19 +876,16 @@ class Etcd3(AbstractEtcd):
 
         self._run_and_handle_exceptions(self._do_refresh_lease, True, retry=_retry)
 
-        if self._lease:
-            cluster = self.cluster
-            leader_lease = cluster and isinstance(cluster.leader, Leader) and cluster.leader.session
-            if leader_lease != self._lease:
-                retry.deadline = retry.stoptime - time.time()
-                if retry.deadline < 1:
-                    raise Etcd3Error('update_leader timeout')
+        if self._lease and leader.session != self._lease:
+            retry.deadline = retry.stoptime - time.time()
+            if retry.deadline < 1:
+                raise Etcd3Error('update_leader timeout')
 
-                try:
-                    self._run_and_handle_exceptions(self._client.put, self.leader_path,
-                                                    self._name, self._lease, '0', retry=_retry)
-                except ReturnFalseException:
-                    pass
+            try:
+                self._run_and_handle_exceptions(self._client.put, self.leader_path,
+                                                self._name, self._lease, '0', retry=_retry)
+            except ReturnFalseException:
+                pass
         return bool(self._lease)
 
     @catch_etcd_errors

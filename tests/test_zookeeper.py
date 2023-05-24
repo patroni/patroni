@@ -250,14 +250,15 @@ class TestZooKeeper(unittest.TestCase):
             self.zk.take_leader()
 
     def test_update_leader(self):
-        self.assertFalse(self.zk.update_leader(12345))
+        leader = self.zk.get_cluster().leader
+        self.assertFalse(self.zk.update_leader(leader, 12345))
         with patch.object(MockKazooClient, 'delete', Mock(side_effect=RetryFailedError)):
-            self.assertRaises(ZooKeeperError, self.zk.update_leader, 12345)
+            self.assertRaises(ZooKeeperError, self.zk.update_leader, leader, 12345)
         with patch.object(MockKazooClient, 'delete', Mock(side_effect=NoNodeError)):
-            self.assertTrue(self.zk.update_leader(12345, failsafe={'foo': 'bar'}))
+            self.assertTrue(self.zk.update_leader(leader, 12345, failsafe={'foo': 'bar'}))
             with patch.object(MockKazooClient, 'create', Mock(side_effect=[RetryFailedError, Exception])):
-                self.assertRaises(ZooKeeperError, self.zk.update_leader, 12345)
-                self.assertFalse(self.zk.update_leader(12345))
+                self.assertRaises(ZooKeeperError, self.zk.update_leader, leader, 12345)
+                self.assertFalse(self.zk.update_leader(leader, 12345))
 
     @patch.object(Cluster, 'min_version', PropertyMock(return_value=(2, 0)))
     def test_write_leader_optime(self):

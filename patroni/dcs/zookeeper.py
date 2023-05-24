@@ -443,10 +443,8 @@ class ZooKeeper(AbstractDCS):
     def _write_failsafe(self, value: str) -> bool:
         return self._set_or_create(self.failsafe_path, value) is not False
 
-    def _update_leader(self) -> bool:
-        cluster = self.cluster
-        session = cluster and isinstance(cluster.leader, Leader) and cluster.leader.session
-        if self._client.client_id and self._client.client_id[0] != session:
+    def _update_leader(self, leader: Leader) -> bool:
+        if self._client.client_id and self._client.client_id[0] != leader.session:
             logger.warning('Recreating the leader ZNode due to ownership mismatch')
             try:
                 self._client.retry(self._client.delete, self.leader_path)

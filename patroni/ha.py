@@ -240,7 +240,7 @@ class Ha(object):
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
         try:
-            ret = self.dcs.update_leader(last_lsn, slots, self._failsafe_config())
+            ret = self.dcs.update_leader(self.cluster.leader, last_lsn, slots, self._failsafe_config())
         except DCSError:
             raise
         except Exception:
