@@ -557,7 +557,6 @@ class Schema(object):
             instance.
         """
         self.validator = validator
-        # self.data: Any = None
 
     def __call__(self, data: Any) -> List[str]:
         """Perform validation of data using the rules defined in this schema.
