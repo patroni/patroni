@@ -236,12 +236,15 @@ class TestEtcd3(BaseTestEtcd3):
 
     def test__update_leader(self):
         self.etcd3._lease = None
-        self.etcd3.update_leader('123', failsafe={'foo': 'bar'})
+        with patch.object(Etcd3Client, 'txn', Mock(return_value={'succeeded': True})):
+            self.etcd3.update_leader('123', failsafe={'foo': 'bar'})
         self.etcd3._last_lease_refresh = 0
         self.etcd3.update_leader('124')
         with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(return_value=True)),\
                 patch('time.time', Mock(side_effect=[0, 100, 200, 300])):
             self.assertRaises(Etcd3Error, self.etcd3.update_leader, '126')
+        self.etcd3._lease = self.etcd3.cluster.leader.session
+        self.etcd3.update_leader('124')
         self.etcd3._last_lease_refresh = 0
         with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(side_effect=Unknown)):
             self.assertFalse(self.etcd3.update_leader('125'))
