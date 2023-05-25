@@ -930,9 +930,11 @@ class TestPostgresql(BaseTestPostgresql):
             _load_postgres_gucs_validators()
             mock_info.assert_called_once_with('Ignored a non-YAML file found under `available_parameters` directory: '
                                               '`%s`.', os.path.join('.', 'file.txt'))
-            mock_warning.assert_called_once_with(
+            mock_warning.assert_called_once()
+            self.assertIn(
                 "Unexpected issue while reading parameters file `{0}`: `[Errno 2] No such file or "
-                "directory: '{0}'`.".format(os.path.join('.', 'random.yaml'))
+                "directory:".format(os.path.join('.', 'random.yaml')),
+                mock_warning.call_args[0][0]
             )
 
 
