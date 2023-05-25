@@ -10,7 +10,6 @@ from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 import patroni.psycopg as psycopg
 
 from patroni.async_executor import CriticalTask
-from patroni.collections import CaseInsensitiveDict
 from patroni.config import GlobalConfig
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PostgresConnectionException, PatroniException
