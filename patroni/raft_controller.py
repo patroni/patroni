@@ -1,7 +1,7 @@
 import logging
 
 from .config import Config
-from .daemon import AbstractPatroniDaemon, abstract_main
+from .daemon import AbstractPatroniDaemon, abstract_main, get_base_arg_parser
 from .dcs.raft import KVStoreTTL
 
 logger = logging.getLogger(__name__)
@@ -27,4 +27,7 @@ class RaftController(AbstractPatroniDaemon):
 
 
 def main() -> None:
-    abstract_main(RaftController)
+    parser = get_base_arg_parser()
+    args = parser.parse_args()
+
+    abstract_main(RaftController, args.configfile)
