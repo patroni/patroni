@@ -604,25 +604,20 @@ class Consul(AbstractDCS):
             raise ReturnFalseException
 
     @catch_return_false_exception
-    def _update_leader(self) -> bool:
+    def _update_leader(self, leader: Leader) -> bool:
         retry = self._retry.copy()
 
         self._run_and_handle_exceptions(self._do_refresh_session, True, retry=retry)
 
-        if self._session:
-            cluster = self.cluster
-            leader_session = cluster and isinstance(cluster.leader, Leader) and cluster.leader.session
-            if leader_session != self._session:
-                retry.ensure_deadline(1, ConsulError('update_leader timeout'))
+        if self._session and leader.session != self._session:
+            retry.ensure_deadline(1, ConsulError('update_leader timeout'))
 
-                logger.warning('Recreating the leader key due to session mismatch')
-                if cluster and cluster.leader:
-                    self._run_and_handle_exceptions(self._client.kv.delete, self.leader_path,
-                                                    cas=cluster.leader.version)
+            logger.warning('Recreating the leader key due to session mismatch')
+            self._run_and_handle_exceptions(self._client.kv.delete, self.leader_path, cas=leader.version)
 
-                retry.ensure_deadline(0.5, ConsulError('update_leader timeout'))
-                self._run_and_handle_exceptions(self._client.kv.put, self.leader_path,
-                                                self._name, acquire=self._session)
+            retry.ensure_deadline(0.5, ConsulError('update_leader timeout'))
+
+            self._run_and_handle_exceptions(self._client.kv.put, self.leader_path, self._name, acquire=self._session)
 
         return bool(self._session)
 

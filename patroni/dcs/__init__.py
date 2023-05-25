@@ -965,25 +965,26 @@ class AbstractDCS(abc.ABC):
         return self._last_failsafe
 
     @abc.abstractmethod
-    def _update_leader(self) -> bool:
+    def _update_leader(self, leader: Leader) -> bool:
         """Update leader key (or session) ttl
 
-        :returns: `!True` if leader key (or session) has been updated successfully.
+        :param leader: a reference to a current leader key object
+        :returns: `!True` if leader key (or session) has been updated successfully
 
         You have to use CAS (Compare And Swap) operation in order to update leader key,
         for example for etcd `prevValue` parameter must be used.
         If update fails due to DCS not being accessible or because it is not able to
         process requests (hopefuly temporary), the ~DCSError exception should be raised."""
 
-    def update_leader(self, last_lsn: Optional[int], slots: Optional[Dict[str, int]] = None,
-                      failsafe: Optional[Dict[str, str]] = None) -> bool:
+    def update_leader(self, leader: Leader, last_lsn: Optional[int],
+                      slots: Optional[Dict[str, int]] = None, failsafe: Optional[Dict[str, str]] = None) -> bool:
         """Update leader key (or session) ttl and optime/leader
 
         :param last_lsn: absolute WAL LSN in bytes
         :param slots: dict with permanent slots confirmed_flush_lsn
         :returns: `!True` if leader key (or session) has been updated successfully."""
 
-        ret = self._update_leader()
+        ret = self._update_leader(leader)
         if ret and last_lsn:
             status: Dict[str, Any] = {self._OPTIME: last_lsn}
             if slots:

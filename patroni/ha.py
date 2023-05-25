@@ -239,8 +239,10 @@ class Ha(object):
                 slots = self.state_handler.slots()
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
+        if TYPE_CHECKING:  # pragma: no cover
+            assert self.cluster.leader is not None
         try:
-            ret = self.dcs.update_leader(last_lsn, slots, self._failsafe_config())
+            ret = self.dcs.update_leader(self.cluster.leader, last_lsn, slots, self._failsafe_config())
         except DCSError:
             raise
         except Exception:
