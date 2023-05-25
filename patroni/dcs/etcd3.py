@@ -607,9 +607,13 @@ class PatroniEtcd3Client(Etcd3Client):
 
         if self._kv_cache:
             value = delete = None
+            # For the 'failure' case we only support a second (nested) transaction that attempts to
+            # update/delete the same keys. Anything more complex than that we don't need and therefore it doesn't
+            # make sense to write a universal response analyzer and we can just check expected JSON path.
             if method == '/kv/txn'\
                     and (ret.get('succeeded') or 'failure' in fields and 'request_txn' in fields['failure'][0]
-                         and ret.get('responses', [{}])[0].get('response_txn', {}).get('succeeded')):
+                         and ret.get('responses', [{'response_txn': {'succeeded': False}}])[0]
+                         .get('response_txn', {}).get('succeeded')):
                 on_success = fields['success'][0]
                 value = on_success.get('request_put')
                 delete = on_success.get('request_delete_range')
