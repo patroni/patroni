@@ -19,8 +19,9 @@ from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import (ValidatorFactoryNoType, ValidatorFactoryInvalidType,
-                                          ValidatorFactoryInvalidSpec, ValidatorFactory,
-                                          _get_postgres_guc_validators, Bool, Integer, Real, Enum, EnumBool, String)
+                                          ValidatorFactoryInvalidSpec, ValidatorFactory, InvalidGucValidatorsFile,
+                                          _get_postgres_guc_validators, _read_postgres_gucs_validators_file,
+                                          _load_postgres_gucs_validators, Bool, Integer, Real, Enum, EnumBool, String)
 from patroni.utils import RetryFailedError
 from threading import Thread, current_thread
 
@@ -873,6 +874,7 @@ class TestPostgresql(BaseTestPostgresql):
         )
 
     def test__get_postgres_guc_validators(self):
+        # normal run
         parameter = 'my_parameter'
 
         config = {
@@ -894,6 +896,42 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertEqual(len(ret), 2)
         self.assertIsInstance(ret[0], Bool)
         self.assertIsInstance(ret[1], EnumBool)
+
+        # log exceptions
+        del config[parameter][0]['type']
+
+        with patch('patroni.postgresql.validator.logger.warning') as mock_logger:
+            ret = _get_postgres_guc_validators(config, parameter)
+            self.assertIsInstance(ret, tuple)
+            self.assertEqual(len(ret), 1)
+            self.assertIsInstance(ret[0], EnumBool)
+
+            mock_logger.assert_called_once()
+            mock_call = mock_logger.call_args[0]
+            self.assertEqual(mock_call[0], 'Faced an issue while parsing a validator for parameter `%s`: `%r`')
+            self.assertEqual(mock_call[1], parameter)
+            self.assertIsInstance(mock_call[2], ValidatorFactoryNoType)
+
+    def test__read_postgres_gucs_validators_file(self):
+        # raise exception
+        with self.assertRaises(InvalidGucValidatorsFile) as exc:
+            _read_postgres_gucs_validators_file('random_file.yaml')
+        self.assertEqual(
+            str(exc.exception),
+            "Unexpected issue while reading parameters file `random_file.yaml`: `[Errno 2] No such file or directory: "
+            "'random_file.yaml'`."
+        )
+
+    def test__load_postgres_gucs_validators(self):
+        # log messages
+        with patch('os.walk', Mock(return_value=iter([('.', [], ['file.txt', 'random.yaml'])]))), \
+             patch('patroni.postgresql.validator.logger.info') as mock_info, \
+             patch('patroni.postgresql.validator.logger.warning') as mock_warning:
+            _load_postgres_gucs_validators()
+            mock_info.assert_called_once_with('Ignored a non-YAML file found under `available_parameters` directory: '
+                                              '`%s`.', './file.txt')
+            mock_warning.assert_called_once_with("Unexpected issue while reading parameters file `./random.yaml`: "
+                                                 "`[Errno 2] No such file or directory: './random.yaml'`.")
 
 
 @patch('subprocess.call', Mock(return_value=0))
