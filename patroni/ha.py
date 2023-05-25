@@ -879,6 +879,7 @@ class Ha(object):
         """Returns if instance with an wal should consider itself unhealthy to be promoted due to replication lag.
 
         :param wal_position: Current wal position.
+
         :returns True when node is lagging
         """
         lag = (self.cluster.last_lsn or 0) - wal_position
@@ -956,7 +957,7 @@ class Ha(object):
 
         :returns: - `True` if the current node is the best candidate to become the new leader
                   - `None` if the current node is running as a primary and requested candidate doesn't exist
-                  """
+        """
         failover = self.cluster.failover
         if TYPE_CHECKING:  # pragma: no cover
             assert failover is not None
@@ -1013,6 +1014,7 @@ class Ha(object):
         """Performs a series of checks to determine that the current node is the best candidate.
 
         In case if manual failover/switchover is requested it calls :func:`manual_failover_process_no_leader` method.
+
         :returns: `True` if the current node is among the best candidates to become the new leader.
         """
         if time.time() - self._released_leader_key_timestamp < self.dcs.ttl:
@@ -1097,13 +1099,15 @@ class Ha(object):
     def demote(self, mode: str) -> Optional[bool]:
         """Demote PostgreSQL running as primary.
 
-        :param mode: One of offline, graceful or immediate.
-            offline is used when connection to DCS is not available.
-            graceful is used when failing over to another node due to user request. May only be called running async.
-            immediate is used when we determine that we are not suitable for primary and want to failover quickly
-                without regard for data durability. May only be called synchronously.
-            immediate-nolock is used when find out that we have lost the lock to be primary. Need to bring down
-                PostgreSQL as quickly as possible without regard for data durability. May only be called synchronously.
+        :param mode: One of offline, graceful, immediate or immediate-nolock.
+                     ``offline`` is used when connection to DCS is not available.
+                     ``graceful`` is used when failing over to another node due to user request. May only be called
+                     running async.
+                     ``immediate`` is used when we determine that we are not suitable for primary and want to failover
+                     quickly without regard for data durability. May only be called synchronously.
+                     ``immediate-nolock`` is used when find out that we have lost the lock to be primary. Need to bring
+                     down PostgreSQL as quickly as possible without regard for data durability. May only be called
+                     synchronously.
         """
         mode_control = {
             'offline':          dict(stop='fast',      checkpoint=False, release=False, offline=True,  async_req=False),  # noqa: E241,E501
@@ -1485,9 +1489,7 @@ class Ha(object):
         self._async_executor.run_async(self._do_reinitialize, args=(cluster, ))
 
     def handle_long_action_in_progress(self) -> str:
-        """
-        Figure out what to do with the task AsyncExecutor is performing.
-        """
+        """Figure out what to do with the task AsyncExecutor is performing."""
         if self.has_lock() and self.update_lock():
             if self._async_executor.scheduled_action == 'doing crash recovery in a single user mode':
                 time_left = self.global_config.primary_start_timeout - (time.time() - self._crash_recovery_started)
@@ -1582,8 +1584,7 @@ class Ha(object):
         return 'initialized a new cluster'
 
     def handle_starting_instance(self) -> Optional[str]:
-        """Starting up PostgreSQL may take a long time. In case we are the leader we may want to
-        fail over to."""
+        """Starting up PostgreSQL may take a long time. In case we are the leader we may want to fail over to."""
 
         # Check if we are in startup, when paused defer to main loop for manual failovers.
         if not self.state_handler.check_for_startup() or self.is_paused():
@@ -1623,7 +1624,8 @@ class Ha(object):
     def set_start_timeout(self, value: Optional[int]) -> None:
         """Sets timeout for starting as primary before eligible for failover.
 
-        Must be called when async_executor is busy or in the main thread."""
+        Must be called when async_executor is busy or in the main thread.
+        """
         self._start_timeout = value
 
     def _run_cycle(self) -> str:
@@ -1828,7 +1830,9 @@ class Ha(object):
         """Handles replication slots.
 
         :param dcs_failed: bool, indicates that communication with DCS failed (get_cluster() or update_leader())
-        :returns: list[str], replication slots names that should be copied from the primary"""
+
+        :returns: list[str], replication slots names that should be copied from the primary
+        """
 
         slots: List[str] = []
 
@@ -1918,15 +1922,16 @@ class Ha(object):
         return self.dcs.watch(leader_version, timeout)
 
     def wakeup(self) -> None:
-        """Call of this method will trigger the next run of HA loop if there is
-        no "active" leader watch request in progress.
+        """Trigger the next run of HA loop if there is no "active" leader watch request in progress.
+
         This usually happens on the leader or if the node is running async action"""
         self.dcs.event.set()
 
     def get_remote_member(self, member: Union[Leader, Member, None] = None) -> RemoteMember:
-        """ In case of standby cluster this will tel us from which remote
-            member to stream. Config can be both patroni config or
-            cluster.config.data
+        """Get remote member node to stream from.
+
+        In case of standby cluster this will tell us from which remote member to stream. Config can be both patroni
+        config or cluster.config.data.
         """
         data: Dict[str, Any] = {}
         cluster_params = self.global_config.get_standby_cluster_config()

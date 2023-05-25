@@ -48,7 +48,7 @@ def error_exception(self: logging.Logger, msg: object, *args: Any, **kwargs: Any
 
     .. note::
         * By default issue an ``ERROR`` message with the complete stack trace. If you do not want to show the complete
-        stack trace, call with ``exc_info=False``.
+          stack trace, call with ``exc_info=False``.
 
     :param self: logger for which :func:`exception` will be processed.
     :param msg: the message related to the exception to be logged.
@@ -203,7 +203,7 @@ class PatroniLogger(Thread):
         self._root_logger.addHandler(self._proxy_handler)
 
     def update_loggers(self) -> None:
-        """Configure loggers' log level as defined in ``log.loggers` section of Patroni configuration.
+        """Configure loggers' log level as defined in ``log.loggers`` section of Patroni configuration.
 
         .. note::
             It creates logger objects that are not defined yet in the log manager.

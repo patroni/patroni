@@ -682,18 +682,23 @@ def uri(proto: str, netloc: Union[List[str], Tuple[str, Union[int, str]], str], 
 
     :param proto: the URI protocol.
     :param netloc: the URI host(s) and port. Can be specified in either way among
+
         * A :class:`list` or :class:`tuple`. The second item should be a port, and the first item should be composed of
             hosts in either of these formats:
+
             * ``host``; or.
             * ``host1,host2,...,hostn``.
+
         * A :class:`str` in either of these formats:
+
             * ``host:port``; or
             * ``host1,host2,...,hostn:port``.
 
         In all cases, each ``host`` portion of *netloc* can be either:
-        * An FQDN; or
-        * An IPv4 address; or
-        * An IPv6 address, with or without square brackets.
+
+            * An FQDN; or
+            * An IPv4 address; or
+            * An IPv6 address, with or without square brackets.
 
     :param path: the URI path.
     :param user: the authenticating user, if any.
@@ -909,8 +914,9 @@ def keepalive_socket_options(timeout: int, idle: int, cnt: int = 3) -> Iterator[
     :param cnt: value for ``TCP_KEEPCNT``.
 
     :rtype: Iterator[Tuple[:class:`int`, :class:`int`, :class:`int`]] of all keepalive related socket options to be
-        set. The first item in the tuple is the protocol, the second item is the option, and the third item is the
-        value to be used. The return values depend on the platform:
+            set. The first item in the tuple is the protocol, the second item is the option, and the third item is the
+            value to be used. The return values depend on the platform:
+
         * ``Windows``: yield ``SO_KEEPALIVE``;
         * ``Linux``: yield ``SO_KEEPALIVE``, ``TCP_USER_TIMEOUT``, ``TCP_KEEPIDLE`, ``TCP_KEEPINTVL``, and
             ``TCP_KEEPCNT``;

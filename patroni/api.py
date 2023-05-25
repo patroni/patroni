@@ -49,9 +49,10 @@ def check_access(func: Callable[['RestApiHandler'], None]) -> Callable[..., None
 
     :Example:
 
-        @check_access
-        def do_PUT_foo():
-            pass
+        >>> @check_access
+        >>> def do_PUT_foo():
+        >>>    pass
+
     """
 
     def wrapper(self: 'RestApiHandler', *args: Any, **kwargs: Any) -> None:
@@ -204,32 +205,54 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Is used for handling all health-checks requests. E.g. "GET /(primary|replica|sync|async|etc...)".
 
         The (optional) query parameters and the HTTP response status depend on the requested path:
+
             * ``/``, ``primary``, or ``read-write``:
+
                 * HTTP status ``200``: if a primary with the leader lock.
+
             * ``/standby-leader``:
+
                 * HTTP status ``200``: if holds the leader lock in a standby cluster.
+
             * ``/leader``:
+
                 * HTTP status ``200``: if holds the leader lock.
+
             * ``/replica``:
+
                 * Query parameters:
+
                     * ``lag``: only accept replication lag up to ``lag``. Accepts either an :class:`int`, which
                         represents lag in bytes, or a :class:`str` representing lag in human-readable format (e.g.
                         ``10MB``).
                     * Any custom parameter: will attempt to match them against node tags.
+
                 * HTTP status ``200``: if up and running as a standby and without ``noloadbalance`` tag.
+
             * ``/read-only``:
+
                 * HTTP status ``200``: if up and running and without ``noloadbalance`` tag.
+
             * ``/synchronous`` or ``/sync``:
+
                 * HTTP status ``200``: if up and running as a synchronous standby.
+
             * ``/read-only-sync``:
+
                 * HTTP status ``200``: if up and running as a synchronous standby or primary.
+
             * ``/asynchronous``:
+
                 * Query parameters:
+
                     * ``lag``: only accept replication lag up to ``lag``. Accepts either an :class:`int`, which
                         represents lag in bytes, or a :class:`str` representing lag in human-readable format (e.g.
                         ``10MB``).
+
                 * HTTP status ``200``: if up and running as an asynchronous standby.
+
             * ``/health``:
+
                 * HTTP status ``200``: if up and running.
 
         .. note::
@@ -350,11 +373,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """Handle a ``GET`` request to ``/liveness`` path.
 
         Write a simple HTTP response with HTTP status:
+
             * ``200``:
+
                 * If the cluster is in maintenance mode; or
                 * If Patroni heartbeat loop is properly running;
+
             * ``503`` if Patroni heartbeat loop last run was more than ``ttl`` setting ago on the primary (or twice the
                 value of ``ttl`` on a replica).
+
         """
         patroni: Patroni = self.server.patroni
         is_primary = patroni.postgresql.role in ('master', 'primary') and patroni.postgresql.is_running()
@@ -371,10 +398,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """Handle a ``GET`` request to ``/readiness`` path.
 
         Write a simple HTTP response which HTTP status can be:
+
             * ``200``:
+
                 * If this Patroni node holds the DCS leader lock; or
                 * If this PostgreSQL instance is up and running;
+
             * ``503``: if none of the previous conditions apply.
+
         """
         patroni = self.server.patroni
         if patroni.ha.is_leader():
@@ -412,11 +443,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         The response contains a :class:`list` of failover/switchover events. Each item is a :class:`list` with the
         following items:
+
             * Timeline when the event occurred (class:`int`);
             * LSN at which the event occurred (class:`int`);
             * The reason for the event (class:`str`);
             * Timestamp when the new timeline was created (class:`str`);
             * Name of the involved Patroni node (class:`str`).
+
         """
         cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
         self._write_json_response(200, cluster.history and cluster.history.lines or [])
@@ -443,32 +476,33 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         The response contains the following items:
 
-        * ``patroni_version``: Patroni version without periods, e.g. ``030002`` for Patroni ``3.0.2``;
-        * ``patroni_postgres_running``: ``1`` if PostgreSQL is running, else ``0``;
-        * ``patroni_postmaster_start_time``: epoch timestamp since Postmaster was started;
-        * ``patroni_master``: ``1`` if this node holds the leader lock, else ``0``;
-        * ``patroni_primary``: same as ``patroni_master``;
-        * ``patroni_xlog_location``: ``pg_wal_lsn_diff(pg_current_wal_flush_lsn(), '0/0')`` if leader, else ``0``;
-        * ``patroni_standby_leader``: ``1`` if standby leader node, else ``0``;
-        * ``patroni_replica``: ``1`` if a replica, else ``0``;
-        * ``patroni_sync_standby``: ``1`` if a sync replica, else ``0``;
-        * ``patroni_xlog_received_location``: ``pg_wal_lsn_diff(pg_last_wal_receive_lsn(), '0/0')``;
-        * ``patroni_xlog_replayed_location``: ``pg_wal_lsn_diff(pg_last_wal_replay_lsn(), '0/0)``;
-        * ``patroni_xlog_replayed_timestamp``: ``pg_last_xact_replay_timestamp``;
-        * ``patroni_xlog_paused``: ``pg_is_wal_replay_paused()``;
-        * ``patroni_postgres_server_version``: Postgres version without periods, e.g. ``150002`` for Postgres ``15.2``;
-        * ``patroni_cluster_unlocked``: ``1`` if no one holds the leader lock, else ``0``;
-        * ``patroni_failsafe_mode_is_active``: ``1`` if ``failsafe_mode`` is currently active, else ``0``;
-        * ``patroni_postgres_timeline``: PostgreSQL timeline based on current WAL file name;
-        * ``patroni_dcs_last_seen``: epoch timestamp when DCS was last contacted successfully;
-        * ``patroni_pending_restart``: ``1`` if this PostgreSQL node is pending a restart, else ``0``;
-        * ``patroni_is_paused``: ``1`` if Patroni is in maintenance node, else ``0``.
+            * ``patroni_version``: Patroni version without periods, e.g. ``030002`` for Patroni ``3.0.2``;
+            * ``patroni_postgres_running``: ``1`` if PostgreSQL is running, else ``0``;
+            * ``patroni_postmaster_start_time``: epoch timestamp since Postmaster was started;
+            * ``patroni_master``: ``1`` if this node holds the leader lock, else ``0``;
+            * ``patroni_primary``: same as ``patroni_master``;
+            * ``patroni_xlog_location``: ``pg_wal_lsn_diff(pg_current_wal_flush_lsn(), '0/0')`` if leader, else ``0``;
+            * ``patroni_standby_leader``: ``1`` if standby leader node, else ``0``;
+            * ``patroni_replica``: ``1`` if a replica, else ``0``;
+            * ``patroni_sync_standby``: ``1`` if a sync replica, else ``0``;
+            * ``patroni_xlog_received_location``: ``pg_wal_lsn_diff(pg_last_wal_receive_lsn(), '0/0')``;
+            * ``patroni_xlog_replayed_location``: ``pg_wal_lsn_diff(pg_last_wal_replay_lsn(), '0/0)``;
+            * ``patroni_xlog_replayed_timestamp``: ``pg_last_xact_replay_timestamp``;
+            * ``patroni_xlog_paused``: ``pg_is_wal_replay_paused()``;
+            * ``patroni_postgres_server_version``: Postgres version without periods, e.g. ``150002`` for Postgres
+              ``15.2``;
+            * ``patroni_cluster_unlocked``: ``1`` if no one holds the leader lock, else ``0``;
+            * ``patroni_failsafe_mode_is_active``: ``1`` if ``failsafe_mode`` is currently active, else ``0``;
+            * ``patroni_postgres_timeline``: PostgreSQL timeline based on current WAL file name;
+            * ``patroni_dcs_last_seen``: epoch timestamp when DCS was last contacted successfully;
+            * ``patroni_pending_restart``: ``1`` if this PostgreSQL node is pending a restart, else ``0``;
+            * ``patroni_is_paused``: ``1`` if Patroni is in maintenance node, else ``0``.
 
         For PostgreSQL v9.6+ the response will also have the following:
 
-        * ``patroni_postgres_streaming``: 1 if Postgres is streaming from another node, else ``0``;
-        * ``patroni_postgres_in_archive_recovery``: ``1`` if Postgres isn't streaming and
-                                                    there is ``restore_command`` available, else ``0``.
+            * ``patroni_postgres_streaming``: 1 if Postgres is streaming from another node, else ``0``;
+            * ``patroni_postgres_in_archive_recovery``: ``1`` if Postgres isn't streaming and
+              there is ``restore_command`` available, else ``0``.
         """
         postgres = self.get_postgresql_status(True)
         patroni = self.server.patroni
@@ -728,13 +762,17 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :param schedule: a string representing a timestamp, e.g. ``2023-04-14T20:27:00+00:00``.
         :param action: the action to be scheduled (``restart``, ``switchover``, or ``failover``).
 
-        :returns: a tuple composed of 3 items
+        :returns: a tuple composed of 3 items:
+
             * Suggested HTTP status code for a response:
+
                 * ``None``: if no issue was faced while parsing, leaving it up to the caller to decide the status; or
                 * ``400``: if no timezone information could be found in *schedule*; or
                 * ``422``: if *schedule* is invalid -- in the past or not parsable.
+
             * An error message, if any error is faced, otherwise ``None``;
             * Parsed *schedule*, if able to parse, otherwise ``None``.
+
         """
         error = None
         scheduled_at = None
@@ -761,25 +799,31 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Used to restart postgres (or schedule a restart), mainly by ``patronictl restart``.
 
         The request body should be a JSON dictionary, and it can contain the following keys:
+
             * ``schedule``: timestamp at which the restart should occur;
             * ``role``: restart only nodes which role is ``role``. Can be either:
+
                 * ``primary`` (or ``master``); or
                 * ``replica``.
+
             * ``postgres_version``: restart only nodes which PostgreSQL version is less than ``postgres_version``, e.g.
                 ``15.2``;
             * ``timeout``: if restart takes longer than ``timeout`` return an error and fail over to a replica;
             * ``restart_pending``: if we should restart only when have ``pending restart`` flag;
 
         Response HTTP status codes:
+
             * ``200``: if successfully performed an immediate restart; or
             * ``202``: if successfully scheduled a restart for later; or
             * ``500``: if the cluster is in maintenance mode; or
             * ``400``: if
+
                 * ``role`` value is invalid; or
                 * ``postgres_version`` value is invalid; or
                 * ``timeout`` is not a number, or lesser than ``0``; or
                 * request contains an unknown key; or
                 * exception is faced while performing an immediate restart.
+
             * ``409``: if another restart was already previously scheduled; or
             * ``503``: if any issue was found while performing an immediate restart; or
             * HTTP status returned by :func:`parse_schedule`, if any error was observed while parsing the schedule.
@@ -924,11 +968,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :param candidate: name of the Patroni node to be promoted.
         :param action: the action that is ongoing (``switchover`` or ``failover``).
 
-        :returns: a tuple composed of 2 items
+        :returns: a tuple composed of 2 items:
+
             * Response HTTP status codes:
+
                 * ``200``: if the operation succeeded; or
                 * ``503``: if the operation failed or timed out.
+
             * A status message about the operation.
+
         """
         timeout = max(10, self.server.patroni.dcs.loop_wait)
         for _ in range(0, timeout * 2):
@@ -1090,14 +1138,17 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         Original class can only invoke :func:`do_GET`, :func:`do_POST`, :func:`do_PUT`, etc method implementations if
         they are defined.
+
         But we would like to have at least some simple routing mechanism, i.e.:
+
             * ``GET /uri1/part2`` request should invoke :func:`do_GET_uri1()`
             * ``POST /other`` should invoke :func:`do_POST_other()`
 
         If the :func:`do_<REQUEST_METHOD>_<first_part_url>` method does not exist we'll fall back to original behavior.
 
         :returns: ``True`` for success, ``False`` for failure; on failure, any relevant error response has already been
-        sent back.
+                  sent back.
+
         """
         ret = BaseHTTPRequestHandler.parse_request(self)
         if ret:
@@ -1132,35 +1183,44 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         :param retry: whether the query should be retried if failed or give up immediately
         :returns: a dict with the status of Postgres/Patroni. The keys are:
+
             * ``state``: Postgres state among ``stopping``, ``stopped``, ``stop failed``, ``crashed``, ``running``,
-                ``starting``, ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``,
-                ``initdb failed``, ``running custom bootstrap script``, ``custom bootstrap failed``,
-                ``creating replica``, or ``unknown``;
+              ``starting``, ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``,
+              ``initdb failed``, ``running custom bootstrap script``, ``custom bootstrap failed``,
+              ``creating replica``, or ``unknown``;
             * ``postmaster_start_time``: ``pg_postmaster_start_time()``;
             * ``role``: ``replica`` or ``master`` based on ``pg_is_in_recovery()`` output;
             * ``server_version``: Postgres version without periods, e.g. ``150002`` for Postgres ``15.2``;
             * ``xlog``: dictionary. Its structure depends on ``role``:
+
                 * If ``master``:
+
                     * ``location``: ``pg_current_wal_flush_lsn()``
+
                 * If ``replica``:
+
                     * ``received_location``: ``pg_wal_lsn_diff(pg_last_wal_receive_lsn(), '0/0')``;
                     * ``replayed_location``: ``pg_wal_lsn_diff(pg_last_wal_replay_lsn(), '0/0)``;
                     * ``replayed_timestamp``: ``pg_last_xact_replay_timestamp``;
                     * ``paused``: ``pg_is_wal_replay_paused()``;
+
             * ``sync_standby``: ``True`` if replication mode is synchronous and this is a sync standby;
             * ``timeline``: PostgreSQL primary node timeline;
             * ``replication``: :class:`list` of :class:`dict` entries, one for each replication connection. Each entry
                 contains the following keys:
+
                 * ``application_name``: ``pg_stat_activity.application_name``;
                 * ``client_addr``: ``pg_stat_activity.client_addr``;
                 * ``state``: ``pg_stat_replication.state``;
                 * ``sync_priority``: ``pg_stat_replication.sync_priority``;
                 * ``sync_state``: ``pg_stat_replication.sync_state``;
                 * ``usename``: ``pg_stat_activity.usename``.
+
             * ``pause``: ``True`` if cluster is in maintenance mode;
             * ``cluster_unlocked``: ``True`` if cluster has no node holding the leader lock;
             * ``failsafe_mode_is_active``: ``True`` if DCS failsafe mode is currently active;
             * ``dcs_last_seen``: epoch timestamp DCS was last reached by Patroni.
+
         """
         postgresql = self.server.patroni.postgresql
         cluster = self.server.patroni.dcs.cluster
@@ -1387,8 +1447,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """Ensure client has enough privileges to perform a given request.
 
         Write a response back to the client if any issue is observed, and the HTTP status may be:
+
             * ``401``: if ``Authorization`` header is missing or contain an invalid password;
             * ``403``: if:
+
                 * ``restapi.allowlist`` was configured, but client IP is not in the allowed list; or
                 * ``restapi.allowlist_include_members`` is enabled, but client IP is not in the members list; or
                 * a client certificate is expected by the server, but is missing in the request.
@@ -1468,12 +1530,14 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             ``host`` can be a hostname or IP address. It is the value of ``restapi.listen`` setting.
         :param ssl_options: dictionary that may contain the following keys, depending on what has been configured in
             ``restapi` section:
+
             * ``certfile``: path to PEM certificate. If given, will start in HTTPS mode;
             * ``keyfile``: path to key of ``certfile``;
             * ``keyfile_password``: password for decrypting ``keyfile``;
             * ``cafile``: path to CA file to validate client certificates;
             * ``ciphers``: permitted cipher suites;
             * ``verify_client``: value can be one among:
+
                 * ``none``: do not check client certificates;
                 * ``optional``: check client certificate only for unsafe REST API endpoints;
                 * ``required``: check client certificate for all REST API endpoints.

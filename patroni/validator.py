@@ -32,9 +32,10 @@ def data_directory_empty(data_dir: str) -> bool:
 def validate_connect_address(address: str) -> bool:
     """Check if options related to connection address were properly configured.
 
-    :param address: address to be validated in the format
-        ``host:ip``.
+    :param address: address to be validated in the format ``host:ip``.
+
     :returns: ``True`` if the address is valid.
+
     :raises :class:`patroni.exceptions.ConfigParseError`:
         * If the address is not in the expected format; or
         * If the host is set to not allowed values (``127.0.0.1``, ``0.0.0.0``, ``*``, ``::1``, or ``localhost``).
@@ -58,8 +59,11 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
     :param listen: if the address is expected to be available for binding. ``False`` means it expects to connect to that
         address, and ``True`` that it expects to bind to that address.
     :param multiple_hosts: if *host_port* can contain multiple hosts.
+
     :returns: ``True`` if the host(s) and port are valid.
+
     :raises: :class:`patroni.exceptions.ConfigParserError`:
+
         * If the *host_port* is not in the expected format; or
         * If ``*`` was specified along with more hosts in *host_port*; or
         * If we are expecting to bind to an address that is already in use; or
@@ -153,6 +157,7 @@ def is_ipv4_address(ip: str) -> bool:
 
     :param ip: the IP to be checked.
     :returns: ``True`` if the IP is an IPv4 address.
+
     :raises :class:`patroni.exceptions.ConfigParserError`: if *ip* is not a valid IPv4 address.
     """
     try:
@@ -166,7 +171,9 @@ def is_ipv6_address(ip: str) -> bool:
     """Check if *ip* is a valid IPv6 address.
 
     :param ip: the IP to be checked.
+
     :returns: ``True`` if the IP is an IPv6 address.
+
     :raises :class:`patroni.exceptions.ConfigParserError`: if *ip* is not a valid IPv6 address.
     """
     try:
@@ -196,8 +203,11 @@ def validate_data_dir(data_dir: str) -> bool:
         * Point to a non-empty directory that seems to contain a valid PostgreSQL data directory.
 
     :param data_dir: the value of ``postgresql.data_dir`` configuration option.
+
     :returns: ``True`` if the PostgreSQL data directory is valid.
+
     :raises :class:`patroni.exceptions.ConfigParserError`:
+
         * If no *data_dir* was given; or
         * If *data_dir* is a file and not a directory; or
         * If *data_dir* is a non-empty directory and:
@@ -455,12 +465,13 @@ class Schema(object):
     be performed against each one of them. The validations will be performed whenever the :class:`Schema` object is
     called, or its :func:`validate` method is called.
 
-    :ivar validator: validator of the configuration schema. Can be any of these
+    :ivar validator: validator of the configuration schema. Can be any of these:
+
         * :class:`str`: defines that a string value is required; or
         * :class:`type`: any subclass of `type`, defines that a value of the given type is required; or
         * `callable`: any callable object, defines that validation will follow the code defined in the callable
-            object. If the callable object contains an ``expected_type`` attribute, then it will check if the
-            configuration value is of the expected type before calling the code of the callable object; or
+          object. If the callable object contains an ``expected_type`` attribute, then it will check if the
+          configuration value is of the expected type before calling the code of the callable object; or
         * :class:`list`: list representing one or more values in the configuration; or
         * :class:`dict`: dictionary representing the YAML configuration tree.
     """
@@ -477,11 +488,12 @@ class Schema(object):
             nodes, when it performs checks of the actual setting values.
 
         :param validator: validator of the configuration schema. Can be any of these:
+
             * :class:`str`: defines that a string value is required; or
             * :class:`type`: any subclass of :class:`type`, defines that a value of the given type is required; or
             * `callable`: Any callable object, defines that validation will follow the code defined in the callable
-                object. If the callable object contains an ``expected_type`` attribute, then it will check if the
-                configuration value is of the expected type before calling the code of the callable object; or
+              object. If the callable object contains an ``expected_type`` attribute, then it will check if the
+              configuration value is of the expected type before calling the code of the callable object; or
             * :class:`list`: list representing it expects to contain one or more values in the configuration; or
             * :class:`dict`: dictionary representing the YAML configuration tree.
 
@@ -489,18 +501,22 @@ class Schema(object):
             to stop.
 
             If *validator* is a :class:`dict`, then you should follow these rules:
+
             * For the keys it can be either:
+
                 * A :class:`str` instance. It will be the name of the configuration option; or
                 * An :class:`Optional` instance. The ``name`` attribute of that object will be the name of the
-                    configuration option, and that class makes this configuration option as optional to the
-                    user, allowing it to not be specified in the YAML; or
+                  configuration option, and that class makes this configuration option as optional to the
+                  user, allowing it to not be specified in the YAML; or
                 * An :class:`Or` instance. The ``args`` attribute of that object will contain a tuple of
                     configuration option names. At least one of them should be specified by the user in the YAML;
+
             * For the values it can be either:
+
                 * A new :class:`dict` instance. It will represent a new level in the YAML configuration tree; or
                 * A :class:`Case` instance. This is required if the key of this value is an :class:`Or` instance,
-                    and the :class:`Case` instance is used to map each of the ``args`` in :class:`Or` to their
-                    corresponding base validator in :class:`Case`; or
+                  and the :class:`Case` instance is used to map each of the ``args`` in :class:`Or` to their
+                  corresponding base validator in :class:`Case`; or
                 * An :class:`Or` instance with one or more base validators; or
                 * A :class:`list` instance with a single item which is the base validator; or
                 * A base validator.
@@ -523,15 +539,16 @@ class Schema(object):
             })
 
         This sample schema defines that your YAML configuration follows these rules:
-        * It must contain an ``application_name`` entry which value should be a :class:`str` instance;
-        * It must contain a ``bind.host`` entry which value should be valid as per function ``validate_host``;
-        * It must contain a ``bind.port`` entry which value should be an :class:`int` instance;
-        * It must contain a ``aliases`` entry which value should be a :class:`list` of :class:`str` instances;
-        * It may optionally contain a ``data_directory`` entry, with a value which should be a string;
-        * It must contain at least one of ``log_to_file`` or ``log_to_db``, with a value which should be a
-            :class:`bool` instance;
-        * It must contain a ``version`` entry which value should be either an :class:`int` or a :class:`float`
-            instance.
+
+            * It must contain an ``application_name`` entry which value should be a :class:`str` instance;
+            * It must contain a ``bind.host`` entry which value should be valid as per function ``validate_host``;
+            * It must contain a ``bind.port`` entry which value should be an :class:`int` instance;
+            * It must contain a ``aliases`` entry which value should be a :class:`list` of :class:`str` instances;
+            * It may optionally contain a ``data_directory`` entry, with a value which should be a string;
+            * It must contain at least one of ``log_to_file`` or ``log_to_db``, with a value which should be a
+              :class:`bool` instance;
+            * It must contain a ``version`` entry which value should be either an :class:`int` or a :class:`float`
+              instance.
         """
         self.validator = validator
 
@@ -539,6 +556,7 @@ class Schema(object):
         """Perform validation of data using the rules defined in this schema.
 
         :param data: configuration to be validated against ``validator``.
+
         :returns: list of errors identified while validating the *data*, if any.
         """
         errors: List[str] = []
@@ -553,6 +571,7 @@ class Schema(object):
         It first checks that *data* argument type is compliant with the type of ``validator`` attribute.
 
         Additionally:
+
         * If ``validator`` attribute is a callable object, calls it to validate *data* argument. Before doing so, if
             `validator` contains an ``expected_type`` attribute, check if *data* argument is compliant with that
             expected type.
@@ -560,6 +579,7 @@ class Schema(object):
             :class:`Or`), then it iterates over it to validate each of the corresponding entries in *data* argument.
 
         :param data: configuration to be validated against ``validator``.
+
         :rtype: Iterator[:class:`Result`] objects with the error message related to the failure, if any check fails.
         """
         self.data = data
@@ -710,12 +730,11 @@ class Schema(object):
 
 
 def _get_type_name(python_type: Any) -> str:
-    """Get a user friendly name for a given Python type.
+    """Get a user-friendly name for a given Python type.
 
     :param python_type: Python type which user friendly name should be taken.
 
-    Returns:
-        User friendly name of the given Python type.
+    :returns: User friendly name of the given Python type.
     """
     types: Dict[Any, str] = {str: 'a string', int: 'an integer', float: 'a number',
                              bool: 'a boolean', list: 'an array', dict: 'a dictionary'}
@@ -736,7 +755,7 @@ def assert_(condition: bool, message: str = "Wrong value") -> None:
 class IntValidator(object):
     """Validate an integer setting.
 
-    :cvar expected_type: the expect Python type for an integer setting (:class:`int`).
+    :cvar expected_type: the expected Python type for an integer setting (:class:`int`).
     :ivar min: minimum allowed value for the setting, if any.
     :ivar max: maximum allowed value for the setting, if any.
     :ivar base_unit: the base unit to convert the value to before checking if it's within `min` and `max` range.
@@ -764,7 +783,9 @@ class IntValidator(object):
 
         .. note::
             If ``raise_assert`` is ``True`` and *value* is not valid, then an ``AssertionError`` will be triggered.
+
         :param value: value to be checked against the rules defined for this :class:`IntValidator` instance.
+
         :returns: ``True`` if *value* is valid and within the expected range.
         """
         value = parse_int(value, self.base_unit) or ""
