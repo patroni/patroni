@@ -929,9 +929,11 @@ class TestPostgresql(BaseTestPostgresql):
              patch('patroni.postgresql.validator.logger.warning') as mock_warning:
             _load_postgres_gucs_validators()
             mock_info.assert_called_once_with('Ignored a non-YAML file found under `available_parameters` directory: '
-                                              '`%s`.', './file.txt')
-            mock_warning.assert_called_once_with("Unexpected issue while reading parameters file `./random.yaml`: "
-                                                 "`[Errno 2] No such file or directory: './random.yaml'`.")
+                                              '`%s`.', os.path.join('.', 'file.txt'))
+            mock_warning.assert_called_once_with("Unexpected issue while reading parameters file `{0}`: "
+                                                 "`[Errno 2] No such file or directory: '{0}'`.".format(
+                                                    os.path.join('.', 'random.yaml')
+                                                 ))
 
 
 @patch('subprocess.call', Mock(return_value=0))
