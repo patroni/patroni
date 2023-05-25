@@ -4,14 +4,17 @@ ARG PG_MAJOR
 ARG PGHOME=/home/postgres
 ARG LC_ALL=C.UTF-8
 ARG LANG=C.UTF-8
+ARG BASE_IMAGE=postgres
 
-FROM postgres:${PG_MAJOR}
+FROM ${BASE_IMAGE}:${PG_MAJOR}
 
 ARG PGHOME
 ARG LC_ALL
 ARG LANG
 
 ENV PGHOME="$PGHOME"
+ENV PG_USER="${PG_USER:-postgres}"
+ENV PG_GROUP="${PG_GROUP:-$PG_USER}"
 ENV LC_ALL="$LC_ALL"
 ENV LANG="$LANG"
 
@@ -41,7 +44,7 @@ RUN set -ex \
     \
     && mkdir -p "$PGHOME" \
     && sed -i "s|/var/lib/postgresql.*|$PGHOME:/bin/bash|" /etc/passwd \
-    && chown -R postgres:postgres /var/log /home/postgres \
+    && chown -R "$PG_USER:$PG_GROUP" /var/log /home/postgres \
     \
     # Download etcd \
     && curl -sL "$ETCDURL/etcd-v$ETCDVERSION-linux-$(dpkg --print-architecture).tar.gz" \
@@ -67,18 +70,18 @@ trap 'copy_output' SIGTERM
 # so we can tell etcd we're ok with running an unsupported architecture.
 export ETCD_UNSUPPORTED_ARCH=$(go env GOARCH)
 cd /src
-runuser -u postgres -- \\
+runuser -u "\$PG_USER" -- \\
     find . ! -readable 2>/dev/null \\
     | sed 's|^./||' >/tmp/copy_exclude.lst \\
     || true
-runuser -u postgres -- \\
+runuser -u "\$PG_USER" -- \\
     rsync -a \\
     --exclude=.tox \\
     --exclude="features/output*" \\
     --exclude-from="/tmp/copy_exclude.lst" \\
     . "\$PGHOME/src/"
 cd "\$PGHOME/src"
-runuser -u postgres -w ETCD_UNSUPPORTED_ARCH -- "\$@" &
+runuser -u "\$PG_USER" -w ETCD_UNSUPPORTED_ARCH -- "\$@" &
 wait $!
 # SIGINT whilst child proc is running is not seen by trap so we run a copy here instead of using
 # trap copy_output SIGINT EXIT
