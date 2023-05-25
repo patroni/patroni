@@ -99,7 +99,7 @@ schema2 = Schema({
     "some_dir": Directory(contains=["very_interesting_subdir", "another_interesting_subdir"])
 })
 
-required_binaries = ["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres", "pg_isready", "pg_rewind"]
+required_binaries = ["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres", "pg_isready"]
 
 directories = []
 files = []

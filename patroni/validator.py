@@ -457,7 +457,9 @@ class BinDirectory(Directory):
     :cvar BINARIES: list of executable files that should exist directly under a given Postgres binary directory.
     """
 
-    BINARIES = ["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres", "pg_isready", "pg_rewind"]
+    # ``pg_rewind`` is not in the list because its usage by Patroni is optional. Also, it is not available by default on
+    # Postgres 9.3 and 9.4, versions which Patroni supports.
+    BINARIES = ["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres", "pg_isready"]
 
     def validate(self, name: str) -> Iterator[Result]:
         """Check if the expected executables can be found under *name* binary directory.
