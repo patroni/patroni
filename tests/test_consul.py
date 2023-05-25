@@ -176,23 +176,24 @@ class TestConsul(unittest.TestCase):
     @patch.object(consul.Consul.Session, 'renew')
     @patch.object(consul.Consul.KV, 'put', Mock(side_effect=ConsulException))
     def test_update_leader(self, mock_renew):
+        leader = self.c.get_cluster().leader
         self.c._session = 'fd4f44fe-2cac-bba5-a60b-304b51ff39b8'
         with patch.object(consul.Consul.KV, 'delete', Mock(return_value=True)):
             with patch.object(consul.Consul.KV, 'put', Mock(return_value=True)):
-                self.assertTrue(self.c.update_leader(12345, failsafe={'foo': 'bar'}))
+                self.assertTrue(self.c.update_leader(leader, 12345, failsafe={'foo': 'bar'}))
             with patch.object(consul.Consul.KV, 'put', Mock(side_effect=ConsulException)):
-                self.assertFalse(self.c.update_leader(12345))
-            with patch('time.time', Mock(side_effect=[0, 0, 0, 0, 0, 100, 200, 300])):
-                self.assertRaises(ConsulError, self.c.update_leader, 12345)
+                self.assertFalse(self.c.update_leader(leader, 12345))
+            with patch('time.time', Mock(side_effect=[0, 0, 0, 0, 100, 200, 300])):
+                self.assertRaises(ConsulError, self.c.update_leader, leader, 12345)
         with patch('time.time', Mock(side_effect=[0, 100, 200, 300])):
-            self.assertRaises(ConsulError, self.c.update_leader, 12345)
+            self.assertRaises(ConsulError, self.c.update_leader, leader, 12345)
         with patch.object(consul.Consul.KV, 'delete', Mock(side_effect=ConsulException)):
-            self.assertFalse(self.c.update_leader(12347))
+            self.assertFalse(self.c.update_leader(leader, 12347))
         mock_renew.side_effect = RetryFailedError('')
         self.c._last_session_refresh = 0
-        self.assertRaises(ConsulError, self.c.update_leader, 12346)
+        self.assertRaises(ConsulError, self.c.update_leader, leader, 12346)
         mock_renew.side_effect = ConsulException
-        self.assertFalse(self.c.update_leader(12347))
+        self.assertFalse(self.c.update_leader(leader, 12347))
 
     @patch.object(consul.Consul.KV, 'delete', Mock(return_value=True))
     def test_delete_leader(self):

@@ -877,7 +877,7 @@ class Etcd3(AbstractEtcd):
         return bool(self._client.put(self.failsafe_path, value))
 
     @catch_return_false_exception
-    def _update_leader(self) -> bool:
+    def _update_leader(self, leader: Leader) -> bool:
         retry = self._retry.copy()
 
         def _retry(*args: Any, **kwargs: Any) -> Any:
@@ -886,26 +886,21 @@ class Etcd3(AbstractEtcd):
 
         self._run_and_handle_exceptions(self._do_refresh_lease, True, retry=_retry)
 
-        if self._lease:
-            cluster = self.cluster
-            leader_lease = cluster and isinstance(cluster.leader, Leader) and cluster.leader.session
-            if leader_lease != self._lease:
-                retry.deadline = retry.stoptime - time.time()
-                if retry.deadline < 1:
-                    raise Etcd3Error('update_leader timeout')
+        if self._lease and leader.session != self._lease:
+            retry.deadline = retry.stoptime - time.time()
+            if retry.deadline < 1:
+                raise Etcd3Error('update_leader timeout')
 
-                fields = {'key': base64_encode(self.leader_path),
-                          'value': base64_encode(self._name), 'lease': self._lease}
-                # First we try to update lease on existing leader key "hoping" that we still owning it
-                compare1 = {'key': fields['key'], 'target': 'VALUE', 'value': fields['value']}
-                request_put = {'request_put': fields}
-                # If the first comparison failed we will try to create the new leader key in a transaction
-                compare2 = {'key': fields['key'], 'target': 'CREATE', 'create_revision': '0'}
-                request_txn = {'request_txn': {'compare': [compare2], 'success': [request_put]}}
-                ret = self._run_and_handle_exceptions(self._client.txn, compare1,
-                                                      request_put, request_txn, retry=_retry)
-                return ret.get('succeeded', False)\
-                    or ret.get('responses', [{}])[0].get('response_txn', {}).get('succeeded', False)
+            fields = {'key': base64_encode(self.leader_path), 'value': base64_encode(self._name), 'lease': self._lease}
+            # First we try to update lease on existing leader key "hoping" that we still owning it
+            compare1 = {'key': fields['key'], 'target': 'VALUE', 'value': fields['value']}
+            request_put = {'request_put': fields}
+            # If the first comparison failed we will try to create the new leader key in a transaction
+            compare2 = {'key': fields['key'], 'target': 'CREATE', 'create_revision': '0'}
+            request_txn = {'request_txn': {'compare': [compare2], 'success': [request_put]}}
+            ret = self._run_and_handle_exceptions(self._client.txn, compare1, request_put, request_txn, retry=_retry)
+            return ret.get('succeeded', False)\
+                or ret.get('responses', [{}])[0].get('response_txn', {}).get('succeeded', False)
         return bool(self._lease)
 
     @catch_etcd_errors
