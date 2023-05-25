@@ -10,6 +10,7 @@ from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 import patroni.psycopg as psycopg
 
 from patroni.async_executor import CriticalTask
+from patroni.collections import CaseInsensitiveSet
 from patroni.config import GlobalConfig
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PostgresConnectionException, PatroniException
@@ -893,3 +894,22 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertEqual(len(ret), 2)
         self.assertIsInstance(ret[0], Bool)
         self.assertIsInstance(ret[1], EnumBool)
+
+
+@patch('subprocess.call', Mock(return_value=0))
+@patch('patroni.psycopg.connect', psycopg_connect)
+class TestPostgresql2(BaseTestPostgresql):
+
+    @patch('subprocess.call', Mock(return_value=0))
+    @patch('os.rename', Mock())
+    @patch('patroni.postgresql.CallbackExecutor', Mock())
+    @patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))
+    @patch.object(Postgresql, 'is_running', Mock(return_value=True))
+    def setUp(self):
+        super(TestPostgresql2, self).setUp()
+
+    @patch('subprocess.check_output', Mock(return_value='\n'.join(mock_available_gucs.return_value).encode('utf-8')))
+    def test_available_gucs(self):
+        gucs = self.p.available_gucs
+        self.assertIsInstance(gucs, CaseInsensitiveSet)
+        self.assertEqual(gucs, mock_available_gucs.return_value)
