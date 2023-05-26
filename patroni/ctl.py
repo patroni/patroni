@@ -346,7 +346,7 @@ def print_output(columns: Optional[List[str]], rows: List[List[Any]], alignment:
         * ``tsv``: to print a table of separated values, by default by tab;
         * ``pretty``: to print a pretty table;
         * ``topology``: similar to *pretty*, but with a topology view when printing cluster members.
-    :param header: a string to be included in the first line of the table header, tipically the cluster name. Only
+    :param header: a string to be included in the first line of the table header, typically the cluster name. Only
         apply when *fmt* is either ``pretty`` or ``topology``.
     :param delimiter: the character to be used as delimiter when *fmt* is ``tsv``.
     """
@@ -499,7 +499,7 @@ def get_all_members_leader_first(cluster: Cluster) -> Iterator[Member]:
 
 def get_cursor(obj: Dict[str, Any], cluster: Cluster, group: Optional[int], connect_parameters: Dict[str, Any],
                role: str = 'leader', member_name: Optional[str] = None) -> Union['cursor', 'Cursor[Any]', None]:
-    """Get a cursor object to execute queries against a member that has the given *role*.
+    """Get a cursor object to execute queries against a member that has the given *role* or *member_name*.
 
     .. note::
         Besides what is passed through *connect_parameters*, this function also sets the following parameters:
@@ -1150,8 +1150,7 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
     after the operation, so the user can follow the operation status.
 
     .. note::
-        If not able to perform the operation through the REST API, fall back to using the old manual failover approach,
-        directly through the DCS.
+        If not able to perform the operation through the REST API, write directly to the DCS as a fall back.
 
     :param obj: Patroni configuration.
     :param action: action to be taken -- ``failover`` or ``switchover``.
@@ -1451,7 +1450,7 @@ def output_members(obj: Dict[str, Any], cluster: Cluster, name: str,
         * ``Role``: ``Leader``, ``Standby Leader``, ``Sync Standby`` or ``Replica``;
         * ``State``: ``stopping``, ``stopped``, ``stop failed``, ``crashed``, ``running``, ``starting``,
           ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``, ``initdb failed``,
-          ``running custom bootstrap script``, ``custom bootstrap failed``, or ``creating replica``;
+          ``running custom bootstrap script``, ``custom bootstrap failed``, or ``creating replica``, and so on;
         * ``TL``: current timeline in Postgres;
           ``Lag in MB``: replication lag.
 
