@@ -6,6 +6,7 @@ Currently it is only used for the main "Thread" of ``patroni`` and ``patroni_raf
 from __future__ import print_function
 
 import abc
+import argparse
 import os
 import signal
 import sys
@@ -15,7 +16,22 @@ from typing import Any, Optional, Type, TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover
     from .config import Config
-    from .validator import Schema
+
+
+def get_base_arg_parser() -> argparse.ArgumentParser:
+    """Create a basic argument parser with the arguments used for both patroni and raft controller daemon.
+
+    :returns: 'argparse.ArgumentParser' object
+    """
+    from .config import Config
+    from .version import __version__
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(__version__))
+    parser.add_argument('configfile', nargs='?', default='',
+                        help='Patroni may also read the configuration from the {0} environment variable'
+                        .format(Config.PATRONI_CONFIG_VARIABLE))
+    return parser
 
 
 class AbstractPatroniDaemon(abc.ABC):
@@ -141,41 +157,17 @@ class AbstractPatroniDaemon(abc.ABC):
         self.logger.shutdown()
 
 
-def abstract_main(cls: Type[AbstractPatroniDaemon], validator: Optional['Schema'] = None) -> None:
+def abstract_main(cls: Type[AbstractPatroniDaemon], configfile: str) -> None:
     """Create the main entry point of a given daemon process.
 
-    Expose a basic argument parser, parse the command-line arguments, and run the given daemon process.
-
     :param cls: a class that should inherit from :class:`AbstractPatroniDaemon`.
-    :param validator: used to validate the daemon configuration schema, if requested by the user through
-        ``--validate-config`` CLI option.
+    :param configfile:
     """
-    import argparse
-
     from .config import Config, ConfigParseError
-    from .version import __version__
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--version', action='version', version='%(prog)s {0}'.format(__version__))
-    if validator:
-        parser.add_argument('--validate-config', action='store_true', help='Run config validator and exit')
-    parser.add_argument('configfile', nargs='?', default='',
-                        help='Patroni may also read the configuration from the {0} environment variable'
-                        .format(Config.PATRONI_CONFIG_VARIABLE))
-    args = parser.parse_args()
-    validate_config = validator and args.validate_config
     try:
-        if validate_config:
-            Config(args.configfile, validator=validator)
-            sys.exit()
-
-        config = Config(args.configfile)
+        config = Config(configfile)
     except ConfigParseError as e:
-        if e.value:
-            print(e.value, file=sys.stderr)
-        if not validate_config:
-            parser.print_help()
-        sys.exit(1)
+        sys.exit(e.value)
 
     controller = cls(config)
     try:
