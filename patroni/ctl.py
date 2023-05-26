@@ -1021,6 +1021,7 @@ def restart(obj: Dict[str, Any], cluster_name: str, group: Optional[int], member
     :param timeout: timeout for the restart operation. If timeout is reached a failover may occur in the cluster.
 
     :raises PatroniCtlException: if:
+        * *scheduled* could not be parsed; or
         * *version* could not be parsed; or
         * a restart is attempted against a cluster that is in maintenance mode.
     """
