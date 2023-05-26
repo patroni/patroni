@@ -682,7 +682,7 @@ def dsn(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
     :param obj: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
     :param group: filter which Citus group we should get members to get DSN from. If ``None`` consider members from
-        coordinator group.
+        all groups.
     :param role: filter which members to get DSN from based on their role. See :func:`get_all_members` for available
         options.
     :param member: filter which member to get DSN from based on its name.
@@ -745,7 +745,7 @@ def query(
     :param obj: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
     :param group: filter which Citus group we should get members from to perform the query. If ``None`` get member from
-        coordinator group.
+        all groups.
     :param role: filter which members to perform the query against based on their role. See :func:`get_all_members` for
         available options.
     :param member: filter which member to perform the query against based on its name.
@@ -962,8 +962,7 @@ def reload(obj: Dict[str, Any], cluster_name: str, member_names: List[str],
     :param obj: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
     :param member_names: name of the members which configuration should be reloaded.
-    :param group: filter which Citus group we should reload members. If ``None`` consider members from the coordinator
-        group.
+    :param group: filter which Citus group we should reload members. If ``None`` consider members from all groups.
     :param force: perform the reload without asking for confirmations.
     :param role: role to filter members. See :func:`get_all_members` for available options.
     """
@@ -1011,8 +1010,7 @@ def restart(obj: Dict[str, Any], cluster_name: str, group: Optional[int], member
 
     :param obj: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
-    :param group: filter which Citus group we should restart members. If ``None`` consider members from the coordinator
-        group.
+    :param group: filter which Citus group we should restart members. If ``None`` consider members from all groups.
     :param member_names: name of the members that should be restarted.
     :param force: perform the restart without asking for confirmations.
     :param role: role to filter members. See :func:`get_all_members` for available options.
@@ -1103,8 +1101,7 @@ def reinit(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
 
     :param obj: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
-    :param group: filter which Citus group we should reinit members. If ``None`` consider members from the coordinator
-        group.
+    :param group: filter which Citus group we should reinit members. If ``None`` consider members from all groups.
     :param member_names: name of the members that should be reinitialized.
     :param force: perform the restart without asking for confirmations.
     :param wait: wait for the operation to complete.
@@ -1155,8 +1152,8 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
     :param obj: Patroni configuration.
     :param action: action to be taken -- ``failover`` or ``switchover``.
     :param cluster_name: name of the Patroni cluster.
-    :param group: filter Citus group within we should perform a failover or switchover. If ``None`` consider members
-        from the coordinator group.
+    :param group: filter Citus group within we should perform a failover or switchover. If ``None``, user will be
+        prompted for filling it -- unless *force* is ``True``, in which case an exception is raised.
     :param leader: name of the current leader member.
     :param candidate: name of a standby member to be promoted. Nodes that are tagged with ``nofailover`` cannot be used.
     :param force: perform the failover or switchover without asking for confirmations.
@@ -1301,8 +1298,9 @@ def failover(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
 
     :param obj: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
-    :param group: filter Citus group within we should perform a failover or switchover. If ``None`` consider members of
-        the coordinator group.
+    :param group: filter Citus group within we should perform a failover or switchover. If ``None``, user will be
+        prompted for filling it -- unless *force* is ``True``, in which case an exception is raised by
+        :func:`_do_failover_or_switchover`.
     :param leader: name of the current leader member.
     :param candidate: name of a standby member to be promoted. Nodes that are tagged with ``nofailover`` cannot be used.
     :param force: perform the failover or switchover without asking for confirmations.
@@ -1331,8 +1329,9 @@ def switchover(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
 
     :param obj: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
-    :param group: filter Citus group within we should perform a switchover. If ``None`` consider members of the
-        coordinator group.
+    :param group: filter Citus group within we should perform a switchover. If ``None``, user will be prompted for
+        filling it -- unless *force* is ``True``, in which case an exception is raised by
+        :func:`_do_failover_or_switchover`.
     :param leader: name of the current leader member.
     :param candidate: name of a standby member to be promoted. Nodes that are tagged with ``nofailover`` cannot be used.
     :param force: perform the switchover without asking for confirmations.
@@ -1625,7 +1624,7 @@ def flush(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
 
     :param obj: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
-    :param group: filter which Citus group we should flush an event. If ``None`` assume coordinator group.
+    :param group: filter which Citus group we should flush an event. If ``None`` assume all groups.
     :param member_names: name of the members which events should be flushed.
     :param force: perform the operation without asking for confirmations.
     :param role: role to filter members. See :func:`get_all_members` for available options.
@@ -1699,7 +1698,7 @@ def toggle_pause(config: Dict[str, Any], cluster_name: str, group: Optional[int]
 
     :param config: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
-    :param group: filter which Citus group we should toggle the pause state of. If ``None`` assume coordinator group.
+    :param group: filter which Citus group we should toggle the pause state of. If ``None`` assume all groups.
     :param paused: the desired state for ``pause`` in all nodes.
     :param wait: ``True`` if it should block until the operation is finished or ``false`` for returning immediately.
 
@@ -1746,7 +1745,7 @@ def pause(obj: Dict[str, Any], cluster_name: str, group: Optional[int], wait: bo
 
     :param obj: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
-    :param group: filter which Citus group we should pause. If ``None`` assume coordinator group.
+    :param group: filter which Citus group we should pause. If ``None`` assume all groups.
     :param wait: ``True`` if it should block until the operation is finished or ``false`` for returning immediately.
     """
     return toggle_pause(obj, cluster_name, group, True, wait)
@@ -1764,7 +1763,7 @@ def resume(obj: Dict[str, Any], cluster_name: str, group: Optional[int], wait: b
 
     :param obj: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
-    :param group: filter which Citus group we should unpause. If ``None`` assume coordinator group.
+    :param group: filter which Citus group we should unpause. If ``None`` assume all groups.
     :param wait: ``True`` if it should block until the operation is finished or ``false`` for returning immediately.
     """
     return toggle_pause(obj, cluster_name, group, False, wait)
@@ -2006,7 +2005,7 @@ def edit_config(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
 
     :param obj: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
-    :param group: filter which Citus group configuration we should edit. If ``None``  edit from coordinator group.
+    :param group: filter which Citus group configuration we should edit. If ``None``  edit from all groups.
     :param force: if ``True`` apply config changes without asking for confirmations.
     :param quiet: if ``True`` skip showing config diff in the console.
     :param kvpairs: list of key value general parameters to be changed.
@@ -2074,7 +2073,7 @@ def show_config(obj: Dict[str, Any], cluster_name: str, group: Optional[int]) ->
 
     :param obj: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
-    :param group: filter which Citus group configuration we should show. If ``None`` show from coordinator group.
+    :param group: filter which Citus group configuration we should show. If ``None`` show from all groups.
     """
     cluster = get_dcs(obj, cluster_name, group).get_cluster()
     if cluster.config:
@@ -2096,7 +2095,7 @@ def version(obj: Dict[str, Any], cluster_name: str, group: Optional[int], member
 
     :param obj: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
-    :param group: filter which Citus group we should get members from. If ``None`` assume coordinator group.
+    :param group: filter which Citus group we should get members from. If ``None`` assume all groups.
     :param member_names: filter which members we should get version information from.
     """
     click.echo("patronictl version {0}".format(__version__))
@@ -2139,7 +2138,7 @@ def history(obj: Dict[str, Any], cluster_name: str, group: Optional[int], fmt: s
 
     :param obj: Patroni configuration.
     :param cluster_name: name of the Patroni cluster.
-    :param group: filter which Citus group we should get events from. If ``None`` assume coordinator group.
+    :param group: filter which Citus group we should get events from. If ``None`` assume all groups.
     :param fmt: the output table printing format. See :func:`print_output` for available options.
     """
     cluster = get_dcs(obj, cluster_name, group).get_cluster()
