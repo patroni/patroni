@@ -98,6 +98,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """Write a response that is composed only of the HTTP status.
 
         The response is written with these values separated by space:
+
             * HTTP protocol version;
             * *status_code*;
             * description of *status_code*.
@@ -158,19 +159,19 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Modifies *response* before sending it to the client. Defines the ``patroni`` key, which is a
         dictionary that contains the mandatory keys:
 
-        * ``version``: Patroni version, e.g. ``3.0.2``;
-        * ``scope``: value of ``scope`` setting from Patroni configuration.
+            * ``version``: Patroni version, e.g. ``3.0.2``;
+            * ``scope``: value of ``scope`` setting from Patroni configuration.
 
         May also add the following optional keys, depending on the status of this Patroni/PostgreSQL node:
 
-        * ``tags``: tags that were set through Patroni configuration merged with dynamically applied tags;
-        * ``database_system_identifier``: ``Database system identifier`` from ``pg_controldata`` output;
-        * ``pending_restart``: ``True`` if PostgreSQL is pending to be restarted;
-        * ``scheduled_restart``: a dictionary with a single key ``schedule``, which is the timestamp for the scheduled
-            restart;
-        * ``watchdog_failed``: ``True`` if watchdog device is unhealthy;
-        * ``logger_queue_size``: log queue length if it is longer than expected;
-        * ``logger_records_lost``: number of log records that have been lost while the log queue was full.
+            * ``tags``: tags that were set through Patroni configuration merged with dynamically applied tags;
+            * ``database_system_identifier``: ``Database system identifier`` from ``pg_controldata`` output;
+            * ``pending_restart``: ``True`` if PostgreSQL is pending to be restarted;
+            * ``scheduled_restart``: a dictionary with a single key ``schedule``, which is the timestamp for the
+                scheduled restart;
+            * ``watchdog_failed``: ``True`` if watchdog device is unhealthy;
+            * ``logger_queue_size``: log queue length if it is longer than expected;
+            * ``logger_records_lost``: number of log records that have been lost while the log queue was full.
 
         :param status_code: response HTTP status code.
         :param response: represents the status of the PostgreSQL node, and is used as a basis for the HTTP response.
@@ -356,16 +357,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self) -> None:
         """Handle an ``OPTIONS`` request.
 
-        Write a simple HTTP response that represents the current PostgreSQL status. Send only `200 OK` or
-        `503 Service Unavailable` as a response and nothing more, particularly no headers.
+        Write a simple HTTP response that represents the current PostgreSQL status. Send only ``200 OK`` or
+        ``503 Service Unavailable`` as a response and nothing more, particularly no headers.
         """
         self.do_GET(write_status_code_only=True)
 
     def do_HEAD(self) -> None:
         """Handle a ``HEAD`` request.
 
-        Write a simple HTTP response that represents the current PostgreSQL status. Send only `200 OK` or
-        `503 Service Unavailable` as a response and nothing more, particularly no headers.
+        Write a simple HTTP response that represents the current PostgreSQL status. Send only ``200 OK`` or
+        ``503 Service Unavailable`` as a response and nothing more, particularly no headers.
         """
         self.do_GET(write_status_code_only=True)
 
@@ -379,8 +380,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 * If the cluster is in maintenance mode; or
                 * If Patroni heartbeat loop is properly running;
 
-            * ``503`` if Patroni heartbeat loop last run was more than ``ttl`` setting ago on the primary (or twice the
-                value of ``ttl`` on a replica).
+            * ``503``:
+            
+                * if Patroni heartbeat loop last run was more than ``ttl`` setting ago on the primary (or twice the
+                    value of ``ttl`` on a replica).
 
         """
         patroni: Patroni = self.server.patroni
@@ -701,7 +704,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_POST_reload(self) -> None:
         """Handle a ``POST`` request to ``/reload`` path.
 
-        Schedules a reload to Patroni and writes a response with HTTP status `202`.
+        Schedules a reload to Patroni and writes a response with HTTP status ``202``.
         """
         self.server.patroni.sighup_handler()
         self.write_response(202, 'reload scheduled')
@@ -901,6 +904,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Used to remove a scheduled restart of PostgreSQL.
 
         Response HTTP status codes:
+
             * ``200``: if a scheduled restart was removed; or
             * ``404``: if no scheduled restart could be found.
         """
@@ -919,6 +923,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Used to remove a scheduled switchover in the cluster.
 
         It writes a response, and the HTTP status code can be:
+
             * ``200``: if a scheduled switchover was removed; or
             * ``404``: if no scheduled switchover could be found; or
             * ``409``: if not able to update the switchover info in the DCS.
@@ -940,9 +945,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """Handle a ``POST`` request to ``/reinitialize`` path.
 
         The request body may contain a JSON dictionary with the following key:
+
             * ``force``: ``True`` if we want to cancel an already running task in order to reinit a replica.
 
         Response HTTP status codes:
+
             * ``200``: if the reinit operation has started; or
             * ``503``: if any error is returned by :func:`Ha.reinitialize`.
         """
@@ -1035,12 +1042,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Handles manual failovers/switchovers, mainly from ``patronictl``.
 
         The request body should be a JSON dictionary, and it can contain the following keys:
+
             * ``leader``: name of the current leader in the cluster;
             * ``candidate``: name of the Patroni node to be promoted;
             * ``scheduled_at``: a string representing the timestamp when to execute the switchover/failover, e.g.
                 ``2023-04-14T20:27:00+00:00``.
 
         Response HTTP status codes:
+
             * ``202``: if operation has been scheduled;
             * ``412``: if operation is not possible;
             * ``503``: if unable to register the operation to the DCS;
@@ -1182,6 +1191,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Some of the values are collected by executing a query and other are taken from the state stored in memory.
 
         :param retry: whether the query should be retried if failed or give up immediately
+
         :returns: a dict with the status of Postgres/Patroni. The keys are:
 
             * ``state``: Postgres state among ``stopping``, ``stopped``, ``stop failed``, ``crashed``, ``running``,
@@ -1351,8 +1361,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         :param params: positional arguments to be used as parameters for *sql*.
 
         :returns: a list of rows that were fetched from the database.
-        :raises psycopg.Error: if had issues while executing *sql*.
-        :raises PostgresConnectionException: if had issues while connecting to the database.
+
+        :raises:
+            :class:`psycopg.Error`: if had issues while executing *sql*.
+            :class:`PostgresConnectionException`: if had issues while connecting to the database.
         """
         cursor = None
         try:
@@ -1412,7 +1424,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         :param host: hostname to be checked.
         :param port: port to be checked.
 
-        :rtype: Iterator[Union[IPv4Network, IPv6Network]] of *host* + *port* resolved to IP networks.
+        :yields: *host* + *port* resolved to IP networks.
         """
         try:
             for _, _, _, _, sa in socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM, socket.IPPROTO_TCP):
@@ -1426,8 +1438,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         .. note::
             Only yields object if ``restapi.allowlist_include_members`` setting is enabled.
 
-        :rtype: Iterator[Union[IPv4Network, IPv6Network]] of each node ``restapi.connect_address`` resolved to an IP
-            network.
+        :yields: each node ``restapi.connect_address`` resolved to an IP network.
         """
         cluster = self.patroni.dcs.cluster
         if self.__allowlist_include_members and cluster:
@@ -1542,7 +1553,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                 * ``optional``: check client certificate only for unsafe REST API endpoints;
                 * ``required``: check client certificate for all REST API endpoints.
 
-        :raises ValueError: if any issue is faced while parsing *listen*.
+        :raises:
+            :class:`ValueError`: if any issue is faced while parsing *listen*.
         """
         try:
             host, port = split_host_port(listen, None)
@@ -1591,6 +1603,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """Process a request to the REST API.
 
         Wrapper for :func:`ThreadingMixIn.process_request_thread` that additionally:
+
             * Enable TCP keepalive
             * Perform SSL handshake (if an SSL socket).
 
@@ -1609,6 +1622,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """Shut down a request to the REST API.
 
         Wrapper for :func:`HTTPServer.shutdown_request` that additionally:
+
             * Perform SSL shutdown handshake (if a SSL socket).
 
         :param request: socket to handle the client request.
@@ -1656,7 +1670,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         :param value: list of IPs and/or networks contained in ``restapi.allowlist`` setting. Each item can be a host,
             an IP, or a network in CIDR format.
 
-        :rtype: Iterator[Union[IPv4Network, IPv6Network]] of *host* + *port* resolved to IP networks.
+        :yields: *host* + *port* resolved to IP networks.
         """
         if isinstance(value, list):
             for v in value:
@@ -1673,7 +1687,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """Reload REST API configuration.
 
         :param config: dictionary representing values under the ``restapi`` configuration section.
-        :raises ValueError: if ``listen`` key is not present in *config*.
+
+        :raises:
+            :class:`ValueError`: if ``listen`` key is not present in *config*.
         """
         if 'listen' not in config:  # changing config in runtime
             raise ValueError('Can not find "restapi.listen" config')
