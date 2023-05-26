@@ -28,7 +28,7 @@ try:
         """Quote *value* as a SQL literal.
 
         .. note::
-            *value* is quoted through ``psycopg`` adapters.
+            *value* is quoted through :mod:``psycopg2`` adapters.
 
         :param value: value to be quoted.
         :param conn: if a connection is given then :func:`quote_literal` checks if any special handling based on server
@@ -48,10 +48,10 @@ except ImportError:
 
         .. note::
             Will create ``server_version`` attribute in the returning connection, so it keeps compatibility with the
-            object that would be returned by ``psycopg2.connect``.
+            object that would be returned by :func:`psycopg2.connect`.
 
-        :param dsn: DSN to call ``psycopg.connect`` with.
-        :param kwargs: keyword arguments to call ``psycopg.connect`` with.
+        :param dsn: DSN to call :func:`psycopg.connect` with.
+        :param kwargs: keyword arguments to call :func:`psycopg.connect` with.
 
         :returns: a connection to the database.
         """
