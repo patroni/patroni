@@ -66,7 +66,7 @@ class PatroniCtlException(click.ClickException):
 class PatronictlPrettyTable(PrettyTable):
     """Utilitary class to print pretty tables.
 
-    Extend class:`PrettyTable` to make it print custom information in the header line. The idea is to print a
+    Extend :class:`PrettyTable` to make it print custom information in the header line. The idea is to print a
     header line like this:
 
     ```
@@ -158,7 +158,8 @@ class PatronictlPrettyTable(PrettyTable):
 def parse_dcs(dcs: Optional[str]) -> Optional[Dict[str, Any]]:
     """Parse a DCS URL.
 
-    :param dcs: the DCS URL in the format ``DCS://HOST:PORT``. ``DCS`` can be one among
+    :param dcs: the DCS URL in the format ``DCS://HOST:PORT``. ``DCS`` can be one among:
+
         * ``consul``
         * ``etcd``
         * ``etcd3``
@@ -171,7 +172,8 @@ def parse_dcs(dcs: Optional[str]) -> Optional[Dict[str, Any]]:
     :returns: ``None`` if *dcs* is ``None``, otherwise a dictionary. The dictionary represents *dcs* as if it were
         parsed from the Patroni configuration file.
 
-    :raises PatroniCtlException: if the DCS name in *dcs* is not valid.
+    :raises:
+        :class:`PatroniCtlException`: if the DCS name in *dcs* is not valid.
 
     :Example:
 
@@ -213,7 +215,9 @@ def load_config(path: str, dcs_url: Optional[str]) -> Dict[str, Any]:
         whatever DCS is set in the configuration file.
 
     :returns: a dictionary representing the configuration.
-    :raises PatroniCtlException: if *path* does not exist or is not readable.
+
+    :raises:
+        :class:`PatroniCtlException`: if *path* does not exist or is not readable.
     """
     from patroni.config import Config
 
@@ -293,7 +297,9 @@ def get_dcs(config: Dict[str, Any], scope: str, group: Optional[int]) -> Abstrac
         is ``None`` and a Citus configuration exists, assume this is the coordinator. Coordinator has the group ``0``.
 
     :returns: a subclass of :class:`AbstractDCS`, according to the DCS technology that is configured.
-    :raises PatroniCtlException: if not suitable DCS configuration could be found.
+
+    :raises:
+        :class:`PatroniCtlException`: if not suitable DCS configuration could be found.
     """
     config.update({'scope': scope, 'patronictl': True})
     if group is not None:
@@ -334,13 +340,15 @@ def print_output(columns: Optional[List[str]], rows: List[List[Any]], alignment:
     :param rows: list of rows. Each item is a list of values for the columns.
     :param alignment: alignment to be applied to column values. Each key is the name of a column to be aligned, and the
         corresponding value can be one among:
+
         * ``l``: left-aligned
         * ``c``: center-aligned
         * ``r``: right-aligned
 
         A key in the dictionary is only required for a column that needs a specific alignment. Only apply when *fmt* is
         either ``pretty`` or ``topology``.
-    :param fmt: the printing format. Can be one among
+    :param fmt: the printing format. Can be one among:
+
         * ``json``: to print as a JSON string -- array of objects;
         * ``yaml`` or ``yml``: to print as a YAML string;
         * ``tsv``: to print a table of separated values, by default by tab;
@@ -432,7 +440,8 @@ def get_all_members(obj: Dict[str, Any], cluster: Cluster,
     :param obj: the Patroni configuration.
     :param cluster: the Patroni cluster.
     :param group: filter which Citus group we should get members from. If ``None`` get from all groups.
-    :param role: role to filter members. Can be one among
+    :param role: role to filter members. Can be one among:
+
         * ``primary`` or ``master``: the primary PostgreSQL instance;
         * ``replica`` or ``standby``: a standby PostgreSQL instance;
         * ``leader``: the leader of a Patroni cluster. Can also be used to get the leader of a Patroni standby cluster;
@@ -516,6 +525,7 @@ def get_cursor(obj: Dict[str, Any], cluster: Cluster, group: Optional[int], conn
         *member_name*.
 
     :returns: a cursor object to execute queries against the database. Can be either:
+
         * A :class:`psycopg.Cursor` if using ``psycopg3``; or
         * A :class:`psycopg2.extensions.cursor` if using ``psycopg2``;
         * ``None`` if not able to get a cursor that attendees *role* and *member_name*.
@@ -588,7 +598,8 @@ def get_members(obj: Dict[str, Any], cluster: Cluster, cluster_name: str, member
         for available options.
     :param force: if ``True``, then it won't ask for confirmations at any point nor prompt the user to select values
         for options that were not specified through the command-line.
-    :param action: the action that is being processed, one among
+    :param action: the action that is being processed, one among:
+
         * ``reload``: reload PostgreSQL configuration; or
         * ``restart``: restart PostgreSQL; or
         * ``reinitialize``: reinitialize PostgreSQL data directory; or
@@ -600,10 +611,11 @@ def get_members(obj: Dict[str, Any], cluster: Cluster, cluster_name: str, member
 
     :returns: a list of members that respect the given filters.
 
-    :raises PatroniCtlException: if
-        * Cluster does not have members that match the given *role*; or
-        * Cluster does not have members that match the given *member_names*; or
-        * No member with given *role* is found among the specified *member_names*.
+    :raises:
+        :class:`PatroniCtlException`: if
+            * Cluster does not have members that match the given *role*; or
+            * Cluster does not have members that match the given *member_names*; or
+            * No member with given *role* is found among the specified *member_names*.
     """
     members = list(get_all_members(obj, cluster, group, role))
 
@@ -640,7 +652,8 @@ def confirm_members_action(members: List[Member], force: bool, action: str,
 
     :param members: list of member which will take the *action*.
     :param force: if ``True`` skip the confirmation prompt and allow the *action* to proceed.
-    :param action: the action that is being processed, one among
+    :param action: the action that is being processed, one among:
+
         * ``reload``: reload PostgreSQL configuration; or
         * ``restart``: restart PostgreSQL; or
         * ``reinitialize``: reinitialize PostgreSQL data directory; or
@@ -648,7 +661,8 @@ def confirm_members_action(members: List[Member], force: bool, action: str,
     :param scheduled_at: timestamp at which the *action* should be scheduled to. If ``None``  *action* is taken
         immediately.
 
-    :raises PatroniCtlException: if the user aborted the *action*.
+    :raises:
+        :class:`PatroniCtlException`: if the user aborted the *action*.
     """
     if scheduled_at:
         if not force:
@@ -687,9 +701,10 @@ def dsn(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
         options.
     :param member: filter which member to get DSN from based on its name.
 
-    :raises PatroniCtlException: if
-        * both *role* and *member* are provided; or
-        * No member matches requested *member* or *role*.
+    :raises:
+        :class:`PatroniCtlException`: if
+            * both *role* and *member* are provided; or
+            * No member matches requested *member* or *role*.
     """
     if member is not None:
         if role is not None:
@@ -759,10 +774,11 @@ def query(
     :param dbname: name of the database.
     :param fmt: the output table printing format. See :func:`print_output` for available options.
 
-    :raises PatroniCtlException: if
-        * both *role* and *member* are provided; or
-        * both *file* and *command* are provided; or
-        * neither *file* nor *command* is provided.
+    :raises:
+        :class:`PatroniCtlException`: if
+            * both *role* and *member* are provided; or
+            * both *file* and *command* are provided; or
+            * neither *file* nor *command* is provided.
     """
     if member is not None:
         if role is not None:
@@ -870,11 +886,12 @@ def remove(obj: Dict[str, Any], cluster_name: str, group: Optional[int], fmt: st
     :param group: which Citus group should have its information wiped out of the DCS.
     :param fmt: the output table printing format. See :func:`print_output` for available options.
 
-    :raises PatroniCtlException: if:
-        * Patroni is running on a Citus cluster, but no *group* was specified; or
-        * *cluster_name* does not exist; or
-        * user did not type the expected confirmation message when prompted for confirmation; or
-        * use did not type the correct leader name when requesting removal of a healthy cluster.
+    :raises:
+        :class:`PatroniCtlException`: if:
+            * Patroni is running on a Citus cluster, but no *group* was specified; or
+            * *cluster_name* does not exist; or
+            * user did not type the expected confirmation message when prompted for confirmation; or
+            * use did not type the correct leader name when requesting removal of a healthy cluster.
 
     """
     dcs = get_dcs(obj, cluster_name, group)
@@ -931,7 +948,8 @@ def parse_scheduled(scheduled: Optional[str]) -> Optional[datetime.datetime]:
 
     :returns: the corresponding :class:`datetime` object, if *scheduled* is not ``now``, otherwise ``None``.
 
-    :raises PatroniCtlException: if unable to parse *scheduled* from :class:`str` to :class:`datetime`.
+    :raises:
+        :class:`PatroniCtlException`: if unable to parse *scheduled* from :class:`str` to :class:`datetime`.
     """
     if scheduled is not None and (scheduled or 'now') != 'now':
         try:
@@ -1020,10 +1038,11 @@ def restart(obj: Dict[str, Any], cluster_name: str, group: Optional[int], member
     :param pending: restart only members that are flagged as ``pending restart``.
     :param timeout: timeout for the restart operation. If timeout is reached a failover may occur in the cluster.
 
-    :raises PatroniCtlException: if:
-        * *scheduled* could not be parsed; or
-        * *version* could not be parsed; or
-        * a restart is attempted against a cluster that is in maintenance mode.
+    :raises:
+        :class:`PatroniCtlException`: if:
+            * *scheduled* could not be parsed; or
+            * *version* could not be parsed; or
+            * a restart is attempted against a cluster that is in maintenance mode.
     """
     cluster = get_dcs(obj, cluster_name, group).get_cluster()
 
@@ -1160,16 +1179,17 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
     :param force: perform the failover or switchover without asking for confirmations.
     :param scheduled: timestamp when the switchover should be scheduled to occur. If ``now`` perform immediately.
 
-    :raises PatroniCtlException: if:
-        * Patroni is running on a Citus cluster, but no *group* was specified; or
-        * a switchover was requested by the cluster has no leader; or
-        * *leader* does not match the current leader of the cluster; or
-        * cluster has no candidates available for the operation; or
-        * no *candidate* is given for a failover operation; or
-        * *leader* and *candidate* are the same; or
-        * *candidate* is not a member of the cluster; or
-        * trying to schedule a switchover in a cluster that is in maintenance mode; or
-        * user aborts the operation.
+    :raises:
+        :class:`PatroniCtlException`: if:
+            * Patroni is running on a Citus cluster, but no *group* was specified; or
+            * a switchover was requested by the cluster has no leader; or
+            * *leader* does not match the current leader of the cluster; or
+            * cluster has no candidates available for the operation; or
+            * no *candidate* is given for a failover operation; or
+            * *leader* and *candidate* are the same; or
+            * *candidate* is not a member of the cluster; or
+            * trying to schedule a switchover in a cluster that is in maintenance mode; or
+            * user aborts the operation.
     """
     dcs = get_dcs(obj, cluster_name, group)
     cluster = dcs.get_cluster()
@@ -1391,6 +1411,7 @@ def topology_sort(members: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
     """Sort *members* according to their level in the replication topology tree.
 
     :param members: list of members in the cluster. Each item should countain at least these keys:
+
         * ``name``: name of the node, according to ``name`` configuration;
         * ``role``: ``leader``, ``standby_leader`` or ``replica``.
 
@@ -1422,6 +1443,7 @@ def get_cluster_service_info(cluster: Dict[str, Any]) -> List[str]:
     :param cluster: a Patroni cluster represented as an object created through func:`cluster_as_json`.
 
     :returns: a list of 0 or more informational messages. They can be about:
+
         * Cluster in maintenance mode;
         * Scheduled switchovers.
     """
@@ -1706,9 +1728,10 @@ def toggle_pause(config: Dict[str, Any], cluster_name: str, group: Optional[int]
     :param paused: the desired state for ``pause`` in all nodes.
     :param wait: ``True`` if it should block until the operation is finished or ``false`` for returning immediately.
 
-    :raises PatroniCtlException: if
-        * ``pause`` state is already *paused*; or
-        * cluster contains no accessible members.
+    :raises:
+        PatroniCtlException: if
+            * ``pause`` state is already *paused*; or
+            * cluster contains no accessible members.
     """
     from patroni.config import get_global_config
     dcs = get_dcs(config, cluster_name, group)
@@ -1809,7 +1832,8 @@ def show_diff(before_editing: str, after_editing: str) -> None:
     :param before_editing: string to be compared with *after_editing*.
     :param after_editing: string to be compared with *before_editing*.
 
-    :raises PatroniCtlException: if no suitable pager can be found when printing diff output to a tty.
+    :raises:
+        :class:`PatroniCtlException`: if no suitable pager can be found when printing diff output to a tty.
     """
     def listify(string: str) -> List[str]:
         return [line + '\n' for line in string.rstrip('\n').split('\n')]
@@ -1879,7 +1903,8 @@ def apply_config_changes(before_editing: str, data: Dict[str, Any], kvpairs: Lis
 
     :returns: tuple of human-readable, parsed data structure after changes.
 
-    :raises PatroniCtlException: if any entry in *kvpairs* is ``None`` or not in the expected format.
+    :raises:
+        :class:`PatroniCtlException`: if any entry in *kvpairs* is ``None`` or not in the expected format.
     """
     changed_data = copy.deepcopy(data)
 
@@ -1959,9 +1984,10 @@ def invoke_editor(before_editing: str, cluster_name: str) -> Tuple[str, Dict[str
 
     :returns: tuple of human-readable, parsed data structure after changes.
 
-    :raises PatroniCtlException: if
-        * No suitable editor can be found; or
-        * Editor call exits with unexpected return code.
+    :raises:
+        :class:`PatroniCtlException`: if
+            * No suitable editor can be found; or
+            * Editor call exits with unexpected return code.
     """
     editor_cmd = os.environ.get('EDITOR')
     if not editor_cmd:
@@ -2019,9 +2045,10 @@ def edit_config(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
     :param replace_filename: name of the file which contains the new configuration parameters to replace the existing
         configuration. Pass ``-`` for using stdin instead.
 
-    :raises PatroniCtlException: if
-        * Configuration is absent from DCS; or
-        * Detected a concurrent modification of the configuration in the DCS.
+    :raises:
+        :class:`PatroniCtlException`: if
+            * Configuration is absent from DCS; or
+            * Detected a concurrent modification of the configuration in the DCS.
     """
     dcs = get_dcs(obj, cluster_name, group)
     cluster = dcs.get_cluster()
