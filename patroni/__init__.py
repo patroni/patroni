@@ -17,7 +17,7 @@ MIN_PSYCOPG2 = (2, 5, 4)
 def fatal(string: str, *args: Any) -> None:
     """Write a fatal message to stderr and exit with code ``1``.
 
-    :param string: message to be written before exitting.
+    :param string: message to be written before exiting.
     """
     sys.stderr.write('FATAL: ' + string.format(*args) + '\n')
     sys.exit(1)
@@ -29,7 +29,7 @@ def parse_version(version: str) -> Tuple[int, ...]:
     .. note::
         Designed for easy comparison of software versions in Python.
 
-    :param version: human readable software version, e.g. ``2.5.4``.
+    :param version: human-readable software version, e.g. ``2.5.4``.
 
     :returns: tuple of *version* parts, each part as an integer.
 
@@ -39,9 +39,9 @@ def parse_version(version: str) -> Tuple[int, ...]:
         (2, 5, 4)
     """
     def _parse_version(version: str) -> Iterator[int]:
-        """Yield each part of a human readable version string as an integer.
+        """Yield each part of a human-readable version string as an integer.
 
-        :param version: human readable software version, e.g. ``2.5.4``.
+        :param version: human-readable software version, e.g. ``2.5.4``.
 
         :yields: each part of *version* as an integer.
 
