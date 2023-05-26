@@ -1153,8 +1153,7 @@ class Kubernetes(AbstractDCS):
             raise KubernetesError(e)
 
         # if we are here, that means update failed with 409
-        retry.deadline = retry.stoptime - time.time()
-        if retry.deadline < 1:
+        if not retry.ensure_deadline(1):
             return False  # No time for retry. Tell ha.py that we have to demote due to failed update.
 
         # Try to get the latest version directly from K8s API instead of relying on async cache
@@ -1168,8 +1167,7 @@ class Kubernetes(AbstractDCS):
 
         self._kinds.set(self.leader_path, kind)
 
-        retry.deadline = retry.stoptime - time.time()
-        if retry.deadline < 0.5:
+        if not retry.ensure_deadline(0.5):
             return False
 
         kind_annotations = kind and kind.metadata.annotations or {}

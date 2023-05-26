@@ -827,13 +827,11 @@ class Etcd3(AbstractEtcd):
         except LeaseNotFound:
             logger.error('Our lease disappeared from Etcd. Will try to get a new one and retry attempt')
             self._lease = None
-            retry.deadline = retry.stoptime - time.time()
+            retry.ensure_deadline(0)
 
             _retry(self._do_refresh_lease)
 
-            retry.deadline = retry.stoptime - time.time()
-            if retry.deadline < 1:
-                raise Etcd3Error('_do_attempt_to_acquire_leader timeout')
+            retry.ensure_deadline(1, Etcd3Error('_do_attempt_to_acquire_leader timeout'))
 
             return _retry(self._client.put, self.leader_path, self._name, self._lease, create_revision='0')
 
@@ -847,9 +845,7 @@ class Etcd3(AbstractEtcd):
 
         self._run_and_handle_exceptions(self._do_refresh_lease, retry=_retry)
 
-        retry.deadline = retry.stoptime - time.time()
-        if retry.deadline < 1:
-            raise Etcd3Error('attempt_to_acquire_leader timeout')
+        retry.ensure_deadline(1, Etcd3Error('attempt_to_acquire_leader timeout'))
 
         ret = self._run_and_handle_exceptions(self._do_attempt_to_acquire_leader, retry, retry=None)
         if not ret:
@@ -887,9 +883,7 @@ class Etcd3(AbstractEtcd):
         self._run_and_handle_exceptions(self._do_refresh_lease, True, retry=_retry)
 
         if self._lease and leader.session != self._lease:
-            retry.deadline = retry.stoptime - time.time()
-            if retry.deadline < 1:
-                raise Etcd3Error('update_leader timeout')
+            retry.ensure_deadline(1, Etcd3Error('update_leader timeout'))
 
             fields = {'key': base64_encode(self.leader_path), 'value': base64_encode(self._name), 'lease': self._lease}
             # First we try to update lease on existing leader key "hoping" that we still owning it
