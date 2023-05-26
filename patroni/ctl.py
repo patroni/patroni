@@ -474,7 +474,7 @@ def get_all_members(obj: Dict[str, Any], cluster: Cluster,
 
 
 def get_any_member(obj: Dict[str, Any], cluster: Cluster, group: Optional[int],
-                   role: str = 'leader', member: Optional[str] = None) -> Optional[Member]:
+                   role: Optional[str] = None, member: Optional[str] = None) -> Optional[Member]:
     """Get the first found cluster member that has the given *role*.
 
     :param obj: the Patroni configuration.
@@ -484,7 +484,17 @@ def get_any_member(obj: Dict[str, Any], cluster: Cluster, group: Optional[int],
     :param member: if specified, then besides having the given *role*, the cluster member's name should be *member*.
 
     :returns: the first found cluster member that has the given *role*.
+
+    :raises:
+        :class:`PatroniCtlException`: if * both *role* and *member* are provided.
     """
+    if member is not None:
+        if role is not None:
+            raise PatroniCtlException('--role and --member are mutually exclusive options')
+        role = 'any'
+    elif role is None:
+        role = 'leader'
+
     for m in get_all_members(obj, cluster, group, role):
         if member is None or m.name == member:
             return m
@@ -507,7 +517,7 @@ def get_all_members_leader_first(cluster: Cluster) -> Iterator[Member]:
 
 
 def get_cursor(obj: Dict[str, Any], cluster: Cluster, group: Optional[int], connect_parameters: Dict[str, Any],
-               role: str = 'leader', member_name: Optional[str] = None) -> Union['cursor', 'Cursor[Any]', None]:
+               role: Optional[str] = None, member_name: Optional[str] = None) -> Union['cursor', 'Cursor[Any]', None]:
     """Get a cursor object to execute queries against a member that has the given *role* or *member_name*.
 
     .. note::
@@ -706,13 +716,6 @@ def dsn(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
             * both *role* and *member* are provided; or
             * No member matches requested *member* or *role*.
     """
-    if member is not None:
-        if role is not None:
-            raise PatroniCtlException('--role and --member are mutually exclusive options')
-        role = 'any'
-    elif role is None:
-        role = 'leader'
-
     cluster = get_dcs(obj, cluster_name, group).get_cluster()
     m = get_any_member(obj, cluster, group, role=role, member=member)
     if m is None:
@@ -775,18 +778,11 @@ def query(
     :param fmt: the output table printing format. See :func:`print_output` for available options.
 
     :raises:
-        :class:`PatroniCtlException`: if
-            * both *role* and *member* are provided; or
+        :class:`PatroniCtlException`: if:
+            * if * both *role* and *member* are provided; or
             * both *file* and *command* are provided; or
             * neither *file* nor *command* is provided.
     """
-    if member is not None:
-        if role is not None:
-            raise PatroniCtlException('--role and --member are mutually exclusive options')
-        role = 'any'
-    elif role is None:
-        role = 'leader'
-
     if p_file is not None:
         if command is not None:
             raise PatroniCtlException('--file and --command are mutually exclusive options')
@@ -817,7 +813,7 @@ def query(
 
 
 def query_member(obj: Dict[str, Any], cluster: Cluster, group: Optional[int],
-                 cursor: Union['cursor', 'Cursor[Any]', None], member: Optional[str], role: str,
+                 cursor: Union['cursor', 'Cursor[Any]', None], member: Optional[str], role: Optional[str],
                  command: str, connect_parameters: Dict[str, Any]) -> Tuple[List[List[Any]], Optional[List[Any]]]:
     """Execute SQL *command* against a member.
 
