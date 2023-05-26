@@ -289,8 +289,8 @@ def get_dcs(config: Dict[str, Any], scope: str, group: Optional[int]) -> Abstrac
 
     :param config: Patroni configuration.
     :param scope: cluster name.
-    :param group: if a Citus cluster, use *group* to configure which Citus group this DCS refers to. If *group* is
-        ``None``, assume coordinator group.
+    :param group: if *group* is defined, use it to select which alternative Citus group this DCS refers to. If *group*
+        is ``None`` and a Citus configuration exists, assume this is the coordinator. Coordinator has the group ``0``.
 
     :returns: a subclass of :class:`AbstractDCS`, according to the DCS technology that is configured.
     :raises PatroniCtlException: if not suitable DCS configuration could be found.
