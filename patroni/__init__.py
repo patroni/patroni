@@ -24,7 +24,7 @@ def fatal(string: str, *args: Any) -> None:
 
 
 def parse_version(version: str) -> Tuple[int, ...]:
-    """Convert *version* from human readable format to tuple of integers.
+    """Convert *version* from human-readable format to tuple of integers.
 
     .. note::
         Designed for easy comparison of software versions in Python.
