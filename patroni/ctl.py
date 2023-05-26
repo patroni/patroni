@@ -1460,6 +1460,9 @@ def output_members(obj: Dict[str, Any], cluster: Cluster, name: str,
         * ``Scheduled restart``: timestamp for scheduled restart, if any -- showed only if *extended*;
         * ``Tags``: node tags, if any -- showed only if *extended*.
 
+    The 3 extended columns are always included if *extended*, even if the member has no value for a given column.
+    If not *extended*, these columns may still be shown if any of the members has any information for them.
+
     :param obj: Patroni configuration.
     :param cluster: Patroni cluster.
     :param name: name of the Patroni cluster.
