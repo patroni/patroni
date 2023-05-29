@@ -183,7 +183,7 @@ def get_bin_name(bin_name: str) -> str:
 
     :returns: value of ``postgresql.bin_name[*bin_name*]``, if present, otherwise *bin_name*.
     """
-    return schema.data.get('postgresql', {}).get('bin_name', {}).get(bin_name, bin_name)
+    return (schema.data.get('postgresql', {}).get('bin_name', {}) or {}).get(bin_name, bin_name)
 
 
 def get_major_version(bin_dir: OptionalType[str] = None) -> str:
