@@ -946,6 +946,20 @@ def parse_scheduled(scheduled: Optional[str]) -> Optional[datetime.datetime]:
 
     :raises:
         :class:`PatroniCtlException`: if unable to parse *scheduled* from :class:`str` to :class:`datetime`.
+
+    :Example:
+
+        >>> parse_scheduled(None) is None
+        True
+
+        >>> parse_scheduled('now') is None
+        True
+
+        >>> parse_scheduled('2023-05-29T04:32:31')
+        datetime.datetime(2023, 5, 29, 4, 32, 31, tzinfo=tzlocal())
+
+        >>> parse_scheduled('2023-05-29T04:32:31-3')
+        datetime.datetime(2023, 5, 29, 4, 32, 31, tzinfo=tzoffset(None, -10800))
     """
     if scheduled is not None and (scheduled or 'now') != 'now':
         try:
