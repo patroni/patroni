@@ -57,10 +57,13 @@ def parse_version(version: str) -> Tuple[int, ...]:
     return tuple(_parse_version(version.split(' ')[0]))
 
 
-# We pass MIN_PSYCOPG2 and parse_version as arguments to simplify usage of check_psycopg from the setup.py
 def check_psycopg(_min_psycopg2: Tuple[int, ...] = MIN_PSYCOPG2,
                   _parse_version: Callable[[str], Tuple[int, ...]] = parse_version) -> None:
     """Ensure at least one among ``psycopg2`` or ``psycopg`` libraries are available in the environment.
+
+    .. note::
+        We pass ``MIN_PSYCOPG2`` and :func:`parse_version as arguments to simplify usage of :func:`check_psycopg` from
+        the ``setup.py``.
 
     .. note::
         Patroni chooses ``psycopg2`` over ``psycopg``, if possible.
