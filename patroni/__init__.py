@@ -19,8 +19,7 @@ def fatal(string: str, *args: Any) -> None:
 
     :param string: message to be written before exiting.
     """
-    sys.stderr.write('FATAL: ' + string.format(*args) + '\n')
-    sys.exit(1)
+    sys.exit('FATAL: ' + string.format(*args))
 
 
 def parse_version(version: str) -> Tuple[int, ...]:
