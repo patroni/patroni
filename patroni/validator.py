@@ -176,6 +176,16 @@ def is_ipv6_address(ip: str) -> bool:
     return True
 
 
+def get_bin_name(bin_name: str) -> str:
+    """Get the value of ``postgresql.bin_name[*bin_name*]`` configuration option.
+
+    :param bin_name: a key to be retrieved from ``postgresql.bin_name`` configuration.
+
+    :returns: value of ``postgresql.bin_name[*bin_name*]``, if present, otherwise *bin_name*.
+    """
+    return (schema.data.get('postgresql', {}).get('bin_name', {}) or {}).get(bin_name, bin_name)
+
+
 def get_major_version(bin_dir: OptionalType[str] = None) -> str:
     """Get the major version of PostgreSQL.
 
@@ -191,9 +201,9 @@ def get_major_version(bin_dir: OptionalType[str] = None) -> str:
         * Returns `15` for PostgreSQL 15.2
     """
     if not bin_dir:
-        binary = 'postgres'
+        binary = get_bin_name('postgres')
     else:
-        binary = os.path.join(bin_dir, 'postgres')
+        binary = os.path.join(bin_dir, get_bin_name('postgres'))
     version = subprocess.check_output([binary, '--version']).decode()
     version = re.match(r'^[^\s]+ [^\s]+ (\d+)(\.(\d+))?', version)
     if TYPE_CHECKING:  # pragma: no cover
@@ -239,6 +249,38 @@ def validate_data_dir(data_dir: str) -> bool:
             if pgversion != major_version:
                 raise ConfigParseError("data_dir directory postgresql version ({}) doesn't match with "
                                        "'postgres --version' output ({})".format(pgversion, major_version))
+    return True
+
+
+def validate_binary_name(bin_name: str) -> bool:
+    """Validate the value of ``postgresql.binary_name[*bin_name*]`` configuration option.
+
+    If ``postgresql.bin_dir`` is set and the value of the *bin_name* meets these conditions:
+
+        * The path join of ``postgresql.bin_dir`` plus the *bin_name* value exists; and
+        * The path join as above is executable
+
+    If ``postgresql.bin_dir`` is not set, then validate that the value of *bin_name* meets this
+    condition:
+
+        * Is found in the system PATH using ``which``
+
+    :param bin_name: the value of the ``postgresql.bin_name[*bin_name*]``
+
+    :returns: ``True`` if the conditions are true
+
+    :raises :class:`patroni.exceptions.ConfigParserError`: if:
+        * *bin_name* is not set; or
+        * the path join of the ``postgresql.bin_dir`` plus *bin_name* does not exist; or
+        * the path join as above is not executable; or
+        * the *bin_name* cannot be found in the system PATH
+
+    """
+    if not bin_name:
+        raise ConfigParseError("is an empty string")
+    bin_dir = schema.data.get('postgresql', {}).get('bin_dir', None)
+    if not shutil.which(bin_name, path=bin_dir):
+        raise ConfigParseError(f"does not contain '{bin_name}' in '{bin_dir or '$PATH'}'")
     return True
 
 
@@ -404,6 +446,31 @@ class Directory(object):
                     if not os.path.exists(os.path.join(name, path)):
                         yield Result(False, "'{}' does not contain '{}'".format(name, path))
             yield from self._check_executables(path=name)
+
+
+class BinDirectory(Directory):
+    """Check if a Postgres binary directory contains the expected files.
+
+    It is a subclass of :class:`Directory` with an extended capability: translating ``BINARIES`` according to configured
+    ``postgresql.bin_name``, if any.
+
+    :cvar BINARIES: list of executable files that should exist directly under a given Postgres binary directory.
+    """
+
+    # ``pg_rewind`` is not in the list because its usage by Patroni is optional. Also, it is not available by default on
+    # Postgres 9.3 and 9.4, versions which Patroni supports.
+    BINARIES = ["pg_ctl", "initdb", "pg_controldata", "pg_basebackup", "postgres", "pg_isready"]
+
+    def validate(self, name: str) -> Iterator[Result]:
+        """Check if the expected executables can be found under *name* binary directory.
+
+        :param name: path to the base directory against which executables will be validated. Check against PATH if
+            *name* is not provided.
+
+        :yields: objects with the error message related to the failure, if any check fails.
+        """
+        self.contains_executable: List[str] = [get_bin_name(binary) for binary in self.BINARIES]
+        yield from super().validate(name)
 
 
 class Schema(object):
@@ -700,6 +767,7 @@ class IntValidator(object):
     :ivar base_unit: the base unit to convert the value to before checking if it's within `min` and `max` range.
     :ivar raise_assert: if an ``assert`` call should be performed regarding expected type and valid range.
     """
+
     expected_type = int
 
     def __init__(self, min: OptionalType[int] = None, max: OptionalType[int] = None,
@@ -736,6 +804,10 @@ class IntValidator(object):
 
 
 def validate_watchdog_mode(value: Any) -> None:
+    """Validate ``watchdog.mode`` configuration option.
+
+    :param value: value of ``watchdog.mode`` to be validated.
+    """
     assert_(isinstance(value, (str, bool)), "expected type is not a string")
     assert_(value in (False, "off", "automatic", "required"))
 
@@ -748,6 +820,7 @@ setattr(validate_connect_address, 'expected_type', str)
 setattr(validate_host_port_listen, 'expected_type', str)
 setattr(validate_host_port_listen_multiple_hosts, 'expected_type', str)
 setattr(validate_data_dir, 'expected_type', str)
+setattr(validate_binary_name, 'expected_type', str)
 validate_etcd = {
     Or("host", "hosts", "srv", "srv_suffix", "url", "proxy"): Case({
         "host": validate_host_port,
@@ -823,8 +896,16 @@ schema = Schema({
             Optional("rewind"): userattributes
         },
         "data_dir": validate_data_dir,
-        Optional("bin_dir", ""): Directory(contains_executable=["pg_ctl", "initdb", "pg_controldata", "pg_basebackup",
-                                                                "postgres", "pg_isready"]),
+        Optional("bin_name"): {
+            Optional("pg_ctl"): validate_binary_name,
+            Optional("initdb"): validate_binary_name,
+            Optional("pg_controldata"): validate_binary_name,
+            Optional("pg_basebackup"): validate_binary_name,
+            Optional("postgres"): validate_binary_name,
+            Optional("pg_isready"): validate_binary_name,
+            Optional("pg_rewind"): validate_binary_name,
+        },
+        Optional("bin_dir", ""): BinDirectory(),
         Optional("parameters"): {
             Optional("unix_socket_directories"): str
         },

@@ -227,8 +227,17 @@ class Postgresql(object):
         return 0
 
     def pgcommand(self, cmd: str) -> str:
-        """Returns path to the specified PostgreSQL command"""
-        return os.path.join(self._bin_dir, cmd)
+        """Return path to the specified PostgreSQL command.
+
+        .. note::
+            If ``postgresql.bin_name.*cmd*`` was configured by the user then that binary name is used, otherwise the
+            default binary name *cmd* is used.
+
+        :param cmd: the Postgres binary name to get path to.
+
+        :returns: path to Postgres binary named *cmd*.
+        """
+        return os.path.join(self._bin_dir, (self.config.get('bin_name', {}) or {}).get(cmd, cmd))
 
     def pg_ctl(self, cmd: str, *args: str, **kwargs: Any) -> bool:
         """Builds and executes pg_ctl command

@@ -258,7 +258,16 @@ PostgreSQL
       own config item. See :ref:`custom replica creation methods documentation <custom_replica_creation>` for further explanation.
    -  **data\_dir**: The location of the Postgres data directory, either :ref:`existing <existing_data>` or to be initialized by Patroni.
    -  **config\_dir**: The location of the Postgres configuration directory, defaults to the data directory. Must be writable by Patroni.
-   -  **bin\_dir**: (optional) Path to PostgreSQL binaries (pg_ctl, pg_rewind, pg_basebackup, postgres). If not provided or is an empty string, PATH environment variable will be used to find the executables.
+   -  **bin\_dir**: (optional) Path to PostgreSQL binaries (pg_ctl, initdb, pg_controldata, pg_basebackup, postgres, pg_isready, pg_rewind). If not provided or is an empty string, PATH environment variable will be used to find the executables.
+   -  **bin\_name**: (optional) Make it possible to override Postgres binary names, if you are using a custom Postgres distribution:
+
+      - **pg\_ctl**: (optional) Custom name for ``pg_ctl`` binary.
+      - **initdb**: (optional) Custom name for ``initdb`` binary.
+      - **pg\controldata**: (optional) Custom name for ``pg_controldata`` binary.
+      - **pg\_basebackup**: (optional) Custom name for ``pg_basebackup`` binary.
+      - **postgres**: (optional) Custom name for ``postgres`` binary.
+      - **pg\_isready**: (optional) Custom name for ``pg_isready`` binary.
+      - **pg\_rewind**: (optional) Custom name for ``pg_rewind`` binary.
    -  **listen**: IP address + port that Postgres listens to; must be accessible from other nodes in the cluster, if you're using streaming replication. Multiple comma-separated addresses are permitted, as long as the port component is appended after to the last one with a colon, i.e. ``listen: 127.0.0.1,127.0.0.2:5432``. Patroni will use the first address from this list to establish local connections to the PostgreSQL node.
    -  **use\_unix\_socket**: specifies that Patroni should prefer to use unix sockets to connect to the cluster. Default value is ``false``. If ``unix_socket_directories`` is defined, Patroni will use the first suitable value from it to connect to the cluster and fallback to tcp if nothing is suitable. If ``unix_socket_directories`` is not specified in ``postgresql.parameters``, Patroni will assume that the default value should be used and omit ``host`` from the connection parameters.
    -  **use\_unix\_socket\_repl**: specifies that Patroni should prefer to use unix sockets for replication user cluster connection. Default value is ``false``. If ``unix_socket_directories`` is defined, Patroni will use the first suitable value from it to connect to the cluster and fallback to tcp if nothing is suitable. If ``unix_socket_directories`` is not specified in ``postgresql.parameters``, Patroni will assume that the default value should be used and omit ``host`` from the connection parameters.
