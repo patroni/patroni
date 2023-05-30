@@ -53,6 +53,13 @@ bootstrap:
     maximum_lag_on_failover: 1048576
     postgresql:
       use_pg_rewind: true
+      pg_hba:
+      # For kerberos gss based connectivity (discard @.*$)
+      #- host replication replicator 127.0.0.1/32 gss include_realm=0
+      #- host all all 0.0.0.0/0 gss include_realm=0
+      - host replication replicator 127.0.0.1/32 md5
+      - host all all 0.0.0.0/0 md5
+      #  - hostssl all all 0.0.0.0/0 md5
 #      use_slots: true
       parameters:
 #        wal_level: hot_standby
@@ -76,14 +83,6 @@ bootstrap:
   initdb:  # Note: It needs to be a list (some options need values, others are switches)
   - encoding: UTF8
   - data-checksums
-
-  pg_hba:  # Add following lines to pg_hba.conf after running 'initdb'
-  # For kerberos gss based connectivity (discard @.*$)
-  #- host replication replicator 127.0.0.1/32 gss include_realm=0
-  #- host all all 0.0.0.0/0 gss include_realm=0
-  - host replication replicator 127.0.0.1/32 md5
-  - host all all 0.0.0.0/0 md5
-#  - hostssl all all 0.0.0.0/0 md5
 
   # Some additional users users which needs to be created after initializing new cluster
   users:

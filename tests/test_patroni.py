@@ -15,7 +15,7 @@ from patroni.exceptions import DCSError
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
 from patroni import check_psycopg
-from patroni.__main__ import Patroni, main as _main, patroni_main
+from patroni.__main__ import Patroni, main as _main
 from threading import Thread
 
 from . import psycopg_connect, SleepException
@@ -52,14 +52,14 @@ class TestPatroni(unittest.TestCase):
 
     @patch('sys.argv', ['patroni.py'])
     def test_no_config(self):
-        self.assertRaises(SystemExit, patroni_main)
+        self.assertRaises(SystemExit, _main)
 
     @patch('sys.argv', ['patroni.py', '--validate-config', 'postgres0.yml'])
     @patch('socket.socket.connect_ex', Mock(return_value=1))
     def test_validate_config(self):
-        self.assertRaises(SystemExit, patroni_main)
+        self.assertRaises(SystemExit, _main)
         with patch.object(config.Config, '__init__', Mock(return_value=None)):
-            self.assertRaises(SystemExit, patroni_main)
+            self.assertRaises(SystemExit, _main)
 
     @patch('pkgutil.iter_importers', Mock(return_value=[MockFrozenImporter()]))
     @patch('sys.frozen', Mock(return_value=True), create=True)
@@ -94,11 +94,11 @@ class TestPatroni(unittest.TestCase):
         with patch('subprocess.call', Mock(return_value=1)):
             with patch.object(Patroni, 'run', Mock(side_effect=SleepException)):
                 os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
-                self.assertRaises(SleepException, patroni_main)
+                self.assertRaises(SleepException, _main)
             with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
                 with patch('patroni.ha.Ha.is_paused', Mock(return_value=True)):
                     os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
-                    patroni_main()
+                    _main()
 
     @patch('os.getpid')
     @patch('multiprocessing.Process')

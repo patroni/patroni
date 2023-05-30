@@ -1129,7 +1129,7 @@ class Kubernetes(AbstractDCS):
         """Unused"""
         raise NotImplementedError  # pragma: no cover
 
-    def _update_leader(self) -> bool:
+    def _update_leader(self, leader: Leader) -> bool:
         """Unused"""
         raise NotImplementedError  # pragma: no cover
 
@@ -1153,8 +1153,7 @@ class Kubernetes(AbstractDCS):
             raise KubernetesError(e)
 
         # if we are here, that means update failed with 409
-        retry.deadline = retry.stoptime - time.time()
-        if retry.deadline < 1:
+        if not retry.ensure_deadline(1):
             return False  # No time for retry. Tell ha.py that we have to demote due to failed update.
 
         # Try to get the latest version directly from K8s API instead of relying on async cache
@@ -1168,8 +1167,7 @@ class Kubernetes(AbstractDCS):
 
         self._kinds.set(self.leader_path, kind)
 
-        retry.deadline = retry.stoptime - time.time()
-        if retry.deadline < 0.5:
+        if not retry.ensure_deadline(0.5):
             return False
 
         kind_annotations = kind and kind.metadata.annotations or {}
@@ -1182,8 +1180,8 @@ class Kubernetes(AbstractDCS):
         return bool(_run_and_handle_exceptions(self._patch_or_create, self.leader_path, annotations,
                                                kind_resource_version, ips=ips, retry=_retry))
 
-    def update_leader(self, last_lsn: Optional[int], slots: Optional[Dict[str, int]] = None,
-                      failsafe: Optional[Dict[str, str]] = None) -> bool:
+    def update_leader(self, leader: Leader, last_lsn: Optional[int],
+                      slots: Optional[Dict[str, int]] = None, failsafe: Optional[Dict[str, str]] = None) -> bool:
         kind = self._kinds.get(self.leader_path)
         kind_annotations = kind and kind.metadata.annotations or {}
 
@@ -1353,7 +1351,11 @@ class Kubernetes(AbstractDCS):
             self.__do_not_watch = False
             return True
 
+        # We want to give a bit more time to non-leader nodes to synchronize HA loops
+        if leader_version:
+            timeout += 0.5
+
         try:
-            return super(Kubernetes, self).watch(None, timeout + 0.5)
+            return super(Kubernetes, self).watch(None, timeout)
         finally:
             self.event.clear()

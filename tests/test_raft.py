@@ -146,8 +146,8 @@ class TestRaft(unittest.TestCase):
         self.assertIsInstance(cluster, Cluster)
         self.assertIsInstance(cluster.workers[1], Cluster)
         self.assertTrue(raft._sync_obj.set(raft.status_path, '{"optime":1234567,"slots":{"ls":12345}}'))
-        raft.get_cluster()
-        self.assertTrue(raft.update_leader('1', failsafe={'foo': 'bat'}))
+        leader = raft.get_cluster().leader
+        self.assertTrue(raft.update_leader(leader, '1', failsafe={'foo': 'bat'}))
         self.assertTrue(raft._sync_obj.set(raft.failsafe_path, '{"foo"}'))
         self.assertTrue(raft._sync_obj.set(raft.status_path, '{'))
         raft.get_citus_coordinator()

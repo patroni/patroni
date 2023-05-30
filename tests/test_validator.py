@@ -24,7 +24,6 @@ config = {
             "retry_timeout": 1000,
             "maximum_lag_on_failover": 1000
         },
-        "pg_hba": ["string"],
         "initdb": ["string", {"key": "value"}]
     },
     "consul": {
@@ -272,3 +271,38 @@ class TestValidator(unittest.TestCase):
         errors = schema2(config_2)
         output = "\n".join(errors)
         self.assertEqual(['some_dir'], parse_output(output))
+
+    def test_validate_binary_name(self, mock_out, mock_err):
+        r = copy.copy(required_binaries)
+        r.remove('postgres')
+        r.append('fake-postgres')
+        binaries.extend(r)
+        c = copy.deepcopy(config)
+        c["postgresql"]["bin_name"] = {"postgres": "fake-postgres"}
+        del c["postgresql"]["bin_dir"]
+        errors = schema(c)
+        output = "\n".join(errors)
+        self.assertEqual(['raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
+    def test_validate_binary_name_missing(self, mock_out, mock_err):
+        r = copy.copy(required_binaries)
+        r.remove('postgres')
+        binaries.extend(r)
+        c = copy.deepcopy(config)
+        c["postgresql"]["bin_name"] = {"postgres": "fake-postgres"}
+        del c["postgresql"]["bin_dir"]
+        errors = schema(c)
+        output = "\n".join(errors)
+        self.assertEqual(['postgresql.bin_dir', 'postgresql.bin_name.postgres', 'raft.bind_addr', 'raft.self_addr'],
+                         parse_output(output))
+
+    def test_validate_binary_name_empty_string(self, mock_out, mock_err):
+        r = copy.copy(required_binaries)
+        binaries.extend(r)
+        c = copy.deepcopy(config)
+        c["postgresql"]["bin_name"] = {"postgres": ""}
+        del c["postgresql"]["bin_dir"]
+        errors = schema(c)
+        output = "\n".join(errors)
+        self.assertEqual(['postgresql.bin_dir', 'postgresql.bin_name.postgres', 'raft.bind_addr', 'raft.self_addr'],
+                         parse_output(output))

@@ -296,14 +296,15 @@ class TestEtcd(unittest.TestCase):
         self.etcd.write_leader_optime('0')
 
     def test_update_leader(self):
-        self.assertTrue(self.etcd.update_leader(None, failsafe={'foo': 'bar'}))
+        leader = self.etcd.get_cluster().leader
+        self.assertTrue(self.etcd.update_leader(leader, None, failsafe={'foo': 'bar'}))
         with patch.object(etcd.Client, 'write',
                           Mock(side_effect=[etcd.EtcdConnectionFailed, etcd.EtcdClusterIdChanged, Exception])):
-            self.assertRaises(EtcdError, self.etcd.update_leader, None)
-            self.assertFalse(self.etcd.update_leader(None))
-            self.assertRaises(EtcdError, self.etcd.update_leader, None)
+            self.assertRaises(EtcdError, self.etcd.update_leader, leader, None)
+            self.assertFalse(self.etcd.update_leader(leader, None))
+            self.assertRaises(EtcdError, self.etcd.update_leader, leader, None)
         with patch.object(etcd.Client, 'write', Mock(side_effect=etcd.EtcdKeyNotFound)):
-            self.assertFalse(self.etcd.update_leader(None))
+            self.assertFalse(self.etcd.update_leader(leader, None))
 
     def test_initialize(self):
         self.assertFalse(self.etcd.initialize())

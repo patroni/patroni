@@ -549,13 +549,11 @@ class Consul(AbstractDCS):
         except InvalidSession:
             logger.error('Our session disappeared from Consul. Will try to get a new one and retry attempt')
             self._session = None
-            retry.deadline = retry.stoptime - time.time()
+            retry.ensure_deadline(0)
 
             retry(self._do_refresh_session)
 
-            retry.deadline = retry.stoptime - time.time()
-            if retry.deadline < 1:
-                raise ConsulError('_do_attempt_to_acquire_leader timeout')
+            retry.ensure_deadline(1, ConsulError('_do_attempt_to_acquire_leader timeout'))
 
             return retry(self._client.kv.put, self.leader_path, self._name, acquire=self._session)
 
@@ -564,9 +562,7 @@ class Consul(AbstractDCS):
         retry = self._retry.copy()
         self._run_and_handle_exceptions(self._do_refresh_session, retry=retry)
 
-        retry.deadline = retry.stoptime - time.time()
-        if retry.deadline < 1:
-            raise ConsulError('attempt_to_acquire_leader timeout')
+        retry.ensure_deadline(1, ConsulError('attempt_to_acquire_leader timeout'))
 
         ret = self._run_and_handle_exceptions(self._do_attempt_to_acquire_leader, retry, retry=None)
         if not ret:
@@ -608,28 +604,20 @@ class Consul(AbstractDCS):
             raise ReturnFalseException
 
     @catch_return_false_exception
-    def _update_leader(self) -> bool:
+    def _update_leader(self, leader: Leader) -> bool:
         retry = self._retry.copy()
 
         self._run_and_handle_exceptions(self._do_refresh_session, True, retry=retry)
 
-        if self._session:
-            cluster = self.cluster
-            leader_session = cluster and isinstance(cluster.leader, Leader) and cluster.leader.session
-            if leader_session != self._session:
-                retry.deadline = retry.stoptime - time.time()
-                if retry.deadline < 1:
-                    raise ConsulError('update_leader timeout')
-                logger.warning('Recreating the leader key due to session mismatch')
-                if cluster and cluster.leader:
-                    self._run_and_handle_exceptions(self._client.kv.delete, self.leader_path,
-                                                    cas=cluster.leader.version)
+        if self._session and leader.session != self._session:
+            retry.ensure_deadline(1, ConsulError('update_leader timeout'))
 
-                retry.deadline = retry.stoptime - time.time()
-                if retry.deadline < 0.5:
-                    raise ConsulError('update_leader timeout')
-                self._run_and_handle_exceptions(self._client.kv.put, self.leader_path,
-                                                self._name, acquire=self._session)
+            logger.warning('Recreating the leader key due to session mismatch')
+            self._run_and_handle_exceptions(self._client.kv.delete, self.leader_path, cas=leader.version)
+
+            retry.ensure_deadline(0.5, ConsulError('update_leader timeout'))
+
+            self._run_and_handle_exceptions(self._client.kv.put, self.leader_path, self._name, acquire=self._session)
 
         return bool(self._session)
 
@@ -663,8 +651,7 @@ class Consul(AbstractDCS):
         retry = self._retry.copy()
         ret = retry(self._client.kv.put, self.sync_path, value, cas=version)
         if ret:  # We have no other choise, only read after write :(
-            retry.deadline = retry.stoptime - time.time()
-            if retry.deadline < 0.5:
+            if not retry.ensure_deadline(0.5):
                 return False
             _, ret = self.retry(self._client.kv.get, self.sync_path)
             if ret and (ret.get('Value') or b'').decode('utf-8') == value:

@@ -531,6 +531,21 @@ class Retry(object):
         """Get the current stop time."""
         return self._cur_stoptime or 0
 
+    def ensure_deadline(self, timeout: float, raise_ex: Optional[Exception] = None) -> bool:
+        """Calculates, sets, and checks the remaining deadline time.
+
+        :param timeout: if the *deadline* is smaller than the provided *timeout* value raise *raise_ex* exception
+        :param raise_ex: the exception object that will be raised if the *deadline* is smaller than provided *timeout*
+        :returns: `False` if *deadline* is smaller than a provided *timeout* and *raise_ex* isn't set. Otherwise `True`
+        :raises Exception: if calculated deadline is smaller than provided *timeout*
+        """
+        self.deadline = self.stoptime - time.time()
+        if self.deadline < timeout:
+            if raise_ex:
+                raise raise_ex
+            return False
+        return True
+
     def __call__(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Call a function *func* with arguments ``*args`` and ``*kwargs`` in a loop.
 

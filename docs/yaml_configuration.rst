@@ -38,15 +38,11 @@ Bootstrap configuration
       See :ref:`custom bootstrap methods documentation <custom_bootstrap>` for details.
       When ``initdb`` is specified revert to the default ``initdb`` command. ``initdb`` is also triggered when no ``method``
       parameter is present in the configuration file.
-   -  **initdb**: List options to be passed on to initdb.
+   -  **initdb**: (optional) list options to be passed on to initdb.
 
       -  **- data-checksums**: Must be enabled when pg_rewind is needed on 9.3.
       -  **- encoding: UTF8**: default encoding for new databases.
       -  **- locale: UTF8**: default locale for new databases.
-   -  **pg\_hba**: list of lines that you should add to pg\_hba.conf.
-
-      -  **- host all all 0.0.0.0/0 md5**.
-      -  **- host replication replicator 127.0.0.1/32 md5**: A line like this is required for replication.
    -  **users**: Some additional users which need to be created after initializing new cluster
 
       -  **admin**: the name of user
@@ -262,7 +258,16 @@ PostgreSQL
       own config item. See :ref:`custom replica creation methods documentation <custom_replica_creation>` for further explanation.
    -  **data\_dir**: The location of the Postgres data directory, either :ref:`existing <existing_data>` or to be initialized by Patroni.
    -  **config\_dir**: The location of the Postgres configuration directory, defaults to the data directory. Must be writable by Patroni.
-   -  **bin\_dir**: (optional) Path to PostgreSQL binaries (pg_ctl, pg_rewind, pg_basebackup, postgres). If not provided or is an empty string, PATH environment variable will be used to find the executables.
+   -  **bin\_dir**: (optional) Path to PostgreSQL binaries (pg_ctl, initdb, pg_controldata, pg_basebackup, postgres, pg_isready, pg_rewind). If not provided or is an empty string, PATH environment variable will be used to find the executables.
+   -  **bin\_name**: (optional) Make it possible to override Postgres binary names, if you are using a custom Postgres distribution:
+
+      - **pg\_ctl**: (optional) Custom name for ``pg_ctl`` binary.
+      - **initdb**: (optional) Custom name for ``initdb`` binary.
+      - **pg\controldata**: (optional) Custom name for ``pg_controldata`` binary.
+      - **pg\_basebackup**: (optional) Custom name for ``pg_basebackup`` binary.
+      - **postgres**: (optional) Custom name for ``postgres`` binary.
+      - **pg\_isready**: (optional) Custom name for ``pg_isready`` binary.
+      - **pg\_rewind**: (optional) Custom name for ``pg_rewind`` binary.
    -  **listen**: IP address + port that Postgres listens to; must be accessible from other nodes in the cluster, if you're using streaming replication. Multiple comma-separated addresses are permitted, as long as the port component is appended after to the last one with a colon, i.e. ``listen: 127.0.0.1,127.0.0.2:5432``. Patroni will use the first address from this list to establish local connections to the PostgreSQL node.
    -  **use\_unix\_socket**: specifies that Patroni should prefer to use unix sockets to connect to the cluster. Default value is ``false``. If ``unix_socket_directories`` is defined, Patroni will use the first suitable value from it to connect to the cluster and fallback to tcp if nothing is suitable. If ``unix_socket_directories`` is not specified in ``postgresql.parameters``, Patroni will assume that the default value should be used and omit ``host`` from the connection parameters.
    -  **use\_unix\_socket\_repl**: specifies that Patroni should prefer to use unix sockets for replication user cluster connection. Default value is ``false``. If ``unix_socket_directories`` is defined, Patroni will use the first suitable value from it to connect to the cluster and fallback to tcp if nothing is suitable. If ``unix_socket_directories`` is not specified in ``postgresql.parameters``, Patroni will assume that the default value should be used and omit ``host`` from the connection parameters.
@@ -270,18 +275,18 @@ PostgreSQL
    -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower.
    -  **custom\_conf** : path to an optional custom ``postgresql.conf`` file, that will be used in place of ``postgresql.base.conf``. The file must exist on all cluster nodes, be readable by PostgreSQL and will be included from its location on the real ``postgresql.conf``. Note that Patroni will not monitor this file for changes, nor backup it. However, its settings can still be overridden by Patroni's own configuration facilities - see :ref:`dynamic configuration <patroni_configuration>` for details.
    -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
-   -  **pg\_hba**: list of lines that Patroni will use to generate ``pg_hba.conf``. This parameter has higher priority than ``bootstrap.pg_hba``. Together with :ref:`dynamic configuration <dynamic_configuration>` it simplifies management of ``pg_hba.conf``.
+   -  **pg\_hba**: list of lines that Patroni will use to generate ``pg_hba.conf``. Patroni ignores this parameter if ``hba_file`` PostgreSQL parameter is set to a non-default value. Together with :ref:`dynamic configuration <dynamic_configuration>` this parameter simplifies management of ``pg_hba.conf``.
 
-      -  **- host all all 0.0.0.0/0 md5**.
+      -  **- host all all 0.0.0.0/0 md5**
       -  **- host replication replicator 127.0.0.1/32 md5**: A line like this is required for replication.
-   -  **pg\_ident**: list of lines that Patroni will use to generate ``pg_ident.conf``. Together with :ref:`dynamic configuration <dynamic_configuration>` it simplifies management of ``pg_ident.conf``.
+   -  **pg\_ident**: list of lines that Patroni will use to generate ``pg_ident.conf``. Patroni ignores this parameter if ``ident_file`` PostgreSQL parameter is set to a non-default value. Together with :ref:`dynamic configuration <dynamic_configuration>` this parameter simplifies management of ``pg_ident.conf``.
 
-      -  **- mapname1 systemname1 pguser1**.
-      -  **- mapname1 systemname2 pguser2**.
+      -  **- mapname1 systemname1 pguser1**
+      -  **- mapname1 systemname2 pguser2**
    -  **pg\_ctl\_timeout**: How long should pg_ctl wait when doing ``start``, ``stop`` or ``restart``. Default value is 60 seconds.
    -  **use\_pg\_rewind**: try to use pg\_rewind on the former leader when it joins cluster as a replica.
    -  **remove\_data\_directory\_on\_rewind\_failure**: If this option is enabled, Patroni will remove the PostgreSQL data directory and recreate the replica. Otherwise it will try to follow the new leader. Default value is **false**.
-   -  **remove\_data\_directory\_on\_diverged\_timelines**: Patroni will remove the PostgreSQL data directory and recreate the replica if it notices that timelines are diverging and the former primary can not start streaming from the new primary. This option is useful when ``pg_rewind`` can not be used. While performing timelines divergence check on PostgreSQL v10 and older Patroni will try to connect with replication credential to the "postgres" database. Hence, such access should be allowed in the  pg_hba.conf. Default value is **false**.
+   -  **remove\_data\_directory\_on\_diverged\_timelines**: Patroni will remove the PostgreSQL data directory and recreate the replica if it notices that timelines are diverging and the former primary can not start streaming from the new primary. This option is useful when ``pg_rewind`` can not be used. While performing timelines divergence check on PostgreSQL v10 and older Patroni will try to connect with replication credential to the "postgres" database. Hence, such access should be allowed in the pg_hba.conf. Default value is **false**.
    -  **replica\_method**: for each create_replica_methods other than basebackup, you would add a configuration section of the same name. At a minimum, this should include "command" with a full path to the actual script to be executed. Other configuration parameters will be passed along to the script in the form "parameter=value".
    -  **pre\_promote**: a fencing script that executes during a failover after acquiring the leader lock but before promoting the replica. If the script exits with a non-zero code, Patroni does not promote the replica and removes the leader key from DCS.
    -  **before\_stop**: a script that executes immediately prior to stopping postgres. As opposed to a callback, this script runs synchronously, blocking shutdown until it has completed. The return code of this script does not impact whether shutdown proceeds afterwards.
