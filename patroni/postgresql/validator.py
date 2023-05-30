@@ -443,12 +443,10 @@ def _transform_parameter_value(validators: MutableMapping[str, Tuple[_Transforma
         * ``None`` if *name* is not present in *available_gucs*.
     """
     if name in available_gucs:
-        name_validators: Tuple[_Transformable, ...] = validators.get(name, ())
-        if name_validators:
-            for validator in name_validators:
-                if version >= validator.version_from and\
-                        (validator.version_till is None or version < validator.version_till):
-                    return validator.transform(name, value)
+        for validator in validators.get(name, ()) or ():
+            if version >= validator.version_from and\
+                    (validator.version_till is None or version < validator.version_till):
+                return validator.transform(name, value)
         # Ideally we should have a validator in *validators*. However, if none is available, we will not discard a
         # setting that exists in Postgres *version*, but rather allow the value with no validation.
         return value
