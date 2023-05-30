@@ -126,12 +126,12 @@ class Patroni(AbstractPatroniDaemon):
 
     @property
     def nofailover(self) -> bool:
-        """:returns: ``True`` if ``tags.nofailover`` configuration is enabled for this node, else ``False``."""
+        """``True`` if ``tags.nofailover`` configuration is enabled for this node, else ``False``."""
         return bool(self.tags.get('nofailover', False))
 
     @property
     def nosync(self) -> bool:
-        """:returns: ``True`` if ``tags.nosync`` configuration is enabled for this node, else ``False``."""
+        """``True`` if ``tags.nosync`` configuration is enabled for this node, else ``False``."""
         return bool(self.tags.get('nosync', False))
 
     def reload_config(self, sighup: bool = False, local: Optional[bool] = False) -> None:
@@ -163,12 +163,12 @@ class Patroni(AbstractPatroniDaemon):
 
     @property
     def replicatefrom(self) -> Optional[str]:
-        """:returns: value of ``tags.replicatefrom`` configuration, if any."""
+        """Value of ``tags.replicatefrom`` configuration, if any."""
         return self.tags.get('replicatefrom')
 
     @property
     def noloadbalance(self) -> bool:
-        """:returns: ``True`` if ``tags.noloadbalance`` configuration is enabled for this node, else ``False``."""
+        """``True`` if ``tags.noloadbalance`` configuration is enabled for this node, else ``False``."""
         return bool(self.tags.get('noloadbalance', False))
 
     def schedule_next_run(self) -> None:
