@@ -21,7 +21,7 @@ class _Transformable(abc.ABC):
 
     @classmethod
     def get_subclasses(cls) -> Iterator[Type['_Transformable']]:
-        """Recursvely get all subclasses of :class:`_Transformable`.
+        """Recursively get all subclasses of :class:`_Transformable`.
 
         :yields: each subclass of :class:`_Transformable`.
         """
