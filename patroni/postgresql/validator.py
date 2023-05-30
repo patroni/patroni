@@ -7,6 +7,7 @@ import yaml
 from typing import Any, Dict, Iterator, List, MutableMapping, Optional, Tuple, Type, Union
 
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
+from ..exceptions import PatroniException
 from ..utils import parse_bool, parse_int, parse_real
 
 logger = logging.getLogger(__name__)
@@ -153,15 +154,15 @@ parameters = CaseInsensitiveDict()
 recovery_parameters = CaseInsensitiveDict()
 
 
-class ValidatorFactoryNoType(Exception):
+class ValidatorFactoryNoType(PatroniException):
     """Raised when a validator spec misses a type."""
 
 
-class ValidatorFactoryInvalidType(Exception):
+class ValidatorFactoryInvalidType(PatroniException):
     """Raised when a validator spec contains an invalid type."""
 
 
-class ValidatorFactoryInvalidSpec(Exception):
+class ValidatorFactoryInvalidSpec(PatroniException):
     """Raised when a validator spec contains an invalid set of attributes."""
 
 
@@ -252,7 +253,7 @@ def _get_postgres_guc_validators(config: Dict[str, Any], parameter: str) -> Tupl
     return tuple(validators)
 
 
-class InvalidGucValidatorsFile(Exception):
+class InvalidGucValidatorsFile(PatroniException):
     """Raised when reading or parsing of a YAML file faces an issue."""
 
 
