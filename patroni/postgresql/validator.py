@@ -472,11 +472,10 @@ def transform_postgresql_parameter_value(version: int, name: str, value: Any,
         * *value* transformed to the expected format for GUC *name* in Postgres *version* using validators defined in
             ``parameters``. Can also return ``None``. See :func:`_transform_parameter_value`.
     """
-    if '.' in name:
-        if name not in parameters:
-            # likely an extension GUC, so just return as it is. Otherwise, if `name` is in `parameters`, it's likely a
-            # namespaced GUC from a custom Postgres build, so we treat that over the usual validation means.
-            return value
+    if '.' in name and name not in parameters:
+        # likely an extension GUC, so just return as it is. Otherwise, if `name` is in `parameters`, it's likely a
+        # namespaced GUC from a custom Postgres build, so we treat that over the usual validation means.
+        return value
     if name in recovery_parameters:
         return None
     return _transform_parameter_value(parameters, version, name, value, available_gucs)
