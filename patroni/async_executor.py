@@ -102,7 +102,7 @@ class AsyncExecutor(object):
 
     @property
     def busy(self) -> bool:
-        """:returns: ``True`` if there is an action scheduled to occur, else ``False``."""
+        """``True`` if there is an action scheduled to occur, else ``False``."""
         return self.scheduled_action is not None
 
     def schedule(self, action: str) -> Optional[str]:
@@ -128,7 +128,7 @@ class AsyncExecutor(object):
 
     @property
     def scheduled_action(self) -> Optional[str]:
-        """:returns: the currently scheduled action, if any, else ``None``."""
+        """The currently scheduled action, if any, else ``None``."""
         with self._scheduled_action_lock:
             return self._scheduled_action
 
