@@ -394,7 +394,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 * If Patroni heartbeat loop is properly running;
 
             * ``503``:
-            
+
                 * if Patroni heartbeat loop last run was more than ``ttl`` setting ago on the primary (or twice the
                     value of ``ttl`` on a replica).
 

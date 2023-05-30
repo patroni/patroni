@@ -71,7 +71,8 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
             * If ``*`` was specified along with more hosts in *host_port*; or
             * If we are expecting to bind to an address that is already in use; or
             * If we are not able to connect to an address that we are expecting to do so; or
-            * If :class:`socket.gaierror` is thrown by socket module when attempting to connect to the given address(es).
+            * If :class:`socket.gaierror` is thrown by socket module when attempting to connect to the given
+              address(es).
     """
     try:
         hosts, port = split_host_port(host_port, 1)
