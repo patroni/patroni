@@ -49,9 +49,22 @@ def check_access(func: Callable[['RestApiHandler'], None]) -> Callable[..., None
 
     :Example:
 
-        >>> @check_access
-        >>> def do_PUT_foo():
-        >>>    pass
+        >>> class FooServer:
+        ...   def check_access(self, *args, **kwargs):
+        ...     print(f'In FooServer: {args[0].__class__.__name__}')
+        ...     return True
+        ...
+
+        >>> class Foo:
+        ...   server = FooServer()
+        ...   @check_access
+        ...   def do_PUT_foo(self):
+        ...      print('In do_PUT_foo')
+
+        >>> f = Foo()
+        >>> f.do_PUT_foo()
+        In FooServer: Foo
+        In do_PUT_foo
 
     """
 
