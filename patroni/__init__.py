@@ -62,7 +62,7 @@ def check_psycopg(_min_psycopg2: Tuple[int, ...] = MIN_PSYCOPG2,
     """Ensure at least one among ``psycopg2`` or ``psycopg`` libraries are available in the environment.
 
     .. note::
-        We pass ``MIN_PSYCOPG2`` and :func:`parse_version as arguments to simplify usage of :func:`check_psycopg` from
+        We pass ``MIN_PSYCOPG2`` and :func:`parse_version` as arguments to simplify usage of :func:`check_psycopg` from
         the ``setup.py``.
 
     .. note::
