@@ -1,5 +1,4 @@
-"""
-Patroni custom object types somewhat like :mod:`collections` module.
+"""Patroni custom object types somewhat like :mod:`collections` module.
 
 Provides a case insensitive :class:`dict` and :class:`set` object types.
 """
@@ -13,6 +12,7 @@ class CaseInsensitiveSet(MutableSet[str]):
     Implements all methods and operations of :class:`MutableSet`. All values are expected to be strings.
     The structure remembers the case of the last value set, however, contains testing is case insensitive.
     """
+
     def __init__(self, values: Optional[Collection[str]] = None) -> None:
         """Create a new instance of :class:`CaseInsensitiveSet` with the given *values*.
 
@@ -114,6 +114,7 @@ class CaseInsensitiveDict(MutableMapping[str, Any]):
     and :func:`iter()`, ``dict.keys()``, ``dict.items()``, ``dict.iterkeys()``, and ``dict.iteritems()`` will contain
     case-sensitive keys. However, querying and contains testing is case insensitive.
     """
+
     def __init__(self, data: Optional[Dict[str, Any]] = None) -> None:
         """Create a new instance of :class:`CaseInsensitiveDict` with the given *data*.
 
