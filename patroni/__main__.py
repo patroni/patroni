@@ -31,7 +31,7 @@ class Patroni(AbstractPatroniDaemon):
     :ivar request: wrapper for performing HTTP requests.
     :ivar ha: HA handler.
     :ivar tags: cache of custom tags configured for this node.
-    :ivar next_run: :class:`time` object of when to run the next HA loop cycle.
+    :ivar next_run: time when to run the next HA loop cycle.
     :ivar scheduled_restart: when a restart has been scheduled to occur, if any. In that case, should contain two keys:
         * ``schedule``: timestamp when restart should occur;
         * ``postmaster_start_time``: timestamp when Postgres was last started.
@@ -44,7 +44,7 @@ class Patroni(AbstractPatroniDaemon):
         the HA loop and bring the REST API up.
 
         .. note::
-            Expected to be instantiated and run through :func:`patroni.daemon.abstract_main`.
+            Expected to be instantiated and run through :func:`~patroni.daemon.abstract_main`.
 
         :param config: Patroni configuration.
         """
@@ -78,9 +78,9 @@ class Patroni(AbstractPatroniDaemon):
     def load_dynamic_configuration(self) -> None:
         """Load Patroni dynamic configuration.
 
-        If the DCS connection fails returning the exception ``DCSError`` an attempt will be remade every 5 seconds.
-        Running configuration will be loaded from the DCS if it has changed, which will also trigger an update
-        to the running watchdog configuration.
+        If the DCS connection fails returning the exception :class:`~patroni.exceptions.DCSError` an attempt will be
+        remade every 5 seconds. Running configuration will be loaded from the DCS if it has changed, which will also
+        trigger an update to the running watchdog configuration.
 
         Load dynamic configuration from the DCS, if available in the DCS, otherwise from ``bootstrap.dcs`` of the
         configuration file.
@@ -254,8 +254,8 @@ def patroni_main(configfile: str) -> None:
 def process_arguments() -> Namespace:
     """Process command-line arguments.
 
-    Create a basic command-line parser through :func:`get_base_arg_parser`, extend its capabilities by adding
-    these flags and parse command-line arguments.:
+    Create a basic command-line parser through :func:`~patroni.daemon.get_base_arg_parser`, extend its capabilities by
+    adding these flags and parse command-line arguments.:
 
       * ``--validate-config`` -- used to validate the Patroni configuration file
       * ``--generate-config`` -- used to generate Patroni configuration from a running PostgreSQL instance
