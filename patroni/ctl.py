@@ -1458,7 +1458,7 @@ def topology_sort(members: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
 def get_cluster_service_info(cluster: Dict[str, Any]) -> List[str]:
     """Get complementary information about the cluster.
 
-    :param cluster: a Patroni cluster represented as an object created through func:`~patroni.utils.cluster_as_json`.
+    :param cluster: a Patroni cluster represented as an object created through :func:`~patroni.utils.cluster_as_json`.
 
     :returns: a list of 0 or more informational messages. They can be about:
 
