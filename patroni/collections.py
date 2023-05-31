@@ -1,11 +1,16 @@
+"""
+Patroni custom object types somewhat like :mod:`collections` module.
+
+Provides a case insensitive :class:`dict` and :class:`set` object types.
+"""
 from collections import OrderedDict
 from typing import Any, Collection, Dict, Iterator, MutableMapping, MutableSet, Optional
 
 
 class CaseInsensitiveSet(MutableSet[str]):
-    """A case-insensitive ``set``-like object.
+    """A case-insensitive :class:`set`-like object.
 
-    Implements all methods and operations of :class:``MutableSet``. All values are expected to be strings.
+    Implements all methods and operations of :class:`MutableSet`. All values are expected to be strings.
     The structure remembers the case of the last value set, however, contains testing is case insensitive.
     """
     def __init__(self, values: Optional[Collection[str]] = None) -> None:
@@ -102,12 +107,12 @@ class CaseInsensitiveSet(MutableSet[str]):
 
 
 class CaseInsensitiveDict(MutableMapping[str, Any]):
-    """A case-insensitive ``dict``-like object.
+    """A case-insensitive :class:`dict`-like object.
 
-    Implements all methods and operations of :class:``MutableMapping`` as well as ``dict``'s :func:``copy``.
+    Implements all methods and operations of :class:`MutableMapping` as well as :class:`dict`'s ``copy``.
     All keys are expected to be strings. The structure remembers the case of the last key to be set,
-    and ``iter(instance)``, ``keys()``, ``items()``, ``iterkeys()``, and ``iteritems()`` will contain
-    case-sensitive keys. However, querying and contains testing is case-insensitive.
+    and :func:`iter()`, ``dict.keys()``, ``dict.items()``, ``dict.iterkeys()``, and ``dict.iteritems()`` will contain
+    case-sensitive keys. However, querying and contains testing is case insensitive.
     """
     def __init__(self, data: Optional[Dict[str, Any]] = None) -> None:
         """Create a new instance of :class:`CaseInsensitiveDict` with the given *data*.
