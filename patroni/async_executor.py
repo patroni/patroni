@@ -85,7 +85,7 @@ class AsyncExecutor(object):
     def __init__(self, cancellable: CancellableSubprocess, ha_wakeup: Callable[..., None]) -> None:
         """Create a new instance of :class:`AsyncExecutor`.
 
-        Configure the given *cancellable* and *ha_wakefup*, intiializes the control attributes, and instantiate the lock
+        Configure the given *cancellable* and *ha_wakefup*, initializes the control attributes, and instantiate the lock
         and event objects that are used to access attributes and manage communication between threads.
 
         :param cancellable: a subprocess that supports being cancelled.
@@ -116,7 +116,7 @@ class AsyncExecutor(object):
 
         :param action: action to be executed.
 
-        :returns: ``None`` if *action* has been succesfully scheduled, or the previously scheduled action, if any.
+        :returns: ``None`` if *action* has been successfully scheduled, or the previously scheduled action, if any.
         """
         with self._scheduled_action_lock:
             if self._scheduled_action is not None:
@@ -147,7 +147,7 @@ class AsyncExecutor(object):
         .. note::
             Expected to be executed through a thread.
 
-        :param func: function to be run. If it returns anything other than ``None``, HA loop will be waken up in the end
+        :param func: function to be run. If it returns anything other than ``None``, HA loop will be woken up at the end
             of :func:`run` execution.
         :param args: arguments to be passed to *func*.
 
@@ -177,7 +177,12 @@ class AsyncExecutor(object):
                 self._ha_wakeup()
 
     def run_async(self, func: Callable[..., Any], args: Tuple[Any, ...] = ()) -> None:
-        """Start an async thread that runs *func* with *args*."""
+        """Start an async thread that runs *func* with *args*.
+
+        :param func: function to be run. Will be passed through args to ``Thread`` with a target of ``self.run``.
+        :param args: arguments to be passed along to ``Thread`` with *func*.
+
+        """```
         Thread(target=self.run, args=(func, args)).start()
 
     def try_run_async(self, action: str, func: Callable[..., Any], args: Tuple[Any, ...] = ()) -> Optional[str]:
