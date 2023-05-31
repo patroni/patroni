@@ -40,7 +40,7 @@ RUN set -ex \
         echo "deb [signed-by=/etc/apt/trusted.gpg.d/citusdata_community.gpg] https://packagecloud.io/citusdata/community/debian/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/citusdata_community.list \
         && curl -sL https://packagecloud.io/citusdata/community/gpgkey | gpg --dearmor > /etc/apt/trusted.gpg.d/citusdata_community.gpg \
         && apt-get update -y \
-        && apt-get -y install postgresql-$PG_MAJOR-citus-11.3 \
+        && apt-get -y install postgresql-$PG_MAJOR-citus-11.3; \
     fi \
     && pip3 install dumb-init \
 \
