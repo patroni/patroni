@@ -27,11 +27,11 @@ class Patroni(AbstractPatroniDaemon):
     :ivar dcs: DCS object.
     :ivar watchdog: watchdog handler, if configured to use watchdog.
     :ivar postgresql: managed Postgres instance.
-    :ivar api: REST API server of this node.
+    :ivar api: REST API server instance of this node.
     :ivar request: wrapper for performing HTTP requests.
     :ivar ha: HA handler.
     :ivar tags: cache of custom tags configured for this node.
-    :ivar next_run: when to run the next HA loop cycle.
+    :ivar next_run: ``time`` object of when to run the next HA loop cycle.
     :ivar scheduled_restart: when a restart has been scheduled to occur, if any. In that case, should contain two keys:
         * ``schedule``: timestamp when restart should occur;
         * ``postmaster_start_time``: timestamp when Postgres was last started.
@@ -78,6 +78,10 @@ class Patroni(AbstractPatroniDaemon):
     def load_dynamic_configuration(self) -> None:
         """Load Patroni dynamic configuration.
 
+        If the DCS connection fails returning the exception ``DCSError`` an attempt will be remade every 5 seconds.
+        Running configuration will be loaded from the DCS if it has changed, which will also trigger an update
+        to the running watchdog configuration.
+
         Load dynamic configuration from the DCS, if available in the DCS, otherwise from ``bootstrap.dcs`` of the
         configuration file.
         """
@@ -117,6 +121,9 @@ class Patroni(AbstractPatroniDaemon):
 
     def get_tags(self) -> Dict[str, Any]:
         """Get custom tags configured for this node, if any.
+
+        A custom tag is any tag added to the configuration ``tags`` section that is not one of ``clonefrom``,
+        ``nofailover``, ``noloadbalance`` or ``nosync``.
 
         :returns: a dictionary of custom tags set for this node. The key is the tag name, and the value is the
         corresponding tag value.
