@@ -72,8 +72,8 @@ class PatroniCtlException(click.ClickException):
 class PatronictlPrettyTable(PrettyTable):
     """Utilitary class to print pretty tables.
 
-    Extend :class:`PrettyTable` to make it print custom information in the header line. The idea is to print a
-    header line like this:
+    Extend :class:`~prettytable.PrettyTable` to make it print custom information in the header line. The idea is to
+    print a header line like this:
 
     ```
     + Cluster: batman --------+--------+---------+----+-----------+
@@ -86,8 +86,8 @@ class PatronictlPrettyTable(PrettyTable):
         """Create a :class:`PatronictlPrettyTable` instance with the given *header*.
 
         :param header: custom string to be put in the first header line of the table.
-        :param args: positional arguments to be passed to :class:`PrettyTable` constructor.
-        :param kwargs: keyword arguments to be passed to :class:`PrettyTable` constructor.
+        :param args: positional arguments to be passed to :class:`~prettytable.PrettyTable` constructor.
+        :param kwargs: keyword arguments to be passed to :class:`~prettytable.PrettyTable` constructor.
         """
         super(PatronictlPrettyTable, self).__init__(*args, **kwargs)
         self.__table_header = header
@@ -113,7 +113,7 @@ class PatronictlPrettyTable(PrettyTable):
         Inject the custom header line, if processing the first header line.
 
         .. note::
-            New implementation for injecting a custom header line, which is used from ``prettytable`` 2.2.0 onwards.
+            New implementation for injecting a custom header line, which is used from :mod:`prettytable` 2.2.0 onwards.
 
         :returns: string representation of a header line.
         """
@@ -144,8 +144,8 @@ class PatronictlPrettyTable(PrettyTable):
         Inject the custom header line, if processing the first header line.
 
         .. note::
-            Original implementation for injecting a custom header line, and is used up to ``prettytable`` 2.2.0. From
-            ``prettytable`` 2.2.0 onwards :func:`_stringify_hrule` is used instead.
+            Original implementation for injecting a custom header line, and is used up to :mod:`prettytable` 2.2.0. From
+            :mod:`prettytable` 2.2.0 onwards :func:`_stringify_hrule` is used instead.
 
         :returns: string representing a header line.
         """
@@ -303,7 +303,7 @@ def get_dcs(config: Dict[str, Any], scope: str, group: Optional[int]) -> Abstrac
         is ``None`` and a Citus configuration exists, assume this is the coordinator. Coordinator has the group ``0``.
         Refer to the module note for more details.
 
-    :returns: a subclass of :class:`AbstractDCS`, according to the DCS technology that is configured.
+    :returns: a subclass of :class:`~patroni.dcs.AbstractDCS`, according to the DCS technology that is configured.
 
     :raises:
         :class:`PatroniCtlException`: if not suitable DCS configuration could be found.
@@ -511,7 +511,7 @@ def get_all_members_leader_first(cluster: Cluster) -> Iterator[Member]:
     """Get all cluster members, with the cluster leader being yielded first.
 
     .. note::
-        Only yield members that have a ``restapi->connect_address`` configured.
+        Only yield members that have a ``restapi.connect_address`` configured.
 
     :yields: all cluster members, with the leader first.
     """
@@ -543,8 +543,8 @@ def get_cursor(obj: Dict[str, Any], cluster: Cluster, group: Optional[int], conn
 
     :returns: a cursor object to execute queries against the database. Can be either:
 
-        * A :class:`psycopg.Cursor` if using ``psycopg3``; or
-        * A :class:`psycopg2.extensions.cursor` if using ``psycopg2``;
+        * A :class:`psycopg.Cursor` if using :mod:`psycopg`; or
+        * A :class:`psycopg2.extensions.cursor` if using :mod:`psycopg2`;
         * ``None`` if not able to get a cursor that attendees *role* and *member_name*.
     """
     member = get_any_member(obj, cluster, group, role=role, member=member_name)
@@ -946,14 +946,14 @@ def check_response(response: urllib3.response.HTTPResponse, member_name: str,
 
 
 def parse_scheduled(scheduled: Optional[str]) -> Optional[datetime.datetime]:
-    """Parse a string *scheduled* timestamp as a :class:`datetime` object.
+    """Parse a string *scheduled* timestamp as a :class:`~datetime.datetime` object.
 
     :param scheduled: string representation of the timestamp. May also be ``now``.
 
-    :returns: the corresponding :class:`datetime` object, if *scheduled* is not ``now``, otherwise ``None``.
+    :returns: the corresponding :class:`~datetime.datetime` object, if *scheduled* is not ``now``, otherwise ``None``.
 
     :raises:
-        :class:`PatroniCtlException`: if unable to parse *scheduled* from :class:`str` to :class:`datetime`.
+        :class:`PatroniCtlException`: if unable to parse *scheduled* from :class:`str` to :class:`~datetime.datetime`.
 
     :Example:
 
@@ -1458,7 +1458,7 @@ def topology_sort(members: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
 def get_cluster_service_info(cluster: Dict[str, Any]) -> List[str]:
     """Get complementary information about the cluster.
 
-    :param cluster: a Patroni cluster represented as an object created through func:`cluster_as_json`.
+    :param cluster: a Patroni cluster represented as an object created through func:`~patroni.utils.cluster_as_json`.
 
     :returns: a list of 0 or more informational messages. They can be about:
 
