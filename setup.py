@@ -157,7 +157,10 @@ def setup_package(version):
         long_description=read('README.rst'),
         classifiers=CLASSIFIERS,
         packages=find_packages(exclude=['tests', 'tests.*']),
-        package_data={MAIN_PACKAGE: ["*.json"]},
+        package_data={MAIN_PACKAGE: [
+            "postgresql/available_parameters/*.yml",
+            "postgresql/available_parameters/*.yaml",
+        ]},
         install_requires=install_requires,
         extras_require=EXTRAS_REQUIRE,
         cmdclass=cmdclass,

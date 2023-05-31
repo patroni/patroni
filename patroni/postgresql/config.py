@@ -412,7 +412,8 @@ class ConfigHandler(object):
             include = self._config.get('custom_conf') or self._postgresql_base_conf_name
             f.writeline("include '{0}'\n".format(ConfigWriter.escape(include)))
             for name, value in sorted((configuration).items()):
-                value = transform_postgresql_parameter_value(self._postgresql.major_version, name, value)
+                value = transform_postgresql_parameter_value(self._postgresql.major_version, name, value,
+                                                             self._postgresql.available_gucs)
                 if value is not None and\
                         (name != 'hba_file' or not self._postgresql.bootstrap.running_custom_bootstrap):
                     f.write_param(name, value)
@@ -534,7 +535,8 @@ class ConfigHandler(object):
                     self._passfile_mtime = mtime(self._pgpass)
                 value = self.format_dsn(value)
             else:
-                value = transform_recovery_parameter_value(self._postgresql.major_version, name, value)
+                value = transform_recovery_parameter_value(self._postgresql.major_version, name, value,
+                                                           self._postgresql.available_gucs)
                 if value is None:
                     continue
             fd.write_param(name, value)

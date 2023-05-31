@@ -26,6 +26,7 @@ from .slots import SlotsHandler
 from .sync import SyncHandler
 from .. import psycopg
 from ..async_executor import CriticalTask
+from ..collections import CaseInsensitiveSet
 from ..dcs import Cluster, Leader, Member
 from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
@@ -210,6 +211,11 @@ class Postgresql(object):
             extra = "0, NULL, NULL, NULL, NULL" + extra
 
         return ("SELECT " + self.TL_LSN + ", {2}").format(self.wal_name, self.lsn_name, extra)
+
+    @property
+    def available_gucs(self) -> CaseInsensitiveSet:
+        """GUCs available in this Postgres server."""
+        return self._get_gucs()
 
     def _version_file_exists(self) -> bool:
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -1265,3 +1271,13 @@ class Postgresql(object):
         self.slots_handler.schedule()
         self.citus_handler.schedule_cache_rebuild()
         self._sysid = ''
+
+    def _get_gucs(self) -> CaseInsensitiveSet:
+        """Get all available GUCs based on ``postgres --describe-config`` output.
+
+        :returns: all available GUCs in the local Postgres server.
+        """
+        cmd = [self.pgcommand('postgres'), '--describe-config']
+        return CaseInsensitiveSet({
+            line.split('\t')[0] for line in subprocess.check_output(cmd).decode('utf-8').strip().split('\n')
+        })
