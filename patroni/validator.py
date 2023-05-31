@@ -38,7 +38,7 @@ def validate_connect_address(address: str) -> bool:
     :returns: ``True`` if the address is valid.
 
     :raises:
-        :class:`patroni.exceptions.ConfigParseError`:
+        :class:`~patroni.exceptions.ConfigParseError`:
             * If the address is not in the expected format; or
             * If the host is set to not allowed values (``127.0.0.1``, ``0.0.0.0``, ``*``, ``::1``, or ``localhost``).
     """
@@ -66,12 +66,12 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
     :returns: ``True`` if the host(s) and port are valid.
 
     :raises:
-        :class:`patroni.exceptions.ConfigParseError`:
+        :class:`~patroni.exceptions.ConfigParseError`:
             * If the *host_port* is not in the expected format; or
             * If ``*`` was specified along with more hosts in *host_port*; or
             * If we are expecting to bind to an address that is already in use; or
             * If we are not able to connect to an address that we are expecting to do so; or
-            * If :class:`socket.gaierror` is thrown by socket module when attempting to connect to the given
+            * If :class:`~socket.gaierror` is thrown by socket module when attempting to connect to the given
               address(es).
     """
     try:
@@ -167,7 +167,7 @@ def is_ipv4_address(ip: str) -> bool:
     :returns: ``True`` if the IP is an IPv4 address.
 
     :raises:
-        :class:`patroni.exceptions.ConfigParseError`: if *ip* is not a valid IPv4 address.
+        :class:`~patroni.exceptions.ConfigParseError`: if *ip* is not a valid IPv4 address.
     """
     try:
         socket.inet_aton(ip)
@@ -184,7 +184,7 @@ def is_ipv6_address(ip: str) -> bool:
     :returns: ``True`` if the IP is an IPv6 address.
 
     :raises:
-        :class:`patroni.exceptions.ConfigParseError`: if *ip* is not a valid IPv6 address.
+        :class:`~patroni.exceptions.ConfigParseError`: if *ip* is not a valid IPv6 address.
     """
     try:
         socket.inet_pton(socket.AF_INET6, ip)
@@ -217,7 +217,7 @@ def validate_data_dir(data_dir: str) -> bool:
     :returns: ``True`` if the PostgreSQL data directory is valid.
 
     :raises:
-        :class:`patroni.exceptions.ConfigParseError`:
+        :class:`~patroni.exceptions.ConfigParseError`:
             * If no *data_dir* was given; or
             * If *data_dir* is a file and not a directory; or
             * If *data_dir* is a non-empty directory and:
@@ -264,11 +264,12 @@ def validate_binary_name(bin_name: str) -> bool:
 
     :returns: ``True`` if the conditions are true
 
-    :raises :class:`patroni.exceptions.ConfigParserError`: if:
-        * *bin_name* is not set; or
-        * the path join of the ``postgresql.bin_dir`` plus *bin_name* does not exist; or
-        * the path join as above is not executable; or
-        * the *bin_name* cannot be found in the system PATH
+    :raises:
+        :class:`~patroni.exceptions.ConfigParseError` if:
+            * *bin_name* is not set; or
+            * the path join of the ``postgresql.bin_dir`` plus *bin_name* does not exist; or
+            * the path join as above is not executable; or
+            * the *bin_name* cannot be found in the system PATH
 
     """
     if not bin_name:
@@ -769,7 +770,7 @@ class IntValidator(object):
     :ivar min: minimum allowed value for the setting, if any.
     :ivar max: maximum allowed value for the setting, if any.
     :ivar base_unit: the base unit to convert the value to before checking if it's within *min* and *max* range.
-    :ivar raise_assert: if an ``assert`` call should be performed regarding expected type and valid range.
+    :ivar raise_assert: if an ``assert`` test should be performed regarding expected type and valid range.
     """
 
     expected_type = int
@@ -781,7 +782,7 @@ class IntValidator(object):
         :param min: minimum allowed value for the setting, if any.
         :param max: maximum allowed value for the setting, if any.
         :param base_unit: the base unit to convert the value to before checking if it's within *min* and *max* range.
-        :param raise_assert: if an :func:`assert` call should be performed regarding expected type and valid range.
+        :param raise_assert: if an ``assert`` test should be performed regarding expected type and valid range.
         """
         self.min = min
         self.max = max

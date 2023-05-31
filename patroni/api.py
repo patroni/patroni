@@ -444,8 +444,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_GET_cluster(self) -> None:
         """Handle a ``GET`` request to ``/cluster`` path.
 
-        Write an HTTP response with JSON content based on the output of :func:`cluster_as_json`, with HTTP status
-        ``200`` and the JSON representation of the cluster topology.
+        Write an HTTP response with JSON content based on the output of :func:`~patroni.utils.cluster_as_json`, with
+        HTTP status ``200`` and the JSON representation of the cluster topology.
         """
         cluster = self.server.patroni.dcs.get_cluster(True)
         global_config = self.server.patroni.config.get_global_config(cluster)
@@ -964,7 +964,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Response HTTP status codes:
 
             * ``200``: if the reinit operation has started; or
-            * ``503``: if any error is returned by :func:`Ha.reinitialize`.
+            * ``503``: if any error is returned by :func:`~patroni.ha.Ha.reinitialize`.
         """
         request = self._read_json_content(body_is_optional=True)
 
@@ -1139,8 +1139,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_POST_citus(self) -> None:
         """Handle a ``POST`` request to ``/citus`` path.
 
-        Call :func:`CitusHandler.handle_event` to handle the request, then write a response with HTTP status code
-        ``200``.
+        Call :func:`~patroni.postgresql.CitusHandler.handle_event` to handle the request, then write a response with
+        HTTP status code ``200``.
 
         .. note::
             If unable to parse the request body, then the request is silently discarded.
@@ -1156,7 +1156,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.write_response(200, 'OK')
 
     def parse_request(self) -> bool:
-        """Override :func:`parse_request` method to enrich basic functionality of :class:`BaseHTTPRequestHandler`.
+        """Override :func:`parse_request` to enrich basic functionality of :class:`~http.server.BaseHTTPRequestHandler`.
 
         Original class can only invoke :func:`do_GET`, :func:`do_POST`, :func:`do_PUT`, etc method implementations if
         they are defined.
@@ -1377,7 +1377,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         :raises:
             :class:`psycopg.Error`: if had issues while executing *sql*.
-            :class:`PostgresConnectionException`: if had issues while connecting to the database.
+            :class:`~patroni.exceptions.PostgresConnectionException`: if had issues while connecting to the database.
         """
         cursor = None
         try:
@@ -1615,7 +1615,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                                client_address: Tuple[str, int]) -> None:
         """Process a request to the REST API.
 
-        Wrapper for :func:`ThreadingMixIn.process_request_thread` that additionally:
+        Wrapper for :func:`~socketserver.ThreadingMixIn.process_request_thread` that additionally:
 
             * Enable TCP keepalive
             * Perform SSL handshake (if an SSL socket).
@@ -1634,7 +1634,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def shutdown_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]]) -> None:
         """Shut down a request to the REST API.
 
-        Wrapper for :func:`HTTPServer.shutdown_request` that additionally:
+        Wrapper for :func:`http.server.HTTPServer.shutdown_request` that additionally:
 
             * Perform SSL shutdown handshake (if a SSL socket).
 
