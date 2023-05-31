@@ -60,7 +60,7 @@ class CriticalTask(object):
     def complete(self, result: Any) -> None:
         """Mark task as completed along with a *result*.
 
-        ..note ::
+        .. note::
             Must be called from async thread. Caller must hold lock on task when calling.
         """
         self.result = result
@@ -142,7 +142,7 @@ class AsyncExecutor(object):
             self._scheduled_action = None
 
     def run(self, func: Callable[..., Any], args: Tuple[Any, ...] = ()) -> Optional[bool]:
-        """Run *func* with *args.
+        """Run *func* with *args*.
 
         .. note::
             Expected to be executed through a thread.
@@ -179,10 +179,11 @@ class AsyncExecutor(object):
     def run_async(self, func: Callable[..., Any], args: Tuple[Any, ...] = ()) -> None:
         """Start an async thread that runs *func* with *args*.
 
-        :param func: function to be run. Will be passed through args to ``Thread`` with a target of ``self.run``.
-        :param args: arguments to be passed along to ``Thread`` with *func*.
+        :param func: function to be run. Will be passed through args to :class:`~threading.Thread` with a target of
+            :func:`run`.
+        :param args: arguments to be passed along to :class:`~threading.Thread` with *func*.
 
-        """```
+        """
         Thread(target=self.run, args=(func, args)).start()
 
     def try_run_async(self, action: str, func: Callable[..., Any], args: Tuple[Any, ...] = ()) -> Optional[str]:
@@ -226,5 +227,9 @@ class AsyncExecutor(object):
 
     def __exit__(self, exc_type: Optional[Type[BaseException]],
                  exc_val: Optional[BaseException], exc_tb: Optional[TracebackType]) -> None:
-        """Release the thread lock when exiting the context manager."""
+        """Release the thread lock when exiting the context manager.
+
+        .. note::
+            The arguments are not used, but we need them to match the expected method signature.
+        """
         self._thread_lock.release()
