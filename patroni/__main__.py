@@ -31,7 +31,7 @@ class Patroni(AbstractPatroniDaemon):
     :ivar request: wrapper for performing HTTP requests.
     :ivar ha: HA handler.
     :ivar tags: cache of custom tags configured for this node.
-    :ivar next_run: ``time`` object of when to run the next HA loop cycle.
+    :ivar next_run: :class:`time` object of when to run the next HA loop cycle.
     :ivar scheduled_restart: when a restart has been scheduled to occur, if any. In that case, should contain two keys:
         * ``schedule``: timestamp when restart should occur;
         * ``postmaster_start_time``: timestamp when Postgres was last started.
