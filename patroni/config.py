@@ -390,6 +390,11 @@ class Config(object):
                                     'dir', 'file_size', 'file_num', 'loggers'])
         _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs', 'password', 'bind_addr'])
 
+        for binary in ('pg_ctl', 'initdb', 'pg_controldata', 'pg_basebackup', 'postgres', 'pg_isready', 'pg_rewind'):
+            value = _popenv('POSTGRESQL_BIN_' + binary)
+            if value:
+                ret['postgresql'].setdefault('bin_name', {})[binary] = value
+
         for first, second in (('restapi', 'allowlist_include_members'), ('ctl', 'insecure')):
             value = ret.get(first, {}).pop(second, None)
             if value:
