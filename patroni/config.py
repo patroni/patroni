@@ -54,7 +54,7 @@ def default_validator(conf: Dict[str, Any]) -> List[str]:
 
 
 class GlobalConfig(object):
-    """A class that wrapps global configuration and provides convenient methods to access/check values.
+    """A class that wraps global configuration and provides convenient methods to access/check values.
 
     It is instantiated by calling :func:`get_global_config` method which picks either a
     configuration from provided :class:`Cluster` object (the most up-to-date) or from the
@@ -106,7 +106,7 @@ class GlobalConfig(object):
     def get_standby_cluster_config(self) -> Union[Dict[str, Any], Any]:
         """Get ``standby_cluster`` configuration.
 
-        :returns: ``standby_cluster`` configuration.
+        :returns: a copy of ``standby_cluster`` configuration.
         """
         return deepcopy(self.get('standby_cluster'))
 
@@ -175,7 +175,7 @@ class GlobalConfig(object):
     def primary_stop_timeout(self) -> int:
         """Currently configured value of ``primary_stop_timeout`` from the global configuration.
 
-        Assume ``300`` if it is not set or invalid.
+        Assume ``0`` if it is not set or invalid.
 
         .. note::
             ``master_stop_timeout`` is still supported to keep backward compatibility.
@@ -219,7 +219,7 @@ class Config(object):
 
       3) Loading of configuration file in the old format and converting it into new format.
 
-      4) Mimicking some of the ``dict`` interfaces to make it possible
+      4) Mimicking some ``dict`` interfaces to make it possible
          to work with it as with the old ``config`` object.
 
     :cvar PATRONI_CONFIG_VARIABLE: name of the environment variable that can be used to load Patroni configuration from.
@@ -322,7 +322,7 @@ class Config(object):
         If *path* is a file, load the yml file pointed to by *path*.
         If *path* is a directory, load all yml files in that directory in alphabetical order.
 
-        :param path: path to either an YAML configuration file, or to a folder containining YAML configuration files.
+        :param path: path to either an YAML configuration file, or to a folder containing YAML configuration files.
 
         :returns: configuration after reading the configuration file(s) from *path*.
 
@@ -346,9 +346,9 @@ class Config(object):
         return overall_config
 
     def _load_config_file(self) -> Dict[str, Any]:
-        """Load configuration file(s) from filesystem and apply some values which were set via environment variables.
+        """Load configuration file(s) from filesystem and apply values which were set via environment variables.
 
-        :returns: final configuration after reading configuration file(s) and environment variables.
+        :returns: final configuration after merging configuration file(s) and environment variables.
         """
         if TYPE_CHECKING:  # pragma: no cover
             assert self.config_file is not None
@@ -406,7 +406,7 @@ class Config(object):
         """
         if isinstance(configuration, ClusterConfig):
             if self._modify_version == configuration.modify_version:
-                return False  # If the version didn't changed there is nothing to do
+                return False  # If the version didn't change there is nothing to do
             self._modify_version = configuration.modify_version
             configuration = configuration.data
 
