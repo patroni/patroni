@@ -393,7 +393,7 @@ class Config(object):
         for binary in ('pg_ctl', 'initdb', 'pg_controldata', 'pg_basebackup', 'postgres', 'pg_isready', 'pg_rewind'):
             value = _popenv('POSTGRESQL_BIN_' + binary)
             if value:
-                ret['postgresql'].setdefault('bin_name', {}).update({binary: value})
+                ret['postgresql'].setdefault('bin_name', {})[binary] = value
 
         for first, second in (('restapi', 'allowlist_include_members'), ('ctl', 'insecure')):
             value = ret.get(first, {}).pop(second, None)
