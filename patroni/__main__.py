@@ -78,12 +78,14 @@ class Patroni(AbstractPatroniDaemon):
     def load_dynamic_configuration(self) -> None:
         """Load Patroni dynamic configuration.
 
-        If the DCS connection fails returning the exception :class:`~patroni.exceptions.DCSError` an attempt will be
-        remade every 5 seconds. Running configuration will be loaded from the DCS if it has changed, which will also
-        trigger an update to the running watchdog configuration.
+        Load dynamic configuration from the DCS, if `/config` key is available in the DCS, otherwise fall back to
+        ``bootstrap.dcs`` section from the configuration file.
 
-        Load dynamic configuration from the DCS, if available in the DCS, otherwise from ``bootstrap.dcs`` of the
-        configuration file.
+        If the DCS connection fails returning the exception :class:`~patroni.exceptions.DCSError` an attempt will be
+        remade every 5 seconds.
+
+        .. note::
+            This method is called only once, at the time when Patroni is started.
         """
         from patroni.exceptions import DCSError
         while True:
@@ -120,13 +122,19 @@ class Patroni(AbstractPatroniDaemon):
             return
 
     def get_tags(self) -> Dict[str, Any]:
-        """Get custom tags configured for this node, if any.
+        """Get tags configured for this node, if any.
 
-        A custom tag is any tag added to the configuration ``tags`` section that is not one of ``clonefrom``,
-        ``nofailover``, ``noloadbalance`` or ``nosync``.
+        Handle both predefined Patroni tags and custom defined tags.
 
-        :returns: a dictionary of custom tags set for this node. The key is the tag name, and the value is the
-        corresponding tag value.
+        .. note::
+            A custom tag is any tag added to the configuration ``tags`` section that is not one of ``clonefrom``,
+            ``nofailover``, ``noloadbalance`` or ``nosync``.
+
+            For the Patroni predefined tags, the returning object will only contain them if they are enabled as they
+            all are boolean values that default to disabled.
+
+        :returns: a dictionary of tags set for this node. The key is the tag name, and the value is the corresponding
+            tag value.
         """
         return {tag: value for tag, value in self.config.get('tags', {}).items()
                 if tag not in ('clonefrom', 'nofailover', 'noloadbalance', 'nosync') or value}
