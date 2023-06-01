@@ -595,7 +595,7 @@ class KubernetesController(AbstractExternalDcsController):
                 api_process = 'kube-apiserver'
             elif context.startswith('k3d-'):
                 container = '{0}-server-0'.format(context)
-                api_process = 'k3s'
+                api_process = 'k3s server'
             else:
                 return super(KubernetesController, self)._is_running()
             try:
