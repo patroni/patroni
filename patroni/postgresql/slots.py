@@ -317,20 +317,22 @@ class SlotsHandler(object):
         """
         # Group logical slots to be advanced by database name
         advance_slots: Dict[str, Dict[str, int]] = defaultdict(dict)
-        create_slots: List[str] = []  # And collect logical slots to be created on the replica
-        for name, value in slots.items():
-            if value['type'] == 'logical':
-                # If the logical already exists, copy some information about it into the original structure
-                if self._replication_slots.get(name, {}).get('datoid'):
-                    self._copy_items(self._replication_slots[name], value)
-                    if cluster.slots and name in cluster.slots:
-                        try:  # Skip slots that doesn't need to be advanced
-                            if value['confirmed_flush_lsn'] < int(cluster.slots[name]):
-                                advance_slots[value['database']][name] = int(cluster.slots[name])
-                        except Exception as e:
-                            logger.error('Failed to parse "%s": %r', cluster.slots[name], e)
-                elif cluster.slots and name in cluster.slots:  # We want to copy only slots with feedback in a DCS
-                    create_slots.append(name)
+        create_slots: List[str] = []  # Collect logical slots to be created on the replica
+
+        logical_slots = {name: value for name, value in slots.items() if value['type'] == 'logical'}
+        for name, value in logical_slots.items():
+
+            # If the logical already exists, copy some information about it into the original structure
+            if self._replication_slots.get(name, {}).get('datoid'):
+                self._copy_items(self._replication_slots[name], value)
+                if cluster.slots and name in cluster.slots:
+                    try:  # Skip slots that don't need to be advanced
+                        if value['confirmed_flush_lsn'] < int(cluster.slots[name]):
+                            advance_slots[value['database']][name] = int(cluster.slots[name])
+                    except Exception as e:
+                        logger.error('Failed to parse "%s": %r', cluster.slots[name], e)
+            elif cluster.slots and name in cluster.slots:  # We want to copy only slots with feedback in a DCS
+                create_slots.append(name)
 
         error, copy_slots = self.schedule_advance_slots(advance_slots)
         if error:
