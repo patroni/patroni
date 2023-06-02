@@ -126,6 +126,12 @@ class SlotsAdvanceThread(Thread):
 class SlotsHandler(object):
 
     def __init__(self, postgresql: 'Postgresql') -> None:
+        """Create an instance with storage attributes for replication slots and schedule the first synchronisation.
+
+        :param postgresql: Calling class instance providing interface to PostgreSQL.
+        """
+        self._force_readiness_check = False
+        self._schedule_load_slots = False
         self._postgresql = postgresql
         self._advance = None
         self._replication_slots: Dict[str, Dict[str, Any]] = {}  # already existing replication slots
