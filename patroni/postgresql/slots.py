@@ -1,11 +1,10 @@
 import logging
 import os
 import shutil
-
 from collections import defaultdict
 from contextlib import contextmanager
 from threading import Condition, Thread
-from typing import Any, Dict, Generator, List, Optional, Union, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Generator, List, Optional, Union, Tuple, TYPE_CHECKING, Collection
 
 from .connection import get_connection_cursor
 from .misc import format_lsn, fsync_dir
@@ -122,8 +121,15 @@ class SlotsHandler(object):
         return self._postgresql.query(sql, *params, retry=False)
 
     @staticmethod
-    def _copy_items(src: Dict[str, Any], dst: Dict[str, Any], keys: Optional[List[str]] = None) -> None:
-        dst.update({key: src[key] for key in keys or ('datoid', 'catalog_xmin', 'confirmed_flush_lsn')})
+    def _copy_items(src: Dict[str, Any], dst: Dict[str, Any],
+                    keys: Collection[str] = ('datoid', 'catalog_xmin', 'confirmed_flush_lsn')) -> None:
+        """Select values from *src* dictionary to update in *dst* dictionary for optional supplied *keys*.
+
+        :param src: source dictionary that *keys* will be looked up from.
+        :param dst: destination dictionary to be updated.
+        :param keys: optional list of keys to be looked up in the source dictionary.
+        """
+        dst.update({key: src[key] for key in keys})
 
     def process_permanent_slots(self, slots: List[Dict[str, Any]]) -> Dict[str, int]:
         """This methods solves three problems at once (I know, it is weird).
@@ -159,11 +165,11 @@ class SlotsHandler(object):
     def load_replication_slots(self) -> None:
         if self._postgresql.major_version >= 90400 and self._schedule_load_slots:
             replication_slots: Dict[str, Dict[str, Any]] = {}
-            extra = ", catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint"\
+            extra = ", catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint" \
                 if self._postgresql.major_version >= 100000 else ""
             skip_temp_slots = ' WHERE NOT temporary' if self._postgresql.major_version >= 100000 else ''
-            cursor = self._query('SELECT slot_name, slot_type, plugin, database, datoid'
-                                 '{0} FROM pg_catalog.pg_replication_slots{1}'.format(extra, skip_temp_slots))
+            cursor = self._query(f'SELECT slot_name, slot_type, plugin, database, datoid'
+                                 f'{extra} FROM pg_catalog.pg_replication_slots{skip_temp_slots}')
             for r in cursor:
                 value = {'type': r[1]}
                 if r[1] == 'logical':
@@ -174,15 +180,19 @@ class SlotsHandler(object):
             self._replication_slots = replication_slots
             self._schedule_load_slots = False
             if self._force_readiness_check:
-                self._unready_logical_slots = {n: None for n, v in replication_slots.items() if v['type'] == 'logical'}
+                self.logical_slots_processing_queue = {n: None for n, v in replication_slots.items()
+                                                       if v['type'] == 'logical'}
                 self._force_readiness_check = False
 
     def ignore_replication_slot(self, cluster: Cluster, name: str) -> bool:
         slot = self._replication_slots[name]
         if cluster.config:
             for matcher in cluster.config.ignore_slots_matchers:
-                if ((matcher.get("name") is None or matcher["name"] == name)
-                   and all(not matcher.get(a) or matcher[a] == slot.get(a) for a in ('database', 'plugin', 'type'))):
+                if (
+                        (matcher.get("name") is None or matcher["name"] == name)
+                        and all(
+                            not matcher.get(a) or matcher[a] == slot.get(a) for a in ('database', 'plugin', 'type'))
+                ):
                     return True
         return self._postgresql.citus_handler.ignore_replication_slot(slot)
 
@@ -234,10 +244,10 @@ class SlotsHandler(object):
         for name, value in slots.items():
             if name not in self._replication_slots and value['type'] == 'physical':
                 try:
-                    self._query(("SELECT pg_catalog.pg_create_physical_replication_slot(%s{0})"
-                                 " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots"
-                                 " WHERE slot_type = 'physical' AND slot_name = %s)").format(
-                                     immediately_reserve), name, name)
+                    self._query(f"SELECT pg_catalog.pg_create_physical_replication_slot(%s{immediately_reserve})"
+                                f" WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots"
+                                f" WHERE slot_type = 'physical' AND slot_name = %s)",
+                                name, name)
                 except Exception:
                     logger.exception("Failed to create physical replication slot '%s'", name)
                 self._schedule_load_slots = True
@@ -400,7 +410,8 @@ class SlotsHandler(object):
                 with self._get_leader_connection_cursor(cluster.leader) as cur:
                     cur.execute("SELECT slot_name, catalog_xmin FROM pg_catalog.pg_get_replication_slots()"
                                 " WHERE NOT pg_catalog.pg_is_in_recovery() AND slot_name = ANY(%s)",
-                                ([n for n, v in self._unready_logical_slots.items() if v is None] + [slot_name],))
+                                ([n for n, v in self.logical_slots_processing_queue.items()
+                                  if v is None] + [slot_name],))
                     slots = {row[0]: row[1] for row in cur}
                     if slot_name not in slots:
                         return logger.warning('Physical slot %s does not exist on the primary', slot_name)
