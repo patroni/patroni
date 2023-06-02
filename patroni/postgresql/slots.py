@@ -621,7 +621,9 @@ class SlotsHandler:
         for name in list(self.logical_slots_processing_queue):
             primary_logical_xmin = self.logical_slots_processing_queue[name]
             standby_logical_slot = self._replication_slots.get(name, {})
-            standby_logical_xmin = standby_logical_slot.get('catalog_xmin')
+            standby_logical_xmin = standby_logical_slot.get('catalog_xmin', 0)
+            if TYPE_CHECKING:
+                assert primary_logical_xmin is not None
 
             if (
                     not standby_logical_slot
