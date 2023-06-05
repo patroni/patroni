@@ -133,7 +133,6 @@ class CaseInsensitiveDict(MutableMapping[str, Any]):
         :param key: key to be created or updated in the dict.
         :param value: value for *key*.
         """
-        # Use the lowercase key for lookups, but store the actual key alongside the value.
         self._values[key.lower()] = (key, value)
 
     def __getitem__(self, key: str) -> Any:
