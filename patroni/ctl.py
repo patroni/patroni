@@ -493,7 +493,7 @@ def get_any_member(obj: Dict[str, Any], cluster: Cluster, group: Optional[int],
     :returns: the first found cluster member that has the given *role*.
 
     :raises:
-        :class:`PatroniCtlException`: if * both *role* and *member* are provided.
+        :class:`PatroniCtlException`: if both *role* and *member* are provided.
     """
     if member is not None:
         if role is not None:
