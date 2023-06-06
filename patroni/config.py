@@ -366,10 +366,10 @@ class Config(object):
                 logger.exception('Exception when loading file: %s', self._cache_file)
 
     def save_cache(self) -> None:
-        """Save dynamic configuration to ``patroni.dynamic.json``.
+        """Save dynamic configuration to ``patroni.dynamic.json`` under Postgres data directory.
 
         .. note::
-            ``patroni.dynamic.json`` is created as a temporary file under Postgres data directory.
+            ``patroni.dynamic.jsonXXXXXX`` is created as a temporary file and than renamed to ``patroni.dynamic.json``, where ``XXXXXX`` is a random suffix.
         """
         if self._cache_needs_saving:
             tmpfile = fd = None
