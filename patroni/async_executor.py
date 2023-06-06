@@ -141,7 +141,7 @@ class AsyncExecutor(object):
         with self._scheduled_action_lock:
             self._scheduled_action = None
 
-    def run(self, func: Callable[..., Any], args: Tuple[Any, ...] = ()) -> Optional[bool]:
+    def run(self, func: Callable[..., Any], args: Tuple[Any, ...] = ()) -> Optional[Any]:
         """Run *func* with *args*.
 
         .. note::
