@@ -216,17 +216,18 @@ class CitusHandler(Thread):
     def process_task(self, task: PgDistNode, transaction: Optional[PgDistNode]) -> bool:
         """Updates a single row in `pg_dist_node` table, optionally in a transaction.
 
-        The transaction is started if we do a demote of the worker node
-        or before promoting the other worker if there is not transaction
-        in progress. And, the transaction it is committed when the
-        switchover/failover completed.
+        The transaction is started if we do a demote of the worker node or before promoting the other worker if
+        there is no transaction in progress. And, the transaction is committed when the switchover/failover completed.
 
-        This method returns `True` if node was updated (optionally,
-        transaction was committed) as an indicator that
-        the `self._pg_dist_node` cache should be updated.
+        .. note:
+            The maximum lifetime of the transaction in progress is controlled outside of this method.
 
-        The maximum lifetime of the transaction in progress
-        is controlled outside of this method."""
+        :param task: reference to a :class:`PgDistNode` object that represents a row to be updated/created.
+        :param transaction: reference to a :class:`PgDistNode` object that performed a last update in a transaction.
+        :returns: `True` if the row was succesfully created/updated or transaction in progress
+            was committed as an indicator that the `self._pg_dist_node` cache should be updated,
+            or, if the new transaction was opened, this method returns `False`.
+        """
 
         if task.event == 'after_promote':
             # The after_promote may happen without previous before_demote and/or
