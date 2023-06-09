@@ -117,7 +117,8 @@ class CitusHandler(Thread):
         except Exception as e:
             logger.error('Exception when executing query "%s", (%s): %r', sql, params, e)
             self._connection.close()
-            self._in_flight = None
+            with self._condition:
+                self._in_flight = None
             self.schedule_cache_rebuild()
             raise e
 
@@ -212,7 +213,7 @@ class CitusHandler(Thread):
             if row is not None:
                 task.nodeid = row[0]
 
-    def process_task(self, task: PgDistNode) -> bool:
+    def process_task(self, task: PgDistNode, transaction: Optional[PgDistNode]) -> bool:
         """Updates a single row in `pg_dist_node` table, optionally in a transaction.
 
         The transaction is started if we do a demote of the worker node
@@ -232,38 +233,45 @@ class CitusHandler(Thread):
             # before_promore.  In this case we just call self.update_node() method.
             # If there is a transaction in progress, it could be that it already did
             # required changes and we can simply COMMIT.
-            if not self._in_flight or self._in_flight.host != task.host or self._in_flight.port != task.port:
+            if not transaction or transaction.host != task.host or transaction.port != task.port:
                 self.update_node(task)
-            if self._in_flight:
+            if transaction:
                 self.query('COMMIT')
-                self._in_flight = None
             return True
         else:  # before_demote, before_promote
             if task.timeout:
                 task.deadline = time.time() + task.timeout
-            if not self._in_flight:
+            if not transaction:
                 self.query('BEGIN')
             self.update_node(task)
-            self._in_flight = task
         return False
 
     def process_tasks(self) -> None:
         while True:
-            if not self._in_flight and not self.load_pg_dist_node():
+            with self._condition:
+                transaction = self._in_flight
+
+            if not transaction and not self.load_pg_dist_node():
                 break
 
             i, task = self.pick_task()
             if not task or i is None:
                 break
             try:
-                update_cache = self.process_task(task)
+                update_cache = self.process_task(task, transaction)
             except Exception as e:
                 logger.error('Exception when working with pg_dist_node: %r', e)
-                update_cache = False
+                update_cache = None
             with self._condition:
                 if self._tasks:
                     if update_cache:
                         self._pg_dist_node[task.group] = task
+
+                    if update_cache is False:  # an indicator that process_tasks has started a transaction
+                        self._in_flight = task
+                    else:
+                        self._in_flight = None
+
                     if id(self._tasks[i]) == id(task):
                         self._tasks.pop(i)
             task.wakeup()
@@ -293,10 +301,16 @@ class CitusHandler(Thread):
         with self._condition:
             i = self.find_task_by_group(task.group)
 
-            # task.timeout is None is an indicator that it was scheduled
-            # from the sync_pg_dist_node() and we don't want to override
-            # already existing task created from REST API.
-            if task.timeout is None and (i is not None or self._in_flight and self._in_flight.group == task.group):
+            # The task.timeout is None is an indicator that it was scheduled from the sync_pg_dist_node().
+            # We don't want to override already existing task created from REST API.
+            # In case if there is already _in_flight we don't want to add a task until timeout is reached.
+            # The last one is important to protect from the case when REST API request failed.
+            # But, effectively we only need protection for the first few seconds until the member
+            # key was updated with the new state/role values after demotion has started.
+            if task.timeout is None\
+                and (i is not None and self._tasks[i].timeout is not None
+                     or self._in_flight and self._in_flight.group == task.group
+                     and self._in_flight.deadline > time.time()):
                 return False
 
             # Override already existing task for the same worker group

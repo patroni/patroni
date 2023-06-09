@@ -1,3 +1,4 @@
+import time
 from mock import Mock, patch
 from patroni.postgresql.citus import CitusHandler
 
@@ -16,7 +17,7 @@ class TestCitus(BaseTestPostgresql):
         self.cluster = get_cluster_initialized_with_leader()
         self.cluster.workers[1] = self.cluster
 
-    @patch('time.time', Mock(side_effect=[100, 130, 160, 190, 220, 250, 280, 310]))
+    @patch('time.time', Mock(side_effect=[100, 130, 160, 190, 220, 250, 280, 310, 340, 370]))
     @patch('patroni.postgresql.citus.logger.exception', Mock(side_effect=SleepException))
     @patch('patroni.postgresql.citus.logger.warning')
     @patch('patroni.postgresql.citus.PgDistNode.wait', Mock())
@@ -66,11 +67,14 @@ class TestCitus(BaseTestPostgresql):
             mock_logger.assert_called_once()
             self.assertTrue(mock_logger.call_args[0][0].startswith('Overriding existing task:'))
 
-        # add_task called from sync_pg_dist_node should not override already scheduled or in flight task
+        # add_task called from sync_pg_dist_node should not override already scheduled or in flight task until deadline
         self.assertIsNotNone(self.c.add_task('after_promote', 1, 'postgres://host:5432/postgres', 30))
         self.assertIsNone(self.c.add_task('after_promote', 1, 'postgres://host:5432/postgres'))
         self.c._in_flight = self.c._tasks.pop()
+        self.c._in_flight.deadline = self.c._in_flight.timeout + time.time()
         self.assertIsNone(self.c.add_task('after_promote', 1, 'postgres://host:5432/postgres'))
+        self.c._in_flight.deadline = 0
+        self.assertIsNotNone(self.c.add_task('after_promote', 1, 'postgres://host:5432/postgres'))
 
         # If there is no transaction in progress and cached pg_dist_node matching desired state task should not be added
         self.c._schedule_load_pg_dist_node = False
