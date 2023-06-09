@@ -302,17 +302,19 @@ class CitusHandler(Thread):
         with self._condition:
             i = self.find_task_by_group(task.group)
 
-            # The task.timeout is None is an indicator that it was scheduled from the sync_pg_dist_node().
-            # We don't want to override already existing task created from REST API.
-            # In case if there is already _in_flight we don't want to add a task until timeout is reached.
-            # The last one is important to protect from the case when REST API request failed.
-            # But, effectively we only need protection for the first few seconds until the member
-            # key was updated with the new state/role values after demotion has started.
-            if task.timeout is None\
-                and (i is not None and self._tasks[i].timeout is not None
-                     or self._in_flight and self._in_flight.group == task.group
-                     and self._in_flight.deadline > time.time()):
-                return False
+            # The `PgDistNode.timeout` == None is an indicator that it was scheduled from the sync_pg_dist_node().
+            if task.timeout is None:
+                # We don't want to override the already existing task created from REST API.
+                if i is not None and self._tasks[i].timeout is not None:
+                    return False
+
+                # There is a little race condition with tasks created from REST API - the call made "before" the member
+                # key is updated in DCS. Therefore it is possible that :func:`sync_pg_dist_node` will try to create a
+                # task based on the outdated values of "state"/"role". To solve it we introduce an artificial timeout.
+                # Only when the timeout is reached new tasks could be scheduled from sync_pg_dist_node()
+                if self._in_flight and self._in_flight.group == task.group and self._in_flight.timeout is not None\
+                        and self._in_flight.deadline > time.time():
+                    return False
 
             # Override already existing task for the same worker group
             if i is not None:
