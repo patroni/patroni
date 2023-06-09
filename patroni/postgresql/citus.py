@@ -76,8 +76,9 @@ class CitusHandler(Thread):
         self._connection = Connection()
         self._pg_dist_node: Dict[int, PgDistNode] = {}  # Cache of pg_dist_node: {groupid: PgDistNode()}
         self._tasks: List[PgDistNode] = []  # Requests to change pg_dist_node, every task is a `PgDistNode`
-        self._condition = Condition()  # protects _pg_dist_node, _tasks, and _schedule_load_pg_dist_node
         self._in_flight: Optional[PgDistNode] = None  # Reference to the `PgDistNode` being changed in a transaction
+        self._schedule_load_pg_dist_node = True  # Flag that "pg_dist_node" should be queried from the database
+        self._condition = Condition()  # protects _pg_dist_node, _tasks, _in_flight, and _schedule_load_pg_dist_node
         self.schedule_cache_rebuild()
 
     def is_enabled(self) -> bool:
