@@ -85,7 +85,7 @@ class AsyncExecutor(object):
     def __init__(self, cancellable: CancellableSubprocess, ha_wakeup: Callable[..., None]) -> None:
         """Create a new instance of :class:`AsyncExecutor`.
 
-        Configure the given *cancellable* and *ha_wakefup*, initializes the control attributes, and instantiate the lock
+        Configure the given *cancellable* and *ha_wakeup*, initializes the control attributes, and instantiate the lock
         and event objects that are used to access attributes and manage communication between threads.
 
         :param cancellable: a subprocess that supports being cancelled.
