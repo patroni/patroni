@@ -214,7 +214,7 @@ class CitusHandler(Thread):
             if row is not None:
                 task.nodeid = row[0]
 
-    def process_task(self, task: PgDistNode, transaction: Optional[PgDistNode]) -> bool:
+    def process_task(self, task: PgDistNode) -> bool:
         """Updates a single row in `pg_dist_node` table, optionally in a transaction.
 
         The transaction is started if we do a demote of the worker node or before promoting the other worker if
@@ -223,8 +223,10 @@ class CitusHandler(Thread):
         .. note:
             The maximum lifetime of the transaction in progress is controlled outside of this method.
 
+        .. note:
+            Read access to `self._in_flight` isn't protected because we know it can't be changed outside of our thread.
+
         :param task: reference to a :class:`PgDistNode` object that represents a row to be updated/created.
-        :param transaction: reference to a :class:`PgDistNode` object that performed a last update in a transaction.
         :returns: `True` if the row was succesfully created/updated or transaction in progress
             was committed as an indicator that the `self._pg_dist_node` cache should be updated,
             or, if the new transaction was opened, this method returns `False`.
@@ -235,32 +237,30 @@ class CitusHandler(Thread):
             # before_promore.  In this case we just call self.update_node() method.
             # If there is a transaction in progress, it could be that it already did
             # required changes and we can simply COMMIT.
-            if not transaction or transaction.host != task.host or transaction.port != task.port:
+            if not self._in_flight or self._in_flight.host != task.host or self._in_flight.port != task.port:
                 self.update_node(task)
-            if transaction:
+            if self._in_flight:
                 self.query('COMMIT')
             return True
         else:  # before_demote, before_promote
             if task.timeout:
                 task.deadline = time.time() + task.timeout
-            if not transaction:
+            if not self._in_flight:
                 self.query('BEGIN')
             self.update_node(task)
         return False
 
     def process_tasks(self) -> None:
         while True:
-            with self._condition:
-                transaction = self._in_flight
-
-            if not transaction and not self.load_pg_dist_node():
+            # Read access to `_in_flight` isn't protected because we know it can't be changed outside of our thread.
+            if not self._in_flight and not self.load_pg_dist_node():
                 break
 
             i, task = self.pick_task()
             if not task or i is None:
                 break
             try:
-                update_cache = self.process_task(task, transaction)
+                update_cache = self.process_task(task)
             except Exception as e:
                 logger.error('Exception when working with pg_dist_node: %r', e)
                 update_cache = None
