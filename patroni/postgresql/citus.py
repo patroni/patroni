@@ -76,8 +76,9 @@ class CitusHandler(Thread):
         self._connection = Connection()
         self._pg_dist_node: Dict[int, PgDistNode] = {}  # Cache of pg_dist_node: {groupid: PgDistNode()}
         self._tasks: List[PgDistNode] = []  # Requests to change pg_dist_node, every task is a `PgDistNode`
-        self._condition = Condition()  # protects _pg_dist_node, _tasks, and _schedule_load_pg_dist_node
         self._in_flight: Optional[PgDistNode] = None  # Reference to the `PgDistNode` being changed in a transaction
+        self._schedule_load_pg_dist_node = True  # Flag that "pg_dist_node" should be queried from the database
+        self._condition = Condition()  # protects _pg_dist_node, _tasks, _in_flight, and _schedule_load_pg_dist_node
         self.schedule_cache_rebuild()
 
     def is_enabled(self) -> bool:
@@ -117,7 +118,8 @@ class CitusHandler(Thread):
         except Exception as e:
             logger.error('Exception when executing query "%s", (%s): %r', sql, params, e)
             self._connection.close()
-            self._in_flight = None
+            with self._condition:
+                self._in_flight = None
             self.schedule_cache_rebuild()
             raise e
 
@@ -215,17 +217,20 @@ class CitusHandler(Thread):
     def process_task(self, task: PgDistNode) -> bool:
         """Updates a single row in `pg_dist_node` table, optionally in a transaction.
 
-        The transaction is started if we do a demote of the worker node
-        or before promoting the other worker if there is not transaction
-        in progress. And, the transaction it is committed when the
-        switchover/failover completed.
+        The transaction is started if we do a demote of the worker node or before promoting the other worker if
+        there is no transaction in progress. And, the transaction is committed when the switchover/failover completed.
 
-        This method returns `True` if node was updated (optionally,
-        transaction was committed) as an indicator that
-        the `self._pg_dist_node` cache should be updated.
+        .. note:
+            The maximum lifetime of the transaction in progress is controlled outside of this method.
 
-        The maximum lifetime of the transaction in progress
-        is controlled outside of this method."""
+        .. note:
+            Read access to `self._in_flight` isn't protected because we know it can't be changed outside of our thread.
+
+        :param task: reference to a :class:`PgDistNode` object that represents a row to be updated/created.
+        :returns: `True` if the row was succesfully created/updated or transaction in progress
+            was committed as an indicator that the `self._pg_dist_node` cache should be updated,
+            or, if the new transaction was opened, this method returns `False`.
+        """
 
         if task.event == 'after_promote':
             # The after_promote may happen without previous before_demote and/or
@@ -236,7 +241,6 @@ class CitusHandler(Thread):
                 self.update_node(task)
             if self._in_flight:
                 self.query('COMMIT')
-                self._in_flight = None
             return True
         else:  # before_demote, before_promote
             if task.timeout:
@@ -244,11 +248,11 @@ class CitusHandler(Thread):
             if not self._in_flight:
                 self.query('BEGIN')
             self.update_node(task)
-            self._in_flight = task
         return False
 
     def process_tasks(self) -> None:
         while True:
+            # Read access to `_in_flight` isn't protected because we know it can't be changed outside of our thread.
             if not self._in_flight and not self.load_pg_dist_node():
                 break
 
@@ -259,11 +263,17 @@ class CitusHandler(Thread):
                 update_cache = self.process_task(task)
             except Exception as e:
                 logger.error('Exception when working with pg_dist_node: %r', e)
-                update_cache = False
+                update_cache = None
             with self._condition:
                 if self._tasks:
                     if update_cache:
                         self._pg_dist_node[task.group] = task
+
+                    if update_cache is False:  # an indicator that process_tasks has started a transaction
+                        self._in_flight = task
+                    else:
+                        self._in_flight = None
+
                     if id(self._tasks[i]) == id(task):
                         self._tasks.pop(i)
             task.wakeup()
@@ -293,11 +303,19 @@ class CitusHandler(Thread):
         with self._condition:
             i = self.find_task_by_group(task.group)
 
-            # task.timeout is None is an indicator that it was scheduled
-            # from the sync_pg_dist_node() and we don't want to override
-            # already existing task created from REST API.
-            if task.timeout is None and (i is not None or self._in_flight and self._in_flight.group == task.group):
-                return False
+            # The `PgDistNode.timeout` == None is an indicator that it was scheduled from the sync_pg_dist_node().
+            if task.timeout is None:
+                # We don't want to override the already existing task created from REST API.
+                if i is not None and self._tasks[i].timeout is not None:
+                    return False
+
+                # There is a little race condition with tasks created from REST API - the call made "before" the member
+                # key is updated in DCS. Therefore it is possible that :func:`sync_pg_dist_node` will try to create a
+                # task based on the outdated values of "state"/"role". To solve it we introduce an artificial timeout.
+                # Only when the timeout is reached new tasks could be scheduled from sync_pg_dist_node()
+                if self._in_flight and self._in_flight.group == task.group and self._in_flight.timeout is not None\
+                        and self._in_flight.deadline > time.time():
+                    return False
 
             # Override already existing task for the same worker group
             if i is not None:
