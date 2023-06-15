@@ -121,12 +121,12 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.s.copy_logical_slots(self.cluster, ['ls'])
         with patch.object(MockCursor, '__iter__', Mock(return_value=iter([('postgresql0', None)]))),\
                 patch.object(MockCursor, 'fetchone', Mock(side_effect=Exception)):
-            self.assertIsNone(self.s.check_logical_slots_readiness(self.cluster, False, None))
+            self.assertIsNone(self.s.check_logical_slots_readiness(self.cluster, None))
         with patch.object(MockCursor, '__iter__', Mock(return_value=iter([('postgresql0', None)]))),\
                 patch.object(MockCursor, 'fetchone', Mock(return_value=(False,))):
-            self.assertIsNone(self.s.check_logical_slots_readiness(self.cluster, False, None))
+            self.assertIsNone(self.s.check_logical_slots_readiness(self.cluster, None))
         with patch.object(MockCursor, '__iter__', Mock(return_value=iter([('ls', 100)]))):
-            self.s.check_logical_slots_readiness(self.cluster, False, None)
+            self.s.check_logical_slots_readiness(self.cluster, None)
 
     @patch.object(Postgresql, 'stop', Mock(return_value=True))
     @patch.object(Postgresql, 'start', Mock(return_value=True))
