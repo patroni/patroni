@@ -108,6 +108,42 @@ def dcs_modules() -> List[str]:
     return [module_prefix + name for _, name, is_pkg in pkgutil.iter_modules([dcs_dirname]) if not is_pkg]
 
 
+def iter_dcs_modules(
+        config: Optional[Union['Config', Dict[str, Any]]] = None
+) -> Generator[Tuple[str, ModuleType], None, None]:
+    """Attempt to import DCS modules that are present in the given configuration.
+
+    .. note::
+            If a module successfully imports we can assume that all its requirements are installed.
+
+    :param config: configuration information with possible DCS names as keys.
+
+    :yields: a tuple containing the module ``name`` and the imported module object.
+    """
+    for mod_name in dcs_modules():
+        name = mod_name.rpartition('.')[2]
+        if config is None or name in config:
+            try:
+                yield name, importlib.import_module(mod_name)
+            except ImportError:
+                logger.debug('Failed to import %s', mod_name)
+
+
+def find_dcs_class_in_module(module: ModuleType) -> Optional[Type['AbstractDCS']]:
+    """Try to find the implementation of :class:`AbstractDCS` interface in *module* matching the *module* name.
+
+    :param module: Imported DCS module.
+
+    :returns: class with a name matching the name of *module* that implements :class:`AbstractDCS` or ``None`` if not
+              found.
+    """
+    return next(
+        (obj for obj_name, obj in module.__dict__.items()
+         if (obj_name.lower() == module.__name__.rpartition('.')[2]
+             and inspect.isclass(obj) and issubclass(obj, AbstractDCS))),
+        None)
+
+
 def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
     """Attempt to load a Distributed Configuration Store from known available implementations.
 
@@ -118,8 +154,7 @@ def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
         Basic top-level configuration parameters retrieved from *config* are propagated to the DCS specific config
         before being passed to the module DCS class.
 
-        If a module successfully imports we can assume that all its requirements are installed.
-        If no module is loaded successfully then report and log an error. This will cause Patroni to exit.
+        If no module is found to satisfy configuration then report and log an error. This will cause Patroni to exit.
 
     :raises :exc:`PatroniFatalException`: if a load of all available DCS modules have been tried and none succeeded.
 
@@ -128,38 +163,22 @@ def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
 
     :returns: The first successfully loaded DCS module which is an implementation of :class:`AbstractDCS`.
     """
-    modules = dcs_modules()
+    for name, module in iter_dcs_modules(config):
+        dcs_class = find_dcs_class_in_module(module)
+        if dcs_class:
+            # Propagate some parameters from top level of config if defined to the DCS specific config section.
+            config[name].update({
+                p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
+                                       'patronictl', 'ttl', 'retry_timeout')
+                if p in config})
+            # From citus section we only need "group" parameter, but will propagate everything just in case.
+            if isinstance(config.get('citus'), dict):
+                config[name].update(config['citus'])
+            return dcs_class(config[name])
 
-    for module_name in modules:
-        name = module_name.split('.')[-1]
-        if name in config:  # we will try to import only modules which have configuration section in the config file
-            try:
-                module = importlib.import_module(module_name)
-                for key, item in module.__dict__.items():  # iterate through the module content
-                    # try to find implementation of AbstractDCS interface, class name must match with module_name
-                    if key.lower() == name and inspect.isclass(item) and issubclass(item, AbstractDCS):
-                        # propagate some parameters
-                        config[name].update({p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
-                                             'patronictl', 'ttl', 'retry_timeout') if p in config})
-                        # From citus section we only need "group" parameter, but will propagate everything just in case.
-                        if isinstance(config.get('citus'), dict):
-                            config[name].update(config['citus'])
-                        return item(config[name])
-            except ImportError:
-                logger.debug('Failed to import %s', module_name)
-
-    available_implementations: List[str] = []
-    for module_name in modules:
-        name = module_name.split('.')[-1]
-        try:
-            module = importlib.import_module(module_name)
-            available_implementations.extend(name for key, item in module.__dict__.items() if key.lower() == name
-                                             and inspect.isclass(item) and issubclass(item, AbstractDCS))
-        except ImportError:
-            logger.info('Failed to import %s', module_name)
     raise PatroniFatalException(
         f"Can not find suitable configuration of distributed configuration store\n"
-        f"Available implementations: {', '.join(sorted(set(available_implementations)))}")
+        f"Available implementations: {', '.join(sorted(set(name for name, _ in iter_dcs_modules())))}")
 
 
 _Version = Union[int, str]
@@ -854,7 +873,7 @@ class Cluster(NamedTuple):
                                    for k, v in slot_conflicts.items() if len(v) > 1))
 
         disabled_permanent_logical_slots: list[str] = self._merge_permanent_slots(
-            slots, my_name, role, nofailover, major_version)
+            slots, self._get_permanent_slots(role, nofailover), my_name, major_version)
 
         if disabled_permanent_logical_slots and show_error:
             logger.error("Permanent logical replication slots supported by Patroni only starting from PostgreSQL 11. "
@@ -862,9 +881,9 @@ class Cluster(NamedTuple):
 
         return slots
 
-    def _merge_permanent_slots(self,
-                               slots: Dict[str, Dict[str, str]],
-                               my_name: str, role: str, nofailover: bool, major_version: int) -> List[str]:
+    @staticmethod
+    def _merge_permanent_slots(slots: Dict[str, Dict[str, str]], permanent_slots: Dict[str, Any], my_name: str,
+                               major_version: int) -> List[str]:
         """Merge replication *slots* for members with ``permanent_replication_slots``.
 
         Perform validation of configured permanent slot name, skipping invalid names.
@@ -874,14 +893,13 @@ class Cluster(NamedTuple):
 
         :param slots: Slot names with existing attributes if known.
         :param my_name: name of this node.
-        :param role: role of this node.
-        :param nofailover: ``True`` if this node is tagged to not fail over.
+        :param permanent_slots: dictionary containing slot name key and slot information values.
         :param major_version: postgresql major version.
 
         :returns: List of disabled permanent, logical slot names, if postgresql version < 11.
         """
         disabled_permanent_logical_slots: List[str] = []
-        permanent_slots = self._get_permanent_slots(role, nofailover)
+
         for name, value in permanent_slots.items():
             if not slot_name_re.match(name):
                 logger.error("Invalid permanent replication slot name '%s'", name)
