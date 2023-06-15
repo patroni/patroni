@@ -113,7 +113,7 @@ class SlotsHandler(object):
         self._postgresql = postgresql
         self._advance = None
         self._replication_slots: Dict[str, Dict[str, Any]] = {}  # already existing replication slots
-        self._unready_logical_slots: Dict[str, Optional[int]] = {}
+        self.logical_slots_processing_queue: Dict[str, Optional[int]] = {}
         self.pg_replslot_dir = os.path.join(self._postgresql.data_dir, 'pg_replslot')
         self.schedule()
 
@@ -366,7 +366,7 @@ class SlotsHandler(object):
                 self._ensure_physical_slots(slots)
 
                 if self._postgresql.is_leader():
-                    self._unready_logical_slots.clear()
+                    self.logical_slots_processing_queue.clear()
                     self._ensure_logical_slots_primary(slots)
                 elif cluster.slots and slots:
                     self.check_logical_slots_readiness(cluster, replicatefrom)
@@ -386,25 +386,19 @@ class SlotsHandler(object):
         with get_connection_cursor(connect_timeout=3, options="-c statement_timeout=2000", **conn_kwargs) as cur:
             yield cur
 
-    def check_logical_slots_readiness(self, cluster: Cluster, replicatefrom: Optional[str]) -> None:
-        """Determine whether all known logical slots are
+    def check_logical_slots_readiness(self, cluster: Cluster, replicatefrom: Optional[str]) -> bool:
+        """Determine whether all known logical slots are synchronised from the leader.
 
-        Retrieve the current ``catalog_xmin`` value for the physical slot from the cluster leader, and using previously
-        stored list of logical slots, those which have yet to be checked hence have no stored slot attributes,
-        store logical slot ``catalog_xmin`` when the physical slot ``catalog_xmin`` becomes valid.
+        1) Retrieve the current ``catalog_xmin`` value for the physical slot from the cluster leader, and
+        2) using previously stored list of "unready" logical slots, those which have yet to be checked hence have no
+           stored slot attributes,
+        3) store logical slot ``catalog_xmin`` when the physical slot ``catalog_xmin`` becomes valid.
 
-        The logical slot on a replica is safe to use when the physical replica slot on the primary:
-
-            1. has a nonzero/non-null ``catalog_xmin``
-            2. has a ``catalog_xmin`` that is not newer (greater) than the ``catalog_xmin`` of any slot on the standby
-            3. overtook the ``catalog_xmin`` of remembered values of logical slots on the primary.
-
-        :param cluster: object containing stateful information for the cluster
-        :param nofailover: ``True`` if this node is tagged to not failover.
-        :param replicatefrom: name of the host that should be used to replicate from
+        :param cluster: object containing stateful information for the cluster.
+        :param replicatefrom: name of the host that should be used to replicate from.
         """
         catalog_xmin = None
-        if self._unready_logical_slots and cluster.leader:
+        if self.logical_slots_processing_queue and cluster.leader:
             slot_name = cluster.get_my_slot_name_on_primary(self._postgresql.name, replicatefrom)
             try:
                 with self._get_leader_connection_cursor(cluster.leader) as cur:
@@ -414,33 +408,73 @@ class SlotsHandler(object):
                                   if v is None] + [slot_name],))
                     slots = {row[0]: row[1] for row in cur}
                     if slot_name not in slots:
-                        return logger.warning('Physical slot %s does not exist on the primary', slot_name)
+                        logger.warning('Physical slot %s does not exist on the primary', slot_name)
+                        return False
                     catalog_xmin = slots.pop(slot_name)
             except Exception as e:
-                return logger.error("Failed to check %s physical slot on the primary: %r", slot_name, e)
-            # Remember catalog_xmin of logical slots on the primary when catalog_xmin of
-            # the physical slot became valid. Logical slots on replica will be safe to use after
-            # promote when catalog_xmin of the physical slot overtakes these values.
-            if catalog_xmin is not None:
-                for name, value in slots.items():
-                    self._unready_logical_slots[name] = value
-            else:  # Replica isn't streaming or the hot_standby_feedback isn't enabled
-                try:
-                    cur = self._query("SELECT pg_catalog.current_setting('hot_standby_feedback')::boolean")
-                    row = cur.fetchone()
-                    if row and not row[0]:
-                        logger.error('Logical slot failover requires "hot_standby_feedback".'
-                                     ' Please check postgresql.auto.conf')
-                except Exception as e:
-                    logger.error('Failed to check the hot_standby_feedback setting: %r', e)
-                return  # since `catalog_xmin` isn't valid further checks don't make any sense
+                logger.error("Failed to check %s physical slot on the primary: %r", slot_name, e)
+                return False
 
-        for name in list(self._unready_logical_slots):
-            value = self._replication_slots.get(name)
-            if not value or catalog_xmin is not None and\
-                    self._unready_logical_slots[name] <= catalog_xmin <= value['catalog_xmin']:
-                del self._unready_logical_slots[name]
-                if value:
+            if not self._update_pending_logical_slot_primary(cluster, slots, catalog_xmin):
+                return False  # since `catalog_xmin` isn't valid further checks don't make any sense
+
+        self._ready_logical_slots(catalog_xmin)
+        return True
+
+    def _update_pending_logical_slot_primary(self, cluster: Cluster,
+                                             slots: Dict[str, Any],
+                                             catalog_xmin: Optional[int] = None) -> bool:
+        """Store pending logical slot information for ``catalog_xmin`` on the primary.
+
+        Remember catalog_xmin of logical slots on the primary when catalog_xmin of the physical slot became valid.
+        Logical slots on replica will be safe to use after promote when catalog_xmin of the physical slot overtakes
+        these values.
+
+        :param catalog_xmin: value for
+        :param slots: dictionary of slot information from the primary
+        """
+        if catalog_xmin is not None and cluster.leader:
+            for name, value in slots.items():
+                self.logical_slots_processing_queue[name] = value
+        else:  # Replica isn't streaming or the hot_standby_feedback isn't enabled
+            try:
+                cur = self._query("SELECT pg_catalog.current_setting('hot_standby_feedback')::boolean")
+                row = cur.fetchone()
+                if row and not row[0]:
+                    logger.error('Logical slot failover requires "hot_standby_feedback".'
+                                 ' Please check postgresql.auto.conf')
+            except Exception as e:
+                logger.error('Failed to check the hot_standby_feedback setting: %r', e)
+            return False
+        return True
+
+    def _ready_logical_slots(self, primary_physical_xmin: Optional[int] = None) -> None:
+        """Ready logical slots by comparing primary physical slot ``catalog_xmin`` to logical ``catalog_xmin``.
+
+        The logical slot on a replica is safe to use when the physical replica slot on the primary:
+
+            1. has a nonzero/non-null ``catalog_xmin`` represented by ``primary_physical_xmin``.
+            2. has a ``catalog_xmin`` that is not newer (greater) than the ``catalog_xmin`` of any slot on the standby
+            3. overtook the ``catalog_xmin`` of remembered values of logical slots on the primary.
+
+        :param primary_physical_xmin: is the value retrieved from ``pg_catalog.pg_get_replication_slots()`` for the
+                                      physical replication slot on the primary.
+        """
+        # Make a copy of processing queue keys as a list as the queue dictionary is modified inside the loop.
+        for name in list(self.logical_slots_processing_queue):
+            primary_logical_xmin = self.logical_slots_processing_queue[name]
+            standby_logical_slot = self._replication_slots.get(name, {})
+            standby_logical_xmin = standby_logical_slot.get('catalog_xmin')
+
+            if (
+                    not standby_logical_slot
+                    or primary_physical_xmin is not None
+                    and primary_logical_xmin <= primary_physical_xmin <= standby_logical_xmin
+            ):
+
+                del self.logical_slots_processing_queue[name]
+
+                if standby_logical_slot:
                     logger.info('Logical slot %s is safe to be used after a failover', name)
 
     def copy_logical_slots(self, cluster: Cluster, create_slots: List[str]) -> None:
@@ -485,7 +519,7 @@ class SlotsHandler(object):
                     shutil.rmtree(slot_dir)
                 os.rename(slot_tmp_dir, slot_dir)
                 fsync_dir(slot_dir)
-                self._unready_logical_slots[name] = None
+                self.logical_slots_processing_queue[name] = None
             fsync_dir(self._postgresql.slots_handler.pg_replslot_dir)
             self._postgresql.start()
 
@@ -498,6 +532,6 @@ class SlotsHandler(object):
         if self._advance:
             self._advance.on_promote()
 
-        if self._unready_logical_slots:
+        if self.logical_slots_processing_queue:
             logger.warning('Logical replication slots that might be unsafe to use after promote: %s',
-                           set(self._unready_logical_slots))
+                           set(self.logical_slots_processing_queue))
