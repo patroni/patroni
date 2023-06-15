@@ -223,6 +223,13 @@ class SlotsHandler(object):
                     self._schedule_load_slots = True
 
     def _ensure_physical_slots(self, slots: Dict[str, Any]) -> None:
+        """Create any missing physical replication slots.
+
+        Any failures are logged and do not interrupt creation of all slots.
+
+        :param slots: A dictionary mapping slot name to slot attributes. This method only considers a slot
+                      if the value is a dictionary with the key ``type`` and a value of ``physical``.
+        """
         immediately_reserve = ', true' if self._postgresql.major_version >= 90600 else ''
         for name, value in slots.items():
             if name not in self._replication_slots and value['type'] == 'physical':
@@ -243,11 +250,20 @@ class SlotsHandler(object):
             yield cur
 
     def _ensure_logical_slots_primary(self, slots: Dict[str, Any]) -> None:
+        """Create any missing logical replication slots.
+
+        If the logical slot already exists, copy state information into the replication slots structure stored in the
+        class instance.
+
+        :param slots: Slots that should exist are supplied in a dictionary, mapping slot name to any attributes.
+                      The method will only consider slots that have a value that is a dictionary with a key ``type``
+                      with a value that is ``logical``.
+
+        """
         # Group logical slots to be created by database name
         logical_slots: Dict[str, Dict[str, Dict[str, Any]]] = defaultdict(dict)
         for name, value in slots.items():
             if value['type'] == 'logical':
-                # If the logical already exists, copy some information about it into the original structure
                 if self._replication_slots.get(name, {}).get('datoid'):
                     self._copy_items(self._replication_slots[name], value)
                 else:
@@ -274,6 +290,21 @@ class SlotsHandler(object):
         return self._advance.schedule(slots)
 
     def _ensure_logical_slots_replica(self, cluster: Cluster, slots: Dict[str, Any]) -> List[str]:
+        """Update missing logical slots on replicas.
+
+        If the logical slot already exists, copy state information into the replication slots structure stored in the
+        class instance. Slots that exist are also advanced if their `confirmed_flush_lsn` is greater than the stored
+        state of the slot.
+
+        As logical slots can only be created when the primary is available, pass the list of slots that need to be
+        copied back to the caller. They will be created on replicas with :meth:``SlotsHandler.copy_logical_slots``.
+
+        :param cluster: object containing stateful information for the cluster
+        :param slots: A dictionary mapping slot name to slot attributes. This method only considers a slot
+                      if the value is a dictionary with the key ``type`` and a value of ``logical``.
+
+        :returns: list of slots to be copied from the primary.
+        """
         # Group logical slots to be advanced by database name
         advance_slots: Dict[str, Dict[str, int]] = defaultdict(dict)
         create_slots: List[str] = []  # And collect logical slots to be created on the replica
@@ -298,6 +329,20 @@ class SlotsHandler(object):
 
     def sync_replication_slots(self, cluster: Cluster, nofailover: bool,
                                replicatefrom: Optional[str] = None, paused: bool = False) -> List[str]:
+        """During the HA loop read, check and alter replication slots found in the cluster.
+
+        Read physical and logical slots found on the primary, then compare to those configured in the DCS.
+        Drop any slots that do not match those required by configuration and are not configured as permanent.
+        Create any missing physical slots. If we are the leader then logical slots too, otherwise if logical slots
+        are known and active create them on replica nodes.
+
+        :param cluster: object containing stateful information for the cluster
+        :param nofailover: ``True`` if this node has been tagged to not failover
+        :param replicatefrom: the tag containing the node to replicate from
+        :param paused: ``True`` if the cluster is configured as paused
+
+        :returns: list of logical replication slots names that should be copied from the primary
+        """
         ret = []
         if self._postgresql.major_version >= 90400 and cluster.config:
             try:
@@ -314,7 +359,7 @@ class SlotsHandler(object):
                     self._unready_logical_slots.clear()
                     self._ensure_logical_slots_primary(slots)
                 elif cluster.slots and slots:
-                    self.check_logical_slots_readiness(cluster, nofailover, replicatefrom)
+                    self.check_logical_slots_readiness(cluster, replicatefrom)
 
                     ret = self._ensure_logical_slots_replica(cluster, slots)
 
@@ -331,7 +376,23 @@ class SlotsHandler(object):
         with get_connection_cursor(connect_timeout=3, options="-c statement_timeout=2000", **conn_kwargs) as cur:
             yield cur
 
-    def check_logical_slots_readiness(self, cluster: Cluster, nofailover: bool, replicatefrom: Optional[str]) -> None:
+    def check_logical_slots_readiness(self, cluster: Cluster, replicatefrom: Optional[str]) -> None:
+        """Determine whether all known logical slots are
+
+        Retrieve the current ``catalog_xmin`` value for the physical slot from the cluster leader, and using previously
+        stored list of logical slots, those which have yet to be checked hence have no stored slot attributes,
+        store logical slot ``catalog_xmin`` when the physical slot ``catalog_xmin`` becomes valid.
+
+        The logical slot on a replica is safe to use when the physical replica slot on the primary:
+
+            1. has a nonzero/non-null ``catalog_xmin``
+            2. has a ``catalog_xmin`` that is not newer (greater) than the ``catalog_xmin`` of any slot on the standby
+            3. overtook the ``catalog_xmin`` of remembered values of logical slots on the primary.
+
+        :param cluster: object containing stateful information for the cluster
+        :param nofailover: ``True`` if this node is tagged to not failover.
+        :param replicatefrom: name of the host that should be used to replicate from
+        """
         catalog_xmin = None
         if self._unready_logical_slots and cluster.leader:
             slot_name = cluster.get_my_slot_name_on_primary(self._postgresql.name, replicatefrom)
@@ -365,10 +426,6 @@ class SlotsHandler(object):
 
         for name in list(self._unready_logical_slots):
             value = self._replication_slots.get(name)
-            # The logical slot on a replica is safe to use when the physical replica slot on the primary:
-            # 1. has a nonzero/non-null catalog_xmin
-            # 2. has a catalog_xmin that is not newer (greater) than the catalog_xmin of any slot on the standby
-            # 3. overtook the catalog_xmin of remembered values of logical slots on the primary.
             if not value or catalog_xmin is not None and\
                     self._unready_logical_slots[name] <= catalog_xmin <= value['catalog_xmin']:
                 del self._unready_logical_slots[name]
