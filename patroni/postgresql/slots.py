@@ -364,9 +364,9 @@ class SlotsHandler:
                     self._schedule_load_slots = True
 
     def _ensure_physical_slots(self, slots: Dict[str, Any]) -> None:
-        """Create any missing physical replication slots.
+        """Create any missing physical replication *slots*.
 
-        Any failures are logged and do not interrupt creation of all slots.
+        Any failures are logged and do not interrupt creation of all *slots*.
 
         :param slots: A dictionary mapping slot name to slot attributes. This method only considers a slot
                       if the value is a dictionary with the key ``type`` and a value of ``physical``.
@@ -399,7 +399,7 @@ class SlotsHandler:
             yield cur
 
     def _ensure_logical_slots_primary(self, slots: Dict[str, Any]) -> None:
-        """Create any missing logical replication slots.
+        """Create any missing logical replication *slots*.
 
         If the logical slot already exists, copy state information into the replication slots structure stored in the
         class instance.
@@ -445,16 +445,16 @@ class SlotsHandler:
         return self._advance.schedule(slots)
 
     def _ensure_logical_slots_replica(self, cluster: Cluster, slots: Dict[str, Any]) -> List[str]:
-        """Update missing logical slots on replicas.
+        """Update missing logical *slots* on replicas.
 
         If the logical slot already exists, copy state information into the replication slots structure stored in the
-        class instance. Slots that exist are also advanced if their `confirmed_flush_lsn` is greater than the stored
+        class instance. Slots that exist are also advanced if their ``confirmed_flush_lsn`` is greater than the stored
         state of the slot.
 
         As logical slots can only be created when the primary is available, pass the list of slots that need to be
-        copied back to the caller. They will be created on replicas with :meth:``SlotsHandler.copy_logical_slots``.
+        copied back to the caller. They will be created on replicas with :meth:`SlotsHandler.copy_logical_slots`.
 
-        :param cluster: object containing stateful information for the cluster
+        :param cluster: object containing stateful information for the cluster.
         :param slots: A dictionary mapping slot name to slot attributes. This method only considers a slot
                       if the value is a dictionary with the key ``type`` and a value of ``logical``.
 
@@ -493,12 +493,12 @@ class SlotsHandler:
         Create any missing physical slots. If we are the leader then logical slots too, otherwise if logical slots
         are known and active create them on replica nodes.
 
-        :param cluster: object containing stateful information for the cluster
-        :param nofailover: ``True`` if this node has been tagged to not failover
-        :param replicatefrom: the tag containing the node to replicate from
-        :param paused: ``True`` if the cluster is configured as paused
+        :param cluster: object containing stateful information for the cluster.
+        :param nofailover: ``True`` if this node has been tagged to not failover.
+        :param replicatefrom: the tag containing the node to replicate from.
+        :param paused: ``True`` if the cluster is in maintenance mode.
 
-        :returns: list of logical replication slots names that should be copied from the primary
+        :returns: list of logical replication slots names that should be copied from the primary.
         """
         ret = []
         if self._postgresql.major_version >= 90400 and cluster.config:
