@@ -595,7 +595,8 @@ class Cluster(NamedTuple):
         :param nofailover: ``True`` if this node is tagged to not fail over.
         :param major_version: postgresql major version.
         :param show_error: if ``True`` report error if any disabled logical slots are found.
-        :returns:
+
+        :returns: final dictionary of slot names, after merging with permanent slots and performing sanity checks.
         """
         slot_members: list[str] = self._get_slot_members(my_name, role)
 
@@ -623,12 +624,12 @@ class Cluster(NamedTuple):
     def _merge_permanent_slots(self,
                                slots: Dict[str, Dict[str, str]],
                                my_name: str, role: str, nofailover: bool, major_version: int) -> List[str]:
-        """Merge replication slots for members with permanent_replication_slots.
+        """Merge replication *slots* for members with ``permanent_replication_slots``.
 
         Perform validation of configured permanent slot name, skipping invalid names.
 
-        Will update *slots* in-line based on ``type`` of slot, physical or logical, and *role* of node.
-        Type is assumed to be physical if there are no attributes stored as the slot value.
+        Will update *slots* in-line based on ``type`` of slot, ``physical`` or ``logical``, and *role* of node.
+        Type is assumed to be ``physical`` if there are no attributes stored as the slot value.
 
         :param slots: Slot names with existing attributes if known.
         :param my_name: name of this node.
@@ -672,7 +673,18 @@ class Cluster(NamedTuple):
     def _get_permanent_slots(self, role: str, nofailover: bool) -> Dict[str, Any]:
         """Get configured permanent slot names.
 
-        :param role: role of this node, if this is a ``primary`` or ``standby_leader`` returns physical slots
+        .. note::
+            Permanent logical replication slots are only considered if ``use_slots`` configuration is enabled. Also,
+            only considered if *role* is ``primary`` or if it is a promotable ``replica`` -- what excludes a
+            ``standby_leader`` or ``replica`` with ``nofailover`` tag enabled. That combination is used for failing
+            over logical replication slots, and the latter nodes are not eligible for such task.
+
+            Permanent physical slots are only considered if *role* is ``primary`` or ``standby_leader``, independently
+            if ``use_slots`` is enabled or not. That is done that way because even if Patroni itself is not using slots
+            to replicate among its members when ``use_slots`` is disabled, the user may still have configured Patroni to
+            keep permanent physical slots used out of Patroni.
+
+        :param role: role of this node -- ``primary``, ``standby_leader`` or ``replica``.
                      or logical slots being consumed.
         :param nofailover: ``True`` if this node is tagged to not fail over.
 
@@ -687,19 +699,19 @@ class Cluster(NamedTuple):
         return permanent_slots
 
     def _get_slot_members(self, my_name: str, role: str) -> List[str]:
-        """Get a list of member nodes that have replication slots sourcing from this node.
+        """Get a list of member names that have replication slots sourcing from this node.
 
         If the ``replicatefrom`` tag is set on the member - we should not create the replication slot for it on
         the current primary, because that member would replicate from elsewhere. We still create the slot if
         the ``replicatefrom`` destination member is currently not a member of the cluster (fallback to the
         primary), or if ``replicatefrom`` destination member happens to be the current primary.
 
-        :param my_name: name of this node,
+        :param my_name: name of this node.
         :param role: role of this node, if this is a ``primary`` or ``standby_leader`` return list of members
                      replicating from this node. If not then return a list of members replicating as cascaded
                      replicas.
 
-        :returns: list of member names,
+        :returns: list of member names.
         """
         use_slots = self.use_slots
         if role in ('master', 'primary', 'standby_leader'):
