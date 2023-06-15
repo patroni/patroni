@@ -1,6 +1,5 @@
 """Abstract classes for Distributed Configuration Store."""
 import abc
-import dateutil.parser
 import datetime
 import importlib
 import inspect
@@ -11,16 +10,20 @@ import pkgutil
 import re
 import sys
 import time
-
 from collections import defaultdict
 from copy import deepcopy
 from random import randint
 from threading import Event, Lock
-from typing import Any, Callable, Collection, Dict, List, NamedTuple, Optional, Set, Tuple, Union, TYPE_CHECKING
+from types import ModuleType
+from typing import Any, Callable, Collection, Dict, List, NamedTuple, Optional, Set, Tuple, Union, TYPE_CHECKING, \
+    Generator, Type
 from urllib.parse import urlparse, urlunparse, parse_qsl
+
+import dateutil.parser
 
 from ..exceptions import PatroniFatalException
 from ..utils import deep_compare, uri
+
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
 
@@ -41,7 +44,7 @@ def slot_name_from_member_name(member_name: str) -> str:
 
     :param member_name: The string to convert to a slot name.
 
-    :return: The string converted using the rules described above.
+    :returns: The string converted using the rules described above.
     """
 
     def replace_char(match: Any) -> str:
@@ -123,7 +126,7 @@ def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
     :param config: object or dictionary with Patroni configuration. This is normally a representation of the main
                    Patroni
 
-    :return: The first successfully loaded DCS module which is an implementation of :class:`AbstractDCS`.
+    :returns: The first successfully loaded DCS module which is an implementation of :class:`AbstractDCS`.
     """
     modules = dcs_modules()
 
@@ -203,7 +206,7 @@ class Member(NamedTuple):
         :param value: dictionary containing arbitrary data i.e. ``conn_url``, ``api_url``, ``xlog_location``, ``state``,
                       ``role``, ``tags``, etc...
 
-        :return:
+        :returns:
         """
         if value.startswith('postgres'):
             conn_url, api_url = parse_connection_string(value)
@@ -385,7 +388,7 @@ class Leader(NamedTuple):
 
         :param auth: an optional dictionary containing authentication information.
 
-        :return: the result of the called :meth:`Member.conn_kwargs` method.
+        :returns: the result of the called :meth:`Member.conn_kwargs` method.
         """
         return self.member.conn_kwargs(auth)
 
@@ -412,7 +415,7 @@ class Leader(NamedTuple):
 
             >>> Leader(1, '', Member.from_node(1, '', '', '{"version":"z"}')).checkpoint_after_promote
 
-        :return: ``True`` if the role is ``master`` or ``primary`` and ``checkpoint_after_promote`` is not set,
+        :returns: ``True`` if the role is ``master`` or ``primary`` and ``checkpoint_after_promote`` is not set,
                  ``False`` if not a ``master`` or ``primary`` or if the checkpoint has already been made.
                  If the version of Patroni is older than 1.5.6, return ``None``.
         """
@@ -467,7 +470,7 @@ class Failover(NamedTuple):
                       Can also be a colon ``:`` delimited list of leader, followed by candidate names.
                       If ``scheduled_at`` key is defined the value will be parsed by :func:`dateutil.parser.parse`.
 
-        :return: constructed :class:`Failover` information object
+        :returns: constructed :class:`Failover` information object
         """
         if isinstance(value, dict):
             data: Dict[str, Any] = value
@@ -581,7 +584,7 @@ class SyncState(NamedTuple):
         :param version: optional *version* number for the object.
         :param value: (optionally JSON serialised) sychronisation state information
 
-        :return: constructed :class:`SyncState` object.
+        :returns: constructed :class:`SyncState` object.
         """
         try:
             if value and isinstance(value, str):
@@ -597,7 +600,7 @@ class SyncState(NamedTuple):
 
         :param version: optional *version* number.
 
-        :return: empty synchronisation state object.
+        :returns: empty synchronisation state object.
         """
         return SyncState(version, None, None)
 
@@ -693,7 +696,7 @@ class TimelineHistory(NamedTuple):
         :param version: *version* number
         :param value: JSON serialized string.
 
-        :return: composed timeline history object using parsed lines.
+        :returns: composed timeline history object using parsed lines.
         """
         try:
             lines = json.loads(value)
@@ -760,7 +763,7 @@ class Cluster(NamedTuple):
     def is_unlocked(self) -> bool:
         """Check if the cluster does not have the leader lock.
 
-        :return: ``True`` if a leader name is defined.
+        :returns: ``True`` if a leader name is defined.
         """
         return not self.leader_name
 
@@ -769,7 +772,7 @@ class Cluster(NamedTuple):
 
         :param member_name: name to look up in the :attr:`~Cluster.members`.
 
-        :return: ``True`` if the member name is found.
+        :returns: ``True`` if the member name is found.
         """
         return any(m for m in self.members if m.name == member_name)
 
@@ -779,7 +782,7 @@ class Cluster(NamedTuple):
         :param member_name: name of the member to retrieve.
         :param fallback_to_leader: if ``True`` return the :class:`Leader` instead if the member cannot be found.
 
-        :return: the :class:`Member` if found or :class:`Leader` object.
+        :returns: the :class:`Member` if found or :class:`Leader` object.
         """
         return next((m for m in self.members if m.name == member_name),
                     self.leader if fallback_to_leader else None)
@@ -789,7 +792,7 @@ class Cluster(NamedTuple):
 
         :param exclude_name: name of a member name to exclude.
 
-        :return: a randomly selected candidate member from available running members that are configured to as viable
+        :returns: a randomly selected candidate member from available running members that are configured to as viable
                  sources for cloning (has tag ``clonefrom`` in configuration). If no member is appropriate the current
                  leader is used.
         """
@@ -970,7 +973,7 @@ class Cluster(NamedTuple):
         :param nofailover: whether this node can be considered a fail-over candidated.
         :param major_version: the PostgreSQL major version number.
 
-        :return: ``False`` if PostgreSQL is < 11, ``True`` if any detected replications slots are ``logical``.
+        :returns: ``False`` if PostgreSQL is < 11, ``True`` if any detected replications slots are ``logical``.
         """
         if major_version < 110000:
             return False
@@ -987,7 +990,7 @@ class Cluster(NamedTuple):
         :param nofailover: if this node should be considered a fail-over candidate.
         :param major_version: PostgreSQL major version number.
 
-        :return: ``True`` if this node or any member replicating from this node has permanent logical slots.
+        :returns: ``True`` if this node or any member replicating from this node has permanent logical slots.
                  ``False`` if PostgreSQL major version is < 11.
         """
         if major_version < 110000:
@@ -1016,7 +1019,7 @@ class Cluster(NamedTuple):
         :returns: The slot name that is in use for physical replication on this no`de.
         """
         m = self.get_member(replicatefrom, False) if replicatefrom else None
-        return self.get_my_slot_name_on_primary(m.name, m.replicatefrom)\
+        return self.get_my_slot_name_on_primary(m.name, m.replicatefrom) \
             if isinstance(m, Member) else slot_name_from_member_name(my_name)
 
     @property
@@ -1070,8 +1073,9 @@ def catch_return_false_exception(func: Callable[..., Any]) -> Any:
 
     :param func: function to be wrapped.
 
-    :return: wrapped function.
+    :returns: wrapped function.
     """
+
     def wrapper(*args: Any, **kwargs: Any):
         try:
             return func(*args, **kwargs)
@@ -1122,7 +1126,7 @@ class AbstractDCS(abc.ABC):
 
         :param path: Additional string path to append, leftmost ``/`` will be removed.
 
-        :return: ``/`` delimited path joined to a single string.
+        :returns: ``/`` delimited path joined to a single string.
         """
         components = [self._base_path]
         if self._citus_group:
@@ -1270,7 +1274,7 @@ class AbstractDCS(abc.ABC):
 
         :param path: optional client path in DCS backend to load from.
 
-        :return: a loaded :class:`Cluster` instance.
+        :returns: a loaded :class:`Cluster` instance.
         """
         if path is None:
             path = self.client_path('')
@@ -1289,7 +1293,7 @@ class AbstractDCS(abc.ABC):
     def get_citus_coordinator(self) -> Optional[Cluster]:
         """Load the cluster for the Citus Coordinator node.
 
-        :return: Select :class:`Cluster` instance associated with the Citus Coordinator group ID.
+        :returns: Select :class:`Cluster` instance associated with the Citus Coordinator group ID.
         """
         try:
             return self.__get_patroni_cluster(f'{self._base_path}/{CITUS_COORDINATOR_GROUP_ID}/')
@@ -1320,7 +1324,7 @@ class AbstractDCS(abc.ABC):
 
         :param force: a value of ``True`` will override Zookeeper caching features.
 
-        :return:
+        :returns:
         """
         if force:
             self._bypass_caches()
@@ -1408,7 +1412,7 @@ class AbstractDCS(abc.ABC):
 
         :param value: dictionary value to set.
         """
-        if not (isinstance(self._last_failsafe, dict) and deep_compare(self._last_failsafe, value))\
+        if not (isinstance(self._last_failsafe, dict) and deep_compare(self._last_failsafe, value)) \
                 and self._write_failsafe(json.dumps(value, separators=(',', ':'))):
             self._last_failsafe = value
 
