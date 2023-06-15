@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 def slot_name_from_member_name(member_name: str) -> str:
     """Translate member name to valid PostgreSQL slot name.
 
-    PostgreSQL replication slot names must be valid PostgreSQL names. This function maps the wider space of
-    member names to valid PostgreSQL names. Names are lowercased, dashes and periods common in hostnames
+    PostgreSQL's replication slot names must be valid PostgreSQL names. This function maps the wider space of
+    member names to valid PostgreSQL names. Names are lowercase, dashes and periods common in hostnames
     are replaced with underscores, other characters are encoded as their unicode codepoint. Name is truncated
     to 64 characters. Multiple different member names may map to a single slot name."""
 
@@ -583,24 +583,24 @@ class Cluster(NamedTuple):
 
     def get_replication_slots(self, my_name: str, role: str, nofailover: bool,
                               major_version: int, show_error: bool = False) -> Dict[str, Dict[str, Any]]:
-        # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
-        # the current primary, because that member would replicate from elsewhere. We still create the slot if
-        # the replicatefrom destination member is currently not a member of the cluster (fallback to the
-        # primary), or if replicatefrom destination member happens to be the current primary
-        use_slots = self.use_slots
-        if role in ('master', 'primary', 'standby_leader'):
-            slot_members = [m.name for m in self.members if use_slots and m.name != my_name
-                            and (m.replicatefrom is None or m.replicatefrom == my_name
-                                 or not self.has_member(m.replicatefrom))]
-            permanent_slots = self.__permanent_slots if use_slots and \
-                role in ('master', 'primary') else self.__permanent_physical_slots
-        else:
-            # only manage slots for replicas that replicate from this one, except for the leader among them
-            slot_members = [m.name for m in self.members if use_slots
-                            and m.replicatefrom == my_name and m.name != self.leader_name]
-            permanent_slots = self.__permanent_logical_slots if use_slots and not nofailover else {}
+        """Lookup configured slot names in the DCS, report issues found and merge with permanent slots.
 
-        slots = {slot_name_from_member_name(name): {'type': 'physical'} for name in slot_members}
+        Will log an error if:
+
+            * Conflicting slot names between members are found
+            * Any logical slots are disabled, due to version compatibility, and *show_error* is ``True``.
+
+        :param my_name: name of this node.
+        :param role: role of this node.
+        :param nofailover: ``True`` if this node is tagged to not fail over.
+        :param major_version: postgresql major version.
+        :param show_error: if ``True`` report error if any disabled logical slots are found.
+        :returns:
+        """
+        slot_members: list[str] = self._get_slot_members(my_name, role)
+
+        slots: Dict[str, Dict[str, str]] = {slot_name_from_member_name(name): {'type': 'physical'}
+                                            for name in slot_members}
 
         if len(slots) < len(slot_members):
             # Find which names are conflicting for a nicer error message
@@ -611,8 +611,35 @@ class Cluster(NamedTuple):
                          "; ".join("{} map to {}".format(", ".join(v), k)
                                    for k, v in slot_conflicts.items() if len(v) > 1))
 
-        # "merge" replication slots for members with permanent_replication_slots
+        disabled_permanent_logical_slots: list[str] = self._merge_permanent_slots(
+            slots, my_name, role, nofailover, major_version)
+
+        if disabled_permanent_logical_slots and show_error:
+            logger.error("Permanent logical replication slots supported by Patroni only starting from PostgreSQL 11. "
+                         "Following slots will not be created: %s.", disabled_permanent_logical_slots)
+
+        return slots
+
+    def _merge_permanent_slots(self,
+                               slots: Dict[str, Dict[str, str]],
+                               my_name: str, role: str, nofailover: bool, major_version: int) -> List[str]:
+        """Merge replication slots for members with permanent_replication_slots.
+
+        Perform validation of configured permanent slot name, skipping invalid names.
+
+        Will update *slots* in-line based on ``type`` of slot, physical or logical, and *role* of node.
+        Type is assumed to be physical if there are no attributes stored as the slot value.
+
+        :param slots: Slot names with existing attributes if known.
+        :param my_name: name of this node.
+        :param role: role of this node.
+        :param nofailover: ``True`` if this node is tagged to not fail over.
+        :param major_version: postgresql major version.
+
+        :returns: List of disabled permanent, logical slot names, if postgresql version < 11.
+        """
         disabled_permanent_logical_slots: List[str] = []
+        permanent_slots = self._get_permanent_slots(role, nofailover)
         for name, value in permanent_slots.items():
             if not slot_name_re.match(name):
                 logger.error("Invalid permanent replication slot name '%s'", name)
@@ -640,12 +667,50 @@ class Cluster(NamedTuple):
                     continue
 
             logger.error("Bad value for slot '%s' in permanent_slots: %s", name, permanent_slots[name])
+        return disabled_permanent_logical_slots
 
-        if disabled_permanent_logical_slots and show_error:
-            logger.error("Permanent logical replication slots supported by Patroni only starting from PostgreSQL 11. "
-                         "Following slots will not be created: %s.", disabled_permanent_logical_slots)
+    def _get_permanent_slots(self, role: str, nofailover: bool) -> Dict[str, Any]:
+        """Get configured permanent slot names.
 
-        return slots
+        :param role: role of this node, if this is a ``primary`` or ``standby_leader`` returns physical slots
+                     or logical slots being consumed.
+        :param nofailover: ``True`` if this node is tagged to not fail over.
+
+        :returns: dictionary of permanent slot names mapped to attributes.
+        """
+        use_slots = self.use_slots
+        if role in ('master', 'primary', 'standby_leader'):
+            permanent_slots = (self.__permanent_slots
+                               if use_slots and role in ('master', 'primary') else self.__permanent_physical_slots)
+        else:
+            permanent_slots = self.__permanent_logical_slots if use_slots and not nofailover else {}
+        return permanent_slots
+
+    def _get_slot_members(self, my_name: str, role: str) -> List[str]:
+        """Get a list of member nodes that have replication slots sourcing from this node.
+
+        If the ``replicatefrom`` tag is set on the member - we should not create the replication slot for it on
+        the current primary, because that member would replicate from elsewhere. We still create the slot if
+        the ``replicatefrom`` destination member is currently not a member of the cluster (fallback to the
+        primary), or if ``replicatefrom`` destination member happens to be the current primary.
+
+        :param my_name: name of this node,
+        :param role: role of this node, if this is a ``primary`` or ``standby_leader`` return list of members
+                     replicating from this node. If not then return a list of members replicating as cascaded
+                     replicas.
+
+        :returns: list of member names,
+        """
+        use_slots = self.use_slots
+        if role in ('master', 'primary', 'standby_leader'):
+            slot_members = [m.name for m in self.members if use_slots and m.name != my_name
+                            and (m.replicatefrom is None or m.replicatefrom == my_name
+                                 or not self.has_member(m.replicatefrom))]
+        else:
+            # only manage slots for replicas that replicate from this one, except for the leader among them
+            slot_members = [m.name for m in self.members if use_slots
+                            and m.replicatefrom == my_name and m.name != self.leader_name]
+        return slot_members
 
     def has_permanent_logical_slots(self, my_name: str, nofailover: bool, major_version: int = 110000) -> bool:
         if major_version < 110000:
