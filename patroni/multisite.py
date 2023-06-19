@@ -232,6 +232,10 @@ class MultisiteController(Thread, AbstractSiteController):
                 else:
                     logger.info(f"Multisite has leader and it is {lock_owner}")
                     self._release = False
+                    # Failover successful or someone else took over
+                    if self._failover_target is not None:
+                        self._failover_target = None
+                        self._failover_timeout = None
                     if self._set_standby_config(cluster.leader.member):
                         # Wake up anyway to notice that we need to replicate from new leader
                         if not self._has_leader:
