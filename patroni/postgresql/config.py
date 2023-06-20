@@ -113,7 +113,7 @@ def parse_dsn(value: str) -> Optional[Dict[str, str]]:
     and sets the `sslmode`, 'gssencmode', and `channel_binding` to `prefer` if it is not present in
     the connection string. This is necessary to simplify comparison of the old and the new values.
 
-    >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,%2Fhost2/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
+    >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,[::1]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
     >>> r == {'application_name': 'mya/pp', 'host': ',/host2', 'sslmode': 'require',\
               'password': 'pass', 'port': '/123', 'user': 'u/se', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
     True
