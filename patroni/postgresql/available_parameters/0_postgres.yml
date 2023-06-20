@@ -279,6 +279,9 @@ parameters:
     version_from: 90300
     min_val: 0
     max_val: 1.79769e+308
+  createrole_self_grant:
+  - type: String
+    version_from: 160000
   cursor_tuple_fraction:
   - type: Real
     version_from: 90300
@@ -307,6 +310,14 @@ parameters:
     version_from: 150000
     min_val: 0
     max_val: 0
+  debug_io_direct:
+  - type: String
+    version_from: 160000
+  debug_parallel_query:
+  - type: EnumBool
+    version_from: 160000
+    possible_values:
+    - regress
   debug_pretty_print:
   - type: Bool
     version_from: 90300
@@ -437,6 +448,9 @@ parameters:
   enable_partitionwise_join:
   - type: Bool
     version_from: 110000
+  enable_presorted_aggregate:
+  - type: Bool
+    version_from: 160000
   enable_seqscan:
   - type: Bool
     version_from: 90300
@@ -469,6 +483,7 @@ parameters:
   force_parallel_mode:
   - type: EnumBool
     version_from: 90600
+    version_till: 160000
     possible_values:
     - regress
   from_collapse_limit:
@@ -526,6 +541,9 @@ parameters:
     min_val: 64
     max_val: 2147483647
     unit: kB
+  gss_accept_delegation:
+  - type: Bool
+    version_from: 160000
   hash_mem_multiplier:
   - type: Real
     version_from: 130000
@@ -551,6 +569,20 @@ parameters:
     min_val: 0
     max_val: 2147483647
     unit: kB
+  icu_validation_level:
+  - type: Enum
+    version_from: 160000
+    possible_values:
+    - disabled
+    - debug5
+    - debug4
+    - debug3
+    - debug2
+    - debug1
+    - log
+    - notice
+    - warning
+    - error
   ident_file:
   - type: String
     version_from: 90300
@@ -840,6 +872,12 @@ parameters:
   log_truncate_on_rotation:
   - type: Bool
     version_from: 90300
+  logical_replication_mode:
+  - type: Enum
+    version_from: 160000
+    possible_values:
+    - buffered
+    - immediate
   maintenance_io_concurrency:
   - type: Integer
     version_from: 130000
@@ -881,6 +919,11 @@ parameters:
     version_from: 100000
     min_val: 0
     max_val: 262143
+  max_parallel_apply_workers_per_subscription:
+  - type: Integer
+    version_from: 160000
+    min_val: 0
+    max_val: 1024
   max_parallel_maintenance_workers:
   - type: Integer
     version_from: 110000
@@ -1118,15 +1161,31 @@ parameters:
     version_till: 110000
     min_val: 0
     max_val: 2147483647
+  reserved_connections:
+  - type: Integer
+    version_from: 160000
+    min_val: 0
+    max_val: 262143
   restart_after_crash:
   - type: Bool
     version_from: 90300
   row_security:
   - type: Bool
     version_from: 90500
+  scram_iterations:
+  - type: Integer
+    version_from: 160000
+    min_val: 1
+    max_val: 2147483647
   search_path:
   - type: String
     version_from: 90300
+  send_abort_for_crash:
+  - type: Bool
+    version_from: 160000
+  send_abort_for_kill:
+  - type: Bool
+    version_from: 160000
   seq_page_cost:
   - type: Real
     version_from: 90300
@@ -1424,6 +1483,12 @@ parameters:
   update_process_title:
   - type: Bool
     version_from: 90300
+  vacuum_buffer_usage_limit:
+  - type: Integer
+    version_from: 160000
+    min_val: 0
+    max_val: 16777216
+    unit: kB
   vacuum_cleanup_index_scale_factor:
   - type: Real
     version_from: 110000
@@ -1465,6 +1530,7 @@ parameters:
   vacuum_defer_cleanup_age:
   - type: Integer
     version_from: 90300
+    version_till: 160000
     min_val: 0
     max_val: 1000000
   vacuum_failsafe_age:
@@ -1656,6 +1722,7 @@ recovery_parameters:
   promote_trigger_file:
   - type: String
     version_from: 120000
+    version_till: 160000
   recovery_end_command:
   - type: String
     version_from: 90300
