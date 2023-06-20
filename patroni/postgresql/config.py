@@ -37,15 +37,18 @@ def conninfo_uri_parse(dsn: str) -> Dict[str, str]:
     hosts: List[str] = []
     ports: List[str] = []
     for netloc in r.netloc.split('@')[-1].split(','):
-        host = None
+        # Handle IPv6
         if '[' in netloc and ']' in netloc:
-            host = netloc.split(']')[0][1:]
-        tmp = netloc.split(':', 1)
-        if host is None:
-            host = tmp[0]
-        hosts.append(host)
-        if len(tmp) == 2:
-            ports.append(tmp[1])
+            tmp = netloc.split(']')
+            hosts.append(tmp[0][1:])  # discard leading ``[``
+            if ':' in tmp[1]:
+                ports.append(tmp[1].split(':', 1)[1])
+        # Handle IPv4 or DNS name
+        else:
+            tmp = netloc.split(':', 1)
+            hosts.append(tmp[0])
+            if len(tmp) == 2:
+                ports.append(tmp[1])
     if hosts:
         ret['host'] = ','.join(hosts)
     if ports:
@@ -114,7 +117,7 @@ def parse_dsn(value: str) -> Optional[Dict[str, str]]:
     the connection string. This is necessary to simplify comparison of the old and the new values.
 
     >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,[::1]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
-    >>> r == {'application_name': 'mya/pp', 'host': ',/host2', 'sslmode': 'require',\
+    >>> r == {'application_name': 'mya/pp', 'host': ',::1', 'sslmode': 'require',\
               'password': 'pass', 'port': '/123', 'user': 'u/se', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
     True
     >>> r = parse_dsn(" host = 'host' dbname = db\\\\ name requiressl=1 ")
