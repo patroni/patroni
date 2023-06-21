@@ -75,7 +75,7 @@ class K8sConfig(object):
         pass
 
     def __init__(self) -> None:
-        self.pool_config: Dict[str, Union[str, int]] = {'maxsize': 10, 'num_pools': 10}  # urllib3.PoolManager config
+        self.pool_config: Dict[str, Any] = {'maxsize': 10, 'num_pools': 10}  # urllib3.PoolManager config
         self._token_expires_at = datetime.datetime.max
         self._headers: Dict[str, str] = {}
         self._make_headers()
@@ -277,12 +277,13 @@ class K8sClient(object):
 
         def _get_api_servers(self, api_servers_cache: List[str]) -> List[str]:
             _, per_node_timeout, per_node_retries = self._calculate_timeouts(len(api_servers_cache))
-            kwargs = {'headers': self._make_headers({}), 'preload_content': True, 'retries': per_node_retries,
+            headers = self._make_headers({})
+            kwargs = {'preload_content': True, 'retries': per_node_retries,
                       'timeout': urllib3.Timeout(connect=max(1.0, per_node_timeout / 2.0), total=per_node_timeout)}
             path = self._API_URL_PREFIX + 'default/endpoints/kubernetes'
             for base_uri in api_servers_cache:
                 try:
-                    response = self.pool_manager.request('GET', base_uri + path, **kwargs)
+                    response = self.pool_manager.request('GET', base_uri + path, headers=headers, **kwargs)
                     endpoint = self._handle_server_response(response, True)
                     if TYPE_CHECKING:  # pragma: no cover
                         assert isinstance(endpoint, K8sObject)
