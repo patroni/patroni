@@ -1,11 +1,12 @@
 #!/bin/bash
 
 # Release process:
-# 1. Open a PR that updates release notes and Patroni version
-# 2. Merge it
-# 3. Run release.sh
-# 4. After the new tag is pushed, the .github/workflows/release.yaml will run tests and upload the new package to test.pypi.org
-# 5. Once the release is created, the .github/workflows/release.yaml will run tests and upload the new package to pypi.org
+# 1. Open a PR that updates release notes, Patroni version and pyright version in the tests workflow.
+# 2. Resolve possible typing issues.
+# 3. Merge the PR.
+# 4. Run release.sh
+# 5. After the new tag is pushed, the .github/workflows/release.yaml will run tests and upload the new package to test.pypi.org
+# 6. Once the release is created, the .github/workflows/release.yaml will run tests and upload the new package to pypi.org
 
 ## Bail out on any non-zero exitcode from the called processes
 set -xe

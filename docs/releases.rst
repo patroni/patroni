@@ -39,7 +39,7 @@ Version 3.0.3
 
   -  Make ``bootstrap.initdb`` optional. It is only required for new clusters, but ``patroni --validate-config`` was complaining if it was missing in the config.
   -  Don't error out when ``postgresql.bin_dir`` is empty or not set. Try to first find Postgres binaries in the default PATH instead.
-  -  Make ``postgresql.authentication.rewind`` secion optional. If it is missing Patroni is using the superuser.
+  -  Make ``postgresql.authentication.rewind`` section optional. If it is missing, Patroni is using the superuser.
 
 - Improved error reporting in ``patronictl`` (Israel)
 
