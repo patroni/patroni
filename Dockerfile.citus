@@ -25,7 +25,7 @@ RUN set -ex \
             | grep -Ev '^python3-(sphinx|etcd|consul|kazoo|kubernetes)' \
             | xargs apt-get install -y vim curl less jq locales haproxy sudo \
                             python3-etcd python3-kazoo python3-pip busybox \
-                            net-tools iputils-ping --fix-missing \
+                            net-tools iputils-ping lsb-release --fix-missing \
     && if [ $(dpkg --print-architecture) = 'arm64' ]; then \
         apt-get install -y postgresql-server-dev-$PG_MAJOR \
                            git gcc make autoconf \
