@@ -39,13 +39,14 @@ def conninfo_uri_parse(dsn: str) -> Dict[str, str]:
     for netloc in r.netloc.split('@')[-1].split(','):
         host = None
         if '[' in netloc and ']' in netloc:
-            host = netloc.split(']')[0][1:]
-        tmp = netloc.split(':', 1)
+            tmp = netloc.split(']') + ['']
+            host = tmp[0][1:]
+            netloc = ':'.join(tmp[:2])
+        tmp = netloc.rsplit(':', 1)
         if host is None:
             host = tmp[0]
         hosts.append(host)
-        if len(tmp) == 2:
-            ports.append(tmp[1])
+        ports.append(tmp[1] if len(tmp) == 2 else '')
     if hosts:
         ret['host'] = ','.join(hosts)
     if ports:
@@ -113,9 +114,9 @@ def parse_dsn(value: str) -> Optional[Dict[str, str]]:
     and sets the `sslmode`, 'gssencmode', and `channel_binding` to `prefer` if it is not present in
     the connection string. This is necessary to simplify comparison of the old and the new values.
 
-    >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,[%2Fhost2]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
-    >>> r == {'application_name': 'mya/pp', 'host': ',/host2', 'sslmode': 'require',\
-              'password': 'pass', 'port': '/123', 'user': 'u/se', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
+    >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,[::1]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
+    >>> r == {'application_name': 'mya/pp', 'host': ',::1', 'sslmode': 'require',\
+              'password': 'pass', 'port': '/123,', 'user': 'u/se', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
     True
     >>> r = parse_dsn(" host = 'host' dbname = db\\\\ name requiressl=1 ")
     >>> r == {'host': 'host', 'sslmode': 'require', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
