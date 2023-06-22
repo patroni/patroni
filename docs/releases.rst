@@ -52,6 +52,10 @@ Version 3.0.3
 
   If the REST API call from the promoted worker to the coordinator failed during switchover it was leaving the given Citus group blocked during indefinite time.
 
+- Allow `etcd3` URL in `--dcs-url` option of `patronictl` (Israel)
+
+  If users attempted to pass a `etcd3` URL through `--dcs-url` option of `patronictl` they would face an exception.
+
 
 Version 3.0.2
 -------------
