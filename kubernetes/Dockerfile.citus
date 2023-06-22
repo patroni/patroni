@@ -7,7 +7,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get upgrade -y \
     && apt-cache depends patroni | sed -n -e 's/.* Depends: \(python3-.\+\)$/\1/p' \
             | grep -Ev '^python3-(sphinx|etcd|consul|kazoo|kubernetes)' \
-            | xargs apt-get install -y busybox vim-tiny curl jq less locales git python3-pip python3-wheel \
+            | xargs apt-get install -y busybox vim-tiny curl jq less locales git python3-pip python3-wheel lsb-release \
     ## Make sure we have a en_US.UTF-8 locale available
     && localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8 \
     && echo "deb [signed-by=/etc/apt/trusted.gpg.d/citusdata_community.gpg] https://packagecloud.io/citusdata/community/debian/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/citusdata_community.list \

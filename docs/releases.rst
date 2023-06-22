@@ -3,6 +3,60 @@
 Release notes
 =============
 
+Version 3.0.3
+-------------
+
+**New features**
+
+- Compatibility with PostgreSQL 16 beta1 (Alexander Kukushkin)
+
+  Extended GUC's validator rules.
+
+- Make PostgreSQL GUC's validator extensible (Israel Barth Rubio)
+
+  Validator rules are loaded from YAML files located in ``patroni/postgresql/available_parameters/`` directory. Files are ordered in alphabetical order and applied one after another. It makes possible to have custom validators for non-standard Postgres distributions.
+
+- Added ``restapi.request_queue_size`` option (Andrey Zhidenkov)
+
+  Sets request queue size for TCP socket used by Patroni REST API. Once the queue is full, further requests get a "Connection denied" error. The default value is 5.
+
+- Call ``initdb`` directly when initializing a new cluster (Matt Baker)
+
+  Previously it was called via ``pg_ctl``, what required a special quoting of parameters passed to ``initdb``.
+
+- Added before stop hook (Le Duane)
+
+  The hook could be configured via ``postgresql.before_stop`` and is executed right before ``pg_ctl stop``. The exit code doesn't impact shutdown process.
+
+- Added support for custom Postgres binary names (Israel Barth Rubio, Polina Bungina)
+
+  When using a custom Postgres distribution it may be the case that the Postgres binaries are compiled with different names other than the ones used by the community Postgres distribution. Custom binary names could be configured using ``postgresql.bin_name.*`` and ``PATRONI_POSTGRESQL_BIN_*`` environment variables.
+
+
+**Improvements**
+
+- Various improvements of ``patroni --validate-config`` (Polina Bungina)
+
+  -  Make ``bootstrap.initdb`` optional. It is only required for new clusters, but ``patroni --validate-config`` was complaining if it was missing in the config.
+  -  Don't error out when ``postgresql.bin_dir`` is empty or not set. Try to first find Postgres binaries in the default PATH instead.
+  -  Make ``postgresql.authentication.rewind`` section optional. If it is missing, Patroni is using the superuser.
+
+- Improved error reporting in ``patronictl`` (Israel Barth Rubio)
+
+  The ``\n`` symbol was rendered as it is, instead of the actual newline symbol.
+
+
+**Bugfixes**
+
+- Fixed issue in Citus support (Alexander Kukushkin)
+
+  If the REST API call from the promoted worker to the coordinator failed during switchover it was leaving the given Citus group blocked during indefinite time.
+
+- Allow `etcd3` URL in `--dcs-url` option of `patronictl` (Israel Barth Rubio)
+
+  If users attempted to pass a `etcd3` URL through `--dcs-url` option of `patronictl` they would face an exception.
+
+
 Version 3.0.2
 -------------
 
