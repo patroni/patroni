@@ -1542,9 +1542,13 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             import ssl
             try:
                 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-                crts = ctx.load_verify_locations(self.__ssl_options['certfile'])
+                ctx.load_verify_locations(self.__ssl_options['certfile'])
+                crts = ctx.get_ca_certs()
                 if crts:
-                    return crts[0].get('serialNumber')
+                    serial_number = crts[0].get('serialNumber')
+                    if TYPE_CHECKING:  # pragma: no cover
+                        assert isinstance(serial_number, str)
+                    return serial_number
             except Exception as e:
                 logger.error('Failed to get serial number from certificate %s: %r', self.__ssl_options['certfile'], e)
 
