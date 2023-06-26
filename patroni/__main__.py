@@ -6,6 +6,7 @@ import time
 
 from argparse import Namespace
 from typing import Any, Dict, Optional, TYPE_CHECKING
+from .exceptions import ConfigParseError
 
 from patroni.daemon import AbstractPatroniDaemon, abstract_main, get_base_arg_parser
 
@@ -44,9 +45,19 @@ class Patroni(AbstractPatroniDaemon):
 
     def load_dynamic_configuration(self) -> None:
         from patroni.exceptions import DCSError
+
         while True:
             try:
                 cluster = self.dcs.get_cluster()
+                same_name = [member for member in cluster.members if member.name == self.config['name']]
+                if len(same_name) > 0 and any(member.state == 'running' for member in same_name):
+                    error_str = "Can't start {0}: there is already a node named {0} running".format(self.config['name'])
+                    logger.exception(error_str)
+                    raise ConfigParseError(value=error_str)
+                with open("smoking.txt", "a") as fout:
+                    like_me = [member for member in cluster.members if member.name == self.config['name']]
+                    if len(like_me) > 0:
+                        fout.write(f"{self.config['name']}, {str(like_me)}\n")
                 if cluster and cluster.config and cluster.config.data:
                     if self.config.set_dynamic_configuration(cluster.config):
                         self.dcs.reload_config(self.config)

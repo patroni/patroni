@@ -83,3 +83,16 @@ Feature: basic replication
     Then postgres0 role is the secondary after 20 seconds
     When I add the table buz to postgres1
     Then table buz is present on postgres0 after 20 seconds
+
+  Scenario: check graceful rejection when two nodes have the same name
+    Given I start postgres0
+    And I shut down postgres1
+    And I shut down postgres2
+    Then postgres0 is a leader after 10 seconds
+    When I start postgres1
+    Then postgres1 role is the secondary after 10 seconds
+    When I start duplicate postgres0 on port 8010
+    And I sleep for 3 seconds
+    Then there are 2 nodes after 10 seconds
+    And postgres1 role is the secondary after 10 seconds
+    And postgres0 is a leader after 10 seconds

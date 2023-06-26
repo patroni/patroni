@@ -45,7 +45,7 @@ class AbstractController(abc.ABC):
     def _start(self):
         """start process"""
 
-    def start(self, max_wait_limit=5):
+    def start(self, max_wait_limit=5, should_wait=True):
         if self._is_running():
             return True
 
@@ -53,6 +53,9 @@ class AbstractController(abc.ABC):
         self._handle = self._start()
 
         assert self._has_started(), "Process {0} is not running after being started".format(self._name)
+
+        if not should_wait:
+            return
 
         max_wait_limit *= self._context.timeout_multiplier
         for _ in range(max_wait_limit):
@@ -86,13 +89,14 @@ class AbstractController(abc.ABC):
 
 
 class PatroniController(AbstractController):
-    __PORT = 5360
+    __PG_PORT = 5360
+    __BASE_API_PORT = 8008
     PATRONI_CONFIG = '{}.yml'
     """ starts and stops individual patronis"""
 
     def __init__(self, context, name, work_directory, output_dir, custom_config=None):
         super(PatroniController, self).__init__(context, 'patroni_' + name, work_directory, output_dir)
-        PatroniController.__PORT += 1
+        PatroniController.__PG_PORT += 1
         self._data_dir = os.path.join(work_directory, 'data', name)
         self._connstring = None
         if custom_config and 'watchdog' in custom_config:
@@ -192,11 +196,21 @@ class PatroniController(AbstractController):
             config['raft'] = {'data_dir': self._output_dir, 'self_addr': 'localhost:' + os.environ['RAFT_PORT']}
 
         host = config['restapi']['listen'].rsplit(':', 1)[0]
-        config['restapi']['listen'] = config['restapi']['connect_address'] = '{}:{}'.format(host, 8008 + int(name[-1]))
+
+        if custom_config and 'port_offset' in custom_config:
+            port_offset = int(custom_config['port_offset'])
+        else:
+            port_offset = int(name[-1])
+        config['restapi']['listen'] = config['restapi']['connect_address'] = '{}:{}'.format(host, PatroniController.__BASE_API_PORT + port_offset)
 
         host = config['postgresql']['listen'].rsplit(':', 1)[0]
-        config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PORT)
+        config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PG_PORT)
 
+        if custom_config and 'name' in custom_config:
+            config['name'] = custom_config['name']
+        else:
+            config['name'] = name
+        
         config['name'] = name
         config['postgresql']['data_dir'] = self._data_dir.replace('\\', '/')
         config['postgresql']['basebackup'] = [{'checkpoint': 'fast'}]
@@ -262,17 +276,17 @@ class PatroniController(AbstractController):
             }
         })
         if config['postgresql'].get('callbacks', {}).get('on_role_change'):
-            config['postgresql']['callbacks']['on_role_change'] += ' ' + str(self.__PORT)
+            config['postgresql']['callbacks']['on_role_change'] += ' ' + str(self.__PG_PORT)
 
         with open(patroni_config_path, 'w') as f:
             yaml.safe_dump(config, f, default_flow_style=False)
 
         self._connkwargs = config['postgresql'].get('authentication', config['postgresql']).get('superuser', {})
-        self._connkwargs.update({'host': host, 'port': self.__PORT, 'dbname': 'postgres',
+        self._connkwargs.update({'host': host, 'port': self.__PG_PORT, 'dbname': 'postgres',
                                  'user': self._connkwargs.pop('username', None)})
 
         self._replication = config['postgresql'].get('authentication', config['postgresql']).get('replication', {})
-        self._replication.update({'host': host, 'port': self.__PORT, 'user': self._replication.pop('username', None)})
+        self._replication.update({'host': host, 'port': self.__PG_PORT, 'user': self._replication.pop('username', None)})
         self._restapi_url = 'http://{0}'.format(config['restapi']['connect_address'])
         if self._context.certfile:
             self._restapi_url = self._restapi_url.replace('http://', 'https://')
@@ -321,6 +335,9 @@ class PatroniController(AbstractController):
             return int(open(pidfile).readline().strip())
         except Exception:
             return None
+
+    def is_running(self):
+        return self._is_running()
 
     def patroni_hang(self, timeout):
         hang = ProcessHang(self._handle.pid, timeout)
@@ -819,11 +836,11 @@ class PatroniPoolController(object):
     def output_dir(self):
         return self._output_dir
 
-    def start(self, name, max_wait_limit=40, custom_config=None):
+    def start(self, name, max_wait_limit=40, custom_config=None, should_wait=True):
         if name not in self._processes:
             self._processes[name] = PatroniController(self._context, name, self.patroni_path,
                                                       self._output_dir, custom_config)
-        self._processes[name].start(max_wait_limit)
+        self._processes[name].start(max_wait_limit, should_wait=should_wait)
 
     def __getattr__(self, func):
         if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to',
@@ -831,6 +848,8 @@ class PatroniPoolController(object):
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
         def wrapper(name, *args, **kwargs):
+            if name not in self._processes:
+                return None
             return getattr(self._processes[name], func)(*args, **kwargs)
         return wrapper
 
@@ -839,6 +858,25 @@ class PatroniPoolController(object):
             ctl.cancel_background()
             ctl.stop()
         self._processes.clear()
+
+    def purge_dead_nodes(self):
+        to_purge = []
+        for name, ctl in self._processes.items():
+            if not ctl.is_running():
+                ctl.cancel_background()
+                ctl.stop()
+                to_purge.append(name)
+        for name in to_purge:
+            del self._processes[name]
+    
+    def check_node_count(self, desired_value, timeout=10):
+        bound_time = time.time() + timeout
+        while time.time() < bound_time:
+            self.purge_dead_nodes()
+            if len(self._processes) == desired_value:
+                return True
+            time.sleep(1)
+        return False
 
     def create_and_set_output_directory(self, feature_name):
         feature_dir = os.path.join(self.patroni_path, 'features', 'output', feature_name.replace(' ', '_'))

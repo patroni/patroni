@@ -8,6 +8,13 @@ from time import sleep, time
 def start_patroni(context, name):
     return context.pctl.start(name)
 
+@step('I start duplicate {name:w} on port {port:d}')
+def start_duplicate_patroni(context, name, port):
+    config = {
+        "name": name,
+        "port_offset": port - 8008
+    }
+    return context.pctl.start(name + "_dup", custom_config=config, should_wait=False)
 
 @step('I shut down {name:w}')
 def stop_patroni(context, name):
@@ -90,3 +97,8 @@ def replication_works(context, primary, replica, time_limit):
         When I add the table test_{0} to {1}
         Then table test_{0} is present on {2} after {3} seconds
     """.format(int(time()), primary, replica, time_limit))
+
+@then('there are {num_nodes:d} nodes after {time_limit:d} seconds')
+def check_node_count(context, num_nodes, time_limit):
+    assert context.pctl.check_node_count(num_nodes, time_limit),\
+        "There are not {0} nodes in the system after {1} seconds".format(num_nodes, time_limit)
