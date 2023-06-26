@@ -54,10 +54,6 @@ class Patroni(AbstractPatroniDaemon):
                     error_str = "Can't start {0}: there is already a node named {0} running".format(self.config['name'])
                     logger.exception(error_str)
                     raise ConfigParseError(value=error_str)
-                with open("smoking.txt", "a") as fout:
-                    like_me = [member for member in cluster.members if member.name == self.config['name']]
-                    if len(like_me) > 0:
-                        fout.write(f"{self.config['name']}, {str(like_me)}\n")
                 if cluster and cluster.config and cluster.config.data:
                     if self.config.set_dynamic_configuration(cluster.config):
                         self.dcs.reload_config(self.config)
