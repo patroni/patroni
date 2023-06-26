@@ -16,7 +16,7 @@ Version 3.0.3
 
   Validator rules are loaded from YAML files located in ``patroni/postgresql/available_parameters/`` directory. Files are ordered in alphabetical order and applied one after another. It makes possible to have custom validators for non-standard Postgres distributions.
 
-- Added ``restapi.request_queue_size`` option (Andrey Zhidenkov)
+- Added ``restapi.request_queue_size`` option (Andrey Zhidenkov, Aleksei Sukhov)
 
   Sets request queue size for TCP socket used by Patroni REST API. Once the queue is full, further requests get a "Connection denied" error. The default value is 5.
 
