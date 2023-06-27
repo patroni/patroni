@@ -9,6 +9,9 @@ from typing import Any, Dict, Optional, TYPE_CHECKING
 from .exceptions import ConfigParseError
 
 from patroni.daemon import AbstractPatroniDaemon, abstract_main, get_base_arg_parser
+from patroni.dcs import Member
+
+from urllib.request import urlopen
 
 if TYPE_CHECKING:  # pragma: no cover
     from .config import Config
@@ -39,6 +42,8 @@ class Patroni(AbstractPatroniDaemon):
         self.request = PatroniRequest(self.config, True)
         self.ha = Ha(self)
 
+        self.ensure_unique_name()
+
         self.tags = self.get_tags()
         self.next_run = time.time()
         self.scheduled_restart: Dict[str, Any] = {}
@@ -49,12 +54,6 @@ class Patroni(AbstractPatroniDaemon):
         while True:
             try:
                 cluster = self.dcs.get_cluster()
-                if cluster:
-                    same_name = [member for member in cluster.members if member.name == self.config['name']]
-                    if len(same_name) > 0 and any(member.state == 'running' for member in same_name):
-                        error_str = "Can't start {0}: there is already a node named {0} running".format(self.config['name'])
-                        logger.exception(error_str)
-                        raise ConfigParseError(value=error_str)
                 if cluster and cluster.config and cluster.config.data:
                     if self.config.set_dynamic_configuration(cluster.config):
                         self.dcs.reload_config(self.config)
@@ -67,6 +66,23 @@ class Patroni(AbstractPatroniDaemon):
             except DCSError:
                 logger.warning('Can not get cluster from dcs')
                 time.sleep(5)
+
+    def ensure_unique_name(self) -> None:
+        """A helper function to prevent splitbrain from operator error"""
+        cluster = self.dcs.get_cluster()
+        if not cluster:
+            return
+        member = cluster.get_member(self.config['name'], False)
+        if not member or type(member) != Member:
+            return
+        if member.state != 'running':# or member.api_url == member.conn_url:
+            return
+        resp = self.request(member, endpoint="/liveness")
+        if resp.status == 200:
+            self.shutdown()
+            error_str = "Can't start {0}: there is already a node named {0} running".format(self.config['name'])
+            logger.exception(error_str)
+            raise ConfigParseError(value=error_str) 
 
     def get_tags(self) -> Dict[str, Any]:
         return {tag: value for tag, value in self.config.get('tags', {}).items()
