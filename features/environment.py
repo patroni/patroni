@@ -859,31 +859,19 @@ class PatroniPoolController(object):
             ctl.stop()
         self._processes.clear()
 
-    def purge_dead_nodes(self):
-        to_purge = []
-        for name, ctl in self._processes.items():
-            if not ctl.is_running():
-                ctl.cancel_background()
-                ctl.stop()
-                to_purge.append(name)
-        for name in to_purge:
-            del self._processes[name]
-    
-    def check_node_count(self, desired_value, timeout=10):
-        bound_time = time.time() + timeout
-        while time.time() < bound_time:
-            self.purge_dead_nodes()
-            if len(self._processes) == desired_value:
-                return True
-            time.sleep(1)
-        return False
-
     def create_and_set_output_directory(self, feature_name):
         feature_dir = os.path.join(self.patroni_path, 'features', 'output', feature_name.replace(' ', '_'))
         if os.path.exists(feature_dir):
             shutil.rmtree(feature_dir)
         os.makedirs(feature_dir)
         self._output_dir = feature_dir
+    
+    def read_patroni_log(self, type: str, node: str) -> list[str]:
+        try:
+            with open(str(os.path.join(self._output_dir or '', "patroni_" + node + ".log"))) as f:
+                return [line for line in f.readlines() if line[24:24+len(type)] == type]
+        except IOError:
+            return []
 
     def clone(self, from_name, cluster_name, to_name):
         f = self._processes[from_name]

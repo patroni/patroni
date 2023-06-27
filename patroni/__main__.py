@@ -79,7 +79,6 @@ class Patroni(AbstractPatroniDaemon):
             return
         resp = self.request(member, endpoint="/liveness")
         if resp.status == 200:
-            self.shutdown()
             error_str = "Can't start {0}: there is already a node named {0} running".format(self.config['name'])
             logger.exception(error_str)
             raise ConfigParseError(value=error_str) 

@@ -98,7 +98,8 @@ def replication_works(context, primary, replica, time_limit):
         Then table test_{0} is present on {2} after {3} seconds
     """.format(int(time()), primary, replica, time_limit))
 
-@then('there are {num_nodes:d} nodes after {time_limit:d} seconds')
-def check_node_count(context, num_nodes, time_limit):
-    assert context.pctl.check_node_count(num_nodes, time_limit),\
-        "There are not {0} nodes in the system after {1} seconds".format(num_nodes, time_limit)
+@then('there is a "{message}" {type:w} in the {node:w} patroni log')
+def check_patroni_log(context, message, type, node):
+    messsages_of_type = context.pctl.read_patroni_log(type, node)
+    assert any(message in line for line in messsages_of_type),\
+        "There was no {0} {1} in the {2} patroni log".format(message, type, node)
