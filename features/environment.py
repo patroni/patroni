@@ -866,7 +866,7 @@ class PatroniPoolController(object):
         os.makedirs(feature_dir)
         self._output_dir = feature_dir
     
-    def read_patroni_log(self, type: str, node: str) -> list[str]:
+    def read_patroni_log(self, type: str, node: str) -> 'list[str]':
         try:
             with open(str(os.path.join(self._output_dir or '', "patroni_" + node + ".log"))) as f:
                 return [line for line in f.readlines() if line[24:24+len(type)] == type]
