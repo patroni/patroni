@@ -86,13 +86,5 @@ Feature: basic replication
 
   Scenario: check graceful rejection when two nodes have the same name
     Given I start postgres0
-    And I shut down postgres1
-    And I shut down postgres2
-    Then postgres0 is a leader after 10 seconds
-    When I start postgres1
-    Then postgres1 role is the secondary after 10 seconds
-    When I start duplicate postgres0 on port 8010
-    And I sleep for 3 seconds
-    Then there is a "there is already a node named postgres0 running" ERROR in the postgres0_dup patroni log
-    And postgres1 role is the secondary after 10 seconds
-    And postgres0 is a leader after 10 seconds
+    And I start duplicate postgres0 on port 8010
+    Then there is a "Can't start; there is already a node named 'postgres0' running" CRITICAL in the postgres0_dup patroni log

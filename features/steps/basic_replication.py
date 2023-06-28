@@ -12,9 +12,15 @@ def start_patroni(context, name):
 def start_duplicate_patroni(context, name, port):
     config = {
         "name": name,
-        "port_offset": port - 8008
+        "restapi": { 
+            "listen": "127.0.0.1:{0}".format(port)
+        },
     }
-    return context.pctl.start(name + "_dup", custom_config=config, should_wait=False)
+    try:
+        context.pctl.start(name + "_dup", custom_config=config)
+        assert False, "No error was raised by duplicate start"
+    except:
+        pass
 
 @step('I shut down {name:w}')
 def stop_patroni(context, name):
@@ -100,6 +106,6 @@ def replication_works(context, primary, replica, time_limit):
 
 @then('there is a "{message}" {type:w} in the {node:w} patroni log')
 def check_patroni_log(context, message, type, node):
-    messsages_of_type = context.pctl.read_patroni_log(type, node)
+    messsages_of_type = context.pctl.read_patroni_log(node ,type)
     assert any(message in line for line in messsages_of_type),\
         "There was no {0} {1} in the {2} patroni log".format(message, type, node)

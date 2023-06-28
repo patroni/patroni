@@ -9,7 +9,6 @@ from typing import Any, Dict, Optional, TYPE_CHECKING
 from .exceptions import ConfigParseError
 
 from patroni.daemon import AbstractPatroniDaemon, abstract_main, get_base_arg_parser
-from patroni.dcs import Member
 
 if TYPE_CHECKING:  # pragma: no cover
     from .config import Config
@@ -66,20 +65,21 @@ class Patroni(AbstractPatroniDaemon):
                 time.sleep(5)
 
     def ensure_unique_name(self) -> None:
-        """ A helper function to prevent splitbrain from operator error """
+        """A helper function to prevent splitbrain from operator naming error."""
+        from patroni.dcs import Member
+
         cluster = self.dcs.get_cluster()
         if not cluster:
             return
         member = cluster.get_member(self.config['name'], False)
-        if not member or type(member) != Member:
+        if not isinstance(member, Member):
             return
-        if member.state != 'running' or member.api_url == member.conn_url:
+        if member.state != 'running':
             return
         resp = self.request(member, endpoint="/liveness")
         if resp.status == 200:
-            error_str = "Can't start {0}: there is already a node named {0} running".format(self.config['name'])
-            logger.exception(error_str)
-            raise ConfigParseError(value=error_str)
+            logger.fatal("Can't start; there is already a node named '%s' running", self.config['name'])
+            sys.exit(1)
 
     def get_tags(self) -> Dict[str, Any]:
         return {tag: value for tag, value in self.config.get('tags', {}).items()

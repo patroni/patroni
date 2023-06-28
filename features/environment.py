@@ -45,20 +45,16 @@ class AbstractController(abc.ABC):
     def _start(self):
         """start process"""
 
-    def start(self, max_wait_limit=5, should_wait=True):
+    def start(self, max_wait_limit=5):
         if self._is_running():
             return True
 
         self._log = open(os.path.join(self._output_dir, self._name + '.log'), 'a')
         self._handle = self._start()
 
-        assert self._has_started(), "Process {0} is not running after being started".format(self._name)
-
-        if not should_wait:
-            return
-
         max_wait_limit *= self._context.timeout_multiplier
         for _ in range(max_wait_limit):
+            assert self._has_started(), "Process {0} is not running after being started".format(self._name)
             if self._is_accessible():
                 break
             time.sleep(1)
@@ -89,14 +85,13 @@ class AbstractController(abc.ABC):
 
 
 class PatroniController(AbstractController):
-    __PG_PORT = 5360
-    __BASE_API_PORT = 8008
+    __PORT = 5360
     PATRONI_CONFIG = '{}.yml'
     """ starts and stops individual patronis"""
 
     def __init__(self, context, name, work_directory, output_dir, custom_config=None):
         super(PatroniController, self).__init__(context, 'patroni_' + name, work_directory, output_dir)
-        PatroniController.__PG_PORT += 1
+        PatroniController.__PORT += 1
         self._data_dir = os.path.join(work_directory, 'data', name)
         self._connstring = None
         if custom_config and 'watchdog' in custom_config:
@@ -104,7 +99,7 @@ class PatroniController(AbstractController):
             custom_config['watchdog'] = {'driver': 'testing', 'device': self.watchdog.fifo_path, 'mode': 'required'}
         else:
             self.watchdog = None
-
+        
         self._scope = (custom_config or {}).get('scope', 'batman')
         self._citus_group = (custom_config or {}).get('citus', {}).get('group')
         self._config = self._make_patroni_test_config(name, custom_config)
@@ -197,21 +192,20 @@ class PatroniController(AbstractController):
 
         host = config['restapi']['listen'].rsplit(':', 1)[0]
 
-        if custom_config and 'port_offset' in custom_config:
-            port_offset = int(custom_config['port_offset'])
-        else:
-            port_offset = int(name[-1])
-        config['restapi']['listen'] = config['restapi']['connect_address'] = '{}:{}'.format(host, PatroniController.__BASE_API_PORT + port_offset)
+        try:
+            port = 8008 + int(name[-1])
+        except ValueError:
+            port = 8008
+        config['restapi']['listen'] = config['restapi']['connect_address'] = '{}:{}'.format(host, port)
 
         host = config['postgresql']['listen'].rsplit(':', 1)[0]
-        config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PG_PORT)
+        config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PORT)
 
         if custom_config and 'name' in custom_config:
             config['name'] = custom_config['name']
         else:
             config['name'] = name
         
-        config['name'] = name
         config['postgresql']['data_dir'] = self._data_dir.replace('\\', '/')
         config['postgresql']['basebackup'] = [{'checkpoint': 'fast'}]
         config['postgresql']['callbacks'] = {
@@ -276,17 +270,17 @@ class PatroniController(AbstractController):
             }
         })
         if config['postgresql'].get('callbacks', {}).get('on_role_change'):
-            config['postgresql']['callbacks']['on_role_change'] += ' ' + str(self.__PG_PORT)
+            config['postgresql']['callbacks']['on_role_change'] += ' ' + str(self.__PORT)
 
         with open(patroni_config_path, 'w') as f:
             yaml.safe_dump(config, f, default_flow_style=False)
 
         self._connkwargs = config['postgresql'].get('authentication', config['postgresql']).get('superuser', {})
-        self._connkwargs.update({'host': host, 'port': self.__PG_PORT, 'dbname': 'postgres',
+        self._connkwargs.update({'host': host, 'port': self.__PORT, 'dbname': 'postgres',
                                  'user': self._connkwargs.pop('username', None)})
 
         self._replication = config['postgresql'].get('authentication', config['postgresql']).get('replication', {})
-        self._replication.update({'host': host, 'port': self.__PG_PORT, 'user': self._replication.pop('username', None)})
+        self._replication.update({'host': host, 'port': self.__PORT, 'user': self._replication.pop('username', None)})
         self._restapi_url = 'http://{0}'.format(config['restapi']['connect_address'])
         if self._context.certfile:
             self._restapi_url = self._restapi_url.replace('http://', 'https://')
@@ -336,9 +330,6 @@ class PatroniController(AbstractController):
         except Exception:
             return None
 
-    def is_running(self):
-        return self._is_running()
-
     def patroni_hang(self, timeout):
         hang = ProcessHang(self._handle.pid, timeout)
         self._closables.append(hang)
@@ -361,6 +352,12 @@ class PatroniController(AbstractController):
                         '--datadir=' + os.path.join(self._work_directory, dest),
                         '--dbname=' + self.backup_source])
 
+    def read_patroni_log(self, type: str) -> 'list[str]':
+        try:
+            with open(str(os.path.join(self._output_dir or '', self._name + ".log"))) as f:
+                return [line for line in f.readlines() if line[24:24+len(type)] == type]
+        except IOError:
+            return []
 
 class ProcessHang(object):
 
@@ -836,15 +833,15 @@ class PatroniPoolController(object):
     def output_dir(self):
         return self._output_dir
 
-    def start(self, name, max_wait_limit=40, custom_config=None, should_wait=True):
+    def start(self, name, max_wait_limit=40, custom_config=None):
         if name not in self._processes:
             self._processes[name] = PatroniController(self._context, name, self.patroni_path,
                                                       self._output_dir, custom_config)
-        self._processes[name].start(max_wait_limit, should_wait=should_wait)
+        self._processes[name].start(max_wait_limit)
 
     def __getattr__(self, func):
         if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to',
-                        'add_tag_to_config', 'get_watchdog', 'patroni_hang', 'backup']:
+                        'add_tag_to_config', 'get_watchdog', 'patroni_hang', 'backup', 'read_patroni_log']:
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
         def wrapper(name, *args, **kwargs):
@@ -865,13 +862,6 @@ class PatroniPoolController(object):
             shutil.rmtree(feature_dir)
         os.makedirs(feature_dir)
         self._output_dir = feature_dir
-    
-    def read_patroni_log(self, type: str, node: str) -> 'list[str]':
-        try:
-            with open(str(os.path.join(self._output_dir or '', "patroni_" + node + ".log"))) as f:
-                return [line for line in f.readlines() if line[24:24+len(type)] == type]
-        except IOError:
-            return []
 
     def clone(self, from_name, cluster_name, to_name):
         f = self._processes[from_name]
