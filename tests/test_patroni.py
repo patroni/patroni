@@ -12,7 +12,7 @@ from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
 from patroni.dcs import Cluster, Member
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover
-from patroni.exceptions import DCSError, ConfigParseError
+from patroni.exceptions import DCSError
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
 from patroni import check_psycopg
@@ -206,6 +206,7 @@ class TestPatroni(unittest.TestCase):
             self.assertRaises(SystemExit, check_psycopg)
 
     def test_ensure_unique_name(self):
+        # None/empty cluster implies unique name
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=None)):
             self.p.ensure_unique_name()
         empty_cluster = Cluster.empty()
@@ -213,37 +214,28 @@ class TestPatroni(unittest.TestCase):
             self.p.ensure_unique_name()
         without_members = empty_cluster._asdict()
         del without_members['members']
+        # Cluster with members with different names implies unique name
         okay_cluster = Cluster(
             members=[Member(version=1, name="distinct", session=1, data={})],
             **without_members
         )
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=okay_cluster)):
             self.p.ensure_unique_name()
+        # Cluster with a member with the same name that is not running implies unique name
         okay_cluster = Cluster(
             members=[Member(version=1, name="postgresql0", session=1, data={
                 "state": "stopped",
-                "api_url": "different api_url",
-                "conn_url": "than conn_url",
+                "api_url": "https://127.0.0.1:8008",
             })],
             **without_members
         )
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=okay_cluster)):
             self.p.ensure_unique_name()
-        okay_cluster = Cluster(
-            members=[Member(version=1, name="postgresql0", session=1, data={
-                "state": "running",
-                "api_url": "same_url",
-                "conn_url": "same_url",
-            })],
-            **without_members
-        )
-        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=okay_cluster)):
-            self.p.ensure_unique_name()
+        # Cluster with a member with the same name that is running
         bad_cluster = Cluster(
             members=[Member(version=1, name="postgresql0", session=1, data={
                 "state": "running",
-                "api_url": "different api_url",
-                "conn_url": "than conn_url",
+                "api_url": "https://127.0.0.1:8008",
             })],
             **without_members
         )
@@ -252,7 +244,12 @@ class TestPatroni(unittest.TestCase):
             status: int
 
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=bad_cluster)):
+            # If the api of the running node cannot be reached, this implies unique name
             with patch.object(self.p, 'request', Mock(return_value=StatusResponse(503))):
                 self.p.ensure_unique_name()
+            # Only if the api of the running node returns 200 do we throw a ConfigParseError
             with patch.object(self.p, 'request', Mock(return_value=StatusResponse(200))):
-                self.assertRaises(ConfigParseError, self.p.ensure_unique_name)
+                sys_exit = Mock()
+                with patch('sys.exit', sys_exit):
+                    self.p.ensure_unique_name()
+                    sys_exit.assert_called_once_with(1)

@@ -6,7 +6,6 @@ import time
 
 from argparse import Namespace
 from typing import Any, Dict, Optional, TYPE_CHECKING
-from .exceptions import ConfigParseError
 
 from patroni.daemon import AbstractPatroniDaemon, abstract_main, get_base_arg_parser
 
