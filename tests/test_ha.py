@@ -282,10 +282,19 @@ class TestHa(PostgresInit):
         self.p.follow = false
         self.p.is_running = false
         self.p.name = 'leader'
-        self.p.set_role('primary')
+        self.p.set_role('demoted')
         self.p.controldata = lambda: {'Database cluster state': 'shut down', 'Database system identifier': SYSID}
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEqual(self.ha.run_cycle(), 'starting as readonly because i had the session lock')
+
+    def test_start_primary_after_failure(self):
+        self.p.start = false
+        self.p.is_running = false
+        self.p.name = 'leader'
+        self.p.set_role('primary')
+        self.p.controldata = lambda: {'Database cluster state': 'in production', 'Database system identifier': SYSID}
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.assertEqual(self.ha.run_cycle(), 'starting primary after failure')
 
     @patch.object(Rewind, 'ensure_clean_shutdown', Mock())
     def test_crash_recovery(self):
@@ -836,8 +845,6 @@ class TestHa(PostgresInit):
         self.assertTrue(self.ha.is_healthiest_node())
         self.ha.dcs._last_failsafe = None
         with patch.object(Watchdog, 'is_healthy', PropertyMock(return_value=False)):
-            self.assertFalse(self.ha.is_healthiest_node())
-        with patch('patroni.postgresql.Postgresql.is_starting', return_value=True):
             self.assertFalse(self.ha.is_healthiest_node())
         self.ha.is_paused = true
         self.assertFalse(self.ha.is_healthiest_node())

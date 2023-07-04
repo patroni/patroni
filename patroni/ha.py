@@ -149,7 +149,6 @@ class Ha(object):
         self._leader_timeline = None
         self.recovering = False
         self._async_response = CriticalTask()
-        self._crash_recovery_executed = False
         self._crash_recovery_started = 0
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
@@ -411,8 +410,7 @@ class Ha(object):
         return result
 
     def _handle_crash_recovery(self) -> Optional[str]:
-        if not self._crash_recovery_executed and (self.cluster.is_unlocked() or self._rewind.can_rewind):
-            self._crash_recovery_executed = True
+        if self._crash_recovery_started == 0 and (self.cluster.is_unlocked() or self._rewind.can_rewind):
             self._crash_recovery_started = time.time()
             msg = 'doing crash recovery in a single user mode'
             return self._async_executor.try_run_async(msg, self._rewind.ensure_clean_shutdown) or msg
@@ -438,15 +436,13 @@ class Ha(object):
             return self._async_executor.try_run_async(msg, self._do_reinitialize, args=(self.cluster,)) or msg
 
     def recover(self) -> str:
-        # Postgres is not running and we will restart in standby mode. Watchdog is not needed until we promote.
-        self.watchdog.disable()
-
         if self.has_lock() and self.update_lock():
             timeout = self.global_config.primary_start_timeout
             if timeout == 0:
                 # We are requested to prefer failing over to restarting primary. But see first if there
                 # is anyone to fail over to.
                 if self.is_failover_possible(self.cluster.members):
+                    self.watchdog.disable()
                     logger.info("Primary crashed. Failing over.")
                     self.demote('immediate')
                     return 'stopped PostgreSQL to fail over after a crash'
@@ -455,6 +451,22 @@ class Ha(object):
 
         data = self.state_handler.controldata()
         logger.info('pg_controldata:\n%s\n', '\n'.join('  {0}: {1}'.format(k, v) for k, v in data.items()))
+
+        # timeout > 0 indicates that we still have the leader lock and it was just updated
+        if timeout and data.get('Database cluster state') in ('in production', 'shutting down', 'shut down')\
+                and self.state_handler.state == 'crashed'\
+                and self.state_handler.role in ('primary', 'master')\
+                and not self.state_handler.config.recovery_conf_exists():
+            # We know 100% that we were running as a primary a few moments ago, therefore could just start postgres
+            msg = 'starting primary after failure'
+            if self._async_executor.try_run_async(msg, self.state_handler.start,
+                                                  args=(timeout, self._async_executor.critical_task)) is None:
+                self.recovering = True
+                return msg
+
+        # Postgres is not running and we will restart in standby mode. Watchdog is not needed until we promote.
+        self.watchdog.disable()
+
         if data.get('Database cluster state') in ('in production', 'shutting down', 'in crash recovery'):
             msg = self._handle_crash_recovery()
             if msg:
@@ -965,9 +977,6 @@ class Ha(object):
             if ret is not None:  # continue if we just deleted the stale failover key as a leader
                 return ret
 
-        if self.state_handler.is_starting():  # postgresql still starting up is unhealthy
-            return False
-
         if self.state_handler.is_leader():
             # in pause leader is the healthiest only when no initialize or sysid matches with initialize!
             return not self.is_paused() or not self.cluster.initialize\
@@ -1451,7 +1460,7 @@ class Ha(object):
 
             if self.state_handler.role in ('master', 'primary'):
                 logger.info('Demoting primary during %s', self._async_executor.scheduled_action)
-                if self._async_executor.scheduled_action == 'restart':
+                if self._async_executor.scheduled_action in ('restart', 'starting primary after failure'):
                     # Restart needs a special interlocking cancel because postmaster may be just started in a
                     # background thread and has not even written a pid file yet.
                     with self._async_executor.critical_task as task:
@@ -1616,7 +1625,7 @@ class Ha(object):
                         return msg
 
                 # Reset some states after postgres successfully started up
-                self._crash_recovery_executed = False
+                self._crash_recovery_started = 0
                 if self._rewind.executed and not self._rewind.failed:
                     self._rewind.reset_state()
 
