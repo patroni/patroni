@@ -1541,11 +1541,11 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if self.__ssl_options.get('certfile'):
             import ssl
             try:
-                ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-                crts = ctx.load_verify_locations(self.__ssl_options['certfile'])
-                if crts:
-                    return crts[0].get('serialNumber')
-            except Exception as e:
+                crt: Dict[str, Any] = ssl._ssl._test_decode_cert(self.__ssl_options['certfile'])  # pyright: ignore
+                if TYPE_CHECKING:  # pragma: no cover
+                    assert isinstance(crt, dict)
+                return crt.get('serialNumber')
+            except ssl.SSLError as e:
                 logger.error('Failed to get serial number from certificate %s: %r', self.__ssl_options['certfile'], e)
 
     def reload_local_certificate(self) -> Optional[bool]:
