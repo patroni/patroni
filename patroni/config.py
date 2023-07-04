@@ -56,8 +56,8 @@ def default_validator(conf: Dict[str, Any]) -> List[str]:
 class GlobalConfig(object):
     """A class that wraps global configuration and provides convenient methods to access/check values.
 
-    It is instantiated by calling :func:`get_global_config` method which picks either a
-    configuration from provided :class:`Cluster` object (the most up-to-date) or from the
+    It is instantiated either by calling :func:`get_global_config` or :meth:`Config.get_global_config`, which picks
+    either a configuration from provided :class:`Cluster` object (the most up-to-date) or from the
     local cache if :class:`ClusterConfig` is not initialized or doesn't have a valid config.
     """
 
