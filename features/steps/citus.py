@@ -61,7 +61,7 @@ def check_registration(context, name1, name2, role, group, time_limit):
         except Exception:
             pass
         time.sleep(1)
-    assert False, "Worker {0} is not registered in pg_dist_node on the coordinator {1}".format(name1, name2)
+    assert False, "Node {0} is not registered in pg_dist_node on the node {1}".format(name1, name2)
 
 
 @step('I create a distributed table on {name:w}')
