@@ -8,19 +8,22 @@ from time import sleep, time
 def start_patroni(context, name):
     return context.pctl.start(name)
 
+
 @step('I start duplicate {name:w} on port {port:d}')
 def start_duplicate_patroni(context, name, port):
     config = {
         "name": name,
-        "restapi": { 
+        "restapi": {
             "listen": "127.0.0.1:{0}".format(port)
-        },
+        }    
     }
     try:
-        context.pctl.start(name + "_dup", custom_config=config)
-        assert False, "No error was raised by duplicate start"
-    except:
-        pass
+        context.pctl.start('dup_' + name, custom_config=config)
+        assert False, "Process was expected to fail"
+    except AssertionError as e:
+        assert 'is not running after being started' in str(e),\
+            "No error was raised by duplicate start of {0} ".format(name)
+
 
 @step('I shut down {name:w}')
 def stop_patroni(context, name):
@@ -104,8 +107,9 @@ def replication_works(context, primary, replica, time_limit):
         Then table test_{0} is present on {2} after {3} seconds
     """.format(int(time()), primary, replica, time_limit))
 
-@then('there is a "{message}" {type:w} in the {node:w} patroni log')
-def check_patroni_log(context, message, type, node):
-    messsages_of_type = context.pctl.read_patroni_log(node ,type)
-    assert any(message in line for line in messsages_of_type),\
-        "There was no {0} {1} in the {2} patroni log".format(message, type, node)
+
+@then('there is a "{message}" {level:w} in the {node:w} patroni log')
+def check_patroni_log(context, message, level, node):
+    messsages_of_level = context.pctl.read_patroni_log(node, level)
+    assert any(message in line for line in messsages_of_level),\
+        "There was no {0} {1} in the {2} patroni log".format(message, level, node)

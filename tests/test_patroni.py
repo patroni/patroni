@@ -18,7 +18,6 @@ from patroni.postgresql.config import ConfigHandler
 from patroni import check_psycopg
 from patroni.__main__ import Patroni, main as _main
 from threading import Thread
-from typing import NamedTuple
 
 from . import psycopg_connect, SleepException
 from .test_etcd import etcd_read, etcd_write
@@ -221,34 +220,20 @@ class TestPatroni(unittest.TestCase):
         )
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=okay_cluster)):
             self.p.ensure_unique_name()
-        # Cluster with a member with the same name that is not running implies unique name
-        okay_cluster = Cluster(
-            members=[Member(version=1, name="postgresql0", session=1, data={
-                "state": "stopped",
-                "api_url": "https://127.0.0.1:8008",
-            })],
-            **without_members
-        )
-        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=okay_cluster)):
-            self.p.ensure_unique_name()
         # Cluster with a member with the same name that is running
         bad_cluster = Cluster(
             members=[Member(version=1, name="postgresql0", session=1, data={
-                "state": "running",
                 "api_url": "https://127.0.0.1:8008",
             })],
             **without_members
         )
 
-        class StatusResponse(NamedTuple):
-            status: int
-
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=bad_cluster)):
             # If the api of the running node cannot be reached, this implies unique name
-            with patch.object(self.p, 'request', Mock(return_value=StatusResponse(503))):
+            with patch.object(self.p, 'request', Mock(side_effect=ConnectionError)):
                 self.p.ensure_unique_name()
             # Only if the api of the running node returns 200 do we throw a ConfigParseError
-            with patch.object(self.p, 'request', Mock(return_value=StatusResponse(200))):
+            with patch.object(self.p, 'request', Mock()):
                 sys_exit = Mock()
                 with patch('sys.exit', sys_exit):
                     self.p.ensure_unique_name()

@@ -79,7 +79,7 @@ class AbstractController(abc.ABC):
 
         if self._log:
             self._log.close()
-
+        
     def cancel_background(self):
         pass
 
@@ -99,7 +99,6 @@ class PatroniController(AbstractController):
             custom_config['watchdog'] = {'driver': 'testing', 'device': self.watchdog.fifo_path, 'mode': 'required'}
         else:
             self.watchdog = None
-        
         self._scope = (custom_config or {}).get('scope', 'batman')
         self._citus_group = (custom_config or {}).get('citus', {}).get('group')
         self._config = self._make_patroni_test_config(name, custom_config)
@@ -192,19 +191,13 @@ class PatroniController(AbstractController):
 
         host = config['restapi']['listen'].rsplit(':', 1)[0]
 
-        try:
-            port = 8008 + int(name[-1])
-        except ValueError:
-            port = 8008
-        config['restapi']['listen'] = config['restapi']['connect_address'] = '{}:{}'.format(host, port)
+        config['restapi']['listen'] = config['restapi']['connect_address'] = '{}:{}'.format(host, 8008 + int(name[-1]))
+
 
         host = config['postgresql']['listen'].rsplit(':', 1)[0]
         config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PORT)
 
-        if custom_config and 'name' in custom_config:
-            config['name'] = custom_config['name']
-        else:
-            config['name'] = name
+        config['name'] = name
         
         config['postgresql']['data_dir'] = self._data_dir.replace('\\', '/')
         config['postgresql']['basebackup'] = [{'checkpoint': 'fast'}]
@@ -352,10 +345,10 @@ class PatroniController(AbstractController):
                         '--datadir=' + os.path.join(self._work_directory, dest),
                         '--dbname=' + self.backup_source])
 
-    def read_patroni_log(self, type: str) -> 'list[str]':
+    def read_patroni_log(self, type):
         try:
             with open(str(os.path.join(self._output_dir or '', self._name + ".log"))) as f:
-                return [line for line in f.readlines() if line[24:24+len(type)] == type]
+                return [line for line in f.readlines() if line[24:24 + len(type)] == type]
         except IOError:
             return []
 
@@ -845,8 +838,6 @@ class PatroniPoolController(object):
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
         def wrapper(name, *args, **kwargs):
-            if name not in self._processes:
-                return None
             return getattr(self._processes[name], func)(*args, **kwargs)
         return wrapper
 
