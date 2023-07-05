@@ -722,13 +722,13 @@ class Etcd(AbstractEtcd):
         return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
 
     def _cluster_loader(self, path: str) -> Cluster:
-        result = self.retry(self._client.read, path, recursive=True)
+        result = self.retry(self._client.read, path, recursive=True, quorum=self._ctl)
         nodes = {node.key[len(result.key):].lstrip('/'): node for node in result.leaves}
         return self._cluster_from_nodes(result.etcd_index, nodes)
 
     def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
         clusters: Dict[int, Dict[str, etcd.EtcdResult]] = defaultdict(dict)
-        result = self.retry(self._client.read, path, recursive=True)
+        result = self.retry(self._client.read, path, recursive=True, quorum=self._ctl)
         for node in result.leaves:
             key = node.key[len(result.key):].lstrip('/').split('/', 1)
             if len(key) == 2 and citus_group_re.match(key[0]):

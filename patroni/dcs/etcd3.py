@@ -327,14 +327,14 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             return retry(e)
 
     @_handle_auth_errors
-    def range(self, key: str, range_end: Union[bytes, str, None] = None,
+    def range(self, key: str, range_end: Union[bytes, str, None] = None, serializable: bool = True,
               retry: Optional[Retry] = None) -> Dict[str, Any]:
         params = build_range_request(key, range_end)
-        params['serializable'] = True  # For better performance. We can tolerate stale reads.
+        params['serializable'] = serializable  # For better performance. We can tolerate stale reads
         return self.call_rpc('/kv/range', params, retry)
 
-    def prefix(self, key: str, retry: Optional[Retry] = None) -> Dict[str, Any]:
-        return self.range(key, prefix_range_end(key), retry)
+    def prefix(self, key: str, serializable: bool = True, retry: Optional[Retry] = None) -> Dict[str, Any]:
+        return self.range(key, prefix_range_end(key), serializable, retry)
 
     @_handle_auth_errors
     def lease_grant(self, ttl: int, retry: Optional[Retry] = None) -> str:
@@ -595,7 +595,8 @@ class PatroniEtcd3Client(Etcd3Client):
                 self._wait_cache(self.read_timeout)
                 ret = self._kv_cache.copy()
         else:
-            ret = self._etcd3.retry(self.prefix, path).get('kvs', [])
+            serializable = not getattr(self._etcd3, '_ctl')  # use linearizable for patronictl
+            ret = self._etcd3.retry(self.prefix, path, serializable).get('kvs', [])
         for node in ret:
             node.update({'key': base64_decode(node['key']),
                          'value': base64_decode(node.get('value', '')),

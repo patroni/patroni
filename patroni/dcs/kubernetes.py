@@ -766,7 +766,7 @@ class Kubernetes(AbstractDCS):
             k8s_config.load_kube_config(context=config.get('context', 'kind-kind'))
 
         pod_ip = config.get('pod_ip')
-        self.__ips: List[str] = [] if config.get('patronictl') or not isinstance(pod_ip, str) else [pod_ip]
+        self.__ips: List[str] = [] if self._ctl or not isinstance(pod_ip, str) else [pod_ip]
         self.__ports: List[K8sObject] = []
         ports: List[Dict[str, Any]] = config.get('ports', [{}])
         for p in ports:
@@ -774,7 +774,7 @@ class Kubernetes(AbstractDCS):
             port.update({n: p[n] for n in ('name', 'protocol') if p.get(n)})
             self.__ports.append(k8s_client.V1EndpointPort(**port))
 
-        bypass_api_service = not config.get('patronictl') and config.get('bypass_api_service')
+        bypass_api_service = not self._ctl and config.get('bypass_api_service')
         self._api = CoreV1ApiProxy(config.get('use_endpoints'), bypass_api_service)
         self._should_create_config_service = self._api.use_endpoints
         self.reload_config(config)
