@@ -44,12 +44,24 @@ def start_citus(context, name, group):
     return context.pctl.start(name, custom_config={"citus": {"database": "postgres", "group": int(group)}})
 
 
-@step('{name1:w} is registered in the {name2:w} as the worker in group {group:d}')
-def check_registration(context, name1, name2, group):
+@step('{name1:w} is registered in the {name2:w} as the {role:w} in group {group:d} after {time_limit:d} seconds')
+def check_registration(context, name1, name2, role, group, time_limit):
+    time_limit *= context.timeout_multiplier
+    max_time = time.time() + int(time_limit)
+
     worker_port = int(context.pctl.query(name1, "SHOW port").fetchone()[0])
-    r = context.pctl.query(name2, "SELECT nodeport FROM pg_catalog.pg_dist_node WHERE groupid = {0}".format(group))
-    assert worker_port == r.fetchone()[0],\
-        "Worker {0} is not registered in pg_dist_node on the coordinator {1}".format(name1, name2)
+
+    while time.time() < max_time:
+        try:
+            cur = context.pctl.query(name2, "SELECT nodeport, noderole"
+                                            " FROM pg_catalog.pg_dist_node WHERE groupid = {0}".format(group))
+            mapping = {r[0]: r[1] for r in cur}
+            if mapping.get(worker_port) == role:
+                return
+        except Exception:
+            pass
+        time.sleep(1)
+    assert False, "Worker {0} is not registered in pg_dist_node on the coordinator {1}".format(name1, name2)
 
 
 @step('I create a distributed table on {name:w}')
