@@ -443,6 +443,9 @@ class EtcdClient(AbstractEtcdClientWithFailover):
 
     ERROR_CLS = EtcdError
 
+    def __init__(self, config: Dict[str, Any], dns_resolver: DnsCachingResolver, cache_ttl: int = 300) -> None:
+        super(EtcdClient, self).__init__({'version_prefix': None, **config}, dns_resolver, cache_ttl)
+
     def __del__(self) -> None:
         try:
             self.http.clear()
