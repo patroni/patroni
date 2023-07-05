@@ -18,7 +18,7 @@ def start_duplicate_patroni(context, name, port):
         }    
     }
     try:
-        context.pctl.start('dup_' + name, custom_config=config)
+        context.pctl.start('dup-' + name, custom_config=config)
         assert False, "Process was expected to fail"
     except AssertionError as e:
         assert 'is not running after being started' in str(e),\
@@ -108,7 +108,7 @@ def replication_works(context, primary, replica, time_limit):
     """.format(int(time()), primary, replica, time_limit))
 
 
-@then('there is a "{message}" {level:w} in the {node:w} patroni log')
+@then('there is a "{message}" {level:w} in the {node} patroni log')
 def check_patroni_log(context, message, level, node):
     messsages_of_level = context.pctl.read_patroni_log(node, level)
     assert any(message in line for line in messsages_of_level),\

@@ -86,4 +86,4 @@ Feature: basic replication
 
   Scenario: check graceful rejection when two nodes have the same name
     Given I start duplicate postgres0 on port 8011
-    Then there is a "Can't start; there is already a node named 'postgres0' running" CRITICAL in the dup_postgres0 patroni log
+    Then there is a "Can't start; there is already a node named 'postgres0' running" CRITICAL in the dup-postgres0 patroni log
