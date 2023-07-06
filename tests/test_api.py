@@ -29,7 +29,8 @@ class MockPostgresql(object):
     name = 'test'
     state = 'running'
     role = 'primary'
-    server_version = '999999'
+    server_version = 90625
+    major_version = 90600
     sysid = 'dummysysid'
     scope = 'dummy'
     pending_restart = True
@@ -54,6 +55,10 @@ class MockPostgresql(object):
     @staticmethod
     def is_running():
         return True
+
+    @staticmethod
+    def replication_state_from_parameters(*args):
+        return 'streaming'
 
 
 class MockWatchdog(object):
@@ -219,7 +224,7 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(MockHa, 'restart_scheduled', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /primary')
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /primary'))
-        with patch.object(RestApiServer, 'query', Mock(return_value=[('', 1, '', '', '', '', False, '')])):
+        with patch.object(RestApiServer, 'query', Mock(return_value=[('', 1, '', '', '', '', False, None, None, '')])):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
         with patch.object(GlobalConfig, 'is_standby_cluster', Mock(return_value=True)),\
                 patch.object(GlobalConfig, 'is_paused', Mock(return_value=True)):
