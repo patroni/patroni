@@ -15,7 +15,7 @@ def start_duplicate_patroni(context, name, port):
         "name": name,
         "restapi": {
             "listen": "127.0.0.1:{0}".format(port)
-        }    
+        }
     }
     try:
         context.pctl.start('dup-' + name, custom_config=config)
