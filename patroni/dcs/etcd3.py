@@ -206,7 +206,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     def __init__(self, config: Dict[str, Any], dns_resolver: DnsCachingResolver, cache_ttl: int = 300) -> None:
         self._token = None
         self._cluster_version: Tuple[int] = tuple()
-        super(Etcd3Client, self).__init__({'version_prefix': '/v3beta', **config}, dns_resolver, cache_ttl)
+        super(Etcd3Client, self).__init__({**config, 'version_prefix': '/v3beta'}, dns_resolver, cache_ttl)
 
         try:
             self.authenticate()
