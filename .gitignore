@@ -59,7 +59,7 @@ docs/source/_templates/
 .vscode/
 
 # Virtual environment
-venv*
+venv*/
 
 # Default test data directory
-data
+data/
