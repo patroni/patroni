@@ -232,7 +232,7 @@ class TestPatroni(unittest.TestCase):
             # If the api of the running node cannot be reached, this implies unique name
             with patch.object(self.p, 'request', Mock(side_effect=ConnectionError)):
                 self.p.ensure_unique_name()
-            # Only if the api of the running node returns 200 do we throw a ConfigParseError
+            # Only if the api of the running node is reachable do we throw an error
             with patch.object(self.p, 'request', Mock()):
                 sys_exit = Mock()
                 with patch('sys.exit', sys_exit):
