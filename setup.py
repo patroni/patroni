@@ -88,7 +88,7 @@ class Flake8(_Command):
                 yield package_directory
 
     def targets(self):
-        return [package for package in self.package_files()] + ['tests', 'setup.py']
+        return [package for package in self.package_files()] + ['tests', 'features', 'setup.py']
 
     def run(self):
         from flake8.main.cli import main
