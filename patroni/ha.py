@@ -436,7 +436,7 @@ class Ha(object):
             return self._async_executor.try_run_async(msg, self._do_reinitialize, args=(self.cluster,)) or msg
 
     def recover(self) -> str:
-        """Handle the case when postgres ist't running.
+        """Handle the case when postgres isn't running.
 
         Depending on the state of Patroni, DCS cluster view, and pg_controldata the following could happen:
         - if ``primary_start_timeout`` is 0 and this node owns the leader lock, the lock
