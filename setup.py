@@ -116,7 +116,7 @@ class PyTest(_Command):
 
 
 def read(fname):
-    with open(os.path.join(__location__, fname)) as fd:
+    with open(os.path.join(__location__, fname), encoding='utf-8') as fd:
         return fd.read()
 
 
