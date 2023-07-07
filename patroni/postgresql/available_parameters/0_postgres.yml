@@ -1,0 +1,1777 @@
+parameters:
+  allow_in_place_tablespaces:
+  - type: Bool
+    version_from: 150000
+  allow_system_table_mods:
+  - type: Bool
+    version_from: 90300
+  application_name:
+  - type: String
+    version_from: 90300
+  archive_command:
+  - type: String
+    version_from: 90300
+  archive_library:
+  - type: String
+    version_from: 150000
+  archive_mode:
+  - type: Bool
+    version_from: 90300
+    version_till: 90500
+  - type: EnumBool
+    version_from: 90500
+    possible_values:
+    - always
+  archive_timeout:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 1073741823
+    unit: s
+  array_nulls:
+  - type: Bool
+    version_from: 90300
+  authentication_timeout:
+  - type: Integer
+    version_from: 90300
+    min_val: 1
+    max_val: 600
+    unit: s
+  autovacuum:
+  - type: Bool
+    version_from: 90300
+  autovacuum_analyze_scale_factor:
+  - type: Real
+    version_from: 90300
+    min_val: 0
+    max_val: 100
+  autovacuum_analyze_threshold:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2147483647
+  autovacuum_freeze_max_age:
+  - type: Integer
+    version_from: 90300
+    min_val: 100000
+    max_val: 2000000000
+  autovacuum_max_workers:
+  - type: Integer
+    version_from: 90300
+    version_till: 90600
+    min_val: 1
+    max_val: 8388607
+  - type: Integer
+    version_from: 90600
+    min_val: 1
+    max_val: 262143
+  autovacuum_multixact_freeze_max_age:
+  - type: Integer
+    version_from: 90300
+    min_val: 10000
+    max_val: 2000000000
+  autovacuum_naptime:
+  - type: Integer
+    version_from: 90300
+    min_val: 1
+    max_val: 2147483
+    unit: s
+  autovacuum_vacuum_cost_delay:
+  - type: Integer
+    version_from: 90300
+    version_till: 120000
+    min_val: -1
+    max_val: 100
+    unit: ms
+  - type: Real
+    version_from: 120000
+    min_val: -1
+    max_val: 100
+    unit: ms
+  autovacuum_vacuum_cost_limit:
+  - type: Integer
+    version_from: 90300
+    min_val: -1
+    max_val: 10000
+  autovacuum_vacuum_insert_scale_factor:
+  - type: Real
+    version_from: 130000
+    min_val: 0
+    max_val: 100
+  autovacuum_vacuum_insert_threshold:
+  - type: Integer
+    version_from: 130000
+    min_val: -1
+    max_val: 2147483647
+  autovacuum_vacuum_scale_factor:
+  - type: Real
+    version_from: 90300
+    min_val: 0
+    max_val: 100
+  autovacuum_vacuum_threshold:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2147483647
+  autovacuum_work_mem:
+  - type: Integer
+    version_from: 90400
+    min_val: -1
+    max_val: 2147483647
+    unit: kB
+  backend_flush_after:
+  - type: Integer
+    version_from: 90600
+    min_val: 0
+    max_val: 256
+    unit: 8kB
+  backslash_quote:
+  - type: EnumBool
+    version_from: 90300
+    possible_values:
+    - safe_encoding
+  backtrace_functions:
+  - type: String
+    version_from: 130000
+  bgwriter_delay:
+  - type: Integer
+    version_from: 90300
+    min_val: 10
+    max_val: 10000
+    unit: ms
+  bgwriter_flush_after:
+  - type: Integer
+    version_from: 90600
+    min_val: 0
+    max_val: 256
+    unit: 8kB
+  bgwriter_lru_maxpages:
+  - type: Integer
+    version_from: 90300
+    version_till: 100000
+    min_val: 0
+    max_val: 1000
+  - type: Integer
+    version_from: 100000
+    min_val: 0
+    max_val: 1073741823
+  bgwriter_lru_multiplier:
+  - type: Real
+    version_from: 90300
+    min_val: 0
+    max_val: 10
+  bonjour:
+  - type: Bool
+    version_from: 90300
+  bonjour_name:
+  - type: String
+    version_from: 90300
+  bytea_output:
+  - type: Enum
+    version_from: 90300
+    possible_values:
+    - escape
+    - hex
+  check_function_bodies:
+  - type: Bool
+    version_from: 90300
+  checkpoint_completion_target:
+  - type: Real
+    version_from: 90300
+    min_val: 0
+    max_val: 1
+  checkpoint_flush_after:
+  - type: Integer
+    version_from: 90600
+    min_val: 0
+    max_val: 256
+    unit: 8kB
+  checkpoint_segments:
+  - type: Integer
+    version_from: 90300
+    version_till: 90500
+    min_val: 1
+    max_val: 2147483647
+  checkpoint_timeout:
+  - type: Integer
+    version_from: 90300
+    version_till: 90600
+    min_val: 30
+    max_val: 3600
+    unit: s
+  - type: Integer
+    version_from: 90600
+    min_val: 30
+    max_val: 86400
+    unit: s
+  checkpoint_warning:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2147483647
+    unit: s
+  client_connection_check_interval:
+  - type: Integer
+    version_from: 140000
+    min_val: 0
+    max_val: 2147483647
+    unit: ms
+  client_encoding:
+  - type: String
+    version_from: 90300
+  client_min_messages:
+  - type: Enum
+    version_from: 90300
+    possible_values:
+    - debug5
+    - debug4
+    - debug3
+    - debug2
+    - debug1
+    - log
+    - notice
+    - warning
+    - error
+  cluster_name:
+  - type: String
+    version_from: 90500
+  commit_delay:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 100000
+  commit_siblings:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 1000
+  compute_query_id:
+  - type: EnumBool
+    version_from: 140000
+    version_till: 150000
+    possible_values:
+    - auto
+  - type: EnumBool
+    version_from: 150000
+    possible_values:
+    - auto
+    - regress
+  config_file:
+  - type: String
+    version_from: 90300
+  constraint_exclusion:
+  - type: EnumBool
+    version_from: 90300
+    possible_values:
+    - partition
+  cpu_index_tuple_cost:
+  - type: Real
+    version_from: 90300
+    min_val: 0
+    max_val: 1.79769e+308
+  cpu_operator_cost:
+  - type: Real
+    version_from: 90300
+    min_val: 0
+    max_val: 1.79769e+308
+  cpu_tuple_cost:
+  - type: Real
+    version_from: 90300
+    min_val: 0
+    max_val: 1.79769e+308
+  createrole_self_grant:
+  - type: String
+    version_from: 160000
+  cursor_tuple_fraction:
+  - type: Real
+    version_from: 90300
+    min_val: 0
+    max_val: 1
+  data_directory:
+  - type: String
+    version_from: 90300
+  data_sync_retry:
+  - type: Bool
+    version_from: 90400
+  DateStyle:
+  - type: String
+    version_from: 90300
+  db_user_namespace:
+  - type: Bool
+    version_from: 90300
+  deadlock_timeout:
+  - type: Integer
+    version_from: 90300
+    min_val: 1
+    max_val: 2147483647
+    unit: ms
+  debug_discard_caches:
+  - type: Integer
+    version_from: 150000
+    min_val: 0
+    max_val: 0
+  debug_io_direct:
+  - type: String
+    version_from: 160000
+  debug_parallel_query:
+  - type: EnumBool
+    version_from: 160000
+    possible_values:
+    - regress
+  debug_pretty_print:
+  - type: Bool
+    version_from: 90300
+  debug_print_parse:
+  - type: Bool
+    version_from: 90300
+  debug_print_plan:
+  - type: Bool
+    version_from: 90300
+  debug_print_rewritten:
+  - type: Bool
+    version_from: 90300
+  default_statistics_target:
+  - type: Integer
+    version_from: 90300
+    min_val: 1
+    max_val: 10000
+  default_table_access_method:
+  - type: String
+    version_from: 120000
+  default_tablespace:
+  - type: String
+    version_from: 90300
+  default_text_search_config:
+  - type: String
+    version_from: 90300
+  default_toast_compression:
+  - type: Enum
+    version_from: 140000
+    possible_values:
+    - pglz
+    - lz4
+  default_transaction_deferrable:
+  - type: Bool
+    version_from: 90300
+  default_transaction_isolation:
+  - type: Enum
+    version_from: 90300
+    possible_values:
+    - serializable
+    - repeatable read
+    - read committed
+    - read uncommitted
+  default_transaction_read_only:
+  - type: Bool
+    version_from: 90300
+  default_with_oids:
+  - type: Bool
+    version_from: 90300
+    version_till: 120000
+  dynamic_library_path:
+  - type: String
+    version_from: 90300
+  dynamic_shared_memory_type:
+  - type: Enum
+    version_from: 90400
+    version_till: 120000
+    possible_values:
+    - posix
+    - sysv
+    - mmap
+    - none
+  - type: Enum
+    version_from: 120000
+    possible_values:
+    - posix
+    - sysv
+    - mmap
+  effective_cache_size:
+  - type: Integer
+    version_from: 90300
+    min_val: 1
+    max_val: 2147483647
+    unit: 8kB
+  effective_io_concurrency:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 1000
+  enable_async_append:
+  - type: Bool
+    version_from: 140000
+  enable_bitmapscan:
+  - type: Bool
+    version_from: 90300
+  enable_gathermerge:
+  - type: Bool
+    version_from: 100000
+  enable_hashagg:
+  - type: Bool
+    version_from: 90300
+  enable_hashjoin:
+  - type: Bool
+    version_from: 90300
+  enable_incremental_sort:
+  - type: Bool
+    version_from: 130000
+  enable_indexonlyscan:
+  - type: Bool
+    version_from: 90300
+  enable_indexscan:
+  - type: Bool
+    version_from: 90300
+  enable_material:
+  - type: Bool
+    version_from: 90300
+  enable_memoize:
+  - type: Bool
+    version_from: 150000
+  enable_mergejoin:
+  - type: Bool
+    version_from: 90300
+  enable_nestloop:
+  - type: Bool
+    version_from: 90300
+  enable_parallel_append:
+  - type: Bool
+    version_from: 110000
+  enable_parallel_hash:
+  - type: Bool
+    version_from: 110000
+  enable_partition_pruning:
+  - type: Bool
+    version_from: 110000
+  enable_partitionwise_aggregate:
+  - type: Bool
+    version_from: 110000
+  enable_partitionwise_join:
+  - type: Bool
+    version_from: 110000
+  enable_presorted_aggregate:
+  - type: Bool
+    version_from: 160000
+  enable_seqscan:
+  - type: Bool
+    version_from: 90300
+  enable_sort:
+  - type: Bool
+    version_from: 90300
+  enable_tidscan:
+  - type: Bool
+    version_from: 90300
+  escape_string_warning:
+  - type: Bool
+    version_from: 90300
+  event_source:
+  - type: String
+    version_from: 90300
+  exit_on_error:
+  - type: Bool
+    version_from: 90300
+  extension_destdir:
+  - type: String
+    version_from: 140000
+  external_pid_file:
+  - type: String
+    version_from: 90300
+  extra_float_digits:
+  - type: Integer
+    version_from: 90300
+    min_val: -15
+    max_val: 3
+  force_parallel_mode:
+  - type: EnumBool
+    version_from: 90600
+    version_till: 160000
+    possible_values:
+    - regress
+  from_collapse_limit:
+  - type: Integer
+    version_from: 90300
+    min_val: 1
+    max_val: 2147483647
+  fsync:
+  - type: Bool
+    version_from: 90300
+  full_page_writes:
+  - type: Bool
+    version_from: 90300
+  geqo:
+  - type: Bool
+    version_from: 90300
+  geqo_effort:
+  - type: Integer
+    version_from: 90300
+    min_val: 1
+    max_val: 10
+  geqo_generations:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2147483647
+  geqo_pool_size:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2147483647
+  geqo_seed:
+  - type: Real
+    version_from: 90300
+    min_val: 0
+    max_val: 1
+  geqo_selection_bias:
+  - type: Real
+    version_from: 90300
+    min_val: 1.5
+    max_val: 2
+  geqo_threshold:
+  - type: Integer
+    version_from: 90300
+    min_val: 2
+    max_val: 2147483647
+  gin_fuzzy_search_limit:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2147483647
+  gin_pending_list_limit:
+  - type: Integer
+    version_from: 90500
+    min_val: 64
+    max_val: 2147483647
+    unit: kB
+  gss_accept_delegation:
+  - type: Bool
+    version_from: 160000
+  hash_mem_multiplier:
+  - type: Real
+    version_from: 130000
+    min_val: 1
+    max_val: 1000
+  hba_file:
+  - type: String
+    version_from: 90300
+  hot_standby:
+  - type: Bool
+    version_from: 90300
+  hot_standby_feedback:
+  - type: Bool
+    version_from: 90300
+  huge_pages:
+  - type: EnumBool
+    version_from: 90400
+    possible_values:
+    - try
+  huge_page_size:
+  - type: Integer
+    version_from: 140000
+    min_val: 0
+    max_val: 2147483647
+    unit: kB
+  icu_validation_level:
+  - type: Enum
+    version_from: 160000
+    possible_values:
+    - disabled
+    - debug5
+    - debug4
+    - debug3
+    - debug2
+    - debug1
+    - log
+    - notice
+    - warning
+    - error
+  ident_file:
+  - type: String
+    version_from: 90300
+  idle_in_transaction_session_timeout:
+  - type: Integer
+    version_from: 90600
+    min_val: 0
+    max_val: 2147483647
+    unit: ms
+  idle_session_timeout:
+  - type: Integer
+    version_from: 140000
+    min_val: 0
+    max_val: 2147483647
+    unit: ms
+  ignore_checksum_failure:
+  - type: Bool
+    version_from: 90300
+  ignore_invalid_pages:
+  - type: Bool
+    version_from: 130000
+  ignore_system_indexes:
+  - type: Bool
+    version_from: 90300
+  IntervalStyle:
+  - type: Enum
+    version_from: 90300
+    possible_values:
+    - postgres
+    - postgres_verbose
+    - sql_standard
+    - iso_8601
+  jit:
+  - type: Bool
+    version_from: 110000
+  jit_above_cost:
+  - type: Real
+    version_from: 110000
+    min_val: -1
+    max_val: 1.79769e+308
+  jit_debugging_support:
+  - type: Bool
+    version_from: 110000
+  jit_dump_bitcode:
+  - type: Bool
+    version_from: 110000
+  jit_expressions:
+  - type: Bool
+    version_from: 110000
+  jit_inline_above_cost:
+  - type: Real
+    version_from: 110000
+    min_val: -1
+    max_val: 1.79769e+308
+  jit_optimize_above_cost:
+  - type: Real
+    version_from: 110000
+    min_val: -1
+    max_val: 1.79769e+308
+  jit_profiling_support:
+  - type: Bool
+    version_from: 110000
+  jit_provider:
+  - type: String
+    version_from: 110000
+  jit_tuple_deforming:
+  - type: Bool
+    version_from: 110000
+  join_collapse_limit:
+  - type: Integer
+    version_from: 90300
+    min_val: 1
+    max_val: 2147483647
+  krb_caseins_users:
+  - type: Bool
+    version_from: 90300
+  krb_server_keyfile:
+  - type: String
+    version_from: 90300
+  krb_srvname:
+  - type: String
+    version_from: 90300
+    version_till: 90400
+  lc_messages:
+  - type: String
+    version_from: 90300
+  lc_monetary:
+  - type: String
+    version_from: 90300
+  lc_numeric:
+  - type: String
+    version_from: 90300
+  lc_time:
+  - type: String
+    version_from: 90300
+  listen_addresses:
+  - type: String
+    version_from: 90300
+  local_preload_libraries:
+  - type: String
+    version_from: 90300
+  lock_timeout:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2147483647
+    unit: ms
+  lo_compat_privileges:
+  - type: Bool
+    version_from: 90300
+  log_autovacuum_min_duration:
+  - type: Integer
+    version_from: 90300
+    min_val: -1
+    max_val: 2147483647
+    unit: ms
+  log_checkpoints:
+  - type: Bool
+    version_from: 90300
+  log_connections:
+  - type: Bool
+    version_from: 90300
+  log_destination:
+  - type: String
+    version_from: 90300
+  log_directory:
+  - type: String
+    version_from: 90300
+  log_disconnections:
+  - type: Bool
+    version_from: 90300
+  log_duration:
+  - type: Bool
+    version_from: 90300
+  log_error_verbosity:
+  - type: Enum
+    version_from: 90300
+    possible_values:
+    - terse
+    - default
+    - verbose
+  log_executor_stats:
+  - type: Bool
+    version_from: 90300
+  log_file_mode:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 511
+  log_filename:
+  - type: String
+    version_from: 90300
+  logging_collector:
+  - type: Bool
+    version_from: 90300
+  log_hostname:
+  - type: Bool
+    version_from: 90300
+  logical_decoding_work_mem:
+  - type: Integer
+    version_from: 130000
+    min_val: 64
+    max_val: 2147483647
+    unit: kB
+  log_line_prefix:
+  - type: String
+    version_from: 90300
+  log_lock_waits:
+  - type: Bool
+    version_from: 90300
+  log_min_duration_sample:
+  - type: Integer
+    version_from: 130000
+    min_val: -1
+    max_val: 2147483647
+    unit: ms
+  log_min_duration_statement:
+  - type: Integer
+    version_from: 90300
+    min_val: -1
+    max_val: 2147483647
+    unit: ms
+  log_min_error_statement:
+  - type: Enum
+    version_from: 90300
+    possible_values:
+    - debug5
+    - debug4
+    - debug3
+    - debug2
+    - debug1
+    - info
+    - notice
+    - warning
+    - error
+    - log
+    - fatal
+    - panic
+  log_min_messages:
+  - type: Enum
+    version_from: 90300
+    possible_values:
+    - debug5
+    - debug4
+    - debug3
+    - debug2
+    - debug1
+    - info
+    - notice
+    - warning
+    - error
+    - log
+    - fatal
+    - panic
+  log_parameter_max_length:
+  - type: Integer
+    version_from: 130000
+    min_val: -1
+    max_val: 1073741823
+    unit: B
+  log_parameter_max_length_on_error:
+  - type: Integer
+    version_from: 130000
+    min_val: -1
+    max_val: 1073741823
+    unit: B
+  log_parser_stats:
+  - type: Bool
+    version_from: 90300
+  log_planner_stats:
+  - type: Bool
+    version_from: 90300
+  log_recovery_conflict_waits:
+  - type: Bool
+    version_from: 140000
+  log_replication_commands:
+  - type: Bool
+    version_from: 90500
+  log_rotation_age:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 35791394
+    unit: min
+  log_rotation_size:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2097151
+    unit: kB
+  log_startup_progress_interval:
+  - type: Integer
+    version_from: 150000
+    min_val: 0
+    max_val: 2147483647
+    unit: ms
+  log_statement:
+  - type: Enum
+    version_from: 90300
+    possible_values:
+    - none
+    - ddl
+    - mod
+    - all
+  log_statement_sample_rate:
+  - type: Real
+    version_from: 130000
+    min_val: 0
+    max_val: 1
+  log_statement_stats:
+  - type: Bool
+    version_from: 90300
+  log_temp_files:
+  - type: Integer
+    version_from: 90300
+    min_val: -1
+    max_val: 2147483647
+    unit: kB
+  log_timezone:
+  - type: String
+    version_from: 90300
+  log_transaction_sample_rate:
+  - type: Real
+    version_from: 120000
+    min_val: 0
+    max_val: 1
+  log_truncate_on_rotation:
+  - type: Bool
+    version_from: 90300
+  logical_replication_mode:
+  - type: Enum
+    version_from: 160000
+    possible_values:
+    - buffered
+    - immediate
+  maintenance_io_concurrency:
+  - type: Integer
+    version_from: 130000
+    min_val: 0
+    max_val: 1000
+  maintenance_work_mem:
+  - type: Integer
+    version_from: 90300
+    min_val: 1024
+    max_val: 2147483647
+    unit: kB
+  max_connections:
+  - type: Integer
+    version_from: 90300
+    version_till: 90600
+    min_val: 1
+    max_val: 8388607
+  - type: Integer
+    version_from: 90600
+    min_val: 1
+    max_val: 262143
+  max_files_per_process:
+  - type: Integer
+    version_from: 90300
+    version_till: 130000
+    min_val: 25
+    max_val: 2147483647
+  - type: Integer
+    version_from: 130000
+    min_val: 64
+    max_val: 2147483647
+  max_locks_per_transaction:
+  - type: Integer
+    version_from: 90300
+    min_val: 10
+    max_val: 2147483647
+  max_logical_replication_workers:
+  - type: Integer
+    version_from: 100000
+    min_val: 0
+    max_val: 262143
+  max_parallel_apply_workers_per_subscription:
+  - type: Integer
+    version_from: 160000
+    min_val: 0
+    max_val: 1024
+  max_parallel_maintenance_workers:
+  - type: Integer
+    version_from: 110000
+    min_val: 0
+    max_val: 1024
+  max_parallel_workers:
+  - type: Integer
+    version_from: 100000
+    min_val: 0
+    max_val: 1024
+  max_parallel_workers_per_gather:
+  - type: Integer
+    version_from: 90600
+    min_val: 0
+    max_val: 1024
+  max_pred_locks_per_page:
+  - type: Integer
+    version_from: 100000
+    min_val: 0
+    max_val: 2147483647
+  max_pred_locks_per_relation:
+  - type: Integer
+    version_from: 100000
+    min_val: -2147483648
+    max_val: 2147483647
+  max_pred_locks_per_transaction:
+  - type: Integer
+    version_from: 90300
+    min_val: 10
+    max_val: 2147483647
+  max_prepared_transactions:
+  - type: Integer
+    version_from: 90300
+    version_till: 90600
+    min_val: 0
+    max_val: 8388607
+  - type: Integer
+    version_from: 90600
+    min_val: 0
+    max_val: 262143
+  max_replication_slots:
+  - type: Integer
+    version_from: 90400
+    version_till: 90600
+    min_val: 0
+    max_val: 8388607
+  - type: Integer
+    version_from: 90600
+    min_val: 0
+    max_val: 262143
+  max_slot_wal_keep_size:
+  - type: Integer
+    version_from: 130000
+    min_val: -1
+    max_val: 2147483647
+    unit: MB
+  max_stack_depth:
+  - type: Integer
+    version_from: 90300
+    min_val: 100
+    max_val: 2147483647
+    unit: kB
+  max_standby_archive_delay:
+  - type: Integer
+    version_from: 90300
+    min_val: -1
+    max_val: 2147483647
+    unit: ms
+  max_standby_streaming_delay:
+  - type: Integer
+    version_from: 90300
+    min_val: -1
+    max_val: 2147483647
+    unit: ms
+  max_sync_workers_per_subscription:
+  - type: Integer
+    version_from: 100000
+    min_val: 0
+    max_val: 262143
+  max_wal_senders:
+  - type: Integer
+    version_from: 90300
+    version_till: 90600
+    min_val: 0
+    max_val: 8388607
+  - type: Integer
+    version_from: 90600
+    min_val: 0
+    max_val: 262143
+  max_wal_size:
+  - type: Integer
+    version_from: 90500
+    version_till: 100000
+    min_val: 2
+    max_val: 2147483647
+    unit: 16MB
+  - type: Integer
+    version_from: 100000
+    min_val: 2
+    max_val: 2147483647
+    unit: MB
+  max_worker_processes:
+  - type: Integer
+    version_from: 90400
+    version_till: 90600
+    min_val: 1
+    max_val: 8388607
+  - type: Integer
+    version_from: 90600
+    min_val: 0
+    max_val: 262143
+  min_dynamic_shared_memory:
+  - type: Integer
+    version_from: 140000
+    min_val: 0
+    max_val: 2147483647
+    unit: MB
+  min_parallel_index_scan_size:
+  - type: Integer
+    version_from: 100000
+    min_val: 0
+    max_val: 715827882
+    unit: 8kB
+  min_parallel_relation_size:
+  - type: Integer
+    version_from: 90600
+    version_till: 100000
+    min_val: 0
+    max_val: 715827882
+    unit: 8kB
+  min_parallel_table_scan_size:
+  - type: Integer
+    version_from: 100000
+    min_val: 0
+    max_val: 715827882
+    unit: 8kB
+  min_wal_size:
+  - type: Integer
+    version_from: 90500
+    version_till: 100000
+    min_val: 2
+    max_val: 2147483647
+    unit: 16MB
+  - type: Integer
+    version_from: 100000
+    min_val: 2
+    max_val: 2147483647
+    unit: MB
+  old_snapshot_threshold:
+  - type: Integer
+    version_from: 90600
+    min_val: -1
+    max_val: 86400
+    unit: min
+  operator_precedence_warning:
+  - type: Bool
+    version_from: 90500
+    version_till: 140000
+  parallel_leader_participation:
+  - type: Bool
+    version_from: 110000
+  parallel_setup_cost:
+  - type: Real
+    version_from: 90600
+    min_val: 0
+    max_val: 1.79769e+308
+  parallel_tuple_cost:
+  - type: Real
+    version_from: 90600
+    min_val: 0
+    max_val: 1.79769e+308
+  password_encryption:
+  - type: Bool
+    version_from: 90300
+    version_till: 100000
+  - type: Enum
+    version_from: 100000
+    possible_values:
+    - md5
+    - scram-sha-256
+  plan_cache_mode:
+  - type: Enum
+    version_from: 120000
+    possible_values:
+    - auto
+    - force_generic_plan
+    - force_custom_plan
+  port:
+  - type: Integer
+    version_from: 90300
+    min_val: 1
+    max_val: 65535
+  post_auth_delay:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2147
+    unit: s
+  pre_auth_delay:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 60
+    unit: s
+  quote_all_identifiers:
+  - type: Bool
+    version_from: 90300
+  random_page_cost:
+  - type: Real
+    version_from: 90300
+    min_val: 0
+    max_val: 1.79769e+308
+  recovery_init_sync_method:
+  - type: Enum
+    version_from: 140000
+    possible_values:
+    - fsync
+    - syncfs
+  recovery_prefetch:
+  - type: EnumBool
+    version_from: 150000
+    possible_values:
+    - try
+  recursive_worktable_factor:
+  - type: Real
+    version_from: 150000
+    min_val: 0.001
+    max_val: 1000000.0
+  remove_temp_files_after_crash:
+  - type: Bool
+    version_from: 140000
+  replacement_sort_tuples:
+  - type: Integer
+    version_from: 90600
+    version_till: 110000
+    min_val: 0
+    max_val: 2147483647
+  reserved_connections:
+  - type: Integer
+    version_from: 160000
+    min_val: 0
+    max_val: 262143
+  restart_after_crash:
+  - type: Bool
+    version_from: 90300
+  row_security:
+  - type: Bool
+    version_from: 90500
+  scram_iterations:
+  - type: Integer
+    version_from: 160000
+    min_val: 1
+    max_val: 2147483647
+  search_path:
+  - type: String
+    version_from: 90300
+  send_abort_for_crash:
+  - type: Bool
+    version_from: 160000
+  send_abort_for_kill:
+  - type: Bool
+    version_from: 160000
+  seq_page_cost:
+  - type: Real
+    version_from: 90300
+    min_val: 0
+    max_val: 1.79769e+308
+  session_preload_libraries:
+  - type: String
+    version_from: 90400
+  session_replication_role:
+  - type: Enum
+    version_from: 90300
+    possible_values:
+    - origin
+    - replica
+    - local
+  shared_buffers:
+  - type: Integer
+    version_from: 90300
+    min_val: 16
+    max_val: 1073741823
+    unit: 8kB
+  shared_memory_type:
+  - type: Enum
+    version_from: 120000
+    possible_values:
+    - sysv
+    - mmap
+  shared_preload_libraries:
+  - type: String
+    version_from: 90300
+  sql_inheritance:
+  - type: Bool
+    version_from: 90300
+    version_till: 100000
+  ssl:
+  - type: Bool
+    version_from: 90300
+  ssl_ca_file:
+  - type: String
+    version_from: 90300
+  ssl_cert_file:
+  - type: String
+    version_from: 90300
+  ssl_ciphers:
+  - type: String
+    version_from: 90300
+  ssl_crl_dir:
+  - type: String
+    version_from: 140000
+  ssl_crl_file:
+  - type: String
+    version_from: 90300
+  ssl_dh_params_file:
+  - type: String
+    version_from: 100000
+  ssl_ecdh_curve:
+  - type: String
+    version_from: 90400
+  ssl_key_file:
+  - type: String
+    version_from: 90300
+  ssl_max_protocol_version:
+  - type: Enum
+    version_from: 120000
+    possible_values:
+    - ''
+    - tlsv1
+    - tlsv1.1
+    - tlsv1.2
+    - tlsv1.3
+  ssl_min_protocol_version:
+  - type: Enum
+    version_from: 120000
+    possible_values:
+    - tlsv1
+    - tlsv1.1
+    - tlsv1.2
+    - tlsv1.3
+  ssl_passphrase_command:
+  - type: String
+    version_from: 110000
+  ssl_passphrase_command_supports_reload:
+  - type: Bool
+    version_from: 110000
+  ssl_prefer_server_ciphers:
+  - type: Bool
+    version_from: 90400
+  ssl_renegotiation_limit:
+  - type: Integer
+    version_from: 90300
+    version_till: 90500
+    min_val: 0
+    max_val: 2147483647
+    unit: kB
+  standard_conforming_strings:
+  - type: Bool
+    version_from: 90300
+  statement_timeout:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2147483647
+    unit: ms
+  stats_fetch_consistency:
+  - type: Enum
+    version_from: 150000
+    possible_values:
+    - none
+    - cache
+    - snapshot
+  stats_temp_directory:
+  - type: String
+    version_from: 90300
+    version_till: 150000
+  superuser_reserved_connections:
+  - type: Integer
+    version_from: 90300
+    version_till: 90600
+    min_val: 0
+    max_val: 8388607
+  - type: Integer
+    version_from: 90600
+    min_val: 0
+    max_val: 262143
+  synchronize_seqscans:
+  - type: Bool
+    version_from: 90300
+  synchronous_commit:
+  - type: EnumBool
+    version_from: 90300
+    version_till: 90600
+    possible_values:
+    - local
+    - remote_write
+  - type: EnumBool
+    version_from: 90600
+    possible_values:
+    - local
+    - remote_write
+    - remote_apply
+  synchronous_standby_names:
+  - type: String
+    version_from: 90300
+  syslog_facility:
+  - type: Enum
+    version_from: 90300
+    possible_values:
+    - local0
+    - local1
+    - local2
+    - local3
+    - local4
+    - local5
+    - local6
+    - local7
+  syslog_ident:
+  - type: String
+    version_from: 90300
+  syslog_sequence_numbers:
+  - type: Bool
+    version_from: 90600
+  syslog_split_messages:
+  - type: Bool
+    version_from: 90600
+  tcp_keepalives_count:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2147483647
+  tcp_keepalives_idle:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2147483647
+    unit: s
+  tcp_keepalives_interval:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2147483647
+    unit: s
+  tcp_user_timeout:
+  - type: Integer
+    version_from: 120000
+    min_val: 0
+    max_val: 2147483647
+    unit: ms
+  temp_buffers:
+  - type: Integer
+    version_from: 90300
+    min_val: 100
+    max_val: 1073741823
+    unit: 8kB
+  temp_file_limit:
+  - type: Integer
+    version_from: 90300
+    min_val: -1
+    max_val: 2147483647
+    unit: kB
+  temp_tablespaces:
+  - type: String
+    version_from: 90300
+  TimeZone:
+  - type: String
+    version_from: 90300
+  timezone_abbreviations:
+  - type: String
+    version_from: 90300
+  trace_notify:
+  - type: Bool
+    version_from: 90300
+  trace_recovery_messages:
+  - type: Enum
+    version_from: 90300
+    possible_values:
+    - debug5
+    - debug4
+    - debug3
+    - debug2
+    - debug1
+    - log
+    - notice
+    - warning
+    - error
+  trace_sort:
+  - type: Bool
+    version_from: 90300
+  track_activities:
+  - type: Bool
+    version_from: 90300
+  track_activity_query_size:
+  - type: Integer
+    version_from: 90300
+    version_till: 110000
+    min_val: 100
+    max_val: 102400
+  - type: Integer
+    version_from: 110000
+    version_till: 130000
+    min_val: 100
+    max_val: 102400
+    unit: B
+  - type: Integer
+    version_from: 130000
+    min_val: 100
+    max_val: 1048576
+    unit: B
+  track_commit_timestamp:
+  - type: Bool
+    version_from: 90500
+  track_counts:
+  - type: Bool
+    version_from: 90300
+  track_functions:
+  - type: Enum
+    version_from: 90300
+    possible_values:
+    - none
+    - pl
+    - all
+  track_io_timing:
+  - type: Bool
+    version_from: 90300
+  track_wal_io_timing:
+  - type: Bool
+    version_from: 140000
+  transaction_deferrable:
+  - type: Bool
+    version_from: 90300
+  transaction_isolation:
+  - type: Enum
+    version_from: 90300
+    possible_values:
+    - serializable
+    - repeatable read
+    - read committed
+    - read uncommitted
+  transaction_read_only:
+  - type: Bool
+    version_from: 90300
+  transform_null_equals:
+  - type: Bool
+    version_from: 90300
+  unix_socket_directories:
+  - type: String
+    version_from: 90300
+  unix_socket_group:
+  - type: String
+    version_from: 90300
+  unix_socket_permissions:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 511
+  update_process_title:
+  - type: Bool
+    version_from: 90300
+  vacuum_buffer_usage_limit:
+  - type: Integer
+    version_from: 160000
+    min_val: 0
+    max_val: 16777216
+    unit: kB
+  vacuum_cleanup_index_scale_factor:
+  - type: Real
+    version_from: 110000
+    version_till: 140000
+    min_val: 0
+    max_val: 10000000000.0
+  vacuum_cost_delay:
+  - type: Integer
+    version_from: 90300
+    version_till: 120000
+    min_val: 0
+    max_val: 100
+    unit: ms
+  - type: Real
+    version_from: 120000
+    min_val: 0
+    max_val: 100
+    unit: ms
+  vacuum_cost_limit:
+  - type: Integer
+    version_from: 90300
+    min_val: 1
+    max_val: 10000
+  vacuum_cost_page_dirty:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 10000
+  vacuum_cost_page_hit:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 10000
+  vacuum_cost_page_miss:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 10000
+  vacuum_defer_cleanup_age:
+  - type: Integer
+    version_from: 90300
+    version_till: 160000
+    min_val: 0
+    max_val: 1000000
+  vacuum_failsafe_age:
+  - type: Integer
+    version_from: 140000
+    min_val: 0
+    max_val: 2100000000
+  vacuum_freeze_min_age:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 1000000000
+  vacuum_freeze_table_age:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2000000000
+  vacuum_multixact_failsafe_age:
+  - type: Integer
+    version_from: 140000
+    min_val: 0
+    max_val: 2100000000
+  vacuum_multixact_freeze_min_age:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 1000000000
+  vacuum_multixact_freeze_table_age:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2000000000
+  wal_buffers:
+  - type: Integer
+    version_from: 90300
+    min_val: -1
+    max_val: 262143
+    unit: 8kB
+  wal_compression:
+  - type: Bool
+    version_from: 90500
+    version_till: 150000
+  - type: EnumBool
+    version_from: 150000
+    possible_values:
+    - pglz
+    - lz4
+    - zstd
+  wal_consistency_checking:
+  - type: String
+    version_from: 100000
+  wal_decode_buffer_size:
+  - type: Integer
+    version_from: 150000
+    min_val: 65536
+    max_val: 1073741823
+    unit: B
+  wal_init_zero:
+  - type: Bool
+    version_from: 120000
+  wal_keep_segments:
+  - type: Integer
+    version_from: 90300
+    version_till: 130000
+    min_val: 0
+    max_val: 2147483647
+  wal_keep_size:
+  - type: Integer
+    version_from: 130000
+    min_val: 0
+    max_val: 2147483647
+    unit: MB
+  wal_level:
+  - type: Enum
+    version_from: 90300
+    version_till: 90400
+    possible_values:
+    - minimal
+    - archive
+    - hot_standby
+  - type: Enum
+    version_from: 90400
+    version_till: 90600
+    possible_values:
+    - minimal
+    - archive
+    - hot_standby
+    - logical
+  - type: Enum
+    version_from: 90600
+    possible_values:
+    - minimal
+    - replica
+    - logical
+  wal_log_hints:
+  - type: Bool
+    version_from: 90400
+  wal_receiver_create_temp_slot:
+  - type: Bool
+    version_from: 130000
+  wal_receiver_status_interval:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2147483
+    unit: s
+  wal_receiver_timeout:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2147483647
+    unit: ms
+  wal_recycle:
+  - type: Bool
+    version_from: 120000
+  wal_retrieve_retry_interval:
+  - type: Integer
+    version_from: 90500
+    min_val: 1
+    max_val: 2147483647
+    unit: ms
+  wal_sender_timeout:
+  - type: Integer
+    version_from: 90300
+    min_val: 0
+    max_val: 2147483647
+    unit: ms
+  wal_skip_threshold:
+  - type: Integer
+    version_from: 130000
+    min_val: 0
+    max_val: 2147483647
+    unit: kB
+  wal_sync_method:
+  - type: Enum
+    version_from: 90300
+    possible_values:
+    - fsync
+    - fdatasync
+    - open_sync
+    - open_datasync
+  wal_writer_delay:
+  - type: Integer
+    version_from: 90300
+    min_val: 1
+    max_val: 10000
+    unit: ms
+  wal_writer_flush_after:
+  - type: Integer
+    version_from: 90600
+    min_val: 0
+    max_val: 2147483647
+    unit: 8kB
+  work_mem:
+  - type: Integer
+    version_from: 90300
+    min_val: 64
+    max_val: 2147483647
+    unit: kB
+  xmlbinary:
+  - type: Enum
+    version_from: 90300
+    possible_values:
+    - base64
+    - hex
+  xmloption:
+  - type: Enum
+    version_from: 90300
+    possible_values:
+    - content
+    - document
+  zero_damaged_pages:
+  - type: Bool
+    version_from: 90300
+recovery_parameters:
+  archive_cleanup_command:
+  - type: String
+    version_from: 90300
+  pause_at_recovery_target:
+  - type: Bool
+    version_from: 90300
+    version_till: 90500
+  primary_conninfo:
+  - type: String
+    version_from: 90300
+  primary_slot_name:
+  - type: String
+    version_from: 90400
+  promote_trigger_file:
+  - type: String
+    version_from: 120000
+    version_till: 160000
+  recovery_end_command:
+  - type: String
+    version_from: 90300
+  recovery_min_apply_delay:
+  - type: Integer
+    version_from: 90400
+    min_val: 0
+    max_val: 2147483647
+    unit: ms
+  recovery_target:
+  - type: Enum
+    version_from: 90400
+    possible_values:
+    - immediate
+    - ''
+  recovery_target_action:
+  - type: Enum
+    version_from: 90500
+    possible_values:
+    - pause
+    - promote
+    - shutdown
+  recovery_target_inclusive:
+  - type: Bool
+    version_from: 90300
+  recovery_target_lsn:
+  - type: String
+    version_from: 100000
+  recovery_target_name:
+  - type: String
+    version_from: 90400
+  recovery_target_time:
+  - type: String
+    version_from: 90300
+  recovery_target_timeline:
+  - type: String
+    version_from: 90300
+  recovery_target_xid:
+  - type: String
+    version_from: 90300
+  restore_command:
+  - type: String
+    version_from: 90300
+  standby_mode:
+  - type: Bool
+    version_from: 90300
+    version_till: 120000
+  trigger_file:
+  - type: String
+    version_from: 90300
+    version_till: 120000
+

@@ -10,6 +10,7 @@ from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 import patroni.psycopg as psycopg
 
 from patroni.async_executor import CriticalTask
+from patroni.collections import CaseInsensitiveSet
 from patroni.config import GlobalConfig
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PostgresConnectionException, PatroniException
@@ -17,10 +18,14 @@ from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
 from patroni.postgresql.postmaster import PostmasterProcess
+from patroni.postgresql.validator import (ValidatorFactoryNoType, ValidatorFactoryInvalidType,
+                                          ValidatorFactoryInvalidSpec, ValidatorFactory, InvalidGucValidatorsFile,
+                                          _get_postgres_guc_validators, _read_postgres_gucs_validators_file,
+                                          _load_postgres_gucs_validators, Bool, Integer, Real, Enum, EnumBool, String)
 from patroni.utils import RetryFailedError
 from threading import Thread, current_thread
 
-from . import BaseTestPostgresql, MockCursor, MockPostmaster, psycopg_connect
+from . import BaseTestPostgresql, MockCursor, MockPostmaster, psycopg_connect, mock_available_gucs
 
 
 mtime_ret = {}
@@ -91,6 +96,7 @@ Data page checksum version:           0
 
 @patch('subprocess.call', Mock(return_value=0))
 @patch('patroni.psycopg.connect', psycopg_connect)
+@patch.object(Postgresql, 'available_gucs', mock_available_gucs)
 class TestPostgresql(BaseTestPostgresql):
 
     @patch('subprocess.call', Mock(return_value=0))
@@ -98,6 +104,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
+    @patch.object(Postgresql, 'available_gucs', mock_available_gucs)
     def setUp(self):
         super(TestPostgresql, self).setUp()
         self.p.config.write_postgresql_conf()
@@ -739,3 +746,212 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=True))
     def test_handle_parameter_change(self):
         self.p.handle_parameter_change()
+
+    def test_validator_factory(self):
+        # validator with no type
+        validator = {
+            'version_from': 90300,
+            'version_till': None,
+        }
+        with self.assertRaises(ValidatorFactoryNoType) as e:
+            ValidatorFactory(validator)
+        self.assertEqual(str(e.exception), 'Validator contains no type.')
+
+        # validator with invalid type
+        validator = {
+            'type': 'Random',
+            'version_from': 90300,
+            'version_till': None,
+        }
+        with self.assertRaises(ValidatorFactoryInvalidType) as e:
+            ValidatorFactory(validator)
+        self.assertEqual(str(e.exception), f'Unexpected validator type: `{validator["type"]}`.')
+
+        # validator with missing attributes
+        validator = {
+            'type': 'Integer',
+            'version_from': 90300,
+            'min_val': 0,
+        }
+        with self.assertRaises(ValidatorFactoryInvalidSpec) as e:
+            ValidatorFactory(validator)
+        type_ = validator.pop('type')
+        self.assertRegex(
+            str(e.exception),
+            rf"Failed to parse `{type_}` validator \(`{validator}`\): `(Number\.)?__init__\(\) missing 1 "
+            "required keyword-only argument: 'max_val'`."
+        )
+
+        # valid validators
+        # Bool
+        validator = {
+            'type': 'Bool',
+            'version_from': 90300,
+            'version_till': None,
+        }
+        ret = ValidatorFactory(validator)
+        self.assertIsInstance(ret, Bool)
+        self.assertEqual(
+            ret.__dict__,
+            Bool(version_from=validator['version_from'], version_till=validator['version_till']).__dict__,
+        )
+
+        # Integer
+        validator = {
+            'type': 'Integer',
+            'version_from': 90300,
+            'version_till': None,
+            'min_val': 1,
+            'max_val': 100,
+            'unit': None,
+        }
+        ret = ValidatorFactory(validator)
+        self.assertIsInstance(ret, Integer)
+        self.assertEqual(
+            ret.__dict__,
+            Integer(version_from=validator['version_from'], version_till=validator['version_till'],
+                    min_val=validator['min_val'], max_val=validator['max_val'], unit=validator['unit']).__dict__,
+        )
+
+        # Real
+        validator = {
+            'type': 'Real',
+            'version_from': 90300,
+            'version_till': None,
+            'min_val': 1.0,
+            'max_val': 100.0,
+            'unit': None,
+        }
+        ret = ValidatorFactory(validator)
+        self.assertIsInstance(ret, Real)
+        self.assertEqual(
+            ret.__dict__,
+            Real(version_from=validator['version_from'], version_till=validator['version_till'],
+                 min_val=validator['min_val'], max_val=validator['max_val'], unit=validator['unit']).__dict__,
+        )
+
+        # Enum
+        validator = {
+            'type': 'Enum',
+            'version_from': 90300,
+            'version_till': None,
+            'possible_values': ('abc', 'def'),
+        }
+        ret = ValidatorFactory(validator)
+        self.assertIsInstance(ret, Enum)
+        self.assertEqual(
+            ret.__dict__,
+            Enum(version_from=validator['version_from'], version_till=validator['version_till'],
+                 possible_values=validator['possible_values']).__dict__,
+        )
+
+        # EnumBool
+        validator = {
+            'type': 'EnumBool',
+            'version_from': 90300,
+            'version_till': None,
+            'possible_values': ('abc', 'def'),
+        }
+        ret = ValidatorFactory(validator)
+        self.assertIsInstance(ret, EnumBool)
+        self.assertEqual(
+            ret.__dict__,
+            EnumBool(version_from=validator['version_from'], version_till=validator['version_till'],
+                     possible_values=validator['possible_values']).__dict__,
+        )
+
+        # String
+        validator = {
+            'type': 'String',
+            'version_from': 90300,
+            'version_till': None,
+        }
+        ret = ValidatorFactory(validator)
+        self.assertIsInstance(ret, String)
+        self.assertEqual(
+            ret.__dict__,
+            String(version_from=validator['version_from'], version_till=validator['version_till']).__dict__,
+        )
+
+    def test__get_postgres_guc_validators(self):
+        # normal run
+        parameter = 'my_parameter'
+
+        config = {
+            parameter: [{
+                'type': 'Bool',
+                'version_from': 90300,
+                'version_till': 90500,
+            }, {
+                'type': 'EnumBool',
+                'version_from': 90500,
+                'version_till': 90600,
+                'possible_values': [
+                    'always',
+                ],
+            }]
+        }
+        ret = _get_postgres_guc_validators(config, parameter)
+        self.assertIsInstance(ret, tuple)
+        self.assertEqual(len(ret), 2)
+        self.assertIsInstance(ret[0], Bool)
+        self.assertIsInstance(ret[1], EnumBool)
+
+        # log exceptions
+        del config[parameter][0]['type']
+
+        with patch('patroni.postgresql.validator.logger.warning') as mock_logger:
+            ret = _get_postgres_guc_validators(config, parameter)
+            self.assertIsInstance(ret, tuple)
+            self.assertEqual(len(ret), 1)
+            self.assertIsInstance(ret[0], EnumBool)
+
+            mock_logger.assert_called_once()
+            mock_call = mock_logger.call_args[0]
+            self.assertEqual(mock_call[0], 'Faced an issue while parsing a validator for parameter `%s`: `%r`')
+            self.assertEqual(mock_call[1], parameter)
+            self.assertIsInstance(mock_call[2], ValidatorFactoryNoType)
+
+    def test__read_postgres_gucs_validators_file(self):
+        # raise exception
+        with self.assertRaises(InvalidGucValidatorsFile) as exc:
+            _read_postgres_gucs_validators_file('random_file.yaml')
+        self.assertEqual(
+            str(exc.exception),
+            "Unexpected issue while reading parameters file `random_file.yaml`: `[Errno 2] No such file or directory: "
+            "'random_file.yaml'`."
+        )
+
+    def test__load_postgres_gucs_validators(self):
+        # log messages
+        with patch('os.walk', Mock(return_value=iter([('.', [], ['file.txt', 'random.yaml'])]))), \
+             patch('patroni.postgresql.validator.logger.info') as mock_info, \
+             patch('patroni.postgresql.validator.logger.warning') as mock_warning:
+            _load_postgres_gucs_validators()
+            mock_info.assert_called_once_with('Ignored a non-YAML file found under `available_parameters` directory: '
+                                              '`%s`.', os.path.join('.', 'file.txt'))
+            mock_warning.assert_called_once()
+            self.assertIn(
+                "Unexpected issue while reading parameters file `{0}`: `[Errno 2] No such file or "
+                "directory:".format(os.path.join('.', 'random.yaml')),
+                mock_warning.call_args[0][0]
+            )
+
+
+@patch('subprocess.call', Mock(return_value=0))
+@patch('patroni.psycopg.connect', psycopg_connect)
+class TestPostgresql2(BaseTestPostgresql):
+
+    @patch('subprocess.call', Mock(return_value=0))
+    @patch('os.rename', Mock())
+    @patch('patroni.postgresql.CallbackExecutor', Mock())
+    @patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))
+    @patch.object(Postgresql, 'is_running', Mock(return_value=True))
+    def setUp(self):
+        super(TestPostgresql2, self).setUp()
+
+    @patch('subprocess.check_output', Mock(return_value='\n'.join(mock_available_gucs.return_value).encode('utf-8')))
+    def test_available_gucs(self):
+        gucs = self.p.available_gucs
+        self.assertIsInstance(gucs, CaseInsensitiveSet)
+        self.assertEqual(gucs, mock_available_gucs.return_value)

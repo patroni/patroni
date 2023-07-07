@@ -88,7 +88,7 @@ class Flake8(_Command):
                 yield package_directory
 
     def targets(self):
-        return [package for package in self.package_files()] + ['tests', 'setup.py']
+        return [package for package in self.package_files()] + ['tests', 'features', 'setup.py']
 
     def run(self):
         from flake8.main.cli import main
@@ -116,7 +116,7 @@ class PyTest(_Command):
 
 
 def read(fname):
-    with open(os.path.join(__location__, fname)) as fd:
+    with open(os.path.join(__location__, fname), encoding='utf-8') as fd:
         return fd.read()
 
 
@@ -157,7 +157,10 @@ def setup_package(version):
         long_description=read('README.rst'),
         classifiers=CLASSIFIERS,
         packages=find_packages(exclude=['tests', 'tests.*']),
-        package_data={MAIN_PACKAGE: ["*.json"]},
+        package_data={MAIN_PACKAGE: [
+            "postgresql/available_parameters/*.yml",
+            "postgresql/available_parameters/*.yaml",
+        ]},
         install_requires=install_requires,
         extras_require=EXTRAS_REQUIRE,
         cmdclass=cmdclass,

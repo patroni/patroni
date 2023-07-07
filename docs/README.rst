@@ -4,7 +4,7 @@
 Introduction
 ============
 
-Patroni originated as a fork of `Governor <https://github.com/compose/governor>`__, the project from Compose. It includes plenty of new features.
+Patroni is a template for high availability (HA) PostgreSQL solutions using Python. Patroni originated as a fork of `Governor <https://github.com/compose/governor>`__, the project from Compose. It includes plenty of new features.
 
 For an example of a Docker-based deployment with Patroni, see `Spilo <https://github.com/zalando/spilo>`__, currently in use at Zalando.
 

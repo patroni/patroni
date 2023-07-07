@@ -70,7 +70,8 @@ class TestConfig(unittest.TestCase):
             'PATRONI_REPLICATION_USERNAME': 'replicator',
             'PATRONI_REPLICATION_PASSWORD': 'rep-pass',
             'PATRONI_admin_PASSWORD': 'admin',
-            'PATRONI_admin_OPTIONS': 'createrole,createdb'
+            'PATRONI_admin_OPTIONS': 'createrole,createdb',
+            'PATRONI_POSTGRESQL_BIN_POSTGRES': 'sergtsop'
         })
         config = Config('postgres0.yml')
         with patch.object(Config, '_load_config_file', Mock(return_value={'restapi': {}})):

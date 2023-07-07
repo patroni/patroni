@@ -44,18 +44,19 @@ def start_citus(context, name, group):
     return context.pctl.start(name, custom_config={"citus": {"database": "postgres", "group": int(group)}})
 
 
-@step('{name1:w} is registered in the {name2:w} as the worker in group {group:d} after {time_limit:d} seconds')
-def check_registration(context, name1, name2, group, time_limit):
+@step('{name1:w} is registered in the {name2:w} as the {role:w} in group {group:d} after {time_limit:d} seconds')
+def check_registration(context, name1, name2, role, group, time_limit):
     time_limit *= context.timeout_multiplier
     max_time = time.time() + int(time_limit)
-    pg_dist_value = None
+
     worker_port = int(context.pctl.query(name1, "SHOW port").fetchone()[0])
+
     while time.time() < max_time:
         try:
-            r = context.pctl.query(name2,
-                                   "SELECT nodeport FROM pg_catalog.pg_dist_node WHERE groupid = {0}".format(group))
-            pg_dist_value = r.fetchone()[0]
-            if pg_dist_value == worker_port:
+            cur = context.pctl.query(name2, "SELECT nodeport, noderole"
+                                            " FROM pg_catalog.pg_dist_node WHERE groupid = {0}".format(group))
+            mapping = {r[0]: r[1] for r in cur}
+            if mapping.get(worker_port) == role:
                 return
         except Exception:
             pass
