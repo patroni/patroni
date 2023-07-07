@@ -326,6 +326,21 @@ def parse_int(value: Any, base_unit: Optional[str] = None) -> Optional[int]:
         >>> parse_int('1TB', 'GB') is None
         True
 
+        >>> parse_int(50, None) == 50
+        True
+
+        >>> parse_int("51", None) == 51
+        True
+
+        >>> parse_int("nonsense", None) == None
+        True
+
+        >>> parse_int("nonsense", "kB") == None
+        True
+
+        >>> parse_int("nonsense") == None
+        True
+
         >>> parse_int(0) == 0
         True
 
