@@ -258,7 +258,7 @@ option_insecure = click.option('-k', '--insecure', is_flag=True, help='Allow con
 role_choice = click.Choice(['leader', 'primary', 'standby-leader', 'replica', 'standby', 'any', 'master'])
 
 
-@click.group()
+@click.group(cls=click.Group)
 @click.option('--config-file', '-c', help='Configuration file',
               envvar='PATRONICTL_CONFIG_FILE', default=CONFIG_FILE_PATH)
 @click.option('--dcs-url', '--dcs', '-d', 'dcs_url', help='The DCS connect url', envvar='DCS_URL')

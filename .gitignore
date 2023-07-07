@@ -57,3 +57,9 @@ docs/source/_templates/
 
 #VSCode IDE
 .vscode/
+
+# Virtual environment
+venv*/
+
+# Default test data directory
+data/
