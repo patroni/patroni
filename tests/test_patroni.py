@@ -205,36 +205,39 @@ class TestPatroni(unittest.TestCase):
             self.assertRaises(SystemExit, check_psycopg)
 
     def test_ensure_unique_name(self):
-        # None/empty cluster implies unique name
-        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=None)):
-            self.p.ensure_unique_name()
-        empty_cluster = Cluster.empty()
-        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=empty_cluster)):
-            self.p.ensure_unique_name()
-        without_members = empty_cluster._asdict()
-        del without_members['members']
-        # Cluster with members with different names implies unique name
-        okay_cluster = Cluster(
-            members=[Member(version=1, name="distinct", session=1, data={})],
-            **without_members
-        )
-        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=okay_cluster)):
-            self.p.ensure_unique_name()
-        # Cluster with a member with the same name that is running
-        bad_cluster = Cluster(
-            members=[Member(version=1, name="postgresql0", session=1, data={
-                "api_url": "https://127.0.0.1:8008",
-            })],
-            **without_members
-        )
-
-        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=bad_cluster)):
-            # If the api of the running node cannot be reached, this implies unique name
-            with patch.object(self.p, 'request', Mock(side_effect=ConnectionError)):
-                self.p.ensure_unique_name()
-            # Only if the api of the running node is reachable do we throw an error
-            with patch.object(self.p, 'request', Mock()):
-                sys_exit = Mock()
-                with patch('sys.exit', sys_exit):
+        # Watch sys.exit calls
+        sys_exit = Mock()
+        with patch('sys.exit', sys_exit):
+            # None/empty cluster implies unique name
+            with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=None)):
+                self.assertIsNone(self.p.ensure_unique_name())
+            empty_cluster = Cluster.empty()
+            with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=empty_cluster)):
+                self.assertIsNone(self.p.ensure_unique_name())
+            without_members = empty_cluster._asdict()
+            del without_members['members']
+            # Cluster with members with different names implies unique name
+            okay_cluster = Cluster(
+                members=[Member(version=1, name="distinct", session=1, data={})],
+                **without_members
+            )
+            with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=okay_cluster)):
+                self.assertIsNone(self.p.ensure_unique_name())
+                
+            # Cluster with a member with the same name that is running
+            bad_cluster = Cluster(
+                members=[Member(version=1, name="postgresql0", session=1, data={
+                    "api_url": "https://127.0.0.1:8008",
+                })],
+                **without_members
+            )
+            with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=bad_cluster)):
+                # If the api of the running node cannot be reached, this implies unique name
+                with patch.object(self.p, 'request', Mock(side_effect=ConnectionError)):
+                    self.assertIsNone(self.p.ensure_unique_name())
+                # None of the above should call sys exit
+                sys_exit.assert_not_called()
+                # Only if the api of the running node is reachable do we throw an error
+                with patch.object(self.p, 'request', Mock()):
                     self.p.ensure_unique_name()
                     sys_exit.assert_called_once_with(1)
