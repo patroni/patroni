@@ -436,6 +436,22 @@ class Ha(object):
             return self._async_executor.try_run_async(msg, self._do_reinitialize, args=(self.cluster,)) or msg
 
     def recover(self) -> str:
+        """Handle the case when postgres ist't running.
+
+        Depending on the state of Patroni, DCS cluster view, and pg_controldata the following could happen:
+        - if ``primary_start_timeout`` is 0 and this node owns the leader lock, the lock
+          will be voluntarily released if there are healthy replicas to take it over.
+        - if postgres was running as a ``primary`` and this node owns the leader lock, postgres is started as primary.
+        - crash recover in a single-user mode is execute in the following cases:
+          - postgres was running as ``primary`` wasn't ``shut down`` cleanly and there is no leader in DCS
+          - postgres was running as ``replica`` wasn't ``shut down in recovery`` (cleanly)
+            and we need to run ``pg_rewind`` to join back to the cluster.
+        - ``pg_rewind`` is executed if it is necessary, or optinally, the data directory could
+           be removed if it is allowed by configuration.
+        - after ``crash recovery`` and/or ``pg_rewind`` are executed, postgres is started in recovery.
+
+        :returns: action message, describing what was performed.
+        """
         if self.has_lock() and self.update_lock():
             timeout = self.global_config.primary_start_timeout
             if timeout == 0:
@@ -452,19 +468,20 @@ class Ha(object):
         data = self.state_handler.controldata()
         logger.info('pg_controldata:\n%s\n', '\n'.join('  {0}: {1}'.format(k, v) for k, v in data.items()))
 
-        # timeout > 0 indicates that we still have the leader lock and it was just updated
-        if timeout and data.get('Database cluster state') in ('in production', 'shutting down', 'shut down')\
+        # timeout > 0 indicates that we still have the leader lock, and it was just updated
+        if timeout\
+                and data.get('Database cluster state') in ('in production', 'shutting down', 'shut down')\
                 and self.state_handler.state == 'crashed'\
                 and self.state_handler.role in ('primary', 'master')\
                 and not self.state_handler.config.recovery_conf_exists():
-            # We know 100% that we were running as a primary a few moments ago, therefore could just start postgres
+            # We know 100% that we were running as a primary a few  moments ago, therefore could just start postgres
             msg = 'starting primary after failure'
             if self._async_executor.try_run_async(msg, self.state_handler.start,
                                                   args=(timeout, self._async_executor.critical_task)) is None:
                 self.recovering = True
                 return msg
 
-        # Postgres is not running and we will restart in standby mode. Watchdog is not needed until we promote.
+        # Postgres is not running, and we will restart in standby mode. Watchdog is not needed until we promote.
         self.watchdog.disable()
 
         if data.get('Database cluster state') in ('in production', 'shutting down', 'in crash recovery'):
