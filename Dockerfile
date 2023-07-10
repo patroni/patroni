@@ -71,7 +71,7 @@ RUN set -ex \
     # Clean up all useless packages and some files
     && apt-get purge -y --allow-remove-essential python3-pip gzip bzip2 util-linux e2fsprogs \
                 libmagic1 bsdmainutils login ncurses-bin libmagic-mgc e2fslibs bsdutils \
-                exim4-config gnupg-agent dirmngr libpython2.7-stdlib libpython2.7-minimal \
+                exim4-config gnupg-agent dirmngr \
                 git make \
     && apt-get autoremove -y \
     && apt-get clean -y \
