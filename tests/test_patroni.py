@@ -213,6 +213,7 @@ class TestPatroni(unittest.TestCase):
             self.assertIsNone(self.p.ensure_unique_name())
         without_members = empty_cluster._asdict()
         del without_members['members']
+
         # Cluster with members with different names implies unique name
         okay_cluster = Cluster(
             members=[Member(version=1, name="distinct", session=1, data={})],
@@ -220,7 +221,7 @@ class TestPatroni(unittest.TestCase):
         )
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=okay_cluster)):
             self.assertIsNone(self.p.ensure_unique_name())
-            
+
         # Cluster with a member with the same name that is running
         bad_cluster = Cluster(
             members=[Member(version=1, name="postgresql0", session=1, data={
