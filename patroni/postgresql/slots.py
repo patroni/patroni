@@ -33,7 +33,7 @@ def compare_slots(s1: Dict[str, Any], s2: Dict[str, Any], dbid: str = 'database'
 
     :param s1: First slot dictionary to be compared.
     :param s2: Second slot dictionary to be compared.
-    :param dbid: Optional attribute to be compared when comparing ``physical`` replication slots.
+    :param dbid: Optional attribute to be compared when comparing ``logical`` replication slots.
 
     :return: ``True`` if the slot ``type`` of *s1* and *s2* is matches, and the ``type`` of *s1* is ``physical``,
              OR the ``types`` match AND the *dbid* and ``plugin`` attributes are equal.
@@ -48,7 +48,7 @@ def compare_slots(s1: Dict[str, Any], s2: Dict[str, Any], dbid: str = 'database'
 class SlotsAdvanceThread(Thread):
     """Daemon process :class:``Thread`` object for advancing logical replication slots on replicas.
 
-    This ensures that slot advancing queries sent to postgres do not block the main loop and a cause leader lock expiry.
+    This ensures that slot advancing queries sent to postgres do not block the main loop and cause leader lock expiry.
 
     :ivar daemon: Enable background long-lived process thread.
     """
@@ -77,7 +77,7 @@ class SlotsAdvanceThread(Thread):
         :param cur: database connection cursor.
         :param database: name of the database associated with the slot.
         :param slot: name of the slot to be synchronised.
-        :param lsn: last know LSN position
+        :param lsn: last known LSN position
         """
         failed = copy = False
         try:
@@ -188,10 +188,10 @@ class SlotsHandler:
         self.schedule()
 
     def _query(self, sql: str, *params: Any) -> Union['cursor', 'Cursor[Any]']:
-        """Helper method for PostgreSQL :meth:``query``.
+        """Helper method for :meth:`PostgreSQL.query`.
 
         :param sql: SQL statement to execute.
-        :param params: parameters to pass through to :meth:``query``.
+        :param params: parameters to pass through to :meth:`Postgresql.query`.
 
         :returns: query response.
         """
@@ -260,9 +260,6 @@ class SlotsHandler:
         If PostgreSQL version is 10 or newer also store ``catalog_xmin`` and ``confirmed_flush_lsn``.
 
         When using logical slots, store information separately for slot synchronisation (copying) on replica nodes.
-
-        :returns: replication slots dictionary, either previously stored or refreshed if a load is scheduled
-
         """
         if self._postgresql.major_version >= 90400 and self._schedule_load_slots:
             replication_slots: Dict[str, Dict[str, Any]] = {}
@@ -286,14 +283,13 @@ class SlotsHandler:
                 self._force_readiness_check = False
 
     def ignore_replication_slot(self, cluster: Cluster, name: str) -> bool:
-        """Filter slots replication slot information, used in Citus enabled clusters.
+        """Check if slot *name* should not be managed by Patroni.
 
         :param cluster: cluster state information object.
         :param name: name of the slot to ignore
 
-        :return: ``True`` if a ``matcher`` is configured and matches attributes checked,
-                 otherwise will pass through and return result of :class:``CitusHandler``
-                 :meth:``ignore_replication_slot``.
+        :returns: ``True`` if slot *name* matches any slot specified in ``ignore_slots`` configuration,
+                 otherwise will pass through and return result of :meth:`CitusHandler.ignore_replication_slot`.
         """
         slot = self._replication_slots[name]
         if cluster.config:
@@ -331,7 +327,7 @@ class SlotsHandler:
 
         .. note::
             Slots that are not contained in *slots* will be dropped.
-            Slots can be filtered out with :meth:``ignore_replication_slot`` configuration.
+            Slots can be filtered out with ``ignore_slots`` configuration.
 
             Slots that have matching names but do not match attributes in *slots* will also be dropped.
 
@@ -384,14 +380,14 @@ class SlotsHandler:
                 self._schedule_load_slots = True
 
     @contextmanager
-    def get_local_connection_cursor(self, **kwargs: Any) -> Generator[Union['cursor', 'Cursor[Any]'], None, None]:
+    def get_local_connection_cursor(self, **kwargs: Any) -> Iterator[Union['cursor', 'Cursor[Any]']]:
         """Create a new database connection to local server.
 
         Avoids timeout issues with :meth:``pg_replication_slot_advance``
 
-        :param kwargs: Any keyword arguments to pass to :func:``psycopg.connect``.
+        :param kwargs: Any keyword arguments to pass to :func:`psycopg.connect`.
 
-        :yields: connection cursor object, note implementation varies depending on version of ``psycopg``.
+        :yields: connection cursor object, note implementation varies depending on version of :mod:`psycopg`.
         """
         conn_kwargs = self._postgresql.config.local_connect_kwargs
         conn_kwargs.update(kwargs)
@@ -438,7 +434,7 @@ class SlotsHandler:
 
         :param slots: dictionary containing slot information.
 
-        :return: tuple with the result of the scheduling of slot advancement, ``failed`` and list of slots to ``copy``.
+        :return: tuple with the result of the scheduling of slot advancement: ``failed`` and list of slots to copy.
         """
         if not self._advance:
             self._advance = SlotsAdvanceThread(self)
@@ -494,7 +490,7 @@ class SlotsHandler:
         are known and active create them on replica nodes.
 
         :param cluster: object containing stateful information for the cluster.
-        :param nofailover: ``True`` if this node has been tagged to not failover.
+        :param nofailover: ``True`` if this node has been tagged to not be a failover candidate.
         :param replicatefrom: the tag containing the node to replicate from.
         :param paused: ``True`` if the cluster is in maintenance mode.
 
@@ -552,7 +548,9 @@ class SlotsHandler:
         3) store logical slot ``catalog_xmin`` when the physical slot ``catalog_xmin`` becomes valid.
 
         :param cluster: object containing stateful information for the cluster.
-        :param replicatefrom: name of the host that should be used to replicate from.
+        :param replicatefrom: name of the member that should be used to replicate from.
+
+        :returns: ``False`` if any issue while checking logical slots readiness, ``True`` otherwise.
         """
         catalog_xmin = None
         if self.logical_slots_processing_queue and cluster.leader:
@@ -583,12 +581,14 @@ class SlotsHandler:
                                              catalog_xmin: Optional[int] = None) -> bool:
         """Store pending logical slot information for ``catalog_xmin`` on the primary.
 
-        Remember catalog_xmin of logical slots on the primary when catalog_xmin of the physical slot became valid.
-        Logical slots on replica will be safe to use after promote when catalog_xmin of the physical slot overtakes
+        Remember ``catalog_xmin`` of logical slots on the primary when ``catalog_xmin`` of the physical slot became valid.
+        Logical slots on replica will be safe to use after promote when ``catalog_xmin`` of the physical slot overtakes
         these values.
 
-        :param catalog_xmin: value for
+        :param catalog_xmin: ``catalog_xmin`` of the physical slot used by this replica to stream changes from primary.
         :param slots: dictionary of slot information from the primary
+
+        :returns: ``False`` if any issue was faced while processing, ``True`` otherwise.
         """
         if catalog_xmin is not None and cluster.leader:
             for name, value in slots.items():
