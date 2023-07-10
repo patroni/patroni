@@ -69,11 +69,11 @@ def parse_connection_string(value: str) -> Tuple[str, Union[str, None]]:
 
             postgres://{username}:{password}@{connect_address}/postgres?application_name={api_url}
 
-        This way original Governor could use such connection string as it is, because of feature of `libpq` library.
+        This way original Governor could use such connection string as it is, because of feature of ``libpq`` library.
 
     :param value: The URL string to split.
 
-    :returns: the connection string stored in DCS split into two parts, `conn_url` and `api_url`.
+    :returns: the connection string stored in DCS split into two parts, ``conn_url`` and ``api_url``.
     """
     scheme, netloc, path, params, query, fragment = urlparse(value)
     conn_url = urlunparse((scheme, netloc, path, params, '', fragment))
@@ -86,7 +86,7 @@ def dcs_modules() -> List[str]:
 
     .. note::
         If being packaged with PyInstaller, modules aren't discoverable dynamically by scanning source directory because
-        :class:`importlib.machinery.FrozenImporter` doesn't implement :meth:`iter_modules`. But it is still possible to
+        :class:`importlib.machinery.FrozenImporter` doesn't implement :func:`iter_modules`. But it is still possible to
         find all potential DCS modules by iterating through ``toc``, which contains list of all "frozen" resources.
 
     :returns: list of known module names with absolute python module path namespace, e.g. ``patroni.dcs.etcd``.
@@ -110,7 +110,7 @@ def dcs_modules() -> List[str]:
 
 def iter_dcs_modules(
         config: Optional[Union['Config', Dict[str, Any]]] = None
-) -> Generator[Tuple[str, ModuleType], None, None]:
+) -> Iterator[Tuple[str, ModuleType]]:
     """Attempt to import DCS modules that are present in the given configuration.
 
     .. note::
@@ -148,7 +148,7 @@ def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
     """Attempt to load a Distributed Configuration Store from known available implementations.
 
     .. note::
-        Using the list of available DCS modules returned by :func:`dcs_modules` attempt to dynamically import and
+        Using the list of available DCS modules returned by :func:`iter_dcs_modules` attempt to dynamically import and
         instantiate the class that implements a DCS using the abstract class :class:`AbstractDCS`.
 
         Basic top-level configuration parameters retrieved from *config* are propagated to the DCS specific config
@@ -191,8 +191,8 @@ class Member(NamedTuple):
     .. note::
         There are two mandatory keys in a data:
 
-        conn_url: connection string containing host, user and password which could be used to access this member.
-        api_url: REST API url of patroni instance
+        ``conn_url``: connection string containing host, user and password which could be used to access this member.
+        ``api_url``: REST API url of patroni instance
 
     Consists of the following fields:
 
@@ -212,20 +212,21 @@ class Member(NamedTuple):
     def from_node(version: _Version, name: str, session: _Session, value: str) -> 'Member':
         """Factory method for instantiating :class:`Member` from a JSON serialised string or object.
 
-        :Example:
-
-            >>> Member.from_node(-1, '', '', '{"conn_url": "postgres://foo@bar/postgres"}') is not None
-            True
-            >>> Member.from_node(-1, '', '', '{')
-            Member(version=-1, name='', session='', data={})
-
         :param version: modification version of a given member key in a Configuration Store.
         :param name: name of PostgreSQL cluster member.
         :param session: either session id or just ttl in seconds.
         :param value: dictionary containing arbitrary data i.e. ``conn_url``, ``api_url``, ``xlog_location``, ``state``,
-                      ``role``, ``tags``, etc...
+            ``role``, ``tags``, etc...
 
-        :returns:
+        :returns: an :class:`Member` instance built with the given arguments.
+
+        :Example:
+
+            >>> Member.from_node(-1, '', '', '{"conn_url": "postgres://foo@bar/postgres"}') is not None
+            True
+
+            >>> Member.from_node(-1, '', '', '{')
+            Member(version=-1, name='', session='', data={})
         """
         if value.startswith('postgres'):
             conn_url, api_url = parse_connection_string(value)
@@ -257,7 +258,7 @@ class Member(NamedTuple):
         """Give keyword arguments used for PostgreSQL connection settings.
 
         :param auth: Authentication properties - can be defined as anything supported by the ``psycopg2`` or
-                     ``psycopg`` modules. See,
+                     ``psycopg`` modules.
                      Converts a key of ``username`` to ``user`` if supplied.
 
         :returns: A dictionary containing a merge of default parameter keys ``host``, ``port`` and ``dbname``, with
@@ -316,7 +317,7 @@ class Member(NamedTuple):
 
     @property
     def clonefrom(self) -> bool:
-        """``True`` if both a node to clone from and a connection URL is defined."""
+        """``True`` if both ``clonefrom`` tag is ``True`` and a connection URL is defined."""
         return self.tags.get('clonefrom', False) and bool(self.conn_url)
 
     @property
@@ -376,7 +377,7 @@ class RemoteMember(Member):
 
         :param name: key to lookup.
 
-        :returns: value of :attr:`~RemoteMember.data` if key name is in :const:`~RemoteMember.ALLOWED_KEYS`.
+        :returns: value of *name* key in :attr:`~RemoteMember.data` if key *name* is in :cvar:`~RemoteMember.ALLOWED_KEYS`, else ``None``.
         """
         if name in RemoteMember.ALLOWED_KEYS:
             return self.data.get(name)
@@ -390,7 +391,7 @@ class Leader(NamedTuple):
 
     :ivar version: modification version of a leader key in a Configuration Store
     :ivar session: either session id or just ttl in seconds
-    :ivar member: reference to a `Member` object which represents current leader (see `Cluster.members`)
+    :ivar member: reference to a :class:`Member` object which represents current leader (see :attr:`Cluster.members`)
     """
 
     version: _Version
@@ -430,13 +431,13 @@ class Leader(NamedTuple):
     def checkpoint_after_promote(self) -> Optional[bool]:
         """Determine whether a checkpoint should be made for this leader after promotion.
 
-        :Example:
-
-            >>> Leader(1, '', Member.from_node(1, '', '', '{"version":"z"}')).checkpoint_after_promote
-
         :returns: ``True`` if the role is ``master`` or ``primary`` and ``checkpoint_after_promote`` is not set,
                  ``False`` if not a ``master`` or ``primary`` or if the checkpoint has already been made.
                  If the version of Patroni is older than 1.5.6, return ``None``.
+
+        :Example:
+
+            >>> Leader(1, '', Member.from_node(1, '', '', '{"version":"z"}')).checkpoint_after_promote
         """
         version = self.member.patroni_version
         # 1.5.6 is the last version which doesn't expose checkpoint_after_promote: false
@@ -448,31 +449,40 @@ class Leader(NamedTuple):
 class Failover(NamedTuple):
     """Immutable object (namedtuple) which represents configuration information required for failover capability.
 
+    :ivar version: version of the object.
+    :ivar leader: name of the leader.
+    :ivar candidate: the name of the member node to be considered as a failover candidate.
+    :ivar scheduled_at: in the case of a switchover the :class:`~datetime.datetime` object to perform the scheduled
+        switchover.
+
     :Example:
+
         >>> 'Failover' in str(Failover.from_node(1, '{"leader": "cluster_leader"}'))
         True
+
         >>> 'Failover' in str(Failover.from_node(1, {"leader": "cluster_leader"}))
         True
+
         >>> 'Failover' in str(Failover.from_node(1, '{"leader": "cluster_leader", "member": "cluster_candidate"}'))
         True
+
         >>> Failover.from_node(1, 'null') is None
         False
+
         >>> n = '''{"leader": "cluster_leader", "member": "cluster_candidate",
         ...         "scheduled_at": "2016-01-14T10:09:57.1394Z"}'''
+
         >>> 'tzinfo=' in str(Failover.from_node(1, n))
         True
+
         >>> Failover.from_node(1, None) is None
         False
+
         >>> Failover.from_node(1, '{}') is None
         False
+
         >>> 'abc' in Failover.from_node(1, 'abc:def')
         True
-
-    :ivar version: *version* of the object
-    :ivar leader: name of the leader
-    :ivar candidate: the name of the member node to be considered as a fail-over *candidate*.
-    :ivar scheduled_at: in the case of a switchover the :func:`~datetime.datetime` object to perfrom the scheduled
-                        switchover.
     """
 
     version: _Version
@@ -482,9 +492,9 @@ class Failover(NamedTuple):
 
     @staticmethod
     def from_node(version: _Version, value: Union[str, Dict[str, str]]) -> 'Failover':
-        """Factory method to parse *value* as fail-over configuration.
+        """Factory method to parse *value* as failover configuration.
 
-        :param version: *version* number for the object.
+        :param version: version number for the object.
         :param value: JSON serialized data or a dictionary of configuration.
                       Can also be a colon ``:`` delimited list of leader, followed by candidate names.
                       If ``scheduled_at`` key is defined the value will be parsed by :func:`dateutil.parser.parse`.
@@ -520,7 +530,7 @@ class Failover(NamedTuple):
 class ClusterConfig(NamedTuple):
     """Immutable object (namedtuple) which represents cluster configuration.
 
-    :ivar version: *version* number for the object.
+    :ivar version: version number for the object.
     :ivar data: dictionary of configuration information.
     :ivar modify_version: modified version number.
     """
@@ -533,15 +543,16 @@ class ClusterConfig(NamedTuple):
     def from_node(version: _Version, value: str, modify_version: Optional[_Version] = None) -> 'ClusterConfig':
         """Factory method to parse *value* as configuration information.
 
-        :Example:
-            >>> ClusterConfig.from_node(1, '{') is None
-            False
-
         :param version: version number for object.
         :param value: raw JSON serialized data, if not parsable replaced with an empty dictionary.
         :param modify_version: optional modify version number, use *version* if not provided.
 
         :returns: constructed :class:`ClusterConfig` instance.
+
+        :Example:
+
+            >>> ClusterConfig.from_node(1, '{') is None
+            False
         """
         try:
             data = json.loads(value)
@@ -553,7 +564,7 @@ class ClusterConfig(NamedTuple):
 
     @property
     def permanent_slots(self) -> Dict[str, Any]:
-        """Dictionary of slot information looked up from :attr:`~ClusterConfig.data`."""
+        """Dictionary of permanent slots information looked up from :attr:`~ClusterConfig.data`."""
         return (self.data.get('permanent_replication_slots')
                 or self.data.get('permanent_slots')
                 or self.data.get('slots')
@@ -561,12 +572,12 @@ class ClusterConfig(NamedTuple):
 
     @property
     def ignore_slots_matchers(self) -> List[Dict[str, Any]]:
-        """The value for ``ignore_slots`` from :attr:`~ClusterConfig.data`."""
+        """The value for ``ignore_slots`` from :attr:`~ClusterConfig.data` if defined or an empty list."""
         return self.data.get('ignore_slots') or []
 
     @property
     def max_timelines_history(self) -> int:
-        """The value for ``max_timelines_history`` from :attr:`~ClusterConfig.data`."""
+        """The value for ``max_timelines_history`` from :attr:`~ClusterConfig.data` if defined or ``0``."""
         return self.data.get('max_timelines_history', 0)
 
 
@@ -586,24 +597,30 @@ class SyncState(NamedTuple):
     def from_node(version: Optional[_Version], value: Union[str, Dict[str, Any], None]) -> 'SyncState':
         """Factory method to parse *value* as synchronisation state information.
 
-        :Example:
-            >>> SyncState.from_node(1, None).leader is None
-            True
-            >>> SyncState.from_node(1, '{}').leader is None
-            True
-            >>> SyncState.from_node(1, '{').leader is None
-            True
-            >>> SyncState.from_node(1, '[]').leader is None
-            True
-            >>> SyncState.from_node(1, '{"leader": "leader"}').leader == "leader"
-            True
-            >>> SyncState.from_node(1, {"leader": "leader"}).leader == "leader"
-            True
-
         :param version: optional *version* number for the object.
         :param value: (optionally JSON serialised) sychronisation state information
 
         :returns: constructed :class:`SyncState` object.
+
+        :Example:
+
+            >>> SyncState.from_node(1, None).leader is None
+            True
+
+            >>> SyncState.from_node(1, '{}').leader is None
+            True
+
+            >>> SyncState.from_node(1, '{').leader is None
+            True
+
+            >>> SyncState.from_node(1, '[]').leader is None
+            True
+
+            >>> SyncState.from_node(1, '{"leader": "leader"}').leader == "leader"
+            True
+
+            >>> SyncState.from_node(1, {"leader": "leader"}).leader == "leader"
+            True
         """
         try:
             if value and isinstance(value, str):
@@ -617,7 +634,7 @@ class SyncState(NamedTuple):
     def empty(version: Optional[_Version] = None) -> 'SyncState':
         """Construct an empty :class:`SyncState` instance.
 
-        :param version: optional *version* number.
+        :param version: optional version number.
 
         :returns: empty synchronisation state object.
         """
@@ -640,7 +657,7 @@ class SyncState(NamedTuple):
 
     @property
     def members(self) -> List[str]:
-        """:class:`~SyncState.sync_standby` as list or an empty list if undefined or object considered ``empty``."""
+        """:attr:`~SyncState.sync_standby` as list or an empty list if undefined or object considered ``empty``."""
         return self._str_to_list(self.sync_standby) if not self.is_empty and self.sync_standby else []
 
     def matches(self, name: Optional[str], check_leader: bool = False) -> bool:
@@ -648,29 +665,36 @@ class SyncState(NamedTuple):
 
         Since PostgreSQL does case-insensitive checks for synchronous_standby_name we do it also.
 
-        .. Examples::
-            >>> s = SyncState(1, 'foo', 'bar,zoo')
-            >>> s.matches('foo')
-            False
-            >>> s.matches('fOo', True)
-            True
-            >>> s.matches('Bar')
-            True
-            >>> s.matches('zoO')
-            True
-            >>> s.matches('baz')
-            False
-            >>> s.matches(None)
-            False
-            >>> SyncState.empty(1).matches('foo')
-            False
-
-        :param name: *name* of the node.
+        :param name: name of the node.
         :param check_leader: by default the *name* is searched for only in members, a value of ``True`` will include the
                              leader to list.
 
         :returns: ``True`` if the ``/sync`` key not :func:`is_empty` and the given *name* is among those presented in
                   the sync state.
+
+        :Example:
+            >>> s = SyncState(1, 'foo', 'bar,zoo')
+
+            >>> s.matches('foo')
+            False
+
+            >>> s.matches('fOo', True)
+            True
+
+            >>> s.matches('Bar')
+            True
+
+            >>> s.matches('zoO')
+            True
+
+            >>> s.matches('baz')
+            False
+
+            >>> s.matches(None)
+            False
+
+            >>> SyncState.empty(1).matches('foo')
+            False
         """
         ret = False
         if name and not self.is_empty:
@@ -681,7 +705,7 @@ class SyncState(NamedTuple):
     def leader_matches(self, name: Optional[str]) -> bool:
         """Compare the given *name* to stored leader value.
 
-        :returns: ``True`` if name is matching the :attr:`~SyncState.leader` value.
+        :returns: ``True`` if *name* is matching the :attr:`~SyncState.leader` value.
         """
         return bool(name and not self.is_empty and name.lower() == (self.leader or '').lower())
 
@@ -705,17 +729,19 @@ class TimelineHistory(NamedTuple):
     def from_node(version: _Version, value: str) -> 'TimelineHistory':
         """Parse the given JSON serialized string as a list of timeline history lines.
 
-        :Example:
-            If the passed *value* argument is not parsed an empty list of lines is returned:
-
-            >>> h = TimelineHistory.from_node(1, 2)
-            >>> h.lines
-            []
-
-        :param version: *version* number
+        :param version: version number
         :param value: JSON serialized string.
 
         :returns: composed timeline history object using parsed lines.
+
+        :Example:
+
+            If the passed *value* argument is not parsed an empty list of lines is returned:
+
+            >>> h = TimelineHistory.from_node(1, 2)
+
+            >>> h.lines
+            []
         """
         try:
             lines = json.loads(value)
@@ -730,18 +756,18 @@ class Cluster(NamedTuple):
 
     Consists of the following fields:
 
-    :param initialize: shows whether this cluster has initialization key stored in DC or not.
-    :param config: global dynamic configuration, reference to `ClusterConfig` object
-    :param leader: `Leader` object which represents current leader of the cluster
-    :param last_lsn: int or long object containing position of last known leader LSN.
+    :ivar initialize: shows whether this cluster has initialization key stored in DC or not.
+    :ivar config: global dynamic configuration, reference to `ClusterConfig` object
+    :ivar leader: :class:`Leader` object which represents current leader of the cluster
+    :ivar last_lsn: :class:int object containing position of last known leader LSN.
                      This value is stored in the `/status` key or `/optime/leader` (legacy) key
-    :param members: list of Member object, all PostgreSQL cluster members including leader
-    :param failover: reference to `Failover` object
-    :param sync: reference to `SyncState` object, last observed synchronous replication state.
+    :ivar members: list of:class:` Member` objects, all PostgreSQL cluster members including leader
+    :ivar failover: reference to :class:`Failover` object
+    :ivar sync: reference to :class:`SyncState` object, last observed synchronous replication state.
     :param history: reference to `TimelineHistory` object
     :param slots: state of permanent logical replication slots on the primary in the format: {"slot_name": int}
-    :param failsafe: failsafe topology. Node is allowed to become the leader only if its name is found in this list.
-    :param workers: workers of the Citus cluster, optional. Format: {int(group): Cluster()}
+    :ivar failsafe: failsafe topology. Node is allowed to become the leader only if its name is found in this list.
+    :ivar workers: dictionary of workers of the Citus cluster, optional. Each key is the an :class:`int` representing the group, and the corresponding value is a :class:`Cluster` instance.
     """
 
     initialize: Optional[str]
@@ -782,7 +808,7 @@ class Cluster(NamedTuple):
     def is_unlocked(self) -> bool:
         """Check if the cluster does not have the leader lock.
 
-        :returns: ``True`` if a leader name is defined.
+        :returns: ``True`` if a leader name is not defined.
         """
         return not self.leader_name
 
@@ -852,7 +878,7 @@ class Cluster(NamedTuple):
 
         :param my_name: name of this node.
         :param role: role of this node.
-        :param nofailover: ``True`` if this node is tagged to not fail over.
+        :param nofailover: ``True`` if this node is tagged to not be a failover candidate.
         :param major_version: postgresql major version.
         :param show_error: if ``True`` report error if any disabled logical slots are found.
 
@@ -884,7 +910,7 @@ class Cluster(NamedTuple):
     @staticmethod
     def _merge_permanent_slots(slots: Dict[str, Dict[str, str]], permanent_slots: Dict[str, Any], my_name: str,
                                major_version: int) -> List[str]:
-        """Merge replication *slots* for members with ``permanent_replication_slots``.
+        """Merge replication *slots* for members with *permanent_slots*.
 
         Perform validation of configured permanent slot name, skipping invalid names.
 
@@ -946,7 +972,7 @@ class Cluster(NamedTuple):
 
         :param role: role of this node -- ``primary``, ``standby_leader`` or ``replica``.
                      or logical slots being consumed.
-        :param nofailover: ``True`` if this node is tagged to not fail over.
+        :param nofailover: ``True`` if this node is tagged to not be a failover candidate.
 
         :returns: dictionary of permanent slot names mapped to attributes.
         """
@@ -988,7 +1014,7 @@ class Cluster(NamedTuple):
         """Check if the given member node has permanent ``logical`` replication slots configured.
 
         :param my_name: name of the member node to check.
-        :param nofailover: whether this node can be considered a fail-over candidated.
+        :param nofailover: ``True`` if this node is tagged to not be a failover candidate.
         :param major_version: the PostgreSQL major version number.
 
         :returns: ``False`` if PostgreSQL is < 11, ``True`` if any detected replications slots are ``logical``.
@@ -1005,7 +1031,7 @@ class Cluster(NamedTuple):
         or it is working as a cascading replica for the other node that has ``logical`` slots.
 
         :param my_name: name of the member node to check.
-        :param nofailover: if this node should be considered a fail-over candidate.
+        :param nofailover: ``True`` if this node is tagged to not be a failover candidate.
         :param major_version: PostgreSQL major version number.
 
         :returns: ``True`` if this node or any member replicating from this node has permanent logical slots.
@@ -1044,6 +1070,10 @@ class Cluster(NamedTuple):
     def timeline(self) -> int:
         """Get the cluster history index from the :attr:`~Cluster.history`.
 
+        :returns: If the recorded history is empty assume timeline is ``1``, if it is not defined or the stored history
+                  is not formatted as expected ``0`` is returned and an error will be logged.
+                  Otherwise, the first number stored (indexed starting at 1) is returned.
+
         :Example:
 
             No history provided:
@@ -1061,10 +1091,6 @@ class Cluster(NamedTuple):
             History as a list of strings:
             >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["3", "2", "1"]]'), 0, None).timeline
             4
-
-        :returns: If the recorded history is empty assume timeline is ``1``, if it is not defined or the stored history
-                  is not formatted as expected ``0`` is returned and an error will be logged.
-                  Otherwise, the first number stored (indexed starting at 1) is returned.
         """
         if self.history:
             if self.history.lines:
@@ -1121,8 +1147,8 @@ class AbstractDCS(abc.ABC):
     def __init__(self, config: Dict[str, Any]) -> None:
         """Prepare DCS paths, Citus group ID, initial values for state information and processing dependencies.
 
-        :ivar config: dict, reference to config section of selected DCS.
-                      i.e.: `zookeeper` for zookeeper, `etcd` for etcd, etc...
+        :ivar config: :class:`dict`, reference to config section of selected DCS.
+                      i.e.: ``zookeeper`` for zookeeper, ``etcd`` for etcd, etc...
         """
         self._name = config['name']
         self._base_path = re.sub('/+', '/', '/'.join(['', config.get('namespace', 'service'), config['scope']]))
@@ -1209,7 +1235,7 @@ class AbstractDCS(abc.ABC):
 
     @abc.abstractmethod
     def set_ttl(self, ttl: int) -> Optional[bool]:
-        """Set the new ttl value for leader key."""
+        """Set the new *ttl* value for DCS keys."""
 
     @property
     @abc.abstractmethod
@@ -1230,7 +1256,7 @@ class AbstractDCS(abc.ABC):
     def reload_config(self, config: Union['Config', Dict[str, Any]]) -> None:
         """Load and set relevant values from configuration.
 
-        Sets `loop_wait`, `ttl` and `retry_timeout` properties.
+        Sets ``loop_wait``, ``ttl`` and ``retry_timeout`` properties.
 
         :param config: Loaded configuration information object or dictionary of key value pairs.
         """
@@ -1245,7 +1271,7 @@ class AbstractDCS(abc.ABC):
 
     @property
     def last_seen(self) -> int:
-        """The time recorded when the cluster was last loaded from DCS."""
+        """The time recorded when the DCS was last reachable."""
         return self._last_seen
 
     @abc.abstractmethod
@@ -1263,7 +1289,7 @@ class AbstractDCS(abc.ABC):
 
         :param path: the path in DCS where to load Cluster(s) from.
 
-        :returns: all Citus groups as `dict`, with group IDs as keys and :class:`Cluster` objects as values.
+        :returns: all Citus groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
         """
 
     @abc.abstractmethod
@@ -1273,7 +1299,7 @@ class AbstractDCS(abc.ABC):
         """Main abstract method that implements the loading of :class:`Cluster` instance.
 
         .. note::
-            Internally this method should call the ``loader`` method that will build :class:`Cluster` object which
+            Internally this method should call the *loader* method that will build :class:`Cluster` object which
             represents current state and topology of the cluster in DCS. This method supposed to be called only by
             the :meth:`~AbstractDCS.get_cluster` method.
 
@@ -1375,7 +1401,7 @@ class AbstractDCS(abc.ABC):
 
     @abc.abstractmethod
     def _write_leader_optime(self, last_lsn: str) -> bool:
-        """Write current WAL LSN into `/optime/leader` key in DCS.
+        """Write current WAL LSN into ``/optime/leader`` key in DCS.
 
         :param last_lsn: absolute WAL LSN in bytes.
 
@@ -1391,7 +1417,7 @@ class AbstractDCS(abc.ABC):
 
     @abc.abstractmethod
     def _write_status(self, value: str) -> bool:
-        """Write current WAL LSN and confirmed_flush_lsn of permanent slots into the `/status` key in DCS.
+        """Write current WAL LSN and confirmed_flush_lsn of permanent slots into the ``/status`` key in DCS.
 
         :param value: status serialized in JSON format.
 
@@ -1441,18 +1467,18 @@ class AbstractDCS(abc.ABC):
 
     @abc.abstractmethod
     def _update_leader(self, leader: Leader) -> bool:
-        """Update *leader* key (or session) ttl.
+        """Update ``leader`` key (or session) ttl.
 
         .. note::
             You have to use CAS (Compare And Swap) operation in order to update leader key, for example for etcd
-            `prevValue` parameter must be used.
+            ``prevValue`` parameter must be used.
 
             If update fails due to DCS not being accessible or because it is not able to process requests (hopefully
             temporary), the :exc:`DCSError` exception should be raised.
 
-        :param leader: a reference to a current *leader* key object.
+        :param leader: a reference to a current :class:`leader` object.
 
-        :returns: ``True`` if *leader* key (or session) has been updated successfully.
+        :returns: ``True`` if ``leader`` key (or session) has been updated successfully.
         """
 
     def update_leader(self,
@@ -1460,14 +1486,14 @@ class AbstractDCS(abc.ABC):
                       last_lsn: Optional[int],
                       slots: Optional[Dict[str, int]] = None,
                       failsafe: Optional[Dict[str, str]] = None) -> bool:
-        """Update *leader* key (or session) ttl and optime/leader.
+        """Update ``leader`` key (or session) ttl and optime/leader.
 
-        :param leader: object with information on the *leader*.
+        :param leader: :class:`Leader` object with information about the leader.
         :param last_lsn: absolute WAL LSN in bytes.
         :param slots: dictionary with permanent slots ``confirmed_flush_lsn``.
         :param failsafe: if defined dictionary passed to :meth:`~AbstractDCS.write_failsafe`.
 
-        :returns: ``True`` if *leader* key (or session) has been updated successfully.
+        :returns: ``True`` if ``leader`` key (or session) has been updated successfully.
         """
         ret = self._update_leader(leader)
         if ret and last_lsn:
@@ -1486,7 +1512,7 @@ class AbstractDCS(abc.ABC):
         """Attempt to acquire leader lock.
 
         .. note::
-            This method should create `/leader` key with the value :attr:`~AbstractDCS._name`.
+            This method should create ``/leader`` key with the value :attr:`~AbstractDCS._name`.
 
             The key must be created atomically. In case the key already exists it should not be
             overwritten and ``False`` must be returned.
@@ -1499,9 +1525,9 @@ class AbstractDCS(abc.ABC):
 
     @abc.abstractmethod
     def set_failover_value(self, value: str, version: Optional[Any] = None) -> bool:
-        """Create or update `/failover` key.
+        """Create or update ``/failover`` key.
 
-        :param value: *value* to set.
+        :param value: value to set.
         :param version: for conditional update of the key/object.
 
         :returns: ``True`` if successfully committed to DCS.
@@ -1511,7 +1537,7 @@ class AbstractDCS(abc.ABC):
                         scheduled_at: Optional[datetime.datetime] = None, version: Optional[Any] = None) -> bool:
         """Prepare dictionary with given values and set ``/failover`` key in DCS.
 
-        :param leader: value to set for *leader*.
+        :param leader: value to set for ``leader``.
         :param candidate: value to set for ``member``.
         :param scheduled_at: value converted to ISO date format for ``scheduled_at``.
         :param version: for conditional update of the key/object.
@@ -1533,7 +1559,7 @@ class AbstractDCS(abc.ABC):
     def set_config_value(self, value: str, version: Optional[Any] = None) -> bool:
         """Create or update ``/config`` key in DCS.
 
-        :param value: new *value* to set in the key.
+        :param value: new value to set in the ``config`` key.
         :param version: for conditional update of the key/object.
 
         :returns: ``True`` if successfully committed to DCS.
@@ -1621,7 +1647,7 @@ class AbstractDCS(abc.ABC):
 
         The *sync_standby* key is kept for backward compatibility.
 
-        :param leader: name of the *leader* node that manages ``/sync`` key.
+        :param leader: name of the leader node that manages ``/sync`` key.
         :param sync_standby: collection of currently known synchronous standby node names.
 
         :returns: dictionary that later could be serialized to JSON or saved directly to DCS.
@@ -1635,7 +1661,7 @@ class AbstractDCS(abc.ABC):
         Calls :meth:`~AbstractDCS.sync_state` to build a dictionary and then calls DCS specific
         :meth:`~AbstractDCS.set_sync_state_value`.
 
-        :param leader: name of the *leader* node that manages ``/sync`` key.
+        :param leader: name of the leader node that manages ``/sync`` key.
         :param sync_standby: collection of currently known synchronous standby node names.
         :param version: for conditional update of the key/object.
 
@@ -1660,7 +1686,7 @@ class AbstractDCS(abc.ABC):
     def set_sync_state_value(self, value: str, version: Optional[Any] = None) -> Union[Any, bool]:
         """Set synchronous state in DCS.
 
-        :param value: the new value of /sync key.
+        :param value: the new value of ``/sync`` key.
         :param version: for conditional update of the key/object.
 
         :returns: *version* of the new object or ``False`` in case of error.
