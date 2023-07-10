@@ -16,7 +16,7 @@ from random import randint
 from threading import Event, Lock
 from types import ModuleType
 from typing import Any, Callable, Collection, Dict, List, NamedTuple, Optional, Set, Tuple, Union, TYPE_CHECKING, \
-    Generator, Type
+    Type, Iterator
 from urllib.parse import urlparse, urlunparse, parse_qsl
 
 import dateutil.parser
@@ -137,9 +137,10 @@ def find_dcs_class_in_module(module: ModuleType) -> Optional[Type['AbstractDCS']
     :returns: class with a name matching the name of *module* that implements :class:`AbstractDCS` or ``None`` if not
               found.
     """
+    module_name = module.__name__.rpartition('.')[2]
     return next(
         (obj for obj_name, obj in module.__dict__.items()
-         if (obj_name.lower() == module.__name__.rpartition('.')[2]
+         if (obj_name.lower() == module_name
              and inspect.isclass(obj) and issubclass(obj, AbstractDCS))),
         None)
 
@@ -350,7 +351,10 @@ class Member(NamedTuple):
 
 
 class RemoteMember(Member):
-    """Represents a remote member (typically a primary) for a standby cluster."""
+    """Represents a remote member (typically a primary) for a standby cluster.
+
+    :cvar ALLOWED_KEYS: Controls access to relevant key names that could be in stored :attr:`~RemoteMember.data`.
+    """
 
     ALLOWED_KEYS: Tuple[str, ...] = (
         'primary_slot_name',
@@ -377,7 +381,8 @@ class RemoteMember(Member):
 
         :param name: key to lookup.
 
-        :returns: value of *name* key in :attr:`~RemoteMember.data` if key *name* is in :cvar:`~RemoteMember.ALLOWED_KEYS`, else ``None``.
+        :returns: value of *name* key in :attr:`~RemoteMember.data` if key *name* is in
+                  :cvar:`~RemoteMember.ALLOWED_KEYS`, else ``None``.
         """
         if name in RemoteMember.ALLOWED_KEYS:
             return self.data.get(name)
@@ -767,7 +772,8 @@ class Cluster(NamedTuple):
     :param history: reference to `TimelineHistory` object
     :param slots: state of permanent logical replication slots on the primary in the format: {"slot_name": int}
     :ivar failsafe: failsafe topology. Node is allowed to become the leader only if its name is found in this list.
-    :ivar workers: dictionary of workers of the Citus cluster, optional. Each key is the an :class:`int` representing the group, and the corresponding value is a :class:`Cluster` instance.
+    :ivar workers: dictionary of workers of the Citus cluster, optional. Each key is an :class:`int` representing
+                   the group, and the corresponding value is a :class:`Cluster` instance.
     """
 
     initialize: Optional[str]
