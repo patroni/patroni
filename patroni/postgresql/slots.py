@@ -9,7 +9,7 @@ import shutil
 from collections import defaultdict
 from contextlib import contextmanager
 from threading import Condition, Thread
-from typing import Any, Dict, Generator, List, Optional, Union, Tuple, TYPE_CHECKING, Collection
+from typing import Any, Dict, Generator, List, Optional, Union, Tuple, TYPE_CHECKING, Collection, Iterator
 
 from .connection import get_connection_cursor
 from .misc import format_lsn, fsync_dir
@@ -383,7 +383,9 @@ class SlotsHandler:
     def get_local_connection_cursor(self, **kwargs: Any) -> Iterator[Union['cursor', 'Cursor[Any]']]:
         """Create a new database connection to local server.
 
-        Avoids timeout issues with :meth:``pg_replication_slot_advance``
+        Create a non-blocking connection cursor to avoid the situation where an execution of the query of
+        ``pg_replication_slot_advance`` takes longer than the timeout on a HA loop, which could cause a false
+        failure state.
 
         :param kwargs: Any keyword arguments to pass to :func:`psycopg.connect`.
 
@@ -605,7 +607,7 @@ class SlotsHandler:
             return False
         return True
 
-    def _ready_logical_slots(self, primary_physical_xmin: Optional[int] = None) -> None:
+    def _ready_logical_slots(self, primary_physical_catalog_xmin: Optional[int] = None) -> None:
         """Ready logical slots by comparing primary physical slot ``catalog_xmin`` to logical ``catalog_xmin``.
 
         The logical slot on a replica is safe to use when the physical replica slot on the primary:
@@ -614,8 +616,8 @@ class SlotsHandler:
             2. has a ``catalog_xmin`` that is not newer (greater) than the ``catalog_xmin`` of any slot on the standby
             3. overtook the ``catalog_xmin`` of remembered values of logical slots on the primary.
 
-        :param primary_physical_xmin: is the value retrieved from ``pg_catalog.pg_get_replication_slots()`` for the
-                                      physical replication slot on the primary.
+        :param primary_physical_catalog_xmin: is the value retrieved from ``pg_catalog.pg_get_replication_slots()`` for
+                                              the physical replication slot on the primary.
         """
         # Make a copy of processing queue keys as a list as the queue dictionary is modified inside the loop.
         for name in list(self.logical_slots_processing_queue):
@@ -627,8 +629,8 @@ class SlotsHandler:
 
             if (
                     not standby_logical_slot
-                    or primary_physical_xmin is not None
-                    and primary_logical_xmin <= primary_physical_xmin <= standby_logical_xmin
+                    or primary_physical_catalog_xmin is not None
+                    and primary_logical_xmin <= primary_physical_catalog_xmin <= standby_logical_xmin
             ):
 
                 del self.logical_slots_processing_queue[name]
