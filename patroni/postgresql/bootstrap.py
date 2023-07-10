@@ -185,7 +185,7 @@ class Bootstrap(object):
                 r['host'] = 'localhost'  # set it to localhost to write into pgpass
 
             env = self._postgresql.config.write_pgpass(r)
-            env['PGOPTIONS'] = '-c synchronous_commit=local'
+            env['PGOPTIONS'] = '-c synchronous_commit=local -c statement_timeout=0'
 
             try:
                 ret = self._postgresql.cancellable.call(shlex.split(cmd) + [connstring], env=env)

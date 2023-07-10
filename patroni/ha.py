@@ -1515,6 +1515,9 @@ class Ha(object):
         self.dcs.set_config_value(json.dumps(self.patroni.config.dynamic_configuration, separators=(',', ':')))
         self.dcs.take_leader()
         self.set_is_leader(True)
+        if self.is_synchronous_mode():
+            self.state_handler.sync_handler.set_synchronous_standby_names(
+                CaseInsensitiveSet('*') if self.global_config.is_synchronous_mode_strict else CaseInsensitiveSet())
         self.state_handler.call_nowait(CallbackAction.ON_START)
         self.load_cluster_from_dcs()
 
@@ -1711,7 +1714,8 @@ class Ha(object):
             # we might not have a valid PostgreSQL connection here if another thread
             # stops PostgreSQL, therefore, we only reload replication slots if no
             # asynchronous processes are running (should be always the case for the primary)
-            if not self._async_executor.busy and not self.state_handler.is_starting():
+            if (not self._async_executor.busy or self._async_executor.scheduled_action == 'promote')\
+                    and not self.state_handler.is_starting():
                 create_slots = self._sync_replication_slots(False)
                 if not self.state_handler.cb_called:
                     if not self.state_handler.is_leader():
