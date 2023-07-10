@@ -583,9 +583,9 @@ class SlotsHandler:
                                              catalog_xmin: Optional[int] = None) -> bool:
         """Store pending logical slot information for ``catalog_xmin`` on the primary.
 
-        Remember ``catalog_xmin`` of logical slots on the primary when ``catalog_xmin`` of the physical slot became valid.
-        Logical slots on replica will be safe to use after promote when ``catalog_xmin`` of the physical slot overtakes
-        these values.
+        Remember ``catalog_xmin`` of logical slots on the primary when ``catalog_xmin`` of the physical slot became
+        valid. Logical slots on replica will be safe to use after promote when ``catalog_xmin`` of the physical slot
+        overtakes these values.
 
         :param catalog_xmin: ``catalog_xmin`` of the physical slot used by this replica to stream changes from primary.
         :param slots: dictionary of slot information from the primary
