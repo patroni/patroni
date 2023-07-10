@@ -99,7 +99,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
         self._dns_resolver = dns_resolver
         self.set_machines_cache_ttl(cache_ttl)
         self._machines_cache_updated = 0
-        kwargs = {p: config.get(p) for p in ('host', 'port', 'protocol', 'use_proxies',
+        kwargs = {p: config.get(p) for p in ('host', 'port', 'protocol', 'use_proxies', 'version_prefix',
                                              'username', 'password', 'cert', 'ca_cert') if config.get(p)}
         super(AbstractEtcdClientWithFailover, self).__init__(read_timeout=config['retry_timeout'], **kwargs)
         # For some reason python3-etcd on debian and ubuntu are not based on the latest version
@@ -442,6 +442,9 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
 class EtcdClient(AbstractEtcdClientWithFailover):
 
     ERROR_CLS = EtcdError
+
+    def __init__(self, config: Dict[str, Any], dns_resolver: DnsCachingResolver, cache_ttl: int = 300) -> None:
+        super(EtcdClient, self).__init__({**config, 'version_prefix': None}, dns_resolver, cache_ttl)
 
     def __del__(self) -> None:
         try:
