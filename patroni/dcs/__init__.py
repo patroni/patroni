@@ -240,6 +240,7 @@ class Member(NamedTuple):
 
 class RemoteMember(Member):
     """Represents a remote member (typically a primary) for a standby cluster.
+
     :cvar ALLOWED_KEYS: Controls access to relevant key names that could be in stored :attr:`~RemoteMember.data`.
     """
 
