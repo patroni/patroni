@@ -83,3 +83,7 @@ Feature: basic replication
     Then postgres0 role is the secondary after 20 seconds
     When I add the table buz to postgres1
     Then table buz is present on postgres0 after 20 seconds
+
+  Scenario: check graceful rejection when two nodes have the same name
+    Given I start duplicate postgres0 on port 8011
+    Then there is a "Can't start; there is already a node named 'postgres0' running" CRITICAL in the dup-postgres0 patroni log

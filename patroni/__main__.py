@@ -30,12 +30,15 @@ class Patroni(AbstractPatroniDaemon):
 
         self.version = __version__
         self.dcs = get_dcs(self.config)
+        self.request = PatroniRequest(self.config, True)
+
+        self.ensure_unique_name()
+
         self.watchdog = Watchdog(self.config)
         self.load_dynamic_configuration()
 
         self.postgresql = Postgresql(self.config['postgresql'])
         self.api = RestApiServer(self, self.config['restapi'])
-        self.request = PatroniRequest(self.config, True)
         self.ha = Ha(self)
 
         self.tags = self.get_tags()
@@ -59,6 +62,23 @@ class Patroni(AbstractPatroniDaemon):
             except DCSError:
                 logger.warning('Can not get cluster from dcs')
                 time.sleep(5)
+
+    def ensure_unique_name(self) -> None:
+        """A helper method to prevent splitbrain from operator naming error."""
+        from patroni.dcs import Member
+
+        cluster = self.dcs.get_cluster()
+        if not cluster:
+            return
+        member = cluster.get_member(self.config['name'], False)
+        if not isinstance(member, Member):
+            return
+        try:
+            _ = self.request(member, endpoint="/liveness")
+            logger.fatal("Can't start; there is already a node named '%s' running", self.config['name'])
+            sys.exit(1)
+        except Exception:
+            return
 
     def get_tags(self) -> Dict[str, Any]:
         return {tag: value for tag, value in self.config.get('tags', {}).items()
