@@ -1711,17 +1711,21 @@ class Ha(object):
                 msg = self.process_healthy_cluster()
                 ret = self.evaluate_scheduled_restart() or msg
 
-            # we might not have a valid PostgreSQL connection here if another thread
-            # stops PostgreSQL, therefore, we only reload replication slots if no
-            # asynchronous processes are running (should be always the case for the primary)
-            if (not self._async_executor.busy or self._async_executor.scheduled_action == 'promote')\
-                    and not self.state_handler.is_starting():
+            # We might not have a valid PostgreSQL connection here if AsyncExecutor is doing
+            # something with PostgreSQL. Therefore we will sync replication slots only if no
+            # asynchronous processes are running or we know that this is a standby being promoted.
+            # But, we don't want to run pg_rewind checks or copy logical slots from itself,
+            # therefore we have a couple additional `not is_promoting` checks.
+            is_promoting = self._async_executor.scheduled_action == 'promote'
+            if (not self._async_executor.busy or is_promoting) and not self.state_handler.is_starting():
                 create_slots = self._sync_replication_slots(False)
+
                 if not self.state_handler.cb_called:
-                    if not self.state_handler.is_leader():
+                    if not is_promoting and not self.state_handler.is_leader():
                         self._rewind.trigger_check_diverged_lsn()
                     self.state_handler.call_nowait(CallbackAction.ON_START)
-                if create_slots and self.cluster.leader:
+
+                if not is_promoting and create_slots and self.cluster.leader:
                     err = self._async_executor.try_run_async('copy_logical_slots',
                                                              self.state_handler.slots_handler.copy_logical_slots,
                                                              args=(self.cluster, create_slots))
