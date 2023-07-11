@@ -594,7 +594,7 @@ class Cluster(NamedTuple):
         :param role: role of this node.
         :param nofailover: ``True`` if this node is tagged to not be a failover candidate.
         :param major_version: postgresql major version.
-        :param show_error: if ``True`` report error if any disabled logical slots are found.
+        :param show_error: if ``True`` report error if any disabled logical slots or conflicting slot names are found.
 
         :returns: final dictionary of slot names, after merging with permanent slots and performing sanity checks.
         """
@@ -628,7 +628,7 @@ class Cluster(NamedTuple):
 
         Perform validation of configured permanent slot name, skipping invalid names.
 
-        Will update *slots* in-line based on ``type`` of slot, ``physical`` or ``logical``, and *role* of node.
+        Will update *slots* in-line based on ``type`` of slot, ``physical`` or ``logical``, and name of node.
         Type is assumed to be ``physical`` if there are no attributes stored as the slot value.
 
         :param slots: Slot names with existing attributes if known.
@@ -709,7 +709,7 @@ class Cluster(NamedTuple):
         :param my_name: name of this node.
         :param role: role of this node, if this is a ``primary`` or ``standby_leader`` return list of members
                      replicating from this node. If not then return a list of members replicating as cascaded
-                     replicas.
+                     replicas from this node.
 
         :returns: list of member names.
         """
