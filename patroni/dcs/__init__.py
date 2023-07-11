@@ -95,7 +95,7 @@ def iter_dcs_modules(
     .. note::
             If a module successfully imports we can assume that all its requirements are installed.
 
-    :param config: configuration information with possible DCS names as keys.
+    :param config: configuration information with possible DCS names as keys. If given, only attempt to import DCS modules defined in the configuration. Else, if ``None``, attempt to import any supported DCS module.
 
     :yields: a tuple containing the module ``name`` and the imported module object.
     """
