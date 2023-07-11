@@ -476,6 +476,18 @@ class Postgresql(object):
 
     def replication_state_from_parameters(self, is_leader: bool, receiver_state: Optional[str],
                                           restore_command: Optional[str]) -> Optional[str]:
+        """Figure out the replication state from input parameters.
+
+        .. note::
+            This method could be only called when Postgres is up, running and queries are successfuly executed.
+
+        :is_leader: `True` is postgres is not running in recovery
+        :receiver_state: value from `pg_stat_get_wal_receiver.state` or None if Postgres is older than 9.6
+        :restore_command: value of ``restore_command`` GUC for PostgreSQL 12+ or
+                          `postgresql.recovery_conf.restore_command` if it is set in Patroni configuration
+
+        :returns: a string describing the replication state or `None` for the primary and for Postgres older than 9.6
+        """
         if self._major_version >= 90600 and not is_leader:
             if receiver_state == 'streaming':
                 return 'streaming'
