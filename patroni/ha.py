@@ -442,7 +442,7 @@ class Ha(object):
         - if ``primary_start_timeout`` is 0 and this node owns the leader lock, the lock
           will be voluntarily released if there are healthy replicas to take it over.
         - if postgres was running as a ``primary`` and this node owns the leader lock, postgres is started as primary.
-        - crash recover in a single-user mode is execute in the following cases:
+        - crash recover in a single-user mode is executed in the following cases:
           - postgres was running as ``primary`` wasn't ``shut down`` cleanly and there is no leader in DCS
           - postgres was running as ``replica`` wasn't ``shut down in recovery`` (cleanly)
             and we need to run ``pg_rewind`` to join back to the cluster.
@@ -474,7 +474,7 @@ class Ha(object):
                 and self.state_handler.state == 'crashed'\
                 and self.state_handler.role in ('primary', 'master')\
                 and not self.state_handler.config.recovery_conf_exists():
-            # We know 100% that we were running as a primary a few  moments ago, therefore could just start postgres
+            # We know 100% that we were running as a primary a few moments ago, therefore could just start postgres
             msg = 'starting primary after failure'
             if self._async_executor.try_run_async(msg, self.state_handler.start,
                                                   args=(timeout, self._async_executor.critical_task)) is None:
