@@ -21,8 +21,24 @@ logger = logging.getLogger(__name__)
 
 
 def compare_slots(s1: Dict[str, Any], s2: Dict[str, Any], dbid: str = 'database') -> bool:
-    return s1['type'] == s2['type'] and (s1['type'] == 'physical'
-                                         or s1.get(dbid) == s2.get(dbid) and s1['plugin'] == s2['plugin'])
+    """Compare 2 replication slot objects for equality.
+
+    ..note ::
+        If the first argument is a ``physical`` replication slot then only the `type` of the second slot is compared.
+        If the first argument is another ``type`` (e.g. ``logical``) then *dbid* and ``plugin`` are compared.
+
+    :param s1: First slot dictionary to be compared.
+    :param s2: Second slot dictionary to be compared.
+    :param dbid: Optional attribute to be compared when comparing ``logical`` replication slots.
+
+    :return: ``True`` if the slot ``type`` of *s1* and *s2* is matches, and the ``type`` of *s1* is ``physical``,
+             OR the ``types`` match AND the *dbid* and ``plugin`` attributes are equal.
+
+    """
+    return (s1['type'] == s2['type']
+            and (s1['type'] == 'physical'
+                 or s1.get(dbid) == s2.get(dbid)
+                 and s1['plugin'] == s2['plugin']))
 
 
 class SlotsAdvanceThread(Thread):
