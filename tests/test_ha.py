@@ -583,6 +583,7 @@ class TestHa(PostgresInit):
         self.p.is_leader = false
         self.assertEqual(self.ha.run_cycle(), 'waiting for end of recovery after bootstrap')
         self.p.is_leader = true
+        self.ha.is_synchronous_mode = true
         self.assertEqual(self.ha.run_cycle(), 'running post_bootstrap')
         self.assertEqual(self.ha.run_cycle(), 'initialized a new cluster')
 
