@@ -404,7 +404,7 @@ class SlotsHandler(object):
             primary_logical_catalog_xmin = self._logical_slots_processing_queue[name]
             standby_logical_slot = self._replication_slots.get(name, {})
             standby_logical_catalog_xmin = standby_logical_slot.get('catalog_xmin', 0)
-            if TYPE_CHECKING:
+            if TYPE_CHECKING:  # pragma: no cover
                 assert primary_logical_catalog_xmin is not None
 
             if (
