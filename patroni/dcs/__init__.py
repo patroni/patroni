@@ -87,23 +87,25 @@ def dcs_modules() -> List[str]:
         return [module_prefix + name for _, name, is_pkg in pkgutil.iter_modules([dcs_dirname]) if not is_pkg]
 
 
-def iter_dcs_modules(
+def iter_dcs_classes(
         config: Optional[Union['Config', Dict[str, Any]]] = None
-) -> Iterator[Tuple[str, ModuleType]]:
+) -> Iterator[Tuple[str, Optional[Type['AbstractDCS']]]]:
     """Attempt to import DCS modules that are present in the given configuration.
 
     .. note::
             If a module successfully imports we can assume that all its requirements are installed.
 
-    :param config: configuration information with possible DCS names as keys. If given, only attempt to import DCS modules defined in the configuration. Else, if ``None``, attempt to import any supported DCS module.
+    :param config: configuration information with possible DCS names as keys. If given, only attempt to import DCS
+                   modules defined in the configuration. Else, if ``None``, attempt to import any supported DCS module.
 
-    :yields: a tuple containing the module ``name`` and the imported module object.
+    :yields: a tuple containing the module ``name`` and the imported DCS class object.
     """
     for mod_name in dcs_modules():
         name = mod_name.rpartition('.')[2]
         if config is None or name in config:
             try:
-                yield name, importlib.import_module(mod_name)
+                module = importlib.import_module(mod_name)
+                yield name, find_dcs_class_in_module(module)
             except ImportError:
                 logger.info('Failed to import %s', mod_name)
 
@@ -143,8 +145,7 @@ def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
 
     :returns: The first successfully loaded DCS module which is an implementation of :class:`AbstractDCS`.
     """
-    for name, module in iter_dcs_modules(config):
-        dcs_class = find_dcs_class_in_module(module)
+    for name, dcs_class in iter_dcs_classes(config):
         if dcs_class:
             # Propagate some parameters from top level of config if defined to the DCS specific config section.
             config[name].update({
@@ -158,7 +159,7 @@ def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
 
     raise PatroniFatalException(
         f"Can not find suitable configuration of distributed configuration store\n"
-        f"Available implementations: {', '.join(sorted(set(name for name, _ in iter_dcs_modules())))}")
+        f"Available implementations: {', '.join(sorted(set(name for name, _ in iter_dcs_classes())))}")
 
 
 _Version = Union[int, str]
