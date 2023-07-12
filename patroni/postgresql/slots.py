@@ -374,17 +374,18 @@ class SlotsHandler(object):
         if catalog_xmin is not None:
             for name, value in slots.items():
                 self._logical_slots_processing_queue[name] = value
-        else:  # Replica isn't streaming or the hot_standby_feedback isn't enabled
-            try:
-                cur = self._query("SELECT pg_catalog.current_setting('hot_standby_feedback')::boolean")
-                row = cur.fetchone()
-                if row and not row[0]:
-                    logger.error('Logical slot failover requires "hot_standby_feedback".'
-                                 ' Please check postgresql.auto.conf')
-            except Exception as e:
-                logger.error('Failed to check the hot_standby_feedback setting: %r', e)
-            return False
-        return True
+            return True
+
+        # Replica isn't streaming or the hot_standby_feedback isn't enabled
+        try:
+            cur = self._query("SELECT pg_catalog.current_setting('hot_standby_feedback')::boolean")
+            row = cur.fetchone()
+            if row and not row[0]:
+                logger.error('Logical slot failover requires "hot_standby_feedback".'
+                             ' Please check postgresql.auto.conf')
+        except Exception as e:
+            logger.error('Failed to check the hot_standby_feedback setting: %r', e)
+        return False
 
     def _ready_logical_slots(self, primary_physical_catalog_xmin: Optional[int] = None) -> None:
         """Ready logical slots by comparing primary physical slot ``catalog_xmin`` to logical ``catalog_xmin``.
