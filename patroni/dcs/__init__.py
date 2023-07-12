@@ -598,7 +598,7 @@ class Cluster(NamedTuple):
 
         :returns: final dictionary of slot names, after merging with permanent slots and performing sanity checks.
         """
-        slot_members: list[str] = self._get_slot_members(my_name, role)
+        slot_members: list[str] = self._get_slot_members(my_name, role) if self.use_slots else []
 
         slots: Dict[str, Dict[str, str]] = {slot_name_from_member_name(name): {'type': 'physical'}
                                             for name in slot_members}
@@ -690,12 +690,12 @@ class Cluster(NamedTuple):
 
         :returns: dictionary of permanent slot names mapped to attributes.
         """
-        use_slots = self.use_slots
         if role in ('master', 'primary', 'standby_leader'):
             permanent_slots = (self.__permanent_slots
-                               if use_slots and role in ('master', 'primary') else self.__permanent_physical_slots)
+                               if role in ('master', 'primary')
+                               else self.__permanent_physical_slots)
         else:
-            permanent_slots = self.__permanent_logical_slots if use_slots and not nofailover else {}
+            permanent_slots = self.__permanent_logical_slots if not nofailover else {}
         return permanent_slots
 
     def _get_slot_members(self, my_name: str, role: str) -> List[str]:
@@ -713,15 +713,16 @@ class Cluster(NamedTuple):
 
         :returns: list of member names.
         """
-        use_slots = self.use_slots
         if role in ('master', 'primary', 'standby_leader'):
-            slot_members = [m.name for m in self.members if use_slots and m.name != my_name
-                            and (m.replicatefrom is None or m.replicatefrom == my_name
+            slot_members = [m.name for m in self.members
+                            if m.name != my_name
+                            and (m.replicatefrom is None
+                                 or m.replicatefrom == my_name
                                  or not self.has_member(m.replicatefrom))]
         else:
             # only manage slots for replicas that replicate from this one, except for the leader among them
-            slot_members = [m.name for m in self.members if use_slots
-                            and m.replicatefrom == my_name and m.name != self.leader_name]
+            slot_members = [m.name for m in self.members
+                            if m.replicatefrom == my_name and m.name != self.leader_name]
         return slot_members
 
     def has_permanent_logical_slots(self, my_name: str, nofailover: bool, major_version: int = 110000) -> bool:
