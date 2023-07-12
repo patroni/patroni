@@ -371,7 +371,7 @@ class SlotsHandler(object):
 
         :returns: ``False`` if any issue was faced while processing, ``True`` otherwise.
         """
-        if catalog_xmin is not None and cluster.leader:
+        if catalog_xmin is not None:
             for name, value in slots.items():
                 self._logical_slots_processing_queue[name] = value
         else:  # Replica isn't streaming or the hot_standby_feedback isn't enabled
