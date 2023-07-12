@@ -105,7 +105,7 @@ def iter_dcs_modules(
             try:
                 yield name, importlib.import_module(mod_name)
             except ImportError:
-                logger.debug('Failed to import %s', mod_name)
+                logger.info('Failed to import %s', mod_name)
 
 
 def find_dcs_class_in_module(module: ModuleType) -> Optional[Type['AbstractDCS']]:
