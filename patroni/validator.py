@@ -13,7 +13,7 @@ import subprocess
 
 from typing import Any, Dict, Union, Iterator, List, Optional as OptionalType, TYPE_CHECKING
 
-from .utils import parse_int, split_host_port, data_directory_is_empty
+from .utils import parse_int, split_host_port, data_directory_is_empty, parse_bool
 from .dcs import dcs_modules
 from .exceptions import ConfigParseError
 
@@ -756,6 +756,52 @@ def assert_(condition: bool, message: str = "Wrong value") -> None:
     :param message: message to be thrown if the condition is ``False``.
     """
     assert condition, message
+
+
+class EnumValidator(object):
+    """Validate a setting against a list of allowed values
+
+    ivar: allowed: a list of allowed values
+    ivar: case_sensitive: set to True to do case sensitive comparisons
+    """
+
+    def __init__(self, allowed: List[Any], case_sensitive: bool = False):
+        """Create an :class:`EnumValidator` object with the given rules.
+
+        :param allowed: list of allowed values
+        :param case_sensitive: set to True to do case sensitive comparisons
+
+        >>> EnumValidator(allowed=[])(3)
+        False
+        >>> EnumValidator(allowed=[2,3,5])(3)
+        True
+        >>> EnumValidator(allowed=[2,3,'something'])(4)
+        False
+        >>> EnumValidator(allowed=['off','oN','blind'])('ON')
+        True
+        >>> EnumValidator(allowed=['off','on','blind'], case_sensitive=True)('ON')
+        False
+        >>> EnumValidator(allowed=[True])('on')
+        True
+        >>> EnumValidator(allowed=[True])('off')
+        False
+        >>> EnumValidator(allowed=[True,False])('1')
+        True
+        """
+        self.case_sensitive = case_sensitive
+
+        if self.case_sensitive:
+            self.allowed = allowed
+        else:
+            self.allowed = [a.lower() if isinstance(a, str) else a for a in allowed]
+
+    def __call__(self, value: Any) -> bool:
+        """Check if *value* is part of the allowed values."""
+
+        if not self.case_sensitive and isinstance(value, str):
+            value = value.lower()
+
+        return value in self.allowed or parse_bool(value) in self.allowed
 
 
 class IntValidator(object):
