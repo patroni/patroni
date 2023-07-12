@@ -239,23 +239,26 @@ class Member(NamedTuple):
 
 
 class RemoteMember(Member):
-    """Represents a remote member (typically a primary) for a standby cluster"""
+    """Represents a remote member (typically a primary) for a standby cluster.
+
+    :cvar ALLOWED_KEYS: Controls access to relevant key names that could be in stored :attr:`~RemoteMember.data`.
+    """
+
+    ALLOWED_KEYS: Tuple[str, ...] = (
+        'primary_slot_name',
+        'create_replica_methods',
+        'restore_command',
+        'archive_cleanup_command',
+        'recovery_min_apply_delay',
+        'no_replication_slot'
+    )
 
     @classmethod
     def from_name_and_data(cls, name: str, data: Dict[str, Any]) -> 'RemoteMember':
         return super(RemoteMember, cls).__new__(cls, -1, name, None, data)
 
-    @staticmethod
-    def allowed_keys() -> Tuple[str, ...]:
-        return ('primary_slot_name',
-                'create_replica_methods',
-                'restore_command',
-                'archive_cleanup_command',
-                'recovery_min_apply_delay',
-                'no_replication_slot')
-
     def __getattr__(self, name: str) -> Any:
-        if name in RemoteMember.allowed_keys():
+        if name in RemoteMember.ALLOWED_KEYS:
             return self.data.get(name)
 
 
