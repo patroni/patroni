@@ -114,7 +114,7 @@ class SlotsHandler(object):
         self._postgresql = postgresql
         self._advance = None
         self._replication_slots: Dict[str, Dict[str, Any]] = {}  # already existing replication slots
-        self.logical_slots_processing_queue: Dict[str, Optional[int]] = {}
+        self._logical_slots_processing_queue: Dict[str, Optional[int]] = {}
         self.pg_replslot_dir = os.path.join(self._postgresql.data_dir, 'pg_replslot')
         self.schedule()
 
@@ -174,8 +174,8 @@ class SlotsHandler(object):
             self._replication_slots = replication_slots
             self._schedule_load_slots = False
             if self._force_readiness_check:
-                self.logical_slots_processing_queue = {n: None for n, v in replication_slots.items()
-                                                       if v['type'] == 'logical'}
+                self._logical_slots_processing_queue = {n: None for n, v in replication_slots.items()
+                                                        if v['type'] == 'logical'}
                 self._force_readiness_check = False
 
     def ignore_replication_slot(self, cluster: Cluster, name: str) -> bool:
@@ -312,7 +312,7 @@ class SlotsHandler(object):
                 self._ensure_physical_slots(slots)
 
                 if self._postgresql.is_leader():
-                    self.logical_slots_processing_queue.clear()
+                    self._logical_slots_processing_queue.clear()
                     self._ensure_logical_slots_primary(slots)
                 elif cluster.slots and slots:
                     self.check_logical_slots_readiness(cluster, replicatefrom)
@@ -334,13 +334,13 @@ class SlotsHandler(object):
 
     def check_logical_slots_readiness(self, cluster: Cluster, replicatefrom: Optional[str]) -> bool:
         catalog_xmin = None
-        if self.logical_slots_processing_queue and cluster.leader:
+        if self._logical_slots_processing_queue and cluster.leader:
             slot_name = cluster.get_my_slot_name_on_primary(self._postgresql.name, replicatefrom)
             try:
                 with self._get_leader_connection_cursor(cluster.leader) as cur:
                     cur.execute("SELECT slot_name, catalog_xmin FROM pg_catalog.pg_get_replication_slots()"
                                 " WHERE NOT pg_catalog.pg_is_in_recovery() AND slot_name = ANY(%s)",
-                                ([n for n, v in self.logical_slots_processing_queue.items()
+                                ([n for n, v in self._logical_slots_processing_queue.items()
                                   if v is None] + [slot_name],))
                     slots = {row[0]: row[1] for row in cur}
                     if slot_name not in slots:
@@ -373,7 +373,7 @@ class SlotsHandler(object):
         """
         if catalog_xmin is not None and cluster.leader:
             for name, value in slots.items():
-                self.logical_slots_processing_queue[name] = value
+                self._logical_slots_processing_queue[name] = value
         else:  # Replica isn't streaming or the hot_standby_feedback isn't enabled
             try:
                 cur = self._query("SELECT pg_catalog.current_setting('hot_standby_feedback')::boolean")
@@ -399,8 +399,8 @@ class SlotsHandler(object):
                                               the physical replication slot on the primary.
         """
         # Make a copy of processing queue keys as a list as the queue dictionary is modified inside the loop.
-        for name in list(self.logical_slots_processing_queue):
-            primary_logical_catalog_xmin = self.logical_slots_processing_queue[name]
+        for name in list(self._logical_slots_processing_queue):
+            primary_logical_catalog_xmin = self._logical_slots_processing_queue[name]
             standby_logical_slot = self._replication_slots.get(name, {})
             standby_logical_catalog_xmin = standby_logical_slot.get('catalog_xmin', 0)
             if TYPE_CHECKING:
@@ -412,7 +412,7 @@ class SlotsHandler(object):
                     and primary_logical_catalog_xmin <= primary_physical_catalog_xmin <= standby_logical_catalog_xmin
             ):
 
-                del self.logical_slots_processing_queue[name]
+                del self._logical_slots_processing_queue[name]
 
                 if standby_logical_slot:
                     logger.info('Logical slot %s is safe to be used after a failover', name)
@@ -459,7 +459,7 @@ class SlotsHandler(object):
                     shutil.rmtree(slot_dir)
                 os.rename(slot_tmp_dir, slot_dir)
                 fsync_dir(slot_dir)
-                self.logical_slots_processing_queue[name] = None
+                self._logical_slots_processing_queue[name] = None
             fsync_dir(self._postgresql.slots_handler.pg_replslot_dir)
             self._postgresql.start()
 
@@ -472,6 +472,6 @@ class SlotsHandler(object):
         if self._advance:
             self._advance.on_promote()
 
-        if self.logical_slots_processing_queue:
+        if self._logical_slots_processing_queue:
             logger.warning('Logical replication slots that might be unsafe to use after promote: %s',
-                           set(self.logical_slots_processing_queue))
+                           set(self._logical_slots_processing_queue))
