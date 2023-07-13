@@ -197,18 +197,19 @@ class Postgresql(object):
                         and self.role in ('master', 'primary', 'promoted') else "'on', '', NULL")
 
         if self._major_version >= 90600:
-            extra = ("(SELECT pg_catalog.json_agg(s.*) FROM (SELECT slot_name, slot_type as type, datoid::bigint, "
-                     "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint"
-                     " AS confirmed_flush_lsn FROM pg_catalog.pg_get_replication_slots()) AS s)"
-                     if self._has_permanent_logical_slots and self._major_version >= 110000 else "NULL") + extra
+            extra = ("pg_catalog.current_setting('restore_command')" if self._major_version >= 120000 else "NULL") +\
+                ", " + ("(SELECT pg_catalog.json_agg(s.*) FROM (SELECT slot_name, slot_type as type, datoid::bigint, "
+                        "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint"
+                        " AS confirmed_flush_lsn FROM pg_catalog.pg_get_replication_slots()) AS s)"
+                        if self._has_permanent_logical_slots and self._major_version >= 110000 else "NULL") + extra
             extra = (", CASE WHEN latest_end_lsn IS NULL THEN NULL ELSE received_tli END,"
-                     " slot_name, conninfo, {0} FROM pg_catalog.pg_stat_get_wal_receiver()").format(extra)
+                     " slot_name, conninfo, status, {0} FROM pg_catalog.pg_stat_get_wal_receiver()").format(extra)
             if self.role == 'standby_leader':
                 extra = "timeline_id" + extra + ", pg_catalog.pg_control_checkpoint()"
             else:
                 extra = "0" + extra
         else:
-            extra = "0, NULL, NULL, NULL, NULL" + extra
+            extra = "0, NULL, NULL, NULL, NULL, NULL, NULL" + extra
 
         return ("SELECT " + self.TL_LSN + ", {2}").format(self.wal_name, self.lsn_name, extra)
 
@@ -426,7 +427,8 @@ class Postgresql(object):
                 result = self._is_leader_retry(self._query, self.cluster_info_query).fetchone()
                 cluster_info_state = dict(zip(['timeline', 'wal_position', 'replayed_location',
                                                'received_location', 'replay_paused', 'pg_control_timeline',
-                                               'received_tli', 'slot_name', 'conninfo', 'slots', 'synchronous_commit',
+                                               'received_tli', 'slot_name', 'conninfo', 'receiver_state',
+                                               'restore_command', 'slots', 'synchronous_commit',
                                                'synchronous_standby_names', 'pg_stat_replication'], result))
                 if self._has_permanent_logical_slots:
                     cluster_info_state['slots'] =\
@@ -471,6 +473,41 @@ class Postgresql(object):
     def pg_stat_replication(self) -> List[Dict[str, Any]]:
         """:returns: a result set of 'SELECT * FROM pg_stat_replication'."""
         return self._cluster_info_state_get('pg_stat_replication') or []
+
+    def replication_state_from_parameters(self, is_leader: bool, receiver_state: Optional[str],
+                                          restore_command: Optional[str]) -> Optional[str]:
+        """Figure out the replication state from input parameters.
+
+        .. note::
+            This method could be only called when Postgres is up, running and queries are successfuly executed.
+
+        :is_leader: `True` is postgres is not running in recovery
+        :receiver_state: value from `pg_stat_get_wal_receiver.state` or None if Postgres is older than 9.6
+        :restore_command: value of ``restore_command`` GUC for PostgreSQL 12+ or
+                          `postgresql.recovery_conf.restore_command` if it is set in Patroni configuration
+
+        :returns: - `None` for the primary and for Postgres older than 9.6;
+                  - 'streaming' if replica is streaming according to the `pg_stat_wal_receiver` view;
+                  - 'in archive recovery' if replica isn't streaming and there is a `restore_command`
+        """
+        if self._major_version >= 90600 and not is_leader:
+            if receiver_state == 'streaming':
+                return 'streaming'
+            # For Postgres older than 12 we get `restore_command` from Patroni config, otherwise we check GUC
+            if self._major_version < 120000 and self.config.restore_command() or restore_command:
+                return 'in archive recovery'
+
+    def replication_state(self) -> Optional[str]:
+        """Checks replication state from `pg_stat_get_wal_receiver()`.
+
+        .. note::
+            Available only since 9.6
+
+        :returns: ``streaming``, ``in archive recovery``, or ``None``
+        """
+        return self.replication_state_from_parameters(self.is_leader(),
+                                                      self._cluster_info_state_get('receiver_state'),
+                                                      self._cluster_info_state_get('restore_command'))
 
     def is_leader(self) -> bool:
         try:

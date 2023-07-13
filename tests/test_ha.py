@@ -223,9 +223,12 @@ class TestHa(PostgresInit):
 
     @patch.object(Postgresql, 'received_timeline', Mock(return_value=None))
     def test_touch_member(self):
+        self.p._major_version = 110000
+        self.p.is_leader = false
         self.p.timeline_wal_position = Mock(return_value=(0, 1, 0))
         self.p.replica_cached_timeline = Mock(side_effect=Exception)
-        self.ha.touch_member()
+        with patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value='streaming')):
+            self.ha.touch_member()
         self.p.timeline_wal_position = Mock(return_value=(0, 1, 1))
         self.p.set_role('standby_leader')
         self.ha.touch_member()

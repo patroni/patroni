@@ -535,6 +535,18 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("patroni_xlog_paused{0} {1}"
                        .format(scope_label, int(postgres.get('xlog', {}).get('paused', False) is True)))
 
+        if postgres.get('server_version', 0) >= 90600:
+            metrics.append("# HELP patroni_postgres_streaming Value is 1 if Postgres is streaming, 0 otherwise.")
+            metrics.append("# TYPE patroni_postgres_streaming gauge")
+            metrics.append("patroni_postgres_streaming{0} {1}"
+                           .format(scope_label, int(postgres.get('replication_state') == 'streaming')))
+
+            metrics.append("# HELP patroni_postgres_in_archive_recovery Value is 1"
+                           " if Postgres is replicating from archive, 0 otherwise.")
+            metrics.append("# TYPE patroni_postgres_in_archive_recovery gauge")
+            metrics.append("patroni_postgres_in_archive_recovery{0} {1}"
+                           .format(scope_label, int(postgres.get('replication_state') == 'in archive recovery')))
+
         metrics.append("# HELP patroni_postgres_server_version Version of Postgres (if running), 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_server_version gauge")
         metrics.append("patroni_postgres_server_version {0} {1}".format(scope_label, postgres.get('server_version', 0)))
@@ -1151,8 +1163,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
             if postgresql.state not in ('running', 'restarting', 'starting'):
                 raise RetryFailedError('')
+            replication_state = ('(pg_catalog.pg_stat_get_wal_receiver()).status'
+                                 if postgresql.major_version >= 90600 else 'NULL') + ", " +\
+                ("pg_catalog.current_setting('restore_command')" if postgresql.major_version >= 120000 else "NULL")
             stmt = ("SELECT " + postgresql.POSTMASTER_START_TIME + ", " + postgresql.TL_LSN + ","
-                    " pg_catalog.pg_last_xact_replay_timestamp(),"
+                    " pg_catalog.pg_last_xact_replay_timestamp(), " + replication_state + ","
                     " pg_catalog.array_to_json(pg_catalog.array_agg(pg_catalog.row_to_json(ri))) "
                     "FROM (SELECT (SELECT rolname FROM pg_catalog.pg_authid WHERE oid = usesysid) AS usename,"
                     " application_name, client_addr, w.state, sync_state, sync_priority"
@@ -1188,8 +1203,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     if not cluster or cluster.is_unlocked() or not cluster.leader else cluster.leader.timeline
                 result['timeline'] = postgresql.replica_cached_timeline(leader_timeline)
 
-            if row[7]:
-                result['replication'] = row[7]
+            replication_state = postgresql.replication_state_from_parameters(row[1] > 0, row[7], row[8])
+            if replication_state:
+                result['replication_state'] = replication_state
+
+            if row[9]:
+                result['replication'] = row[9]
 
         except (psycopg.Error, RetryFailedError, PostgresConnectionException):
             state = postgresql.state

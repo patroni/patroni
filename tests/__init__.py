@@ -108,7 +108,7 @@ class MockCursor(object):
         elif sql.startswith('WITH slots AS (SELECT slot_name, active'):
             self.results = [(False, True)] if self.rowcount == 1 else [None]
         elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):
-            self.results = [(1, 2, 1, 0, False, 1, 1, None, None,
+            self.results = [(1, 2, 1, 0, False, 1, 1, None, None, 'streaming', '',
                              [{"slot_name": "ls", "confirmed_flush_lsn": 12345}],
                              'on', 'n1', None)]
         elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
@@ -117,7 +117,7 @@ class MockCursor(object):
             replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
                                '"state":"streaming","sync_state":"async","sync_priority":0}]'
             now = datetime.datetime.now(tzutc)
-            self.results = [(now, 0, '', 0, '', False, now, replication_info)]
+            self.results = [(now, 0, '', 0, '', False, now, 'streaming', None, replication_info)]
         elif sql.startswith('SELECT name, setting'):
             self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
                             ('wal_block_size', '8192', None, 'integer', 'internal'),

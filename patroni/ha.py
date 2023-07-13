@@ -306,10 +306,13 @@ class Ha(object):
             if self._async_executor.scheduled_action in (None, 'promote') \
                     and data['state'] in ['running', 'restarting', 'starting']:
                 try:
-                    timeline: Optional[int]
                     timeline, wal_position, pg_control_timeline = self.state_handler.timeline_wal_position()
                     data['xlog_location'] = wal_position
-                    if not timeline:  # try pg_stat_wal_receiver to get the timeline
+                    if not timeline:  # running as a standby
+                        replication_state = self.state_handler.replication_state()
+                        if replication_state:
+                            data['replication_state'] = replication_state
+                        # try pg_stat_wal_receiver to get the timeline
                         timeline = self.state_handler.received_timeline()
                     if not timeline:
                         # So far the only way to get the current timeline on the standby is from

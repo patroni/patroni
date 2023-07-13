@@ -773,7 +773,8 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
         else:
             role = 'replica'
 
-        member = {'name': m.name, 'role': role, 'state': m.data.get('state', ''), 'api_url': m.api_url}
+        state = (m.data.get('replication_state', '') if role != 'leader' else '') or m.data.get('state', '')
+        member = {'name': m.name, 'role': role, 'state': state, 'api_url': m.api_url}
         conn_kwargs = m.conn_kwargs()
         if conn_kwargs.get('host'):
             member['host'] = conn_kwargs['host']
