@@ -486,7 +486,9 @@ class Postgresql(object):
         :restore_command: value of ``restore_command`` GUC for PostgreSQL 12+ or
                           `postgresql.recovery_conf.restore_command` if it is set in Patroni configuration
 
-        :returns: a string describing the replication state or `None` for the primary and for Postgres older than 9.6
+        :returns: - `None` for the primary and for Postgres older than 9.6;
+                  - 'streaming' if replica is streaming according to the `pg_stat_wal_receiver` view;
+                  - 'in archive recovery' if replica isn't streaming and there is a `restore_command`
         """
         if self._major_version >= 90600 and not is_leader:
             if receiver_state == 'streaming':
