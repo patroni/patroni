@@ -1490,7 +1490,8 @@ def output_members(obj: Dict[str, Any], cluster: Cluster, name: str,
         * ``Role``: ``Leader``, ``Standby Leader``, ``Sync Standby`` or ``Replica``;
         * ``State``: ``stopping``, ``stopped``, ``stop failed``, ``crashed``, ``running``, ``starting``,
           ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``, ``initdb failed``,
-          ``running custom bootstrap script``, ``custom bootstrap failed``, or ``creating replica``, and so on;
+          ``running custom bootstrap script``, ``custom bootstrap failed``, ``creating replica``, ``streaming``,
+          ``in archive recovery``, and so on;
         * ``TL``: current timeline in Postgres;
           ``Lag in MB``: replication lag.
 

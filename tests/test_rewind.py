@@ -91,9 +91,10 @@ class TestRewind(BaseTestPostgresql):
                                              'Latest checkpoint location': '0/'})):
             self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
 
-        with patch.object(Postgresql, 'is_running', Mock(return_value=True)):
-            with patch.object(MockCursor, 'fetchone', Mock(side_effect=[(0, 0, 1, 1, 0, 0, 0, 0, 0, None), Exception])):
-                self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
+        with patch.object(Postgresql, 'is_running', Mock(return_value=True)),\
+                patch.object(MockCursor, 'fetchone',
+                             Mock(side_effect=[(0, 0, 1, 1, 0, 0, 0, 0, 0, None, None, None), Exception])):
+            self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
 
     @patch.object(CancellableSubprocess, 'call', mock_cancellable_call)
     @patch.object(Postgresql, 'checkpoint', side_effect=['', '1'],)

@@ -3,6 +3,50 @@
 Release notes
 =============
 
+Version 3.0.4
+-------------
+
+**New features**
+
+- Make the replication status of standby nodes visible (Alexander Kukushkin)
+
+  For PostgreSQL 9.6+ Patroni will report the replication state as ``streaming`` when the standby is streaming from the other node or ``in archive recovery`` when there is no replication connection and ``restore_command`` is set. The state is visible in ``member`` keys in DCS, in the REST API, and in ``patronictl list`` output.
+
+
+**Improvements**
+
+- Improved error messages with Etcd v3 (Alexander Kukushkin)
+
+  When Etcd v3 cluster isn't accessible Patroni was reporting that it can't access ``/v2`` endpoints.
+
+- Use quorum read in ``patronictl`` if it is possible (Alexander Kukushkin)
+
+  Etcd or Consul clusters could be degraded to read-only, but from the ``patronictl`` view everything was fine. Now it will fail with the error.
+
+- Prevent splitbrain from duplicate names in configuration (Mark Pekala)
+
+  When starting Patroni will check if node with the same name is registered in DCS, and try to query its REST API. If REST API is accessible Patroni exits with an error. It will help to protect from the human error.
+
+- Start Postgres not in recovery if it crashed while Patroni is running (Alexander Kukushkin)
+
+  It may reduce recovery time and will help from unnecessary timeline increments.
+
+
+**Bugfixes**
+
+- REST API SSL certificate were not reloaded upon receiving a SIGHUP (Israel Barth Rubio)
+
+  Regression was introduced in 3.0.3.
+
+- Fixed integer GUCs validation for parameters like ``max_connections`` (Feike Steenbergen)
+
+  Patroni didn't like quoted numeric values. Regression was introduced in 3.0.3.
+
+- Fix issue with ``synchronous_mode`` (Alexander Kukushkin)
+
+  Execute ``txid_current()`` with ``synchronous_commit=off`` so it doesn't accidentally wait for absent synchronous standbys when ``synchronous_mode_strict`` is enabled.
+
+
 Version 3.0.3
 -------------
 

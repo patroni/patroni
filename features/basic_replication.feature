@@ -72,14 +72,13 @@ Feature: basic replication
     Then table bar is present on postgres1 after 20 seconds
     And Response on GET http://127.0.0.1:8010/config contains master_start_timeout after 10 seconds
 
-  Scenario: check immediate failover when master_start_timeout=0
-    Given I kill postmaster on postgres2
-    Then postgres1 is a leader after 10 seconds
-    And postgres1 role is the primary after 10 seconds
-
   Scenario: check rejoin of the former primary with pg_rewind
     Given I add the table splitbrain to postgres0
     And I start postgres0
     Then postgres0 role is the secondary after 20 seconds
-    When I add the table buz to postgres1
+    When I add the table buz to postgres2
     Then table buz is present on postgres0 after 20 seconds
+
+  Scenario: check graceful rejection when two nodes have the same name
+    Given I start duplicate postgres0 on port 8011
+    Then there is a "Can't start; there is already a node named 'postgres0' running" CRITICAL in the dup-postgres0 patroni log

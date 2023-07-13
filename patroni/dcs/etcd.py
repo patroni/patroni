@@ -99,7 +99,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
         self._dns_resolver = dns_resolver
         self.set_machines_cache_ttl(cache_ttl)
         self._machines_cache_updated = 0
-        kwargs = {p: config.get(p) for p in ('host', 'port', 'protocol', 'use_proxies',
+        kwargs = {p: config.get(p) for p in ('host', 'port', 'protocol', 'use_proxies', 'version_prefix',
                                              'username', 'password', 'cert', 'ca_cert') if config.get(p)}
         super(AbstractEtcdClientWithFailover, self).__init__(read_timeout=config['retry_timeout'], **kwargs)
         # For some reason python3-etcd on debian and ubuntu are not based on the latest version
@@ -443,6 +443,9 @@ class EtcdClient(AbstractEtcdClientWithFailover):
 
     ERROR_CLS = EtcdError
 
+    def __init__(self, config: Dict[str, Any], dns_resolver: DnsCachingResolver, cache_ttl: int = 300) -> None:
+        super(EtcdClient, self).__init__({**config, 'version_prefix': None}, dns_resolver, cache_ttl)
+
     def __del__(self) -> None:
         try:
             self.http.clear()
@@ -722,13 +725,13 @@ class Etcd(AbstractEtcd):
         return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
 
     def _cluster_loader(self, path: str) -> Cluster:
-        result = self.retry(self._client.read, path, recursive=True)
+        result = self.retry(self._client.read, path, recursive=True, quorum=self._ctl)
         nodes = {node.key[len(result.key):].lstrip('/'): node for node in result.leaves}
         return self._cluster_from_nodes(result.etcd_index, nodes)
 
     def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
         clusters: Dict[int, Dict[str, etcd.EtcdResult]] = defaultdict(dict)
-        result = self.retry(self._client.read, path, recursive=True)
+        result = self.retry(self._client.read, path, recursive=True, quorum=self._ctl)
         for node in result.leaves:
             key = node.key[len(result.key):].lstrip('/').split('/', 1)
             if len(key) == 2 and citus_group_re.match(key[0]):

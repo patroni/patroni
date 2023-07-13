@@ -326,6 +326,21 @@ def parse_int(value: Any, base_unit: Optional[str] = None) -> Optional[int]:
         >>> parse_int('1TB', 'GB') is None
         True
 
+        >>> parse_int(50, None) == 50
+        True
+
+        >>> parse_int("51", None) == 51
+        True
+
+        >>> parse_int("nonsense", None) == None
+        True
+
+        >>> parse_int("nonsense", "kB") == None
+        True
+
+        >>> parse_int("nonsense") == None
+        True
+
         >>> parse_int(0) == 0
         True
 
@@ -759,7 +774,8 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
         else:
             role = 'replica'
 
-        member = {'name': m.name, 'role': role, 'state': m.data.get('state', ''), 'api_url': m.api_url}
+        state = (m.data.get('replication_state', '') if role != 'leader' else '') or m.data.get('state', '')
+        member = {'name': m.name, 'role': role, 'state': state, 'api_url': m.api_url}
         conn_kwargs = m.conn_kwargs()
         if conn_kwargs.get('host'):
             member['host'] = conn_kwargs['host']

@@ -1177,3 +1177,6 @@ class ConfigHandler(object):
 
     def get(self, key: str, default: Optional[Any] = None) -> Optional[Any]:
         return self._config.get(key, default)
+
+    def restore_command(self) -> Optional[str]:
+        return (self.get('recovery_conf') or {}).get('restore_command')

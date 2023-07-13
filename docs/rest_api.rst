@@ -142,10 +142,10 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.
 	# TYPE patroni_replica gauge
 	patroni_replica{scope="batman"} 0
-	# HELP patroni_sync_standby Value is 1 if this node is a sync standby, 0 otherwise.
+	# HELP patroni_sync_standby Value is 1 if this node is a sync standby replica, 0 otherwise.
 	# TYPE patroni_sync_standby gauge
 	patroni_sync_standby{scope="batman"} 0
-	# HELP patroni_quorum_standby Value is 1 if this node is a quorum standby, 0 otherwise.
+	# HELP patroni_quorum_standby Value is 1 if this node is a quorum standby replica, 0 otherwise.
 	# TYPE patroni_quorum_standby gauge
 	patroni_quorum_standby{scope="batman"} 0
 	# HELP patroni_xlog_received_location Current location of the received Postgres transaction log, 0 if this node is not a replica.
@@ -160,6 +160,12 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# HELP patroni_xlog_paused Value is 1 if the Postgres xlog is paused, 0 otherwise.
 	# TYPE patroni_xlog_paused gauge
 	patroni_xlog_paused{scope="batman"} 0
+	# HELP patroni_postgres_streaming Value is 1 if Postgres is streaming, 0 otherwise.
+	# TYPE patroni_postgres_streaming gauge
+	patroni_postgres_streaming{scope="batman"} 1
+	# HELP patroni_postgres_in_archive_recovery Value is 1 if Postgres is replicating from archive, 0 otherwise.
+	# TYPE patroni_postgres_in_archive_recovery gauge
+	patroni_postgres_in_archive_recovery{scope="batman"} 0
 	# HELP patroni_postgres_server_version Version of Postgres (if running), 0 otherwise.
 	# TYPE patroni_postgres_server_version gauge
 	patroni_postgres_server_version {scope="batman"} 140004
