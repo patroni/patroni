@@ -16,6 +16,7 @@ import platform
 import random
 import re
 import socket
+import subprocess
 import sys
 import tempfile
 import time
@@ -977,3 +978,33 @@ def unquote(string: str) -> str:
     except ValueError:
         ret = string
     return ret
+
+
+def get_major_version(bin_dir: Optional[str] = None, bin_name: str = 'postgres') -> str:
+    """Get the major version of PostgreSQL.
+
+    It is based on the output of ``postgres --version``.
+
+    :param bin_dir: path to PostgreSQL binaries directory. If ``None`` it will use the first ``postgres`` binary that
+        is found by subprocess in the ``PATH``.
+    :param bin_name: name of the postgres binary to call ('postgres' by default)
+    :returns: the PostgreSQL major version.
+    :raises :class:`patroni.exceptions.PatroniException`: if the postgres binary call failed due to OSError
+
+    :Example:
+
+        * Returns `9.6` for PostgreSQL 9.6.24
+        * Returns `15` for PostgreSQL 15.2
+    """
+    if not bin_dir:
+        binary = bin_name
+    else:
+        binary = os.path.join(bin_dir, bin_name)
+    try:
+        version = subprocess.check_output([binary, '--version']).decode()
+    except OSError as e:
+        raise PatroniException(f'Failed to get postgres version: {e}')
+    version = re.match(r'^[^\s]+ [^\s]+ (\d+)(\.(\d+))?', version)
+    if TYPE_CHECKING:  # pragma: no cover
+        assert version is not None
+    return '.'.join([version.group(1), version.group(3)]) if int(version.group(1)) < 10 else version.group(1)

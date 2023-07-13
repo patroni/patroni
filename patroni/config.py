@@ -32,6 +32,20 @@ _AUTH_ALLOWED_PARAMETERS = (
     'channel_binding'
 )
 
+AUTH_ALLOWED_PARAMETERS_MAPPING = {
+    'user': 'PGUSER',
+    'password': 'PGPASSWORD',
+    'sslmode': 'PGSSLMODE',
+    'sslcert': 'PGSSLCERT',
+    'sslkey': 'PGSSLKEY',
+    'sslpassword': '',
+    'sslrootcert': 'PGSSLROOTCERT',
+    'sslcrl': 'PGSSLCRL',
+    'sslcrldir': 'PGSSLCRLDIR',
+    'gssencmode': 'PGGSSENCMODE',
+    'channel_binding': 'PGCHANNELBINDING'
+}
+
 
 def default_validator(conf: Dict[str, Any]) -> List[str]:
     if not conf:
@@ -193,10 +207,9 @@ class Config(object):
             'recovery_min_apply_delay': ''
         },
         'postgresql': {
-            'bin_dir': '',
             'use_slots': True,
             'parameters': CaseInsensitiveDict({p: v[0] for p, v in ConfigHandler.CMDLINE_OPTIONS.items()
-                                               if p not in ('wal_keep_segments', 'wal_keep_size')})
+                                               if v[0] is not None and p not in ('wal_keep_segments', 'wal_keep_size')})
         }
     }
 
@@ -233,6 +246,14 @@ class Config(object):
     @property
     def dynamic_configuration(self) -> Dict[str, Any]:
         return deepcopy(self._dynamic_configuration)
+
+    @property
+    def local_configuration(self) -> Dict[str, Any]:
+        return deepcopy(dict(self._local_configuration))
+
+    @classmethod
+    def get_default_config(cls) -> Dict[str, Any]:
+        return deepcopy(cls.__DEFAULT_CONFIG)
 
     def _load_config_path(self, path: str) -> Dict[str, Any]:
         """
@@ -334,7 +355,7 @@ class Config(object):
                 or not is_local and ConfigHandler.CMDLINE_OPTIONS[name][1](value)}
 
     def _safe_copy_dynamic_configuration(self, dynamic_configuration: Dict[str, Any]) -> Dict[str, Any]:
-        config = deepcopy(self.__DEFAULT_CONFIG)
+        config = self.get_default_config()
 
         for name, value in dynamic_configuration.items():
             if name == 'postgresql':

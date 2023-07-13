@@ -3,7 +3,7 @@
 Provides a case insensitive :class:`dict` and :class:`set` object types.
 """
 from collections import OrderedDict
-from typing import Any, Collection, Dict, Iterator, MutableMapping, MutableSet, Optional
+from typing import Any, Collection, Dict, Iterator, KeysView, MutableMapping, MutableSet, Optional
 
 
 class CaseInsensitiveSet(MutableSet[str]):
@@ -186,6 +186,9 @@ class CaseInsensitiveDict(MutableMapping[str, Any]):
         :return: a new dict object with the same keys and values of this dict.
         """
         return CaseInsensitiveDict({v[0]: v[1] for v in self._values.values()})
+
+    def keys(self) -> KeysView[str]:
+        return self._values.keys()
 
     def __repr__(self) -> str:
         """Get a string representation of the dict.
