@@ -25,7 +25,7 @@ Version 3.0.4
 
 - Prevent splitbrain from duplicate names in configuration (Mark Pekala)
 
-  When starting Patroni will check if node with the same name is registered in DCS, and try to query it's REST API. If REST API is accessible Patroni exits with an error. It will help to protect from the human error.
+  When starting Patroni will check if node with the same name is registered in DCS, and try to query its REST API. If REST API is accessible Patroni exits with an error. It will help to protect from the human error.
 
 - Start Postgres not in recovery if it crashed while Patroni is running (Alexander Kukushkin)
 
