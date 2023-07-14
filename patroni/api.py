@@ -246,6 +246,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         path = '/primary' if self.path == '/' else self.path
         response = self.get_postgresql_status()
+        is_running = response.get('state') == 'running'
 
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
@@ -259,19 +260,19 @@ class RestApiHandler(BaseHTTPRequestHandler):
         is_lagging = leader_optime and leader_optime > replayed_location + max_replica_lag
 
         replica_status_code = 200 if not patroni.noloadbalance and not is_lagging and \
-            response.get('role') == 'replica' and response.get('state') == 'running' else 503
+            response.get('role') == 'replica' and is_running else 503
 
         if not cluster and response.get('pause'):
             leader_status_code = 200 if response.get('role') in ('master', 'primary', 'standby_leader') else 503
-            primary_status_code = 200 if response.get('role') in ('master', 'primary') else 503
-            standby_leader_status_code = 200 if response.get('role') == 'standby_leader' else 503
+            primary_status_code = 200 if response.get('role') in ('master', 'primary') and is_running else 503
+            standby_leader_status_code = 200 if response.get('role') == 'standby_leader' and is_running else 503
         elif patroni.ha.is_leader():
             leader_status_code = 200
             if global_config.is_standby_cluster:
                 primary_status_code = replica_status_code = 503
-                standby_leader_status_code = 200 if response.get('role') in ('replica', 'standby_leader') else 503
+                standby_leader_status_code = 200 if response.get('role') in ('replica', 'standby_leader') and is_running else 503
             else:
-                primary_status_code = 200
+                primary_status_code = 200 if is_running else 503
                 standby_leader_status_code = 503
         else:
             leader_status_code = primary_status_code = standby_leader_status_code = 503
