@@ -612,8 +612,9 @@ class Cluster(NamedTuple):
                          "; ".join(f"{', '.join(v)} map to {k}"
                                    for k, v in slot_conflicts.items() if len(v) > 1))
 
+        permanent_slots: dict[str, Any] = self._get_permanent_slots(role, nofailover) if self.use_slots else {}
         disabled_permanent_logical_slots: list[str] = self._merge_permanent_slots(
-            slots, self._get_permanent_slots(role, nofailover), my_name, major_version)
+            slots, permanent_slots, my_name, major_version)
 
         if disabled_permanent_logical_slots and show_error:
             logger.error("Permanent logical replication slots supported by Patroni only starting from PostgreSQL 11. "
