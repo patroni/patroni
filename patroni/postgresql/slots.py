@@ -351,23 +351,21 @@ class SlotsHandler(object):
                 logger.error("Failed to check %s physical slot on the primary: %r", slot_name, e)
                 return False
 
-            if not self._update_pending_logical_slot_primary(cluster, slots, catalog_xmin):
+            if not self._update_pending_logical_slot_primary(slots, catalog_xmin):
                 return False  # since `catalog_xmin` isn't valid further checks don't make any sense
 
         self._ready_logical_slots(catalog_xmin)
         return True
 
-    def _update_pending_logical_slot_primary(self, cluster: Cluster,
-                                             slots: Dict[str, Any],
-                                             catalog_xmin: Optional[int] = None) -> bool:
+    def _update_pending_logical_slot_primary(self, slots: Dict[str, Any], catalog_xmin: Optional[int] = None) -> bool:
         """Store pending logical slot information for ``catalog_xmin`` on the primary.
 
         Remember ``catalog_xmin`` of logical slots on the primary when ``catalog_xmin`` of the physical slot became
         valid. Logical slots on replica will be safe to use after promote when ``catalog_xmin`` of the physical slot
         overtakes these values.
 
-        :param catalog_xmin: ``catalog_xmin`` of the physical slot used by this replica to stream changes from primary.
         :param slots: dictionary of slot information from the primary
+        :param catalog_xmin: ``catalog_xmin`` of the physical slot used by this replica to stream changes from primary.
 
         :returns: ``False`` if any issue was faced while processing, ``True`` otherwise.
         """
