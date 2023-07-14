@@ -89,7 +89,7 @@ def dcs_modules() -> List[str]:
 
 def iter_dcs_classes(
         config: Optional[Union['Config', Dict[str, Any]]] = None
-) -> Iterator[Tuple[str, Optional[Type['AbstractDCS']]]]:
+) -> Iterator[Tuple[str, Type['AbstractDCS']]]:
     """Attempt to import DCS modules that are present in the given configuration.
 
     .. note::
@@ -103,11 +103,16 @@ def iter_dcs_classes(
     for mod_name in dcs_modules():
         name = mod_name.rpartition('.')[2]
         if config is None or name in config:
+
             try:
                 module = importlib.import_module(mod_name)
-                yield name, find_dcs_class_in_module(module)
+                dcs_module = find_dcs_class_in_module(module)
+                if dcs_module:
+                    yield name, dcs_module
+
             except ImportError:
-                logger.info('Failed to import %s', mod_name)
+                logger.log(logging.INFO if config is not None else logging.DEBUG,
+                           'Failed to import %s', mod_name)
 
 
 def find_dcs_class_in_module(module: ModuleType) -> Optional[Type['AbstractDCS']]:
@@ -146,20 +151,19 @@ def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
     :returns: The first successfully loaded DCS module which is an implementation of :class:`AbstractDCS`.
     """
     for name, dcs_class in iter_dcs_classes(config):
-        if dcs_class:
-            # Propagate some parameters from top level of config if defined to the DCS specific config section.
-            config[name].update({
-                p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
-                                       'patronictl', 'ttl', 'retry_timeout')
-                if p in config})
-            # From citus section we only need "group" parameter, but will propagate everything just in case.
-            if isinstance(config.get('citus'), dict):
-                config[name].update(config['citus'])
-            return dcs_class(config[name])
+        # Propagate some parameters from top level of config if defined to the DCS specific config section.
+        config[name].update({
+            p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
+                                   'patronictl', 'ttl', 'retry_timeout')
+            if p in config})
+        # From citus section we only need "group" parameter, but will propagate everything just in case.
+        if isinstance(config.get('citus'), dict):
+            config[name].update(config['citus'])
+        return dcs_class(config[name])
 
     raise PatroniFatalException(
         f"Can not find suitable configuration of distributed configuration store\n"
-        f"Available implementations: {', '.join(sorted(set(name for name, _ in iter_dcs_classes())))}")
+        f"Available implementations: {', '.join(sorted([n for n, _ in iter_dcs_classes()]))}")
 
 
 _Version = Union[int, str]
