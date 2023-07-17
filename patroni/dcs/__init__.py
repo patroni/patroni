@@ -111,7 +111,7 @@ def iter_dcs_classes(
                     yield name, dcs_module
 
             except ImportError:
-                logger.log(logging.INFO if config is not None else logging.DEBUG,
+                logger.log(logging.DEBUG if config is not None else logging.INFO,
                            'Failed to import %s', mod_name)
 
 
