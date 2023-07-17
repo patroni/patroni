@@ -213,6 +213,10 @@ class TestHa(PostgresInit):
         self.ha.old_cluster = self.e.get_cluster()
         self.ha.cluster = get_cluster_initialized_without_leader()
         self.ha.load_cluster_from_dcs = Mock()
+        self.ha_dcs_orig_name = self.ha.dcs.__class__.__name__
+
+    def tearDown(self) -> None:
+        self.ha.dcs.__class__.__name__ = self.ha_dcs_orig_name
 
     def test_update_lock(self):
         self.ha.is_failsafe_mode = true
