@@ -213,10 +213,6 @@ class TestHa(PostgresInit):
         self.ha.old_cluster = self.e.get_cluster()
         self.ha.cluster = get_cluster_initialized_without_leader()
         self.ha.load_cluster_from_dcs = Mock()
-        self.ha_dcs_orig_name = self.ha.dcs.__class__.__name__
-
-    def tearDown(self) -> None:
-        self.ha.dcs.__class__.__name__ = self.ha_dcs_orig_name
 
     def test_update_lock(self):
         self.ha.is_failsafe_mode = true
@@ -279,8 +275,10 @@ class TestHa(PostgresInit):
         self.p.follow = true
         self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
         self.p.is_running = true
+        ha_dcs_orig_name = self.ha.dcs.__class__.__name__
         self.ha.dcs.__class__.__name__ = 'Raft'
         self.assertEqual(self.ha.run_cycle(), 'started as a secondary')
+        self.ha.dcs.__class__.__name__ = ha_dcs_orig_name
 
     def test_recover_former_primary(self):
         self.p.follow = false
