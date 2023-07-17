@@ -93,7 +93,7 @@ bootstrap:
   # Additional script to be launched after initial cluster creation (will be passed the connection URL as parameter)
 # post_init: /usr/local/bin/setup_cluster.sh
 
-  # Some additional users users which needs to be created after initializing new cluster
+  # Some additional users which needs to be created after initializing new cluster
   users:
     admin:
       password: admin%
