@@ -157,37 +157,7 @@ class QuorumStateResolver(object):
             if cur_transition[0] == 'restart':
                 break
 
-    def _generate_transitions(self) -> Iterator[Tuple[str, str, int, CaseInsensitiveSet]]:
-        logger.debug("Quorum state: leader %s quorum %s, voters %s, numsync %s, sync %s, "
-                     "numsync_confirmed %s, active %s, sync_wanted %s leader_wanted %s",
-                     self.leader, self.quorum, self.voters, self.numsync, self.sync,
-                     self.numsync_confirmed, self.active, self.sync_wanted, self.leader_wanted)
-        try:
-            if self.leader_wanted != self.leader:
-                voters = (self.voters - CaseInsensitiveSet([self.leader_wanted])) | CaseInsensitiveSet([self.leader])
-                if not self.sync:
-                    # If sync is empty we need to update synchronous_standby_names first
-                    numsync = len(voters) - self.quorum
-                    yield from self.sync_update(numsync, CaseInsensitiveSet(voters))
-                # If leader changed we need to add the old leader to quorum (voters)
-                yield from self.quorum_update(self.quorum, CaseInsensitiveSet(voters), self.leader_wanted)
-                # right after promote there could be no replication connections yet
-                if not self.sync & self.active:
-                    return  # give another loop_wait seconds for replicas to reconnect before removing them from quorum
-            else:
-                self.check_invariants()
-        except QuorumError as e:
-            logger.warning('%s', e)
-            yield from self.quorum_update(len(self.sync) - self.numsync, self.sync)
-
-        assert self.leader == self.leader_wanted
-
-        # numsync_confirmed could be 0 after restart/failover, we will calculate it from quorum
-        if self.numsync_confirmed == 0 and self.sync & self.active:
-            self.numsync_confirmed = min(len(self.sync & self.active), len(self.voters) - self.quorum)
-            logger.debug('numsync_confirmed=0, adjusting it to %d', self.numsync_confirmed)
-
-        # Handle non steady state cases
+    def __handle_non_steady_cases(self) -> Iterator[Tuple[str, str, int, CaseInsensitiveSet]]:
         if self.sync < self.voters:
             logger.debug("Case 1: synchronous_standby_names subset of DCS state")
             # Case 1: quorum is superset of sync nodes. In the middle of changing quorum.
@@ -233,8 +203,7 @@ class QuorumStateResolver(object):
             if self.numsync == self.sync_wanted and safety_margin > 0 and self.numsync > self.numsync_confirmed:
                 yield from self.quorum_update(len(self.sync) - self.numsync, self.voters)
 
-        # We are in a steady state point. Find if desired state is different and act accordingly.
-
+    def __remove_gone_nodes(self) -> Iterator[Tuple[str, str, int, CaseInsensitiveSet]]:
         # If any nodes have gone away, evict them
         to_remove = self.sync - self.active
         if to_remove and self.sync == to_remove:
@@ -266,6 +235,7 @@ class QuorumStateResolver(object):
                 yield from self.quorum_update(quorum, voters, adjust_quorum=False)
                 yield from self.sync_update(numsync, sync)
 
+    def __add_new_nodes(self) -> Iterator[Tuple[str, str, int, CaseInsensitiveSet]]:
         # If any new nodes, join them to quorum
         to_add = self.active - self.sync
         if to_add:
@@ -289,6 +259,7 @@ class QuorumStateResolver(object):
                                               adjust_quorum=sync_wanted > self.numsync_confirmed)
                 yield from self.sync_update(sync_wanted, CaseInsensitiveSet(self.sync | to_add))
 
+    def __handle_replication_factor_change(self) -> Iterator[Tuple[str, str, int, CaseInsensitiveSet]]:
         # Apply requested replication factor change
         sync_increase = min(self.sync_wanted, len(self.sync)) - self.numsync
         if sync_increase > 0:
@@ -303,3 +274,43 @@ class QuorumStateResolver(object):
                 yield from self.quorum_update(len(self.voters) - self.numsync - sync_increase, self.voters,
                                               adjust_quorum=self.sync_wanted > self.numsync_confirmed)
             yield from self.sync_update(self.numsync + sync_increase, self.sync)
+
+    def _generate_transitions(self) -> Iterator[Tuple[str, str, int, CaseInsensitiveSet]]:
+        logger.debug("Quorum state: leader %s quorum %s, voters %s, numsync %s, sync %s, "
+                     "numsync_confirmed %s, active %s, sync_wanted %s leader_wanted %s",
+                     self.leader, self.quorum, self.voters, self.numsync, self.sync,
+                     self.numsync_confirmed, self.active, self.sync_wanted, self.leader_wanted)
+        try:
+            if self.leader_wanted != self.leader:
+                voters = (self.voters - CaseInsensitiveSet([self.leader_wanted])) | CaseInsensitiveSet([self.leader])
+                if not self.sync:
+                    # If sync is empty we need to update synchronous_standby_names first
+                    numsync = len(voters) - self.quorum
+                    yield from self.sync_update(numsync, CaseInsensitiveSet(voters))
+                # If leader changed we need to add the old leader to quorum (voters)
+                yield from self.quorum_update(self.quorum, CaseInsensitiveSet(voters), self.leader_wanted)
+                # right after promote there could be no replication connections yet
+                if not self.sync & self.active:
+                    return  # give another loop_wait seconds for replicas to reconnect before removing them from quorum
+            else:
+                self.check_invariants()
+        except QuorumError as e:
+            logger.warning('%s', e)
+            yield from self.quorum_update(len(self.sync) - self.numsync, self.sync)
+
+        assert self.leader == self.leader_wanted
+
+        # numsync_confirmed could be 0 after restart/failover, we will calculate it from quorum
+        if self.numsync_confirmed == 0 and self.sync & self.active:
+            self.numsync_confirmed = min(len(self.sync & self.active), len(self.voters) - self.quorum)
+            logger.debug('numsync_confirmed=0, adjusting it to %d', self.numsync_confirmed)
+
+        yield from self.__handle_non_steady_cases()
+
+        # We are in a steady state point. Find if desired state is different and act accordingly.
+
+        yield from self.__remove_gone_nodes()
+
+        yield from self.__add_new_nodes()
+
+        yield from self.__handle_replication_factor_change()
