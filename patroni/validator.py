@@ -877,6 +877,7 @@ schema = Schema({
             Optional("role_label"): str,
             Optional("leader_label_value"): str,
             Optional("follower_label_value"): str,
+            Optional("standby_leader_label_value"): str,
             Optional("tmp_role_label"): str,
             Optional("use_endpoints"): bool,
             Optional("pod_ip"): Or(is_ipv4_address, is_ipv6_address),

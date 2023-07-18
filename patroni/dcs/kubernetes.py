@@ -754,7 +754,8 @@ class Kubernetes(AbstractDCS):
         self._role_label = config.get('role_label', 'role')
         self._leader_label_value = config.get('leader_label_value', 'master')
         self._follower_label_value = config.get('follower_label_value', 'replica')
-        self._tmp_role_label = config.get('tmp_role_label', self._role_label)
+        self._standby_leader_label_value = config.get('standby_leader_label_value', 'standby-leader')
+        self._tmp_role_label = config.get('tmp_role_label')
         self._ca_certs = os.environ.get('PATRONI_KUBERNETES_CACERT', config.get('cacert')) or SERVICE_CERT_FILENAME
         super(Kubernetes, self).__init__({**config, 'namespace': ''})
         if self._citus_group:
@@ -1266,28 +1267,30 @@ class Kubernetes(AbstractDCS):
     def touch_member(self, data: Dict[str, Any]) -> bool:
         cluster = self.cluster
         if cluster and cluster.leader and cluster.leader.name == self._name:
-            tmp_role = 'master'
             role = self._leader_label_value
+            tmp_role = 'master'
         elif data['state'] == 'running' and data['role'] not in ('master', 'primary'):
+            role = {
+                'replica': self._follower_label_value,
+                'standby-leader': self._standby_leader_label_value,
+            }.get(data['role'], data['role'])
             tmp_role = data['role']
-            role = self._follower_label_value if data['role'] == 'replica' else data['role']
         else:
-            tmp_role = None
             role = None
+            tmp_role = None
 
-        if self._tmp_role_label == self._role_label:
-            tmp_role = role
+        role_labels = {self._role_label: role}
+        if self._tmp_role_label:
+            role_labels[self._tmp_role_label] = tmp_role
 
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         pod_labels = member and member.data.pop('pod_labels', None)
         ret = member and pod_labels is not None\
-            and pod_labels.get(self._role_label) == role \
-            and pod_labels.get(self._tmp_role_label) == tmp_role \
+            and all(pod_labels.get(k) == v for k, v in role_labels.items())\
             and deep_compare(data, member.data)
 
         if not ret:
-            metadata = {'namespace': self._namespace, 'name': self._name,
-                        'labels': {self._tmp_role_label: tmp_role, self._role_label: role},
+            metadata = {'namespace': self._namespace, 'name': self._name, 'labels': role_labels,
                         'annotations': {'status': json.dumps(data, separators=(',', ':'))}}
             body = k8s_client.V1Pod(metadata=k8s_client.V1ObjectMeta(**metadata))
             ret = self._api.patch_namespaced_pod(self._name, self._namespace, body)
