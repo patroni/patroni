@@ -642,6 +642,8 @@ class Ha(object):
         In case any of those steps causes an error we can just bail out and let next iteration rediscover the state
         and retry necessary transitions.
         """
+        start_time = time.time()
+
         min_sync = self.global_config.min_synchronous_nodes
         sync_wanted = self.global_config.synchronous_node_count
 
@@ -651,6 +653,9 @@ class Ha(object):
             sync = self.dcs.write_sync_state(leader, None, 0, version=sync.version)
             if not sync:
                 return logger.warning("Updating sync state failed")
+
+        def _check_timeout(offset: float = 0) -> bool:
+            return time.time() - start_time + offset >= self.dcs.loop_wait
 
         while True:
             transition = 'break'  # we need define transition value if `QuorumStateResolver` produced no changes
@@ -664,6 +669,9 @@ class Ha(object):
                                                                       active=sync_state.active,
                                                                       sync_wanted=sync_wanted,
                                                                       leader_wanted=self.state_handler.name):
+                if _check_timeout():
+                    return
+
                 if transition == 'quorum':
                     logger.info("Setting leader to %s, quorum to %d of %d (%s)",
                                 leader, num, len(nodes), ", ".join(sorted(nodes)))
@@ -680,8 +688,8 @@ class Ha(object):
                                        " Commits will be delayed.", min_sync + 1, num)
                         num = min_sync
                     self.state_handler.sync_handler.set_synchronous_standby_names(nodes, num)
-            if transition != 'restart':
-                break
+            if transition != 'restart' or _check_timeout(1):
+                return
             # synchronous_standby_names was transitioned from empty to non-empty and it may take
             # some time for nodes to become synchronous. In this case we want to restart state machine
             # hoping that we can update /sync key earlier than in loop_wait seconds.
