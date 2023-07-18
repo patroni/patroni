@@ -204,6 +204,54 @@ epub_exclude_files = ['search.html']
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {'python': ('https://docs.python.org/', None)}
 
+
+# Remove these pages from index, references, toc trees, etc.
+# If the builder is not 'html' then add the API docs modules index to pages to be removed.
+exclude_from_builder = {
+    'latex': ['modules/modules'],
+    'epub': ['modules/modules'],
+}
+# Internal holding list, anything added here will always be excluded
+_docs_to_remove = []
+
+
+def builder_inited(app):
+    """Run during Sphinx `builder-inited` phase.
+
+    Set a config value to builder name and add module docs to `docs_to_remove`.
+    """
+    print(f'The builder is: {app.builder.name}')
+    app.add_config_value('builder', app.builder.name, 'env')
+
+    # Remove pages when builder matches any referenced in exclude_from_builder
+    if exclude_from_builder.get(app.builder.name):
+        _docs_to_remove.extend(exclude_from_builder[app.builder.name])
+
+
+def env_get_outdated(app, env, added, changed, removed):
+    """Run during Sphinx `env-get-outdated` phase.
+
+    Remove the items listed in `docs_to_remove` from known pages.
+    """
+    added.difference_update(_docs_to_remove)
+    changed.difference_update(_docs_to_remove)
+    removed.update(_docs_to_remove)
+    return []
+
+
+def doctree_read(app, doctree):
+    """Run during Sphinx `doctree-read` phase.
+
+    Remove the items listed in `docs_to_remove` from the table of contents.
+    """
+    from sphinx import addnodes
+    for toc_tree_node in doctree.traverse(addnodes.toctree):
+        for e in toc_tree_node['entries']:
+            ref = str(e[1])
+            if ref in _docs_to_remove:
+                toc_tree_node['entries'].remove(e)
+
+
 # A possibility to have an own stylesheet, to add new rules or override existing ones
 # For the latter case, the CSS specificity of the rules should be higher than the default ones
 def setup(app):
@@ -211,3 +259,8 @@ def setup(app):
         app.add_css_file('custom.css')
     else:
         app.add_stylesheet('custom.css')
+
+    # Run extra steps to remove module docs when running with a non-html builder
+    app.connect('builder-inited', builder_inited)
+    app.connect('env-get-outdated', env_get_outdated)
+    app.connect('doctree-read', doctree_read)
