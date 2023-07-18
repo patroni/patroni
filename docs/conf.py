@@ -20,33 +20,14 @@
 import os
 
 import sys
-import yaml
-from datetime import datetime
 
 sys.path.insert(0, os.path.abspath('..'))
 
 from patroni.version import __version__
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-
-with open(os.path.join(project_root, 'docs', 'metadata.yaml')) as meta_fh:
-    metadata = yaml.safe_load(meta_fh)
-
-module_dir = os.path.abspath(os.path.join(project_root, metadata.get('source_root', '.')))
-sys.path.insert(0, module_dir)
-
-# -- Project information -----------------------------------------------------
-
-project = metadata['project']
-author = metadata['author'][0]
-try:
-    copyright_year = datetime.strptime(metadata['date'], '%d/%m/%Y').year
-except TypeError:
-    copyright_year = metadata['date'].year
-copyright = '{}, {}'.format(copyright_year, author)
-
+module_dir = os.path.abspath(os.path.join(project_root, 'patroni'))
 excludes = ['tests', 'setup.py', 'conf']
-excludes.extend(metadata.get('excludes', []))
 
 # -- General configuration ------------------------------------------------
 
@@ -84,6 +65,11 @@ source_suffix = '.rst'
 
 # The master toctree document.
 master_doc = 'index'
+
+# General information about the project.
+project = 'Patroni'
+copyright = '2015 Compose, Zalando SE'
+author = 'Zalando SE'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -194,7 +180,6 @@ texinfo_documents = [
 ]
 
 
-
 # -- Options for Epub output ----------------------------------------------
 
 # Bibliographic Dublin Core info.
@@ -214,7 +199,6 @@ epub_copyright = copyright
 
 # A list of files that should not be packed into the epub file.
 epub_exclude_files = ['search.html']
-
 
 
 # Example configuration for intersphinx: refer to the Python standard library.
