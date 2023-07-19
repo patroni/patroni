@@ -806,23 +806,34 @@ class IntValidator(object):
 class EnumValidator(object):
     """Validate enum setting
 
-    :ivar allowed_values: a tuple with allowed enum values.
+    :ivar allowed_values: a ``set`` or ``CaseInsensitiveSet`` object with allowed enum values.
+    :ivar raise_assert: if an ``assert`` call should be performed regarding expected type and valid range.
     """
 
-    def __init__(self, allowed_values: Tuple[str, ...], case_sensitive: bool = False) -> None:
+    def __init__(self, allowed_values: Tuple[str, ...],
+                 case_sensitive: bool = False, raise_assert: bool = False) -> None:
         """Create an :class:`EnumValidator` object with given allowed values.
 
         :param allowed_values: a tuple with allowed enum values
         :param case_sensitive: set to ``True`` to do case sensitive comparisons
+        :param raise_assert: if an ``assert`` call should be performed regarding expected values.
         """
         self.allowed_values = set(allowed_values) if case_sensitive else CaseInsensitiveSet(allowed_values)
+        self.raise_assert = raise_assert
 
     def __call__(self, value: str) -> bool:
         """Check if provided *value* could be found within *allowed_values*.
 
-        :returns: ``True`` if the *value* is valid.
+        .. note::
+            If ``raise_assert`` is ``True`` and *value* is not valid, then an ``AssertionError`` will be triggered.
+        :param value: value to be checked.
+        :returns: ``True`` if *value* could be found within *allowed_values*.
         """
-        return value in self.allowed_values
+        ret = value in self.allowed_values
+
+        if self.raise_assert:
+            assert_(ret)
+        return ret
 
 
 def validate_watchdog_mode(value: Any) -> None:
@@ -854,6 +865,7 @@ validate_etcd = {
     }),
     Optional("protocol"): str,
     Optional("username"): str,
+    Optional("password"): str,
     Optional("cacert"): str,
     Optional("cert"): str,
     Optional("key"): str
@@ -881,7 +893,8 @@ schema = Schema({
         Optional("keyfile_password"): str,
         Optional("cafile"): str,
         Optional("ciphers"): str,
-        Optional("verify_client"): EnumValidator(("none", "optional", "required"), case_sensitive=True),
+        Optional("verify_client"): EnumValidator(("none", "optional", "required"),
+                                                 case_sensitive=True, raise_assert=True),
         Optional("allowlist"): [str],
         Optional("allowlist_include_members"): bool,
         Optional("http_extra_headers"): dict,
@@ -942,7 +955,15 @@ schema = Schema({
             Optional("verify"): bool,
             Optional("cacert"): str,
             Optional("cert"): str,
-            Optional("key"): str
+            Optional("key"): str,
+            Optional("dc"): str,
+            Optional("checks"): [str],
+            Optional("register_service"): bool,
+            Optional("service_tags"): [str],
+            Optional("service_check_interval"): str,
+            Optional("service_check_tls_server_name"): str,
+            Optional("consistency"): EnumValidator(('default', 'consistent', 'stale'),
+                                                   case_sensitive=True, raise_assert=True)
         },
         "etcd": validate_etcd,
         "etcd3": validate_etcd,
