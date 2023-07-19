@@ -44,7 +44,7 @@ extensions = [
     'sphinx.ext.mathjax',
     'sphinx.ext.ifconfig',
     # 'sphinx.ext.viewcode',
-    'sphinx-github-style',  # Generate "View on GitHub" for source code
+    'sphinx_github_style',  # Generate "View on GitHub" for source code
     'sphinxcontrib.apidoc',  # For generating module docs from code
     'sphinx.ext.autodoc',  # For generating module docs from docstrings
     'sphinx.ext.napoleon',  # For Google and Numpy formatted docstrings
