@@ -36,7 +36,7 @@ Currently supported PostgreSQL versions: 9.3 to 15.
    ha_multi_dc
    releases
    CONTRIBUTING
-   modules/modules
+   Patroni API docs<modules/modules>
 
 Indices and tables
 ==================
