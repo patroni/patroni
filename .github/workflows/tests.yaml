@@ -191,7 +191,10 @@ jobs:
 
     - name: Install package dependencies
       run: |
-        sudo apt update && sudo apt install -y latexmk texlive-latex-extra --no-install-recommends
+        sudo apt update \
+        && sudo apt install -y \
+            latexmk texlive-latex-extra tex-gyre \
+            --no-install-recommends
 
     - name: Generate documentation
       run: tox -m docs
