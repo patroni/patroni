@@ -43,8 +43,8 @@ extensions = [
     'sphinx.ext.todo',
     'sphinx.ext.mathjax',
     'sphinx.ext.ifconfig',
-    'sphinx.ext.viewcode',
-
+    # 'sphinx.ext.viewcode',
+    'sphinx-github-style',  # Generate "View on GitHub" for source code
     'sphinxcontrib.apidoc',  # For generating module docs from code
     'sphinx.ext.autodoc',  # For generating module docs from docstrings
     'sphinx.ext.napoleon',  # For Google and Numpy formatted docstrings
@@ -130,6 +130,25 @@ html_context = {
     'github_version': 'master',
     'conf_py_path': '/docs/',
 }
+
+# sphinx-github-style options, https://sphinx-github-style.readthedocs.io/en/latest/index.html
+
+# The name of the top-level package.
+# top_level = project
+
+# The blob to link to on GitHub - any of "head", "last_tag", or "{blob}"
+# linkcode_blob = 'head'
+
+# The link to your GitHub repository formatted as https://github.com/user/repo
+# If not provided, will attempt to create the link from the html_context dict
+# linkcode_url: str = f"https://github.com/{html_context['github_user']}/{html_context['github_repo']}/{html_context['github_version']}"
+
+# The text to use for the linkcode link
+# linkcode_link_text: str = "View on GitHub"
+
+# A linkcode_resolve() function to use for resolving the link target
+# linkcode_resolve: types.FunctionType
+
 
 # -- Options for HTMLHelp output ------------------------------------------
 
@@ -272,3 +291,13 @@ def setup(app):
     app.connect('builder-inited', builder_inited)
     app.connect('env-get-outdated', env_get_outdated)
     app.connect('doctree-read', doctree_read)
+
+
+def linkcode_resolve(domain, info):
+    """Generate links to source code outside of Sphinx/RTD."""
+    if domain != 'py':
+        return None
+    if not info['module']:
+        return None
+    filename = info['module'].replace('.', '/')
+    return "https://somesite/sourcerepo/%s.py" % filename
