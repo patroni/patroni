@@ -189,5 +189,8 @@ jobs:
     - name: Install dependencies
       run: pip install tox
 
+    - name: Install package dependencies
+      run: sudo apt install -y latexmk
+
     - name: Generate documentation
       run: tox -m docs
