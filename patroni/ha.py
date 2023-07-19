@@ -462,16 +462,23 @@ class Ha(object):
         """Handle the case when postgres isn't running.
 
         Depending on the state of Patroni, DCS cluster view, and pg_controldata the following could happen:
-        - if ``primary_start_timeout`` is 0 and this node owns the leader lock, the lock
-          will be voluntarily released if there are healthy replicas to take it over.
-        - if postgres was running as a ``primary`` and this node owns the leader lock, postgres is started as primary.
-        - crash recover in a single-user mode is executed in the following cases:
-          - postgres was running as ``primary`` wasn't ``shut down`` cleanly and there is no leader in DCS
-          - postgres was running as ``replica`` wasn't ``shut down in recovery`` (cleanly)
-            and we need to run ``pg_rewind`` to join back to the cluster.
-        - ``pg_rewind`` is executed if it is necessary, or optinally, the data directory could
-           be removed if it is allowed by configuration.
-        - after ``crash recovery`` and/or ``pg_rewind`` are executed, postgres is started in recovery.
+
+          - if ``primary_start_timeout`` is 0 and this node owns the leader lock, the lock
+            will be voluntarily released if there are healthy replicas to take it over.
+
+          - if postgres was running as a ``primary`` and this node owns the leader lock, postgres is started as primary.
+
+          - crash recover in a single-user mode is executed in the following cases:
+
+            - postgres was running as ``primary`` wasn't ``shut down`` cleanly and there is no leader in DCS
+
+            - postgres was running as ``replica`` wasn't ``shut down in recovery`` (cleanly)
+              and we need to run ``pg_rewind`` to join back to the cluster.
+
+          - ``pg_rewind`` is executed if it is necessary, or optinally, the data directory could
+             be removed if it is allowed by configuration.
+
+          - after ``crash recovery`` and/or ``pg_rewind`` are executed, postgres is started in recovery.
 
         :returns: action message, describing what was performed.
         """
