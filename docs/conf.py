@@ -122,6 +122,14 @@ if not on_rtd:  # only import and set the theme if we're building docs locally
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
 
+# Replace "source" links with "edit on GitHub" when using rtd theme
+html_context = {
+    'display_github': True,
+    'github_user': 'zalando',
+    'github_repo': 'patroni',
+    'github_version': 'master',
+    'conf_py_path': '/docs/',
+}
 
 # -- Options for HTMLHelp output ------------------------------------------
 
