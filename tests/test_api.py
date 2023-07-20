@@ -212,11 +212,13 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(RestApiHandler, 'get_postgresql_status',
                           Mock(return_value={'role': 'replica', 'quorum_standby': True})):
             MockRestApiServer(RestApiHandler, 'GET /quorum')
+            MockRestApiServer(RestApiHandler, 'GET /read-only-quorum')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
             MockRestApiServer(RestApiHandler, 'GET /asynchronous')
         with patch.object(MockHa, 'is_leader', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /replica')
             MockRestApiServer(RestApiHandler, 'GET /read-only-sync')
+            MockRestApiServer(RestApiHandler, 'GET /read-only-quorum')
             with patch.object(GlobalConfig, 'is_standby_cluster', Mock(return_value=True)):
                 MockRestApiServer(RestApiHandler, 'GET /standby_leader')
         MockPatroni.dcs.cluster = None

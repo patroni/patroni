@@ -47,6 +47,8 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
 - ``GET /quorum``: returns HTTP status code **200** only when this Patroni node is listed as a quorum node in ``synchronous_standby_names`` on the primary.
 
+- ``GET /read-only-quorum``: like the above endpoint, but also includes the primary.
+
 - ``GET /asynchronous`` or ``GET /async``: returns HTTP status code **200** only when the Patroni node is running as an asynchronous standby.
 
 

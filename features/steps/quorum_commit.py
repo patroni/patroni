@@ -25,6 +25,17 @@ def check_sync(context, key, value, time_limit):
                                                                                            dcs_value, time_limit)
 
 
+def _parse_synchronous_standby_names(value):
+    if '(' in value:
+        m = re.match(r'.*(\d+) \(([^)]+)\)', value)
+        expected_value = set(m.group(2).split())
+        expected_num = m.group(1)
+    else:
+        expected_value = set([value])
+        expected_num = '1'
+    return expected_num, expected_value
+
+
 @then('synchronous_standby_names on {name:2} is set to "{value}" after {time_limit:d} seconds')
 def check_synchronous_standby_names(context, name, value, time_limit):
     time_limit *= context.timeout_multiplier
@@ -33,24 +44,12 @@ def check_synchronous_standby_names(context, name, value, time_limit):
     if value == '_empty_str_':
         value = ''
 
-    if '(' in value:
-        m = re.match(r'.*(\d+) \(([^)]+)\)', value)
-        expected_value = set(m.group(2).split())
-        expected_num = m.group(1)
-    else:
-        expected_value = set([value])
-        expected_num = '1'
+    expected_num, expected_value = _parse_synchronous_standby_names(value)
 
     while time.time() < max_time:
         try:
             ssn = context.pctl.query(name, "SHOW synchronous_standby_names").fetchone()[0]
-            if '(' in ssn:
-                m = re.match(r'.*(\d+) \(([^)]+)\)', ssn)
-                db_value = set(m.group(2).split())
-                db_num = m.group(1)
-            else:
-                db_value = set([ssn])
-                db_num = '1'
+            db_num, db_value = _parse_synchronous_standby_names(ssn)
             if expected_value == db_value and expected_num == db_num:
                 return
         except Exception:

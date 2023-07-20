@@ -922,8 +922,8 @@ class Ha(object):
     def fetch_node_status(self, member: Member) -> _MemberStatus:
         """Perform http get request on member.api_url to fetch its status.
 
-        Usually this happens during the leader race and we can't afford to wait an indefinite time 
-        for a response, therefore the request timeout is hardcoded to 2 seconds, which seems to be a 
+        Usually this happens during the leader race and we can't afford to wait an indefinite time
+        for a response, therefore the request timeout is hardcoded to 2 seconds, which seems to be a
         good compromise. The node which is slow to respond is most likely unhealthy.
 
         :returns: :class:`_MemberStatus` object
@@ -1002,7 +1002,7 @@ class Ha(object):
         :param check_replication_lag: whether to take the replication lag into account.
                                       If the lag exceeds configured threshold the node disqualifies itself.
         :returns: `True` if the node is eligible to become the new leader. Since this method is executed
-                  on multiple nodes independently it is possible that multiple nodes could count 
+                  on multiple nodes independently it is possible that multiple nodes could count
                   themselves as the healthiest because they received/replayed up to the same LSN,
                   but this is totally fine.
         """

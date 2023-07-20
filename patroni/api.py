@@ -219,6 +219,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 * HTTP status ``200``: if up and running as a standby and without ``noloadbalance`` tag.
             * ``/read-only``:
                 * HTTP status ``200``: if up and running and without ``noloadbalance`` tag.
+            * ``/quorum``:
+                * HTTP status ``200``: if up and running as a quorum synchronous standby.
+            * ``/read-only-quorum``:
+                * HTTP status ``200``: if up and running as a quorum synchronous standby or primary.
             * ``/synchronous`` or ``/sync``:
                 * HTTP status ``200``: if up and running as a synchronous standby.
             * ``/read-only-sync``:
@@ -290,7 +294,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             ignore_tags = True
         elif 'replica' in path:
             status_code = replica_status_code
-        elif 'read-only' in path and 'sync' not in path:
+        elif 'read-only' in path and 'sync' not in path and 'quorum' not in path:
             status_code = 200 if 200 in (primary_status_code, standby_leader_status_code) else replica_status_code
         elif 'health' in path:
             status_code = 200 if response.get('state') == 'running' else 503
@@ -303,6 +307,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = replica_status_code
             elif path in ('/async', '/asynchronous') and not is_synchronous and not is_quorum:
                 status_code = replica_status_code
+            elif path == '/read-only-quorum':
+                if 200 in (primary_status_code, standby_leader_status_code):
+                    status_code = 200
+                elif is_quorum:
+                    status_code = replica_status_code
             elif path in ('/read-only-sync', '/read-only-synchronous'):
                 if 200 in (primary_status_code, standby_leader_status_code):
                     status_code = 200
@@ -455,6 +464,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         * ``patroni_standby_leader``: ``1`` if standby leader node, else ``0``;
         * ``patroni_replica``: ``1`` if a replica, else ``0``;
         * ``patroni_sync_standby``: ``1`` if a sync replica, else ``0``;
+        * ``patroni_quorum_standby``: ``1`` if a quorum sync replica, else ``0``;
         * ``patroni_xlog_received_location``: ``pg_wal_lsn_diff(pg_last_wal_receive_lsn(), '0/0')``;
         * ``patroni_xlog_replayed_location``: ``pg_wal_lsn_diff(pg_last_wal_replay_lsn(), '0/0)``;
         * ``patroni_xlog_replayed_timestamp``: ``pg_last_xact_replay_timestamp``;

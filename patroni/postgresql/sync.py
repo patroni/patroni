@@ -154,6 +154,18 @@ def parse_sync_standby_names(value: str) -> _SSN:
 
 
 class _SyncState(NamedTuple):
+    """Class representing the current synchronous state.
+
+    :ivar sync_type: possible values: 'off', 'priority', 'quorum'
+    :ivar numsync: how many nodes are required to be synchronous (according to ``synchronous_standby_names``).
+                   Is ``0`` in case if synchronous_standby_names value is invalid or has ``*``.
+    :ivar numsync_confirmed: how many nodes are known to be synchronous according to the ``pg_stat_replication``
+                             view. Only nodes that caught up with the ``SyncHandler._primary_flush_lsn` are counted.
+    :ivar sync: collection of synchronous node names. In case of quorum commit all nodes listed
+                in ``synchronous_standby_names`` or nodes that are confirmed to be synchronous according
+                to the `pg_stat_replication` view.
+    :ivar active: collection of node names that are streaming and have no restrictions to become synchronous.
+    """
     sync_type: str
     numsync: int
     numsync_confirmed: int
@@ -210,7 +222,22 @@ END;$$""")
         self._postgresql.reset_cluster_info_state(None)  # Reset internal cache to query fresh values
 
     def _get_replica_list(self, cluster: Cluster) -> Iterator[Tuple[int, str, str, int, bool]]:
-        """Yields candidates based on higher replay/remote_write/flush lsn."""
+        """Yields candidates based on higher replay/remote_write/flush lsn.
+
+        .. note::
+            Tuples are reverse ordered by sync_state and LSN fields so nodes that already synchronous or having
+            higher LSN values are preferred.
+
+        :param cluster: current cluster topology from DCS.
+
+        :yields: tuples composed of:
+
+            * pid - a PID of walsender process
+            * member name - matches with the application_name
+            * sync_state - one of ("async", "potential", "quorum", "sync")
+            * LSN - write_lsn, flush_lsn, or replica_lsn, depending on the value of ``synchronous_commit`` GUC
+            * nofailover - whether the member has ``nofailover`` tag set
+        """
 
         # What column from pg_stat_replication we want to sort on? Choose based on ``synchronous_commit`` value.
         sort_col = {
@@ -259,14 +286,16 @@ END;$$""")
         synchronous standby any longer.
 
         Standbys are selected based on values from the global configuration:
-        - `maximum_lag_on_syncnode`: would help swapping unhealthy sync replica in case if it stops
-          responding (or hung). Please set the value high enough so it won't unncessarily swap sync
-          standbys during high loads. Any value less or equal of 0 keeps the behavior backward compatible.
-          Please note that it will not also swap sync standbys in case where all replicas are hung.
-        - `synchronous_node_count`: controlls how many nodes should be set as synchronous.
+
+            - `maximum_lag_on_syncnode`: would help swapping unhealthy sync replica in case if it stops
+              responding (or hung). Please set the value high enough so it won't unncessarily swap sync
+              standbys during high loads. Any value less or equal of 0 keeps the behavior backward compatible.
+              Please note that it will not also swap sync standbys in case where all replicas are hung.
+
+            - `synchronous_node_count`: controlls how many nodes should be set as synchronous.
 
         :param cluster: current cluster topology from DCS
-        
+
         :returns: current synchronous replication state as a :class:`_SyncState` object
         """
         self._handle_synchronous_standby_names_change()
