@@ -473,7 +473,8 @@ class Ha(object):
 
         # timeout > 0 indicates that we still have the leader lock, and it was just updated
         if timeout\
-                and data.get('Database cluster state') in ('in production', 'shutting down', 'shut down')\
+                and data.get('Database cluster state') in ('in production', 'in crash recovery',
+                                                           'shutting down', 'shut down')\
                 and self.state_handler.state == 'crashed'\
                 and self.state_handler.role in ('primary', 'master')\
                 and not self.state_handler.config.recovery_conf_exists():
