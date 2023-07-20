@@ -598,7 +598,7 @@ class Cluster(NamedTuple):
 
         :returns: final dictionary of slot names, after merging with permanent slots and performing sanity checks.
         """
-        slot_members: list[str] = self._get_slot_members(my_name, role) if self.use_slots else []
+        slot_members: List[str] = self._get_slot_members(my_name, role) if self.use_slots else []
 
         slots: Dict[str, Dict[str, str]] = {slot_name_from_member_name(name): {'type': 'physical'}
                                             for name in slot_members}
@@ -613,7 +613,7 @@ class Cluster(NamedTuple):
                                    for k, v in slot_conflicts.items() if len(v) > 1))
 
         permanent_slots: dict[str, Any] = self._get_permanent_slots(role, nofailover) if self.use_slots else {}
-        disabled_permanent_logical_slots: list[str] = self._merge_permanent_slots(
+        disabled_permanent_logical_slots: List[str] = self._merge_permanent_slots(
             slots, permanent_slots, my_name, major_version)
 
         if disabled_permanent_logical_slots and show_error:
