@@ -745,7 +745,7 @@ class Ha(object):
                 logger.info("Synchronous replication key updated by someone else")
 
     def process_sync_replication(self) -> None:
-        """Process synchronous replication beahvior on the primary."""
+        """Process synchronous replication behavior on the primary."""
         if self.is_quorum_commit_mode():
             # The synchronous_standby_names was adjusted right before promote.
             # After that, when postgres has become a primary, we need to reflect this change
@@ -920,11 +920,11 @@ class Ha(object):
             return promote_message
 
     def fetch_node_status(self, member: Member) -> _MemberStatus:
-        """This function performs http get request on member.api_url and fetches its status.
+        """Perform http get request on member.api_url to fetch its status.
 
-        Usually it happens during the leader race and we can't afford wating for a response indefinite time,
-        therefore the request timeout is hardcoded to 2 seconds, which seems to be a good compromise.
-        The node which is slow to respond most likely will not be healthy.
+        Usually this happens during the leader race and we can't afford to wait an indefinite time 
+        for a response, therefore the request timeout is hardcoded to 2 seconds, which seems to be a 
+        good compromise. The node which is slow to respond is most likely unhealthy.
 
         :returns: :class:`_MemberStatus` object
         """
@@ -987,7 +987,7 @@ class Ha(object):
         return all(results)
 
     def is_lagging(self, wal_position: int) -> bool:
-        """Checks if node should consider itself unhealthy to be promoted due to replication lag.
+        """Check if node should consider itself unhealthy to be promoted due to replication lag.
 
         :param wal_position: Current wal position.
         :returns `True` when node is lagging
@@ -996,14 +996,15 @@ class Ha(object):
         return lag > self.global_config.maximum_lag_on_failover
 
     def _is_healthiest_node(self, members: Collection[Member], check_replication_lag: bool = True) -> bool:
-        """This method tries to determine whether the current node is healthy enough to became a new leader candidate.
+        """Determine whether the current node is healthy enough to become a new leader candidate.
 
         :param members: the list of nodes to check against
         :param check_replication_lag: whether to take the replication lag into account.
                                       If the lag exceeds configured threshold the node disqualifies itself.
-        :returns: `True` in case if the node is eligible to become the new leader. Since this method is executed
-                  on multiple nodes independently it could happen that many nodes will count themselves as
-                  healthiest because they received/replayed up to the same LSN, but it is totally fine.
+        :returns: `True` if the node is eligible to become the new leader. Since this method is executed
+                  on multiple nodes independently it is possible that multiple nodes could count 
+                  themselves as the healthiest because they received/replayed up to the same LSN,
+                  but this is totally fine.
         """
         my_wal_position = self.state_handler.last_operation()
         if check_replication_lag and self.is_lagging(my_wal_position):

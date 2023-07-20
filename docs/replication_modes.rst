@@ -66,15 +66,15 @@ Note: Because of the way synchronous replication is implemented in PostgreSQL it
 Synchronous Replication Factor
 ==============================
 
-The parameter ``synchronous_node_count`` is used by Patroni to manage number of synchronous standby databases. It is set to 1 by default. It has no effect when ``synchronous_mode`` is set to off. When enabled, Patroni manages precise number of synchronous standby databases based on parameter ``synchronous_node_count`` and adjusts the state in DCS & synchronous_standby_names as members join and leave. If the parameter is set to the value higher than the number of eligible nodes it will be automatically reduced by Patroni down to 1.
+The parameter ``synchronous_node_count`` is used by Patroni to manage number of synchronous standby databases. It is set to 1 by default. It has no effect when ``synchronous_mode`` is set to off. When enabled, Patroni manages precise number of synchronous standby databases based on parameter ``synchronous_node_count`` and adjusts the state in DCS & ``synchronous_standby_names`` in PostgreSQL as members join and leave. If the parameter is set to a value higher than the number of eligible nodes it will be automatically reduced by Patroni down to 1.
 
 
 Maximum lag on synchronous node
 ===============================
 
-By default Patroni sticks to a node that is declared as ``synchronous`` according to the ``pg_stat_replication`` even when there are other nodes ahead of it. It is done to minimize the number of changes of ``synchronous_standby_names``. To change this behavior one may use ``maximum_lag_on_syncnode`` parameter. It controls how much the replica can lag in to be allowed chosen as synchronous.
+By default Patroni sticks to a node that is declared as ``synchronous``, according to the setting ``pg_stat_replication``, even when there are other nodes ahead of it. This is done to minimize the number of changes of ``synchronous_standby_names``. To change this behavior one may use ``maximum_lag_on_syncnode`` parameter. It controls how much lag the replica can have to still be considered as "synchronous".
 
-Patroni utilizes the max replica LSN if there is more than one standby, otherwise it will use leader's current wal LSN. Default is ``-1``, and Patroni will not take action to swap synchronous unhealthy standby when the value is set to 0 or below. Please set the value high enough so Patroni won't swap synchrounous standbys fequently during high transaction volume.
+Patroni utilizes the max replica LSN if there is more than one standby, otherwise it will use leader's current wal LSN. The default is ``-1``, and Patroni will not take action to swap a synchronous unhealthy standby when the value is set to 0 or below. Please set the value high enough so that Patroni won't swap synchronous standbys frequently during high transaction volume.
 
 
 Synchronous mode implementation
@@ -100,11 +100,11 @@ Quorum commit mode
 
 Starting from PostgreSQL v10 Patroni supports quorum-based synchronous replication.
 
-In this mode Patroni maintains synchronization state in the DCS, containing the latest known primary, number of nodes required for quorum and nodes currently eligible to vote on quorum. In steady state the nodes voting on quorum are the leader and all synchronous standbys. This state is updated with strict ordering constraints with regards to node promotion and ``synchronous_standby_names`` to ensure that at all times any subset of voters that can achieve quorum is contained to have at least one node having the latest successful commit.
+In this mode, Patroni maintains synchronization state in the DCS, containing the latest known primary, the number of nodes required for quorum and the nodes currently eligible to vote on quorum. In steady state, the nodes voting on quorum are the leader and all synchronous standbys. This state is updated with strict ordering constraints, with regards to node promotion and ``synchronous_standby_names``, to ensure that at all times any subset of voters that can achieve quorum includes at least one node with the latest successful commit.
 
-On each iteration of HA loop Patroni re-evaluates synchronous standby choices and quorum based on node availability and requested cluster configuration. In PostgreSQL versions above 9.6 all eligible nodes are added as synchronous standbys as soon as their replication catches up to leader.
+On each iteration of HA loop, Patroni re-evaluates synchronous standby choices and quorum, based on node availability and requested cluster configuration. In PostgreSQL versions above 9.6 all eligible nodes are added as synchronous standbys as soon as their replication catches up to leader.
 
-Quorum commit helps to reduce worst case latencies even during normal operation as a higher latency of replicating to one standby can be compensated by other standbys.
+Quorum commit helps to reduce worst case latencies, even during normal operation, as a higher latency of replicating to one standby can be compensated by other standbys.
 
 The quorum-based synchronous mode could be enabled by setting ``synchronous_mode`` to ``quorum`` using ``patronictl edit-config`` command or via Patroni REST interface. See :ref:`dynamic configuration <dynamic_configuration>` for instructions.
 

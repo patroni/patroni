@@ -266,6 +266,7 @@ END;$$""")
         - `synchronous_node_count`: controlls how many nodes should be set as synchronous.
 
         :param cluster: current cluster topology from DCS
+        
         :returns: current synchronous replication state as a :class:`_SyncState` object
         """
         self._handle_synchronous_standby_names_change()
