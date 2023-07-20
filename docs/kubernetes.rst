@@ -32,6 +32,55 @@ Configuration
 
 Patroni Kubernetes :ref:`settings <kubernetes_settings>` and :ref:`environment variables <kubernetes_environment>` are described in the general chapters of the documentation.
 
+Customize role label
+^^^^^^^^^^^^^^^^^
+By default, Patroni will set corresponding labels on the pod it runs in based on node's role, such as ``role=master``.
+The key and value of label can be customized by `kubernetes.role_label`, `kubernetes.leader_label_value`, `kubernetes.follower_label_value` and `kubernetes.standby_leader_label_value`.
+
+Note that if you migrate from default role labels to custom ones, you can reduce downtime by following migration steps:
+
+1. Add a temporary label using original role value for the pod with `kubernetes.tmp_role_label`(like ``tmp_role``). Updated pod looks like:
+
+  .. code:: YAML
+
+    labels:
+      cluster-name: foo
+      role: replica
+      tmp_role: replica
+
+2. After all pods have been updated, modify the service selector to select the temporary label.
+
+  .. code:: YAML
+
+    selector:
+      cluster-name: foo
+      tmp_role: replica
+
+3. Add your custom role label (e.g., set `kubernetes.follower_label_value=standby`). Updated pod looks like:
+
+  .. code:: YAML
+
+    labels:
+      cluster-name: foo
+      role: standby
+      tmp_role: replica
+
+4. After all pods have been updated again, modify the service selector to use new role value.
+
+  .. code:: YAML
+
+    selector:
+      cluster-name: foo
+      role: standby
+
+5. Finally, remove the temporary label from your configuration and update your pods.
+
+  .. code:: YAML
+
+    labels:
+      cluster-name: foo
+      role: standby
+
 Examples
 --------
 
