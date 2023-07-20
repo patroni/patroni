@@ -1085,7 +1085,11 @@ class Ha(object):
             # It could happen if Postgres is still archiving the backlog of WAL files.
             # If we know that there are replicas that received the shutdown checkpoint
             # location, we can remove the leader key and allow them to start leader race.
-            if self.is_failover_possible(self.cluster.members, cluster_lsn=checkpoint_location):
+            failover = self.cluster.failover
+            # for a manual failover/switchover with a candidate, we should check the requested candidate only
+            members = [m for m in self.cluster.members if not failover or not failover.candidate
+                       or failover.candidate and m.name == failover.candidate]
+            if self.is_failover_possible(members, cluster_lsn=checkpoint_location):
                 self.state_handler.set_role('demoted')
                 with self._async_executor:
                     self.release_leader_key_voluntarily(checkpoint_location)
@@ -1189,12 +1193,13 @@ class Ha(object):
                     logger.warning('Failover is possible only to a specific candidate in a paused state')
                 else:
                     if self.is_synchronous_mode():
-                        if failover.candidate and not self.cluster.sync.matches(failover.candidate):
+                        # every sync_standby or the cnadidate if is in sync_standbys
+                        # TODO: allow manual failover (=no leader specified) to async node
+                        members = [m for m in self.cluster.members if self.cluster.sync.matches(m.name)
+                                   and (not failover.candidate or m.name == failover.candidate)]
+                        if failover.candidate and not members:
                             logger.warning('Failover candidate=%s does not match with sync_standbys=%s',
                                            failover.candidate, self.cluster.sync.sync_standby)
-                            members = []
-                        else:
-                            members = [m for m in self.cluster.members if self.cluster.sync.matches(m.name)]
                     else:
                         members = [m for m in self.cluster.members
                                    if not failover.candidate or m.name == failover.candidate]
