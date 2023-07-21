@@ -476,6 +476,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
         * ``patroni_dcs_last_seen``: epoch timestamp when DCS was last contacted successfully;
         * ``patroni_pending_restart``: ``1`` if this PostgreSQL node is pending a restart, else ``0``;
         * ``patroni_is_paused``: ``1`` if Patroni is in maintenance node, else ``0``.
+
+        For PostgreSQL v9.6+ the response will also have the following:
+
+        * ``patroni_postgres_streaming``: 1 if Postgres is streaming from another node, else ``0``;
+        * ``patroni_postgres_in_archive_recovery``: ``1`` if Postgres isn't streaming and
+                                                    there is ``restore_command`` available, else ``0``.
         """
         postgres = self.get_postgresql_status(True)
         patroni = self.server.patroni
