@@ -1018,8 +1018,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
         logger.info("received %s request with leader=%s candidate=%s scheduled_at=%s",
                     action, leader, candidate, scheduled_at)
 
-        if action == 'failover' and not candidate:
-            data = 'Failover could be performed only to a specific candidate'
+        if action == 'failover':
+            if not candidate:
+                data = 'Failover could be performed only to a specific candidate'
+            elif scheduled_at:
+                data = "Failover can't be scheduled"
         elif action == 'switchover' and not leader:
             data = 'Switchover could be performed only from a specific leader'
 
