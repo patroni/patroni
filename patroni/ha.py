@@ -1088,7 +1088,7 @@ class Ha(object):
             failover = self.cluster.failover
             # for a manual failover/switchover with a candidate, we should check the requested candidate only
             members = [m for m in self.cluster.members if not failover or not failover.candidate
-                       or failover.candidate and m.name == failover.candidate]
+                       or m.name == failover.candidate]
             if self.is_failover_possible(members, cluster_lsn=checkpoint_location):
                 self.state_handler.set_role('demoted')
                 with self._async_executor:
@@ -1193,7 +1193,7 @@ class Ha(object):
                     logger.warning('Failover is possible only to a specific candidate in a paused state')
                 else:
                     if self.is_synchronous_mode():
-                        # every sync_standby or the cnadidate if is in sync_standbys
+                        # every sync_standby or the candidate if is in sync_standbys
                         # TODO: allow manual failover (=no leader specified) to async node
                         members = [m for m in self.cluster.members if self.cluster.sync.matches(m.name)
                                    and (not failover.candidate or m.name == failover.candidate)]
@@ -1857,7 +1857,7 @@ class Ha(object):
                     failover = self.cluster.failover
                     # for a manual failover/switchover with a candidate, we should check the requested candidate only
                     members = [m for m in self.cluster.members if not failover or not failover.candidate
-                               or failover.candidate and m.name == failover.candidate]
+                               or m.name == failover.candidate]
                     if self.is_failover_possible(members, cluster_lsn=checkpoint_location):
                         self.dcs.delete_leader(checkpoint_location)
                         status['deleted'] = True
