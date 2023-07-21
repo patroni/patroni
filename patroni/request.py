@@ -86,7 +86,7 @@ class PatroniRequest(object):
 
         Configure these HTTP headers for requests:
 
-        * ``authorization``: based on Patroni' REST API authentication config;
+        * ``authorization``: based on Patroni' CTL or REST API authentication config;
         * ``user-agent``: based on `patroni.utils.USER_AGENT`.
 
         Also configure SSL related settings for requests:
@@ -96,9 +96,9 @@ class PatroniRequest(object):
 
         :param config: Patroni YAML configuration.
         """
-        # ``restapi -> auth`` is equivalent to ``restapi -> authentication -> username`` + ``:`` +
-        # ``restapi -> authentication -> password``
-        basic_auth = self._get_restapi_value(config, 'auth')
+        # ``ctl -> auth`` is equivalent to ``ctl -> authentication -> username`` + ``:`` +
+        # ``ctl -> authentication -> password``. And the same for ``restapi -> auth``
+        basic_auth = self._get_ctl_value(config, 'auth') or self._get_restapi_value(config, 'auth')
         self._pool.headers = urllib3.make_headers(basic_auth=basic_auth, user_agent=USER_AGENT)
         self._pool.connection_pool_kw['cert_reqs'] = 'CERT_REQUIRED'
 

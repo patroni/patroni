@@ -347,6 +347,10 @@ CTL
 ---
 -  **ctl**: (optional)
 
+   -  **authentication**:
+
+      -  **username**: Basic-auth username for accessing protected REST API endpoints. If not provided patronictl will use the value provided for REST API "username" parameter.
+      -  **password**: Basic-auth password for accessing protected REST API endpoints. If not provided patronictl will use the value provided for REST API "password" parameter.
    -  **insecure**: Allow connections to REST API without verifying SSL certs.
    -  **cacert**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "cafile" parameter.
    -  **certfile**: Specifies the file with the client certificate in the PEM format.
