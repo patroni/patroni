@@ -22,7 +22,7 @@ from .test_ha import get_cluster_initialized_without_leader, get_cluster_initial
 
 
 @patch('patroni.ctl.load_config', Mock(return_value={
-    'scope': 'alpha', 'restapi': {'listen': '::', 'certfile': 'a'},
+    'scope': 'alpha', 'restapi': {'listen': '::', 'certfile': 'a'}, 'ctl': {'certfile': 'a'},
     'etcd': {'host': 'localhost:2379'}, 'citus': {'database': 'citus', 'group': 0},
     'postgresql': {'data_dir': '.', 'pgpass': './pgpass', 'parameters': {}, 'retry_timeout': 5}}))
 class TestCtl(unittest.TestCase):
@@ -451,7 +451,7 @@ class TestCtl(unittest.TestCase):
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
 
         for role in self.TEST_ROLES:
-            result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '-r', role], input='y')
+            result = self.runner.invoke(ctl, ['-k', 'flush', 'dummy', 'restart', '-r', role], input='y')
             assert 'No scheduled restart' in result.output
 
         result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '--force'])

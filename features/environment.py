@@ -1082,9 +1082,11 @@ def before_all(context):
                            'PATRONI_RESTAPI_CERTFILE': context.certfile,
                            'PATRONI_RESTAPI_KEYFILE': context.keyfile,
                            'PATRONI_RESTAPI_VERIFY_CLIENT': 'required',
-                           'PATRONI_CTL_INSECURE': 'on'})
+                           'PATRONI_CTL_INSECURE': 'on',
+                           'PATRONI_CTL_CERTFILE': context.certfile,
+                           'PATRONI_CTL_KEYFILE': context.keyfile})
         ctl.update({'cacert': context.certfile, 'certfile': context.certfile, 'keyfile': context.keyfile})
-    context.request_executor = PatroniRequest({'ctl': ctl}, True)
+    context.request_executor = PatroniRequest({'ctl': ctl, 'restapi': ctl}, True)
     context.dcs_ctl = context.pctl.known_dcs[context.pctl.dcs](context)
     context.dcs_ctl.start()
     try:

@@ -32,18 +32,26 @@ class PatroniRequest(object):
         self.reload_config(config)
 
     @staticmethod
-    def _get_cfg_value(config: Union[Config, Dict[str, Any]], name: str) -> Union[Any, None]:
-        """Get value of *name* setting in *config*.
-
-        .. note::
-            *name* key will be searched only under ``ctl`` and ``restapi`` sections, in that order.
+    def _get_ctl_value(config: Union[Config, Dict[str, Any]], name: str, default: Any = None) -> Optional[Any]:
+        """Get value of *name* setting from the ``ctl`` section of the *config*.
 
         :param config: Patroni YAML configuration.
         :param name: name of the setting value to be retrieved.
 
-        :returns: value of ``ctl -> *name*`` or ``restapi -> *name*``, if either is present, ``None`` otherwise.
+        :returns: value of ``ctl -> *name*`` if present, ``None`` otherwise.
         """
-        return config.get('ctl', {}).get(name) or config.get('restapi', {}).get(name)
+        return config.get('ctl', {}).get(name, default)
+
+    @staticmethod
+    def _get_restapi_value(config: Union[Config, Dict[str, Any]], name: str) -> Optional[Any]:
+        """Get value of *name* setting from the ``restapi`` section of the *config*.
+
+        :param config: Patroni YAML configuration.
+        :param name: name of the setting value to be retrieved.
+
+        :returns: value of ``restapi -> *name*`` if present, ``None`` otherwise.
+        """
+        return config.get('restapi', {}).get(name)
 
     def _apply_pool_param(self, param: str, value: Any) -> None:
         """Configure *param* as *value* in the request manager.
@@ -65,12 +73,11 @@ class PatroniRequest(object):
             * ``cert``: gets translated to ``certfile``
             * ``key``: gets translated to ``keyfile``
 
-            Will attempt to fetch the requested key first from ``ctl`` section, and fall back to ``restapi`` section
-            if the former is missing.
+            Will attempt to fetch the requested key first from ``ctl`` section.
 
-        :returns: value of ``ctl -> *name*file`` or ``restapi -> *name*file`` if either is present, ``None`` otherwise.
+        :returns: value of ``ctl -> *name*file`` if present, ``None`` otherwise.
         """
-        value = self._get_cfg_value(config, name + 'file')
+        value = self._get_ctl_value(config, name + 'file')
         self._apply_pool_param(name + '_file', value)
         return value
 
@@ -85,31 +92,33 @@ class PatroniRequest(object):
         Also configure SSL related settings for requests:
 
         * ``ca_certs`` is configured if ``ctl -> cacert`` or ``restapi -> cafile`` is available;
-        * ``cert``, ``key`` and ``key_password`` are configured if ``ctl -> certile`` or ``restapi -> certfile`` is
-            available.
+        * ``cert``, ``key`` and ``key_password`` are configured if ``ctl -> certile`` is available.
 
         :param config: Patroni YAML configuration.
         """
         # ``restapi -> auth`` is equivalent to ``restapi -> authentication -> username`` + ``:`` +
         # ``restapi -> authentication -> password``
-        self._pool.headers = urllib3.make_headers(basic_auth=self._get_cfg_value(config, 'auth'), user_agent=USER_AGENT)
+        basic_auth = self._get_restapi_value(config, 'auth')
+        self._pool.headers = urllib3.make_headers(basic_auth=basic_auth, user_agent=USER_AGENT)
+        self._pool.connection_pool_kw['cert_reqs'] = 'CERT_REQUIRED'
 
-        insecure = self._insecure if isinstance(self._insecure, bool) else config.get('ctl', {}).get('insecure', False)
+        insecure = self._insecure if isinstance(self._insecure, bool)\
+            else self._get_ctl_value(config, 'insecure', False)
+
         if self._apply_ssl_file_param(config, 'cert'):
-            #  With client certificate the cert_reqs must be set to CERT_REQUIRED even if insecure option is used
-            self._pool.connection_pool_kw['cert_reqs'] = 'CERT_REQUIRED'
-            #  The assert_hostname = False helps to silence warnings
-            self._pool.connection_pool_kw['assert_hostname'] = False if insecure else None
+            if insecure:  # The assert_hostname = False helps to silence warnings
+                self._pool.connection_pool_kw['assert_hostname'] = False
 
             self._apply_ssl_file_param(config, 'key')
-
-            password = self._get_cfg_value(config, 'keyfile_password')
+            password = self._get_ctl_value(config, 'keyfile_password')
             self._apply_pool_param('key_password', password)
         else:
-            self._pool.connection_pool_kw['cert_reqs'] = 'CERT_NONE' if insecure else 'CERT_REQUIRED'
+            if insecure:  # Disable server certificate validation if requested
+                self._pool.connection_pool_kw['cert_reqs'] = 'CERT_NONE'
+            self._pool.connection_pool_kw.pop('assert_hostname', None)
             self._pool.connection_pool_kw.pop('key_file', None)
 
-        cacert = config.get('ctl', {}).get('cacert') or config.get('restapi', {}).get('cafile')
+        cacert = self._get_ctl_value(config, 'cacert') or self._get_restapi_value(config, 'cafile')
         self._apply_pool_param('ca_certs', cacert)
 
     def request(self, method: str, url: str, body: Optional[Any] = None,
