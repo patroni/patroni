@@ -1854,7 +1854,11 @@ class Ha(object):
                     # It could happen if Postgres is still archiving the backlog of WAL files.
                     # If we know that there are replicas that received the shutdown checkpoint
                     # location, we can remove the leader key and allow them to start leader race.
-                    if self.is_failover_possible(self.cluster.members, cluster_lsn=checkpoint_location):
+                    failover = self.cluster.failover
+                    # for a manual failover/switchover with a candidate, we should check the requested candidate only
+                    members = [m for m in self.cluster.members if not failover or not failover.candidate
+                               or failover.candidate and m.name == failover.candidate]
+                    if self.is_failover_possible(members, cluster_lsn=checkpoint_location):
                         self.dcs.delete_leader(checkpoint_location)
                         status['deleted'] = True
                     else:
