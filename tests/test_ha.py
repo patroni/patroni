@@ -691,9 +691,9 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
         f = Failover(0, self.p.name, '', None)
         self.ha.cluster = get_cluster_initialized_with_leader(f)
-        self.assertEqual(self.ha.run_cycle(), 'manual failover: demoting myself')
+        self.assertEqual(self.ha.run_cycle(), 'manual switchover: demoting myself')
         self.ha._rewind.rewind_or_reinitialize_needed_and_possible = true
-        self.assertEqual(self.ha.run_cycle(), 'manual failover: demoting myself')
+        self.assertEqual(self.ha.run_cycle(), 'manual switchover: demoting myself')
         self.ha.fetch_node_status = get_node_status(nofailover=True)
         self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
         self.ha.fetch_node_status = get_node_status(watchdog_failed=True)
@@ -748,7 +748,7 @@ class TestHa(PostgresInit):
         self.assertEqual('no action. I am (postgresql0), the leader with the lock', self.ha.run_cycle())
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, 'a', None), (self.p.name, 'a'))
         self.ha.is_failover_possible = true
-        self.assertEqual('manual failover: demoting myself', self.ha.run_cycle())
+        self.assertEqual('manual switchover: demoting myself', self.ha.run_cycle())
 
     def test_manual_failover_process_no_leader(self):
         self.p.is_leader = false
@@ -1084,7 +1084,7 @@ class TestHa(PostgresInit):
         f = Failover(0, self.p.name, '', None)
         self.ha.cluster = get_cluster_initialized_with_leader(f)
         self.ha.fetch_node_status = get_node_status()  # accessible, in_recovery
-        self.assertEqual(self.ha.run_cycle(), 'manual failover: demoting myself')
+        self.assertEqual(self.ha.run_cycle(), 'manual switchover: demoting myself')
 
     @patch('patroni.ha.Ha.demote')
     def test_failover_immediately_on_zero_primary_start_timeout(self, demote):

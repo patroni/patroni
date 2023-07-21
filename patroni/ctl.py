@@ -1289,14 +1289,14 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
 
     # By now we have established that the leader exists and the candidate exists
     if not force:
-        demote_msg = ', demoting current leader ' + leader if leader else ''
+        demote_msg = f', demoting current leader {cluster.leader.name}' if cluster.leader else ''
         if scheduled_at_str:
-            if not click.confirm('Are you sure you want to schedule {0} of cluster {1} at {2}{3}?'
-                                 .format(action, cluster_name, scheduled_at_str, demote_msg)):
+            assert action == 'switchover'
+            if not click.confirm('Are you sure you want to schedule switchover of cluster {0} at {1}{2}?'
+                                 .format(cluster_name, scheduled_at_str, demote_msg)):
                 raise PatroniCtlException('Aborting scheduled ' + action)
         else:
-            if not click.confirm('Are you sure you want to {0} cluster {1}{2}?'
-                                 .format(action, cluster_name, demote_msg)):
+            if not click.confirm(f'Are you sure you want to {action} cluster {cluster_name}{demote_msg}?'):
                 raise PatroniCtlException('Aborting ' + action)
 
     r = None
