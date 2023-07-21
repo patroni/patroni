@@ -11,6 +11,19 @@ from .dcs import Member
 from .utils import USER_AGENT
 
 
+class HTTPSConnectionPool(urllib3.HTTPSConnectionPool):
+
+    def _validate_conn(self, *args: Any, **kwargs: Any) -> None:
+        """Override parent method to silence warnings about requests without certificate verification enabled."""
+
+
+class PatroniPoolManager(urllib3.PoolManager):
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super(PatroniPoolManager, self).__init__(*args, **kwargs)
+        self.pool_classes_by_scheme = {'http': urllib3.HTTPConnectionPool, 'https': HTTPSConnectionPool}
+
+
 class PatroniRequest(object):
     """Wrapper for performing requests to Patroni's REST API.
 
@@ -28,7 +41,7 @@ class PatroniRequest(object):
             * If none of the above applies, then it falls back to ``False``.
         """
         self._insecure = insecure
-        self._pool = urllib3.PoolManager(num_pools=10, maxsize=10)
+        self._pool = PatroniPoolManager(num_pools=10, maxsize=10)
         self.reload_config(config)
 
     @staticmethod
