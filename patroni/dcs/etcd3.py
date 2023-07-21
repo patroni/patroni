@@ -939,6 +939,6 @@ class Etcd3(AbstractEtcd):
             timeout += 0.5
 
         try:
-            return super(Etcd3, self).watch(None, timeout + 0.5)
+            return super(Etcd3, self).watch(None, timeout)
         finally:
             self.event.clear()
