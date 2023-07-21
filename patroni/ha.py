@@ -1922,12 +1922,14 @@ class Ha(object):
         """
         failover = self.cluster.failover
         if check_sync:
-            # TODO: allow manual failover (=no leader specified) to async node
-            # every sync_standby or the candidate specified if is in sync_standbys
-            return [m for m in self.cluster.members
-                    if self.cluster.sync.matches(m.name)
-                    and (not failover or not failover.candidate or m.name == failover.candidate)]
-        else:
-            # every member or the candidate specified
-            return [m for m in self.cluster.members
-                    if not failover or not failover.candidate or m.name == failover.candidate]
+            # manual *failover*, only check the candidate (even if not in sync members)
+            if failover and not failover.leader:
+                assert failover.candidate  # we always have a candidate in manual failover
+                return [m for m in self.cluster.members if m.name == failover.candidate]
+            else:
+                return [m for m in self.cluster.members
+                        if self.cluster.sync.matches(m.name) and (not failover
+                                                                  or not failover.candidate
+                                                                  or m.name == failover.candidate)]
+        return [m for m in self.cluster.members
+                if not failover or not failover.candidate or m.name == failover.candidate]
