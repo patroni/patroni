@@ -1281,9 +1281,11 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
                 raise PatroniCtlException("Can't schedule switchover in the paused state")
             scheduled_at_str = scheduled_at.isoformat()
 
-    failover_value = {'candidate': candidate, 'scheduled_at': scheduled_at_str}
+    failover_value = {'candidate': candidate}
     if action == 'switchover':
         failover_value['leader'] = leader
+    if scheduled_at_str:
+        failover_value['scheduled_at'] = scheduled_at_str
 
     logging.debug(failover_value)
 
@@ -1292,8 +1294,8 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
         demote_msg = f', demoting current leader {cluster.leader.name}' if cluster.leader else ''
         if scheduled_at_str:
             assert action == 'switchover'
-            if not click.confirm('Are you sure you want to schedule switchover of cluster {0} at {1}{2}?'
-                                 .format(cluster_name, scheduled_at_str, demote_msg)):
+            if not click.confirm(f'Are you sure you want to schedule switchover of cluster \
+{cluster_name} at {scheduled_at_str}{demote_msg}?'):
                 raise PatroniCtlException('Aborting scheduled ' + action)
         else:
             if not click.confirm(f'Are you sure you want to {action} cluster {cluster_name}{demote_msg}?'):

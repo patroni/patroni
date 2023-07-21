@@ -931,7 +931,8 @@ class Ha(object):
                   - `None` if the current node is running as a primary and requested candidate doesn't exist
                   """
         failover = self.cluster.failover
-        assert failover is not None
+        if TYPE_CHECKING:  # pragma: no cover
+            assert failover is not None
 
         action = 'switchover' if failover.leader else 'failover'
 
@@ -953,15 +954,15 @@ class Ha(object):
             if self.is_synchronous_mode() and not self.cluster.sync.matches(self.state_handler.name, True):
                 return False
 
-            # find specific node and check that it is allowed to promote
+            # find specific node and check that it is healthy
             member = self.cluster.get_member(failover.candidate, fallback_to_leader=False)
             if isinstance(member, Member):
                 st = self.fetch_node_status(member)
                 not_allowed_reason = st.failover_limitation()
-                if not_allowed_reason is None:
+                if not_allowed_reason is None:  # node is healthy
                     logger.info('manual %s: to %s, i am %s', action, st.member.name, self.state_handler.name)
                     return False
-                # we wanted to failover/switchover to specific member but it is not allowed to promote
+                # we wanted to failover/switchover to specific member but it is not healthy
                 logger.warning('manual %s: member %s is %s', action, st.member.name, not_allowed_reason)
 
             # at this point we should consider all members as a candidates for failover/switchover
@@ -1197,13 +1198,13 @@ class Ha(object):
         if not failover.leader or failover.leader == self.state_handler.name:
             if not failover.candidate or failover.candidate != self.state_handler.name:
                 if not failover.candidate and self.is_paused():
-                    logger.warning('%s is possible only to a specific candidate in a paused state', action)
+                    logger.warning('%s is possible only to a specific candidate in a paused state', action.title())
                 else:
                     if self.is_synchronous_mode():
                         members = self.get_failover_candidates(check_sync=True)
                         if failover.candidate and not members:
                             logger.warning('%s candidate=%s does not match with sync_standbys=%s',
-                                           action, failover.candidate, self.cluster.sync.sync_standby)
+                                           action.title(), failover.candidate, self.cluster.sync.sync_standby)
                     else:
                         members = self.get_failover_candidates()
                     if self.is_failover_possible(members, False):  # check that there are healthy members
@@ -1272,7 +1273,7 @@ class Ha(object):
                     self._delete_leader()
                     return 'removed leader lock because postgres is not running as primary'
 
-            # acquire lock to avoid split-brain
+            # update lock to avoid split-brain
             if self.update_lock(True):
                 msg = self.process_manual_failover_from_leader()
                 if msg is not None:
@@ -1934,7 +1935,6 @@ class Ha(object):
         if check_sync:
             # manual *failover*, only check the candidate (even if not in sync members)
             if failover and not failover.leader:
-                assert failover.candidate  # we always have a candidate in manual failover
                 return [m for m in self.cluster.members if m.name == failover.candidate]
             else:
                 return [m for m in self.cluster.members
