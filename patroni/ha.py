@@ -1912,8 +1912,9 @@ class Ha(object):
         return RemoteMember.from_name_and_data(name, data)
 
     def get_failover_candidates(self, check_sync: bool = False) -> List[Member]:
-        """Return list of candidates for either manual or automatic failover
-           mainly used to be later passed to Ha.is_failover_possible()
+        """Return list of candidates for either manual or automatic failover.
+
+        Mainly used to later be passed to ``Ha.is_failover_possible()``.
 
         :param check_sync: if ``True``, also check against the sync key members
 
