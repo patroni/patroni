@@ -537,6 +537,12 @@ class TestRestApiHandler(unittest.TestCase):
     @patch.object(MockConfig, "get", Mock())
     def test_do_GET_tags(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, "GET /tags"))
+    
+    @patch.object(MockConfig, "get", Mock())
+    def test_do_PATCH_tags(self):
+        request = "PATCH /tags HTTP/1.0" + self._authorization + "\nContent-Length: "
+        request += '12\n\n{"newtag":6}'
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
 
     @patch.object(MockPatroni, "dcs")
     def test_do_GET_failsafe(self, mock_dcs):
