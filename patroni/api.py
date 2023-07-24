@@ -893,6 +893,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         Updates the "tags" portion of the Patroni configuration based on the JSON request body,
         then writes a response with the new tags, with HTTP status ``200``.
+
+        .. note::
+            Provide a key with a ``null`` value to delete it. However, ``nofailover``, ``noloadbalance``
+            ``clonefrom``, and ``nosync`` can't be deleted. Passing ``null`` to these values will cause them
+            to be set to ``False``.
         """
         request = self._read_json_content()
         non_nullable_keys = ["nofailover", "noloadbalance", "clonefrom", "nosync"]
