@@ -338,7 +338,7 @@ Here is an example of both **http_extra_headers** and **https_extra_headers**:
 .. warning::
 
     - The ``restapi.connect_address`` must be accessible from all nodes of a given Patroni cluster. Internally Patroni is using it during the leader race to find nodes with minimal replication lag.
-    - If you enabled client certificates validation (``restapi.verify_client`` is set to ``required``), you also **must** to provide **valid client certificates** in the ``ctl.certfile``, ``ctl.keyfile``, ``ctl.keyfile_password``. If not privided Patroni will not work correctly.
+    - If you enabled client certificates validation (``restapi.verify_client`` is set to ``required``), you also **must** provide **valid client certificates** in the ``ctl.certfile``, ``ctl.keyfile``, ``ctl.keyfile_password``. If not provided, Patroni will not work correctly.
 
 
 .. _patronictl_settings:
