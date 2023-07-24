@@ -46,6 +46,13 @@ Scenario: check dynamic configuration change via DCS
 	And I receive a response tags {'new_tag': 'new_value'}
 	And I sleep for 4 seconds
 
+Scenario: check tags information
+	Given I issue a GET request to http://127.0.0.1:8008/tags
+	Then I receive a response code 200
+	And Response on GET http://127.0.0.1:8008/tags contains nofailover after 10 seconds
+	Given I issue a PATCH request to http://127.0.0.1:8008/tags with {"newtag": 1}
+	Then Response on GET http://127.0.0.1:8008/tags contains newtag after 10 seconds
+
 Scenario: check the scheduled restart
 	Given I run patronictl.py edit-config -p 'superuser_reserved_connections=6' --force batman
 	Then I receive a response returncode 0

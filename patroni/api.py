@@ -24,20 +24,41 @@ from socketserver import ThreadingMixIn
 from threading import Thread
 from urllib.parse import urlparse, parse_qs
 
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Tuple,
+    TYPE_CHECKING,
+    Union,
+)
 
 from . import psycopg
 from .__main__ import Patroni
 from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
 from .postgresql.misc import postgres_version_to_int
-from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Retry, \
-    RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json
+from .utils import (
+    deep_compare,
+    enable_keepalive,
+    parse_bool,
+    patch_config,
+    Retry,
+    RetryFailedError,
+    parse_int,
+    split_host_port,
+    tzutc,
+    uri,
+    cluster_as_json,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def check_access(func: Callable[['RestApiHandler'], None]) -> Callable[..., None]:
+def check_access(func: Callable[["RestApiHandler"], None]) -> Callable[..., None]:
     """Check the source ip, authorization header, or client certificates.
 
     .. note::
@@ -54,7 +75,7 @@ def check_access(func: Callable[['RestApiHandler'], None]) -> Callable[..., None
             pass
     """
 
-    def wrapper(self: 'RestApiHandler', *args: Any, **kwargs: Any) -> None:
+    def wrapper(self: "RestApiHandler", *args: Any, **kwargs: Any) -> None:
         if self.server.check_access(self):
             return func(self, *args, **kwargs)
 
@@ -73,9 +94,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
     # too much inconvenience to people using it (see
     # https://github.com/python/typeshed/pull/384#issuecomment-234649696)
 
-    def __init__(self, request: Any,
-                 client_address: Any,
-                 server: Union['RestApiServer', HTTPServer]) -> None:
+    def __init__(
+        self,
+        request: Any,
+        client_address: Any,
+        server: Union["RestApiServer", HTTPServer],
+    ) -> None:
         """Create a :class:`RestApiHandler` instance.
 
         .. note::
@@ -89,7 +113,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(server, RestApiServer)
         super(RestApiHandler, self).__init__(request, client_address, server)
-        self.server: 'RestApiServer' = server
+        self.server: "RestApiServer" = server
         self.__start_time: float = 0.0
         self.path_query: Dict[str, List[str]] = {}
 
@@ -111,11 +135,20 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``_write_status_code_only(200)`` would write a response like ``HTTP/1.0 200 OK``.
         """
         message = self.responses[status_code][0]
-        self.wfile.write('{0} {1} {2}\r\n\r\n'.format(self.protocol_version, status_code, message).encode('utf-8'))
+        self.wfile.write(
+            "{0} {1} {2}\r\n\r\n".format(
+                self.protocol_version, status_code, message
+            ).encode("utf-8")
+        )
         self.log_request(status_code)
 
-    def write_response(self, status_code: int, body: str, content_type: str = 'text/html',
-                       headers: Optional[Dict[str, str]] = None) -> None:
+    def write_response(
+        self,
+        status_code: int,
+        body: str,
+        content_type: str = "text/html",
+        headers: Optional[Dict[str, str]] = None,
+    ) -> None:
         """Write an HTTP response.
 
         .. note::
@@ -133,13 +166,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         headers = headers or {}
         if content_type:
-            headers['Content-Type'] = content_type
+            headers["Content-Type"] = content_type
         for name, value in headers.items():
             self.send_header(name, value)
         for name, value in (self.server.http_extra_headers or {}).items():
             self.send_header(name, value)
         self.end_headers()
-        self.wfile.write(body.encode('utf-8'))
+        self.wfile.write(body.encode("utf-8"))
 
     def _write_json_response(self, status_code: int, response: Any) -> None:
         """Write an HTTP response with a JSON content type.
@@ -149,9 +182,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :param status_code: response HTTP status code.
         :param response: value to be dumped as a JSON string and to be used as the response body.
         """
-        self.write_response(status_code, json.dumps(response, default=str), content_type='application/json')
+        self.write_response(
+            status_code,
+            json.dumps(response, default=str),
+            content_type="application/json",
+        )
 
-    def _write_status_response(self, status_code: int, response: Dict[str, Any]) -> None:
+    def _write_status_response(
+        self, status_code: int, response: Dict[str, Any]
+    ) -> None:
         """Write an HTTP response with Patroni/Postgres status in JSON format.
 
         Modifies *response* before sending it to the client. Defines the ``patroni`` key, which is a
@@ -178,24 +217,29 @@ class RestApiHandler(BaseHTTPRequestHandler):
         patroni = self.server.patroni
         tags = patroni.ha.get_effective_tags()
         if tags:
-            response['tags'] = tags
+            response["tags"] = tags
         if patroni.postgresql.sysid:
-            response['database_system_identifier'] = patroni.postgresql.sysid
+            response["database_system_identifier"] = patroni.postgresql.sysid
         if patroni.postgresql.pending_restart:
-            response['pending_restart'] = True
-        response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
+            response["pending_restart"] = True
+        response["patroni"] = {
+            "version": patroni.version,
+            "scope": patroni.postgresql.scope,
+        }
         if patroni.scheduled_restart:
-            response['scheduled_restart'] = patroni.scheduled_restart.copy()
-            del response['scheduled_restart']['postmaster_start_time']
-            response['scheduled_restart']['schedule'] = (response['scheduled_restart']['schedule']).isoformat()
+            response["scheduled_restart"] = patroni.scheduled_restart.copy()
+            del response["scheduled_restart"]["postmaster_start_time"]
+            response["scheduled_restart"]["schedule"] = (
+                response["scheduled_restart"]["schedule"]
+            ).isoformat()
         if not patroni.ha.watchdog.is_healthy:
-            response['watchdog_failed'] = True
+            response["watchdog_failed"] = True
         qsize = patroni.logger.queue_size
         if qsize > patroni.logger.NORMAL_LOG_QUEUE_SIZE:
-            response['logger_queue_size'] = qsize
+            response["logger_queue_size"] = qsize
             lost = patroni.logger.records_lost
             if lost:
-                response['logger_records_lost'] = lost
+                response["logger_records_lost"] = lost
         self._write_json_response(status_code, response)
 
     def do_GET(self, write_status_code_only: bool = False) -> None:
@@ -244,7 +288,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                                        send only the HTTP Status Code and close the connection.
                                        Useful when health-checks are executed by HAProxy.
         """
-        path = '/primary' if self.path == '/' else self.path
+        path = "/primary" if self.path == "/" else self.path
         response = self.get_postgresql_status()
 
         patroni = self.server.patroni
@@ -252,24 +296,44 @@ class RestApiHandler(BaseHTTPRequestHandler):
         global_config = patroni.config.get_global_config(cluster)
 
         leader_optime = cluster and cluster.last_lsn or 0
-        replayed_location = response.get('xlog', {}).get('replayed_location', 0)
-        max_replica_lag = parse_int(self.path_query.get('lag', [sys.maxsize])[0], 'B')
+        replayed_location = response.get("xlog", {}).get("replayed_location", 0)
+        max_replica_lag = parse_int(self.path_query.get("lag", [sys.maxsize])[0], "B")
         if max_replica_lag is None:
             max_replica_lag = sys.maxsize
-        is_lagging = leader_optime and leader_optime > replayed_location + max_replica_lag
+        is_lagging = (
+            leader_optime and leader_optime > replayed_location + max_replica_lag
+        )
 
-        replica_status_code = 200 if not patroni.noloadbalance and not is_lagging and \
-            response.get('role') == 'replica' and response.get('state') == 'running' else 503
+        replica_status_code = (
+            200
+            if not patroni.noloadbalance
+            and not is_lagging
+            and response.get("role") == "replica"
+            and response.get("state") == "running"
+            else 503
+        )
 
-        if not cluster and response.get('pause'):
-            leader_status_code = 200 if response.get('role') in ('master', 'primary', 'standby_leader') else 503
-            primary_status_code = 200 if response.get('role') in ('master', 'primary') else 503
-            standby_leader_status_code = 200 if response.get('role') == 'standby_leader' else 503
+        if not cluster and response.get("pause"):
+            leader_status_code = (
+                200
+                if response.get("role") in ("master", "primary", "standby_leader")
+                else 503
+            )
+            primary_status_code = (
+                200 if response.get("role") in ("master", "primary") else 503
+            )
+            standby_leader_status_code = (
+                200 if response.get("role") == "standby_leader" else 503
+            )
         elif patroni.ha.is_leader():
             leader_status_code = 200
             if global_config.is_standby_cluster:
                 primary_status_code = replica_status_code = 503
-                standby_leader_status_code = 200 if response.get('role') in ('replica', 'standby_leader') else 503
+                standby_leader_status_code = (
+                    200
+                    if response.get("role") in ("replica", "standby_leader")
+                    else 503
+                )
             else:
                 primary_status_code = 200
                 standby_leader_status_code = 503
@@ -279,28 +343,32 @@ class RestApiHandler(BaseHTTPRequestHandler):
         status_code = 503
 
         ignore_tags = False
-        if 'standby_leader' in path or 'standby-leader' in path:
+        if "standby_leader" in path or "standby-leader" in path:
             status_code = standby_leader_status_code
             ignore_tags = True
-        elif 'leader' in path:
+        elif "leader" in path:
             status_code = leader_status_code
             ignore_tags = True
-        elif 'master' in path or 'primary' in path or 'read-write' in path:
+        elif "master" in path or "primary" in path or "read-write" in path:
             status_code = primary_status_code
             ignore_tags = True
-        elif 'replica' in path:
+        elif "replica" in path:
             status_code = replica_status_code
-        elif 'read-only' in path and 'sync' not in path:
-            status_code = 200 if 200 in (primary_status_code, standby_leader_status_code) else replica_status_code
-        elif 'health' in path:
-            status_code = 200 if response.get('state') == 'running' else 503
+        elif "read-only" in path and "sync" not in path:
+            status_code = (
+                200
+                if 200 in (primary_status_code, standby_leader_status_code)
+                else replica_status_code
+            )
+        elif "health" in path:
+            status_code = 200 if response.get("state") == "running" else 503
         elif cluster:  # dcs is available
-            is_synchronous = response.get('sync_standby')
-            if path in ('/sync', '/synchronous') and is_synchronous:
+            is_synchronous = response.get("sync_standby")
+            if path in ("/sync", "/synchronous") and is_synchronous:
                 status_code = replica_status_code
-            elif path in ('/async', '/asynchronous') and not is_synchronous:
+            elif path in ("/async", "/asynchronous") and not is_synchronous:
                 status_code = replica_status_code
-            elif path in ('/read-only-sync', '/read-only-synchronous'):
+            elif path in ("/read-only-sync", "/read-only-synchronous"):
                 if 200 in (primary_status_code, standby_leader_status_code):
                     status_code = 200
                 elif is_synchronous:
@@ -325,7 +393,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     status_code = 503
                     break
 
-        if write_status_code_only:  # when haproxy sends OPTIONS request it reads only status code and nothing more
+        if (
+            write_status_code_only
+        ):  # when haproxy sends OPTIONS request it reads only status code and nothing more
             self._write_status_code_only(status_code)
         else:
             self._write_status_response(status_code, response)
@@ -357,14 +427,22 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 value of ``ttl`` on a replica).
         """
         patroni: Patroni = self.server.patroni
-        is_primary = patroni.postgresql.role in ('master', 'primary') and patroni.postgresql.is_running()
+        is_primary = (
+            patroni.postgresql.role in ("master", "primary")
+            and patroni.postgresql.is_running()
+        )
         # We can tolerate Patroni problems longer on the replica.
         # On the primary the liveness probe most likely will start failing only after the leader key expired.
         # It should not be a big problem because replicas will see that the primary is still alive via REST API call.
         liveness_threshold = patroni.dcs.ttl * (1 if is_primary else 2)
 
         # In maintenance mode (pause) we are fine if heartbeat loop stuck.
-        status_code = 200 if patroni.ha.is_paused() or patroni.next_run + liveness_threshold > time.time() else 503
+        status_code = (
+            200
+            if patroni.ha.is_paused()
+            or patroni.next_run + liveness_threshold > time.time()
+            else 503
+        )
         self._write_status_code_only(status_code)
 
     def do_GET_readiness(self) -> None:
@@ -379,7 +457,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         patroni = self.server.patroni
         if patroni.ha.is_leader():
             status_code = 200
-        elif patroni.postgresql.state == 'running':
+        elif patroni.postgresql.state == "running":
             status_code = 200 if patroni.dcs.cluster else 503
         else:
             status_code = 503
@@ -418,7 +496,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * Timestamp when the new timeline was created (class:`str`);
             * Name of the involved Patroni node (class:`str`).
         """
-        cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
+        cluster = (
+            self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
+        )
         self._write_json_response(200, cluster.history and cluster.history.lines or [])
 
     def do_GET_config(self) -> None:
@@ -430,7 +510,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
         If the cluster information is not available in the DCS, then it will respond with no body and HTTP status
         ``502`` instead.
         """
-        cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
+        cluster = (
+            self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
+        )
         if cluster.config:
             self._write_json_response(200, cluster.config.data)
         else:
@@ -479,114 +561,244 @@ class RestApiHandler(BaseHTTPRequestHandler):
         scope_label = '{{scope="{0}"}}'.format(patroni.postgresql.scope)
         metrics.append("# HELP patroni_version Patroni semver without periods.")
         metrics.append("# TYPE patroni_version gauge")
-        padded_semver = ''.join([x.zfill(2) for x in patroni.version.split('.')])  # 2.0.2 => 020002
+        padded_semver = "".join(
+            [x.zfill(2) for x in patroni.version.split(".")]
+        )  # 2.0.2 => 020002
         metrics.append("patroni_version{0} {1}".format(scope_label, padded_semver))
 
-        metrics.append("# HELP patroni_postgres_running Value is 1 if Postgres is running, 0 otherwise.")
+        metrics.append(
+            "# HELP patroni_postgres_running Value is 1 if Postgres is running, 0 otherwise."
+        )
         metrics.append("# TYPE patroni_postgres_running gauge")
-        metrics.append("patroni_postgres_running{0} {1}".format(scope_label, int(postgres['state'] == 'running')))
+        metrics.append(
+            "patroni_postgres_running{0} {1}".format(
+                scope_label, int(postgres["state"] == "running")
+            )
+        )
 
-        metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Postgres started.")
+        metrics.append(
+            "# HELP patroni_postmaster_start_time Epoch seconds since Postgres started."
+        )
         metrics.append("# TYPE patroni_postmaster_start_time gauge")
-        postmaster_start_time = postgres.get('postmaster_start_time')
-        postmaster_start_time = (postmaster_start_time - epoch).total_seconds() if postmaster_start_time else 0
-        metrics.append("patroni_postmaster_start_time{0} {1}".format(scope_label, postmaster_start_time))
+        postmaster_start_time = postgres.get("postmaster_start_time")
+        postmaster_start_time = (
+            (postmaster_start_time - epoch).total_seconds()
+            if postmaster_start_time
+            else 0
+        )
+        metrics.append(
+            "patroni_postmaster_start_time{0} {1}".format(
+                scope_label, postmaster_start_time
+            )
+        )
 
-        metrics.append("# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.")
+        metrics.append(
+            "# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise."
+        )
         metrics.append("# TYPE patroni_master gauge")
-        metrics.append("patroni_master{0} {1}".format(scope_label, int(postgres['role'] in ('master', 'primary'))))
+        metrics.append(
+            "patroni_master{0} {1}".format(
+                scope_label, int(postgres["role"] in ("master", "primary"))
+            )
+        )
 
-        metrics.append("# HELP patroni_primary Value is 1 if this node is the leader, 0 otherwise.")
+        metrics.append(
+            "# HELP patroni_primary Value is 1 if this node is the leader, 0 otherwise."
+        )
         metrics.append("# TYPE patroni_primary gauge")
-        metrics.append("patroni_primary{0} {1}".format(scope_label, int(postgres['role'] in ('master', 'primary'))))
+        metrics.append(
+            "patroni_primary{0} {1}".format(
+                scope_label, int(postgres["role"] in ("master", "primary"))
+            )
+        )
 
-        metrics.append("# HELP patroni_xlog_location Current location of the Postgres"
-                       " transaction log, 0 if this node is not the leader.")
+        metrics.append(
+            "# HELP patroni_xlog_location Current location of the Postgres"
+            " transaction log, 0 if this node is not the leader."
+        )
         metrics.append("# TYPE patroni_xlog_location counter")
-        metrics.append("patroni_xlog_location{0} {1}".format(scope_label, postgres.get('xlog', {}).get('location', 0)))
+        metrics.append(
+            "patroni_xlog_location{0} {1}".format(
+                scope_label, postgres.get("xlog", {}).get("location", 0)
+            )
+        )
 
-        metrics.append("# HELP patroni_standby_leader Value is 1 if this node is the standby_leader, 0 otherwise.")
+        metrics.append(
+            "# HELP patroni_standby_leader Value is 1 if this node is the standby_leader, 0 otherwise."
+        )
         metrics.append("# TYPE patroni_standby_leader gauge")
-        metrics.append("patroni_standby_leader{0} {1}".format(scope_label, int(postgres['role'] == 'standby_leader')))
+        metrics.append(
+            "patroni_standby_leader{0} {1}".format(
+                scope_label, int(postgres["role"] == "standby_leader")
+            )
+        )
 
-        metrics.append("# HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.")
+        metrics.append(
+            "# HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise."
+        )
         metrics.append("# TYPE patroni_replica gauge")
-        metrics.append("patroni_replica{0} {1}".format(scope_label, int(postgres['role'] == 'replica')))
+        metrics.append(
+            "patroni_replica{0} {1}".format(
+                scope_label, int(postgres["role"] == "replica")
+            )
+        )
 
-        metrics.append("# HELP patroni_sync_standby Value is 1 if this node is a sync standby replica, 0 otherwise.")
+        metrics.append(
+            "# HELP patroni_sync_standby Value is 1 if this node is a sync standby replica, 0 otherwise."
+        )
         metrics.append("# TYPE patroni_sync_standby gauge")
-        metrics.append("patroni_sync_standby{0} {1}".format(scope_label, int(postgres.get('sync_standby', False))))
+        metrics.append(
+            "patroni_sync_standby{0} {1}".format(
+                scope_label, int(postgres.get("sync_standby", False))
+            )
+        )
 
-        metrics.append("# HELP patroni_xlog_received_location Current location of the received"
-                       " Postgres transaction log, 0 if this node is not a replica.")
+        metrics.append(
+            "# HELP patroni_xlog_received_location Current location of the received"
+            " Postgres transaction log, 0 if this node is not a replica."
+        )
         metrics.append("# TYPE patroni_xlog_received_location counter")
-        metrics.append("patroni_xlog_received_location{0} {1}"
-                       .format(scope_label, postgres.get('xlog', {}).get('received_location', 0)))
+        metrics.append(
+            "patroni_xlog_received_location{0} {1}".format(
+                scope_label, postgres.get("xlog", {}).get("received_location", 0)
+            )
+        )
 
-        metrics.append("# HELP patroni_xlog_replayed_location Current location of the replayed"
-                       " Postgres transaction log, 0 if this node is not a replica.")
+        metrics.append(
+            "# HELP patroni_xlog_replayed_location Current location of the replayed"
+            " Postgres transaction log, 0 if this node is not a replica."
+        )
         metrics.append("# TYPE patroni_xlog_replayed_location counter")
-        metrics.append("patroni_xlog_replayed_location{0} {1}"
-                       .format(scope_label, postgres.get('xlog', {}).get('replayed_location', 0)))
+        metrics.append(
+            "patroni_xlog_replayed_location{0} {1}".format(
+                scope_label, postgres.get("xlog", {}).get("replayed_location", 0)
+            )
+        )
 
-        metrics.append("# HELP patroni_xlog_replayed_timestamp Current timestamp of the replayed"
-                       " Postgres transaction log, 0 if null.")
+        metrics.append(
+            "# HELP patroni_xlog_replayed_timestamp Current timestamp of the replayed"
+            " Postgres transaction log, 0 if null."
+        )
         metrics.append("# TYPE patroni_xlog_replayed_timestamp gauge")
-        replayed_timestamp = postgres.get('xlog', {}).get('replayed_timestamp')
-        replayed_timestamp = (replayed_timestamp - epoch).total_seconds() if replayed_timestamp else 0
-        metrics.append("patroni_xlog_replayed_timestamp{0} {1}".format(scope_label, replayed_timestamp))
+        replayed_timestamp = postgres.get("xlog", {}).get("replayed_timestamp")
+        replayed_timestamp = (
+            (replayed_timestamp - epoch).total_seconds() if replayed_timestamp else 0
+        )
+        metrics.append(
+            "patroni_xlog_replayed_timestamp{0} {1}".format(
+                scope_label, replayed_timestamp
+            )
+        )
 
-        metrics.append("# HELP patroni_xlog_paused Value is 1 if the Postgres xlog is paused, 0 otherwise.")
+        metrics.append(
+            "# HELP patroni_xlog_paused Value is 1 if the Postgres xlog is paused, 0 otherwise."
+        )
         metrics.append("# TYPE patroni_xlog_paused gauge")
-        metrics.append("patroni_xlog_paused{0} {1}"
-                       .format(scope_label, int(postgres.get('xlog', {}).get('paused', False) is True)))
+        metrics.append(
+            "patroni_xlog_paused{0} {1}".format(
+                scope_label, int(postgres.get("xlog", {}).get("paused", False) is True)
+            )
+        )
 
-        if postgres.get('server_version', 0) >= 90600:
-            metrics.append("# HELP patroni_postgres_streaming Value is 1 if Postgres is streaming, 0 otherwise.")
+        if postgres.get("server_version", 0) >= 90600:
+            metrics.append(
+                "# HELP patroni_postgres_streaming Value is 1 if Postgres is streaming, 0 otherwise."
+            )
             metrics.append("# TYPE patroni_postgres_streaming gauge")
-            metrics.append("patroni_postgres_streaming{0} {1}"
-                           .format(scope_label, int(postgres.get('replication_state') == 'streaming')))
+            metrics.append(
+                "patroni_postgres_streaming{0} {1}".format(
+                    scope_label, int(postgres.get("replication_state") == "streaming")
+                )
+            )
 
-            metrics.append("# HELP patroni_postgres_in_archive_recovery Value is 1"
-                           " if Postgres is replicating from archive, 0 otherwise.")
+            metrics.append(
+                "# HELP patroni_postgres_in_archive_recovery Value is 1"
+                " if Postgres is replicating from archive, 0 otherwise."
+            )
             metrics.append("# TYPE patroni_postgres_in_archive_recovery gauge")
-            metrics.append("patroni_postgres_in_archive_recovery{0} {1}"
-                           .format(scope_label, int(postgres.get('replication_state') == 'in archive recovery')))
+            metrics.append(
+                "patroni_postgres_in_archive_recovery{0} {1}".format(
+                    scope_label,
+                    int(postgres.get("replication_state") == "in archive recovery"),
+                )
+            )
 
-        metrics.append("# HELP patroni_postgres_server_version Version of Postgres (if running), 0 otherwise.")
+        metrics.append(
+            "# HELP patroni_postgres_server_version Version of Postgres (if running), 0 otherwise."
+        )
         metrics.append("# TYPE patroni_postgres_server_version gauge")
-        metrics.append("patroni_postgres_server_version {0} {1}".format(scope_label, postgres.get('server_version', 0)))
+        metrics.append(
+            "patroni_postgres_server_version {0} {1}".format(
+                scope_label, postgres.get("server_version", 0)
+            )
+        )
 
-        metrics.append("# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.")
+        metrics.append(
+            "# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked."
+        )
         metrics.append("# TYPE patroni_cluster_unlocked gauge")
-        metrics.append("patroni_cluster_unlocked{0} {1}".format(scope_label, int(postgres.get('cluster_unlocked', 0))))
+        metrics.append(
+            "patroni_cluster_unlocked{0} {1}".format(
+                scope_label, int(postgres.get("cluster_unlocked", 0))
+            )
+        )
 
-        metrics.append("# HELP patroni_failsafe_mode_is_active Value is 1 if failsafe mode is active, 0 if inactive.")
+        metrics.append(
+            "# HELP patroni_failsafe_mode_is_active Value is 1 if failsafe mode is active, 0 if inactive."
+        )
         metrics.append("# TYPE patroni_failsafe_mode_is_active gauge")
-        metrics.append("patroni_failsafe_mode_is_active{0} {1}"
-                       .format(scope_label, int(postgres.get('failsafe_mode_is_active', 0))))
+        metrics.append(
+            "patroni_failsafe_mode_is_active{0} {1}".format(
+                scope_label, int(postgres.get("failsafe_mode_is_active", 0))
+            )
+        )
 
-        metrics.append("# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.")
+        metrics.append(
+            "# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise."
+        )
         metrics.append("# TYPE patroni_postgres_timeline counter")
-        metrics.append("patroni_postgres_timeline{0} {1}".format(scope_label, postgres.get('timeline', 0)))
+        metrics.append(
+            "patroni_postgres_timeline{0} {1}".format(
+                scope_label, postgres.get("timeline", 0)
+            )
+        )
 
-        metrics.append("# HELP patroni_dcs_last_seen Epoch timestamp when DCS was last contacted successfully"
-                       " by Patroni.")
+        metrics.append(
+            "# HELP patroni_dcs_last_seen Epoch timestamp when DCS was last contacted successfully"
+            " by Patroni."
+        )
         metrics.append("# TYPE patroni_dcs_last_seen gauge")
-        metrics.append("patroni_dcs_last_seen{0} {1}".format(scope_label, postgres.get('dcs_last_seen', 0)))
+        metrics.append(
+            "patroni_dcs_last_seen{0} {1}".format(
+                scope_label, postgres.get("dcs_last_seen", 0)
+            )
+        )
 
-        metrics.append("# HELP patroni_pending_restart Value is 1 if the node needs a restart, 0 otherwise.")
+        metrics.append(
+            "# HELP patroni_pending_restart Value is 1 if the node needs a restart, 0 otherwise."
+        )
         metrics.append("# TYPE patroni_pending_restart gauge")
-        metrics.append("patroni_pending_restart{0} {1}"
-                       .format(scope_label, int(patroni.postgresql.pending_restart)))
+        metrics.append(
+            "patroni_pending_restart{0} {1}".format(
+                scope_label, int(patroni.postgresql.pending_restart)
+            )
+        )
 
-        metrics.append("# HELP patroni_is_paused Value is 1 if auto failover is disabled, 0 otherwise.")
+        metrics.append(
+            "# HELP patroni_is_paused Value is 1 if auto failover is disabled, 0 otherwise."
+        )
         metrics.append("# TYPE patroni_is_paused gauge")
-        metrics.append("patroni_is_paused{0} {1}".format(scope_label, int(postgres.get('pause', 0))))
+        metrics.append(
+            "patroni_is_paused{0} {1}".format(
+                scope_label, int(postgres.get("pause", 0))
+            )
+        )
 
-        self.write_response(200, '\n'.join(metrics) + '\n', content_type='text/plain')
+        self.write_response(200, "\n".join(metrics) + "\n", content_type="text/plain")
 
-    def _read_json_content(self, body_is_optional: bool = False) -> Optional[Dict[Any, Any]]:
+    def _read_json_content(
+        self, body_is_optional: bool = False
+    ) -> Optional[Dict[Any, Any]]:
         """Read JSON from HTTP request body.
 
         .. note::
@@ -605,17 +817,19 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :returns: deserialized JSON string from request body, if present. If body is absent, but *body_is_optional* is
             ``True``, then return an empty dictionary. Returns ``None`` otherwise.
         """
-        if 'content-length' not in self.headers:
+        if "content-length" not in self.headers:
             return self.send_error(411) if not body_is_optional else {}
         try:
-            content_length = int(self.headers.get('content-length') or 0)
+            content_length = int(self.headers.get("content-length") or 0)
             if content_length == 0 and body_is_optional:
                 return {}
-            request: Union[Dict[str, Any], Any] = json.loads(self.rfile.read(content_length).decode('utf-8'))
+            request: Union[Dict[str, Any], Any] = json.loads(
+                self.rfile.read(content_length).decode("utf-8")
+            )
             if isinstance(request, dict) and (request or body_is_optional):
                 return request
         except Exception:
-            logger.exception('Bad request')
+            logger.exception("Bad request")
         self.send_error(400)
 
     @check_access
@@ -638,8 +852,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 return self.send_error(503)
             data = cluster.config.data.copy()
             if patch_config(data, request):
-                value = json.dumps(data, separators=(',', ':'))
-                if not self.server.patroni.dcs.set_config_value(value, cluster.config.version):
+                value = json.dumps(data, separators=(",", ":"))
+                if not self.server.patroni.dcs.set_config_value(
+                    value, cluster.config.version
+                ):
                     return self.send_error(409)
             self.server.patroni.ha.wakeup()
             self._write_json_response(200, data)
@@ -658,10 +874,37 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if request:
             cluster = self.server.patroni.dcs.get_cluster()
             if not (cluster.config and deep_compare(request, cluster.config.data)):
-                value = json.dumps(request, separators=(',', ':'))
+                value = json.dumps(request, separators=(",", ":"))
                 if not self.server.patroni.dcs.set_config_value(value):
                     return self.send_error(502)
             self._write_json_response(200, request)
+
+    def do_GET_tags(self) -> None:
+        """Handle a ``GET`` request to ``/tags`` path
+        Write an HTTP response with a JSON content representing the tags in use by the Patroni
+        configuration with HTTP status ``200``.
+        """
+        data = self.server.patroni.config.get("tags", {})
+        self._write_json_response(200, data)
+
+    @check_access
+    def do_PATCH_tags(self) -> None:
+        """Handle a ``PATCH`` request to ``/tags`` path.
+
+        Updates the "tags" portion of the Patroni configuration based on the JSON request body,
+        then writes a response with the new tags, with HTTP status ``200``.
+        """
+        request = self._read_json_content()
+        non_nullable_keys = ["nofailover", "noloadbalance", "clonefrom", "nosync"]
+        for key in non_nullable_keys:
+            if request and request.get(key, False) is None:
+                request[key] = False
+        if request:
+            data = self.server.patroni.config.get("tags", {})
+            patch_config(data, request)
+            self.server.patroni.config.set_tags = data
+            self.server.patroni.reload_config(local=True)
+            self._write_json_response(200, data)
 
     @check_access
     def do_POST_reload(self) -> None:
@@ -670,7 +913,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Schedules a reload to Patroni and writes a response with HTTP status `202`.
         """
         self.server.patroni.sighup_handler()
-        self.write_response(202, 'reload scheduled')
+        self.write_response(202, "reload scheduled")
 
     def do_GET_failsafe(self) -> None:
         """Handle a ``GET`` request to ``/failsafe`` path.
@@ -701,8 +944,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if self.server.patroni.ha.is_failsafe_mode():
             request = self._read_json_content()
             if request:
-                message = self.server.patroni.ha.update_failsafe(request) or 'Accepted'
-                code = 200 if message == 'Accepted' else 500
+                message = self.server.patroni.ha.update_failsafe(request) or "Accepted"
+                code = 200 if message == "Accepted" else 500
                 self.write_response(code, message)
         else:
             self.send_error(502)
@@ -716,13 +959,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
         .. note::
             Only for behave testing on Windows.
         """
-        if os.name == 'nt' and os.getenv('BEHAVE_DEBUG'):
+        if os.name == "nt" and os.getenv("BEHAVE_DEBUG"):
             self.server.patroni.api_sigterm()
-        self.write_response(202, 'shutdown scheduled')
+        self.write_response(202, "shutdown scheduled")
 
     @staticmethod
-    def parse_schedule(schedule: str,
-                       action: str) -> Tuple[Union[int, None], Union[str, None], Union[datetime.datetime, None]]:
+    def parse_schedule(
+        schedule: str, action: str
+    ) -> Tuple[Union[int, None], Union[str, None], Union[datetime.datetime, None]]:
         """Parse the given *schedule* and validate it.
 
         :param schedule: a string representing a timestamp, e.g. ``2023-04-14T20:27:00+00:00``.
@@ -741,16 +985,20 @@ class RestApiHandler(BaseHTTPRequestHandler):
         try:
             scheduled_at = dateutil.parser.parse(schedule)
             if scheduled_at.tzinfo is None:
-                error = 'Timezone information is mandatory for the scheduled {0}'.format(action)
+                error = (
+                    "Timezone information is mandatory for the scheduled {0}".format(
+                        action
+                    )
+                )
                 status_code = 400
             elif scheduled_at < datetime.datetime.now(tzutc):
-                error = 'Cannot schedule {0} in the past'.format(action)
+                error = "Cannot schedule {0} in the past".format(action)
                 status_code = 422
             else:
                 status_code = None
         except (ValueError, TypeError):
-            logger.exception('Invalid scheduled %s time: %s', action, schedule)
-            error = 'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601'
+            logger.exception("Invalid scheduled %s time: %s", action, schedule)
+            error = "Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601"
             status_code = 422
         return status_code, error, scheduled_at
 
@@ -788,7 +1036,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             If it's not able to parse the request body, then the request is silently discarded.
         """
         status_code = 500
-        data = 'restart failed'
+        data = "restart failed"
         request = self._read_json_content(body_is_optional=True)
         cluster = self.server.patroni.dcs.get_cluster()
         if request is None:
@@ -797,45 +1045,50 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if request:
             logger.debug("received restart request: {0}".format(request))
 
-        if self.server.patroni.config.get_global_config(cluster).is_paused and 'schedule' in request:
-            self.write_response(status_code, "Can't schedule restart in the paused state")
+        if (
+            self.server.patroni.config.get_global_config(cluster).is_paused
+            and "schedule" in request
+        ):
+            self.write_response(
+                status_code, "Can't schedule restart in the paused state"
+            )
             return
 
         for k in request:
-            if k == 'schedule':
+            if k == "schedule":
                 (_, data, request[k]) = self.parse_schedule(request[k], "restart")
                 if _:
                     status_code = _
                     break
-            elif k == 'role':
-                if request[k] not in ('master', 'primary', 'replica'):
+            elif k == "role":
+                if request[k] not in ("master", "primary", "replica"):
                     status_code = 400
                     data = "PostgreSQL role should be either primary or replica"
                     break
-            elif k == 'postgres_version':
+            elif k == "postgres_version":
                 try:
                     postgres_version_to_int(request[k])
                 except PostgresException as e:
                     status_code = 400
                     data = e.value
                     break
-            elif k == 'timeout':
-                request[k] = parse_int(request[k], 's')
+            elif k == "timeout":
+                request[k] = parse_int(request[k], "s")
                 if request[k] is None or request[k] <= 0:
                     status_code = 400
                     data = "Timeout should be a positive number of seconds"
                     break
-            elif k != 'restart_pending':
+            elif k != "restart_pending":
                 status_code = 400
                 data = "Unknown filter for the scheduled restart: {0}".format(k)
                 break
         else:
-            if 'schedule' not in request:
+            if "schedule" not in request:
                 try:
                     status, data = self.server.patroni.ha.restart(request)
                     status_code = 200 if status else 503
                 except Exception:
-                    logger.exception('Exception during restart')
+                    logger.exception("Exception during restart")
                     status_code = 400
             else:
                 if self.server.patroni.ha.schedule_future_restart(request):
@@ -881,7 +1134,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         failover = self.server.patroni.dcs.get_cluster().failover
         if failover and failover.scheduled_at:
-            if not self.server.patroni.dcs.manual_failover('', '', version=failover.version):
+            if not self.server.patroni.dcs.manual_failover(
+                "", "", version=failover.version
+            ):
                 return self.send_error(409)
             else:
                 data = "scheduled switchover deleted"
@@ -905,19 +1160,21 @@ class RestApiHandler(BaseHTTPRequestHandler):
         request = self._read_json_content(body_is_optional=True)
 
         if request:
-            logger.debug('received reinitialize request: %s', request)
+            logger.debug("received reinitialize request: %s", request)
 
-        force = isinstance(request, dict) and parse_bool(request.get('force')) or False
+        force = isinstance(request, dict) and parse_bool(request.get("force")) or False
 
         data = self.server.patroni.ha.reinitialize(force)
         if data is None:
             status_code = 200
-            data = 'reinitialize started'
+            data = "reinitialize started"
         else:
             status_code = 503
         self.write_response(status_code, data)
 
-    def poll_failover_result(self, leader: Optional[str], candidate: Optional[str], action: str) -> Tuple[int, str]:
+    def poll_failover_result(
+        self, leader: Optional[str], candidate: Optional[str], action: str
+    ) -> Tuple[int, str]:
         """Poll failover/switchover operation until it finishes or times out.
 
         :param leader: name of the current Patroni leader.
@@ -935,20 +1192,34 @@ class RestApiHandler(BaseHTTPRequestHandler):
             time.sleep(1)
             try:
                 cluster = self.server.patroni.dcs.get_cluster()
-                if not cluster.is_unlocked() and cluster.leader and cluster.leader.name != leader:
+                if (
+                    not cluster.is_unlocked()
+                    and cluster.leader
+                    and cluster.leader.name != leader
+                ):
                     if not candidate or candidate == cluster.leader.name:
-                        return 200, 'Successfully {0}ed over to "{1}"'.format(action[:-4], cluster.leader.name)
+                        return 200, 'Successfully {0}ed over to "{1}"'.format(
+                            action[:-4], cluster.leader.name
+                        )
                     else:
-                        return 200, '{0}ed over to "{1}" instead of "{2}"'.format(action[:-4].title(),
-                                                                                  cluster.leader.name, candidate)
+                        return 200, '{0}ed over to "{1}" instead of "{2}"'.format(
+                            action[:-4].title(), cluster.leader.name, candidate
+                        )
                 if not cluster.failover:
-                    return 503, action.title() + ' failed'
+                    return 503, action.title() + " failed"
             except Exception as e:
-                logger.debug('Exception occurred during polling %s result: %s', action, e)
-        return 503, action.title() + ' status unknown'
+                logger.debug(
+                    "Exception occurred during polling %s result: %s", action, e
+                )
+        return 503, action.title() + " status unknown"
 
-    def is_failover_possible(self, cluster: Cluster, leader: Optional[str], candidate: Optional[str],
-                             action: str) -> Optional[str]:
+    def is_failover_possible(
+        self,
+        cluster: Cluster,
+        leader: Optional[str],
+        candidate: Optional[str],
+        action: str,
+    ) -> Optional[str]:
         """Checks whether there are nodes that could take over after demoting the primary.
 
         :param cluster: the Patroni cluster.
@@ -958,30 +1229,43 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         :returns: a string with the error message or ``None`` if good nodes are found.
         """
-        is_synchronous_mode = self.server.patroni.config.get_global_config(cluster).is_synchronous_mode
+        is_synchronous_mode = self.server.patroni.config.get_global_config(
+            cluster
+        ).is_synchronous_mode
         if leader and (not cluster.leader or cluster.leader.name != leader):
-            return 'leader name does not match'
+            return "leader name does not match"
         if candidate:
-            if action == 'switchover' and is_synchronous_mode and not cluster.sync.matches(candidate):
-                return 'candidate name does not match with sync_standby'
+            if (
+                action == "switchover"
+                and is_synchronous_mode
+                and not cluster.sync.matches(candidate)
+            ):
+                return "candidate name does not match with sync_standby"
             members = [m for m in cluster.members if m.name == candidate]
             if not members:
-                return 'candidate does not exists'
+                return "candidate does not exists"
         elif is_synchronous_mode:
             members = [m for m in cluster.members if cluster.sync.matches(m.name)]
             if not members:
-                return action + ' is not possible: can not find sync_standby'
+                return action + " is not possible: can not find sync_standby"
         else:
-            members = [m for m in cluster.members if not cluster.leader or m.name != cluster.leader.name and m.api_url]
+            members = [
+                m
+                for m in cluster.members
+                if not cluster.leader or m.name != cluster.leader.name and m.api_url
+            ]
             if not members:
-                return action + ' is not possible: cluster does not have members except leader'
+                return (
+                    action
+                    + " is not possible: cluster does not have members except leader"
+                )
         for st in self.server.patroni.ha.fetch_nodes_statuses(members):
             if st.failover_limitation() is None:
                 return None
-        return action + ' is not possible: no good candidates have been found'
+        return action + " is not possible: no good candidates have been found"
 
     @check_access
-    def do_POST_failover(self, action: str = 'failover') -> None:
+    def do_POST_failover(self, action: str = "failover") -> None:
         """Handle a ``POST`` request to ``/failover`` path.
 
         Handles manual failovers/switchovers, mainly from ``patronictl``.
@@ -1005,34 +1289,46 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :param action: the action to be performed (``switchover`` or ``failover``).
         """
         request = self._read_json_content()
-        (status_code, data) = (400, '')
+        (status_code, data) = (400, "")
         if not request:
             return
 
-        leader = request.get('leader')
-        candidate = request.get('candidate') or request.get('member')
-        scheduled_at = request.get('scheduled_at')
+        leader = request.get("leader")
+        candidate = request.get("candidate") or request.get("member")
+        scheduled_at = request.get("scheduled_at")
         cluster = self.server.patroni.dcs.get_cluster()
         global_config = self.server.patroni.config.get_global_config(cluster)
 
-        logger.info("received %s request with leader=%s candidate=%s scheduled_at=%s",
-                    action, leader, candidate, scheduled_at)
+        logger.info(
+            "received %s request with leader=%s candidate=%s scheduled_at=%s",
+            action,
+            leader,
+            candidate,
+            scheduled_at,
+        )
 
-        if action == 'failover' and not candidate:
-            data = 'Failover could be performed only to a specific candidate'
-        elif action == 'switchover' and not leader:
-            data = 'Switchover could be performed only from a specific leader'
+        if action == "failover" and not candidate:
+            data = "Failover could be performed only to a specific candidate"
+        elif action == "switchover" and not leader:
+            data = "Switchover could be performed only from a specific leader"
 
         if not data and scheduled_at:
             if not leader:
-                data = 'Scheduled {0} is possible only from a specific leader'.format(action)
+                data = "Scheduled {0} is possible only from a specific leader".format(
+                    action
+                )
             if not data and global_config.is_paused:
                 data = "Can't schedule {0} in the paused state".format(action)
             if not data:
-                (status_code, data, scheduled_at) = self.parse_schedule(scheduled_at, action)
+                (status_code, data, scheduled_at) = self.parse_schedule(
+                    scheduled_at, action
+                )
 
         if not data and global_config.is_paused and not candidate:
-            data = action.title() + ' is possible only to a specific candidate in a paused state'
+            data = (
+                action.title()
+                + " is possible only to a specific candidate in a paused state"
+            )
 
         if not data and not scheduled_at:
             data = self.is_failover_possible(cluster, leader, candidate, action)
@@ -1040,16 +1336,19 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = 412
 
         if not data:
-            if self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at):
+            if self.server.patroni.dcs.manual_failover(
+                leader, candidate, scheduled_at=scheduled_at
+            ):
                 self.server.patroni.ha.wakeup()
                 if scheduled_at:
-                    data = action.title() + ' scheduled'
+                    data = action.title() + " scheduled"
                     status_code = 202
                 else:
-                    status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name,
-                                                                  candidate, action)
+                    status_code, data = self.poll_failover_result(
+                        cluster.leader and cluster.leader.name, candidate, action
+                    )
             else:
-                data = 'failed to write {0} key into DCS'.format(action)
+                data = "failed to write {0} key into DCS".format(action)
                 status_code = 503
         # pyright thinks ``status_code`` can be ``None`` because ``parse_schedule`` call may return ``None``. However,
         # if that's the case, ``status_code`` will be overwritten somewhere between ``parse_schedule`` and
@@ -1063,7 +1362,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         Calls :func:`do_POST_failover` with ``switchover`` option.
         """
-        self.do_POST_failover(action='switchover')
+        self.do_POST_failover(action="switchover")
 
     @check_access
     def do_POST_citus(self) -> None:
@@ -1083,7 +1382,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if patroni.postgresql.citus_handler.is_coordinator() and patroni.ha.is_leader():
             cluster = patroni.dcs.get_cluster(True)
             patroni.postgresql.citus_handler.handle_event(cluster, request)
-        self.write_response(200, 'OK')
+        self.write_response(200, "OK")
 
     def parse_request(self) -> bool:
         """Override :func:`parse_request` method to enrich basic functionality of :class:`BaseHTTPRequestHandler`.
@@ -1104,9 +1403,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
             urlpath = urlparse(self.path)
             self.path = urlpath.path
             self.path_query = parse_qs(urlpath.query) or {}
-            mname = self.path.lstrip('/').split('/')[0]
-            mname = self.command + ('_' + mname if mname else '')
-            if hasattr(self, 'do_' + mname):
+            mname = self.path.lstrip("/").split("/")[0]
+            mname = self.command + ("_" + mname if mname else "")
+            if hasattr(self, "do_" + mname):
                 self.command = mname
         return ret
 
@@ -1120,7 +1419,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         :returns: a list of rows that were fetched from the database.
         """
-        if not kwargs.get('retry', False):
+        if not kwargs.get("retry", False):
             return self.server.query(sql, *params)
         retry = Retry(delay=1, retry_exceptions=PostgresConnectionException)
         return retry(self.server.query, sql, *params)
@@ -1166,70 +1465,101 @@ class RestApiHandler(BaseHTTPRequestHandler):
         cluster = self.server.patroni.dcs.cluster
         global_config = self.server.patroni.config.get_global_config(cluster)
         try:
+            if postgresql.state not in ("running", "restarting", "starting"):
+                raise RetryFailedError("")
+            replication_state = (
+                (
+                    "(pg_catalog.pg_stat_get_wal_receiver()).status"
+                    if postgresql.major_version >= 90600
+                    else "NULL"
+                )
+                + ", "
+                + (
+                    "pg_catalog.current_setting('restore_command')"
+                    if postgresql.major_version >= 120000
+                    else "NULL"
+                )
+            )
+            stmt = (
+                "SELECT "
+                + postgresql.POSTMASTER_START_TIME
+                + ", "
+                + postgresql.TL_LSN
+                + ","
+                " pg_catalog.pg_last_xact_replay_timestamp(), "
+                + replication_state
+                + ","
+                " pg_catalog.array_to_json(pg_catalog.array_agg(pg_catalog.row_to_json(ri))) "
+                "FROM (SELECT (SELECT rolname FROM pg_catalog.pg_authid WHERE oid = usesysid) AS usename,"
+                " application_name, client_addr, w.state, sync_state, sync_priority"
+                " FROM pg_catalog.pg_stat_get_wal_senders() w, pg_catalog.pg_stat_get_activity(pid)) AS ri"
+            )
 
-            if postgresql.state not in ('running', 'restarting', 'starting'):
-                raise RetryFailedError('')
-            replication_state = ('(pg_catalog.pg_stat_get_wal_receiver()).status'
-                                 if postgresql.major_version >= 90600 else 'NULL') + ", " +\
-                ("pg_catalog.current_setting('restore_command')" if postgresql.major_version >= 120000 else "NULL")
-            stmt = ("SELECT " + postgresql.POSTMASTER_START_TIME + ", " + postgresql.TL_LSN + ","
-                    " pg_catalog.pg_last_xact_replay_timestamp(), " + replication_state + ","
-                    " pg_catalog.array_to_json(pg_catalog.array_agg(pg_catalog.row_to_json(ri))) "
-                    "FROM (SELECT (SELECT rolname FROM pg_catalog.pg_authid WHERE oid = usesysid) AS usename,"
-                    " application_name, client_addr, w.state, sync_state, sync_priority"
-                    " FROM pg_catalog.pg_stat_get_wal_senders() w, pg_catalog.pg_stat_get_activity(pid)) AS ri")
-
-            row = self.query(stmt.format(postgresql.wal_name, postgresql.lsn_name), retry=retry)[0]
+            row = self.query(
+                stmt.format(postgresql.wal_name, postgresql.lsn_name), retry=retry
+            )[0]
 
             result = {
-                'state': postgresql.state,
-                'postmaster_start_time': row[0],
-                'role': 'replica' if row[1] == 0 else 'master',
-                'server_version': postgresql.server_version,
-                'xlog': ({
-                    'received_location': row[4] or row[3],
-                    'replayed_location': row[3],
-                    'replayed_timestamp': row[6],
-                    'paused': row[5]} if row[1] == 0 else {
-                    'location': row[2]
-                })
+                "state": postgresql.state,
+                "postmaster_start_time": row[0],
+                "role": "replica" if row[1] == 0 else "master",
+                "server_version": postgresql.server_version,
+                "xlog": (
+                    {
+                        "received_location": row[4] or row[3],
+                        "replayed_location": row[3],
+                        "replayed_timestamp": row[6],
+                        "paused": row[5],
+                    }
+                    if row[1] == 0
+                    else {"location": row[2]}
+                ),
             }
 
-            if result['role'] == 'replica' and global_config.is_standby_cluster:
-                result['role'] = postgresql.role
+            if result["role"] == "replica" and global_config.is_standby_cluster:
+                result["role"] = postgresql.role
 
-            if result['role'] == 'replica' and global_config.is_synchronous_mode\
-                    and cluster and cluster.sync.matches(postgresql.name):
-                result['sync_standby'] = True
+            if (
+                result["role"] == "replica"
+                and global_config.is_synchronous_mode
+                and cluster
+                and cluster.sync.matches(postgresql.name)
+            ):
+                result["sync_standby"] = True
 
             if row[1] > 0:
-                result['timeline'] = row[1]
+                result["timeline"] = row[1]
             else:
-                leader_timeline = None\
-                    if not cluster or cluster.is_unlocked() or not cluster.leader else cluster.leader.timeline
-                result['timeline'] = postgresql.replica_cached_timeline(leader_timeline)
+                leader_timeline = (
+                    None
+                    if not cluster or cluster.is_unlocked() or not cluster.leader
+                    else cluster.leader.timeline
+                )
+                result["timeline"] = postgresql.replica_cached_timeline(leader_timeline)
 
-            replication_state = postgresql.replication_state_from_parameters(row[1] > 0, row[7], row[8])
+            replication_state = postgresql.replication_state_from_parameters(
+                row[1] > 0, row[7], row[8]
+            )
             if replication_state:
-                result['replication_state'] = replication_state
+                result["replication_state"] = replication_state
 
             if row[9]:
-                result['replication'] = row[9]
+                result["replication"] = row[9]
 
         except (psycopg.Error, RetryFailedError, PostgresConnectionException):
             state = postgresql.state
-            if state == 'running':
-                logger.exception('get_postgresql_status')
-                state = 'unknown'
-            result: Dict[str, Any] = {'state': state, 'role': postgresql.role}
+            if state == "running":
+                logger.exception("get_postgresql_status")
+                state = "unknown"
+            result: Dict[str, Any] = {"state": state, "role": postgresql.role}
 
         if global_config.is_paused:
-            result['pause'] = True
+            result["pause"] = True
         if not cluster or cluster.is_unlocked():
-            result['cluster_unlocked'] = True
+            result["cluster_unlocked"] = True
         if self.server.patroni.ha.failsafe_is_active():
-            result['failsafe_mode_is_active'] = True
-        result['dcs_last_seen'] = self.server.patroni.dcs.last_seen
+            result["failsafe_mode_is_active"] = True
+        result["dcs_last_seen"] = self.server.patroni.dcs.last_seen
         return result
 
     def handle_one_request(self) -> None:
@@ -1250,7 +1580,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :param args: arguments to be applied as inputs to *format*.
         """
         latency = 1000.0 * (time.time() - self.__start_time)
-        logger.debug("API thread: %s - - %s latency: %0.3f ms", self.client_address[0], format % args, latency)
+        logger.debug(
+            "API thread: %s - - %s latency: %0.3f ms",
+            self.client_address[0],
+            format % args,
+            latency,
+        )
 
 
 class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
@@ -1260,7 +1595,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     """
 
     # On 3.7+ the `ThreadingMixIn` gathers all non-daemon worker threads in order to join on them at server close.
-    daemon_threads = True  # Make worker threads "fire and forget" to prevent a memory leak.
+    daemon_threads = (
+        True  # Make worker threads "fire and forget" to prevent a memory leak.
+    )
 
     def __init__(self, patroni: Patroni, config: Dict[str, Any]) -> None:
         """Establish patroni configuration for the REST API daemon.
@@ -1277,7 +1614,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.http_extra_headers: Dict[str, str] = {}
         self.patroni = patroni
         self.__listen = None
-        self.request_queue_size = int(config.get('request_queue_size', 5))
+        self.request_queue_size = int(config.get("request_queue_size", 5))
         self.__ssl_options: Dict[str, Any] = {}
         self.__ssl_serial_number = None
         self._received_new_cert = False
@@ -1297,12 +1634,12 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         cursor = None
         try:
             with self.patroni.postgresql.connection().cursor() as cursor:
-                cursor.execute(sql.encode('utf-8'), params)
+                cursor.execute(sql.encode("utf-8"), params)
                 return [r for r in cursor]
         except psycopg.Error as e:
             if cursor and cursor.connection.closed == 0:
                 raise e
-            raise PostgresConnectionException('connection problems')
+            raise PostgresConnectionException("connection problems")
 
     @staticmethod
     def _set_fd_cloexec(fd: socket.socket) -> None:
@@ -1315,8 +1652,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         :param fd: socket file descriptor.
         """
-        if os.name != 'nt':
+        if os.name != "nt":
             import fcntl
+
             flags = fcntl.fcntl(fd, fcntl.F_GETFD)
             fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
 
@@ -1330,7 +1668,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         # pyright -- ``__auth_key`` was already checked through the caller method (:func:`check_auth_header`).
         if TYPE_CHECKING:  # pragma: no cover
             assert self.__auth_key is not None
-        return hmac.compare_digest(self.__auth_key, key.encode('utf-8'))
+        return hmac.compare_digest(self.__auth_key, key.encode("utf-8"))
 
     def check_auth_header(self, auth_header: Optional[str]) -> Optional[str]:
         """Validate HTTP Basic authorization header, if present.
@@ -1341,12 +1679,16 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """
         if self.__auth_key:
             if auth_header is None:
-                return 'no auth header received'
-            if not auth_header.startswith('Basic ') or not self.check_basic_auth_key(auth_header[6:]):
-                return 'not authenticated'
+                return "no auth header received"
+            if not auth_header.startswith("Basic ") or not self.check_basic_auth_key(
+                auth_header[6:]
+            ):
+                return "not authenticated"
 
     @staticmethod
-    def __resolve_ips(host: str, port: int) -> Iterator[Union[IPv4Network, IPv6Network]]:
+    def __resolve_ips(
+        host: str, port: int
+    ) -> Iterator[Union[IPv4Network, IPv6Network]]:
         """Resolve *host* + *port* to one or more IP networks.
 
         :param host: hostname to be checked.
@@ -1355,10 +1697,12 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         :rtype: Iterator[Union[IPv4Network, IPv6Network]] of *host* + *port* resolved to IP networks.
         """
         try:
-            for _, _, _, _, sa in socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM, socket.IPPROTO_TCP):
+            for _, _, _, _, sa in socket.getaddrinfo(
+                host, port, 0, socket.SOCK_STREAM, socket.IPPROTO_TCP
+            ):
                 yield ip_network(sa[0], False)
         except Exception as e:
-            logger.error('Failed to resolve %s: %r', host, e)
+            logger.error("Failed to resolve %s: %r", host, e)
 
     def __members_ips(self) -> Iterator[Union[IPv4Network, IPv6Network]]:
         """Resolve each Patroni node ``restapi.connect_address`` to IP networks.
@@ -1377,11 +1721,13 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
                         try:
                             r = urlparse(member.api_url)
                             if r.hostname:
-                                port = r.port or (443 if r.scheme == 'https' else 80)
+                                port = r.port or (443 if r.scheme == "https" else 80)
                                 for ip in self.__resolve_ips(r.hostname, port):
                                     yield ip
                         except Exception as e:
-                            logger.debug('Failed to parse url %s: %r', member.api_url, e)
+                            logger.debug(
+                                "Failed to parse url %s: %r", member.api_url, e
+                            )
 
     def check_access(self, rh: RestApiHandler) -> Optional[bool]:
         """Ensure client has enough privileges to perform a given request.
@@ -1399,16 +1745,27 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """
         if self.__allowlist or self.__allowlist_include_members:
             incoming_ip = ip_address(rh.client_address[0])
-            if not any(incoming_ip in net for net in self.__allowlist + tuple(self.__members_ips())):
-                return rh.write_response(403, 'Access is denied')
+            if not any(
+                incoming_ip in net
+                for net in self.__allowlist + tuple(self.__members_ips())
+            ):
+                return rh.write_response(403, "Access is denied")
 
-        if not hasattr(rh.request, 'getpeercert') or not rh.request.getpeercert():  # valid client cert isn't present
-            if self.__protocol == 'https' and self.__ssl_options.get('verify_client') in ('required', 'optional'):
-                return rh.write_response(403, 'client certificate required')
+        if (
+            not hasattr(rh.request, "getpeercert") or not rh.request.getpeercert()
+        ):  # valid client cert isn't present
+            if self.__protocol == "https" and self.__ssl_options.get(
+                "verify_client"
+            ) in ("required", "optional"):
+                return rh.write_response(403, "client certificate required")
 
-        reason = self.check_auth_header(rh.headers.get('Authorization'))
+        reason = self.check_auth_header(rh.headers.get("Authorization"))
         if reason:
-            headers = {'WWW-Authenticate': 'Basic realm="' + self.patroni.__class__.__name__ + '"'}
+            headers = {
+                "WWW-Authenticate": 'Basic realm="'
+                + self.patroni.__class__.__name__
+                + '"'
+            }
             return rh.write_response(401, reason, headers=headers)
         return True
 
@@ -1418,14 +1775,18 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         :returns: ``True`` if it has support for dual stack sockets.
         """
-        if hasattr(socket, 'AF_INET6') and hasattr(socket, 'IPPROTO_IPV6') and hasattr(socket, 'IPV6_V6ONLY'):
+        if (
+            hasattr(socket, "AF_INET6")
+            and hasattr(socket, "IPPROTO_IPV6")
+            and hasattr(socket, "IPV6_V6ONLY")
+        ):
             sock = None
             try:
                 sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
                 sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, False)
                 return True
             except socket.error as e:
-                logger.debug('Error when working with ipv6 socket: %s', e)
+                logger.debug("Error when working with ipv6 socket: %s", e)
             finally:
                 if sock:
                     sock.close()
@@ -1442,10 +1803,12 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """
         dual_stack = self.__has_dual_stack()
         hostname = host
-        if hostname in ('', '*'):
+        if hostname in ("", "*"):
             hostname = None
 
-        info = socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
+        info = socket.getaddrinfo(
+            hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE
+        )
         # in case dual stack is not supported we want IPv4 to be preferred over IPv6
         info.sort(key=lambda x: x[0] == socket.AF_INET, reverse=not dual_stack)
 
@@ -1454,7 +1817,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             HTTPServer.__init__(self, info[0][-1][:2], RestApiHandler)
         except socket.error:
             logger.error(
-                "Couldn't start a service on '%s:%s', please check your `restapi.listen` configuration", hostname, port)
+                "Couldn't start a service on '%s:%s', please check your `restapi.listen` configuration",
+                hostname,
+                port,
+            )
             raise
 
     def __initialize(self, listen: str, ssl_options: Dict[str, Any]) -> None:
@@ -1483,8 +1849,11 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         try:
             host, port = split_host_port(listen, None)
         except Exception:
-            raise ValueError('Invalid "restapi" config: expected <HOST>:<PORT> for "listen", but got "{0}"'
-                             .format(listen))
+            raise ValueError(
+                'Invalid "restapi" config: expected <HOST>:<PORT> for "listen", but got "{0}"'.format(
+                    listen
+                )
+            )
 
         reloading_config = self.__listen is not None  # changing config in runtime
         if reloading_config:
@@ -1502,28 +1871,45 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         # wrap socket with ssl if 'certfile' is defined in a config.yaml
         # Sometime it's also needed to pass reference to a 'keyfile'.
-        self.__protocol = 'https' if ssl_options.get('certfile') else 'http'
-        if self.__protocol == 'https':
+        self.__protocol = "https" if ssl_options.get("certfile") else "http"
+        if self.__protocol == "https":
             import ssl
-            ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH, cafile=ssl_options.get('cafile'))
-            if ssl_options.get('ciphers'):
-                ctx.set_ciphers(ssl_options['ciphers'])
-            ctx.load_cert_chain(certfile=ssl_options['certfile'], keyfile=ssl_options.get('keyfile'),
-                                password=ssl_options.get('keyfile_password'))
-            verify_client = ssl_options.get('verify_client')
+
+            ctx = ssl.create_default_context(
+                ssl.Purpose.CLIENT_AUTH, cafile=ssl_options.get("cafile")
+            )
+            if ssl_options.get("ciphers"):
+                ctx.set_ciphers(ssl_options["ciphers"])
+            ctx.load_cert_chain(
+                certfile=ssl_options["certfile"],
+                keyfile=ssl_options.get("keyfile"),
+                password=ssl_options.get("keyfile_password"),
+            )
+            verify_client = ssl_options.get("verify_client")
             if verify_client:
-                modes = {'none': ssl.CERT_NONE, 'optional': ssl.CERT_OPTIONAL, 'required': ssl.CERT_REQUIRED}
+                modes = {
+                    "none": ssl.CERT_NONE,
+                    "optional": ssl.CERT_OPTIONAL,
+                    "required": ssl.CERT_REQUIRED,
+                }
                 if verify_client in modes:
                     ctx.verify_mode = modes[verify_client]
                 else:
-                    logger.error('Bad value in the "restapi.verify_client": %s', verify_client)
+                    logger.error(
+                        'Bad value in the "restapi.verify_client": %s', verify_client
+                    )
             self.__ssl_serial_number = self.get_certificate_serial_number()
-            self.socket = ctx.wrap_socket(self.socket, server_side=True, do_handshake_on_connect=False)
+            self.socket = ctx.wrap_socket(
+                self.socket, server_side=True, do_handshake_on_connect=False
+            )
         if reloading_config:
             self.start()
 
-    def process_request_thread(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
-                               client_address: Tuple[str, int]) -> None:
+    def process_request_thread(
+        self,
+        request: Union[socket.socket, Tuple[bytes, socket.socket]],
+        client_address: Tuple[str, int],
+    ) -> None:
         """Process a request to the REST API.
 
         Wrapper for :func:`ThreadingMixIn.process_request_thread` that additionally:
@@ -1535,13 +1921,16 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """
         if isinstance(request, socket.socket):
             enable_keepalive(request, 10, 3)
-        if hasattr(request, 'context'):  # SSLSocket
+        if hasattr(request, "context"):  # SSLSocket
             from ssl import SSLSocket
+
             if isinstance(request, SSLSocket):  # pyright
                 request.do_handshake()
         super(RestApiServer, self).process_request_thread(request, client_address)
 
-    def shutdown_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]]) -> None:
+    def shutdown_request(
+        self, request: Union[socket.socket, Tuple[bytes, socket.socket]]
+    ) -> None:
         """Shut down a request to the REST API.
 
         Wrapper for :func:`HTTPServer.shutdown_request` that additionally:
@@ -1549,13 +1938,14 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         :param request: socket to handle the client request.
         """
-        if hasattr(request, 'context'):  # SSLSocket
+        if hasattr(request, "context"):  # SSLSocket
             try:
                 from ssl import SSLSocket
+
                 if isinstance(request, SSLSocket):  # pyright
                     request.unwrap()
             except Exception as e:
-                logger.debug('Failed to shutdown SSL connection: %r', e)
+                logger.debug("Failed to shutdown SSL connection: %r", e)
         super(RestApiServer, self).shutdown_request(request)
 
     def get_certificate_serial_number(self) -> Optional[str]:
@@ -1563,15 +1953,22 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         :returns: serial number of the certificate configured through ``restapi.certfile`` setting.
         """
-        if self.__ssl_options.get('certfile'):
+        if self.__ssl_options.get("certfile"):
             import ssl
+
             try:
-                crt: Dict[str, Any] = ssl._ssl._test_decode_cert(self.__ssl_options['certfile'])  # pyright: ignore
+                crt: Dict[str, Any] = ssl._ssl._test_decode_cert(
+                    self.__ssl_options["certfile"]
+                )  # pyright: ignore
                 if TYPE_CHECKING:  # pragma: no cover
                     assert isinstance(crt, dict)
-                return crt.get('serialNumber')
+                return crt.get("serialNumber")
             except ssl.SSLError as e:
-                logger.error('Failed to get serial number from certificate %s: %r', self.__ssl_options['certfile'], e)
+                logger.error(
+                    "Failed to get serial number from certificate %s: %r",
+                    self.__ssl_options["certfile"],
+                    e,
+                )
 
     def reload_local_certificate(self) -> Optional[bool]:
         """Reload the SSL certificate used by the REST API.
@@ -1579,14 +1976,16 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         :return: ``True`` if a different certificate has been configured through ``restapi.certfile` setting, ``None``
             otherwise.
         """
-        if self.__protocol == 'https':
+        if self.__protocol == "https":
             on_disk_cert_serial_number = self.get_certificate_serial_number()
             if on_disk_cert_serial_number != self.__ssl_serial_number:
                 self._received_new_cert = True
                 self.__ssl_serial_number = on_disk_cert_serial_number
                 return True
 
-    def _build_allowlist(self, value: Optional[List[str]]) -> Iterator[Union[IPv4Network, IPv6Network]]:
+    def _build_allowlist(
+        self, value: Optional[List[str]]
+    ) -> Iterator[Union[IPv4Network, IPv6Network]]:
         """Resolve each entry in *value* to an IP network object.
 
         :param value: list of IPs and/or networks contained in ``restapi.allowlist`` setting. Each item can be a host,
@@ -1596,7 +1995,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """
         if isinstance(value, list):
             for v in value:
-                if '/' in v:  # netmask
+                if "/" in v:  # netmask
                     try:
                         yield ip_network(v, False)
                     except Exception as e:
@@ -1611,33 +2010,53 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         :param config: dictionary representing values under the ``restapi`` configuration section.
         :raises ValueError: if ``listen`` key is not present in *config*.
         """
-        if 'listen' not in config:  # changing config in runtime
+        if "listen" not in config:  # changing config in runtime
             raise ValueError('Can not find "restapi.listen" config')
 
-        self.__allowlist = tuple(self._build_allowlist(config.get('allowlist')))
-        self.__allowlist_include_members = config.get('allowlist_include_members')
+        self.__allowlist = tuple(self._build_allowlist(config.get("allowlist")))
+        self.__allowlist_include_members = config.get("allowlist_include_members")
 
-        ssl_options = {n: config[n] for n in ('certfile', 'keyfile', 'keyfile_password',
-                                              'cafile', 'ciphers') if n in config}
+        ssl_options = {
+            n: config[n]
+            for n in ("certfile", "keyfile", "keyfile_password", "cafile", "ciphers")
+            if n in config
+        }
 
-        self.http_extra_headers = config.get('http_extra_headers') or {}
-        self.http_extra_headers.update((config.get('https_extra_headers') or {}) if ssl_options.get('certfile') else {})
+        self.http_extra_headers = config.get("http_extra_headers") or {}
+        self.http_extra_headers.update(
+            (config.get("https_extra_headers") or {})
+            if ssl_options.get("certfile")
+            else {}
+        )
 
-        if isinstance(config.get('verify_client'), str):
-            ssl_options['verify_client'] = config['verify_client'].lower()
+        if isinstance(config.get("verify_client"), str):
+            ssl_options["verify_client"] = config["verify_client"].lower()
 
-        if self.__listen != config['listen'] or self.__ssl_options != ssl_options or self._received_new_cert:
-            self.__initialize(config['listen'], ssl_options)
+        if (
+            self.__listen != config["listen"]
+            or self.__ssl_options != ssl_options
+            or self._received_new_cert
+        ):
+            self.__initialize(config["listen"], ssl_options)
 
-        self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')) if 'auth' in config else None
+        self.__auth_key = (
+            base64.b64encode(config["auth"].encode("utf-8"))
+            if "auth" in config
+            else None
+        )
         # pyright -- ``__listen`` is initially created as ``None``, but right after that it is replaced with a string
         # through :func:`__initialize`.
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(self.__listen, str)
-        self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
+        self.connection_string = uri(
+            self.__protocol, config.get("connect_address") or self.__listen, "patroni"
+        )
 
-    def handle_error(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
-                     client_address: Tuple[str, int]) -> None:
+    def handle_error(
+        self,
+        request: Union[socket.socket, Tuple[bytes, socket.socket]],
+        client_address: Tuple[str, int],
+    ) -> None:
         """Handle any exception that is thrown while handling a request to the REST API.
 
         Logs ``WARNING`` messages with the client information, and the stack trace of the faced exception.
@@ -1645,6 +2064,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         :param request: the request that faced an exception.
         :param client_address: a tuple composed of the IP and port of the client connection.
         """
-        logger.warning('Exception happened during processing of request from %s:%s',
-                       client_address[0], client_address[1])
+        logger.warning(
+            "Exception happened during processing of request from %s:%s",
+            client_address[0],
+            client_address[1],
+        )
         logger.warning(traceback.format_exc())
