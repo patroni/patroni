@@ -211,4 +211,4 @@ CTL
 -  **PATRONI\_CTL\_CACERT**: (optional) Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "cafile" parameter.
 -  **PATRONI\_CTL\_CERTFILE**: (optional) Specifies the file with the client certificate in the PEM format.
 -  **PATRONI\_CTL\_KEYFILE**: (optional) Specifies the file with the client secret key in the PEM format.
--  **PATRONI\_CTL\_KEYFILE\_PASSWORD**: (optional) Specifies a password for decrypting the keyfile.
+-  **PATRONI\_CTL\_KEYFILE\_PASSWORD**: (optional) Specifies a password for decrypting the client keyfile.

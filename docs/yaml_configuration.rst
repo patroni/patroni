@@ -355,7 +355,7 @@ CTL
    -  **cacert**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "cafile" parameter.
    -  **certfile**: Specifies the file with the client certificate in the PEM format.
    -  **keyfile**: Specifies the file with the client secret key in the PEM format.
-   -  **keyfile\_password**: Specifies a password for decrypting the keyfile.
+   -  **keyfile\_password**: Specifies a password for decrypting the client keyfile.
 
 Watchdog
 --------
