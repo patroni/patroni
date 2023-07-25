@@ -15,7 +15,9 @@ from collections import defaultdict
 from copy import deepcopy
 from random import randint
 from threading import Event, Lock
-from typing import Any, Callable, Collection, Dict, List, NamedTuple, Optional, Set, Tuple, Union, TYPE_CHECKING
+from types import ModuleType
+from typing import Any, Callable, Collection, Dict, List, NamedTuple, Optional, Set, Tuple, Union, TYPE_CHECKING, \
+    Type, Iterator
 from urllib.parse import urlparse, urlunparse, parse_qsl
 
 from ..exceptions import PatroniFatalException
@@ -85,38 +87,83 @@ def dcs_modules() -> List[str]:
         return [module_prefix + name for _, name, is_pkg in pkgutil.iter_modules([dcs_dirname]) if not is_pkg]
 
 
-def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
-    modules = dcs_modules()
+def iter_dcs_classes(
+        config: Optional[Union['Config', Dict[str, Any]]] = None
+) -> Iterator[Tuple[str, Type['AbstractDCS']]]:
+    """Attempt to import DCS modules that are present in the given configuration.
 
-    for module_name in modules:
-        name = module_name.split('.')[-1]
-        if name in config:  # we will try to import only modules which have configuration section in the config file
+    .. note::
+            If a module successfully imports we can assume that all its requirements are installed.
+
+    :param config: configuration information with possible DCS names as keys. If given, only attempt to import DCS
+                   modules defined in the configuration. Else, if ``None``, attempt to import any supported DCS module.
+
+    :yields: a tuple containing the module ``name`` and the imported DCS class object.
+    """
+    for mod_name in dcs_modules():
+        name = mod_name.rpartition('.')[2]
+        if config is None or name in config:
+
             try:
-                module = importlib.import_module(module_name)
-                for key, item in module.__dict__.items():  # iterate through the module content
-                    # try to find implementation of AbstractDCS interface, class name must match with module_name
-                    if key.lower() == name and inspect.isclass(item) and issubclass(item, AbstractDCS):
-                        # propagate some parameters
-                        config[name].update({p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
-                                             'patronictl', 'ttl', 'retry_timeout') if p in config})
-                        # From citus section we only need "group" parameter, but will propagate everything just in case.
-                        if isinstance(config.get('citus'), dict):
-                            config[name].update(config['citus'])
-                        return item(config[name])
-            except ImportError:
-                logger.debug('Failed to import %s', module_name)
+                module = importlib.import_module(mod_name)
+                dcs_module = find_dcs_class_in_module(module)
+                if dcs_module:
+                    yield name, dcs_module
 
-    available_implementations: List[str] = []
-    for module_name in modules:
-        name = module_name.split('.')[-1]
-        try:
-            module = importlib.import_module(module_name)
-            available_implementations.extend(name for key, item in module.__dict__.items() if key.lower() == name
-                                             and inspect.isclass(item) and issubclass(item, AbstractDCS))
-        except ImportError:
-            logger.info('Failed to import %s', module_name)
-    raise PatroniFatalException("""Can not find suitable configuration of distributed configuration store
-Available implementations: """ + ', '.join(sorted(set(available_implementations))))
+            except ImportError:
+                logger.log(logging.DEBUG if config is not None else logging.INFO,
+                           'Failed to import %s', mod_name)
+
+
+def find_dcs_class_in_module(module: ModuleType) -> Optional[Type['AbstractDCS']]:
+    """Try to find the implementation of :class:`AbstractDCS` interface in *module* matching the *module* name.
+
+    :param module: Imported DCS module.
+
+    :returns: class with a name matching the name of *module* that implements :class:`AbstractDCS` or ``None`` if not
+              found.
+    """
+    module_name = module.__name__.rpartition('.')[2]
+    return next(
+        (obj for obj_name, obj in module.__dict__.items()
+         if (obj_name.lower() == module_name
+             and inspect.isclass(obj) and issubclass(obj, AbstractDCS))),
+        None)
+
+
+def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
+    """Attempt to load a Distributed Configuration Store from known available implementations.
+
+    .. note::
+        Using the list of available DCS modules returned by :func:`iter_dcs_modules` attempt to dynamically import and
+        instantiate the class that implements a DCS using the abstract class :class:`AbstractDCS`.
+
+        Basic top-level configuration parameters retrieved from *config* are propagated to the DCS specific config
+        before being passed to the module DCS class.
+
+        If no module is found to satisfy configuration then report and log an error. This will cause Patroni to exit.
+
+    :raises :exc:`PatroniFatalException`: if a load of all available DCS modules have been tried and none succeeded.
+
+    :param config: object or dictionary with Patroni configuration. This is normally a representation of the main
+                   Patroni
+
+    :returns: The first successfully loaded DCS module which is an implementation of :class:`AbstractDCS`.
+    """
+    for name, dcs_class in iter_dcs_classes(config):
+        # Propagate some parameters from top level of config if defined to the DCS specific config section.
+        config[name].update({
+            p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
+                                   'patronictl', 'ttl', 'retry_timeout')
+            if p in config})
+        # From citus section we only need "group" parameter, but will propagate everything just in case.
+        if isinstance(config.get('citus'), dict):
+            config[name].update(config['citus'])
+        return dcs_class(config[name])
+
+    raise PatroniFatalException(
+        f"Can not find suitable configuration of distributed configuration store\n"
+        f"Available implementations: {', '.join(sorted([n for n, _ in iter_dcs_classes()]))}")
 
 
 _Version = Union[int, str]
