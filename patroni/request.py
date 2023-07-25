@@ -105,7 +105,7 @@ class PatroniRequest(object):
         Also configure SSL related settings for requests:
 
         * ``ca_certs`` is configured if ``ctl -> cacert`` or ``restapi -> cafile`` is available;
-        * ``cert``, ``key`` and ``key_password`` are configured if ``ctl -> certile`` is available.
+        * ``cert``, ``key`` and ``key_password`` are configured if ``ctl -> certfile`` is available.
 
         :param config: Patroni YAML configuration.
         """
