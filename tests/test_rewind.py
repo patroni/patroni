@@ -239,7 +239,7 @@ class TestRewind(BaseTestPostgresql):
 
         with patch('os.listdir', Mock(return_value=['000000000000000000000000.ready'])):
             # successful archive_command call
-            with patch.object(CancellableSubprocess, 'call', Mock(return_value=0)):
+            with patch.object(CancellableSubprocess, 'call', Mock(return_value=0)) as mock_subprocess_call:
                 get_guc_value_res = [
                     'on', 'command %f',
                     'always', 'command %f',
@@ -252,6 +252,10 @@ class TestRewind(BaseTestPostgresql):
                                           '000000000000000000000000', 'command 000000000000000000000000'),
                                          mock_logger_info.call_args[0])
                         mock_logger_info.reset_mock()
+                        mock_subprocess_call.assert_called_once()
+                        self.assertEqual(mock_subprocess_call.call_args.args[0], ['command 000000000000000000000000'])
+                        self.assertEqual(mock_subprocess_call.call_args.kwargs['shell'], True)
+                        mock_subprocess_call.reset_mock()
 
             # failed archive_command call
             with patch.object(CancellableSubprocess, 'call', Mock(return_value=1)):

@@ -15,7 +15,9 @@ from collections import defaultdict
 from copy import deepcopy
 from random import randint
 from threading import Event, Lock
-from typing import Any, Callable, Collection, Dict, List, NamedTuple, Optional, Set, Tuple, Union, TYPE_CHECKING
+from types import ModuleType
+from typing import Any, Callable, Collection, Dict, List, NamedTuple, Optional, Set, Tuple, Union, TYPE_CHECKING, \
+    Type, Iterator
 from urllib.parse import urlparse, urlunparse, parse_qsl
 
 from ..exceptions import PatroniFatalException
@@ -85,38 +87,83 @@ def dcs_modules() -> List[str]:
         return [module_prefix + name for _, name, is_pkg in pkgutil.iter_modules([dcs_dirname]) if not is_pkg]
 
 
-def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
-    modules = dcs_modules()
+def iter_dcs_classes(
+        config: Optional[Union['Config', Dict[str, Any]]] = None
+) -> Iterator[Tuple[str, Type['AbstractDCS']]]:
+    """Attempt to import DCS modules that are present in the given configuration.
 
-    for module_name in modules:
-        name = module_name.split('.')[-1]
-        if name in config:  # we will try to import only modules which have configuration section in the config file
+    .. note::
+            If a module successfully imports we can assume that all its requirements are installed.
+
+    :param config: configuration information with possible DCS names as keys. If given, only attempt to import DCS
+                   modules defined in the configuration. Else, if ``None``, attempt to import any supported DCS module.
+
+    :yields: a tuple containing the module ``name`` and the imported DCS class object.
+    """
+    for mod_name in dcs_modules():
+        name = mod_name.rpartition('.')[2]
+        if config is None or name in config:
+
             try:
-                module = importlib.import_module(module_name)
-                for key, item in module.__dict__.items():  # iterate through the module content
-                    # try to find implementation of AbstractDCS interface, class name must match with module_name
-                    if key.lower() == name and inspect.isclass(item) and issubclass(item, AbstractDCS):
-                        # propagate some parameters
-                        config[name].update({p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
-                                             'patronictl', 'ttl', 'retry_timeout') if p in config})
-                        # From citus section we only need "group" parameter, but will propagate everything just in case.
-                        if isinstance(config.get('citus'), dict):
-                            config[name].update(config['citus'])
-                        return item(config[name])
-            except ImportError:
-                logger.debug('Failed to import %s', module_name)
+                module = importlib.import_module(mod_name)
+                dcs_module = find_dcs_class_in_module(module)
+                if dcs_module:
+                    yield name, dcs_module
 
-    available_implementations: List[str] = []
-    for module_name in modules:
-        name = module_name.split('.')[-1]
-        try:
-            module = importlib.import_module(module_name)
-            available_implementations.extend(name for key, item in module.__dict__.items() if key.lower() == name
-                                             and inspect.isclass(item) and issubclass(item, AbstractDCS))
-        except ImportError:
-            logger.info('Failed to import %s', module_name)
-    raise PatroniFatalException("""Can not find suitable configuration of distributed configuration store
-Available implementations: """ + ', '.join(sorted(set(available_implementations))))
+            except ImportError:
+                logger.log(logging.DEBUG if config is not None else logging.INFO,
+                           'Failed to import %s', mod_name)
+
+
+def find_dcs_class_in_module(module: ModuleType) -> Optional[Type['AbstractDCS']]:
+    """Try to find the implementation of :class:`AbstractDCS` interface in *module* matching the *module* name.
+
+    :param module: Imported DCS module.
+
+    :returns: class with a name matching the name of *module* that implements :class:`AbstractDCS` or ``None`` if not
+              found.
+    """
+    module_name = module.__name__.rpartition('.')[2]
+    return next(
+        (obj for obj_name, obj in module.__dict__.items()
+         if (obj_name.lower() == module_name
+             and inspect.isclass(obj) and issubclass(obj, AbstractDCS))),
+        None)
+
+
+def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
+    """Attempt to load a Distributed Configuration Store from known available implementations.
+
+    .. note::
+        Using the list of available DCS modules returned by :func:`iter_dcs_modules` attempt to dynamically import and
+        instantiate the class that implements a DCS using the abstract class :class:`AbstractDCS`.
+
+        Basic top-level configuration parameters retrieved from *config* are propagated to the DCS specific config
+        before being passed to the module DCS class.
+
+        If no module is found to satisfy configuration then report and log an error. This will cause Patroni to exit.
+
+    :raises :exc:`PatroniFatalException`: if a load of all available DCS modules have been tried and none succeeded.
+
+    :param config: object or dictionary with Patroni configuration. This is normally a representation of the main
+                   Patroni
+
+    :returns: The first successfully loaded DCS module which is an implementation of :class:`AbstractDCS`.
+    """
+    for name, dcs_class in iter_dcs_classes(config):
+        # Propagate some parameters from top level of config if defined to the DCS specific config section.
+        config[name].update({
+            p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
+                                   'patronictl', 'ttl', 'retry_timeout')
+            if p in config})
+        # From citus section we only need "group" parameter, but will propagate everything just in case.
+        if isinstance(config.get('citus'), dict):
+            config[name].update(config['citus'])
+        return dcs_class(config[name])
+
+    raise PatroniFatalException(
+        f"Can not find suitable configuration of distributed configuration store\n"
+        f"Available implementations: {', '.join(sorted([n for n, _ in iter_dcs_classes()]))}")
 
 
 _Version = Union[int, str]
@@ -596,24 +643,25 @@ class Cluster(NamedTuple):
 
     def get_replication_slots(self, my_name: str, role: str, nofailover: bool,
                               major_version: int, show_error: bool = False) -> Dict[str, Dict[str, Any]]:
-        # if the replicatefrom tag is set on the member - we should not create the replication slot for it on
-        # the current primary, because that member would replicate from elsewhere. We still create the slot if
-        # the replicatefrom destination member is currently not a member of the cluster (fallback to the
-        # primary), or if replicatefrom destination member happens to be the current primary
-        use_slots = self.use_slots
-        if role in ('master', 'primary', 'standby_leader'):
-            slot_members = [m.name for m in self.members if use_slots and m.name != my_name
-                            and (m.replicatefrom is None or m.replicatefrom == my_name
-                                 or not self.has_member(m.replicatefrom))]
-            permanent_slots = self.__permanent_slots if use_slots and \
-                role in ('master', 'primary') else self.__permanent_physical_slots
-        else:
-            # only manage slots for replicas that replicate from this one, except for the leader among them
-            slot_members = [m.name for m in self.members if use_slots
-                            and m.replicatefrom == my_name and m.name != self.leader_name]
-            permanent_slots = self.__permanent_logical_slots if use_slots and not nofailover else {}
+        """Lookup configured slot names in the DCS, report issues found and merge with permanent slots.
 
-        slots = {slot_name_from_member_name(name): {'type': 'physical'} for name in slot_members}
+        Will log an error if:
+
+            * Conflicting slot names between members are found
+            * Any logical slots are disabled, due to version compatibility, and *show_error* is ``True``.
+
+        :param my_name: name of this node.
+        :param role: role of this node.
+        :param nofailover: ``True`` if this node is tagged to not be a failover candidate.
+        :param major_version: postgresql major version.
+        :param show_error: if ``True`` report error if any disabled logical slots or conflicting slot names are found.
+
+        :returns: final dictionary of slot names, after merging with permanent slots and performing sanity checks.
+        """
+        slot_members: List[str] = self._get_slot_members(my_name, role) if self.use_slots else []
+
+        slots: Dict[str, Dict[str, str]] = {slot_name_from_member_name(name): {'type': 'physical'}
+                                            for name in slot_members}
 
         if len(slots) < len(slot_members):
             # Find which names are conflicting for a nicer error message
@@ -621,11 +669,38 @@ class Cluster(NamedTuple):
             for name in slot_members:
                 slot_conflicts[slot_name_from_member_name(name)].append(name)
             logger.error("Following cluster members share a replication slot name: %s",
-                         "; ".join("{} map to {}".format(", ".join(v), k)
+                         "; ".join(f"{', '.join(v)} map to {k}"
                                    for k, v in slot_conflicts.items() if len(v) > 1))
 
-        # "merge" replication slots for members with permanent_replication_slots
+        permanent_slots: dict[str, Any] = self._get_permanent_slots(role, nofailover) if self.use_slots else {}
+        disabled_permanent_logical_slots: List[str] = self._merge_permanent_slots(
+            slots, permanent_slots, my_name, major_version)
+
+        if disabled_permanent_logical_slots and show_error:
+            logger.error("Permanent logical replication slots supported by Patroni only starting from PostgreSQL 11. "
+                         "Following slots will not be created: %s.", disabled_permanent_logical_slots)
+
+        return slots
+
+    @staticmethod
+    def _merge_permanent_slots(slots: Dict[str, Dict[str, str]], permanent_slots: Dict[str, Any], my_name: str,
+                               major_version: int) -> List[str]:
+        """Merge replication *slots* for members with *permanent_slots*.
+
+        Perform validation of configured permanent slot name, skipping invalid names.
+
+        Will update *slots* in-line based on ``type`` of slot, ``physical`` or ``logical``, and name of node.
+        Type is assumed to be ``physical`` if there are no attributes stored as the slot value.
+
+        :param slots: Slot names with existing attributes if known.
+        :param my_name: name of this node.
+        :param permanent_slots: dictionary containing slot name key and slot information values.
+        :param major_version: postgresql major version.
+
+        :returns: List of disabled permanent, logical slot names, if postgresql version < 11.
+        """
         disabled_permanent_logical_slots: List[str] = []
+
         for name, value in permanent_slots.items():
             if not slot_name_re.match(name):
                 logger.error("Invalid permanent replication slot name '%s'", name)
@@ -642,7 +717,8 @@ class Cluster(NamedTuple):
                     if name != slot_name_from_member_name(my_name):
                         slots[name] = value
                     continue
-                elif value['type'] == 'logical' and value.get('database') and value.get('plugin'):
+
+                if value['type'] == 'logical' and value.get('database') and value.get('plugin'):
                     if major_version < 110000:
                         disabled_permanent_logical_slots.append(name)
                     elif name in slots:
@@ -653,12 +729,62 @@ class Cluster(NamedTuple):
                     continue
 
             logger.error("Bad value for slot '%s' in permanent_slots: %s", name, permanent_slots[name])
+        return disabled_permanent_logical_slots
 
-        if disabled_permanent_logical_slots and show_error:
-            logger.error("Permanent logical replication slots supported by Patroni only starting from PostgreSQL 11. "
-                         "Following slots will not be created: %s.", disabled_permanent_logical_slots)
+    def _get_permanent_slots(self, role: str, nofailover: bool) -> Dict[str, Any]:
+        """Get configured permanent slot names.
 
-        return slots
+        .. note::
+            Permanent logical replication slots are only considered if ``use_slots`` configuration is enabled. Also,
+            only considered if *role* is ``primary`` or if it is a promotable ``replica`` -- what excludes a
+            ``standby_leader`` or ``replica`` with ``nofailover`` tag enabled. That combination is used for failing
+            over logical replication slots, and the latter nodes are not eligible for such task.
+
+            Permanent physical slots are only considered if *role* is ``primary`` or ``standby_leader``, independently
+            if ``use_slots`` is enabled or not. That is done that way because even if Patroni itself is not using slots
+            to replicate among its members when ``use_slots`` is disabled, the user may still have configured Patroni to
+            keep permanent physical slots used out of Patroni.
+
+        :param role: role of this node -- ``primary``, ``standby_leader`` or ``replica``.
+                     or logical slots being consumed.
+        :param nofailover: ``True`` if this node is tagged to not be a failover candidate.
+
+        :returns: dictionary of permanent slot names mapped to attributes.
+        """
+        if role in ('master', 'primary', 'standby_leader'):
+            permanent_slots = (self.__permanent_slots
+                               if role in ('master', 'primary')
+                               else self.__permanent_physical_slots)
+        else:
+            permanent_slots = self.__permanent_logical_slots if not nofailover else {}
+        return permanent_slots
+
+    def _get_slot_members(self, my_name: str, role: str) -> List[str]:
+        """Get a list of member names that have replication slots sourcing from this node.
+
+        If the ``replicatefrom`` tag is set on the member - we should not create the replication slot for it on
+        the current primary, because that member would replicate from elsewhere. We still create the slot if
+        the ``replicatefrom`` destination member is currently not a member of the cluster (fallback to the
+        primary), or if ``replicatefrom`` destination member happens to be the current primary.
+
+        :param my_name: name of this node.
+        :param role: role of this node, if this is a ``primary`` or ``standby_leader`` return list of members
+                     replicating from this node. If not then return a list of members replicating as cascaded
+                     replicas from this node.
+
+        :returns: list of member names.
+        """
+        if role in ('master', 'primary', 'standby_leader'):
+            slot_members = [m.name for m in self.members
+                            if m.name != my_name
+                            and (m.replicatefrom is None
+                                 or m.replicatefrom == my_name
+                                 or not self.has_member(m.replicatefrom))]
+        else:
+            # only manage slots for replicas that replicate from this one, except for the leader among them
+            slot_members = [m.name for m in self.members
+                            if m.replicatefrom == my_name and m.name != self.leader_name]
+        return slot_members
 
     def has_permanent_logical_slots(self, my_name: str, nofailover: bool, major_version: int = 110000) -> bool:
         if major_version < 110000:

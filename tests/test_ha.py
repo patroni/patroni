@@ -280,8 +280,10 @@ class TestHa(PostgresInit):
         self.p.follow = true
         self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
         self.p.is_running = true
+        ha_dcs_orig_name = self.ha.dcs.__class__.__name__
         self.ha.dcs.__class__.__name__ = 'Raft'
         self.assertEqual(self.ha.run_cycle(), 'started as a secondary')
+        self.ha.dcs.__class__.__name__ = ha_dcs_orig_name
 
     def test_recover_former_primary(self):
         self.p.follow = false

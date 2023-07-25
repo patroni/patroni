@@ -370,7 +370,7 @@ class Rewind(object):
                 # it is the author of archive_command, who is responsible
                 # for not overriding the WALs already present in archive
                 logger.info('Trying to archive %s: %s', wal, cmd)
-                if self._postgresql.cancellable.call(shlex.split(cmd)) == 0:
+                if self._postgresql.cancellable.call([cmd], shell=True) == 0:
                     new_name = os.path.join(status_dir, wal + '.done')
                     try:
                         shutil.move(old_name, new_name)
