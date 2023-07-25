@@ -196,10 +196,19 @@ REST API
 -  **PATRONI\_RESTAPI\_HTTPS\_EXTRA\_HEADERS**: (optional) HTTPS headers let the REST API server pass additional information with an HTTP response when TLS is enabled. This will also pass additional information set in ``http_extra_headers``.
 -  **PATRONI\_RESTAPI\_REQUEST\_QUEUE\_SIZE**: (optional): Sets request queue size for TCP socket used by Patroni REST API.  Once the queue is full, further requests get a "Connection denied" error. The default value is 5.
 
+.. warning::
+
+    - The ``PATRONI_RESTAPI_CONNECT_ADDRESS`` must be accessible from all nodes of a given Patroni cluster. Internally Patroni is using it during the leader race to find nodes with minimal replication lag.
+    - If you enabled client certificates validation (``PATRONI_RESTAPI_VERIFY_CLIENT`` is set to ``required``), you also **must** provide **valid client certificates** in the ``PATRONI_CTL_CERTFILE``, ``PATRONI_CTL_KEYFILE``, ``PATRONI_CTL_KEYFILE_PASSWORD``. If not provided, Patroni will not work correctly.
+
+
 CTL
 ---
--  **PATRONICTL\_CONFIG\_FILE**: location of the configuration file.
--  **PATRONI\_CTL\_INSECURE**: Allow connections to REST API without verifying SSL certs.
--  **PATRONI\_CTL\_CACERT**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "cafile" parameter.
--  **PATRONI\_CTL\_CERTFILE**: Specifies the file with the client certificate in the PEM format. If not provided patronictl will use the value provided for REST API "certfile" parameter.
--  **PATRONI\_CTL\_KEYFILE**: Specifies the file with the client secret key in the PEM format. If not provided patronictl will use the value provided for REST API "keyfile" parameter.
+-  **PATRONICTL\_CONFIG\_FILE**: (optional) location of the configuration file.
+-  **PATRONI\_CTL\_USERNAME**: (optional) Basic-auth username for accessing protected REST API endpoints. If not provided patronictl will use the value provided for REST API "username" parameter.
+-  **PATRONI\_CTL\_PASSWORD**: (optional) Basic-auth password for accessing protected REST API endpoints. If not provided patronictl will use the value provided for REST API "password" parameter.
+-  **PATRONI\_CTL\_INSECURE**: (optional) Allow connections to REST API without verifying SSL certs.
+-  **PATRONI\_CTL\_CACERT**: (optional) Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "cafile" parameter.
+-  **PATRONI\_CTL\_CERTFILE**: (optional) Specifies the file with the client certificate in the PEM format.
+-  **PATRONI\_CTL\_KEYFILE**: (optional) Specifies the file with the client secret key in the PEM format.
+-  **PATRONI\_CTL\_KEYFILE\_PASSWORD**: (optional) Specifies a password for decrypting the client keyfile.

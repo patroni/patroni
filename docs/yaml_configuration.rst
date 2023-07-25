@@ -335,17 +335,27 @@ Here is an example of both **http_extra_headers** and **https_extra_headers**:
           https_extra_headers:
             'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'
 
+.. warning::
+
+    - The ``restapi.connect_address`` must be accessible from all nodes of a given Patroni cluster. Internally Patroni is using it during the leader race to find nodes with minimal replication lag.
+    - If you enabled client certificates validation (``restapi.verify_client`` is set to ``required``), you also **must** provide **valid client certificates** in the ``ctl.certfile``, ``ctl.keyfile``, ``ctl.keyfile_password``. If not provided, Patroni will not work correctly.
+
+
 .. _patronictl_settings:
 
 CTL
 ---
 -  **ctl**: (optional)
 
+   -  **authentication**:
+
+      -  **username**: Basic-auth username for accessing protected REST API endpoints. If not provided patronictl will use the value provided for REST API "username" parameter.
+      -  **password**: Basic-auth password for accessing protected REST API endpoints. If not provided patronictl will use the value provided for REST API "password" parameter.
    -  **insecure**: Allow connections to REST API without verifying SSL certs.
    -  **cacert**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "cafile" parameter.
-   -  **certfile**: Specifies the file with the client certificate in the PEM format. If not provided patronictl will use the value provided for REST API "certfile" parameter.
-   -  **keyfile**: Specifies the file with the client secret key in the PEM format. If not provided patronictl will use the value provided for REST API "keyfile" parameter.
-   -  **keyfile\_password**: Specifies a password for decrypting the keyfile. If not provided patronictl will use the value provided for REST API "keyfile\_password" parameter.
+   -  **certfile**: Specifies the file with the client certificate in the PEM format.
+   -  **keyfile**: Specifies the file with the client secret key in the PEM format.
+   -  **keyfile\_password**: Specifies a password for decrypting the client keyfile.
 
 Watchdog
 --------
