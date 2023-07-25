@@ -20,7 +20,7 @@ Feature: citus
     And replication works from postgres1 to postgres0 after 15 seconds
     And postgres1 is registered in the postgres2 as the primary in group 0 after 5 seconds
     And "sync" key in a group 0 in DCS has sync_standby=postgres0 after 15 seconds
-    When I run patronictl.py failover batman --group 0 --candidate postgres0 --force
+    When I run patronictl.py switchover batman --group 0 --candidate postgres0 --force
     Then postgres0 role is the primary after 10 seconds
     And replication works from postgres0 to postgres1 after 15 seconds
     And postgres0 is registered in the postgres2 as the primary in group 0 after 5 seconds
