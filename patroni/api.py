@@ -678,6 +678,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         then writes a response with the new tags, with HTTP status ``200``.
         """
         request = self._read_json_content()
+        # Ensure the non_nullable keys are always present
         non_nullable_keys = ['nofailover', 'noloadbalance', 'clonefrom', 'nosync']
         for key in non_nullable_keys:
             if request and request.get(key, False) is None:

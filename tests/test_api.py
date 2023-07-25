@@ -406,7 +406,7 @@ class TestRestApiHandler(unittest.TestCase):
     @patch.object(MockPatroni, 'reload_config', Mock())
     def test_do_PATCH_tags(self):
         request = 'PATCH /tags HTTP/1.0' + self._authorization + '\nContent-Length: '
-        request += '12\n\n{"newtag":6}'
+        request += '30\n\n{"newtag":6,"nofailover":null}'
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
 
     @patch.object(MockPatroni, 'dcs')
