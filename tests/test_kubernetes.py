@@ -298,6 +298,28 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
         self.k.touch_member({'state': 'running', 'role': 'replica'})
         self.k.touch_member({'state': 'stopped', 'role': 'primary'})
 
+        self.k._role_label = 'isMaster'
+        self.k._leader_label_value = 'true'
+        self.k._follower_label_value = 'false'
+        self.k._standby_leader_label_value = 'false'
+        self.k._tmp_role_label = 'tmp_role'
+
+        self.k.touch_member({'state': 'running', 'role': 'replica'})
+        mock_patch_namespaced_pod.assert_called()
+        self.assertEqual(mock_patch_namespaced_pod.call_args.args[2].metadata.labels['isMaster'], 'false')
+        self.assertEqual(mock_patch_namespaced_pod.call_args.args[2].metadata.labels['tmp_role'], 'replica')
+
+        self.k.touch_member({'state': 'running', 'role': 'standby-leader'})
+        mock_patch_namespaced_pod.assert_called()
+        self.assertEqual(mock_patch_namespaced_pod.call_args.args[2].metadata.labels['isMaster'], 'false')
+        self.assertEqual(mock_patch_namespaced_pod.call_args.args[2].metadata.labels['tmp_role'], 'standby-leader')
+
+        self.k._name = 'p-0'
+        self.k.touch_member({'role': 'primary'})
+        mock_patch_namespaced_pod.assert_called()
+        self.assertEqual(mock_patch_namespaced_pod.call_args.args[2].metadata.labels['isMaster'], 'true')
+        self.assertEqual(mock_patch_namespaced_pod.call_args.args[2].metadata.labels['tmp_role'], 'master')
+
     def test_initialize(self):
         self.k.initialize()
 
