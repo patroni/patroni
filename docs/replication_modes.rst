@@ -66,13 +66,13 @@ Note: Because of the way synchronous replication is implemented in PostgreSQL it
 Synchronous Replication Factor
 ==============================
 
-The parameter ``synchronous_node_count`` is used by Patroni to manage number of synchronous standby databases. It is set to 1 by default. It has no effect when ``synchronous_mode`` is set to off. When enabled, Patroni manages precise number of synchronous standby databases based on parameter ``synchronous_node_count`` and adjusts the state in DCS & ``synchronous_standby_names`` in PostgreSQL as members join and leave. If the parameter is set to a value higher than the number of eligible nodes it will be automatically reduced by Patroni down to 1.
+The parameter ``synchronous_node_count`` is used by Patroni to manage number of synchronous standby databases. It is set to 1 by default. It has no effect when ``synchronous_mode`` is set to off. When enabled, Patroni manages precise number of synchronous standby databases based on parameter ``synchronous_node_count`` and adjusts the state in DCS & ``synchronous_standby_names`` in PostgreSQL as members join and leave. If the parameter is set to a value higher than the number of eligible nodes it will be automatically reduced by Patroni down.
 
 
 Maximum lag on synchronous node
 ===============================
 
-By default Patroni sticks to a node that is declared as ``synchronous``, according to the ``pg_stat_replication`` view, even when there are other nodes ahead of it. This is done to minimize the number of changes of ``synchronous_standby_names``. To change this behavior one may use ``maximum_lag_on_syncnode`` parameter. It controls how much lag the replica can have to still be considered as "synchronous".
+By default Patroni sticks to nodes that are declared as ``synchronous``, according to the ``pg_stat_replication`` view, even when there are other nodes ahead of it. This is done to minimize the number of changes of ``synchronous_standby_names``. To change this behavior one may use ``maximum_lag_on_syncnode`` parameter. It controls how much lag the replica can have to still be considered as "synchronous".
 
 Patroni utilizes the max replica LSN if there is more than one standby, otherwise it will use leader's current wal LSN. The default is ``-1``, and Patroni will not take action to swap a synchronous unhealthy standby when the value is set to ``0`` or less. Please set the value high enough so that Patroni won't swap synchronous standbys frequently during high transaction volume.
 
@@ -80,17 +80,49 @@ Patroni utilizes the max replica LSN if there is more than one standby, otherwis
 Synchronous mode implementation
 ===============================
 
-When in synchronous mode Patroni maintains synchronization state in the DCS, containing the latest primary and current synchronous standby databases. This state is updated with strict ordering constraints to ensure the following invariants:
+When in synchronous mode Patroni maintains synchronization state in the DCS (``/sync`` key), containing the latest primary and current synchronous standby databases. This state is updated with strict ordering constraints to ensure the following invariants:
 
 - A node must be marked as the latest leader whenever it can accept write transactions. Patroni crashing or PostgreSQL not shutting down can cause violations of this invariant.
 
-- A node must be set as the synchronous standby in PostgreSQL as long as it is published as the synchronous standby.
+- A node must be set as the synchronous standby in PostgreSQL as long as it is published as the synchronous standby in the ``/sync`` key in DCS..
 
 - A node that is not the leader or current synchronous standby is not allowed to promote itself automatically.
 
 Patroni will only assign one or more synchronous standby nodes based on ``synchronous_node_count`` parameter to ``synchronous_standby_names``.
 
-On each HA loop iteration Patroni re-evaluates synchronous standby nodes choice. If the current list of synchronous standby nodes are connected and has not requested its synchronous status to be removed it remains picked. Otherwise the cluster member available for sync that is furthest ahead in replication is picked.
+On each HA loop iteration Patroni re-evaluates synchronous standby nodes choice. If the current list of synchronous standby nodes are connected and has not requested its synchronous status to be removed it remains picked. Otherwise the cluster members available for sync that are furthest ahead in replication are picked.
+
+Example:
+---------
+
+``/config`` key in DCS
+^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: YAML
+
+    synchronous_mode: on
+    synchronous_node_count: 2
+    ...
+
+``/sync`` key in DCS
+^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: JSON
+
+    {
+        "leader": "node0",
+        "sync_standby": "node1,node2"
+    }
+
+postgresql.conf
+^^^^^^^^^^^^^^^
+
+.. code-block:: INI
+
+    synchronous_standby_names = 'FIRST 2 (node1,node2)'
+
+
+In the above examples only nodes ``node1`` and ``node2`` are known to be synchronous and allowed to be automatically promoted if the primary (``node0``) fails.
 
 
 .. _quorum_mode:
@@ -100,7 +132,7 @@ Quorum commit mode
 
 Starting from PostgreSQL v10 Patroni supports quorum-based synchronous replication.
 
-In this mode, Patroni maintains synchronization state in the DCS, containing the latest known primary, the number of nodes required for quorum and the nodes currently eligible to vote on quorum. In steady state, the nodes voting on quorum are the leader and all synchronous standbys. This state is updated with strict ordering constraints, with regards to node promotion and ``synchronous_standby_names``, to ensure that at all times any subset of voters that can achieve quorum includes at least one node with the latest successful commit.
+In this mode, Patroni maintains synchronization state in the DCS, containing the latest known primary, the number of nodes required for quorum, and the nodes currently eligible to vote on quorum. In steady state, the nodes voting on quorum are the leader and all synchronous standbys. This state is updated with strict ordering constraints, with regards to node promotion and ``synchronous_standby_names``, to ensure that at all times any subset of voters that can achieve quorum includes at least one node with the latest successful commit.
 
 On each iteration of HA loop, Patroni re-evaluates synchronous standby choices and quorum, based on node availability and requested cluster configuration. In PostgreSQL versions above 9.6 all eligible nodes are added as synchronous standbys as soon as their replication catches up to leader.
 
@@ -109,6 +141,39 @@ Quorum commit helps to reduce worst case latencies, even during normal operation
 The quorum-based synchronous mode could be enabled by setting ``synchronous_mode`` to ``quorum`` using ``patronictl edit-config`` command or via Patroni REST interface. See :ref:`dynamic configuration <dynamic_configuration>` for instructions.
 
 Other parameters, like ``synchronous_node_count``, ``maximum_lag_on_syncnode``, and ``synchronous_mode_strict`` continue to work the same way as with ``synchronous_mode=on``.
+
+Example:
+---------
+
+``/config`` key in DCS
+^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: YAML
+
+    synchronous_mode: quorum
+    synchronous_node_count: 2
+    ...
+
+``/sync`` key in DCS
+^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: JSON
+
+    {
+        "leader": "node0",
+        "sync_standby": "node1,node2,node3",
+        "quorum": 1
+    }
+
+postgresql.conf
+^^^^^^^^^^^^^^^
+
+.. code-block:: INI
+
+    synchronous_standby_names = 'ANY 2 (node1,node2,node3)'
+
+
+If the primary (``node0``) failed, in the above example two of the ``node1``, ``node2``, ``node3`` will have the latest transaction received, but we don't know which ones. To figure out whether the node ``node1`` has received the latest transaction, we needs to compare its LSN with the LSN on **at least** one node (``quorum=1`` in the ``/sync`` key) of ``node2`` and ``node3``. If ``node1`` isn't behind of at least one of them, we can guaranty that there will be no user visible data loss if ``node1`` is promoted.
 
 
 .. [1] The data is still there, but recovering it requires a manual recovery effort by data recovery specialists. When Patroni is allowed to rewind with ``use_pg_rewind`` the forked timeline will be automatically erased to rejoin the failed primary with the cluster.
