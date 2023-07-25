@@ -397,7 +397,7 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, request)
         mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, config)
         MockRestApiServer(RestApiHandler, request)
-    
+
     @patch.object(MockConfig, 'get', Mock())
     def test_do_GET_tags(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /tags'))
