@@ -178,6 +178,18 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['failover', 'dummy'], input='0\n')
         assert 'Failover could be performed only to a specific candidate' in result.output
 
+        # failover to an async member in sync mode (confirm)
+        cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        cluster.members.append(Member(0, 'async', 28, {'api_url': 'http://127.0.0.1:8012/patroni'}))
+        cluster.config.data['synchronous_mode'] = True
+        mock_get_dcs.return_value.get_cluster = Mock(return_value=cluster)
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--group', '0', '--candidate', 'async'], input='y\ny')
+        assert 'Are you sure you want to failover to the asynchronous node async' in result.output
+        # failover to an async member in sync mode (abort)
+        mock_get_dcs.return_value.get_cluster = Mock(return_value=cluster)
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--group', '0', '--candidate', 'async'], input='N')
+        assert result.exit_code == 1
+
     @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.dummy', 'patroni.dcs.etcd']))
     def test_get_dcs(self):
         self.assertRaises(PatroniCtlException, get_dcs, {'dummy': {}}, 'dummy', 0)
