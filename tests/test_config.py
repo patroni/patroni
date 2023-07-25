@@ -150,5 +150,5 @@ class TestConfig(unittest.TestCase):
 
     def test_set_tags(self):
         cfg = Config('postgres0.yml')
-        cfg.set_tags({"test_tags": "value"})
-        assert cfg.get("tags") == {"test_tags": "value"}
+        cfg.set_tags({'test_tags': 'value'})
+        assert cfg.get('tags') == {'test_tags': 'value'}
