@@ -147,3 +147,8 @@ class TestConfig(unittest.TestCase):
     @patch('os.path.isdir', Mock(return_value=False))
     def test_invalid_path(self):
         self.assertRaises(ConfigParseError, Config, 'postgres0')
+
+    def test_set_tags(self):
+        cfg = Config('postgres0.yml')
+        cfg.set_tags({"test_tags": "value"})
+        assert cfg.get("tags") == {"test_tags": "value"}
