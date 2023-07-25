@@ -93,7 +93,7 @@ class TestSlotsHandler(BaseTestPostgresql):
     def test__ensure_logical_slots_replica(self):
         self.p.set_role('replica')
         self.cluster.slots['ls'] = 12346
-        with patch.object(SlotsHandler, 'check_logical_slots_readiness', Mock()):
+        with patch.object(SlotsHandler, 'check_logical_slots_readiness', Mock(return_value=False)):
             self.assertEqual(self.s.sync_replication_slots(self.cluster, False), [])
         self.s._schedule_load_slots = False
         with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError)),\
@@ -121,12 +121,12 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.s.copy_logical_slots(self.cluster, ['ls'])
         with patch.object(MockCursor, '__iter__', Mock(return_value=iter([('postgresql0', None)]))),\
                 patch.object(MockCursor, 'fetchone', Mock(side_effect=Exception)):
-            self.assertIsNone(self.s.check_logical_slots_readiness(self.cluster, False, None))
+            self.assertFalse(self.s.check_logical_slots_readiness(self.cluster, None))
         with patch.object(MockCursor, '__iter__', Mock(return_value=iter([('postgresql0', None)]))),\
                 patch.object(MockCursor, 'fetchone', Mock(return_value=(False,))):
-            self.assertIsNone(self.s.check_logical_slots_readiness(self.cluster, False, None))
+            self.assertFalse(self.s.check_logical_slots_readiness(self.cluster, None))
         with patch.object(MockCursor, '__iter__', Mock(return_value=iter([('ls', 100)]))):
-            self.s.check_logical_slots_readiness(self.cluster, False, None)
+            self.s.check_logical_slots_readiness(self.cluster, None)
 
     @patch.object(Postgresql, 'stop', Mock(return_value=True))
     @patch.object(Postgresql, 'start', Mock(return_value=True))

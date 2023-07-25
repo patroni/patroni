@@ -1082,7 +1082,9 @@ def before_all(context):
                            'PATRONI_RESTAPI_CERTFILE': context.certfile,
                            'PATRONI_RESTAPI_KEYFILE': context.keyfile,
                            'PATRONI_RESTAPI_VERIFY_CLIENT': 'required',
-                           'PATRONI_CTL_INSECURE': 'on'})
+                           'PATRONI_CTL_INSECURE': 'on',
+                           'PATRONI_CTL_CERTFILE': context.certfile,
+                           'PATRONI_CTL_KEYFILE': context.keyfile})
         ctl.update({'cacert': context.certfile, 'certfile': context.certfile, 'keyfile': context.keyfile})
     context.request_executor = PatroniRequest({'ctl': ctl}, True)
     context.dcs_ctl = context.pctl.known_dcs[context.pctl.dcs](context)
@@ -1144,3 +1146,5 @@ def before_scenario(context, scenario):
                 break
     if 'dcs-failsafe' in scenario.effective_tags and not context.dcs_ctl._handle:
         scenario.skip('it is not possible to control state of {0} from tests'.format(context.dcs_ctl.name()))
+    if 'reject-duplicate-name' in scenario.effective_tags and context.dcs_ctl.name() == 'raft':
+        scenario.skip('Flaky test with Raft')
