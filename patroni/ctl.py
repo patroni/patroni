@@ -1543,7 +1543,7 @@ def output_members(obj: Dict[str, Any], cluster: Cluster, name: str,
             logging.debug(member)
 
             lag = member.get('lag', '')
-            member.update(c=name, member=member['name'], group=g,
+            member.update(cluster=name, member=member['name'], group=g,
                           host=member.get('host', ''), tl=member.get('timeline', ''),
                           role=member['role'].replace('_', ' ').title(),
                           lag_in_mb=round(lag / 1024 / 1024) if isinstance(lag, int) else lag,
