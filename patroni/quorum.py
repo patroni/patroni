@@ -151,7 +151,7 @@ class QuorumStateResolver(object):
         # Merge 2 transitions of the same type to a single one. This is always safe because skipping the first
         # transition is equivalent to no one observing the intermediate state.
         for cur_transition, next_transition in zip(transitions, transitions[1:] + [None]):
-            if next_transition and cur_transition[0] == next_transition[0]:
+            if isinstance(next_transition, tuple) and cur_transition[0] == next_transition[0]:
                 continue
             yield cur_transition
             if cur_transition[0] == 'restart':
