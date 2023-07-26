@@ -57,7 +57,7 @@ class _MemberStatus(NamedTuple):
         # If one of those is not in a response we want to count the node as not healthy/reachable
         wal: Dict[str, Any] = json.get('wal') or json['xlog']
         # abuse difference in primary/replica response format
-        in_recovery = not bool(wal.get('location')) or json.get('role') in ('master', 'primary')
+        in_recovery = not (bool(wal.get('location')) or json.get('role') in ('master', 'primary'))
         timeline = json.get('timeline', 0)
         dcs_last_seen = json.get('dcs_last_seen', 0)
         lsn = int(in_recovery and max(wal.get('received_location', 0), wal.get('replayed_location', 0)))
