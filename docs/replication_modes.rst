@@ -66,7 +66,7 @@ Note: Because of the way synchronous replication is implemented in PostgreSQL it
 Synchronous Replication Factor
 ==============================
 
-The parameter ``synchronous_node_count`` is used by Patroni to manage number of synchronous standby databases. It is set to 1 by default. It has no effect when ``synchronous_mode`` is set to off. When enabled, Patroni manages precise number of synchronous standby databases based on parameter ``synchronous_node_count`` and adjusts the state in DCS & ``synchronous_standby_names`` in PostgreSQL as members join and leave. If the parameter is set to a value higher than the number of eligible nodes it will be automatically reduced by Patroni down.
+The parameter ``synchronous_node_count`` is used by Patroni to manage the number of synchronous standby databases. It is set to ``1`` by default. It has no effect when ``synchronous_mode`` is set to ``off``. When enabled, Patroni manages the precise number of synchronous standby databases based on parameter ``synchronous_node_count`` and adjusts the state in DCS & ``synchronous_standby_names`` in PostgreSQL as members join and leave. If the parameter is set to a value higher than the number of eligible nodes it will be automatically reduced by Patroni.
 
 
 Maximum lag on synchronous node
@@ -173,7 +173,7 @@ postgresql.conf
     synchronous_standby_names = 'ANY 2 (node1,node2,node3)'
 
 
-If the primary (``node0``) failed, in the above example two of the ``node1``, ``node2``, ``node3`` will have the latest transaction received, but we don't know which ones. To figure out whether the node ``node1`` has received the latest transaction, we needs to compare its LSN with the LSN on **at least** one node (``quorum=1`` in the ``/sync`` key) of ``node2`` and ``node3``. If ``node1`` isn't behind of at least one of them, we can guaranty that there will be no user visible data loss if ``node1`` is promoted.
+If the primary (``node0``) failed, in the above example two of the ``node1``, ``node2``, ``node3`` will have the latest transaction received, but we don't know which ones. To figure out whether the node ``node1`` has received the latest transaction, we need to compare its LSN with the LSN on **at least** one node (``quorum=1`` in the ``/sync`` key) among ``node2`` and ``node3``. If ``node1`` isn't behind of at least one of them, we can guarantee that there will be no user visible data loss if ``node1`` is promoted.
 
 
 .. [1] The data is still there, but recovering it requires a manual recovery effort by data recovery specialists. When Patroni is allowed to rewind with ``use_pg_rewind`` the forked timeline will be automatically erased to rejoin the failed primary with the cluster.

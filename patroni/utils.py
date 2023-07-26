@@ -769,7 +769,7 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
     for m in cluster.members:
         if m.name == leader_name:
             role = 'standby_leader' if global_config.is_standby_cluster else 'leader'
-        elif cluster.sync.matches(m.name, global_config.is_quorum_commit_mode):
+        elif cluster.sync.matches(m.name):
             role = sync_role
         else:
             role = 'replica'
