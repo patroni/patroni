@@ -320,7 +320,7 @@ class Result(object):
 
 
 class Case(object):
-    """Map how a list of available configuration options should be validated.
+    """Map how a dict of available configuration options should be validated.
 
     .. note::
 
@@ -390,6 +390,37 @@ class Optional(object):
         """
         self.name = name
         self.default = default
+
+
+class OneOf(object):
+    """Mark that at most one option from a `Case` can be suplied
+
+    Represents a list of possible configuration options in a given scope, where at most one can actually
+    be provided.
+
+    .. note::
+
+        It should be used together with a :class:`Case` object.
+    """
+
+    def __init__(self, *args: str) -> None:
+        """Create a :class`OneOf` object.
+
+        :param `*args`: any arguments that the caller wants to be stored in this :class:`Or` object.
+
+        :Example:
+
+            OneOf("nofailover", "failover_priority"): Case({
+                "nofailover": bool,
+                "failover_priority": IntValidator(min=0, raise_assert=True),
+            })
+
+        The :class`OneOf` object is used to define that at most one of ``nofailover`` and
+        ``failover_priority`` can be provided.
+        These fields must be marked as optional, and providing less than one of them is also
+        considered a valid configuration.
+        """
+        self.args = args
 
 
 class Directory(object):
@@ -665,6 +696,9 @@ class Schema(object):
         # One key in `validator` attribute (`key` variable) can be mapped to one or more keys in `data` attribute (`d`
         # variable), depending on the `key` type.
         for key in self.validator.keys():
+            if isinstance(key, OneOf) and len(list(self._data_key(key))) > 1:
+                yield Result(False, f"Multiple of {key.args} provided")
+                continue
             for d in self._data_key(key):
                 if d not in self.data and not isinstance(key, Optional):
                     yield Result(False, "is not defined.", path=d)
@@ -674,7 +708,8 @@ class Schema(object):
                     if d not in self.data and isinstance(key, Optional):
                         self.data[d] = key.default
                     validator = self.validator[key]
-                    if isinstance(key, Or) and isinstance(self.validator[key], Case):
+                    if isinstance(key, Or) and isinstance(self.validator[key], Case) \
+                            or isinstance(key, OneOf) and isinstance(self.validator[key], Case):
                         validator = self.validator[key]._schema[d]
                     # In this loop we may be calling a new `Schema` either over an intermediate node in the tree, or
                     # over a leaf node. In the latter case the recursive calls in the given path will finish.
@@ -709,7 +744,7 @@ class Schema(object):
                 max_level = v.level
                 yield Result(v.status, v.error, path=v.path, level=v.level, data=v.data)
 
-    def _data_key(self, key: Union[str, Optional, Or]) -> Iterator[str]:
+    def _data_key(self, key: Union[str, Optional, Or, OneOf]) -> Iterator[str]:
         """Map a key from the ``validator`` dictionary to the corresponding key(s) in the ``data`` dictionary.
 
         :param key: key from the ``validator`` attribute.
@@ -729,15 +764,23 @@ class Schema(object):
         elif isinstance(key, Or):
             # At least one of the `Or` entries should be available in the `data` dictionary. If we find at least one of
             # them in `data`, then we return all found entries so the caller method can validate them all.
-            if any([i in self.data for i in key.args]):
-                for i in key.args:
-                    if i in self.data:
-                        yield i
+            if any([item in self.data for item in key.args]):
+                for item in key.args:
+                    if item in self.data:
+                        yield item
             # If none of the `Or` entries is available in the `data` dictionary, then we return all entries so the
             # caller method will issue errors that they are all absent.
             else:
-                for i in key.args:
-                    yield i
+                for item in key.args:
+                    yield item
+        # If the key was defined as a `OneOf` object in `validator` attribute, then each of its values are the keys to
+        # access the `data` dictionary
+        elif isinstance(key, OneOf):
+            # Yield back all of the entries from the `data` dictionary, each will be validated and then counted
+            # to inform us if we've provided too many
+            for item in key.args:
+                if item in self.data:
+                    yield item
 
 
 def _get_type_name(python_type: Any) -> str:
@@ -1050,7 +1093,10 @@ schema = Schema({
         Optional("safety_margin"): int
     },
     Optional("tags"): {
-        Optional("nofailover"): bool,
+        OneOf("nofailover", "failover_priority"): Case({
+            "nofailover": bool,
+            "failover_priority": IntValidator(min=0, raise_assert=True),
+        }),
         Optional("clonefrom"): bool,
         Optional("noloadbalance"): bool,
         Optional("replicatefrom"): str,

@@ -21,7 +21,7 @@ from .postgresql.misc import postgres_version_to_int
 from .postgresql.postmaster import PostmasterProcess
 from .postgresql.rewind import Rewind
 from .tags import Tags
-from .utils import polling_loop, tzutc
+from .utils import failover_priority_from_tags, polling_loop, tzutc
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,14 @@ class _MemberStatus(Tags, NamedTuple('_MemberStatus',
         if self.watchdog_failed:
             return 'not watchdog capable'
         return None
+
+    @property
+    def failover_priority(self) -> int:
+        """The failover priority of this node based on :attr:``tags``.
+
+        :returns: An integer representing this node's priority during failover.
+        """
+        return failover_priority_from_tags(self.tags)
 
 
 class Failsafe(object):
@@ -932,18 +940,29 @@ class Ha(object):
         # Prepare list of nodes to run check against
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
 
-        for st in self.fetch_nodes_statuses(members):
-            if st.failover_limitation() is None:
-                if st.in_recovery is False:
-                    logger.warning('Primary (%s) is still alive', st.member.name)
-                    return False
-                if my_wal_position < st.wal_position:
-                    logger.info('Wal position of %s is ahead of my wal position', st.member.name)
-                    # In synchronous mode the former leader might be still accessible and even be ahead of us.
-                    # We should not disqualify himself from the leader race in such a situation.
-                    if not self.sync_mode_is_active() or not self.cluster.sync.leader_matches(st.member.name):
+        if members:
+            for st in self.fetch_nodes_statuses(members):
+                if st.failover_limitation() is None:
+                    if st.in_recovery is False:
+                        logger.warning('Primary (%s) is still alive', st.member.name)
                         return False
-                    logger.info('Ignoring the former leader being ahead of us')
+                    if my_wal_position < st.wal_position:
+                        logger.info('Wal position of %s is ahead of my wal position', st.member.name)
+                        # In synchronous mode the former leader might be still accessible and even be ahead of us.
+                        # We should not disqualify himself from the leader race in such a situation.
+                        if not self.is_synchronous_mode() or self.cluster.sync.is_empty\
+                                or not self.cluster.sync.leader_matches(st.member.name):
+                            return False
+                        logger.info('Ignoring the former leader being ahead of us')
+                    if my_wal_position == st.wal_position and self.patroni.failover_priority < st.failover_priority:
+                        # There's a higher priority non-lagging replica
+                        logger.info(
+                            '%s has equally tolerable WAL position and priority %s, while this node has priority %s',
+                            st.member.name,
+                            st.failover_priority,
+                            self.patroni.failover_priority,
+                        )
+                        return False
         return True
 
     def is_failover_possible(self, *, cluster_lsn: int = 0, exclude_failover_candidate: bool = False) -> bool:

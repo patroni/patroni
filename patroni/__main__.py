@@ -14,6 +14,7 @@ from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from patroni.daemon import AbstractPatroniDaemon, abstract_main, get_base_arg_parser
 from patroni.tags import Tags
+from patroni.utils import failover_priority_from_tags, nofailover_from_tags
 
 if TYPE_CHECKING:  # pragma: no cover
     from .config import Config

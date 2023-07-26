@@ -1061,3 +1061,29 @@ def get_major_version(bin_dir: Optional[str] = None, bin_name: str = 'postgres')
     if TYPE_CHECKING:  # pragma: no cover
         assert version is not None
     return '.'.join([version.group(1), version.group(3)]) if int(version.group(1)) < 10 else version.group(1)
+
+
+def nofailover_from_tags(tags: Dict[str, Any]) -> bool:
+    """Common logic for obtaining the value of ``nofailover`` from ``tags`` if defined.
+
+    If ``no_failover is not defined, this methods returns True if ``failover_priority`` in
+    :attr:`Member`.tags`` is non-positive, else defaults to ``False``.
+    """
+    from_tags = tags.get('nofailover', None)
+    if from_tags is not None:
+        # Value of `nofailover` takes precedence over `failover_priority`
+        return bool(from_tags)
+    failover_priority = parse_int(tags.get('failover_priority', 1))
+    return failover_priority <= 0 if failover_priority is not None else False
+
+
+def failover_priority_from_tags(tags: Dict[str, Any]) -> int:
+    """Common logic for obtaining the value of ``failover_priority`` from ``tags`` if defined.
+
+    If ``nofailover`` is defined as True, this will return 0. Otherwise, it will return the value of
+    ``failover_priority``, defaulting to 1 if it is not defined.
+    """
+    from_tags = tags.get('nofailover', None)
+    failover_priority = parse_int(tags.get('failover_priority', 1))
+    failover_priority = 1 if failover_priority is None else failover_priority
+    return 0 if from_tags else failover_priority
