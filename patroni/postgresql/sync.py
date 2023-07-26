@@ -226,7 +226,8 @@ END;$$""")
 
         .. note::
             Tuples are reverse ordered by ``sync_state`` and LSN fields so nodes that already synchronous or having
-            higher LSN values are preferred.
+            higher LSN values are preferred. Replicas that are streaming, but don't have ``running`` ``state``
+            or tagged with ``nofailover`` tag in DCS are skipped.
 
         :param cluster: current cluster topology from DCS.
 
@@ -262,7 +263,12 @@ END;$$""")
                 yield (pid, member.name, sync_state, replica_lsn, bool(member.nofailover))
 
     def _process_replica_readiness(self, cluster: Cluster, replica_list: List[Tuple[int, str, str, int, bool]]) -> None:
-        """Flags replicas as truly "synchronous" when they caught up with "_primary_flush_lsn"."""
+        """Flags replicas as truly "synchronous" when they caught up with "_primary_flush_lsn".
+
+        :param cluster: current cluster topology from DCS
+        :param replica_list: the list of tuples returned from :func:``_get_replica_list`` method
+                             (represents replication connections) that we want to evaluate.
+        """
         if TYPE_CHECKING:  # pragma: no cover
             assert self._postgresql.global_config is not None
         for pid, app_name, sync_state, replica_lsn, _ in replica_list:
