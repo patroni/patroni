@@ -158,7 +158,7 @@ class _SyncState(NamedTuple):
 
     :ivar sync_type: possible values: 'off', 'priority', 'quorum'
     :ivar numsync: how many nodes are required to be synchronous (according to ``synchronous_standby_names``).
-                   Is ``0`` in case if synchronous_standby_names value is invalid or has ``*``.
+                   Is ``0`` in case if ``synchronous_standby_names`` value is invalid or has ``*``.
     :ivar numsync_confirmed: how many nodes are known to be synchronous according to the ``pg_stat_replication``
                              view. Only nodes that caught up with the ``SyncHandler._primary_flush_lsn` are counted.
     :ivar sync: collection of synchronous node names. In case of quorum commit all nodes listed
@@ -222,21 +222,21 @@ END;$$""")
         self._postgresql.reset_cluster_info_state(None)  # Reset internal cache to query fresh values
 
     def _get_replica_list(self, cluster: Cluster) -> Iterator[Tuple[int, str, str, int, bool]]:
-        """Yields candidates based on higher replay/remote_write/flush lsn.
+        """Yields candidates based on higher replay/write/flush LSN.
 
         .. note::
-            Tuples are reverse ordered by sync_state and LSN fields so nodes that already synchronous or having
+            Tuples are reverse ordered by ``sync_state`` and LSN fields so nodes that already synchronous or having
             higher LSN values are preferred.
 
         :param cluster: current cluster topology from DCS.
 
         :yields: tuples composed of:
 
-            * pid - a PID of walsender process
-            * member name - matches with the application_name
-            * sync_state - one of ("async", "potential", "quorum", "sync")
-            * LSN - write_lsn, flush_lsn, or replica_lsn, depending on the value of ``synchronous_commit`` GUC
-            * nofailover - whether the member has ``nofailover`` tag set
+            * ``pid`` - PID of the walsender process
+            * ``member name`` - matches with the ``application_name```
+            * ``sync_state`` - one of (``async``, ``potential``, ``quorum``, ``sync``)
+            * ``LSN`` - write_lsn, flush_lsn, or replica_lsn, depending on the value of ``synchronous_commit`` GUC
+            * ``nofailover`` - whether the member has ``nofailover`` tag set
         """
 
         # What column from pg_stat_replication we want to sort on? Choose based on ``synchronous_commit`` value.
@@ -262,7 +262,7 @@ END;$$""")
                 yield (pid, member.name, sync_state, replica_lsn, bool(member.nofailover))
 
     def _process_replica_readiness(self, cluster: Cluster, replica_list: List[Tuple[int, str, str, int, bool]]) -> None:
-        """Flags replicas as truely "synchronous" when they caught up with "_primary_flush_lsn"."""
+        """Flags replicas as truly "synchronous" when they caught up with "_primary_flush_lsn"."""
         if TYPE_CHECKING:  # pragma: no cover
             assert self._postgresql.global_config is not None
         for pid, app_name, sync_state, replica_lsn, _ in replica_list:
