@@ -14,6 +14,7 @@ from .validator import recovery_parameters, transform_postgresql_parameter_value
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException
+from ..file_perm import pg_perm
 from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, validate_directory, is_subpath
 from ..validator import IntValidator
 
@@ -367,6 +368,11 @@ class ConfigHandler(object):
             configuration.append('pg_ident.conf')
         return configuration
 
+    def set_file_permissions(self, file_name: str) -> None:
+        if is_subpath(self._postgresql.data_dir, file_name):
+            pg_perm.set_permissions_from_data_directory(self._postgresql.data_dir)
+            os.chmod(file_name, pg_perm.file_create_mode)
+
     def save_configuration_files(self, check_custom_bootstrap: bool = False) -> bool:
         """
             copy postgresql.conf to postgresql.conf.backup to be able to retrieve configuration files
@@ -380,6 +386,7 @@ class ConfigHandler(object):
                     backup_file = os.path.join(self._postgresql.data_dir, f + '.backup')
                     if os.path.isfile(config_file):
                         shutil.copy(config_file, backup_file)
+                        self.set_file_permissions(backup_file)
             except IOError:
                 logger.exception('unable to create backup copies of configuration files')
         return True
@@ -393,9 +400,11 @@ class ConfigHandler(object):
                 if not os.path.isfile(config_file):
                     if os.path.isfile(backup_file):
                         shutil.copy(backup_file, config_file)
+                        self.set_file_permissions(config_file)
                     # Previously we didn't backup pg_ident.conf, if file is missing just create empty
                     elif f == 'pg_ident.conf':
                         open(config_file, 'w').close()
+                        self.set_file_permissions(config_file)
         except IOError:
             logger.exception('unable to restore configuration files from backup')
 
@@ -410,6 +419,7 @@ class ConfigHandler(object):
             configuration['hot_standby_feedback'] = 'on'
 
         with ConfigWriter(self._postgresql_conf) as f:
+            self.set_file_permissions(self._postgresql_conf)
             include = self._config.get('custom_conf') or self._postgresql_base_conf_name
             f.writeline("include '{0}'\n".format(ConfigWriter.escape(include)))
             for name, value in sorted((configuration).items()):
@@ -438,7 +448,9 @@ class ConfigHandler(object):
     def append_pg_hba(self, config: List[str]) -> bool:
         if not self.hba_file and not self._config.get('pg_hba'):
             with open(self._pg_hba_conf, 'a') as f:
+                self.set_file_permissions(self._pg_hba_conf)
                 f.write('\n{}\n'.format('\n'.join(config)))
+            self.set_file_permissions(self._pg_hba_conf)
         return True
 
     def replace_pg_hba(self) -> Optional[bool]:
@@ -459,6 +471,7 @@ class ConfigHandler(object):
                                   0, socket.SOCK_STREAM, socket.IPPROTO_TCP)})
 
             with ConfigWriter(self._pg_hba_conf) as f:
+                self.set_file_permissions(self._pg_hba_conf)
                 for address, t in addresses.items():
                     f.writeline((
                         '{0}\treplication\t{1}\t{3}\ttrust\n'
@@ -466,6 +479,7 @@ class ConfigHandler(object):
                     ).format(t, self.replication['username'], self._superuser.get('username') or 'all', address))
         elif not self.hba_file and self._config.get('pg_hba'):
             with ConfigWriter(self._pg_hba_conf) as f:
+                self.set_file_permissions(self._pg_hba_conf)
                 f.writelines(self._config['pg_hba'])
             return True
 
@@ -479,6 +493,7 @@ class ConfigHandler(object):
 
         if not self.ident_file and self._config.get('pg_ident'):
             with ConfigWriter(self._pg_ident_conf) as f:
+                self.set_file_permissions(self._pg_ident_conf)
                 f.writelines(self._config['pg_ident'])
             return True
 
@@ -800,9 +815,11 @@ class ConfigHandler(object):
         if self._postgresql.major_version >= 120000:
             if parse_bool(recovery_params.pop('standby_mode', None)):
                 open(self._standby_signal, 'w').close()
+                self.set_file_permissions(self._standby_signal)
             else:
                 self._remove_file_if_exists(self._standby_signal)
                 open(self._recovery_signal, 'w').close()
+                self.set_file_permissions(self._recovery_signal)
 
             def restart_required(name: str) -> bool:
                 if self._postgresql.major_version >= 140000:
@@ -814,7 +831,7 @@ class ConfigHandler(object):
                                                                  for n, v in recovery_params.items()})
         else:
             with ConfigWriter(self._recovery_conf) as f:
-                os.chmod(self._recovery_conf, stat.S_IWRITE | stat.S_IREAD)
+                self.set_file_permissions(self._recovery_conf)
                 self._write_recovery_params(f, recovery_params)
 
     def remove_recovery_conf(self) -> None:
@@ -843,6 +860,7 @@ class ConfigHandler(object):
         if overwrite:
             try:
                 with open(self._auto_conf, 'w') as f:
+                    self.set_file_permissions(self._auto_conf)
                     for raw_line in lines:
                         f.write(raw_line)
             except Exception:
