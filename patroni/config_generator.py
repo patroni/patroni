@@ -107,18 +107,18 @@ def enrich_config_from_running_instance(config: Dict[str, Any], no_value_msg: st
         sys.exit(f'Failed to establish PostgreSQL connection: {e}')
 
     with conn.cursor() as cur:
-        cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s AND rolsuper='t';", (su_params['username'],))
+        cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s AND rolsuper='t'", (su_params['username'],))
         if cur.rowcount < 1:
             sys.exit('The provided user does not have superuser privilege')
 
         required_params = ['hba_file', 'ident_file', 'config_file',
                            'data_directory'] + list(ConfigHandler.CMDLINE_OPTIONS.keys())
-        cur.execute("SELECT name, current_setting(name) FROM pg_settings \
-                     WHERE context <> 'internal' \
-                     AND source IN ('configuration file', 'command line', 'environment variable') \
-                     AND category <> 'Write-Ahead Log / Recovery Target' \
-                     AND setting <> '(disabled)' \
-                     OR name = ANY(%s);", (required_params,))
+        cur.execute("SELECT name, current_setting(name) FROM pg_settings "
+                    "WHERE context <> 'internal' "
+                    "AND source IN ('configuration file', 'command line', 'environment variable') "
+                    "AND category <> 'Write-Ahead Log / Recovery Target' "
+                    "AND setting <> '(disabled)' "
+                    "OR name = ANY(%s)", (required_params,))
 
         helper_dict = dict.fromkeys(['port', 'listen_addresses'])
         # adjust values
@@ -205,7 +205,7 @@ def generate_config(file: str, sample: bool, dsn: Optional[str]) -> None:
     - ``postgresql.pg_hba`` defaults or the lines gathered from the source instance's hba_file
     - ``postgresql.pg_ident`` the lines gathered from the source instance's ident_file
 
-    :param file: Full path to the configuration file to be created (/tmp/patroni.yml by default).
+    :param file: Full path to the configuration file to be used. If not provided, result is sent to stdout.
     :param sample: Optional flag. If set, no source instance will be used - generate config with some sane defaults.
     :param dsn: Optional DSN string for the local instance to get GUC values from.
     """
@@ -279,8 +279,11 @@ def generate_config(file: str, sample: bool, dsn: Optional[str]) -> None:
     # redundant values from the default config
     del config['bootstrap']['dcs']['standby_cluster']
 
-    dir_path = os.path.dirname(file)
-    if dir_path and not os.path.isdir(dir_path):
-        os.makedirs(dir_path)
-    with open(file, 'w') as fd:
-        yaml.safe_dump(config, fd, default_flow_style=False)
+    if file:
+        dir_path = os.path.dirname(file)
+        if dir_path and not os.path.isdir(dir_path):
+            os.makedirs(dir_path)
+        with open(file, 'w') as fd:
+            yaml.safe_dump(config, fd, default_flow_style=False)
+    else:
+        yaml.safe_dump(config, sys.stdout, default_flow_style=False)

@@ -176,10 +176,10 @@ def process_arguments() -> Namespace:
     args = parser.parse_args()
 
     if args.generate_sample_config:
-        generate_config(args.configfile or '/tmp/patroni.yml', True, None)
+        generate_config(args.configfile, True, None)
         sys.exit(0)
     elif args.generate_config:
-        generate_config(args.configfile or '/tmp/patroni.yml', False, args.dsn)
+        generate_config(args.configfile, False, args.dsn)
         sys.exit(0)
     elif args.validate_config:
         from patroni.validator import schema
