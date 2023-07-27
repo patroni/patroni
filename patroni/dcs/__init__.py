@@ -225,8 +225,9 @@ class Member(NamedTuple('Member',
         :param version: modification version of a given member key in a Configuration Store.
         :param name: name of PostgreSQL cluster member.
         :param session: either session id or just ttl in seconds.
-        :param value: dictionary containing arbitrary data i.e. ``conn_url``, ``api_url``, ``xlog_location``, ``state``,
-            ``role``, ``tags``, etc...
+        :param value: JSON encoded string containing arbitrary data i.e. ``conn_url``, ``api_url``, 
+                      ``xlog_location``, ``state``, ``role``, ``tags``, etc. OR a connection URL
+                      starting with ``postgres://``.
 
         :returns: an :class:`Member` instance built with the given arguments.
 
@@ -437,7 +438,7 @@ class Leader(NamedTuple):
 
     @property
     def timeline(self) -> Optional[int]:
-        """Timeline value of :attr:`~Leader.data`."""
+        """Timeline value of :attr:`~Member.data`."""
         return self.data.get('timeline')
 
     @property
@@ -460,10 +461,10 @@ class Leader(NamedTuple):
 
 
 class Failover(NamedTuple):
-    """Immutable object (namedtuple) which represents configuration information required for failover capability.
+    """Immutable object (namedtuple) which represents configuration information required for failover/switchover capability.
 
     :ivar version: version of the object.
-    :ivar leader: name of the leader.
+    :ivar leader: name of the leader. If value isn't empty we treat it as a switchover from the specified node.
     :ivar candidate: the name of the member node to be considered as a failover candidate.
     :ivar scheduled_at: in the case of a switchover the :class:`~datetime.datetime` object to perform the scheduled
         switchover.
@@ -509,7 +510,7 @@ class Failover(NamedTuple):
 
         :param version: version number for the object.
         :param value: JSON serialized data or a dictionary of configuration.
-                      Can also be a colon ``:`` delimited list of leader, followed by candidate names.
+                      Can also be a colon ``:`` delimited list of leader, followed by candidate name (legacy format).
                       If ``scheduled_at`` key is defined the value will be parsed by :func:`dateutil.parser.parse`.
 
         :returns: constructed :class:`Failover` information object
@@ -829,7 +830,7 @@ class Cluster(NamedTuple('Cluster',
         return self.leader and self.leader.name
 
     def is_unlocked(self) -> bool:
-        """Check if the cluster does not have the leader lock.
+        """Check if the cluster does not have the leader.
 
         :returns: ``True`` if a leader name is not defined.
         """
@@ -1097,7 +1098,7 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: If the recorded history is empty assume timeline is ``1``, if it is not defined or the stored history
                   is not formatted as expected ``0`` is returned and an error will be logged.
-                  Otherwise, the first number stored (indexed starting at 1) is returned.
+                  Otherwise, the last number stored incremented by 1 is returned.
 
         :Example:
 
@@ -1220,7 +1221,7 @@ class AbstractDCS(abc.ABC):
 
     @property
     def member_path(self) -> str:
-        """Get the client path for ``member``."""
+        """Get the client path for ``member`` representing this node."""
         return self.client_path(self._MEMBERS + self._name)
 
     @property
@@ -1245,7 +1246,7 @@ class AbstractDCS(abc.ABC):
 
     @property
     def leader_optime_path(self) -> str:
-        """Get the client path for ``optime``."""
+        """Get the client path for ``optime/leader`` (legacy key, superseded by ``status``)."""
         return self.client_path(self._LEADER_OPTIME)
 
     @property
@@ -1265,7 +1266,7 @@ class AbstractDCS(abc.ABC):
     @property
     @abc.abstractmethod
     def ttl(self) -> int:
-        """Get new ttl value."""
+        """Get current ``ttl`` value."""
 
     @abc.abstractmethod
     def set_retry_timeout(self, retry_timeout: int) -> None:
@@ -1301,7 +1302,7 @@ class AbstractDCS(abc.ABC):
 
     @abc.abstractmethod
     def _cluster_loader(self, path: Any) -> Cluster:
-        """Load and build the :class:`Cluster` object from DCS, which represents a single Patroni cluster.
+        """Load and build the :class:`Cluster` object from DCS, which represents a single Patroni or Citus cluster.
 
         :param path: the path in DCS where to load Cluster(s) from.
 
@@ -1314,7 +1315,7 @@ class AbstractDCS(abc.ABC):
 
         :param path: the path in DCS where to load Cluster(s) from.
 
-        :returns: all Citus groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
+        :returns: all Citus groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values or a :class:`Cluster` object representing the coordinator with filled `Cluster.workers` attribute.
         """
 
     @abc.abstractmethod
@@ -1355,12 +1356,15 @@ class AbstractDCS(abc.ABC):
     def is_citus_coordinator(self) -> bool:
         """:class:`Cluster` instance has a Citus Coordinator group ID.
 
-        :returns: ``True`` if this object's Citus group ID matches the default Citus Coordinator group ID.
+        :returns: ``True`` if the given node is running as Citus Coordinator (``group=0``).
         """
         return self._citus_group == str(CITUS_COORDINATOR_GROUP_ID)
 
     def get_citus_coordinator(self) -> Optional[Cluster]:
         """Load the cluster for the Citus Coordinator node.
+
+          .. note::
+              This method is only executed on the worker nodes (``group!=0``) to find the coordinator.
 
         :returns: Select :class:`Cluster` instance associated with the Citus Coordinator group ID.
         """
@@ -1373,7 +1377,7 @@ class AbstractDCS(abc.ABC):
     def _get_citus_cluster(self) -> Cluster:
         """Load Citus cluster from DCS.
 
-        :returns: A Citus :class:`Cluster` instance from Zookeeper cache or select matching coordinator group ID.
+        :returns: A Citus :class:`Cluster` instance for the coordinator with workers clusters in the `Cluster.workers` dict.
         """
         groups = self._load_cluster(self._base_path + '/', self._citus_cluster_loader)
         if isinstance(groups, Cluster):  # Zookeeper could return a cached version
@@ -1388,6 +1392,7 @@ class AbstractDCS(abc.ABC):
 
         .. note::
             Stores copy of time, status and failsafe values for comparison in DCS update decisions.
+            This works around the unique operational requirement of Zookeeper to make extra queries for keys.
 
             Returns either a Citus or Patroni implementation of :class:`Cluster` depending on availability.
 
@@ -1672,7 +1677,6 @@ class AbstractDCS(abc.ABC):
     def sync_state(leader: Optional[str], sync_standby: Optional[Collection[str]]) -> Dict[str, Any]:
         """Build ``sync_state`` dictionary.
 
-        The *sync_standby* key is kept for backward compatibility.
 
         :param leader: name of the leader node that manages ``/sync`` key.
         :param sync_standby: collection of currently known synchronous standby node names.
