@@ -630,6 +630,16 @@ class PatroniEtcd3Client(Etcd3Client):
 
         return ret
 
+    def txn(self, compare: Dict[str, Any], success: Dict[str, Any],
+            failure: Optional[Dict[str, Any]] = None, retry: Optional[Retry] = None) -> Dict[str, Any]:
+        ret = super(PatroniEtcd3Client, self).txn(compare, success, failure, retry)
+        # Here we abuse the fact that the `failure` is only set in the call from update_leader().
+        # In all other cases the txn() call failure may be an indicator of a stale cache,
+        # and therefore we want to restart watcher.
+        if not failure and not ret:
+            self._restart_watcher()
+        return ret
+
 
 class Etcd3(AbstractEtcd):
 

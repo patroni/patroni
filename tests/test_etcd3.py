@@ -126,9 +126,15 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         request = {'key': base64_encode('/patroni/test/leader')}
         mock_urlopen.return_value = MockResponse()
         mock_urlopen.return_value.content = '{"succeeded":true,"header":{"revision":"1"}}'
-        self.client.call_rpc('/kv/txn', {'success': [{'request_delete_range': request}]})
         self.client.call_rpc('/kv/put', request)
         self.client.call_rpc('/kv/deleterange', request)
+
+    @patch.object(urllib3.PoolManager, 'urlopen')
+    def test_txn(self, mock_urlopen):
+        mock_urlopen.return_value = MockResponse()
+        mock_urlopen.return_value.content = '{"header":{"revision":"1"}}'
+        self.client.txn({'target': 'MOD', 'mod_revision': '1'},
+                        {'request_delete_range': {'key': base64_encode('/patroni/test/leader')}})
 
     @patch('time.time', Mock(side_effect=[1, 10.9, 100]))
     def test__wait_cache(self):
