@@ -50,12 +50,10 @@ class SlotsAdvanceThread(Thread):
     """Daemon process :class:``Thread`` object for advancing logical replication slots on replicas.
 
     This ensures that slot advancing queries sent to postgres do not block the main loop and cause leader lock expiry.
-
-    :ivar daemon: Enable background long-lived process thread.
     """
 
     def __init__(self, slots_handler: 'SlotsHandler') -> None:
-        """Create a new thread for handling slot advance queries.
+        """Create and start a new thread for handling slot advance queries.
 
         :param slots_handler: The calling class instance for reference to slot information attributes.
         """
@@ -189,7 +187,7 @@ class SlotsHandler:
         self.schedule()
 
     def _query(self, sql: str, *params: Any) -> Union['cursor', 'Cursor[Any]']:
-        """Helper method for :meth:`PostgreSQL.query`.
+        """Helper method for :meth:`Postgresql.query`.
 
         :param sql: SQL statement to execute.
         :param params: parameters to pass through to :meth:`Postgresql.query`.
@@ -529,7 +527,7 @@ class SlotsHandler:
         """Create a new database connection to the leader.
 
         .. note::
-            Uses rewind user credentials.
+            Uses rewind user credentials because it has enough permissions to read files from PGDATA.
             Sets the options ``connect_timeout`` to ``3`` and ``statement_timeout`` to ``2000``.
 
         :param leader: object with information on the leader
