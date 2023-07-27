@@ -580,6 +580,7 @@ class TestRestApiHandler(unittest.TestCase):
         post = 'POST /failover HTTP/1.0' + self._authorization + '\nContent-Length: '
         MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
         MockRestApiServer(RestApiHandler, post + '37\n\n{"candidate":"2","scheduled_at": "1"}')
+        MockRestApiServer(RestApiHandler, post + '30\n\n{"leader":"1","candidate":"2"}')
 
     @patch.object(MockHa, 'is_leader', Mock(return_value=True))
     def test_do_POST_citus(self):
