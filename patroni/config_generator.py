@@ -107,7 +107,7 @@ def enrich_config_from_running_instance(config: Dict[str, Any], no_value_msg: st
         sys.exit(f'Failed to establish PostgreSQL connection: {e}')
 
     with conn.cursor() as cur:
-        cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s AND rolsuper='t'", (su_params['username'],))
+        cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s AND rolsuper", (su_params['username'],))
         if cur.rowcount < 1:
             sys.exit('The provided user does not have superuser privilege')
 
