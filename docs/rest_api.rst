@@ -393,39 +393,97 @@ The above call removes ``postgresql.parameters.max_connections`` from the dynami
 Switchover and failover endpoints
 ---------------------------------
 
-``POST /switchover`` or ``POST /failover``. These endpoints are very similar to each other. There are a couple of minor differences though:
+Failover
+^^^^^^^^
 
-1. The failover endpoint allows to perform a manual failover when there are no healthy nodes, but at the same time it will not allow you to schedule a switchover.
+``/failover`` endpoint allows to perform a manual failover when there are no healthy nodes (e.g. to an asynchronous standby if all synchronous standbys are not healthy to promote). However there is no requirement for a cluster not to have leader - failover can also be run on a healthy cluster.
 
-2. The switchover endpoint is the opposite. It works only when the cluster is healthy (there is a leader) and allows to schedule a switchover at a given time.
+In the JSON body of the ``POST`` request you must specify ``candidate`` field. If ``leader`` field is specified, switchover is triggered. 
 
-
-In the JSON body of the ``POST`` request you must specify at least the ``leader`` or ``candidate`` fields and optionally the ``scheduled_at`` field if you want to schedule a switchover at a specific time.
-
-
-Example: perform a failover to the specific node:
+**Example:**
 
 .. code-block:: bash
 
-    $ curl -s http://localhost:8009/failover -XPOST -d '{"candidate":"postgresql1"}'
-    Successfully failed over to "postgresql1"
+	$ curl -s http://localhost:8008/failover -XPOST -d '{"candidate":"postgresql1"}'
+	Successfully failed over to "postgresql1"
 
+Switchover
+^^^^^^^^^^
 
-Example: schedule a switchover from the leader to any other healthy replica in the cluster at a specific time:
+``/switchover`` endpoint only works when cluster is healthy (there is a leader). It allows to schedule a switchover at a given time.
+
+When calling ``/switchover`` endpoint candidate can be specified but is not required, in contrast to ``/failover`` endpoint. If candidate is not provided, all the healthy nodes that are allowed to failover participate in the leader race.
+
+In the JSON body of the ``POST`` request, you must specify at least the ``leader`` field and, optionally, the ``candidate`` and ``scheduled_at`` field if you want to schedule a switchover at a specific time.
+
+Depending on the situation request might finish with different HTTP status codes and bodies. Status code **200** is returned when the switchover or failover successfully completed. If the switchover was successfully scheduled, Patroni will return HTTP status code **202**. In case something went wrong, the error status code (one of **400**, **412**, or **503**) will be returned with some details in the response body.
+
+``DELETE /switchover`` can be used to delete the currently scheduled switchover.
+
+**Example:** perform a switchover to any healthy standby
 
 .. code-block:: bash
 
-    $ curl -s http://localhost:8008/switchover -XPOST -d \
-	    '{"leader":"postgresql0","scheduled_at":"2019-09-24T12:00+00"}'
-    Switchover scheduled
+	$ curl -s http://localhost:8008/switchover -XPOST -d '{"leader":"postgresql1"}'
+	Successfully switched over to "postgresql2"
 
 
-Depending on the situation the request might finish with a different HTTP status code and body. The status code **200** is returned when the switchover or failover successfully completed. If the switchover was successfully scheduled, Patroni will return HTTP status code **202**. In case something went wrong, the error status code (one of **400**, **412** or **503**) will be returned with some details in the response body. For more information please check the source code of ``patroni/api.py:do_POST_failover()`` method.
+**Example:** perform a switchover to a specific node
 
-- ``DELETE /switchover``: delete the scheduled switchover
+.. code-block:: bash
 
-The ``POST /switchover`` and ``POST failover`` endpoints are used by ``patronictl switchover`` and ``patronictl failover``, respectively.
-The ``DELETE /switchover`` is used by ``patronictl flush <cluster-name> switchover``.
+	$ curl -s http://localhost:8008/switchover -XPOST -d \
+		'{"leader":"postgresql1","candidate":"postgresql2"}'
+	Successfully switched over to "postgresql2"
+
+
+**Example:** schedule a switchover from the leader to any other healthy standby in the cluster at a specific time
+
+.. code-block:: bash
+
+	$ curl -s http://localhost:8008/switchover -XPOST -d \
+		'{"leader":"postgresql0","scheduled_at":"2019-09-24T12:00+00"}'
+	Switchover scheduled
+
+``POST /switchover`` and ``POST /failover`` endpoints are used by ``patronictl switchover`` and ``patronictl failover``, respectively.
+
+``DELETE /switchover`` is used by ``patronictl flush <cluster-name> switchover``.
+
+.. list-table::
+   :widths: 25 25 25
+   :header-rows: 1
+
+   * -
+     - Failover
+     - Switchover
+   * - Requires leader specified
+     - no
+     - yes
+   * - Requires candidate specified
+     - yes
+     - no
+   * - Can be run in pause
+     - yes
+     - yes (only to a specific candidate)
+   * - Can be scheduled
+     - no
+     - yes (if not in pause)
+
+
+Healthy standby
+^^^^^^^^^^^^^^^
+
+There are a couple of checks that a member of a cluster should pass to be able to participate in the leader race during a switchover or to become a leader as a failover/switchover candidate:
+
+- be reachable via Patroni API,
+- not to have ``nofailover`` tag,
+- have watchdog fully functional (if required by the configuration),
+- not to exceed maximum replication lag (``maximum_lag_on_failover`` :ref:`configuration parameter <dynamic_configuration>`),
+- not to have the timeline number smaller than the cluster timeline,
+- in :ref:`synchronous mode <synchronous_mode>`:
+
+  - in case of a switchover (both with and without a candidate): be listed in the ``/sync`` key members,
+  - in case of a failover, candidate will be allowed to promote even if it is not in the ``/sync`` key members (given all the other checks are passed).
 
 
 Restart endpoint
