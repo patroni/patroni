@@ -15,7 +15,7 @@ from urllib3.exceptions import ReadTimeoutError, ProtocolError
 from threading import Condition, Lock, Thread
 from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
-from . import ClusterConfig, Cluster, Failover, Leader, Member, SyncState,\
+from . import ClusterConfig, Cluster, Failover, Leader, Member, SyncState, \
     TimelineHistory, catch_return_false_exception, citus_group_re
 from .etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors, DnsCachingResolver, Retry
 from ..exceptions import DCSError, PatroniException

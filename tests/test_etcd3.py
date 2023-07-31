@@ -5,8 +5,9 @@ import urllib3
 
 from mock import Mock, PropertyMock, patch
 from patroni.dcs.etcd import DnsCachingResolver
-from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3Client, Etcd3Error, Etcd3ClientError, RetryFailedError,\
-    InvalidAuthToken, Unavailable, Unknown, UnsupportedEtcdVersion, UserEmpty, AuthFailed, base64_encode, Etcd3
+from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3, Etcd3Client, \
+    Etcd3Error, Etcd3ClientError, RetryFailedError, InvalidAuthToken, Unavailable, \
+    Unknown, UnsupportedEtcdVersion, UserEmpty, AuthFailed, base64_encode
 from threading import Thread
 
 from . import SleepException, MockResponse
@@ -241,7 +242,7 @@ class TestEtcd3(BaseTestEtcd3):
             self.etcd3.update_leader(leader, '123', failsafe={'foo': 'bar'})
         self.etcd3._last_lease_refresh = 0
         self.etcd3.update_leader(leader, '124')
-        with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(return_value=True)),\
+        with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(return_value=True)), \
                 patch('time.time', Mock(side_effect=[0, 100, 200, 300])):
             self.assertRaises(Etcd3Error, self.etcd3.update_leader, leader, '126')
         self.etcd3._lease = leader.session

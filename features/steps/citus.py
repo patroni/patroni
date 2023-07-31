@@ -125,5 +125,5 @@ def check_transaction(context, name):
 
 @step("a transaction finishes in {timeout:d} seconds")
 def check_transaction_timeout(context, timeout):
-    assert (datetime.now(tzutc) - context.xact_start).seconds > timeout,\
+    assert (datetime.now(tzutc) - context.xact_start).seconds > timeout, \
         "a transaction finished earlier than in {0} seconds".format(timeout)
