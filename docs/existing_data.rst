@@ -14,10 +14,10 @@ You can find below an overview of steps to converting an existing Postgres clust
 
 1. Perform the following steps on all Postgres nodes. Perform all steps on one node before proceeding with the next node. Start with the primary node, then proceed with each standby node:
 
-    1. If you are running Postgres through systemd, then disable Postgres systemd unit. This is performed so nothing other than Patroni will attempt to start Postgres in the future.
-    2. Create a YAML configuration file for Patroni. If you have replication slots being used for replication between cluster members, then it is recommended that you enable ``use_slots`` and configure the existing replication slots as permanent through ``slots`` configuration. Be aware that Patroni will automatically create replication slots for replication between members when ``use_slots`` is enabled, and that it will also drop replication slots that it does not recognize. The idea of using permanent slots is to allow that your existing slots are kept around while the migration to Patroni is not finished yet. See :ref:`YAML Configuration Settings <yaml_configuration>` for details.
+    1. If you are running Postgres through systemd, then disable Postgres systemd unit. This is performed as Patroni manages starting and stopping the Postgres daemon.
+    2. Create a YAML configuration file for Patroni. If you have replication slots being used for replication between cluster members, then it is recommended that you enable ``use_slots`` and configure the existing replication slots as permanent via the ``slots`` configuration item. Be aware that Patroni automatically creates replication slots for replication between members, and drops replication slots that it does not recognize, when ``use_slots`` is enabled. The idea of using permanent slots here is to allow your existing slots to persist while the migration to Patroni in progress. See :ref:`YAML Configuration Settings <yaml_configuration>` for details.
     3. Create the Postgres users as defined in the :ref:`authentication <postgresql_settings>` section of the Patroni configuration. You can find sample SQL commands to create the users in the code block below. Replace the usernames and passwords as per your configuration.
-    4. Start Patroni. It automatically detects that Postgres is already running and starts monitoring the instance.
+    4. Start Patroni using the `patroni` systemd service unit. It automatically detects that Postgres is already running and starts monitoring the instance.
 
 .. code-block:: sql
 
