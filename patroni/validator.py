@@ -785,7 +785,7 @@ class IntValidator(object):
         self.base_unit = base_unit
         self.raise_assert = raise_assert
 
-    def __call__(self, value: Union[int, str]) -> bool:
+    def __call__(self, value: Any) -> bool:
         """Check if *value* is a valid integer and within the expected range.
 
         .. note::
@@ -821,7 +821,7 @@ class EnumValidator(object):
         self.allowed_values = set(allowed_values) if case_sensitive else CaseInsensitiveSet(allowed_values)
         self.raise_assert = raise_assert
 
-    def __call__(self, value: str) -> bool:
+    def __call__(self, value: Any) -> bool:
         """Check if provided *value* could be found within *allowed_values*.
 
         .. note::
@@ -829,7 +829,7 @@ class EnumValidator(object):
         :param value: value to be checked.
         :returns: ``True`` if *value* could be found within *allowed_values*.
         """
-        ret = value in self.allowed_values
+        ret = isinstance(value, str) and value in self.allowed_values
 
         if self.raise_assert:
             assert_(ret)

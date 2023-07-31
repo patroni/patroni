@@ -329,9 +329,19 @@ class Config(object):
 
     @staticmethod
     def _process_postgresql_parameters(parameters: Dict[str, Any], is_local: bool = False) -> Dict[str, Any]:
-        return {name: value for name, value in (parameters or {}).items()
-                if name not in ConfigHandler.CMDLINE_OPTIONS
-                or not is_local and ConfigHandler.CMDLINE_OPTIONS[name][1](value)}
+        pg_params: Dict[str, Any] = {}
+
+        for name, value in (parameters or {}).items():
+            if name not in ConfigHandler.CMDLINE_OPTIONS:
+                pg_params[name] = value
+            elif not is_local:
+                if ConfigHandler.CMDLINE_OPTIONS[name][1](value):
+                    pg_params[name] = value
+                else:
+                    logging.warning("postgresql parameter %s=%s failed validation, defaulting to %s",
+                                    name, value, ConfigHandler.CMDLINE_OPTIONS[name][0])
+
+        return pg_params
 
     def _safe_copy_dynamic_configuration(self, dynamic_configuration: Dict[str, Any]) -> Dict[str, Any]:
         config = deepcopy(self.__DEFAULT_CONFIG)
