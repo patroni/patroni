@@ -194,7 +194,7 @@ class _ReplicaList(List[_Replica]):
         super().__init__()
 
         # We want to prioritize candidates based on `write_lsn``, ``flush_lsn``, or ``replay_lsn``.
-        # Which exactly column to pick depends on the values of ``synchronous_commit`` GUC.
+        # Which column exactly to pick depends on the values of ``synchronous_commit`` GUC.
         sort_col = {
             'remote_apply': 'replay',
             'remote_write': 'write'
@@ -274,7 +274,7 @@ END;$$""")
         :param replica_list: collection of replicas that we want to evaluate.
         """
         for replica in replica_list:
-            # if standby name is listed in the /sync key we can count it as synchronous, otherwice
+            # if standby name is listed in the /sync key we can count it as synchronous, otherwise
             # it becomes really synchronous when sync_state = 'sync' and it is known that it managed to catch up
             if replica.application_name not in self._ready_replicas\
                     and replica.application_name in self._ssn_data.members\
