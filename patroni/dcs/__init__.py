@@ -846,11 +846,13 @@ class Cluster(NamedTuple('Cluster',
            >>> cluster = Cluster.empty()
            >>> len(cluster)
            0
+
            >>> assert bool(cluster) is False
 
-           >>> cluster = Cluster(None, None, None, 0, [1, 2, 3], None, SyncState.empty(), None, None, None)
+           >>> cluster = Cluster(None, None, None, 0, [1, 2, 3], None, SyncState.empty(), None, None, None, {})
            >>> len(cluster)
            1
+
            >>> assert bool(cluster) is True
 
            This makes it easier to write ``if cluster`` rather than the longer statement.
@@ -1137,19 +1139,19 @@ class Cluster(NamedTuple('Cluster',
         :Example:
 
             No history provided:
-            >>> Cluster(0, 0, 0, 0, 0, 0, 0, 0, 0, None).timeline
+            >>> Cluster(0, 0, 0, 0, 0, 0, 0, 0, 0, None, {}).timeline
             0
 
             Empty history assume timeline is ``1``:
-            >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[]'), 0, None).timeline
+            >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[]'), 0, None, {}).timeline
             1
 
             Invalid history format, a string of ``a``, returns ``0``:
-            >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["a"]]'), 0, None).timeline
+            >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["a"]]'), 0, None, {}).timeline
             0
 
             History as a list of strings:
-            >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["3", "2", "1"]]'), 0, None).timeline
+            >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["3", "2", "1"]]'), 0, None, {}).timeline
             4
         """
         if self.history:
