@@ -21,7 +21,7 @@ def start_duplicate_patroni(context, name, port):
         context.pctl.start('dup-' + name, custom_config=config)
         assert False, "Process was expected to fail"
     except AssertionError as e:
-        assert 'is not running after being started' in str(e),\
+        assert 'is not running after being started' in str(e), \
             "No error was raised by duplicate start of {0} ".format(name)
 
 
@@ -88,14 +88,14 @@ def table_is_present_on(context, table_name, pg_name, max_replication_delay):
             break
         sleep(1)
     else:
-        assert False,\
+        assert False, \
             "Table {0} is not present on {1} after {2} seconds".format(table_name, pg_name, max_replication_delay)
 
 
 @then('{pg_name:w} role is the {pg_role:w} after {max_promotion_timeout:d} seconds')
 def check_role(context, pg_name, pg_role, max_promotion_timeout):
     max_promotion_timeout *= context.timeout_multiplier
-    assert context.pctl.check_role_has_changed_to(pg_name, pg_role, timeout=int(max_promotion_timeout)),\
+    assert context.pctl.check_role_has_changed_to(pg_name, pg_role, timeout=int(max_promotion_timeout)), \
         "{0} role didn't change to {1} after {2} seconds".format(pg_name, pg_role, max_promotion_timeout)
 
 
@@ -111,5 +111,5 @@ def replication_works(context, primary, replica, time_limit):
 @then('there is a "{message}" {level:w} in the {node} patroni log')
 def check_patroni_log(context, message, level, node):
     messsages_of_level = context.pctl.read_patroni_log(node, level)
-    assert any(message in line for line in messsages_of_level),\
+    assert any(message in line for line in messsages_of_level), \
         "There was no {0} {1} in the {2} patroni log".format(message, level, node)

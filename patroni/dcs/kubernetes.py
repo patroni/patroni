@@ -19,10 +19,10 @@ from urllib3.exceptions import HTTPError
 from threading import Condition, Lock, Thread
 from typing import Any, Callable, Collection, Dict, List, Optional, Tuple, Type, Union, TYPE_CHECKING
 
-from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState,\
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState, \
     TimelineHistory, CITUS_COORDINATOR_GROUP_ID, citus_group_re
 from ..exceptions import DCSError
-from ..utils import deep_compare, iter_response_objects, keepalive_socket_options,\
+from ..utils import deep_compare, iter_response_objects, keepalive_socket_options, \
     Retry, RetryFailedError, tzutc, uri, USER_AGENT
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config

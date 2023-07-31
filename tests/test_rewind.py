@@ -65,14 +65,14 @@ class TestRewind(BaseTestPostgresql):
 
     def test_pg_rewind(self):
         r = {'user': '', 'host': '', 'port': '', 'database': '', 'password': ''}
-        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=150000)),\
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=150000)), \
                 patch.object(CancellableSubprocess, 'call', Mock(return_value=None)):
             with patch('subprocess.check_output', Mock(return_value=b'boo')):
                 self.assertFalse(self.r.pg_rewind(r))
             with patch('subprocess.check_output', Mock(side_effect=Exception)):
                 self.assertFalse(self.r.pg_rewind(r))
 
-        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000)),\
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000)), \
                 patch('subprocess.check_output', Mock(return_value=b'foo %f %p %r %% % %')):
             with patch.object(CancellableSubprocess, 'call', mock_cancellable_call):
                 self.assertFalse(self.r.pg_rewind(r))
@@ -91,7 +91,7 @@ class TestRewind(BaseTestPostgresql):
                                              'Latest checkpoint location': '0/'})):
             self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
 
-        with patch.object(Postgresql, 'is_running', Mock(return_value=True)),\
+        with patch.object(Postgresql, 'is_running', Mock(return_value=True)), \
                 patch.object(MockCursor, 'fetchone',
                              Mock(side_effect=[(0, 0, 1, 1, 0, 0, 0, 0, 0, None, None, None), Exception])):
             self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
