@@ -225,9 +225,9 @@ END;$$""")
         """Yields candidates based on higher replay/write/flush LSN.
 
         .. note::
-            Tuples are reverse ordered by ``sync_state`` and LSN fields so nodes that already synchronous or having
-            higher LSN values are preferred. Replicas that are streaming, but don't have ``running`` ``state``
-            or tagged with ``nofailover`` tag in DCS are skipped.
+            Tuples are ordered by ``sync_state`` and LSN fields in reverse, so nodes that are already synchronous or
+            have higher LSN values are preferred. Replicas that are streaming, but don't have a ``running`` ``state``
+            or are tagged with ``nofailover`` tag in DCS, are skipped.
 
         :param cluster: current cluster topology from DCS.
 
@@ -236,7 +236,8 @@ END;$$""")
             * ``pid`` - PID of the walsender process
             * ``member name`` - matches with the ``application_name```
             * ``sync_state`` - one of (``async``, ``potential``, ``quorum``, ``sync``)
-            * ``LSN`` - write_lsn, flush_lsn, or replica_lsn, depending on the value of ``synchronous_commit`` GUC
+            * ``LSN`` - ``write_lsn``, ``flush_lsn``, or ``replica_lsn``, depending on the value of 
+              ``synchronous_commit`` GUC
             * ``nofailover`` - whether the member has ``nofailover`` tag set
         """
 
@@ -260,10 +261,10 @@ END;$$""")
         for pid, app_name, sync_state, replica_lsn in sorted(pg_stat_replication, key=lambda r: r[2:4], reverse=True):
             member = members.get(app_name)
             if member and member.is_running and not member.tags.get('nosync', False):
-                yield (pid, member.name, sync_state, replica_lsn, bool(member.nofailover))
+                yield pid, member.name, sync_state, replica_lsn, bool(member.nofailover)
 
     def _process_replica_readiness(self, cluster: Cluster, replica_list: List[Tuple[int, str, str, int, bool]]) -> None:
-        """Flags replicas as truly "synchronous" when they caught up with "_primary_flush_lsn".
+        """Flags replicas as truly "synchronous" when they have caught up with "_primary_flush_lsn".
 
         :param cluster: current cluster topology from DCS
         :param replica_list: the list of tuples returned from :func:``_get_replica_list`` method
@@ -293,12 +294,12 @@ END;$$""")
 
         Standbys are selected based on values from the global configuration:
 
-            - `maximum_lag_on_syncnode`: would help swapping unhealthy sync replica in case if it stops
-              responding (or hung). Please set the value high enough so it won't unncessarily swap sync
-              standbys during high loads. Any value less or equal of 0 keeps the behavior backward compatible.
-              Please note that it will not also swap sync standbys in case where all replicas are hung.
+            - `maximum_lag_on_syncnode`: would help swapping unhealthy sync replica in case it stops
+              responding (or hung). Please set the value high enough, so it won't unnecessarily swap sync
+              standbys during high loads. Any value less or equal to 0 keeps the behavior backwards compatible.
+              Please note that it will also not swap sync standbys when all replicas are hung.
 
-            - `synchronous_node_count`: controlls how many nodes should be set as synchronous.
+            - `synchronous_node_count`: controls how many nodes should be set as synchronous.
 
         :param cluster: current cluster topology from DCS
 
@@ -379,7 +380,7 @@ END;$$""")
                 self._postgresql.supports_multiple_sync and len(sync) > 1:
             prefix = 'ANY ' if self._postgresql.global_config.is_quorum_commit_mode\
                 and self._postgresql.supports_quorum_commit else ''
-            sync_param = '{0}{1} ({2})'.format(prefix, num, sync_param)
+            sync_param = f'{prefix}{num} ({sync_param})'
 
         if not (self._postgresql.config.set_synchronous_standby_names(sync_param)
                 and self._postgresql.state == 'running' and self._postgresql.is_leader()) or has_asterisk:

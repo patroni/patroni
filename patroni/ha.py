@@ -766,9 +766,9 @@ class Ha(object):
     def process_sync_replication_prepromote(self) -> bool:
         """Handle sync replication state before promote.
 
-        If quorum replication is requested and we can keep syncing to enough nodes satisfying the quorum invariant
+        If quorum replication is requested, and we can keep syncing to enough nodes satisfying the quorum invariant
         we can promote immediately and let normal quorum resolver process handle any membership changes later.
-        Otherwise we will just reset DCS state to ourselves and add replicas as they connect.
+        Otherwise, we will just reset DCS state to ourselves and add replicas as they connect.
 
         :returns: `True` if on success or `False` if failed to update /sync key in DCS.
         """

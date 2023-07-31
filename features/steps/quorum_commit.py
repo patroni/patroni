@@ -46,6 +46,7 @@ def check_synchronous_standby_names(context, name, value, time_limit):
 
     expected_num, expected_value = _parse_synchronous_standby_names(value)
 
+    ssn = None
     while time.time() < max_time:
         try:
             ssn = context.pctl.query(name, "SHOW synchronous_standby_names").fetchone()[0]
