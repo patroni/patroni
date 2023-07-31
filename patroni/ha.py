@@ -1002,8 +1002,8 @@ class Ha(object):
 
             # We want to protect from the following scenario:
             # 1. node1 is stressed so much that heart-beat isn't running regularly and the leader lock expires.
-            # 2. node2 promotes, get a lot of load and situation described in 1 repeats.
-            # 3. Patroni on node1 comes back, notice that Postgres is running as primary but there is
+            # 2. node2 promotes, gets heavy load and the situation described in 1 repeats.
+            # 3. Patroni on node1 comes back, notices that Postgres is running as primary but there is
             #    no leader key and "happily" acquires the leader lock.
             # That is, node1 discarded promotion of node2. To avoid it we want to detect timeline change.
             my_timeline = self.state_handler.get_primary_timeline()
