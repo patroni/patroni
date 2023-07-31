@@ -1205,13 +1205,10 @@ class Ha(object):
                 if not failover.candidate and self.is_paused():
                     logger.warning('%s is possible only to a specific candidate in a paused state', action.title())
                 else:
-                    if self.is_synchronous_mode():
-                        members = self.get_failover_candidates()
-                        if failover.candidate and not members:
-                            logger.warning('%s candidate=%s does not match with sync_standbys=%s',
-                                           action.title(), failover.candidate, self.cluster.sync.sync_standby)
-                    else:
-                        members = self.get_failover_candidates(check_sync=False)
+                    members = self.get_failover_candidates(check_sync=self.is_synchronous_mode())
+                    if failover.candidate and not members:
+                        logger.warning('%s candidate=%s does not match with sync_standbys=%s',
+                                       action.title(), failover.candidate, self.cluster.sync.sync_standby)
                     if self.is_failover_possible(members):  # check that there are healthy members
                         ret = self._async_executor.try_run_async(f'manual {action}: demote', self.demote, ('graceful',))
                         return ret or f'manual {action}: demoting myself'
@@ -1940,7 +1937,7 @@ class Ha(object):
         :param check_sync: if ``True``, also check against the sync key members
 
         :returns: a list of ``Member`` ojects or an empty list if there is no candidate available.
-                  Never includes the current node, as its checks always performed earlier.
+                  Never includes the current node, as its checks are always performed earlier.
         """
         failover = self.cluster.failover
         if check_sync and self.is_synchronous_mode() and not self.cluster.sync.is_empty:
@@ -1951,8 +1948,8 @@ class Ha(object):
             else:
                 # the candidate if is in /sync members for a candidate failover, every /sync member otherwise
                 return [m for m in self.cluster.members if self.cluster.sync.matches(m.name)
-                        and (not failover or not failover.candidate or m.name == failover.candidate
-                        and m.name != self.state_handler.name)]
+                        and (not failover or not failover.candidate or m.name == failover.candidate)
+                        and m.name != self.state_handler.name]
         # the candidate for a candidate failover, every cluster member otherwise
         return [m for m in self.cluster.members
                 if (not failover or not failover.candidate or m.name == failover.candidate)

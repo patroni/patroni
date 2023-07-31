@@ -1383,8 +1383,7 @@ def switchover(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
     :param force: perform the switchover without asking for confirmations.
     :param scheduled: timestamp when the switchover should be scheduled to occur. If ``now`` perform immediately.
     """
-    _do_failover_or_switchover(obj, 'switchover', cluster_name, group, candidate, force,
-                               leader=leader, scheduled=scheduled)
+    _do_failover_or_switchover(obj, 'switchover', cluster_name, group, candidate, force, leader, scheduled)
 
 
 def generate_topology(level: int, member: Dict[str, Any],
