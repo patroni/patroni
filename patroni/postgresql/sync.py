@@ -3,7 +3,7 @@ import re
 import time
 
 from copy import deepcopy
-from typing import Collection, Iterator, List, NamedTuple, Optional, Tuple, TYPE_CHECKING
+from typing import Collection, List, NamedTuple, Optional, TYPE_CHECKING
 
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Cluster
@@ -173,6 +173,74 @@ class _SyncState(NamedTuple):
     active: CaseInsensitiveSet
 
 
+class _Replica(NamedTuple):
+    """Class representing a single replica that is eligible to be synchronous.
+
+    Attributes are taken from ``pg_stat_replication`` view and respective ``Cluster.members``.
+
+    :ivar pid: PID of walsender process.
+    :ivar application_name: matches with the ``Member.name``.
+    :ivar sync_state: possible values are: ``async``, ``potential``, ``quorum``, and ``sync``.
+    :ivar lsn: ``write_lsn``, ``flush_lsn``, or ``replay_lsn``, depending on the value of ``synchronous_commit`` GUC.
+    :ivar nofailover: whether the corresponding member has ``nofailover`` tag set to ``True``.
+    """
+    pid: int
+    application_name: str
+    sync_state: str
+    lsn: int
+    nofailover: bool
+
+
+class _ReplicaList(List[_Replica]):
+    """A collection of :class:``_Replica`` objects.
+
+    Values are reverse ordered by ``_Replica.sync_state`` and ``_Replica.lsn``.
+    That is, first there will be replicas that have ``sync_state`` == ``sync``, even if they are not
+    the most up-to-date in term of write/flush/replay LSN. It helps to keep the result of chosing new
+    synchronous nodes consistent in case if a synchronous standby member is slowed down OR async node
+    is receiving changes faster than the sync member. Such cases would trigger sync standby member
+    swapping, but only if lag on this member is exceeding a threshold (``maximum_lag_on_syncnode``).
+
+    :ivar max_lsn: maximum value of ``_Replica.lsn`` among all values. In case if there is just one
+                   element in the list we take value of ``pg_current_wal_lsn()``.
+    """
+
+    def __init__(self, postgresql: 'Postgresql', cluster: Cluster) -> None:
+        """Create :class:``_ReplicaList`` object.
+
+        :param postgresql: reference to :class:``Postgresql`` object.
+        :param cluster: currently known cluster state from DCS.
+        """
+        super().__init__()
+
+        # We want to prioritize candidates based on `write_lsn``, ``flush_lsn``, or ``replay_lsn``.
+        # Which column exactly to pick depends on the values of ``synchronous_commit`` GUC.
+        sort_col = {
+            'remote_apply': 'replay',
+            'remote_write': 'write'
+        }.get(postgresql.synchronous_commit(), 'flush') + '_lsn'
+
+        members = CaseInsensitiveDict({m.name: m for m in cluster.members})
+        for row in postgresql.pg_stat_replication():
+            member = members.get(row['application_name'])
+
+            # We want to consider only rows from ``pg_stat_replication` that:
+            # 1. are known to be streaming (write/flush/replay LSN are not NULL).
+            # 2. can be mapped to a ``Member`` of the ``Cluster``:
+            #   a. ``Member`` doesn't have ``nosync`` tag set;
+            #   b. PostgreSQL on the member is known to be running and accepting client connections.
+            if member and row[sort_col] is not None and member.is_running and not member.tags.get('nosync', False):
+                self.append(_Replica(row['pid'], row['application_name'],
+                                     row['sync_state'], row[sort_col], bool(member.nofailover)))
+
+        # Prefer replicas that are in state ``sync`` and with higher values of ``write``/``flush``/``replay`` LSN.
+        self.sort(key=lambda r: (r.nofailover, r.sync_state, r.lsn), reverse=True)
+
+        # When checking *maximum_lag_on_syncnode* we want to compare with the most
+        # up-to-date replica or with cluster LSN if there is only one replica.
+        self.max_lsn = max(self, key=lambda x: x.lsn).lsn if len(self) > 1 else postgresql.last_operation()
+
+
 class SyncHandler(object):
     """Class responsible for working with the `synchronous_standby_names`.
 
@@ -221,70 +289,32 @@ BEGIN
 END;$$""")
         self._postgresql.reset_cluster_info_state(None)  # Reset internal cache to query fresh values
 
-    def _get_replica_list(self, cluster: Cluster) -> Iterator[Tuple[int, str, str, int, bool]]:
-        """Yields candidates based on higher replay/write/flush LSN.
-
-        .. note::
-            Tuples are ordered by ``sync_state`` and LSN fields in reverse, so nodes that are already synchronous or
-            have higher LSN values are preferred. Replicas that are streaming, but don't have a ``running`` ``state``
-            or are tagged with ``nofailover`` tag in DCS, are skipped.
-
-        :param cluster: current cluster topology from DCS.
-
-        :yields: tuples composed of:
-
-            * ``pid`` - PID of the walsender process
-            * ``member name`` - matches with the ``application_name```
-            * ``sync_state`` - one of (``async``, ``potential``, ``quorum``, ``sync``)
-            * ``LSN`` - ``write_lsn``, ``flush_lsn``, or ``replica_lsn``, depending on the value of
-              ``synchronous_commit`` GUC
-            * ``nofailover`` - whether the member has ``nofailover`` tag set
-        """
-
-        # What column from pg_stat_replication we want to sort on? Choose based on ``synchronous_commit`` value.
-        sort_col = {
-            'remote_apply': 'replay',
-            'remote_write': 'write'
-        }.get(self._postgresql.synchronous_commit(), 'flush') + '_lsn'
-        pg_stat_replication = [(r['pid'], r['application_name'], r['sync_state'], r[sort_col])
-                               for r in self._postgresql.pg_stat_replication()
-                               if r[sort_col] is not None]
-
-        members = CaseInsensitiveDict({m.name: m for m in cluster.members})
-
-        # pg_stat_replication.sync_state has 4 possible states - async, potential, quorum, sync.
-        # That is, alphabetically they are in the reversed order of priority.
-        # Since we are doing reversed sort on (sync_state, lsn) tuples, it helps to keep the result
-        # consistent in case if a synchronous standby member is slowed down OR async node receiving
-        # changes faster than the sync member (very rare but possible).
-        # Such cases would trigger sync standby member swapping, but only if lag on a sync node exceeding a threshold.
-        for pid, app_name, sync_state, replica_lsn in sorted(pg_stat_replication, key=lambda r: r[2:4], reverse=True):
-            member = members.get(app_name)
-            if member and member.is_running and not member.tags.get('nosync', False):
-                yield pid, member.name, sync_state, replica_lsn, bool(member.nofailover)
-
-    def _process_replica_readiness(self, cluster: Cluster, replica_list: List[Tuple[int, str, str, int, bool]]) -> None:
-        """Flags replicas as truly "synchronous" when they have caught up with "_primary_flush_lsn".
+    def _process_replica_readiness(self, cluster: Cluster, replica_list: _ReplicaList) -> None:
+        """Flags replicas as truly "synchronous" when they have caught up with ``_primary_flush_lsn``.
 
         :param cluster: current cluster topology from DCS
-        :param replica_list: the list of tuples returned from :func:``_get_replica_list`` method
-                             (represents replication connections) that we want to evaluate.
+        :param replica_list: collection of replicas that we want to evaluate.
         """
         if TYPE_CHECKING:  # pragma: no cover
             assert self._postgresql.global_config is not None
-        for pid, app_name, sync_state, replica_lsn, _ in replica_list:
-            if app_name not in self._ready_replicas and app_name in self._ssn_data.members:
+        for replica in replica_list:
+            # if standby name is listed in the /sync key we can count it as synchronous, otherwise
+            # it becomes really synchronous when sync_state = 'sync' and it is known that it managed to catch up
+            if replica.application_name not in self._ready_replicas\
+                    and replica.application_name in self._ssn_data.members:
                 if self._postgresql.global_config.is_quorum_commit_mode:
                     # When quorum commit is enabled we can't check against cluster.sync because nodes
                     # are written there when at least one of them caught up with _primary_flush_lsn.
-                    if replica_lsn >= self._primary_flush_lsn\
-                            and (sync_state == 'quorum' or (not self._postgresql.supports_quorum_commit
-                                                            and sync_state in ('sync', 'potential'))):
-                        self._ready_replicas[app_name] = pid
-                elif cluster.sync.matches(app_name) or sync_state == 'sync' and replica_lsn >= self._primary_flush_lsn:
+                    if replica.lsn >= self._primary_flush_lsn\
+                            and (replica.sync_state == 'quorum'
+                                 or (not self._postgresql.supports_quorum_commit
+                                     and replica.sync_state in ('sync', 'potential'))):
+                        self._ready_replicas[replica.application_name] = replica.pid
+                elif cluster.sync.matches(replica.application_name)\
+                        or replica.sync_state == 'sync' and replica.lsn >= self._primary_flush_lsn:
                     # if standby name is listed in the /sync key we can count it as synchronous, otherwise it becomes
                     # "really" synchronous when sync_state = 'sync' and we known that it managed to catch up
-                    self._ready_replicas[app_name] = pid
+                    self._ready_replicas[replica.application_name] = replica.pid
 
     def current_state(self, cluster: Cluster) -> _SyncState:
         """Finds best candidates to be the synchronous standbys.
@@ -307,7 +337,7 @@ END;$$""")
         """
         self._handle_synchronous_standby_names_change()
 
-        replica_list = list(self._get_replica_list(cluster))
+        replica_list = _ReplicaList(self._postgresql, cluster)
         self._process_replica_readiness(cluster, replica_list)
 
         active = CaseInsensitiveSet()
@@ -320,24 +350,19 @@ END;$$""")
             if self._postgresql.supports_multiple_sync else 1
         sync_node_maxlag = self._postgresql.global_config.maximum_lag_on_syncnode
 
-        # When checking *maximum_lag_on_syncnode* we want to compare with the most
-        # up-to-date replica or with cluster LSN if there is only one replica.
-        max_lsn = max(replica_list, key=lambda x: x[3])[3]\
-            if len(replica_list) > 1 else self._postgresql.last_operation()
-
         # Prefer members without nofailover tag. We are relying on the fact that sorts are guaranteed to be stable.
-        for _, app_name, sync_state, replica_lsn, nofailover in sorted(replica_list, key=lambda x: x[4]):
-            if sync_node_maxlag <= 0 or max_lsn - replica_lsn <= sync_node_maxlag:
+        for replica in sorted(replica_list, key=lambda x: x.nofailover):
+            if sync_node_maxlag <= 0 or replica_list.max_lsn - replica.lsn <= sync_node_maxlag:
                 if self._postgresql.global_config.is_quorum_commit_mode:
                     # add nodes with nofailover tag only to get enough "active" nodes
-                    if not nofailover or len(active) < sync_node_count:
-                        if app_name in self._ready_replicas:
+                    if not replica.nofailover or len(active) < sync_node_count:
+                        if replica.application_name in self._ready_replicas:
                             numsync_confirmed += 1
-                        active.add(app_name)
+                        active.add(replica.application_name)
                 else:
-                    active.add(app_name)
-                    if sync_state == 'sync' and app_name in self._ready_replicas:
-                        sync_nodes.add(app_name)
+                    active.add(replica.application_name)
+                    if replica.sync_state == 'sync' and replica.application_name in self._ready_replicas:
+                        sync_nodes.add(replica.application_name)
                         numsync_confirmed += 1
                     if len(active) >= sync_node_count:
                         break

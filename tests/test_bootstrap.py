@@ -155,9 +155,9 @@ class TestBootstrap(BaseTestPostgresql):
 
         config = {'users': {'replicator': {'password': 'rep-pass', 'options': ['replication']}}}
 
-        with patch.object(Postgresql, 'is_running', Mock(return_value=False)),\
-                patch.object(Postgresql, 'get_major_version', Mock(return_value=140000)),\
-                patch('multiprocessing.Process', Mock(side_effect=Exception)),\
+        with patch.object(Postgresql, 'is_running', Mock(return_value=False)), \
+                patch.object(Postgresql, 'get_major_version', Mock(return_value=140000)), \
+                patch('multiprocessing.Process', Mock(side_effect=Exception)), \
                 patch('multiprocessing.get_context', Mock(side_effect=Exception), create=True):
             self.assertRaises(Exception, self.b.bootstrap, config)
         with open(os.path.join(self.p.data_dir, 'pg_hba.conf')) as f:
@@ -185,12 +185,12 @@ class TestBootstrap(BaseTestPostgresql):
         self.assertFalse(self.b.bootstrap(config))
 
         mock_cancellable_subprocess_call.return_value = 0
-        with patch('multiprocessing.Process', Mock(side_effect=Exception("42"))),\
-                patch('multiprocessing.get_context', Mock(side_effect=Exception("42")), create=True),\
-                patch('os.path.isfile', Mock(return_value=True)),\
-                patch('os.unlink', Mock()),\
-                patch.object(ConfigHandler, 'save_configuration_files', Mock()),\
-                patch.object(ConfigHandler, 'restore_configuration_files', Mock()),\
+        with patch('multiprocessing.Process', Mock(side_effect=Exception("42"))), \
+                patch('multiprocessing.get_context', Mock(side_effect=Exception("42")), create=True), \
+                patch('os.path.isfile', Mock(return_value=True)), \
+                patch('os.unlink', Mock()), \
+                patch.object(ConfigHandler, 'save_configuration_files', Mock()), \
+                patch.object(ConfigHandler, 'restore_configuration_files', Mock()), \
                 patch.object(ConfigHandler, 'write_recovery_conf', Mock()):
             with self.assertRaises(Exception) as e:
                 self.b.bootstrap(config)

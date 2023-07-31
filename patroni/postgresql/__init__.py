@@ -1130,8 +1130,8 @@ class Postgresql(object):
         except Exception as e:
             logger.error('Exception when calling `%s`: %r', cmd, e)
 
-    def promote(self, wait_seconds: int, task: CriticalTask, before_promote: Optional[Callable[..., Any]] = None,
-                on_success: Optional[Callable[..., Any]] = None) -> Optional[bool]:
+    def promote(self, wait_seconds: int, task: CriticalTask,
+                before_promote: Optional[Callable[..., Any]] = None) -> Optional[bool]:
         if self.role in ('promoted', 'master', 'primary'):
             return True
 
@@ -1157,8 +1157,6 @@ class Postgresql(object):
         ret = self.pg_ctl('promote', '-W')
         if ret:
             self.set_role('promoted')
-            if on_success is not None:
-                on_success()
             self.call_nowait(CallbackAction.ON_ROLE_CHANGE)
             ret = self._wait_promote(wait_seconds)
         return ret
