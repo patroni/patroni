@@ -236,7 +236,7 @@ END;$$""")
             * ``pid`` - PID of the walsender process
             * ``member name`` - matches with the ``application_name```
             * ``sync_state`` - one of (``async``, ``potential``, ``quorum``, ``sync``)
-            * ``LSN`` - ``write_lsn``, ``flush_lsn``, or ``replica_lsn``, depending on the value of 
+            * ``LSN`` - ``write_lsn``, ``flush_lsn``, or ``replica_lsn``, depending on the value of
               ``synchronous_commit`` GUC
             * ``nofailover`` - whether the member has ``nofailover`` tag set
         """
