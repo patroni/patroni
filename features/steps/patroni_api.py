@@ -98,7 +98,7 @@ def do_run(context, cmd):
 @then('I receive a response {component:w} {data}')
 def check_response(context, component, data):
     if component == 'code':
-        assert context.status_code == int(data),\
+        assert context.status_code == int(data), \
             "status code {0} != {1}, response: {2}".format(context.status_code, data, context.response)
     elif component == 'returncode':
         assert context.status_code == int(data), "return code {0} != {1}, {2}".format(context.status_code,
@@ -158,7 +158,7 @@ def check_http_response(context, url, value, timeout, negate=False):
             break
         time.sleep(1)
     else:
-        assert False,\
+        assert False, \
             "Value {0} is {1} present in response after {2} seconds".format(value, "not" if not negate else "", timeout)
 
 
