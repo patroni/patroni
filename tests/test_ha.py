@@ -375,6 +375,12 @@ class TestHa(PostgresInit):
     def test_acquire_lock_as_primary(self):
         self.assertEqual(self.ha.run_cycle(), 'acquired session lock as a leader')
 
+    def test_leader_race_stale_primary(self):
+        with patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=1)), \
+                patch('patroni.ha.logger.warning') as mock_logger:
+            self.assertEqual(self.ha.run_cycle(), 'demoting self because i am not the healthiest node')
+            self.assertEqual(mock_logger.call_args[0][0], 'My timeline %s is behind last known cluster timeline %s')
+
     def test_promoted_by_acquiring_lock(self):
         self.ha.is_healthiest_node = true
         self.p.is_leader = false

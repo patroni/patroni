@@ -996,9 +996,22 @@ class Ha(object):
                 return ret
 
         if self.state_handler.is_leader():
-            # in pause leader is the healthiest only when no initialize or sysid matches with initialize!
-            return not self.is_paused() or not self.cluster.initialize\
-                or self.state_handler.sysid == self.cluster.initialize
+            if self.is_paused():
+                # in pause leader is the healthiest only when no initialize or sysid matches with initialize!
+                return not self.cluster.initialize or self.state_handler.sysid == self.cluster.initialize
+
+            # We want to protect from the following scenario:
+            # 1. node1 is stressed so much that heart-beat isn't running regularly and the leader lock expires.
+            # 2. node2 promotes, gets heavy load and the situation described in 1 repeats.
+            # 3. Patroni on node1 comes back, notices that Postgres is running as primary but there is
+            #    no leader key and "happily" acquires the leader lock.
+            # That is, node1 discarded promotion of node2. To avoid it we want to detect timeline change.
+            my_timeline = self.state_handler.get_primary_timeline()
+            if my_timeline < self.cluster.timeline:
+                logger.warning('My timeline %s is behind last known cluster timeline %s',
+                               my_timeline, self.cluster.timeline)
+                return False
+            return True
 
         if self.is_paused():
             return False
