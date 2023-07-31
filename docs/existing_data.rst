@@ -10,18 +10,36 @@ To deploy a Patroni cluster without using a pre-existing PostgreSQL instance, se
 Procedure
 ---------
 
-A Patroni cluster can be started with a data directory from a single-node PostgreSQL database. This is achieved by following closely these steps:
+You can find below an overview of steps to converting an existing Postgres cluster to a Patroni managed cluster. In the steps we assume all nodes that are part of the existing cluster are currently up and running. The steps:
 
-1. Manually start PostgreSQL daemon
-2. Create Patroni superuser and replication users as defined in the :ref:`authentication <postgresql_settings>` section of the Patroni configuration. If this user is created in SQL, the following queries achieve this:
+1. Perform the following steps on all Postgres nodes. Perform all steps on one node before proceeding with the next node. Start with the primary node, then proceed with each standby node:
+
+    1. If you are running Postgres through systemd, then disable Postgres systemd unit. This is performed so nothing other than Patroni will attempt to start Postgres in the future.
+    2. Create a YAML configuration file for Patroni. If you have replication slots being used for replication between cluster members, then it is recommended that you enable ``use_slots`` and configure the existing replication slots as permanent through ``slots`` configuration. Be aware that Patroni will automatically create replication slots for replication between members when ``use_slots`` is enabled, and that it will also drop replication slots that it does not recognize. The idea of using permanent slots is to allow that your existing slots are kept around while the migration to Patroni is not finished yet. See :ref:`YAML Configuration Settings <yaml_configuration>` for details.
+    3. Create the Postgres users as defined in the :ref:`authentication <postgresql_settings>` section of the Patroni configuration. You can find sample SQL commands to create the users in the code block below. Replace the usernames and passwords as per your configuration.
+    4. Start Patroni
 
 .. code-block:: sql
 
+   -- Patroni superuser
    CREATE USER $PATRONI_SUPERUSER_USERNAME WITH SUPERUSER ENCRYPTED PASSWORD '$PATRONI_SUPERUSER_PASSWORD';
+
+   -- Patroni replication user
    CREATE USER $PATRONI_REPLICATION_USERNAME WITH REPLICATION ENCRYPTED PASSWORD '$PATRONI_REPLICATION_PASSWORD';
 
-3. Start Patroni (e.g. ``patroni /etc/patroni/patroni.yml``). It automatically detects that PostgreSQL daemon is already running but its configuration might be out-of-date.
-4. Ask Patroni to restart the node with ``patronictl restart cluster-name node-name``. This step is only required if PostgreSQL configuration is out-of-date.
+   -- Patroni rewind user, if you enabled use_pg_rewind in your configuration
+   CREATE USER $PATRONI_REWIND_USERNAME WITH ENCRYPTED PASSWORD '$PATRONI_REWIND_PASSWORD';
+   GRANT EXECUTE ON function pg_catalog.pg_ls_dir(text, boolean, boolean) TO $PATRONI_REWIND_USERNAME;
+   GRANT EXECUTE ON function pg_catalog.pg_stat_file(text, boolean) TO $PATRONI_REWIND_USERNAME;
+   GRANT EXECUTE ON function pg_catalog.pg_read_binary_file(text) TO $PATRONI_REWIND_USERNAME;
+   GRANT EXECUTE ON function pg_catalog.pg_read_binary_file(text, bigint, bigint, boolean) TO $PATRONI_REWIND_USERNAME;
+
+2. Hand over Postgres "start up procedure" to Patroni. In order to do that you need to restart the cluster members through ``patronictl restart cluster-name member-name`` command. For minimal downtime you might want to split this step into:
+
+    1. Immediate restart of the standby nodes.
+    2. Scheduled restart of the primary node within a maintenance window.
+
+3. If you configured permament slots in step ``1.2.``, then you should remove them from ``slots`` configuration once the ``restart_lsn`` of the slots created by Patroni is able to catch up with the ``restart_lsn`` of the original slots for the corresponding members. That will allow Patroni to drop the original slots from your cluster once they are not needed anymore.
 
 .. _major_upgrade:
 
