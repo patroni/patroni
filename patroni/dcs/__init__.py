@@ -537,7 +537,24 @@ class Failover(NamedTuple):
         return Failover(version, data.get('leader'), data.get('member'), data.get('scheduled_at'))
 
     def __len__(self) -> int:
-        """Implement ``len`` function capability."""
+        """Implement ``len`` function capability.
+        
+        .. note::
+           This magic method aids in the evaluation of "emptiness" of a ``Failover`` instance. For example:
+           
+           >>> failover = Failover.from_node(1, None)
+           >>> len(failover)
+           0
+           >>> assert bool(failover) is False
+           
+           >>> failover = Failover.from_node(1, {"leader": "cluster_leader"})
+           >>> len(failover)
+           1
+           >>> assert bool(failover) is True
+        
+           This makes it easier to write ``if cluster.failover`` rather than the longer statement.
+        
+        """
         return int(bool(self.leader)) + int(bool(self.candidate))
 
 
@@ -821,7 +838,24 @@ class Cluster(NamedTuple('Cluster',
                     self.history is None, self.slots is None, self.failsafe is None, not self.workers))
 
     def __len__(self) -> int:
-        """Implement ``len`` function capability."""
+        """Implement ``len`` function capability.
+
+        .. note::
+           This magic method aids in the evaluation of "emptiness" of a ``Cluster`` instance. For example:
+
+           >>> cluster = Cluster.empty()
+           >>> len(cluster)
+           0
+           >>> assert bool(cluster) is False
+
+           >>> cluster = Cluster(None, None, None, 0, [1, 2, 3], None, SyncState.empty(), None, None, None)
+           >>> len(cluster)
+           1
+           >>> assert bool(cluster) is True
+
+           This makes it easier to write ``if cluster`` rather than the longer statement.
+
+        """
         return int(not self.is_empty())
 
     @property
