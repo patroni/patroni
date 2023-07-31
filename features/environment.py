@@ -52,15 +52,14 @@ class AbstractController(abc.ABC):
         self._log = open(os.path.join(self._output_dir, self._name + '.log'), 'a')
         self._handle = self._start()
 
-        assert self._has_started(), "Process {0} is not running after being started".format(self._name)
-
         max_wait_limit *= self._context.timeout_multiplier
         for _ in range(max_wait_limit):
+            assert self._has_started(), "Process {0} is not running after being started".format(self._name)
             if self._is_accessible():
                 break
             time.sleep(1)
         else:
-            assert False,\
+            assert False, \
                 "{0} instance is not available for queries after {1} seconds".format(self._name, max_wait_limit)
 
     def stop(self, kill=False, timeout=15, _=False):
@@ -343,6 +342,13 @@ class PatroniController(AbstractController):
         subprocess.call(PatroniPoolController.BACKUP_SCRIPT + ['--walmethod=none',
                         '--datadir=' + os.path.join(self._work_directory, dest),
                         '--dbname=' + self.backup_source])
+
+    def read_patroni_log(self, level):
+        try:
+            with open(str(os.path.join(self._output_dir or '', self._name + ".log"))) as f:
+                return [line for line in f.readlines() if line[24:24 + len(level)] == level]
+        except IOError:
+            return []
 
 
 class ProcessHang(object):
@@ -827,7 +833,7 @@ class PatroniPoolController(object):
 
     def __getattr__(self, func):
         if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to',
-                        'add_tag_to_config', 'get_watchdog', 'patroni_hang', 'backup']:
+                        'add_tag_to_config', 'get_watchdog', 'patroni_hang', 'backup', 'read_patroni_log']:
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
         def wrapper(name, *args, **kwargs):
@@ -1076,7 +1082,9 @@ def before_all(context):
                            'PATRONI_RESTAPI_CERTFILE': context.certfile,
                            'PATRONI_RESTAPI_KEYFILE': context.keyfile,
                            'PATRONI_RESTAPI_VERIFY_CLIENT': 'required',
-                           'PATRONI_CTL_INSECURE': 'on'})
+                           'PATRONI_CTL_INSECURE': 'on',
+                           'PATRONI_CTL_CERTFILE': context.certfile,
+                           'PATRONI_CTL_KEYFILE': context.keyfile})
         ctl.update({'cacert': context.certfile, 'certfile': context.certfile, 'keyfile': context.keyfile})
     context.request_executor = PatroniRequest({'ctl': ctl}, True)
     context.dcs_ctl = context.pctl.known_dcs[context.pctl.dcs](context)
@@ -1138,3 +1146,5 @@ def before_scenario(context, scenario):
                 break
     if 'dcs-failsafe' in scenario.effective_tags and not context.dcs_ctl._handle:
         scenario.skip('it is not possible to control state of {0} from tests'.format(context.dcs_ctl.name()))
+    if 'reject-duplicate-name' in scenario.effective_tags and context.dcs_ctl.name() == 'raft':
+        scenario.skip('Flaky test with Raft')

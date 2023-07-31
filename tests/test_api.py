@@ -29,7 +29,8 @@ class MockPostgresql(object):
     name = 'test'
     state = 'running'
     role = 'primary'
-    server_version = '999999'
+    server_version = 90625
+    major_version = 90600
     sysid = 'dummysysid'
     scope = 'dummy'
     pending_restart = True
@@ -54,6 +55,10 @@ class MockPostgresql(object):
     @staticmethod
     def is_running():
         return True
+
+    @staticmethod
+    def replication_state_from_parameters(*args):
+        return 'streaming'
 
 
 class MockWatchdog(object):
@@ -219,9 +224,9 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(MockHa, 'restart_scheduled', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /primary')
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /primary'))
-        with patch.object(RestApiServer, 'query', Mock(return_value=[('', 1, '', '', '', '', False, '')])):
+        with patch.object(RestApiServer, 'query', Mock(return_value=[('', 1, '', '', '', '', False, None, None, '')])):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
-        with patch.object(GlobalConfig, 'is_standby_cluster', Mock(return_value=True)),\
+        with patch.object(GlobalConfig, 'is_standby_cluster', Mock(return_value=True)), \
                 patch.object(GlobalConfig, 'is_paused', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /standby_leader')
 
@@ -554,7 +559,7 @@ class TestRestApiHandler(unittest.TestCase):
         request = post + '103\n\n{"leader": "postgresql1", "member": "postgresql2",' +\
                          ' "scheduled_at": "6016-02-15T18:13:30.568224+01:00"}'
         MockRestApiServer(RestApiHandler, request)
-        with patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)),\
+        with patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)), \
                 patch.object(MockPatroni, 'dcs') as d:
             d.manual_failover.return_value = False
             MockRestApiServer(RestApiHandler, request)

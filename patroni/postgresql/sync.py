@@ -193,7 +193,12 @@ class SyncHandler(object):
 
         # Newly connected replicas will be counted as sync only when reached self._primary_flush_lsn
         self._primary_flush_lsn = self._postgresql.last_operation()
-        self._postgresql.query('SELECT pg_catalog.txid_current()')  # Ensure some WAL traffic to move replication
+        # Ensure some WAL traffic to move replication
+        self._postgresql.query("""DO $$
+BEGIN
+    SET local synchronous_commit = 'off';
+    PERFORM * FROM pg_catalog.txid_current();
+END;$$""")
         self._postgresql.reset_cluster_info_state(None)  # Reset internal cache to query fresh values
 
     def current_state(self, cluster: Cluster) -> Tuple[CaseInsensitiveSet, CaseInsensitiveSet]:
@@ -289,6 +294,6 @@ class SyncHandler(object):
         # Reset internal cache to query fresh values
         self._postgresql.reset_cluster_info_state(None)
 
-        # timeline == 0 -- indicates that this is the replica, shoudn't ever happen
+        # timeline == 0 -- indicates that this is the replica
         if self._postgresql.get_primary_timeline() > 0:
             self._handle_synchronous_standby_names_change()

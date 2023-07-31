@@ -280,7 +280,7 @@ class Rewind(object):
         """After promote issue a CHECKPOINT from a new thread and asynchronously check the result.
         In case if CHECKPOINT failed, just check that timeline in pg_control was updated."""
 
-        if self._state == REWIND_STATUS.INITIAL and self._postgresql.is_leader():
+        if self._state != REWIND_STATUS.CHECKPOINT and self._postgresql.is_leader():
             with self._checkpoint_task_lock:
                 if self._checkpoint_task:
                     with self._checkpoint_task:
@@ -370,7 +370,7 @@ class Rewind(object):
                 # it is the author of archive_command, who is responsible
                 # for not overriding the WALs already present in archive
                 logger.info('Trying to archive %s: %s', wal, cmd)
-                if self._postgresql.cancellable.call(shlex.split(cmd)) == 0:
+                if self._postgresql.cancellable.call([cmd], shell=True) == 0:
                     new_name = os.path.join(status_dir, wal + '.done')
                     try:
                         shutil.move(old_name, new_name)

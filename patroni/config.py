@@ -462,9 +462,10 @@ class Config(object):
                     ret[param] = value
             return ret
 
-        restapi_auth = _get_auth('restapi')
-        if restapi_auth:
-            ret['restapi']['authentication'] = restapi_auth
+        for section in ('ctl', 'restapi'):
+            auth = _get_auth(section)
+            if auth:
+                ret[section]['authentication'] = auth
 
         authentication = {}
         for user_type in ('replication', 'superuser', 'rewind'):
@@ -484,7 +485,8 @@ class Config(object):
                               'REGISTER_SERVICE', 'SERVICE_CHECK_INTERVAL', 'SERVICE_CHECK_TLS_SERVER_NAME',
                               'SERVICE_TAGS', 'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL',
                               'POD_IP', 'PORTS', 'LABELS', 'BYPASS_API_SERVICE', 'RETRIABLE_HTTP_CODES', 'KEY_PASSWORD',
-                              'USE_SSL', 'SET_ACLS', 'GROUP', 'DATABASE') and name:
+                              'USE_SSL', 'SET_ACLS', 'GROUP', 'DATABASE', 'LEADER_LABEL_VALUE', 'FOLLOWER_LABEL_VALUE',
+                              'STANDBY_LEADER_LABEL_VALUE', 'TMP_ROLE_LABEL') and name:
                     value = os.environ.pop(param)
                     if name == 'CITUS':
                         if suffix == 'GROUP':
@@ -541,9 +543,10 @@ class Config(object):
             elif name not in config or name in ['watchdog']:
                 config[name] = deepcopy(value) if value else {}
 
-        # restapi server expects to get restapi.auth = 'username:password'
-        if 'restapi' in config and 'authentication' in config['restapi']:
-            config['restapi']['auth'] = '{username}:{password}'.format(**config['restapi']['authentication'])
+        # restapi server expects to get restapi.auth = 'username:password' and similarly for `ctl`
+        for section in ('ctl', 'restapi'):
+            if section in config and 'authentication' in config[section]:
+                config[section]['auth'] = '{username}:{password}'.format(**config[section]['authentication'])
 
         # special treatment for old config
 

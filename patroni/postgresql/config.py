@@ -258,6 +258,14 @@ def _false_validator(value: Any) -> bool:
     return False
 
 
+def _bool_validator(value: Any) -> bool:
+    return parse_bool(value) is not None
+
+
+def _bool_is_true_validator(value: Any) -> bool:
+    return parse_bool(value) is True
+
+
 class ConfigHandler(object):
 
     # List of parameters which must be always passed to postmaster as command line options
@@ -278,18 +286,18 @@ class ConfigHandler(object):
         'listen_addresses': (None, _false_validator, 90100),
         'port': (None, _false_validator, 90100),
         'cluster_name': (None, _false_validator, 90500),
-        'wal_level': ('hot_standby', EnumValidator(allowed=['hot_standby', 'replica', 'logical']), 90100),
-        'hot_standby': ('on', EnumValidator(allowed=[True]), 90100),
+        'wal_level': ('hot_standby', EnumValidator(('hot_standby', 'replica', 'logical')), 90100),
+        'hot_standby': ('on', _bool_is_true_validator, 90100),
         'max_connections': (100, IntValidator(min=25), 90100),
         'max_wal_senders': (10, IntValidator(min=3), 90100),
         'wal_keep_segments': (8, IntValidator(min=1), 90100),
         'wal_keep_size': ('128MB', IntValidator(min=16, base_unit='MB'), 130000),
         'max_prepared_transactions': (0, IntValidator(min=0), 90100),
         'max_locks_per_transaction': (64, IntValidator(min=32), 90100),
-        'track_commit_timestamp': ('off', EnumValidator(allowed=[True, False]), 90500),
+        'track_commit_timestamp': ('off', _bool_validator, 90500),
         'max_replication_slots': (10, IntValidator(min=4), 90400),
         'max_worker_processes': (8, IntValidator(min=2), 90400),
-        'wal_log_hints': ('on', EnumValidator(allowed=[True]), 90400)
+        'wal_log_hints': ('on', _bool_is_true_validator, 90400)
     })
 
     _RECOVERY_PARAMETERS = CaseInsensitiveSet(recovery_parameters.keys())
@@ -1169,3 +1177,6 @@ class ConfigHandler(object):
 
     def get(self, key: str, default: Optional[Any] = None) -> Optional[Any]:
         return self._config.get(key, default)
+
+    def restore_command(self) -> Optional[str]:
+        return (self.get('recovery_conf') or {}).get('restore_command')

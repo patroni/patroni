@@ -84,7 +84,7 @@ bootstrap:
   - encoding: UTF8
   - data-checksums
 
-  # Some additional users users which needs to be created after initializing new cluster
+  # Some additional users which needs to be created after initializing new cluster
   users:
     admin:
       password: admin%

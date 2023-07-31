@@ -11,11 +11,12 @@ import shutil
 import socket
 import subprocess
 
-from typing import Any, Dict, Union, Iterator, List, Optional as OptionalType, TYPE_CHECKING
+from typing import Any, Dict, Union, Iterator, List, Optional as OptionalType, Tuple, TYPE_CHECKING
 
-from .utils import parse_int, split_host_port, data_directory_is_empty, parse_bool
+from .collections import CaseInsensitiveSet
 from .dcs import dcs_modules
 from .exceptions import ConfigParseError
+from .utils import parse_int, split_host_port, data_directory_is_empty
 
 
 def data_directory_empty(data_dir: str) -> bool:
@@ -758,52 +759,6 @@ def assert_(condition: bool, message: str = "Wrong value") -> None:
     assert condition, message
 
 
-class EnumValidator(object):
-    """Validate a setting against a list of allowed values
-
-    ivar: allowed: a list of allowed values
-    ivar: case_sensitive: set to True to do case sensitive comparisons
-    """
-
-    def __init__(self, allowed: List[Any], case_sensitive: bool = False):
-        """Create an :class:`EnumValidator` object with the given rules.
-
-        :param allowed: list of allowed values
-        :param case_sensitive: set to True to do case sensitive comparisons
-
-        >>> EnumValidator(allowed=[])(3)
-        False
-        >>> EnumValidator(allowed=[2,3,5])(3)
-        True
-        >>> EnumValidator(allowed=[2,3,'something'])(4)
-        False
-        >>> EnumValidator(allowed=['off','oN','blind'])('ON')
-        True
-        >>> EnumValidator(allowed=['off','on','blind'], case_sensitive=True)('ON')
-        False
-        >>> EnumValidator(allowed=[True])('on')
-        True
-        >>> EnumValidator(allowed=[True])('off')
-        False
-        >>> EnumValidator(allowed=[True,False])('1')
-        True
-        """
-        self.case_sensitive = case_sensitive
-
-        if self.case_sensitive:
-            self.allowed = allowed
-        else:
-            self.allowed = [a.lower() if isinstance(a, str) else a for a in allowed]
-
-    def __call__(self, value: Any) -> bool:
-        """Check if *value* is part of the allowed values."""
-
-        if not self.case_sensitive and isinstance(value, str):
-            value = value.lower()
-
-        return value in self.allowed or parse_bool(value) in self.allowed
-
-
 class IntValidator(object):
     """Validate an integer setting.
 
@@ -830,7 +785,7 @@ class IntValidator(object):
         self.base_unit = base_unit
         self.raise_assert = raise_assert
 
-    def __call__(self, value: Union[int, str]) -> bool:
+    def __call__(self, value: Any) -> bool:
         """Check if *value* is a valid integer and within the expected range.
 
         .. note::
@@ -838,11 +793,43 @@ class IntValidator(object):
         :param value: value to be checked against the rules defined for this :class:`IntValidator` instance.
         :returns: ``True`` if *value* is valid and within the expected range.
         """
-        if self.base_unit:
-            value = parse_int(value, self.base_unit) or ""
+        value = parse_int(value, self.base_unit) or ""
         ret = isinstance(value, int)\
             and (self.min is None or value >= self.min)\
             and (self.max is None or value <= self.max)
+
+        if self.raise_assert:
+            assert_(ret)
+        return ret
+
+
+class EnumValidator(object):
+    """Validate enum setting
+
+    :ivar allowed_values: a ``set`` or ``CaseInsensitiveSet`` object with allowed enum values.
+    :ivar raise_assert: if an ``assert`` call should be performed regarding expected type and valid range.
+    """
+
+    def __init__(self, allowed_values: Tuple[str, ...],
+                 case_sensitive: bool = False, raise_assert: bool = False) -> None:
+        """Create an :class:`EnumValidator` object with given allowed values.
+
+        :param allowed_values: a tuple with allowed enum values
+        :param case_sensitive: set to ``True`` to do case sensitive comparisons
+        :param raise_assert: if an ``assert`` call should be performed regarding expected values.
+        """
+        self.allowed_values = set(allowed_values) if case_sensitive else CaseInsensitiveSet(allowed_values)
+        self.raise_assert = raise_assert
+
+    def __call__(self, value: Any) -> bool:
+        """Check if provided *value* could be found within *allowed_values*.
+
+        .. note::
+            If ``raise_assert`` is ``True`` and *value* is not valid, then an ``AssertionError`` will be triggered.
+        :param value: value to be checked.
+        :returns: ``True`` if *value* could be found within *allowed_values*.
+        """
+        ret = isinstance(value, str) and value in self.allowed_values
 
         if self.raise_assert:
             assert_(ret)
@@ -874,15 +861,44 @@ validate_etcd = {
         "srv": str,
         "srv_suffix": str,
         "url": str,
-        "proxy": str})
+        "proxy": str
+    }),
+    Optional("protocol"): str,
+    Optional("username"): str,
+    Optional("password"): str,
+    Optional("cacert"): str,
+    Optional("cert"): str,
+    Optional("key"): str
 }
 
 schema = Schema({
     "name": str,
     "scope": str,
+    Optional("ctl"): {
+        Optional("insecure"): bool,
+        Optional("cacert"): str,
+        Optional("certfile"): str,
+        Optional("keyfile"): str,
+        Optional("keyfile_password"): str
+    },
     "restapi": {
         "listen": validate_host_port_listen,
         "connect_address": validate_connect_address,
+        Optional("authentication"): {
+            "username": str,
+            "password": str
+        },
+        Optional("certfile"): str,
+        Optional("keyfile"): str,
+        Optional("keyfile_password"): str,
+        Optional("cafile"): str,
+        Optional("ciphers"): str,
+        Optional("verify_client"): EnumValidator(("none", "optional", "required"),
+                                                 case_sensitive=True, raise_assert=True),
+        Optional("allowlist"): [str],
+        Optional("allowlist_include_members"): bool,
+        Optional("http_extra_headers"): dict,
+        Optional("https_extra_headers"): dict,
         Optional("request_queue_size"): IntValidator(min=0, max=4096, raise_assert=True)
     },
     Optional("bootstrap"): {
@@ -890,15 +906,64 @@ schema = Schema({
             Optional("ttl"): int,
             Optional("loop_wait"): int,
             Optional("retry_timeout"): int,
-            Optional("maximum_lag_on_failover"): int
+            Optional("maximum_lag_on_failover"): int,
+            Optional("maximum_lag_on_syncnode"): int,
+            Optional("postgresql"): {
+                Optional("parameters"): {
+                    Optional("max_connections"): int,
+                    Optional("max_locks_per_transaction"): int,
+                    Optional("max_prepared_transactions"): int,
+                    Optional("max_replication_slots"): int,
+                    Optional("max_wal_senders"): int,
+                    Optional("max_worker_processes"): int
+                },
+                Optional("use_pg_rewind"): bool,
+                Optional("pg_hba"): [str],
+                Optional("pg_ident"): [str],
+                Optional("pg_ctl_timeout"): int,
+                Optional("use_slots"): bool,
+            },
+            Optional("primary_start_timeout"): int,
+            Optional("primary_stop_timeout"): int,
+            Optional("standby_cluster"): {
+                Or("host", "port", "restore_command"): Case({
+                    "host": str,
+                    "port": int,
+                    "restore_command": str
+                }),
+                Optional("primary_slot_name"): str,
+                Optional("create_replica_methods"): [str],
+                Optional("archive_cleanup_command"): str,
+                Optional("recovery_min_apply_delay"): str
+            },
+            Optional("synchronous_mode"): bool,
+            Optional("synchronous_mode_strict"): bool,
+            Optional("synchronous_node_count"): int
         },
-        Optional("initdb"): [Or(str, dict)]
+        Optional("initdb"): [Or(str, dict)],
+        Optional("method"): str
     },
     Or(*available_dcs): Case({
         "consul": {
             Or("host", "url"): Case({
                 "host": validate_host_port,
-                "url": str})
+                "url": str
+            }),
+            Optional("port"): int,
+            Optional("scheme"): str,
+            Optional("token"): str,
+            Optional("verify"): bool,
+            Optional("cacert"): str,
+            Optional("cert"): str,
+            Optional("key"): str,
+            Optional("dc"): str,
+            Optional("checks"): [str],
+            Optional("register_service"): bool,
+            Optional("service_tags"): [str],
+            Optional("service_check_interval"): str,
+            Optional("service_check_tls_server_name"): str,
+            Optional("consistency"): EnumValidator(('default', 'consistent', 'stale'),
+                                                   case_sensitive=True, raise_assert=True)
         },
         "etcd": validate_etcd,
         "etcd3": validate_etcd,
@@ -916,15 +981,28 @@ schema = Schema({
         },
         "zookeeper": {
             "hosts": Or(comma_separated_host_port, [validate_host_port]),
+            Optional("use_ssl"): bool,
+            Optional("cacert"): str,
+            Optional("cert"): str,
+            Optional("key"): str,
+            Optional("key_password"): str,
+            Optional("verify"): bool,
+            Optional("set_acls"): dict
         },
         "kubernetes": {
             "labels": {},
+            Optional("bypass_api_service"): bool,
             Optional("namespace"): str,
             Optional("scope_label"): str,
             Optional("role_label"): str,
+            Optional("leader_label_value"): str,
+            Optional("follower_label_value"): str,
+            Optional("standby_leader_label_value"): str,
+            Optional("tmp_role_label"): str,
             Optional("use_endpoints"): bool,
             Optional("pod_ip"): Or(is_ipv4_address, is_ipv6_address),
             Optional("ports"): [{"name": str, "port": int}],
+            Optional("cacert"): str,
             Optional("retriable_http_codes"): Or(int, [int]),
         },
     }),
@@ -962,7 +1040,8 @@ schema = Schema({
     },
     Optional("watchdog"): {
         Optional("mode"): validate_watchdog_mode,
-        Optional("device"): str
+        Optional("device"): str,
+        Optional("safety_margin"): int
     },
     Optional("tags"): {
         Optional("nofailover"): bool,
