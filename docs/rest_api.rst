@@ -393,19 +393,7 @@ The above call removes ``postgresql.parameters.max_connections`` from the dynami
 Switchover and failover endpoints
 ---------------------------------
 
-Failover
-^^^^^^^^
-
-``/failover`` endpoint allows to perform a manual failover when there are no healthy nodes (e.g. to an asynchronous standby if all synchronous standbys are not healthy to promote). However there is no requirement for a cluster not to have leader - failover can also be run on a healthy cluster.
-
-In the JSON body of the ``POST`` request you must specify ``candidate`` field. If ``leader`` field is specified, switchover is triggered. 
-
-**Example:**
-
-.. code-block:: bash
-
-	$ curl -s http://localhost:8008/failover -XPOST -d '{"candidate":"postgresql1"}'
-	Successfully failed over to "postgresql1"
+.. _switchover_api:
 
 Switchover
 ^^^^^^^^^^
@@ -469,6 +457,24 @@ Depending on the situation request might finish with different HTTP status codes
      - no
      - yes (if not in pause)
 
+Failover
+^^^^^^^^
+
+``/failover`` endpoint allows to perform a manual failover when there are no healthy nodes (e.g. to an asynchronous standby if all synchronous standbys are not healthy to promote). However there is no requirement for a cluster not to have leader - failover can also be run on a healthy cluster.
+
+In the JSON body of the ``POST`` request you must specify ``candidate`` field. If ``leader`` field is specified, switchover is triggered. 
+
+**Example:**
+
+.. code-block:: bash
+
+	$ curl -s http://localhost:8008/failover -XPOST -d '{"candidate":"postgresql1"}'
+	Successfully failed over to "postgresql1"
+
+.. warning::
+	:ref:`Be very careful <failover_healthcheck>` using this endpoint, as this can cause data loss in certain situations. In most cases, :ref:`the switchover endpoint <switchover_api>` satisfies the administrator's needs. 
+
+.. _failover_healthcheck:
 
 Healthy standby
 ^^^^^^^^^^^^^^^
@@ -478,12 +484,18 @@ There are a couple of checks that a member of a cluster should pass to be able t
 - be reachable via Patroni API,
 - not to have ``nofailover`` tag,
 - have watchdog fully functional (if required by the configuration),
-- not to exceed maximum replication lag (``maximum_lag_on_failover`` :ref:`configuration parameter <dynamic_configuration>`),
-- not to have the timeline number smaller than the cluster timeline,
+- in case of a switchover or a failover in a healthy cluster, not to exceed maximum replication lag (``maximum_lag_on_failover`` :ref:`configuration parameter <dynamic_configuration>`),
+- in case of a switchover or a failover in a healthy cluster, not to have the timeline number smaller than the cluster timeline,
 - in :ref:`synchronous mode <synchronous_mode>`:
 
-  - in case of a switchover (both with and without a candidate): be listed in the ``/sync`` key members,
-  - in case of a failover, candidate will be allowed to promote even if it is not in the ``/sync`` key members (given all the other checks are passed).
+  - In case of a switchover (both with and without a candidate): be listed in the ``/sync`` key members.
+  - For a failover in both healthy and unhealthy clusters, this check is omitted.
+
+.. warning::
+    In case of a failover in a cluster without a leader, a candidate will be allowed to promote even:
+	- if it is not in the ``/sync`` key members when synchronous mode is enabled,
+	- if its lag exceeds the maximum replication lag allowed,
+	- if it has the timeline number smaller than the cluster timeline.
 
 
 Restart endpoint

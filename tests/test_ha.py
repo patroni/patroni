@@ -701,7 +701,22 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', 'b', None))
         self.ha.cluster.members.append(Member(0, 'b', 28, {'api_url': 'http://127.0.0.1:8011/patroni'}))
         self.assertEqual(self.ha.run_cycle(), 'manual failover: demoting myself')
-        self.ha.cluster.members.pop()
+
+        # to a candidate on an older timeline
+        with patch('patroni.ha.logger.info') as mock_info:
+            self.ha.fetch_node_status = get_node_status(timeline=1)
+            self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
+            self.assertEqual(mock_info.call_args_list[0][0],
+                             ('Timeline %s of member %s is behind the cluster timeline %s', 1, 'b', 2))
+
+        # to a lagging candidate
+        with patch('patroni.ha.logger.info') as mock_info:
+            self.ha.fetch_node_status = get_node_status(wal_position=1)
+            self.ha.cluster.config.data.update({'maximum_lag_on_failover': 5})
+            self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
+            self.assertEqual(mock_info.call_args_list[0][0],
+                             ('Member %s exceeds maximum replication lag', 'b'))
+            self.ha.cluster.members.pop()
 
     @patch('patroni.postgresql.citus.CitusHandler.is_coordinator', Mock(return_value=False))
     def test_manual_switchover_from_leader(self):
@@ -871,6 +886,23 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'postgresql0', None))
         self.ha.patroni.nofailover = True
         self.assertEqual(self.ha.run_cycle(), 'following a different leader because I am not allowed to promote')
+
+        self.ha.patroni.nofailover = False
+
+        # failover to another member that is on an older timeline (only failover_limitation() is checked)
+        with patch('patroni.ha.logger.info') as mock_info:
+            self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'b', None))
+            self.ha.cluster.members.append(Member(0, 'b', 28, {'api_url': 'http://127.0.0.1:8011/patroni'}))
+            self.ha.fetch_node_status = get_node_status(timeline=1)
+            self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
+            mock_info.assert_called_with('manual %s: to %s, i am %s', 'failover', 'b', 'postgresql0')
+
+        # failover to another member lagging behind the cluster_lsn (only failover_limitation() is checked)
+        with patch('patroni.ha.logger.info') as mock_info:
+            self.ha.cluster.config.data.update({'maximum_lag_on_failover': 5})
+            self.ha.fetch_node_status = get_node_status(wal_position=1)
+            self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
+            mock_info.assert_called_with('manual %s: to %s, i am %s', 'failover', 'b', 'postgresql0')
 
     def test_manual_switchover_process_no_leader(self):
         self.p.is_leader = false
