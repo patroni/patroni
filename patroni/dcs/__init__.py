@@ -826,7 +826,7 @@ class Cluster(NamedTuple('Cluster',
     @staticmethod
     def empty() -> 'Cluster':
         """Produce an empty :class:`Cluster` instance."""
-        return Cluster(None, None, None, 0, [], None, SyncState.empty(), None, None, None)
+        return Cluster(None, None, None, 0, [], None, SyncState.empty(), None, None, None, {})
 
     def is_empty(self):
         """Validate definition of all attributes of this :class:`Cluster` instance.
