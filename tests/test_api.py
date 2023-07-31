@@ -8,8 +8,10 @@ import patroni.psycopg as psycopg
 from http.server import HTTPServer
 from io import BytesIO as IO
 from mock import Mock, PropertyMock, patch
+import socketserver
 from socketserver import ThreadingMixIn
 
+import patroni.api
 from patroni.api import RestApiHandler, RestApiServer
 from patroni.config import GlobalConfig
 from patroni.dcs import ClusterConfig, Member
@@ -181,6 +183,32 @@ class MockRestApiServer(RestApiServer):
                             'http_extra_headers': {'foo': 'bar'}, 'https_extra_headers': {'foo': 'sbar'}}
         super(MockRestApiServer, self).__init__(MockPatroni(), config)
         Handler(MockRequest(request), ('0.0.0.0', 8080), self)
+
+
+class MockHTTPWfile:
+
+    @staticmethod
+    def produce(write_err=None):
+        def action(*_):
+            return MockHTTPWfile(write_err=write_err)
+        return action
+
+    def __init__(self, write_err=None):
+        self.write_err = write_err
+
+    def write(self, _bytes):
+        if self.write_err is not None:
+            raise self.write_err
+
+    def flush(self):
+        pass
+
+    def close(self):
+        pass
+
+    @property
+    def closed(self):
+        return True
 
 
 @patch('ssl.SSLContext.load_cert_chain', Mock())
@@ -586,6 +614,18 @@ class TestRestApiHandler(unittest.TestCase):
         post = 'POST /citus HTTP/1.0' + self._authorization + '\nContent-Length: '
         MockRestApiServer(RestApiHandler, post + '0\n\n')
         MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
+
+    @patch.object(patroni.api, 'logger')
+    def test_write_response(self, mock_logger):
+        mock_logger.debug = Mock()
+        with patch.object(socketserver, '_SocketWriter', MockHTTPWfile.produce()):
+            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
+        args = [a for a in mock_logger.debug.call_args][0]
+        self.assertNotEqual('Connection reset while writing response: %s', args[0])
+        with patch.object(socketserver, '_SocketWriter', MockHTTPWfile.produce(ConnectionResetError())):
+            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
+        args = [a for a in mock_logger.debug.call_args][0]
+        self.assertEqual('Connection reset while writing response: %s', args[0])
 
 
 class TestRestApiServer(unittest.TestCase):

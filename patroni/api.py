@@ -129,7 +129,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :param headers: dictionary of additional HTTP headers to set for the response. Each key is the header name, and
             the corresponding value is the value for the header in the response.
         """
-        # TODO: try-catch ConnectionResetError: [Errno 104] Connection reset by peer and log it in DEBUG level
         self.send_response(status_code)
         headers = headers or {}
         if content_type:
@@ -139,7 +138,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
         for name, value in (self.server.http_extra_headers or {}).items():
             self.send_header(name, value)
         self.end_headers()
-        self.wfile.write(body.encode('utf-8'))
+        try:
+            self.wfile.write(body.encode('utf-8'))
+        except ConnectionResetError as err:
+            logger.debug('Connection reset while writing response: %s', err)
 
     def _write_json_response(self, status_code: int, response: Any) -> None:
         """Write an HTTP response with a JSON content type.
