@@ -443,10 +443,10 @@ class Leader(NamedTuple):
 
     @property
     def checkpoint_after_promote(self) -> Optional[bool]:
-        """Determine whether a checkpoint should be made for this leader after promotion.
+        """Determine whether a checkpoint has occurred for this leader after promotion.
 
         :returns: ``True`` if the role is ``master`` or ``primary`` and ``checkpoint_after_promote`` is not set,
-                 ``False`` if not a ``master`` or ``primary`` or if the checkpoint has already been made.
+                 ``False`` if not a ``master`` or ``primary`` or if the checkpoint hasn't occurred.
                  If the version of Patroni is older than 1.5.6, return ``None``.
 
         :Example:
@@ -814,7 +814,7 @@ class Cluster(NamedTuple('Cluster',
     def is_empty(self):
         """Validate definition of all attributes of this :class:`Cluster` instance.
 
-        :returns: ``True`` if the current :class:`Cluster` has unpopulated attributes.
+        :returns: ``True`` if all attributes of the current :class:`Cluster` are unpopulated.
         """
         return all((self.initialize is None, self.config is None, self.leader is None, self.last_lsn == 0,
                     self.members == [], self.failover is None, self.sync.version is None,
