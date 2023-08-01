@@ -15,8 +15,16 @@ class TestFilePermissions(unittest.TestCase):
         mock_umask.side_effect = Exception
         mock_stat.return_value.st_mode = stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP
         pg_perm.set_permissions_from_data_directory('test')
+
+        # umask is called with PG_MODE_MASK_GROUP
         self.assertEqual(mock_umask.call_args[0][0], stat.S_IWGRP | stat.S_IRWXO)
         self.assertEqual(mock_logger.call_args[0][0], 'Can not set umask to %03o: %r')
+
+        mock_umask.reset_mock()
+        mock_stat.return_value.st_mode = stat.S_IRWXU
+        pg_perm.set_permissions_from_data_directory('test')
+        # umask is called with PG_MODE_MASK_OWNER (permissions changed from group to owner)
+        self.assertEqual(mock_umask.call_args[0][0], stat.S_IRWXG | stat.S_IRWXO)
 
     @patch('os.stat', Mock(side_effect=FileNotFoundError))
     @patch('patroni.file_perm.logger.error')
