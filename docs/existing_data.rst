@@ -40,7 +40,7 @@ You can find below an overview of steps to converting an existing Postgres clust
     #. Immediate restart of the standby nodes.
     #. Scheduled restart of the primary node within a maintenance window.
 
-#. If you configured permanent slots in step ``1.2.``, then you should remove them from ``slots`` configuration once the ``restart_lsn`` of the slots created by Patroni is able to catch up with the ``restart_lsn`` of the original slots for the corresponding members. By removing the slots from ``slots`` configuration you will allow Patroni to drop the original slots from your cluster once they are not needed anymore. You can find below an example query to check the ``restart_lsn`` of a couple slots, so you an compare them:
+#. If you configured permanent slots in step ``1.2.``, then you should remove them from ``slots`` configuration once the ``restart_lsn`` of the slots created by Patroni is able to catch up with the ``restart_lsn`` of the original slots for the corresponding members. By removing the slots from ``slots`` configuration you will allow Patroni to drop the original slots from your cluster once they are not needed anymore. You can find below an example query to check the ``restart_lsn`` of a couple slots, so you can compare them:
 
     .. code-block:: sql
 
