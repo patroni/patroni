@@ -12,12 +12,13 @@ logger = logging.getLogger(__name__)
 
 class __FilePermissions:
     """Helper class for managing permissions of directories and files under PGDATA.
-    
+
     Execute :meth:`set_permissions_from_data_directory` to figure out which permissions should be used for files and
     directories under PGDATA based on permissions of PGDATA root directory.
     """
 
-    # Mode mask for data directory permissions that only allows the owner to read/write directories and files -- mask 077.
+    # Mode mask for data directory permissions that only allows the owner to
+    # read/write directories and files -- mask 077.
     __PG_MODE_MASK_OWNER = stat.S_IRWXG | stat.S_IRWXO
 
     # Mode mask for data directory permissions that also allows group read/execute -- mask 027.
@@ -42,9 +43,10 @@ class __FilePermissions:
 
     def __set_umask(self) -> None:
         """Set umask value based on calculations.
-        
+
         .. note::
-            Should only be called once either :meth:`__set_owner_permissions` or :meth:`__set_group_permissions` has been executed.
+            Should only be called once either :meth:`__set_owner_permissions`
+            or :meth:`__set_group_permissions` has been executed.
         """
         try:
             os.umask(self.__pg_mode_mask)
