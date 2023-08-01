@@ -16,7 +16,7 @@ from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException
 from ..file_perm import pg_perm
 from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, validate_directory, is_subpath
-from ..validator import IntValidator
+from ..validator import IntValidator, EnumValidator
 
 if TYPE_CHECKING:  # pragma: no cover
     from . import Postgresql
@@ -259,12 +259,12 @@ def _false_validator(value: Any) -> bool:
     return False
 
 
-def _wal_level_validator(value: Any) -> bool:
-    return str(value).lower() in ('hot_standby', 'replica', 'logical')
-
-
 def _bool_validator(value: Any) -> bool:
     return parse_bool(value) is not None
+
+
+def _bool_is_true_validator(value: Any) -> bool:
+    return parse_bool(value) is True
 
 
 class ConfigHandler(object):
@@ -287,8 +287,8 @@ class ConfigHandler(object):
         'listen_addresses': (None, _false_validator, 90100),
         'port': (None, _false_validator, 90100),
         'cluster_name': (None, _false_validator, 90500),
-        'wal_level': ('hot_standby', _wal_level_validator, 90100),
-        'hot_standby': ('on', _false_validator, 90100),
+        'wal_level': ('hot_standby', EnumValidator(('hot_standby', 'replica', 'logical')), 90100),
+        'hot_standby': ('on', _bool_is_true_validator, 90100),
         'max_connections': (100, IntValidator(min=25), 90100),
         'max_wal_senders': (10, IntValidator(min=3), 90100),
         'wal_keep_segments': (8, IntValidator(min=1), 90100),
@@ -298,7 +298,7 @@ class ConfigHandler(object):
         'track_commit_timestamp': ('off', _bool_validator, 90500),
         'max_replication_slots': (10, IntValidator(min=4), 90400),
         'max_worker_processes': (8, IntValidator(min=2), 90400),
-        'wal_log_hints': ('on', _false_validator, 90400)
+        'wal_log_hints': ('on', _bool_is_true_validator, 90400)
     })
 
     _RECOVERY_PARAMETERS = CaseInsensitiveSet(recovery_parameters.keys())

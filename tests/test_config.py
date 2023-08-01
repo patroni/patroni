@@ -21,7 +21,8 @@ class TestConfig(unittest.TestCase):
         with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
             self.assertFalse(self.config.set_dynamic_configuration({'foo': 'bar'}))
         self.assertTrue(self.config.set_dynamic_configuration({'standby_cluster': {}, 'postgresql': {
-            'parameters': {'cluster_name': 1, 'wal_keep_size': 1, 'track_commit_timestamp': 1, 'wal_level': 1}}}))
+            'parameters': {'cluster_name': 1, 'hot_standby': 1, 'wal_keep_size': 1,
+                           'track_commit_timestamp': 1, 'wal_level': 1}}}))
 
     def test_reload_local_configuration(self):
         os.environ.update({

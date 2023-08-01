@@ -1033,7 +1033,9 @@ class AbstractDCS(abc.ABC):
             raise
 
         self._last_seen = int(time.time())
-        self._last_status = {self._OPTIME: cluster.last_lsn, 'slots': cluster.slots}
+        self._last_status = {self._OPTIME: cluster.last_lsn}
+        if cluster.slots:
+            self._last_status['slots'] = cluster.slots
         self._last_failsafe = cluster.failsafe
 
         with self._cluster_thread_lock:

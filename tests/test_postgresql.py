@@ -333,7 +333,7 @@ class TestPostgresql(BaseTestPostgresql):
 
         mock_read_auto = mock_open(read_data=read_data)
         mock_read_auto.return_value.__iter__ = lambda o: iter(o.readline, '')
-        with patch('builtins.open', Mock(side_effect=[mock_open()(), mock_read_auto(), IOError])),\
+        with patch('builtins.open', Mock(side_effect=[mock_open()(), mock_read_auto(), IOError])), \
                 patch('os.chmod', Mock()):
             self.p.config.write_postgresql_conf()
 
@@ -496,8 +496,8 @@ class TestPostgresql(BaseTestPostgresql):
             self.p.remove_data_directory()
         with patch('os.path.isfile', Mock(return_value=True)):
             self.p.remove_data_directory()
-        with patch('os.path.islink', Mock(side_effect=[False, False, True, True])),\
-                patch('os.listdir', Mock(return_value=['12345'])),\
+        with patch('os.path.islink', Mock(side_effect=[False, False, True, True])), \
+                patch('os.listdir', Mock(return_value=['12345'])), \
                 patch('os.path.realpath', Mock(side_effect=['../foo', '../foo_tsp'])):
             self.p.remove_data_directory()
 
