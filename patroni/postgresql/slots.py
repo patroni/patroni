@@ -252,12 +252,11 @@ class SlotsHandler:
 
         .. note::
             Only supported from PostgreSQL version 9.4 onwards.
-            Runs when scheduled by HA loop.
 
         Store replication slot ``name``, ``type``, ``plugin``, ``database`` and ``datoid``.
         If PostgreSQL version is 10 or newer also store ``catalog_xmin`` and ``confirmed_flush_lsn``.
 
-        When using logical slots, store information separately for slot synchronisation (copying) on replica nodes.
+        When using logical slots, store information separately for slot synchronisation  on replica nodes.
         """
         if self._postgresql.major_version >= 90400 and self._schedule_load_slots:
             replication_slots: Dict[str, Dict[str, Any]] = {}
@@ -395,7 +394,7 @@ class SlotsHandler:
             yield cur
 
     def _ensure_logical_slots_primary(self, slots: Dict[str, Any]) -> None:
-        """Create any missing logical replication *slots*.
+        """Create any missing logical replication *slots* on the primary.
 
         If the logical slot already exists, copy state information into the replication slots structure stored in the
         class instance.
@@ -460,8 +459,9 @@ class SlotsHandler:
         advance_slots: Dict[str, Dict[str, int]] = defaultdict(dict)
         create_slots: List[str] = []  # Collect logical slots to be created on the replica
 
-        logical_slots = {name: value for name, value in slots.items() if value['type'] == 'logical'}
-        for name, value in logical_slots.items():
+        for name, value in slots.items():
+            if value['type'] != 'logical':
+                continue
 
             # If the logical already exists, copy some information about it into the original structure
             if self._replication_slots.get(name, {}).get('datoid'):
