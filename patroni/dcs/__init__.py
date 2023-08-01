@@ -1428,7 +1428,7 @@ class AbstractDCS(abc.ABC):
 
         .. note::
             Stores copy of time, status and failsafe values for comparison in DCS update decisions.
-            This works around the unique operational requirement of Zookeeper to make extra queries for keys.
+            Caching is required to avoid overhead placed upon the REST API.
 
             Returns either a Citus or Patroni implementation of :class:`Cluster` depending on availability.
 
@@ -1478,6 +1478,12 @@ class AbstractDCS(abc.ABC):
 
     def write_leader_optime(self, last_lsn: int) -> None:
         """Write value for WAL LSN to ``optime/leader`` key in DCS.
+
+        .. note::
+            This method abstracts away the required data structure of :meth:`~Cluster.write_status`, so it
+            is not needed in the caller. However, the ``optime/leader`` is only written in 
+            :meth:`~Cluster.write_status` when the cluster has members with a Patroni version that
+            is old enough to require it (i.e. the old Patroni version doesn't understand the new format).
 
         :param last_lsn: absolute WAL LSN in bytes.
         """
