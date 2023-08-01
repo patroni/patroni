@@ -10,37 +10,44 @@ To deploy a Patroni cluster without using a pre-existing PostgreSQL instance, se
 Procedure
 ---------
 
-You can find below an overview of steps to converting an existing Postgres cluster to a Patroni managed cluster. In the steps we assume all nodes that are part of the existing cluster are currently up and running. The steps:
+You can find below an overview of steps for converting an existing Postgres cluster to a Patroni managed cluster. In the steps we assume all nodes that are part of the existing cluster are currently up and running, and that you *do not* intend to change Postgres configuration while the migration is ongoing. The steps:
+
+#. Create the Postgres users as explained for :ref:`authentication <postgresql_settings>` section of the Patroni configuration. You can find sample SQL commands to create the users in the code block below, in which you need to replace the usernames and passwords as per your environment. If you already have the relevant users, then you can skip this step.
+
+    .. code-block:: sql
+
+        -- Patroni superuser
+        -- Replace PATRONI_SUPERUSER_USERNAME and PATRONI_SUPERUSER_PASSWORD accordingly
+        CREATE USER PATRONI_SUPERUSER_USERNAME WITH SUPERUSER ENCRYPTED PASSWORD 'PATRONI_SUPERUSER_PASSWORD';
+
+        -- Patroni replication user
+        -- Replace PATRONI_REPLICATION_USERNAME and PATRONI_REPLICATION_PASSWORD accordingly
+        CREATE USER PATRONI_REPLICATION_USERNAME WITH REPLICATION ENCRYPTED PASSWORD 'PATRONI_REPLICATION_PASSWORD';
+
+        -- Patroni rewind user, if you intend to enable use_pg_rewind in your Patroni configuration
+        -- Replace PATRONI_REWIND_USERNAME and PATRONI_REWIND_PASSWORD accordingly
+        CREATE USER PATRONI_REWIND_USERNAME WITH ENCRYPTED PASSWORD 'PATRONI_REWIND_PASSWORD';
+        GRANT EXECUTE ON function pg_catalog.pg_ls_dir(text, boolean, boolean) TO PATRONI_REWIND_USERNAME;
+        GRANT EXECUTE ON function pg_catalog.pg_stat_file(text, boolean) TO PATRONI_REWIND_USERNAME;
+        GRANT EXECUTE ON function pg_catalog.pg_read_binary_file(text) TO PATRONI_REWIND_USERNAME;
+        GRANT EXECUTE ON function pg_catalog.pg_read_binary_file(text, bigint, bigint, boolean) TO PATRONI_REWIND_USERNAME;
 
 #. Perform the following steps on all Postgres nodes. Perform all steps on one node before proceeding with the next node. Start with the primary node, then proceed with each standby node:
 
     #. If you are running Postgres through systemd, then disable the Postgres systemd unit. This is performed as Patroni manages starting and stopping the Postgres daemon.
-    #. Create a YAML configuration file for Patroni. If you have replication slots being used for replication between cluster members, then it is recommended that you enable ``use_slots`` and configure the existing replication slots as permanent via the ``slots`` configuration item. Be aware that Patroni automatically creates replication slots for replication between members, and drops replication slots that it does not recognize, when ``use_slots`` is enabled. The idea of using permanent slots here is to allow your existing slots to persist while the migration to Patroni is in progress. See :ref:`YAML Configuration Settings <yaml_configuration>` for details.
-    #. Create the Postgres users as defined in the :ref:`authentication <postgresql_settings>` section of the Patroni configuration. You can find sample SQL commands to create the users in the code block below. Replace the usernames and passwords as per your configuration.
 
-        .. code-block:: sql
+    #. Create a YAML configuration file for Patroni.
 
-           -- Patroni superuser
-           CREATE USER PATRONI_SUPERUSER_USERNAME WITH SUPERUSER ENCRYPTED PASSWORD '$PATRONI_SUPERUSER_PASSWORD';
+        * **Note (specific for the primary node):** If you have replication slots being used for replication between cluster members, then it is recommended that you enable ``use_slots`` and configure the existing replication slots as permanent via the ``slots`` configuration item. Be aware that Patroni automatically creates replication slots for replication between members, and drops replication slots that it does not recognize, when ``use_slots`` is enabled. The idea of using permanent slots here is to allow your existing slots to persist while the migration to Patroni is in progress. See :ref:`YAML Configuration Settings <yaml_configuration>` for details.
 
-           -- Patroni replication user
-           CREATE USER PATRONI_REPLICATION_USERNAME WITH REPLICATION ENCRYPTED PASSWORD '$PATRONI_REPLICATION_PASSWORD';
-
-           -- Patroni rewind user, if you enabled use_pg_rewind in your configuration
-           CREATE USER PATRONI_REWIND_USERNAME WITH ENCRYPTED PASSWORD '$PATRONI_REWIND_PASSWORD';
-           GRANT EXECUTE ON function pg_catalog.pg_ls_dir(text, boolean, boolean) TO PATRONI_REWIND_USERNAME;
-           GRANT EXECUTE ON function pg_catalog.pg_stat_file(text, boolean) TO PATRONI_REWIND_USERNAME;
-           GRANT EXECUTE ON function pg_catalog.pg_read_binary_file(text) TO PATRONI_REWIND_USERNAME;
-           GRANT EXECUTE ON function pg_catalog.pg_read_binary_file(text, bigint, bigint, boolean) TO PATRONI_REWIND_USERNAME;
-
-    #. Start Patroni using the `patroni` systemd service unit. It automatically detects that Postgres is already running and starts monitoring the instance.
+    #. Start Patroni using the ``patroni`` systemd service unit. It automatically detects that Postgres is already running and starts monitoring the instance.
 
 #. Hand over Postgres "start up procedure" to Patroni. In order to do that you need to restart the cluster members through ``patronictl restart cluster-name member-name`` command. For minimal downtime you might want to split this step into:
 
     #. Immediate restart of the standby nodes.
     #. Scheduled restart of the primary node within a maintenance window.
 
-#. If you configured permanent slots in step ``1.2.``, then you should remove them from ``slots`` configuration once the ``restart_lsn`` of the slots created by Patroni is able to catch up with the ``restart_lsn`` of the original slots for the corresponding members. By removing the slots from ``slots`` configuration you will allow Patroni to drop the original slots from your cluster once they are not needed anymore. You can find below an example query to check the ``restart_lsn`` of a couple slots, so you can compare them:
+#. If you configured permanent slots in step ``1.2.``, then you should remove them from ``slots`` configuration through ``patronictl edit-config cluster-name member-name`` command once the ``restart_lsn`` of the slots created by Patroni is able to catch up with the ``restart_lsn`` of the original slots for the corresponding members. By removing the slots from ``slots`` configuration you will allow Patroni to drop the original slots from your cluster once they are not needed anymore. You can find below an example query to check the ``restart_lsn`` of a couple slots, so you can compare them:
 
     .. code-block:: sql
 
