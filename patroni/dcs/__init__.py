@@ -1192,7 +1192,55 @@ def catch_return_false_exception(func: Callable[..., Any]) -> Any:
 
 
 class AbstractDCS(abc.ABC):
-    """Abstract representation of DCS for preparing and loading :class:`Cluster` objects."""
+    """Abstract representation of DCS for preparing and loading :class:`Cluster` objects.
+
+    Implementations of a concrete DCS class, using appropriate backend client interfaces, must include the following
+    methods and properties.
+
+    Functional methods that perform construction of complex data objects:
+
+        * :meth:`~Cluster._cluster_loader`: method which processes the structure of data stored in the DCS used to build
+                                            the :class:`Cluster` object with all relevant associated data.
+        * :meth:`~Cluster._citus_cluster_loader`: Similar to above but specifically representing Citus group and workers
+                                                  information.
+        * :meth:`~Cluster._load_cluster`: main method for calling specific ``loader`` method to build the
+                                          :class:`Cluster` object representing the state and topology of the cluster.
+
+    Functional methods that are critical in their timing and must be written with ACID transaction properties in mind:
+
+        * :meth:`~Cluster.attempt_to_acquire_leader`: method used in the leader race to attempt to acquire the leader
+                                                      lock by creating the leader key in the DCS, if it does not exist.
+        * :meth:`~Cluster.take_leader`: method to create a new leader key in the DCS.
+        * :meth:`~Cluster.initialize`: method used in the race for cluster initialization which creates the
+                                       ``initialize`` key in the DCS.
+
+    DCS backend getter and setter methods and properties:
+
+        * :meth:`~Cluster.set_ttl`: method for setting TTL value in DCS.
+        * :meth:`~Cluster.ttl`: property which returns the current TTL.
+        * :meth:`~Cluster.set_retry_timeout`: method for setting ``retry_timeout`` in DCS backend.
+        * :meth:`~Cluster._write_leader_optime`: compatibility method to write WAL LSN to DCS.
+        * :meth:`~Cluster._write_status`: method to write WAL LSN for slots to the DCS.
+        * :meth:`~Cluster._write_failsafe`: method to write cluster topology to the DCS, used by failsafe mechanism.
+        * :meth:`~Cluster._update_leader`: method to update ``leader`` key in DCS.
+        * :meth:`~Cluster.set_failover_value`: method to create and/or update the ``failover`` key in the DCS.
+        * :meth:`~Cluster.set_config_value`: method to create and/or update the ``failover`` key in the DCS.
+        * :meth:`~Cluster.touch_member`: method to update individual member key in the DCS.
+        * :meth:`~Cluster.set_history_value`: method to set the ``history`` key in the DCS.
+        * :meth:`~Cluster.set_sync_state_value`: method to set the synchronous state ``sync`` key in the DCS.
+
+    DCS data and key removal methods:
+
+        * :meth:`~Cluster.delete_sync_state`: likewise, a method to remove synchronous state ``sync`` key from the DCS.
+        * :meth:`~Cluster.delete_cluster`: method which will remove cluster information from the DCS.
+        * :meth:`~Cluster._delete_leader`: method used by a member that is the current leader, to remove the ``leader``
+                                           key in the DCS.
+        * :meth:`~Cluster.cancel_initialization`: method to remove the ``initialize`` key for the cluster from the DCS.
+
+    Care should be taken to consult each abstract method for any additional information and requirements such as
+    expected exceptions that should be raised in certain conditions and the object types for arguments and return from
+    methods and properties.
+    """
 
     _INITIALIZE = 'initialize'
     _CONFIG = 'config'
