@@ -225,7 +225,7 @@ class Member(NamedTuple('Member',
         :param version: modification version of a given member key in a Configuration Store.
         :param name: name of PostgreSQL cluster member.
         :param session: either session id or just ttl in seconds.
-        :param value: JSON encoded string containing arbitrary data i.e. ``conn_url``, ``api_url``, 
+        :param value: JSON encoded string containing arbitrary data i.e. ``conn_url``, ``api_url``,
                       ``xlog_location``, ``state``, ``role``, ``tags``, etc. OR a connection URL
                       starting with ``postgres://``.
 
@@ -538,22 +538,22 @@ class Failover(NamedTuple):
 
     def __len__(self) -> int:
         """Implement ``len`` function capability.
-        
+
         .. note::
            This magic method aids in the evaluation of "emptiness" of a ``Failover`` instance. For example:
-           
+
            >>> failover = Failover.from_node(1, None)
            >>> len(failover)
            0
            >>> assert bool(failover) is False
-           
+
            >>> failover = Failover.from_node(1, {"leader": "cluster_leader"})
            >>> len(failover)
            1
            >>> assert bool(failover) is True
-        
+
            This makes it easier to write ``if cluster.failover`` rather than the longer statement.
-        
+
         """
         return int(bool(self.leader)) + int(bool(self.candidate))
 
@@ -1351,7 +1351,8 @@ class AbstractDCS(abc.ABC):
 
         :param path: the path in DCS where to load Cluster(s) from.
 
-        :returns: all Citus groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values or a :class:`Cluster` object representing the coordinator with filled `Cluster.workers` attribute.
+        :returns: all Citus groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values or a
+                  :class:`Cluster` object representing the coordinator with filled `Cluster.workers` attribute.
         """
 
     @abc.abstractmethod
@@ -1481,7 +1482,7 @@ class AbstractDCS(abc.ABC):
 
         .. note::
             This method abstracts away the required data structure of :meth:`~Cluster.write_status`, so it
-            is not needed in the caller. However, the ``optime/leader`` is only written in 
+            is not needed in the caller. However, the ``optime/leader`` is only written in
             :meth:`~Cluster.write_status` when the cluster has members with a Patroni version that
             is old enough to require it (i.e. the old Patroni version doesn't understand the new format).
 
@@ -1718,7 +1719,6 @@ class AbstractDCS(abc.ABC):
     @staticmethod
     def sync_state(leader: Optional[str], sync_standby: Optional[Collection[str]]) -> Dict[str, Any]:
         """Build ``sync_state`` dictionary.
-
 
         :param leader: name of the leader node that manages ``/sync`` key.
         :param sync_standby: collection of currently known synchronous standby node names.
