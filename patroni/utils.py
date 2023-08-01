@@ -989,7 +989,7 @@ def get_major_version(bin_dir: Optional[str] = None, bin_name: str = 'postgres')
         is found by subprocess in the ``PATH``.
     :param bin_name: name of the postgres binary to call ('postgres' by default)
     :returns: the PostgreSQL major version.
-    :raises :class:`patroni.exceptions.PatroniException`: if the postgres binary call failed due to OSError
+    :raises :class:`patroni.exceptions.PatroniException`: if the postgres binary call failed due to :exc:`OSError`.
 
     :Example:
 

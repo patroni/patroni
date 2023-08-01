@@ -14,8 +14,7 @@ from .utils import get_major_version, patch_config
 
 
 def get_ip() -> str:
-    """
-    Try to get an ip address of the hostname returned by :func:`gethostname`.
+    """Try to get an ip address of the hostname returned by :func:`~socket.gethostname`.
 
     .. note::
             Can also return local ip
@@ -64,14 +63,16 @@ def get_bin_dir_from_running_instance(data_dir: str) -> str:
 
 
 def enrich_config_from_running_instance(config: Dict[str, Any], no_value_msg: str, dsn: Optional[str] = None) -> None:
-    """Extend the passed ``config`` dictionary with the values gathered from a running instance.
+    """Extend the passed *config* dictionary with the values gathered from a running instance.
 
-    Get
+    Get:
+
     - non-internal GUC values having configuration file, postmaster command line or environment variable as a source
-    - postgresql.connect_address, postgresql.listen,
-    - postgresql.pg_hba and postgresql.pg_ident if hba_file/ident_file is set to the default value
+    - ``postgresql.connect_address``, postgresql.listen``,
+    - ``postgresql.pg_hba`` and ``postgresql.pg_ident`` if hba_file/ident_file is set to the default value
     - superuser auth parameters (from the options used for connection)
-    And redefine scope with the clister_name GUC value if set
+
+    And redefine scope with the ``cluster_name`` GUC value if set.
 
     :param config: configuration parameters dict to be enriched
     :param no_value_msg: str value to be used when a parameter value is not available
