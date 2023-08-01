@@ -11,7 +11,11 @@ logger = logging.getLogger(__name__)
 
 
 class __FilePermissions:
-    """Class that helps with figuring out file and directory permissions based on permissions of PGDATA. """
+    """Helper class for managing permissions of directories and files under PGDATA.
+    
+    Execute :meth:`set_permissions_from_data_directory` to figure out which permissions should be used for files and
+    directories under PGDATA based on permissions of PGDATA root directory.
+    """
 
     # Mode mask for data directory permissions that only allows the owner to read/write directories and files -- mask 077.
     __PG_MODE_MASK_OWNER = stat.S_IRWXG | stat.S_IRWXO
