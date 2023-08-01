@@ -527,10 +527,17 @@ class Ha(object):
         return msg
 
     def _get_node_to_follow(self, cluster: Cluster) -> Union[Leader, Member, None]:
-        # determine the node to follow. If replicatefrom tag is set,
-        # try to follow the node mentioned there, otherwise, follow the leader.
-        if self.is_standby_cluster() and (self.cluster.is_unlocked() or self.has_lock(False)):
+        """Determine the node to follow.
+
+        :param cluster: the currently known cluster state from DCS.
+
+        :returns: the node which we should be replicating from.
+        """
+        # The standby leader or when there is no standby leader we want to follow
+        # the remote member, except when there is no standby leader in pause.
+        if self.is_standby_cluster() and (self.has_lock(False) or self.cluster.is_unlocked() and not self.is_paused()):
             node_to_follow = self.get_remote_member()
+        # If replicatefrom tag is set, try to follow the node mentioned there, otherwise, follow the leader.
         elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
             node_to_follow = cluster.get_member(self.patroni.replicatefrom)
         else:
