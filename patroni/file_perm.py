@@ -13,31 +13,35 @@ logger = logging.getLogger(__name__)
 class __FilePermissions:
     """Class that helps with figuring out file and directory permissions based on permissions of PGDATA. """
 
-    # Mode mask for data directory permissions that only allows the owner to read/write directories and files.
+    # Mode mask for data directory permissions that only allows the owner to read/write directories and files -- mask 077.
     __PG_MODE_MASK_OWNER = stat.S_IRWXG | stat.S_IRWXO
 
-    # Mode mask for data directory permissions that also allows group read/execute.
+    # Mode mask for data directory permissions that also allows group read/execute -- mask 027.
     __PG_MODE_MASK_GROUP = stat.S_IWGRP | stat.S_IRWXO
 
-    # Default mode for creating directories
+    # Default mode for creating directories -- mode 700.
     __PG_DIR_MODE_OWNER = stat.S_IRWXU
 
-    # Mode for creating directories that allows group read/execute
+    # Mode for creating directories that allows group read/execute -- mode 750.
     __PG_DIR_MODE_GROUP = stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP
 
-    # Default mode for creating files
+    # Default mode for creating files -- mode 600.
     __PG_FILE_MODE_OWNER = stat.S_IRUSR | stat.S_IWUSR
 
-    # Mode for creating files that allows group read
+    # Mode for creating files that allows group read -- mode 640.
     __PG_FILE_MODE_GROUP = stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP
 
     def __init__(self) -> None:
-        """Create a :class:`__FilePermissions` object and sets default permissions."""
+        """Create a :class:`__FilePermissions` object and set default permissions."""
         self.__set_owner_permissions()
         self.__set_umask()
 
     def __set_umask(self) -> None:
-        """Set umask value based on calculations."""
+        """Set umask value based on calculations.
+        
+        .. note::
+            Should only be called once either :meth:`__set_owner_permissions` or :meth:`__set_group_permissions` has been executed.
+        """
         try:
             os.umask(self.__pg_mode_mask)
         except Exception as e:
@@ -78,7 +82,7 @@ class __FilePermissions:
 
     @property
     def file_create_mode(self) -> int:
-        """File permissions"""
+        """File permissions."""
         return self.__pg_file_create_mode
 
 

@@ -369,6 +369,13 @@ class ConfigHandler(object):
         return configuration
 
     def set_file_permissions(self, file_name: str) -> None:
+        """Set permissions of file *file_name* according to the expected permissions if it resides under PGDATA.
+
+        .. note::
+            Do nothing if the file is not under PGDATA.
+
+        :param file_name: path to a file which permissions might need to be adjusted.
+        """
         if is_subpath(self._postgresql.data_dir, file_name):
             pg_perm.set_permissions_from_data_directory(self._postgresql.data_dir)
             os.chmod(file_name, pg_perm.file_create_mode)
