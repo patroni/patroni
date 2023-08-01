@@ -32,20 +32,6 @@ _AUTH_ALLOWED_PARAMETERS = (
     'channel_binding'
 )
 
-AUTH_ALLOWED_PARAMETERS_MAPPING = {
-    'user': 'PGUSER',
-    'password': 'PGPASSWORD',
-    'sslmode': 'PGSSLMODE',
-    'sslcert': 'PGSSLCERT',
-    'sslkey': 'PGSSLKEY',
-    'sslpassword': '',
-    'sslrootcert': 'PGSSLROOTCERT',
-    'sslcrl': 'PGSSLCRL',
-    'sslcrldir': 'PGSSLCRLDIR',
-    'gssencmode': 'PGGSSENCMODE',
-    'channel_binding': 'PGCHANNELBINDING'
-}
-
 
 def default_validator(conf: Dict[str, Any]) -> List[str]:
     if not conf:
@@ -249,10 +235,12 @@ class Config(object):
 
     @property
     def local_configuration(self) -> Dict[str, Any]:
+        """Deep copy of cached Patroni local configuration."""
         return deepcopy(dict(self._local_configuration))
 
     @classmethod
     def get_default_config(cls) -> Dict[str, Any]:
+        """Deep copy of :attr:`__DEFAULT_CONFIG`."""
         return deepcopy(cls.__DEFAULT_CONFIG)
 
     def _load_config_path(self, path: str) -> Dict[str, Any]:

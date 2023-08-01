@@ -188,6 +188,10 @@ class CaseInsensitiveDict(MutableMapping[str, Any]):
         return CaseInsensitiveDict({v[0]: v[1] for v in self._values.values()})
 
     def keys(self) -> KeysView[str]:
+        """Return a new view of the dict's keys
+
+        :return: a set-like object providing a view on the dict's keys
+        """
         return self._values.keys()
 
     def __repr__(self) -> str:

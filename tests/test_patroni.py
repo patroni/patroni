@@ -3,6 +3,7 @@ import logging
 import os
 import psutil
 import signal
+import socket
 import time
 import unittest
 
@@ -488,10 +489,10 @@ class TestGenerateConfig(unittest.TestCase):
             self.assertIn('Failed to establish PostgreSQL connection', e.exception.code)
 
             # 10. Failed to get local IP
-            with patch('socket.getaddrinfo', Mock(side_effect=[OSError, []])):
+            with patch('socket.getaddrinfo', Mock(side_effect=[OSError, socket.gaierror])):
                 with self.assertRaises(SystemExit) as e:
                     _main()
                 self.assertIn('Failed to define ip address', e.exception.code)
                 with self.assertRaises(SystemExit) as e:
                     _main()
-                self.assertIn('Failed to define ip address. No address returned by getaddrinfo for', e.exception.code)
+                self.assertIn('Failed to define ip address', e.exception.code)

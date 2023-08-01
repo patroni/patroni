@@ -13,14 +13,36 @@ from .postgresql.misc import postgres_major_version_to_int
 from .utils import get_major_version, patch_config
 
 
+"""Mapping between the libpq connection parameters and the environment variables.
+This dict should be kept in sync with `patroni.utils._AUTH_ALLOWED_PARAMETERS`
+(we use "username" in the Patroni config for some reason, other parameter names are the same).
+"""
+_AUTH_ALLOWED_PARAMETERS_MAPPING = {
+    'user': 'PGUSER',
+    'password': 'PGPASSWORD',
+    'sslmode': 'PGSSLMODE',
+    'sslcert': 'PGSSLCERT',
+    'sslkey': 'PGSSLKEY',
+    'sslpassword': '',
+    'sslrootcert': 'PGSSLROOTCERT',
+    'sslcrl': 'PGSSLCRL',
+    'sslcrldir': 'PGSSLCRLDIR',
+    'gssencmode': 'PGGSSENCMODE',
+    'channel_binding': 'PGCHANNELBINDING'
+}
+
+
 def get_ip() -> str:
     """Try to get an ip address of the hostname returned by :func:`~socket.gethostname`.
 
     .. note::
-            Can also return local ip
+        Can also return local ip
 
-    :returns: the first element in the sorted list of the addresses returned by :func:`getaddrinfo`.
-              Sorting guarantees it will prefer ipv4.
+    .. note::
+        :exc:`OSError` raised leads to execution termination.
+
+    :returns: the first element in the sorted list of the addresses returned by :func:`~socket.getaddrinfo`.
+              Sorting guarantees it will prefer IPv4.
     """
     hostname = None
     try:
@@ -29,15 +51,17 @@ def get_ip() -> str:
                       key=lambda x: x[0])[0][4][0]
     except OSError as e:
         sys.exit(f'Failed to define ip address: {e}')
-    except IndexError:
-        sys.exit(f'Failed to define ip address. No address returned by getaddrinfo for {hostname}')
 
 
 def get_int_major_version(config: Optional[Dict[str, Any]] = None) -> int:
     """Get major version of PostgreSQL from the binary as an integer.
 
     :param config: optional dictionary representing Patroni config. If contains bin_dir and/or the custom
-    bin_name for postgres, the values are used for the version retrieval.
+        ``bin_name`` for postgres, the values are used for the version retrieval.
+
+    :returns: an integer PostgreSQL major version representation gathered from the PostgreSQL binary.
+        See :func:`~patroni.postgresql.misc.postgres_major_version_to_int` and
+        :func:`~patroni.utils.get_major_version`.
     """
     config = config or {}
     postgres_bin = ((config.get('postgresql') or {}).get('bin_name') or {}).get('postgres', 'postgres')
@@ -45,11 +69,19 @@ def get_int_major_version(config: Optional[Dict[str, Any]] = None) -> int:
 
 
 def get_bin_dir_from_running_instance(data_dir: str) -> str:
-    """Define the directory postgres binaries reside using postmaster's pid executable."""
+    """Define the directory postgres binaries reside using postmaster's pid executable.
+
+    .. note::
+        :exc:`OSError` or :exc:`psutil.NoSuchProcess` raised leads to execution termination.
+
+    :param data_dir: the PostgreSQL data directory to search for postmaster.pid file in.
+
+    :returns: path to the PostgreSQL binaries directory
+    """
     postmaster_pid = None
     try:
-        with open(f"{data_dir}/postmaster.pid", 'r') as f:
-            postmaster_pid = f.readline()
+        with open(f"{data_dir}/postmaster.pid", 'r') as pid_file:
+            postmaster_pid = pid_file.readline()
             if not postmaster_pid:
                 sys.exit('Failed to obtain postmaster pid from postmaster.pid file')
             postmaster_pid = int(postmaster_pid.strip())
@@ -59,28 +91,40 @@ def get_bin_dir_from_running_instance(data_dir: str) -> str:
     try:
         return os.path.dirname(psutil.Process(postmaster_pid).exe())
     except psutil.NoSuchProcess:
-        sys.exit('Obtained postmaster pid doesn\'t exist')
+        sys.exit("Obtained postmaster pid doesn't exist.")
 
 
 def enrich_config_from_running_instance(config: Dict[str, Any], no_value_msg: str, dsn: Optional[str] = None) -> None:
     """Extend the passed *config* dictionary with the values gathered from a running instance.
 
-    Get:
+    Retrieve the following information from the running PostgreSQL instance:
 
-    - non-internal GUC values having configuration file, postmaster command line or environment variable as a source
-    - ``postgresql.connect_address``, postgresql.listen``,
-    - ``postgresql.pg_hba`` and ``postgresql.pg_ident`` if hba_file/ident_file is set to the default value
-    - superuser auth parameters (from the options used for connection)
+    * non-internal GUC values having configuration file, postmaster command line or environment variable as a source
+    * ``postgresql.connect_address``, postgresql.listen``
+    * ``postgresql.pg_hba`` and ``postgresql.pg_ident`` if the ``hba_file`` or ``ident_file`` is set to the default
+        value
+    * superuser auth parameters (from the options used for connection)
 
     And redefine scope with the ``cluster_name`` GUC value if set.
 
+    .. note::
+        The following situations lead to the execution termination:
+            * error raised during
+
+                * DSN string parsing
+                * PG connection establishing
+                * working with pg_hba.conf/pg_ident.conf
+                * PG binary dir extraction
+                * ip address definition
+
+            * the user provided lacking superuser privilege
+
     :param config: configuration parameters dict to be enriched
-    :param no_value_msg: str value to be used when a parameter value is not available
+    :param no_value_msg: :class:`str` value to be used when a parameter value is not available
     :param dsn: optional DSN string for the source running instance
     """
     from getpass import getuser, getpass
     from patroni.postgresql.config import parse_dsn
-    from patroni.config import AUTH_ALLOWED_PARAMETERS_MAPPING
 
     su_params: Dict[str, str] = {}
     parsed_dsn = {}
@@ -91,7 +135,7 @@ def enrich_config_from_running_instance(config: Dict[str, Any], no_value_msg: st
             sys.exit('Failed to parse DSN string')
 
     # gather auth parameters for the superuser config
-    for conn_param, env_var in AUTH_ALLOWED_PARAMETERS_MAPPING.items():
+    for conn_param, env_var in _AUTH_ALLOWED_PARAMETERS_MAPPING.items():
         val = parsed_dsn.get(conn_param, os.getenv(env_var))
         if val:
             su_params[conn_param] = val
@@ -153,17 +197,17 @@ def enrich_config_from_running_instance(config: Dict[str, Any], no_value_msg: st
             allowed_records = ['local', 'host', 'hostssl', 'hostnossl', 'hostgssenc', 'hostnogssenc']
             if get_int_major_version(config) >= 16:
                 allowed_records += ['include', 'include_if_exists', 'include_dir']
-            with open(default_hba_path, 'r') as f:
+            with open(default_hba_path, 'r') as hba_file:
                 config['postgresql']['pg_hba'] = list(filter(lambda i: i and i.split()[0] in allowed_records,
-                                                             (li.strip() for li in f.readlines())))
+                                                             (li.strip() for li in hba_file.readlines())))
         except OSError as e:
             sys.exit(f'Failed to read pg_hba.conf: {e}')
 
     default_ident_path = os.path.join(config['postgresql']['data_dir'], 'pg_ident.conf')
     if config['postgresql']['parameters']['ident_file'] == default_ident_path:
         try:
-            with open(default_ident_path, 'r') as f:
-                config['postgresql']['pg_ident'] = [i.strip() for i in f.readlines()
+            with open(default_ident_path, 'r') as ident_file:
+                config['postgresql']['pg_ident'] = [i.strip() for i in ident_file.readlines()
                                                     if i.strip() and not i.startswith('#')]
         except OSError as e:
             sys.exit(f'Failed to read pg_ident.conf: {e}')
@@ -185,26 +229,28 @@ def generate_config(file: str, sample: bool, dsn: Optional[str]) -> None:
     for the connection. If password is not provided, it should be entered via prompt.
 
     The created configuration contains:
-    - ``scope``: cluster_name GUC value or PATRONI_SCOPE ENV variable value if available
-    - ``name``: PATRONI_NAME ENV variable value if set, otherewise hostname
-    - ``bootsrtap.dcs``: section with all the parameters (incl. the majority of PG GUCs) set to their default values
+    * ``scope``: cluster_name GUC value or PATRONI_SCOPE ENV variable value if available
+    * ``name``: PATRONI_NAME ENV variable value if set, otherewise hostname
+    * ``bootsrtap.dcs``: section with all the parameters (incl. the majority of PG GUCs) set to their default values
       defined by Patroni and adjusted by the source instances's configuration values.
-    - ``postgresql.parameters``: the source instance's archive_command, restore_command, archive_cleanup_command,
+    * ``postgresql.parameters``: the source instance's archive_command, restore_command, archive_cleanup_command,
       recovery_end_command, ssl_passphrase_command, hba_file, ident_file, config_file GUC values
-    - ``postgresql.bin_dir``: path to Postgres binaries gathered from the running instance or, if not available,
+    * ``postgresql.bin_dir``: path to Postgres binaries gathered from the running instance or, if not available,
       the value of PATRONI_POSTGRESQL_BIN_DIR ENV variable. Otherwise, an empty string.
-    - ``postgresql.datadir``: the value gathered from the corresponding PG GUC
-    - ``postgresql.listen``: source instance's listen_addresses and port GUC values
-    - ``postgresql.connect_address``: if possible, generated from the connection params
-    - ``postgresql.authentication``:
-        - superuser and replication users defined (if possible, usernames are set from the respective Patroni ENV vars,
+    * ``postgresql.datadir``: the value gathered from the corresponding PG GUC
+    * ``postgresql.listen``: source instance's listen_addresses and port GUC values
+    * ``postgresql.connect_address``: if possible, generated from the connection params
+    * ``postgresql.authentication``:
+
+        * superuser and replication users defined (if possible, usernames are set from the respective Patroni ENV vars,
           otherwise the default 'postgres' and 'replicator' values are used).
           If not a sample config, either DSN or PG ENV vars are used to define superuser authentication parameters.
-        - rewind user is defined for a sample config if PG version can be defined and PG version is 11+
+        * rewind user is defined for a sample config if PG version can be defined and PG version is 11+
           (if possible, username is set from the respective Patroni ENV var)
-    - ``bootsrtap.dcs.postgresql.use_pg_rewind``
-    - ``postgresql.pg_hba`` defaults or the lines gathered from the source instance's hba_file
-    - ``postgresql.pg_ident`` the lines gathered from the source instance's ident_file
+
+    * ``bootsrtap.dcs.postgresql.use_pg_rewind``
+    * ``postgresql.pg_hba`` defaults or the lines gathered from the source instance's hba_file
+    * ``postgresql.pg_ident`` the lines gathered from the source instance's ident_file
 
     :param file: Full path to the configuration file to be used. If not provided, result is sent to stdout.
     :param sample: Optional flag. If set, no source instance will be used - generate config with some sane defaults.
@@ -284,7 +330,7 @@ def generate_config(file: str, sample: bool, dsn: Optional[str]) -> None:
         dir_path = os.path.dirname(file)
         if dir_path and not os.path.isdir(dir_path):
             os.makedirs(dir_path)
-        with open(file, 'w') as fd:
-            yaml.safe_dump(config, fd, default_flow_style=False)
+        with open(file, 'w') as output_file:
+            yaml.safe_dump(config, output_file, default_flow_style=False)
     else:
         yaml.safe_dump(config, sys.stdout, default_flow_style=False)
