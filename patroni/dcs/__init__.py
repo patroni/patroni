@@ -461,7 +461,7 @@ class Leader(NamedTuple):
 
 
 class Failover(NamedTuple):
-    """Immutable object (namedtuple) which represents configuration information required for failover/switchover capability.
+    """Immutable object (namedtuple) representing configuration information required for failover/switchover capability.
 
     :ivar version: version of the object.
     :ivar leader: name of the leader. If value isn't empty we treat it as a switchover from the specified node.
@@ -1414,7 +1414,8 @@ class AbstractDCS(abc.ABC):
     def _get_citus_cluster(self) -> Cluster:
         """Load Citus cluster from DCS.
 
-        :returns: A Citus :class:`Cluster` instance for the coordinator with workers clusters in the `Cluster.workers` dict.
+        :returns: A Citus :class:`Cluster` instance for the coordinator with workers clusters in the `Cluster.workers`
+                  dict.
         """
         groups = self._load_cluster(self._base_path + '/', self._citus_cluster_loader)
         if isinstance(groups, Cluster):  # Zookeeper could return a cached version
