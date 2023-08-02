@@ -540,7 +540,7 @@ class Failover(NamedTuple):
         """Implement ``len`` function capability.
 
         .. note::
-           This magic method aids in the evaluation of "emptiness" of a ``Failover`` instance. For example:
+           This magic method aids in the evaluation of "emptiness" of a :class:`Failover` instance. For example:
 
            >>> failover = Failover.from_node(1, None)
            >>> len(failover)
@@ -1361,7 +1361,7 @@ class AbstractDCS(abc.ABC):
 
     @abc.abstractmethod
     def set_retry_timeout(self, retry_timeout: int) -> None:
-        """Set the new value for retry_timeout."""
+        """Set the new value for *retry_timeout*."""
 
     def _set_loop_wait(self, loop_wait: int) -> None:
         """Set new *loop_wait* value.
@@ -1548,7 +1548,7 @@ class AbstractDCS(abc.ABC):
 
     @abc.abstractmethod
     def _write_status(self, value: str) -> bool:
-        """Write current WAL LSN and confirmed_flush_lsn of permanent slots into the ``/status`` key in DCS.
+        """Write current WAL LSN and ``confirmed_flush_lsn`` of permanent slots into the ``/status`` key in DCS.
 
         :param value: status serialized in JSON format.
 
