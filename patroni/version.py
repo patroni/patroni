@@ -2,4 +2,4 @@
 
 :var __version__: the current Patroni version.
 """
-__version__ = '3.0.4'
+__version__ = '3.1.0'
