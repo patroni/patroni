@@ -379,7 +379,8 @@ class RemoteMember(Member):
         """Factory method to construct instance from given *name* and *data*.
 
         :param name: name of the remote member.
-        :param data: dictionary of member information.
+        :param data: dictionary of member information, which can contain keys from :const:`¬RemoteMember.ALLOWED_KEYS`
+                     but also member connection information ``api_url`` and ``conn_kwargs`, and slot information.
 
         :returns: constructed instance using supplied parameters.
         """
