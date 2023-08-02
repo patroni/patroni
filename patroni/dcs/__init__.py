@@ -835,7 +835,7 @@ class Cluster(NamedTuple('Cluster',
         """
         return all((self.initialize is None, self.config is None, self.leader is None, self.last_lsn == 0,
                     self.members == [], self.failover is None, self.sync.version is None,
-                    self.history is None, self.slots is None, self.failsafe is None, not self.workers))
+                    self.history is None, self.slots is None, self.failsafe is None, self.workers == {}))
 
     def __len__(self) -> int:
         """Implement ``len`` function capability.
@@ -1192,7 +1192,7 @@ def catch_return_false_exception(func: Callable[..., Any]) -> Any:
 
 
 class AbstractDCS(abc.ABC):
-    """Abstract representation of DCS for preparing and loading :class:`Cluster` objects.
+    """Abstract representation of DCS modules.
 
     Implementations of a concrete DCS class, using appropriate backend client interfaces, must include the following
     methods and properties.
@@ -1238,7 +1238,7 @@ class AbstractDCS(abc.ABC):
         * :meth:`~AbstractDCS.delete_sync_state`:
             likewise, a method to remove synchronous state ``sync`` key from the DCS.
         * :meth:`~AbstractDCS.delete_cluster`:
-            method which will remove cluster information from the DCS.
+            method which will remove cluster information from the DCS. Used only from `patronictl`.
         * :meth:`~AbstractDCS._delete_leader`:
             method used by a member that is the current leader, to remove the ``leader`` key in the DCS.
         * :meth:`~AbstractDCS.cancel_initialization`:
@@ -1283,11 +1283,11 @@ class AbstractDCS(abc.ABC):
         self.event = Event()
 
     def client_path(self, path: str) -> str:
-        """Construct the client path from appropriate parts for the DCS type.
+        """Construct the absolute key name from appropriate parts for the DCS type.
 
-        :param path: Additional string path to append, leftmost ``/`` will be removed.
+        :param path: The key name within the current Patroni cluster.
 
-        :returns: ``/`` delimited path joined to a single string.
+        :returns: absolute key name for the current Patroni cluster.
         """
         components = [self._base_path]
         if self._citus_group:
@@ -1453,7 +1453,7 @@ class AbstractDCS(abc.ABC):
         return self._citus_group == str(CITUS_COORDINATOR_GROUP_ID)
 
     def get_citus_coordinator(self) -> Optional[Cluster]:
-        """Load the cluster for the Citus Coordinator node.
+        """Load the Patroni cluster for the Citus Coordinator.
 
           .. note::
               This method is only executed on the worker nodes (``group!=0``) to find the coordinator.
