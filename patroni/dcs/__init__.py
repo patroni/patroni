@@ -747,9 +747,14 @@ _HistoryTuple = Union[Tuple[int, int, str], Tuple[int, int, str, str], Tuple[int
 class TimelineHistory(NamedTuple):
     """Object representing timeline history file.
 
+    .. note::
+        The content held in *lines* deserialized from *value* are lines parsed from PostgreSQL timeline history files,
+        consisting of the timeline number, the LSN where the timeline split and any other string held in the file.
+        The files are parsed by :func:`~patroni.postgresql.misc.parse_history`.
+
     :ivar version: version number of the file.
-    :ivar value: raw JSON serialised data.
-    :ivar lines: parsed lines from the history file.
+    :ivar value: raw JSON serialised data consisting of parsed lines from history files.
+    :ivar lines: ``List`` of ``Tuple`` parsed lines from history files.
     """
 
     version: _Version
@@ -1197,7 +1202,8 @@ class AbstractDCS(abc.ABC):
     Implementations of a concrete DCS class, using appropriate backend client interfaces, must include the following
     methods and properties.
 
-    Functional methods that perform construction of complex data objects:
+    Functional methods that are critical in their timing, required to complete within ``retry_timeout`` period in order
+    to prevent the DCS considered inaccessible, each perform construction of complex data objects:
 
         * :meth:`~AbstractDCS._cluster_loader`:
             method which processes the structure of data stored in the DCS used to build the :class:`Cluster` object
@@ -1213,24 +1219,32 @@ class AbstractDCS(abc.ABC):
         * :meth:`~AbstractDCS.attempt_to_acquire_leader`:
             method used in the leader race to attempt to acquire the leader lock by creating the leader key in the DCS,
             if it does not exist.
-        * :meth:`~AbstractDCS.take_leader`:
-            method to create a new leader key in the DCS.
+        * :meth:`~AbstractDCS._update_leader`:
+            method to update ``leader`` key in DCS. Relies on Compare-And-Set to ensure the Primary lock key is updated.
+            If this fails to update within the ``retry_timeout`` window the Primary will be demoted.
+
+    Functional method that relies on Compare-And-Create to ensure only one member creates the relevant key:
+
         * :meth:`~AbstractDCS.initialize`:
             method used in the race for cluster initialization which creates the ``initialize`` key in the DCS.
 
     DCS backend getter and setter methods and properties:
 
+        * :meth:`~AbstractDCS.take_leader`: method to create a new leader key in the DCS.
         * :meth:`~AbstractDCS.set_ttl`: method for setting TTL value in DCS.
         * :meth:`~AbstractDCS.ttl`: property which returns the current TTL.
         * :meth:`~AbstractDCS.set_retry_timeout`: method for setting ``retry_timeout`` in DCS backend.
         * :meth:`~AbstractDCS._write_leader_optime`: compatibility method to write WAL LSN to DCS.
         * :meth:`~AbstractDCS._write_status`: method to write WAL LSN for slots to the DCS.
         * :meth:`~AbstractDCS._write_failsafe`: method to write cluster topology to the DCS, used by failsafe mechanism.
-        * :meth:`~AbstractDCS._update_leader`: method to update ``leader`` key in DCS.
-        * :meth:`~AbstractDCS.set_failover_value`: method to create and/or update the ``failover`` key in the DCS.
-        * :meth:`~AbstractDCS.set_config_value`: method to create and/or update the ``failover`` key in the DCS.
         * :meth:`~AbstractDCS.touch_member`: method to update individual member key in the DCS.
         * :meth:`~AbstractDCS.set_history_value`: method to set the ``history`` key in the DCS.
+
+    DCS setter methods using Compare-And-Set which although important are less critical if they fail, attempts can be
+    retried or may result in warning log messages:
+
+        * :meth:`~AbstractDCS.set_failover_value`: method to create and/or update the ``failover`` key in the DCS.
+        * :meth:`~AbstractDCS.set_config_value`: method to create and/or update the ``failover`` key in the DCS.
         * :meth:`~AbstractDCS.set_sync_state_value`: method to set the synchronous state ``sync`` key in the DCS.
 
     DCS data and key removal methods:
@@ -1240,9 +1254,12 @@ class AbstractDCS(abc.ABC):
         * :meth:`~AbstractDCS.delete_cluster`:
             method which will remove cluster information from the DCS. Used only from `patronictl`.
         * :meth:`~AbstractDCS._delete_leader`:
-            method used by a member that is the current leader, to remove the ``leader`` key in the DCS.
+            method relies on CAS, used by a member that is the current leader, to remove the ``leader`` key in the DCS.
         * :meth:`~AbstractDCS.cancel_initialization`:
             method to remove the ``initialize`` key for the cluster from the DCS.
+
+    If either of the `sync_state` set or delete methods fail, although not critical, this may result in
+    ``Synchronous replication key updated by someone else`` messages being logged.
 
     Care should be taken to consult each abstract method for any additional information and requirements such as
     expected exceptions that should be raised in certain conditions and the object types for arguments and return from
