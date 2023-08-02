@@ -49,7 +49,7 @@ def compare_slots(s1: Dict[str, Any], s2: Dict[str, Any], dbid: str = 'database'
 class SlotsAdvanceThread(Thread):
     """Daemon process :class:``Thread`` object for advancing logical replication slots on replicas.
 
-    This ensures that slot advancing queries sent to postgres do not block the main loop and cause leader lock expiry.
+    This ensures that slot advancing queries sent to postgres do not block the main loop.
     """
 
     def __init__(self, slots_handler: 'SlotsHandler') -> None:
@@ -222,7 +222,7 @@ class SlotsHandler:
             2. detect if one of the previously known permanent slots is missing and schedule resync.
             3. Update the local cache with the fresh ``catalog_xmin`` and ``confirmed_flush_lsn`` for every known slot.
 
-               This info is used when performing the check of logical slot readiness on standbys.
+           This info is used when performing the check of logical slot readiness on standbys.
 
         :param slots: replication slot information that exists on the current host.
 
@@ -304,7 +304,7 @@ class SlotsHandler:
 
         :param name: name of the slot to be dropped.
 
-        :returns: a tuple of ``active`` and ``dropped``. ``active`` is ``True`` if the slot was active when dropped,
+        :returns: a tuple of ``active`` and ``dropped``. ``active`` is ``True`` if the slot is active,
                   ``dropped`` is ``True`` if the slot was successfully dropped. If the slot was not found return
                   ``False`` for both.
         """
@@ -440,7 +440,7 @@ class SlotsHandler:
         return self._advance.schedule(slots)
 
     def _ensure_logical_slots_replica(self, cluster: Cluster, slots: Dict[str, Any]) -> List[str]:
-        """Update missing logical *slots* on replicas.
+        """Update logical *slots* on replicas.
 
         If the logical slot already exists, copy state information into the replication slots structure stored in the
         class instance. Slots that exist are also advanced if their ``confirmed_flush_lsn`` is greater than the stored
