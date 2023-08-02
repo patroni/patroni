@@ -329,9 +329,19 @@ class Config(object):
 
     @staticmethod
     def _process_postgresql_parameters(parameters: Dict[str, Any], is_local: bool = False) -> Dict[str, Any]:
-        return {name: value for name, value in (parameters or {}).items()
-                if name not in ConfigHandler.CMDLINE_OPTIONS
-                or not is_local and ConfigHandler.CMDLINE_OPTIONS[name][1](value)}
+        pg_params: Dict[str, Any] = {}
+
+        for name, value in (parameters or {}).items():
+            if name not in ConfigHandler.CMDLINE_OPTIONS:
+                pg_params[name] = value
+            elif not is_local:
+                if ConfigHandler.CMDLINE_OPTIONS[name][1](value):
+                    pg_params[name] = value
+                else:
+                    logging.warning("postgresql parameter %s=%s failed validation, defaulting to %s",
+                                    name, value, ConfigHandler.CMDLINE_OPTIONS[name][0])
+
+        return pg_params
 
     def _safe_copy_dynamic_configuration(self, dynamic_configuration: Dict[str, Any]) -> Dict[str, Any]:
         config = deepcopy(self.__DEFAULT_CONFIG)
@@ -452,9 +462,10 @@ class Config(object):
                     ret[param] = value
             return ret
 
-        restapi_auth = _get_auth('restapi')
-        if restapi_auth:
-            ret['restapi']['authentication'] = restapi_auth
+        for section in ('ctl', 'restapi'):
+            auth = _get_auth(section)
+            if auth:
+                ret[section]['authentication'] = auth
 
         authentication = {}
         for user_type in ('replication', 'superuser', 'rewind'):
@@ -474,7 +485,8 @@ class Config(object):
                               'REGISTER_SERVICE', 'SERVICE_CHECK_INTERVAL', 'SERVICE_CHECK_TLS_SERVER_NAME',
                               'SERVICE_TAGS', 'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL',
                               'POD_IP', 'PORTS', 'LABELS', 'BYPASS_API_SERVICE', 'RETRIABLE_HTTP_CODES', 'KEY_PASSWORD',
-                              'USE_SSL', 'SET_ACLS', 'GROUP', 'DATABASE') and name:
+                              'USE_SSL', 'SET_ACLS', 'GROUP', 'DATABASE', 'LEADER_LABEL_VALUE', 'FOLLOWER_LABEL_VALUE',
+                              'STANDBY_LEADER_LABEL_VALUE', 'TMP_ROLE_LABEL') and name:
                     value = os.environ.pop(param)
                     if name == 'CITUS':
                         if suffix == 'GROUP':
@@ -531,9 +543,10 @@ class Config(object):
             elif name not in config or name in ['watchdog']:
                 config[name] = deepcopy(value) if value else {}
 
-        # restapi server expects to get restapi.auth = 'username:password'
-        if 'restapi' in config and 'authentication' in config['restapi']:
-            config['restapi']['auth'] = '{username}:{password}'.format(**config['restapi']['authentication'])
+        # restapi server expects to get restapi.auth = 'username:password' and similarly for `ctl`
+        for section in ('ctl', 'restapi'):
+            if section in config and 'authentication' in config[section]:
+                config[section]['auth'] = '{username}:{password}'.format(**config[section]['authentication'])
 
         # special treatment for old config
 

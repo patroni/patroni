@@ -278,8 +278,10 @@ class TestHa(PostgresInit):
         self.p.follow = true
         self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
         self.p.is_running = true
+        ha_dcs_orig_name = self.ha.dcs.__class__.__name__
         self.ha.dcs.__class__.__name__ = 'Raft'
         self.assertEqual(self.ha.run_cycle(), 'started as a secondary')
+        self.ha.dcs.__class__.__name__ = ha_dcs_orig_name
 
     def test_recover_former_primary(self):
         self.p.follow = false
@@ -305,7 +307,7 @@ class TestHa(PostgresInit):
         self.p.is_running = false
         self.p.controldata = lambda: {'Database cluster state': 'in production', 'Database system identifier': SYSID}
         self.assertEqual(self.ha.run_cycle(), 'doing crash recovery in a single user mode')
-        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)),\
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)), \
                 patch.object(Ha, 'check_timeline', Mock(return_value=False)):
             self.ha._async_executor.schedule('doing crash recovery in a single user mode')
             self.ha.state_handler.cancellable._process = Mock()
@@ -338,7 +340,7 @@ class TestHa(PostgresInit):
         self.ha._rewind.check_leader_is_not_in_recovery = true
         with patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True)):
             self.assertEqual(self.ha.run_cycle(), 'running pg_rewind from leader')
-        with patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=False)),\
+        with patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=False)), \
                 patch.object(Ha, 'is_synchronous_mode', Mock(return_value=True)):
             self.p.follow = true
             self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
@@ -372,6 +374,12 @@ class TestHa(PostgresInit):
     @patch('patroni.psycopg.connect', psycopg_connect)
     def test_acquire_lock_as_primary(self):
         self.assertEqual(self.ha.run_cycle(), 'acquired session lock as a leader')
+
+    def test_leader_race_stale_primary(self):
+        with patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=1)), \
+                patch('patroni.ha.logger.warning') as mock_logger:
+            self.assertEqual(self.ha.run_cycle(), 'demoting self because i am not the healthiest node')
+            self.assertEqual(mock_logger.call_args[0][0], 'My timeline %s is behind last known cluster timeline %s')
 
     def test_promoted_by_acquiring_lock(self):
         self.ha.is_healthiest_node = true
@@ -606,7 +614,7 @@ class TestHa(PostgresInit):
         self.e.initialize = true
         self.ha.bootstrap()
         self.p.is_leader = true
-        with patch.object(Watchdog, 'activate', Mock(return_value=False)),\
+        with patch.object(Watchdog, 'activate', Mock(return_value=False)), \
                 patch('patroni.ha.logger.error') as mock_logger:
             self.assertEqual(self.ha.post_bootstrap(), 'running post_bootstrap')
             self.assertRaises(PatroniFatalException, self.ha.post_bootstrap)
@@ -667,9 +675,9 @@ class TestHa(PostgresInit):
 
             self.ha.update_lock = false
             self.p.set_role('primary')
-            with patch('patroni.async_executor.CriticalTask.cancel', Mock(return_value=False)),\
+            with patch('patroni.async_executor.CriticalTask.cancel', Mock(return_value=False)), \
                     patch('patroni.async_executor.CriticalTask.result',
-                          PropertyMock(return_value=PostmasterProcess(os.getpid())), create=True),\
+                          PropertyMock(return_value=PostmasterProcess(os.getpid())), create=True), \
                     patch('patroni.postgresql.Postgresql.terminate_starting_postmaster') as mock_terminate:
                 self.assertEqual(self.ha.run_cycle(), 'lost leader lock during restart')
                 mock_terminate.assert_called()
@@ -883,7 +891,10 @@ class TestHa(PostgresInit):
         member = Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni'})
         self.ha.fetch_node_status(member)
         member = Member(0, 'test', 1, {'api_url': 'http://localhost:8011/patroni'})
-        self.ha.fetch_node_status(member)
+        self.ha.patroni.request = Mock()
+        self.ha.patroni.request.return_value.data = b'{"wal":{"location":1},"role":"primary"}'
+        ret = self.ha.fetch_node_status(member)
+        self.assertFalse(ret.in_recovery)
 
     @patch.object(Rewind, 'pg_rewind', true)
     @patch.object(Rewind, 'check_leader_is_not_in_recovery', true)

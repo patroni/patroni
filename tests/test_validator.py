@@ -15,7 +15,8 @@ config = {
     "scope": "string",
     "restapi": {
         "listen": "127.0.0.2:800",
-        "connect_address": "127.0.0.2:800"
+        "connect_address": "127.0.0.2:800",
+        "verify_client": 'none'
     },
     "bootstrap": {
         "dcs": {

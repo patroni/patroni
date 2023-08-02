@@ -56,7 +56,7 @@ class _MemberStatus(NamedTuple):
         # If one of those is not in a response we want to count the node as not healthy/reachable
         wal: Dict[str, Any] = json.get('wal') or json['xlog']
         # abuse difference in primary/replica response format
-        in_recovery = not bool(wal.get('location')) or json.get('role') in ('master', 'primary')
+        in_recovery = not (bool(wal.get('location')) or json.get('role') in ('master', 'primary'))
         timeline = json.get('timeline', 0)
         dcs_last_seen = json.get('dcs_last_seen', 0)
         lsn = int(in_recovery and max(wal.get('received_location', 0), wal.get('replayed_location', 0)))
@@ -473,7 +473,8 @@ class Ha(object):
 
         # timeout > 0 indicates that we still have the leader lock, and it was just updated
         if timeout\
-                and data.get('Database cluster state') in ('in production', 'shutting down', 'shut down')\
+                and data.get('Database cluster state') in ('in production', 'in crash recovery',
+                                                           'shutting down', 'shut down')\
                 and self.state_handler.state == 'crashed'\
                 and self.state_handler.role in ('primary', 'master')\
                 and not self.state_handler.config.recovery_conf_exists():
@@ -496,6 +497,7 @@ class Ha(object):
 
         role = 'replica'
         if self.has_lock() and not self.is_standby_cluster():
+            self._rewind.reset_state()  # we want to later trigger CHECKPOINT after promote
             msg = "starting as readonly because i had the session lock"
             node_to_follow = None
         else:
@@ -525,10 +527,17 @@ class Ha(object):
         return msg
 
     def _get_node_to_follow(self, cluster: Cluster) -> Union[Leader, Member, None]:
-        # determine the node to follow. If replicatefrom tag is set,
-        # try to follow the node mentioned there, otherwise, follow the leader.
-        if self.is_standby_cluster() and (self.cluster.is_unlocked() or self.has_lock(False)):
+        """Determine the node to follow.
+
+        :param cluster: the currently known cluster state from DCS.
+
+        :returns: the node which we should be replicating from.
+        """
+        # The standby leader or when there is no standby leader we want to follow
+        # the remote member, except when there is no standby leader in pause.
+        if self.is_standby_cluster() and (self.has_lock(False) or self.cluster.is_unlocked() and not self.is_paused()):
             node_to_follow = self.get_remote_member()
+        # If replicatefrom tag is set, try to follow the node mentioned there, otherwise, follow the leader.
         elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
             node_to_follow = cluster.get_member(self.patroni.replicatefrom)
         else:
@@ -768,18 +777,14 @@ class Ha(object):
                 self.state_handler.sync_handler.set_synchronous_standby_names(
                     CaseInsensitiveSet('*') if self.global_config.is_synchronous_mode_strict else CaseInsensitiveSet())
             if self.state_handler.role not in ('master', 'promoted', 'primary'):
-                def on_success():
-                    self._rewind.reset_state()
-                    logger.info("cleared rewind state after becoming the leader")
-
                 def before_promote():
                     self.notify_citus_coordinator('before_promote')
 
                 with self._async_response:
                     self._async_response.reset()
+
                 self._async_executor.try_run_async('promote', self.state_handler.promote,
-                                                   args=(self.dcs.loop_wait, self._async_response,
-                                                         before_promote, on_success))
+                                                   args=(self.dcs.loop_wait, self._async_response, before_promote))
             return promote_message
 
     def fetch_node_status(self, member: Member) -> _MemberStatus:
@@ -998,9 +1003,22 @@ class Ha(object):
                 return ret
 
         if self.state_handler.is_leader():
-            # in pause leader is the healthiest only when no initialize or sysid matches with initialize!
-            return not self.is_paused() or not self.cluster.initialize\
-                or self.state_handler.sysid == self.cluster.initialize
+            if self.is_paused():
+                # in pause leader is the healthiest only when no initialize or sysid matches with initialize!
+                return not self.cluster.initialize or self.state_handler.sysid == self.cluster.initialize
+
+            # We want to protect from the following scenario:
+            # 1. node1 is stressed so much that heart-beat isn't running regularly and the leader lock expires.
+            # 2. node2 promotes, gets heavy load and the situation described in 1 repeats.
+            # 3. Patroni on node1 comes back, notices that Postgres is running as primary but there is
+            #    no leader key and "happily" acquires the leader lock.
+            # That is, node1 discarded promotion of node2. To avoid it we want to detect timeline change.
+            my_timeline = self.state_handler.get_primary_timeline()
+            if my_timeline < self.cluster.timeline:
+                logger.warning('My timeline %s is behind last known cluster timeline %s',
+                               my_timeline, self.cluster.timeline)
+                return False
+            return True
 
         if self.is_paused():
             return False
@@ -1084,7 +1102,9 @@ class Ha(object):
             # It could happen if Postgres is still archiving the backlog of WAL files.
             # If we know that there are replicas that received the shutdown checkpoint
             # location, we can remove the leader key and allow them to start leader race.
-            if self.is_failover_possible(self.cluster.members, cluster_lsn=checkpoint_location):
+
+            # for a manual failover/switchover with a candidate, we should check the requested candidate only
+            if self.is_failover_possible(self.get_failover_candidates(), cluster_lsn=checkpoint_location):
                 self.state_handler.set_role('demoted')
                 with self._async_executor:
                     self.release_leader_key_voluntarily(checkpoint_location)
@@ -1188,15 +1208,12 @@ class Ha(object):
                     logger.warning('Failover is possible only to a specific candidate in a paused state')
                 else:
                     if self.is_synchronous_mode():
-                        if failover.candidate and not self.cluster.sync.matches(failover.candidate):
+                        members = self.get_failover_candidates(check_sync=True)
+                        if failover.candidate and not members:
                             logger.warning('Failover candidate=%s does not match with sync_standbys=%s',
                                            failover.candidate, self.cluster.sync.sync_standby)
-                            members = []
-                        else:
-                            members = [m for m in self.cluster.members if self.cluster.sync.matches(m.name)]
                     else:
-                        members = [m for m in self.cluster.members
-                                   if not failover.candidate or m.name == failover.candidate]
+                        members = self.get_failover_candidates()
                     if self.is_failover_possible(members, False):  # check that there are healthy members
                         ret = self._async_executor.try_run_async('manual failover: demote', self.demote, ('graceful',))
                         return ret or 'manual failover: demoting myself'
@@ -1614,6 +1631,9 @@ class Ha(object):
             else:
                 if self._was_paused:
                     self.state_handler.schedule_sanity_checks_after_pause()
+                    # during pause people could manually do something with Postgres, therefore we want
+                    # to double check rewind conditions on replicas and maybe run CHECKPOINT on the primary
+                    self._rewind.reset_state()
                 self._was_paused = False
 
             if not self.cluster.has_member(self.state_handler.name):
@@ -1848,7 +1868,9 @@ class Ha(object):
                     # It could happen if Postgres is still archiving the backlog of WAL files.
                     # If we know that there are replicas that received the shutdown checkpoint
                     # location, we can remove the leader key and allow them to start leader race.
-                    if self.is_failover_possible(self.cluster.members, cluster_lsn=checkpoint_location):
+
+                    # for a manual failover/switchover with a candidate, we should check the requested candidate only
+                    if self.is_failover_possible(self.get_failover_candidates(), cluster_lsn=checkpoint_location):
                         self.dcs.delete_leader(checkpoint_location)
                         status['deleted'] = True
                     else:
@@ -1908,3 +1930,24 @@ class Ha(object):
 
         name = member.name if member else 'remote_member:{}'.format(uuid.uuid1())
         return RemoteMember.from_name_and_data(name, data)
+
+    def get_failover_candidates(self, check_sync: bool = False) -> List[Member]:
+        """Return list of candidates for either manual or automatic failover.
+
+        Mainly used to later be passed to ``Ha.is_failover_possible()``.
+
+        :param check_sync: if ``True``, also check against the sync key members
+
+        :returns: a list of ``Member`` ojects or an empty list if there is no candidate available
+        """
+        failover = self.cluster.failover
+        if check_sync:
+            # TODO: allow manual failover (=no leader specified) to async node
+            # every sync_standby or the candidate specified if is in sync_standbys
+            return [m for m in self.cluster.members
+                    if self.cluster.sync.matches(m.name)
+                    and (not failover or not failover.candidate or m.name == failover.candidate)]
+        else:
+            # every member or the candidate specified
+            return [m for m in self.cluster.members
+                    if not failover or not failover.candidate or m.name == failover.candidate]
