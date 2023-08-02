@@ -1421,6 +1421,7 @@ class TestHa(PostgresInit):
     @patch('os.open', Mock())
     @patch('os.fsync', Mock())
     @patch('os.close', Mock())
+    @patch('os.chmod', Mock())
     @patch('os.rename', Mock())
     @patch('patroni.postgresql.Postgresql.is_starting', Mock(return_value=False))
     @patch('builtins.open', mock_open())

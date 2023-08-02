@@ -523,8 +523,9 @@ class TestPostgresql(BaseTestPostgresql):
     def test_save_configuration_files(self):
         self.p.config.save_configuration_files()
 
-    @patch('os.path.isfile', Mock(side_effect=[False, True]))
-    @patch('shutil.copy', Mock(side_effect=IOError))
+    @patch('os.path.isfile', Mock(side_effect=[False, True, False, True]))
+    @patch('shutil.copy', Mock(side_effect=[None, IOError]))
+    @patch('os.chmod', Mock())
     def test_restore_configuration_files(self):
         self.p.config.restore_configuration_files()
 

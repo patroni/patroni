@@ -85,6 +85,7 @@ class TestConfig(unittest.TestCase):
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.remove', Mock(side_effect=IOError))
     @patch('os.close', Mock(side_effect=IOError))
+    @patch('os.chmod', Mock())
     @patch('shutil.move', Mock(return_value=None))
     @patch('json.dump', Mock())
     def test_save_cache(self):
