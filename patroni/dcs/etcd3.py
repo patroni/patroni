@@ -15,7 +15,7 @@ from urllib3.exceptions import ReadTimeoutError, ProtocolError
 from threading import Condition, Lock, Thread
 from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
-from . import ClusterConfig, Cluster, Failover, Leader, Member, SyncState,\
+from . import ClusterConfig, Cluster, Failover, Leader, Member, SyncState, \
     TimelineHistory, catch_return_false_exception, citus_group_re
 from .etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors, DnsCachingResolver, Retry
 from ..exceptions import DCSError, PatroniException
@@ -628,6 +628,16 @@ class PatroniEtcd3Client(Etcd3Client):
             elif delete and 'range_end' not in delete:
                 self._kv_cache.delete(delete['key'], ret['header']['revision'])
 
+        return ret
+
+    def txn(self, compare: Dict[str, Any], success: Dict[str, Any],
+            failure: Optional[Dict[str, Any]] = None, retry: Optional[Retry] = None) -> Dict[str, Any]:
+        ret = super(PatroniEtcd3Client, self).txn(compare, success, failure, retry)
+        # Here we abuse the fact that the `failure` is only set in the call from update_leader().
+        # In all other cases the txn() call failure may be an indicator of a stale cache,
+        # and therefore we want to restart watcher.
+        if not failure and not ret:
+            self._restart_watcher()
         return ret
 
 

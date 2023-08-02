@@ -121,4 +121,4 @@ tags:
     nofailover: false
     noloadbalance: false
     clonefrom: false
-    replicatefrom: postgres1
+#    replicatefrom: postgresql1

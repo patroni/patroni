@@ -226,7 +226,7 @@ class TestRestApiHandler(unittest.TestCase):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /primary'))
         with patch.object(RestApiServer, 'query', Mock(return_value=[('', 1, '', '', '', '', False, None, None, '')])):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
-        with patch.object(GlobalConfig, 'is_standby_cluster', Mock(return_value=True)),\
+        with patch.object(GlobalConfig, 'is_standby_cluster', Mock(return_value=True)), \
                 patch.object(GlobalConfig, 'is_paused', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /standby_leader')
 
@@ -559,7 +559,7 @@ class TestRestApiHandler(unittest.TestCase):
         request = post + '103\n\n{"leader": "postgresql1", "member": "postgresql2",' +\
                          ' "scheduled_at": "6016-02-15T18:13:30.568224+01:00"}'
         MockRestApiServer(RestApiHandler, request)
-        with patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)),\
+        with patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)), \
                 patch.object(MockPatroni, 'dcs') as d:
             d.manual_failover.return_value = False
             MockRestApiServer(RestApiHandler, request)

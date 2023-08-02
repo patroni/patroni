@@ -497,6 +497,7 @@ class Ha(object):
 
         role = 'replica'
         if self.has_lock() and not self.is_standby_cluster():
+            self._rewind.reset_state()  # we want to later trigger CHECKPOINT after promote
             msg = "starting as readonly because i had the session lock"
             node_to_follow = None
         else:
@@ -526,10 +527,17 @@ class Ha(object):
         return msg
 
     def _get_node_to_follow(self, cluster: Cluster) -> Union[Leader, Member, None]:
-        # determine the node to follow. If replicatefrom tag is set,
-        # try to follow the node mentioned there, otherwise, follow the leader.
-        if self.is_standby_cluster() and (self.cluster.is_unlocked() or self.has_lock(False)):
+        """Determine the node to follow.
+
+        :param cluster: the currently known cluster state from DCS.
+
+        :returns: the node which we should be replicating from.
+        """
+        # The standby leader or when there is no standby leader we want to follow
+        # the remote member, except when there is no standby leader in pause.
+        if self.is_standby_cluster() and (self.has_lock(False) or self.cluster.is_unlocked() and not self.is_paused()):
             node_to_follow = self.get_remote_member()
+        # If replicatefrom tag is set, try to follow the node mentioned there, otherwise, follow the leader.
         elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
             node_to_follow = cluster.get_member(self.patroni.replicatefrom)
         else:
@@ -769,18 +777,14 @@ class Ha(object):
                 self.state_handler.sync_handler.set_synchronous_standby_names(
                     CaseInsensitiveSet('*') if self.global_config.is_synchronous_mode_strict else CaseInsensitiveSet())
             if self.state_handler.role not in ('master', 'promoted', 'primary'):
-                def on_success():
-                    self._rewind.reset_state()
-                    logger.info("cleared rewind state after becoming the leader")
-
                 def before_promote():
                     self.notify_citus_coordinator('before_promote')
 
                 with self._async_response:
                     self._async_response.reset()
+
                 self._async_executor.try_run_async('promote', self.state_handler.promote,
-                                                   args=(self.dcs.loop_wait, self._async_response,
-                                                         before_promote, on_success))
+                                                   args=(self.dcs.loop_wait, self._async_response, before_promote))
             return promote_message
 
     def fetch_node_status(self, member: Member) -> _MemberStatus:
@@ -999,9 +1003,22 @@ class Ha(object):
                 return ret
 
         if self.state_handler.is_leader():
-            # in pause leader is the healthiest only when no initialize or sysid matches with initialize!
-            return not self.is_paused() or not self.cluster.initialize\
-                or self.state_handler.sysid == self.cluster.initialize
+            if self.is_paused():
+                # in pause leader is the healthiest only when no initialize or sysid matches with initialize!
+                return not self.cluster.initialize or self.state_handler.sysid == self.cluster.initialize
+
+            # We want to protect from the following scenario:
+            # 1. node1 is stressed so much that heart-beat isn't running regularly and the leader lock expires.
+            # 2. node2 promotes, gets heavy load and the situation described in 1 repeats.
+            # 3. Patroni on node1 comes back, notices that Postgres is running as primary but there is
+            #    no leader key and "happily" acquires the leader lock.
+            # That is, node1 discarded promotion of node2. To avoid it we want to detect timeline change.
+            my_timeline = self.state_handler.get_primary_timeline()
+            if my_timeline < self.cluster.timeline:
+                logger.warning('My timeline %s is behind last known cluster timeline %s',
+                               my_timeline, self.cluster.timeline)
+                return False
+            return True
 
         if self.is_paused():
             return False
@@ -1614,6 +1631,9 @@ class Ha(object):
             else:
                 if self._was_paused:
                     self.state_handler.schedule_sanity_checks_after_pause()
+                    # during pause people could manually do something with Postgres, therefore we want
+                    # to double check rewind conditions on replicas and maybe run CHECKPOINT on the primary
+                    self._rewind.reset_state()
                 self._was_paused = False
 
             if not self.cluster.has_member(self.state_handler.name):

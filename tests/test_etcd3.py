@@ -5,8 +5,9 @@ import urllib3
 
 from mock import Mock, PropertyMock, patch
 from patroni.dcs.etcd import DnsCachingResolver
-from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3Client, Etcd3Error, Etcd3ClientError, RetryFailedError,\
-    InvalidAuthToken, Unavailable, Unknown, UnsupportedEtcdVersion, UserEmpty, AuthFailed, base64_encode, Etcd3
+from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3, Etcd3Client, \
+    Etcd3Error, Etcd3ClientError, RetryFailedError, InvalidAuthToken, Unavailable, \
+    Unknown, UnsupportedEtcdVersion, UserEmpty, AuthFailed, base64_encode
 from threading import Thread
 
 from . import SleepException, MockResponse
@@ -126,9 +127,15 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         request = {'key': base64_encode('/patroni/test/leader')}
         mock_urlopen.return_value = MockResponse()
         mock_urlopen.return_value.content = '{"succeeded":true,"header":{"revision":"1"}}'
-        self.client.call_rpc('/kv/txn', {'success': [{'request_delete_range': request}]})
         self.client.call_rpc('/kv/put', request)
         self.client.call_rpc('/kv/deleterange', request)
+
+    @patch.object(urllib3.PoolManager, 'urlopen')
+    def test_txn(self, mock_urlopen):
+        mock_urlopen.return_value = MockResponse()
+        mock_urlopen.return_value.content = '{"header":{"revision":"1"}}'
+        self.client.txn({'target': 'MOD', 'mod_revision': '1'},
+                        {'request_delete_range': {'key': base64_encode('/patroni/test/leader')}})
 
     @patch('time.time', Mock(side_effect=[1, 10.9, 100]))
     def test__wait_cache(self):
@@ -241,7 +248,7 @@ class TestEtcd3(BaseTestEtcd3):
             self.etcd3.update_leader(leader, '123', failsafe={'foo': 'bar'})
         self.etcd3._last_lease_refresh = 0
         self.etcd3.update_leader(leader, '124')
-        with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(return_value=True)),\
+        with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(return_value=True)), \
                 patch('time.time', Mock(side_effect=[0, 100, 200, 300])):
             self.assertRaises(Etcd3Error, self.etcd3.update_leader, leader, '126')
         self.etcd3._lease = leader.session
