@@ -5,7 +5,7 @@ import shutil
 from collections import defaultdict
 from contextlib import contextmanager
 from threading import Condition, Thread
-from typing import Any, Dict, Generator, List, Optional, Union, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Iterator, List, Optional, Union, Tuple, TYPE_CHECKING
 
 from .connection import get_connection_cursor
 from .misc import format_lsn, fsync_dir
@@ -253,7 +253,7 @@ class SlotsHandler(object):
                 self._schedule_load_slots = True
 
     @contextmanager
-    def get_local_connection_cursor(self, **kwargs: Any) -> Generator[Union['cursor', 'Cursor[Any]'], None, None]:
+    def get_local_connection_cursor(self, **kwargs: Any) -> Iterator[Union['cursor', 'Cursor[Any]']]:
         conn_kwargs = self._postgresql.config.local_connect_kwargs
         conn_kwargs.update(kwargs)
         with get_connection_cursor(**conn_kwargs) as cur:
@@ -342,7 +342,7 @@ class SlotsHandler(object):
         return ret
 
     @contextmanager
-    def _get_leader_connection_cursor(self, leader: Leader) -> Generator[Union['cursor', 'Cursor[Any]'], None, None]:
+    def _get_leader_connection_cursor(self, leader: Leader) -> Iterator[Union['cursor', 'Cursor[Any]']]:
         conn_kwargs = leader.conn_kwargs(self._postgresql.config.rewind_credentials)
         conn_kwargs['dbname'] = self._postgresql.database
         with get_connection_cursor(connect_timeout=3, options="-c statement_timeout=2000", **conn_kwargs) as cur:
