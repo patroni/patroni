@@ -1603,7 +1603,7 @@ class AbstractDCS(abc.ABC):
     def write_failsafe(self, value: Dict[str, str]) -> None:
         """Write the ``/failsafe`` key in DCS.
 
-        :param value: dictionary value to set.
+        :param value: dictionary value to set, consisting of the ``name`` and ``api_url`` of members.
         """
         if not (isinstance(self._last_failsafe, dict) and deep_compare(self._last_failsafe, value)) \
                 and self._write_failsafe(json.dumps(value, separators=(',', ':'))):
