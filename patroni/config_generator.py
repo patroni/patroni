@@ -17,10 +17,9 @@ from .postgresql.misc import postgres_major_version_to_int
 from .utils import get_major_version, patch_config, read_stripped
 
 
-"""Mapping between the libpq connection parameters and the environment variables.
-This dict should be kept in sync with `patroni.utils._AUTH_ALLOWED_PARAMETERS`
-(we use "username" in the Patroni config for some reason, other parameter names are the same).
-"""
+# Mapping between the libpq connection parameters and the environment variables.
+# This dict should be kept in sync with `patroni.utils._AUTH_ALLOWED_PARAMETERS`
+# (we use "username" in the Patroni config for some reason, other parameter names are the same).
 _AUTH_ALLOWED_PARAMETERS_MAPPING = {
     'user': 'PGUSER',
     'password': 'PGPASSWORD',
@@ -276,7 +275,7 @@ def generate_config(file: str, sample: bool, dsn: Optional[str]) -> None:
     :param dsn: Optional DSN string for the local instance to get GUC values from.
     """
     pg_version = None
-    hotname, local_ip = get_address()
+    hostname, local_ip = get_address()
 
     config = Config('', None).local_configuration  # Get values from env
     dynamic_config = Config.get_default_config()
@@ -286,7 +285,7 @@ def generate_config(file: str, sample: bool, dsn: Optional[str]) -> None:
 
     template_config: Dict[str, Any] = {
         'scope': _NO_VALUE_MSG,
-        'name': hotname,
+        'name': hostname,
         'postgresql': {
             'data_dir': _NO_VALUE_MSG,
             'connect_address': _NO_VALUE_MSG + ':5432',
