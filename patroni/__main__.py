@@ -7,7 +7,6 @@ import time
 from argparse import Namespace
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
-from patroni.config_generator import generate_config
 from patroni.daemon import AbstractPatroniDaemon, abstract_main, get_base_arg_parser
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -164,6 +163,8 @@ def patroni_main(configfile: str) -> None:
 
 
 def process_arguments() -> Namespace:
+    from patroni.config_generator import generate_config
+
     parser = get_base_arg_parser()
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--validate-config', action='store_true', help='Run config validator and exit')

@@ -468,6 +468,18 @@ def _sleep(interval: Union[int, float]) -> None:
     time.sleep(interval)
 
 
+def read_stripped(file_path: str) -> Iterator[str]:
+    """Iterate over stripped lines in the given file.
+
+    :param file_path: path to the file to read from
+
+    :yields: each line from the given filed stripped
+    """
+    with open(file_path) as f:
+        for line in f.readlines():
+            yield line.strip()
+
+
 class RetryFailedError(PatroniException):
     """Maximum number of attempts exhausted in retry operation."""
 
