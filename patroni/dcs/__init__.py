@@ -59,7 +59,7 @@ def parse_connection_string(value: str) -> Tuple[str, Union[str, None]]:
     """Split and rejoin a URL string into a connection URL and an API URL.
 
     .. note::
-        Original Governor stores connection strings for each cluster members if a following format:
+        Original Governor stores connection strings for each cluster members in a following format:
 
             postgres://{username}:{password}@{connect_address}/postgres
 
