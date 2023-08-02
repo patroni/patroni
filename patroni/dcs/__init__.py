@@ -178,8 +178,8 @@ class Member(NamedTuple('Member',
     """Immutable object (namedtuple) which represents single member of PostgreSQL cluster.
 
     .. note::
-        We are using an old-style attribute declaration here because otherwise it is not possible to override `__new__`
-        method in the :class:`RemoteMember`` class.
+        We are using an old-style attribute declaration here because otherwise it is not possible to override
+        ``__new__`` method in the :class:`RemoteMember` class.
 
     .. note::
         These two keys in data are always written to the DCS, but care is taken to maintain consistency and resilience

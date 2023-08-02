@@ -35,7 +35,7 @@ Version 3.1.0
 
 - Avoid unnecessary updates of ``/status`` key (Alexander Kukushkin)
 
-  When there are no permanent logical slots Patroni was updating the ``/status`` on every heart-beat loop even when LSN on the primary didn't move forward.
+  When there are no permanent logical slots Patroni was updating the ``/status`` on every heartbeat loop even when LSN on the primary didn't move forward.
 
 - Don't allow stale primary to win the leader race (Alexander Kukushkin)
 
