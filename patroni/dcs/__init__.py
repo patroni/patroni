@@ -767,7 +767,8 @@ class TimelineHistory(NamedTuple):
         """Parse the given JSON serialized string as a list of timeline history lines.
 
         :param version: version number
-        :param value: JSON serialized string.
+        :param value: JSON serialized string, consisting of parsed lines of PostgreSQL timeline history files,
+                      see :class:`TimelineHistory`.
 
         :returns: composed timeline history object using parsed lines.
 
