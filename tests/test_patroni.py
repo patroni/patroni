@@ -357,8 +357,8 @@ class TestGenerateConfig(unittest.TestCase):
     @patch('os.makedirs')
     @patch('yaml.safe_dump')
     def test_generate_sample_config_pre_13_dir_creation(self, mock_config_dump, mock_makedir):
-        with patch('sys.argv', ['patroni.py', '--generate-sample-config', '/foo/bar.yml']),\
-             patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 9.4.3")) as pg_bin_mock,\
+        with patch('sys.argv', ['patroni.py', '--generate-sample-config', '/foo/bar.yml']), \
+             patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 9.4.3")) as pg_bin_mock, \
              self.assertRaises(SystemExit) as e:
             _main()
         self.assertEqual(e.exception.code, 0)
@@ -380,7 +380,7 @@ class TestGenerateConfig(unittest.TestCase):
             ['host all all all scram-sha-256',
              f'host replication {self.environ["PATRONI_REPLICATION_USERNAME"]} all scram-sha-256']
 
-        with patch('sys.argv', ['patroni.py', '--generate-sample-config', '/foo/bar.yml']),\
+        with patch('sys.argv', ['patroni.py', '--generate-sample-config', '/foo/bar.yml']), \
              self.assertRaises(SystemExit) as e:
             _main()
         self.assertEqual(e.exception.code, 0)
@@ -391,9 +391,9 @@ class TestGenerateConfig(unittest.TestCase):
     def test_generate_config_running_instance_13(self, mock_config_dump):
         self._set_running_instance_config_vals()
 
-        with patch('builtins.open', Mock(side_effect=self._get_running_instance_open_res())),\
+        with patch('builtins.open', Mock(side_effect=self._get_running_instance_open_res())), \
              patch('sys.argv', ['patroni.py', '--generate-config',
-                                '--dsn', 'host=foo port=bar user=foobar password=qwerty']),\
+                                '--dsn', 'host=foo port=bar user=foobar password=qwerty']), \
                 self.assertRaises(SystemExit) as e:
             _main()
         self.assertEqual(e.exception.code, 0)
@@ -412,8 +412,8 @@ class TestGenerateConfig(unittest.TestCase):
         self.config['postgresql']['authentication']['superuser']['password'] = self.environ['PGPASSWORD']
         self.config['postgresql']['connect_address'] = '1.9.8.4:1984'
 
-        with patch('builtins.open', Mock(side_effect=self._get_running_instance_open_res())),\
-             patch('sys.argv', ['patroni.py', '--generate-config']),\
+        with patch('builtins.open', Mock(side_effect=self._get_running_instance_open_res())), \
+             patch('sys.argv', ['patroni.py', '--generate-config']), \
              self.assertRaises(SystemExit) as e:
             _main()
         self.assertEqual(e.exception.code, 0)
@@ -421,22 +421,22 @@ class TestGenerateConfig(unittest.TestCase):
 
     def test_generate_config_running_instance_errors(self):
         # 1. Wrong DSN format
-        with patch('sys.argv', ['patroni.py', '--generate-config', '--dsn', 'host:foo port:bar user:foobar']),\
+        with patch('sys.argv', ['patroni.py', '--generate-config', '--dsn', 'host:foo port:bar user:foobar']), \
              self.assertRaises(SystemExit) as e:
             _main()
         self.assertIn('Failed to parse DSN string', e.exception.code)
 
         # 2. User is not a superuser
         with patch('sys.argv', ['patroni.py',
-                                '--generate-config', '--dsn', 'host=foo port=bar user=foobar password=pwd_from_dsn']),\
-             patch.object(MockCursor, 'rowcount', PropertyMock(return_value=0), create=True),\
+                                '--generate-config', '--dsn', 'host=foo port=bar user=foobar password=pwd_from_dsn']), \
+             patch.object(MockCursor, 'rowcount', PropertyMock(return_value=0), create=True), \
              self.assertRaises(SystemExit) as e:
             _main()
         self.assertIn('The provided user does not have superuser privilege', e.exception.code)
 
         # 3. Error while calling postgres --version
-        with patch('subprocess.check_output', Mock(side_effect=OSError)),\
-             patch('sys.argv', ['patroni.py', '--generate-sample-config']),\
+        with patch('subprocess.check_output', Mock(side_effect=OSError)), \
+             patch('sys.argv', ['patroni.py', '--generate-sample-config']), \
              self.assertRaises(SystemExit) as e:
             _main()
         self.assertIn('Failed to get postgres version:', e.exception.code)
@@ -446,7 +446,7 @@ class TestGenerateConfig(unittest.TestCase):
             # 4. empty postmaster.pid
             with patch('builtins.open', Mock(side_effect=[mock_open(read_data='hba_content')(),
                                                           mock_open(read_data='ident_content')(),
-                                                          mock_open(read_data='')()])),\
+                                                          mock_open(read_data='')()])), \
                  self.assertRaises(SystemExit) as e:
                 _main()
             self.assertIn('Failed to obtain postmaster pid from postmaster.pid file', e.exception.code)
@@ -454,7 +454,7 @@ class TestGenerateConfig(unittest.TestCase):
             # 5. Failed to open postmaster.pid
             with patch('builtins.open', Mock(side_effect=[mock_open(read_data='hba_content')(),
                                                           mock_open(read_data='ident_content')(),
-                                                          OSError])),\
+                                                          OSError])), \
                  self.assertRaises(SystemExit) as e:
                 _main()
             self.assertIn('Error while reading postmaster.pid file', e.exception.code)
@@ -462,28 +462,28 @@ class TestGenerateConfig(unittest.TestCase):
             # 6. Invalid postmaster pid
             with patch('builtins.open', Mock(side_effect=[mock_open(read_data='hba_content')(),
                                                           mock_open(read_data='ident_content')(),
-                                                          mock_open(read_data='1984')()])),\
-                 patch('psutil.Process.__init__', Mock(return_value=None)),\
-                 patch('psutil.Process.exe', Mock(side_effect=psutil.NoSuchProcess(1984))),\
+                                                          mock_open(read_data='1984')()])), \
+                 patch('psutil.Process.__init__', Mock(return_value=None)), \
+                 patch('psutil.Process.exe', Mock(side_effect=psutil.NoSuchProcess(1984))), \
                  self.assertRaises(SystemExit) as e:
                 _main()
             self.assertIn("Obtained postmaster pid doesn't exist", e.exception.code)
 
             # 7. Failed to open pg_hba
-            with patch('builtins.open', Mock(side_effect=OSError)),\
+            with patch('builtins.open', Mock(side_effect=OSError)), \
                  self.assertRaises(SystemExit) as e:
                 _main()
             self.assertIn('Failed to read pg_hba.conf', e.exception.code)
 
             # 8. Failed to open pg_ident
-            with patch('builtins.open', Mock(side_effect=[mock_open(read_data='hba_content')(), OSError])),\
+            with patch('builtins.open', Mock(side_effect=[mock_open(read_data='hba_content')(), OSError])), \
                  self.assertRaises(SystemExit) as e:
                 _main()
             self.assertIn('Failed to read pg_ident.conf', e.exception.code)
 
             # 9. Failed PG connecttion
             from . import psycopg
-            with patch('patroni.psycopg.connect', side_effect=psycopg.Error),\
+            with patch('patroni.psycopg.connect', side_effect=psycopg.Error), \
                  self.assertRaises(SystemExit) as e:
                 _main()
             self.assertIn('Failed to establish PostgreSQL connection', e.exception.code)
