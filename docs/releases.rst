@@ -10,7 +10,7 @@ Version 3.1.0
 
 - Changed semantic of ``restapi.keyfile`` and ``restapi.certfile`` (Alexander Kukushkin)
 
-  Previously Patroni was using ``restapi.keyfile`` and ``restapi.certfile`` as client certificates as a fallback if there was no respective configuration parameters in the ``ctl`` section.
+  Previously Patroni was using ``restapi.keyfile`` and ``restapi.certfile`` as client certificates as a fallback if there were no respective configuration parameters in the ``ctl`` section.
 
 .. warning::
     If you enabled client certificates validation (``restapi.verify_client`` is set to ``required``), you also **must** provide **valid client certificates** in the ``ctl.certfile``, ``ctl.keyfile``, ``ctl.keyfile_password``. If not provided, Patroni will not work correctly.
@@ -31,23 +31,23 @@ Version 3.1.0
 
 - Start Postgres not in recovery if it crashed during recovery while Patroni is running (Alexander Kukushkin)
 
-  It may reduce recovery time and will help from unnecessary timeline increments.
+  It may reduce recovery time and will help to prevent unnecessary timeline increments.
 
 - Avoid unnecessary updates of ``/status`` key (Alexander Kukushkin)
 
-  When there is no permanent logical slots Patroni was updating the ``/status`` on every heart-beat loop even when LSN on the primary didn't move forward.
+  When there are no permanent logical slots Patroni was updating the ``/status`` on every heartbeat loop even when LSN on the primary didn't move forward.
 
 - Don't allow stale primary to win the leader race (Alexander Kukushkin)
 
-  If Patroni was hanging during significant time due to lack of resources it will additionaly check that no other nodes promoted Postgres before acquiring the leader lock.
+  If Patroni was hanging during a significant time due to lack of resources it will additionally check that no other nodes promoted Postgres before acquiring the leader lock.
 
 - Implemented visibility of certain PostgreSQL parameters validation (Alexander Kukushkin, Feike Steenbergen)
 
-  If validation of ``max_connections``, ``max_wal_senders``, ``max_prepared_transactions``, ``max_locks_per_transaction``, ``max_replication_slots``, or ``max_worker_processes`` failed Patroni was using some sane default value. Now in additional to that it will also show a warning.
+  If validation of ``max_connections``, ``max_wal_senders``, ``max_prepared_transactions``, ``max_locks_per_transaction``, ``max_replication_slots``, or ``max_worker_processes`` failed Patroni was using some sane default value. Now in addition to that it will also show a warning.
 
 - Set permissions for files and directories created in ``PGDATA`` (Alexander Kukushkin)
 
-  All files created by Patroni had only owner read/write permissions. This behaviour was breaking backup tools that run under different user and relying on group read permissions. Now Patroni honors permissions on ``PGDATA`` and correctly sets permissions on all directories and files it creates inside ``PGDATA``.
+  All files created by Patroni had only owner read/write permissions. This behaviour was breaking backup tools that run under a different user and relying on group read permissions. Now Patroni honors permissions on ``PGDATA`` and correctly sets permissions on all directories and files it creates inside ``PGDATA``.
 
 
 **Bugfixes**
@@ -56,11 +56,11 @@ Version 3.1.0
 
   Patroni might archive some WAL segments before doing crash recovery in a single-user mode or before ``pg_rewind``. If the archive_command contains some shell operators, like ``&&`` it didn't work with Patroni.
 
-- Fixed on switchover shutdown checks (Polina Bungina)
+- Fixed "on switchover" shutdown checks (Polina Bungina)
 
-  It was possible that specified candidate is still streaming and didn't received shut down checking but the leader key was removed because some other nodes were healthy,
+  It was possible that specified candidate is still streaming and didn't received shut down checking but the leader key was removed because some other nodes were healthy.
 
-- Fixed is primary check (Alexander Kukushkin)
+- Fixed "is primary" check (Alexander Kukushkin)
 
   During the leader race replicas were not able to recognize that Postgres on the old leader is still running as a primary.
 
@@ -70,13 +70,13 @@ Version 3.1.0
 
 - Fixed ``pg_rewind`` behaviour after pause (Alexander Kukushkin)
 
-  Under certain conditions Patroni wasn't able to join the false primary back to the cluster with ``pg_rewind`` after coming out ot maintenance mode.
+  Under certain conditions, Patroni wasn't able to join the false primary back to the cluster with ``pg_rewind`` after coming out of maintenance mode.
 
 - Fixed bug in Etcd v3 implementation (Alexander Kukushkin)
 
   Invalidate internal KV cache if key update performed using ``create_revision``/``mod_revision`` field due to revision mismatch.
 
-- Fixed Fix behaviour of replicas in standby cluster in pause (Alexander Kukushkin)
+- Fixed behaviour of replicas in standby cluster in pause (Alexander Kukushkin)
 
   When the leader key expires replicas in standby cluster will not follow the remote node but keep ``primary_conninfo`` as it is.
 
