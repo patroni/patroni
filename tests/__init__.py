@@ -179,7 +179,7 @@ class MockCursor(object):
 
 class MockConnect(object):
 
-    server_version = 99999
+    server_version = 999999
     autocommit = False
     closed = 0
 
