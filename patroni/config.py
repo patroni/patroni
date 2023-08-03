@@ -13,6 +13,7 @@ from . import PATRONI_ENV_PREFIX
 from .collections import CaseInsensitiveDict
 from .dcs import ClusterConfig, Cluster
 from .exceptions import ConfigParseError
+from .file_perm import pg_perm
 from .postgresql.config import ConfigHandler
 from .utils import deep_compare, parse_bool, parse_int, patch_config
 
@@ -275,11 +276,13 @@ class Config(object):
         if self._cache_needs_saving:
             tmpfile = fd = None
             try:
+                pg_perm.set_permissions_from_data_directory(self._data_dir)
                 (fd, tmpfile) = tempfile.mkstemp(prefix=self.__CACHE_FILENAME, dir=self._data_dir)
                 with os.fdopen(fd, 'w') as f:
                     fd = None
                     json.dump(self.dynamic_configuration, f)
                 tmpfile = shutil.move(tmpfile, self._cache_file)
+                os.chmod(self._cache_file, pg_perm.file_create_mode)
                 self._cache_needs_saving = False
             except Exception:
                 logger.exception('Exception when saving file: %s', self._cache_file)

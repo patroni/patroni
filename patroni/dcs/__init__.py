@@ -170,22 +170,32 @@ _Version = Union[int, str]
 _Session = Union[int, float, str, None]
 
 
-class Member(NamedTuple):
+class Member(NamedTuple('Member',
+                        [('version', _Version),
+                         ('name', str),
+                         ('session', _Session),
+                         ('data', Dict[str, Any])])):
     """Immutable object (namedtuple) which represents single member of PostgreSQL cluster.
-    Consists of the following fields:
-    :param version: modification version of a given member key in a Configuration Store
-    :param name: name of PostgreSQL cluster member
-    :param session: either session id or just ttl in seconds
-    :param data: arbitrary data i.e. conn_url, api_url, xlog location, state, role, tags, etc...
 
-    There are two mandatory keys in a data:
-    conn_url: connection string containing host, user and password which could be used to access this member.
-    api_url: REST API url of patroni instance
+    .. note::
+        We are using an old-style attribute declaration here because otherwise it is not possible to override
+        ``__new__`` method in the :class:`RemoteMember` class.
+
+    .. note::
+        These two keys in data are always written to the DCS, but care is taken to maintain consistency and resilience
+        from data that is read:
+
+        ``conn_url``: connection string containing host, user and password which could be used to access this member.
+        ``api_url``: REST API url of patroni instance
+
+    Consists of the following fields:
+
+    :ivar version: modification version of a given member key in a Configuration Store.
+    :ivar name: name of PostgreSQL cluster member.
+    :ivar session: either session id or just ttl in seconds.
+    :ivar data: dictionary containing arbitrary data i.e. ``conn_url``, ``api_url``, ``xlog_location``, ``state``,
+                ``role``, ``tags``, etc...
     """
-    version: _Version
-    name: str
-    session: _Session
-    data: Dict[str, Any]
 
     @staticmethod
     def from_node(version: _Version, name: str, session: _Session, value: str) -> 'Member':
@@ -300,8 +310,14 @@ class RemoteMember(Member):
         'no_replication_slot'
     )
 
-    @classmethod
-    def from_name_and_data(cls, name: str, data: Dict[str, Any]) -> 'RemoteMember':
+    def __new__(cls, name: str, data: Dict[str, Any]) -> 'RemoteMember':
+        """Factory method to construct instance from given *name* and *data*.
+
+        :param name: name of the remote member.
+        :param data: dictionary of member information.
+
+        :returns: constructed instance using supplied parameters.
+        """
         return super(RemoteMember, cls).__new__(cls, -1, name, None, data)
 
     def __getattr__(self, name: str) -> Any:
@@ -555,36 +571,50 @@ class TimelineHistory(NamedTuple):
         return TimelineHistory(version, value, lines)
 
 
-class Cluster(NamedTuple):
-    """Immutable object (namedtuple) which represents PostgreSQL cluster.
+class Cluster(NamedTuple('Cluster',
+                         [('initialize', Optional[str]),
+                          ('config', Optional[ClusterConfig]),
+                          ('leader', Optional[Leader]),
+                          ('last_lsn', int),
+                          ('members', List[Member]),
+                          ('failover', Optional[Failover]),
+                          ('sync', SyncState),
+                          ('history', Optional[TimelineHistory]),
+                          ('slots', Optional[Dict[str, int]]),
+                          ('failsafe', Optional[Dict[str, str]]),
+                          ('workers', Dict[int, 'Cluster'])])):
+    """Immutable object (namedtuple) which represents PostgreSQL or Citus cluster.
+
+    .. note::
+        We are using an old-style attribute declaration here because otherwise it is not possible to override `__new__`
+        method. Without it the *workers* by default gets always the same :class:`dict` object that could be mutated.
+
     Consists of the following fields:
-    :param initialize: shows whether this cluster has initialization key stored in DC or not.
-    :param config: global dynamic configuration, reference to `ClusterConfig` object
-    :param leader: `Leader` object which represents current leader of the cluster
-    :param last_lsn: int or long object containing position of last known leader LSN.
-        This value is stored in the `/status` key or `/optime/leader` (legacy) key
-    :param members: list of Member object, all PostgreSQL cluster members including leader
-    :param failover: reference to `Failover` object
-    :param sync: reference to `SyncState` object, last observed synchronous replication state.
-    :param history: reference to `TimelineHistory` object
-    :param slots: state of permanent logical replication slots on the primary in the format: {"slot_name": int}
-    :param failsafe: failsafe topology. Node is allowed to become the leader only if its name is found in this list.
-    :param workers: workers of the Citus cluster, optional. Format: {int(group): Cluster()}
+
+    :ivar initialize: shows whether this cluster has initialization key stored in DC or not.
+    :ivar config: global dynamic configuration, reference to `ClusterConfig` object.
+    :ivar leader: :class:`Leader` object which represents current leader of the cluster.
+    :ivar last_lsn: :class:int object containing position of last known leader LSN.
+                     This value is stored in the `/status` key or `/optime/leader` (legacy) key.
+    :ivar members: list of:class:` Member` objects, all PostgreSQL cluster members including leader
+    :ivar failover: reference to :class:`Failover` object.
+    :ivar sync: reference to :class:`SyncState` object, last observed synchronous replication state.
+    :ivar history: reference to `TimelineHistory` object.
+    :ivar slots: state of permanent logical replication slots on the primary in the format: {"slot_name": int}.
+    :ivar failsafe: failsafe topology. Node is allowed to become the leader only if its name is found in this list.
+    :ivar workers: dictionary of workers of the Citus cluster, optional. Each key is an :class:`int` representing
+                   the group, and the corresponding value is a :class:`Cluster` instance.
     """
-    initialize: Optional[str]
-    config: Optional[ClusterConfig]
-    leader: Optional[Leader]
-    last_lsn: int
-    members: List[Member]
-    failover: Optional[Failover]
-    sync: SyncState
-    history: Optional[TimelineHistory]
-    slots: Optional[Dict[str, int]]
-    failsafe: Optional[Dict[str, str]]
-    workers: Dict[int, 'Cluster'] = {}
+
+    def __new__(cls, *args: Any, **kwargs: Any):
+        """Make workers argument optional and set it to an empty dict object."""
+        if len(args) < len(cls._fields) and 'workers' not in kwargs:
+            kwargs['workers'] = {}
+        return super(Cluster, cls).__new__(cls, *args, **kwargs)
 
     @staticmethod
     def empty() -> 'Cluster':
+        """Produce an empty :class:`Cluster` instance."""
         return Cluster(None, None, None, 0, [], None, SyncState.empty(), None, None, None)
 
     def is_empty(self):

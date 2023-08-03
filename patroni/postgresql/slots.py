@@ -5,11 +5,12 @@ import shutil
 from collections import defaultdict
 from contextlib import contextmanager
 from threading import Condition, Thread
-from typing import Any, Dict, Generator, List, Optional, Union, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Iterator, List, Optional, Union, Tuple, TYPE_CHECKING
 
 from .connection import get_connection_cursor
 from .misc import format_lsn, fsync_dir
 from ..dcs import Cluster, Leader
+from ..file_perm import pg_perm
 from ..psycopg import OperationalError
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -253,7 +254,7 @@ class SlotsHandler(object):
                 self._schedule_load_slots = True
 
     @contextmanager
-    def get_local_connection_cursor(self, **kwargs: Any) -> Generator[Union['cursor', 'Cursor[Any]'], None, None]:
+    def get_local_connection_cursor(self, **kwargs: Any) -> Iterator[Union['cursor', 'Cursor[Any]']]:
         conn_kwargs = self._postgresql.config.local_connect_kwargs
         conn_kwargs.update(kwargs)
         with get_connection_cursor(**conn_kwargs) as cur:
@@ -342,7 +343,7 @@ class SlotsHandler(object):
         return ret
 
     @contextmanager
-    def _get_leader_connection_cursor(self, leader: Leader) -> Generator[Union['cursor', 'Cursor[Any]'], None, None]:
+    def _get_leader_connection_cursor(self, leader: Leader) -> Iterator[Union['cursor', 'Cursor[Any]']]:
         conn_kwargs = leader.conn_kwargs(self._postgresql.config.rewind_credentials)
         conn_kwargs['dbname'] = self._postgresql.database
         with get_connection_cursor(connect_timeout=3, options="-c statement_timeout=2000", **conn_kwargs) as cur:
@@ -471,23 +472,28 @@ class SlotsHandler(object):
                 logger.error("Failed to copy logical slots from the %s via postgresql connection: %r", leader.name, e)
 
         if copy_slots and self._postgresql.stop():
+            pg_perm.set_permissions_from_data_directory(self._postgresql.data_dir)
             for name, value in copy_slots.items():
-                slot_dir = os.path.join(self._postgresql.slots_handler.pg_replslot_dir, name)
+                slot_dir = os.path.join(self.pg_replslot_dir, name)
                 slot_tmp_dir = slot_dir + '.tmp'
                 if os.path.exists(slot_tmp_dir):
                     shutil.rmtree(slot_tmp_dir)
                 os.makedirs(slot_tmp_dir)
+                os.chmod(slot_tmp_dir, pg_perm.dir_create_mode)
                 fsync_dir(slot_tmp_dir)
-                with open(os.path.join(slot_tmp_dir, 'state'), 'wb') as f:
+                slot_filename = os.path.join(slot_tmp_dir, 'state')
+                with open(slot_filename, 'wb') as f:
+                    os.chmod(slot_filename, pg_perm.file_create_mode)
                     f.write(value['data'])
                     f.flush()
                     os.fsync(f.fileno())
                 if os.path.exists(slot_dir):
                     shutil.rmtree(slot_dir)
                 os.rename(slot_tmp_dir, slot_dir)
+                os.chmod(slot_dir, pg_perm.dir_create_mode)
                 fsync_dir(slot_dir)
                 self._logical_slots_processing_queue[name] = None
-            fsync_dir(self._postgresql.slots_handler.pg_replslot_dir)
+            fsync_dir(self.pg_replslot_dir)
             self._postgresql.start()
 
     def schedule(self, value: Optional[bool] = None) -> None:
