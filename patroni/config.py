@@ -235,12 +235,18 @@ class Config(object):
 
     @property
     def local_configuration(self) -> Dict[str, Any]:
-        """Deep copy of cached Patroni local configuration."""
+        """Deep copy of cached Patroni local configuration.
+
+        :returns: copy of :attr:`~Config._local_configuration`
+        """
         return deepcopy(dict(self._local_configuration))
 
     @classmethod
     def get_default_config(cls) -> Dict[str, Any]:
-        """Deep copy of :attr:`__DEFAULT_CONFIG`."""
+        """Deep copy default configuration.
+
+        :returns: copy of :attr:`~Config.__DEFAULT_CONFIG`
+        """
         return deepcopy(cls.__DEFAULT_CONFIG)
 
     def _load_config_path(self, path: str) -> Dict[str, Any]:
