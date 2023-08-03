@@ -134,6 +134,8 @@ class K8sConfig(object):
             config: Dict[str, Any] = yaml.safe_load(f)
 
         context = context or config['current-context']
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(context, str)
         context_value = self._get_by_name(config, 'context', context)
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(context_value, dict)
