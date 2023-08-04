@@ -74,7 +74,7 @@ class Patroni(AbstractPatroniDaemon):
         if not isinstance(member, Member):
             return
         try:
-            _ = self.request(member, endpoint="/liveness")
+            _ = self.request(member, endpoint="/liveness", timeout=3)
             logger.fatal("Can't start; there is already a node named '%s' running", self.config['name'])
             sys.exit(1)
         except Exception:
