@@ -97,6 +97,14 @@ class Failsafe(object):
             self._api_url = data['api_url']
             self._slots = data.get('slots')
 
+    def reset_state(self) -> None:
+        with self._lock:
+            self._last_update = 0
+            self._name = None
+            self._conn_url = None
+            self._api_url = None
+            self._slots = None
+
     @property
     def leader(self) -> Optional[Leader]:
         with self._lock:
@@ -770,6 +778,9 @@ class Ha(object):
                 self.state_handler.sync_handler.set_synchronous_standby_names(
                     CaseInsensitiveSet('*') if self.global_config.is_synchronous_mode_strict else CaseInsensitiveSet())
             if self.state_handler.role not in ('master', 'promoted', 'primary'):
+                # reset failsafe state when promote
+                self._failsafe.reset_state()
+
                 def before_promote():
                     self.notify_citus_coordinator('before_promote')
 
