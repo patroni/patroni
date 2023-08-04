@@ -1,4 +1,4 @@
-"""patroni --generate-config machinery."""
+"""patroni ``--generate-config`` machinery."""
 import abc
 import copy
 import os
@@ -17,10 +17,9 @@ if TYPE_CHECKING:  # pragma: no cover
 from . import psycopg
 from .config import Config
 from .exceptions import PatroniException
-from .postgresql.config import parse_dsn
-from .postgresql.config import ConfigHandler
+from .postgresql.config import ConfigHandler, parse_dsn
 from .postgresql.misc import postgres_major_version_to_int
-from .utils import get_major_version, patch_config, read_stripped
+from .utils import get_major_version, parse_bool, patch_config, read_stripped
 
 
 # Mapping between the libpq connection parameters and the environment variables.
@@ -48,12 +47,12 @@ def get_address() -> Tuple[str, str]:
     .. note::
         Can also return local ip.
 
-    :returns: tuple consisting of the hostname returned by `~socket.gethostname`
+    :returns: tuple consisting of the hostname returned by :func:`~socket.gethostname`
         and the first element in the sorted list of the addresses returned by :func:`~socket.getaddrinfo`.
         Sorting guarantees it will prefer IPv4.
 
     :raises:
-        :class:`PatroniException`: if :exc:`OSError` occured
+        :exc:`~patroni.exceptions.PatroniException`: if :exc:`OSError` occured.
     """
     hostname = None
     try:
@@ -65,7 +64,12 @@ def get_address() -> Tuple[str, str]:
 
 
 class AbstractConfigGenerator(abc.ABC):
-    """Object representing the generated Patroni config."""
+    """Object representing the generated Patroni config.
+
+    :ivar output_file: full path to the output file to be used.
+    :ivar pg_major: integer representation of the major PostgreSQL version.
+    :ivar config: dictionary used for the generated configuration storage.
+    """
 
     _HOSTNAME, _IP = get_address()
     _TEMPLATE_CONFIG: Dict[str, Any] = {
@@ -93,20 +97,27 @@ class AbstractConfigGenerator(abc.ABC):
         }
     }
 
-    def __init__(self, output_file: Optional[str]) -> None:
+    def __init__(self, output_file: Optional[str], dsn: Optional[str] = None) -> None:
         """Set up the output file (if passed), helper vars and the minimal config structure.
 
-        :param output_file: full path to the output file to be used
+        :param output_file: full path to the output file to be used.
+        :param dsn: DSN string for the local instance to get GUC values from.
         """
         self.output_file = output_file
-
         self.pg_major = 0
+        self.dsn = dsn
+        self.parsed_dsn = {}
 
-        self.config: Dict[str, Any] = Config('', None).local_configuration  # Get values from env
+        config: Dict[str, Any] = Config('', None).local_configuration  # Get values from env
         dynamic_config = Config.get_default_config()
         dynamic_config['postgresql']['parameters'] = dict(dynamic_config['postgresql']['parameters'])
-        self.config.setdefault('bootstrap', {})['dcs'] = dynamic_config
-        self.config.setdefault('postgresql', {})
+        config.setdefault('bootstrap', {})['dcs'] = dynamic_config
+        config.setdefault('postgresql', {})
+        del config['bootstrap']['dcs']['standby_cluster']
+        self.config = config
+
+        self.generate()
+        self.merge_with_template()
 
     def _get_int_major_version(self) -> int:
         """Get major PostgreSQL version from the binary as an integer.
@@ -116,12 +127,11 @@ class AbstractConfigGenerator(abc.ABC):
             :func:`~patroni.utils.get_major_version`.
         """
         postgres_bin = ((self.config.get('postgresql') or {}).get('bin_name') or {}).get('postgres', 'postgres')
-        return postgres_major_version_to_int(get_major_version(self.config['postgresql'].get('bin_dir') or None,
-                                                               postgres_bin))
+        return postgres_major_version_to_int(get_major_version(self.config['postgresql'].get('bin_dir'), postgres_bin))
 
     @abc.abstractmethod
     def generate(self) -> None:
-        """Generate config and store in :attr:`~AbstractConfigGenerator.self.config`."""
+        """Generate config and store in :attr:`~AbstractConfigGenerator.config`."""
 
     def merge_with_template(self) -> None:
         """Merge and update current :attr:`~AbstractConfigGenerator.config` with the template."""
@@ -150,23 +160,22 @@ class SampleConfigGenerator(AbstractConfigGenerator):
     def __init__(self, output_file: Optional[str] = None) -> None:
         """Additionally set the PG major version from the binary and run config generation.
 
-        :param output_file: full path to the output file to be used
+        :param output_file: full path to the output file to be used.
         """
         super().__init__(output_file)
 
-        self.pg_major = self._get_int_major_version()
-        self.generate()
-
     @property
     def get_auth_method(self) -> str:
-        """Return the preferred authentication method for a specific PG version if provided or the default 'md5'.
+        """Return the preferred authentication method for a specific PG version if provided or the default ``md5``.
 
-        :returns: :class:`str` value for the preferred authentication method
+        :returns: :class:`str` value for the preferred authentication method.
         """
         return 'scram-sha-256' if self.pg_major and self.pg_major >= 100000 else 'md5'
 
     def generate(self) -> None:
         """Generate sample config using some sane defaults and update :attr:`~AbstractConfigGenerator.config`."""
+        self.pg_major = self._get_int_major_version()
+
         self.config['postgresql']['parameters'] = {'password_encryption': self.get_auth_method}
         username = self.config["postgresql"]["authentication"]["replication"]["username"]
         self.config['postgresql']['pg_hba'] = [
@@ -184,41 +193,33 @@ class SampleConfigGenerator(AbstractConfigGenerator):
             self.config['postgresql']['authentication'].setdefault(
                 'rewind', {'username': 'rewind_user'}).setdefault('password', _NO_VALUE_MSG)
 
-        del self.config['bootstrap']['dcs']['standby_cluster']
-
-        self.merge_with_template()
-
 
 class RunningClusterConfigGenerator(AbstractConfigGenerator):
-    """Object representing the Patroni config generated using information gathered from a running instance."""
+    """Object representing the Patroni config generated using information gathered from the running instance.
+
+    :ivar dsn: DSN string for the local instance to get GUC values from (if provided).
+    :ivar parsed_dsn: DSN string parsed into a dictionary (see :func:`~patroni.postgresql.config.parse_dsn`).
+    """
 
     def __init__(self, output_file: Optional[str] = None, dsn: Optional[str] = None) -> None:
         """Additionally store the passed dsn (if any) in both original and parsed version and run config generation.
 
-        :param output_file: full path to the output file to be used
-        :param dsn: DSN string for the local instance to get GUC values from
+        :param output_file: full path to the output file to be used.
+        :param dsn: DSN string for the local instance to get GUC values from.
 
         :raises:
-            :class:`PatroniException`: if DSN parsing failed
+            :exc:`~patroni.exceptions.PatroniException`: if DSN parsing failed.
         """
-        super().__init__(output_file)
-
-        self.dsn = dsn
-        self.parsed_dsn = {}
-        if self.dsn:
-            self.parsed_dsn = parse_dsn(self.dsn) or {}
-            if not self.parsed_dsn:
-                raise PatroniException('Failed to parse DSN string')
-
-        self.generate()
+        super().__init__(output_file, dsn)
 
     @property
     def _get_hba_conn_types(self) -> Tuple[str, ...]:
         """Return the connection types allowed.
 
-        If pg_major is defined, adds additional params for PostgreSQL version >=16.
+        If :attr:`~RunningClusterConfigGenerator.pg_major` is defined, adds additional parameters
+        for PostgreSQL version >=16.
 
-        :returns: tuple of the connection methods allowed
+        :returns: tuple of the connection methods allowed.
         """
         allowed_types = ('local', 'host', 'hostssl', 'hostnossl', 'hostgssenc', 'hostnogssenc')
         if self.pg_major and self.pg_major >= 160000:
@@ -229,7 +230,7 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
     def _required_pg_params(self) -> List[str]:
         """PG configuration prameters that have to be always present in the generated config.
 
-        :returns: list of the parameter names
+        :returns: list of the parameter names.
         """
         return ['hba_file', 'ident_file', 'config_file', 'data_directory'] + \
             list(ConfigHandler.CMDLINE_OPTIONS.keys())
@@ -237,15 +238,13 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
     def _get_bin_dir_from_running_instance(self) -> str:
         """Define the directory postgres binaries reside using postmaster's pid executable.
 
-        :param data_dir: the PostgreSQL data directory to search for postmaster.pid file in.
-
-        :returns: path to the PostgreSQL binaries directory
+        :returns: path to the PostgreSQL binaries directory.
 
         :raises:
-            :class:`PatroniException`: if:
+            :exc:`~patroni.exceptions.PatroniException`: if:
 
-                * pid could not be obtained from the `postmaster.pid` file; or
-                * :exc:`OSError` occured during `postmaster.pid` file handling; or
+                * pid could not be obtained from the ``postmaster.pid`` file; or
+                * :exc:`OSError` occured during ``postmaster.pid`` file handling; or
                 * the obtained postmaster pid doesn't exist.
         """
         postmaster_pid = None
@@ -268,7 +267,7 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
         """Get cursor for the PG connection established based on the stored information.
 
         :raises:
-            :class:`PatroniException`: if :exc:`psycopg.Error` occured.
+            :exc:`~patroni.exceptions.PatroniException`: if :exc:`psycopg.Error` occured.
         """
         try:
             conn = psycopg.connect(dsn=self.dsn,
@@ -279,15 +278,6 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
         except psycopg.Error as e:
             raise PatroniException(f'Failed to establish PostgreSQL connection: {e}')
 
-    def _is_superuser(self, cur: Union['cursor', 'Cursor[Any]'], username: str) -> bool:
-        """Check if the user has superuser privilege.
-
-        :param cur: connection cursor to use for the check.
-        :param username: username to check.
-        """
-        cur.execute("SELECT 1 FROM pg_roles WHERE rolname=%s AND rolsuper", (username,))
-        return cur.rowcount == 1
-
     def _set_pg_params(self, cur: Union['cursor', 'Cursor[Any]']) -> None:
         """Extend :attr:`~RunningClusterConfigGenerator.config` with the actual PG GUCs values.
 
@@ -295,7 +285,8 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
 
             * Non-internal having configuration file, postmaster command line or environment variable
               as a source.
-            * List of the always required parameters (see :func:`~RunningClusterConfigGenerator._required_pg_params`)
+
+            * List of the always required parameters (see :func:`~RunningClusterConfigGenerator._required_pg_params`).
 
         :param cur: connection cursor to use.
         """
@@ -307,7 +298,6 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
                     "OR name = ANY(%s)", (self._required_pg_params,))
 
         helper_dict = dict.fromkeys(['port', 'listen_addresses'])
-        # adjust values
         self.config['postgresql'].setdefault('parameters', {})
         for param, value in cur.fetchall():
             if param == 'data_directory':
@@ -331,8 +321,10 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
         self.config['postgresql']['listen'] = f'{helper_dict["listen_addresses"]}:{helper_dict["port"]}'
 
     def _set_su_params(self) -> None:
-        """Extend :attr:`~RunningClusterConfigGenerator.config` with the superuser auth information using
-        the options used for connection."""
+        """Extend :attr:`~RunningClusterConfigGenerator.config` with the superuser auth information.
+
+        Information set is based on the options used for connection.
+        """
         su_params: Dict[str, str] = {}
         for conn_param, env_var in _AUTH_ALLOWED_PARAMETERS_MAPPING.items():
             val = self.parsed_dsn.get(conn_param, os.getenv(env_var))
@@ -350,15 +342,14 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
         }
 
     def _set_conf_files(self) -> None:
-        """Extend :attr:`~RunningClusterConfigGenerator.config` with the information from ``pg_hba.conf`` and
-        ``pg_ident.conf`` files.
+        """Extend :attr:`~RunningClusterConfigGenerator.config` with ``pg_hba.conf`` and ``pg_ident.conf`` content.
 
         .. note::
             This function only defines ``postgresql.pg_hba`` and ``postgresql.pg_ident`` when
             ``hba_file`` and ``ident_file`` are set to the defaults.
 
         :raises:
-            :class:`PatroniException`: if :exc:`OSError` occured during the conf files handling.
+            :exc:`~patroni.exceptions.PatroniException`: if :exc:`OSError` occured during the conf files handling.
         """
         default_hba_path = os.path.join(self.config['postgresql']['data_dir'], 'pg_hba.conf')
         if self.config['postgresql']['parameters']['hba_file'] == default_hba_path:
@@ -379,26 +370,26 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
                 del self.config['postgresql']['pg_ident']
 
     def _enrich_config_from_running_instance(self) -> None:
-        """Extend `self.config` dictionary with the values gathered from a running instance.
+        """Extend :attr:`~RunningClusterConfigGenerator.config` with the values gathered from the running instance.
 
         Retrieve the following information from the running PostgreSQL instance:
 
-        * superuser auth parameters (see :func:`~RunningClusterConfigGenerator._set_su_params`)
-        * some GUC values (see :func:`~RunningClusterConfigGenerator._set_pg_params`)
-        * ``postgresql.connect_address``, ``postgresql.listen``
+        * superuser auth parameters (see :func:`~RunningClusterConfigGenerator._set_su_params`);
+        * some GUC values (see :func:`~RunningClusterConfigGenerator._set_pg_params`);
+        * ``postgresql.connect_address``, ``postgresql.listen``;
         * ``postgresql.pg_hba`` and ``postgresql.pg_ident`` (see :func:`~RunningClusterConfigGenerator._set_conf_files`)
 
         And redefine ``scope`` with the ``cluster_name`` GUC value if set.
 
         :raises:
-            :class:`PatroniException`: if the provided user doesn't have superuser privileges.
+            :exc:`~patroni.exceptions.PatroniException`: if the provided user doesn't have superuser privileges.
         """
         self._set_su_params()
 
         with self._get_connection_cursor() as cur:
             self.pg_major = getattr(cur.connection, 'server_version', 0)
 
-            if not self._is_superuser(cur, self.config['postgresql']['authentication']['superuser']['username']):
+            if not parse_bool(cur.connection.info.parameter_status('is_superuser')):
                 raise PatroniException('The provided user does not have superuser privilege')
 
             self._set_pg_params(cur)
@@ -406,13 +397,17 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
         self._set_conf_files()
 
     def generate(self) -> None:
-        """Generate config using the info gathered from the specified running PG instance and update
-        `~RunningClusterConfigGenerator.config`."""
+        """Generate config using the info gathered from the specified running PG instance.
+
+        Result is written to :attr:`~RunningClusterConfigGenerator.config`.
+        """
+        if self.dsn:
+            self.parsed_dsn = parse_dsn(self.dsn) or {}
+            if not self.parsed_dsn:
+                raise PatroniException('Failed to parse DSN string')
+
         self._enrich_config_from_running_instance()
         self.config['postgresql']['bin_dir'] = self._get_bin_dir_from_running_instance()
-        del self.config['bootstrap']['dcs']['standby_cluster']
-
-        self.merge_with_template()
 
 
 def generate_config(output_file: str, sample: bool, dsn: Optional[str]) -> None:
@@ -420,36 +415,38 @@ def generate_config(output_file: str, sample: bool, dsn: Optional[str]) -> None:
 
     Gather all the available non-internal GUC values having configuration file, postmaster command line or environment
     variable as a source and store them in the appropriate part of Patroni configuration (``postgresql.parameters`` or
-    ``bootsrtap.dcs.postgresql.parameters``). Either the provided DSN (takes precedence) or PG ENV vars will be used
+    ``bootstrap.dcs.postgresql.parameters``). Either the provided DSN (takes precedence) or PG ENV vars will be used
     for the connection. If password is not provided, it should be entered via prompt.
 
     The created configuration contains:
-    * ``scope``: cluster_name GUC value or PATRONI_SCOPE ENV variable value if available
-    * ``name``: PATRONI_NAME ENV variable value if set, otherwise hostname
+    * ``scope``: ``cluster_name`` GUC value or ``PATRONI_SCOPE ENV`` variable value if available.
+    * ``name``: ``PATRONI_NAME`` ENV variable value if set, otherwise hostname.
+
     * ``bootsrtap.dcs``: section with all the parameters (incl. the majority of PG GUCs) set to their default values
       defined by Patroni and adjusted by the source instances's configuration values.
+
     * ``postgresql.parameters``: the source instance's ``archive_command``, ``restore_command``,
       ``archive_cleanup_command``, ``recovery_end_command``, ``ssl_passphrase_command``, ``hba_file``, ``ident_file``,
       ``config_file`` GUC values.
+
     * ``postgresql.bin_dir``: path to Postgres binaries gathered from the running instance or, if not available,
-      the value of PATRONI_POSTGRESQL_BIN_DIR ENV variable. Otherwise, an empty string.
+      the value of ``PATRONI_POSTGRESQL_BIN_DIR`` ENV variable. Otherwise, an empty string.
+
     * ``postgresql.datadir``: the value gathered from the corresponding PG GUC.
     * ``postgresql.listen``: source instance's ``listen_addresses`` and port GUC values.
-    * ``postgresql.connect_address``: if possible, generated from the connection params
+    * ``postgresql.connect_address``: if possible, generated from the connection params.
     * ``postgresql.authentication``:
 
         * superuser and replication users defined (if possible, usernames are set from the respective Patroni ENV vars,
-          otherwise the default 'postgres' and 'replicator' values are used).
+          otherwise the default ``postgres`` and ``replicator`` values are used).
           If not a sample config, either DSN or PG ENV vars are used to define superuser authentication parameters.
+
         * rewind user is defined only for sample config, if PG version can be defined and PG version is >=11
-          (if possible, username is set from the respective Patroni ENV var)
+          (if possible, username is set from the respective Patroni ENV var).
 
     * ``bootsrtap.dcs.postgresql.use_pg_rewind`` set to ``True`` for a sample config only.
     * ``postgresql.pg_hba`` defaults or the lines gathered from the source instance's ``hba_file``.
     * ``postgresql.pg_ident`` the lines gathered from the source instance's ``ident_file``.
-
-    .. note::
-        In case :class:`PatroniException` is raised by any of the called methods, execution is terminated.
 
     :param output_file: Full path to the configuration file to be used. If not provided, result is sent to ``stdout``.
     :param sample: Optional flag. If set, no source instance will be used - generate config with some sane defaults.
@@ -462,5 +459,7 @@ def generate_config(output_file: str, sample: bool, dsn: Optional[str]) -> None:
             config_generator = RunningClusterConfigGenerator(output_file, dsn)
 
         config_generator.write_config()
-    except PatroniException as e:
+    except (PatroniException, OSError) as e:
         sys.exit(str(e))
+    except Exception as e:
+        sys.exit(f'Unexpected exception: {e}')

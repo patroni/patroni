@@ -3,13 +3,13 @@ import psutil
 import socket
 import unittest
 
-from . import MockCursor
+from . import MockCursor, MockConnectionInfo
 from copy import deepcopy
 from mock import MagicMock, Mock, PropertyMock, mock_open, patch
 
 from patroni.__main__ import main as _main
 from patroni.config import Config
-from patroni.config_generator import get_address
+from patroni.config_generator import AbstractConfigGenerator, get_address
 from patroni.exceptions import PatroniException
 
 from patroni.utils import patch_config
@@ -262,6 +262,7 @@ class TestGenerateConfig(unittest.TestCase):
         with patch('sys.argv', ['patroni.py',
                                 '--generate-config', '--dsn', 'host=foo port=bar user=foobar password=pwd_from_dsn']), \
              patch.object(MockCursor, 'rowcount', PropertyMock(return_value=0), create=True), \
+             patch.object(MockConnectionInfo, 'parameter_status', Mock(return_value='off')), \
              self.assertRaises(SystemExit) as e:
             _main()
         self.assertIn('The provided user does not have superuser privilege', e.exception.code)
@@ -319,6 +320,12 @@ class TestGenerateConfig(unittest.TestCase):
                  self.assertRaises(SystemExit) as e:
                 _main()
             self.assertIn('Failed to establish PostgreSQL connection', e.exception.code)
+
+            # 10. An unexpected error
+            with patch.object(AbstractConfigGenerator, '__init__', side_effect=psycopg.Error), \
+                 self.assertRaises(SystemExit) as e:
+                _main()
+            self.assertIn('Unexpected exception', e.exception.code)
 
     def test_get_address(self):
         with patch('socket.getaddrinfo', Mock(side_effect=[OSError, socket.gaierror])):

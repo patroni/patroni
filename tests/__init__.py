@@ -154,9 +154,6 @@ class MockCursor(object):
             self.results = [(2,)]
         elif sql.startswith('SELECT nodeid, groupid'):
             self.results = [(1, 0, 'host1', 5432, 'primary'), (2, 1, 'host2', 5432, 'primary')]
-        elif sql.startswith('SELECT 1'):
-            self.results = [(1,)]
-            self.rowcount = 1
         else:
             self.results = [(None, None, None, None, None, None, None, None, None, None)]
 
@@ -177,11 +174,20 @@ class MockCursor(object):
         pass
 
 
+class MockConnectionInfo(object):
+
+    def parameter_status(self, param_name):
+        if param_name == 'is_superuser':
+            return 'on'
+        return '0'
+
+
 class MockConnect(object):
 
     server_version = 999999
     autocommit = False
     closed = 0
+    info = MockConnectionInfo()
 
     def cursor(self):
         return MockCursor(self)
