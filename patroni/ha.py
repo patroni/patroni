@@ -83,11 +83,7 @@ class Failsafe(object):
     def __init__(self, dcs: AbstractDCS) -> None:
         self._lock = RLock()
         self._dcs = dcs
-        self._last_update = 0
-        self._name = None
-        self._conn_url = None
-        self._api_url = None
-        self._slots = None
+        self._reset_state()
 
     def update(self, data: Dict[str, Any]) -> None:
         with self._lock:
@@ -96,6 +92,13 @@ class Failsafe(object):
             self._conn_url = data['conn_url']
             self._api_url = data['api_url']
             self._slots = data.get('slots')
+
+    def _reset_state(self) -> None:
+        self._last_update = 0
+        self._name = None
+        self._conn_url = None
+        self._api_url = None
+        self._slots = None
 
     @property
     def leader(self) -> Optional[Leader]:
@@ -130,6 +133,8 @@ class Failsafe(object):
     def set_is_active(self, value: float) -> None:
         with self._lock:
             self._last_update = value
+            if not value:
+                self._reset_state()
 
 
 class Ha(object):
@@ -777,6 +782,9 @@ class Ha(object):
                 self.state_handler.sync_handler.set_synchronous_standby_names(
                     CaseInsensitiveSet('*') if self.global_config.is_synchronous_mode_strict else CaseInsensitiveSet())
             if self.state_handler.role not in ('master', 'promoted', 'primary'):
+                # reset failsafe state when promote
+                self._failsafe.set_is_active(0)
+
                 def before_promote():
                     self.notify_citus_coordinator('before_promote')
 
