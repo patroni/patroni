@@ -433,11 +433,30 @@ Depending on the situation request might finish with different HTTP status codes
 		'{"leader":"postgresql0","scheduled_at":"2019-09-24T12:00+00"}'
 	Switchover scheduled
 
+
+Failover
+^^^^^^^^
+
+``/failover`` endpoint allows to perform a manual failover when there are no healthy nodes (e.g. to an asynchronous standby if all synchronous standbys are not healthy to promote). However there is no requirement for a cluster not to have leader - failover can also be run on a healthy cluster.
+
+In the JSON body of the ``POST`` request you must specify ``candidate`` field. If ``leader`` field is specified, switchover is triggered. 
+
+**Example:**
+
+.. code-block:: bash
+
+	$ curl -s http://localhost:8008/failover -XPOST -d '{"candidate":"postgresql1"}'
+	Successfully failed over to "postgresql1"
+
+.. warning::
+	:ref:`Be very careful <failover_healthcheck>` using this endpoint, as this can cause data loss in certain situations. In most cases, :ref:`the switchover endpoint <switchover_api>` satisfies the administrator's needs. 
+
+
 ``POST /switchover`` and ``POST /failover`` endpoints are used by ``patronictl switchover`` and ``patronictl failover``, respectively.
 
 ``DELETE /switchover`` is used by ``patronictl flush <cluster-name> switchover``.
 
-.. list-table::
+.. list-table:: Failover/Switchover comparison
    :widths: 25 25 25
    :header-rows: 1
 
@@ -456,23 +475,6 @@ Depending on the situation request might finish with different HTTP status codes
    * - Can be scheduled
      - no
      - yes (if not in pause)
-
-Failover
-^^^^^^^^
-
-``/failover`` endpoint allows to perform a manual failover when there are no healthy nodes (e.g. to an asynchronous standby if all synchronous standbys are not healthy to promote). However there is no requirement for a cluster not to have leader - failover can also be run on a healthy cluster.
-
-In the JSON body of the ``POST`` request you must specify ``candidate`` field. If ``leader`` field is specified, switchover is triggered. 
-
-**Example:**
-
-.. code-block:: bash
-
-	$ curl -s http://localhost:8008/failover -XPOST -d '{"candidate":"postgresql1"}'
-	Successfully failed over to "postgresql1"
-
-.. warning::
-	:ref:`Be very careful <failover_healthcheck>` using this endpoint, as this can cause data loss in certain situations. In most cases, :ref:`the switchover endpoint <switchover_api>` satisfies the administrator's needs. 
 
 .. _failover_healthcheck:
 
