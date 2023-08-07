@@ -394,8 +394,7 @@ class RemoteMember(Member):
         :returns: value of *name* key in :attr:`~RemoteMember.data` if key *name* is in
                   :cvar:`~RemoteMember.ALLOWED_KEYS`, else ``None``.
         """
-        if name in RemoteMember.ALLOWED_KEYS:
-            return self.data.get(name)
+        return self.data.get(name) if name in RemoteMember.ALLOWED_KEYS else None
 
 
 class Leader(NamedTuple):
