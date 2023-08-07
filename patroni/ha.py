@@ -904,19 +904,17 @@ class Ha(object):
                         logger.info('Ignoring the former leader being ahead of us')
         return True
 
-    def is_failover_possible(self, check_synchronous: bool = True, cluster_lsn: int = 0,
-                             exclude_candidate: bool = False) -> bool:
+    def is_failover_possible(self, cluster_lsn: int = 0, exclude_candidate: bool = False) -> bool:
         """Checks whether any of the cluster members is allowed to promote and is healthy enough for that.
 
-        :param check_synchronous: consider only members that are known to be listed in /sync key when sync replication.
         :param cluster_lsn: to calculate replication lag and exclude member if it is lagging.
         :param exclude_candidate: if ``True``, exclude :attr:`failover.candidate` from the members list against which
             the failover possibility checks are run.
         :returns: `True` if there are members eligible to become the new leader.
         """
-        candidates = self.get_failover_candidates(check_synchronous, exclude_candidate)
+        candidates = self.get_failover_candidates(exclude_candidate)
 
-        if check_synchronous and self.cluster.failover and self.cluster.failover.candidate and not candidates:
+        if self.is_synchronous_mode() and self.cluster.failover and self.cluster.failover.candidate and not candidates:
             logger.warning('Failover candidate=%s does not match with sync_standbys=%s',
                            self.cluster.failover.candidate, self.cluster.sync.sync_standby)
 
@@ -1113,7 +1111,7 @@ class Ha(object):
             # It could happen if Postgres is still archiving the backlog of WAL files.
             # If we know that there are replicas that received the shutdown checkpoint
             # location, we can remove the leader key and allow them to start leader race.
-            if self.is_failover_possible(False, checkpoint_location):
+            if self.is_failover_possible(checkpoint_location):
                 self.state_handler.set_role('demoted')
                 with self._async_executor:
                     self.release_leader_key_voluntarily(checkpoint_location)
@@ -1216,7 +1214,7 @@ class Ha(object):
                 if not failover.candidate and self.is_paused():
                     logger.warning('Failover is possible only to a specific candidate in a paused state')
                 else:
-                    if self.is_failover_possible(self.is_synchronous_mode(), exclude_candidate=False):
+                    if self.is_failover_possible():
                         ret = self._async_executor.try_run_async('manual failover: demote', self.demote, ('graceful',))
                         return ret or 'manual failover: demoting myself'
                     else:
@@ -1871,8 +1869,7 @@ class Ha(object):
                     # If we know that there are replicas that received the shutdown checkpoint
                     # location, we can remove the leader key and allow them to start leader race.
 
-                    # for a manual failover/switchover with a candidate, we should check the requested candidate only
-                    if self.is_failover_possible(False, checkpoint_location):
+                    if self.is_failover_possible(checkpoint_location):
                         self.dcs.delete_leader(checkpoint_location)
                         status['deleted'] = True
                     else:
@@ -1933,7 +1930,7 @@ class Ha(object):
         name = member.name if member else 'remote_member:{}'.format(uuid.uuid1())
         return RemoteMember(name, data)
 
-    def get_failover_candidates(self, check_synchronous: bool, exclude_candidate: bool) -> List[Member]:
+    def get_failover_candidates(self, exclude_candidate: bool) -> List[Member]:
         """Return a list of candidates for either manual or automatic failover.
 
         Exclude non-sync members when in synchronous mode, the current node (its checks are always performed earlier)
@@ -1942,19 +1939,18 @@ class Ha(object):
         The result is further evaluated in the caller :func:`Ha.is_failover_possible` to check if any member is actually
         healthy enough and is allowed to poromote.
 
-        :param check_synchronous: if ``True``, also check against the sync key members.
         :param exclude_candidate: if ``True``, exclude :attr:`failover.candidate` from the candidates.
 
         :returns: a list of :class:`Member` ojects or an empty list if there is no candidate available.
         """
-        def is_eligible(node_name: str, check_synchronous: bool, exclude_candidate: bool) -> bool:
+        def is_eligible(node_name: str, exclude_candidate: bool) -> bool:
             # TODO: allow manual failover (=no leader specified) to async node
             failover = self.cluster.failover
             exclude = [self.state_handler.name] + ([failover.candidate] if failover and exclude_candidate else [])
-            if check_synchronous and self.is_synchronous_mode() and not self.cluster.sync.is_empty and \
+            if self.is_synchronous_mode() and not self.cluster.sync.is_empty and \
                not self.cluster.sync.matches(node_name):
                 return False
             return node_name not in exclude and \
                 (not failover or not failover.candidate or node_name == failover.candidate)
 
-        return list(filter(lambda m: is_eligible(m.name, check_synchronous, exclude_candidate), self.cluster.members))
+        return list(filter(lambda m: is_eligible(m.name, exclude_candidate), self.cluster.members))
