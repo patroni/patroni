@@ -40,6 +40,7 @@ class MockFrozenImporter(object):
 @patch('time.sleep', Mock())
 @patch('subprocess.call', Mock(return_value=0))
 @patch('patroni.psycopg.connect', psycopg_connect)
+@patch('urllib3.PoolManager.request', Mock(side_effect=Exception))
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())
@@ -63,6 +64,7 @@ class TestPatroni(unittest.TestCase):
             self.assertRaises(SystemExit, _main)
 
     @patch('pkgutil.iter_importers', Mock(return_value=[MockFrozenImporter()]))
+    @patch('urllib3.PoolManager.request', Mock(side_effect=Exception))
     @patch('sys.frozen', Mock(return_value=True), create=True)
     @patch.object(HTTPServer, '__init__', Mock())
     @patch.object(etcd.Client, 'read', etcd_read)
