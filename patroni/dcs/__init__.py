@@ -396,7 +396,6 @@ class RemoteMember(Member):
         """
         if name in RemoteMember.ALLOWED_KEYS:
             return self.data.get(name)
-        return None
 
 
 class Leader(NamedTuple):
