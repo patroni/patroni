@@ -10,7 +10,6 @@ from mock import MagicMock, Mock, PropertyMock, mock_open, patch
 from patroni.__main__ import main as _main
 from patroni.config import Config
 from patroni.config_generator import AbstractConfigGenerator, get_address
-from patroni.exceptions import PatroniException
 
 from patroni.utils import patch_config
 
@@ -328,10 +327,7 @@ class TestGenerateConfig(unittest.TestCase):
             self.assertIn('Unexpected exception', e.exception.code)
 
     def test_get_address(self):
-        with patch('socket.getaddrinfo', Mock(side_effect=[OSError, socket.gaierror])):
-            with self.assertRaises(PatroniException) as e:
-                get_address()
-            self.assertIn('Failed to define ip address', e.exception.value)
-            with self.assertRaises(PatroniException) as e:
-                get_address()
-            self.assertIn('Failed to define ip address', e.exception.value)
+        with patch('socket.getaddrinfo', Mock(side_effect=Exception)), \
+             patch('logging.warning') as mock_warning:
+            self.assertEqual(get_address(), (self.no_value_msg, self.no_value_msg))
+            self.assertIn('Failed to obtain address: %r', mock_warning.call_args_list[0][0])

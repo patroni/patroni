@@ -1,6 +1,6 @@
 """patroni ``--generate-config`` machinery."""
 import abc
-import copy
+import logging
 import os
 import psutil
 import socket
@@ -50,17 +50,16 @@ def get_address() -> Tuple[str, str]:
     :returns: tuple consisting of the hostname returned by :func:`~socket.gethostname`
         and the first element in the sorted list of the addresses returned by :func:`~socket.getaddrinfo`.
         Sorting guarantees it will prefer IPv4.
-
-    :raises:
-        :exc:`~patroni.exceptions.PatroniException`: if :exc:`OSError` occured.
+        If an exception occured, hostname and ip values are equal to `~patroni.config_generator._NO_VALUE_MSG`.
     """
     hostname = None
     try:
         hostname = socket.gethostname()
         return hostname, sorted(socket.getaddrinfo(hostname, 0, socket.AF_UNSPEC, socket.SOCK_STREAM, 0),
                                 key=lambda x: x[0])[0][4][0]
-    except OSError as err:
-        raise PatroniException(f'Failed to define ip address: {err}')
+    except Exception as err:
+        logging.warning('Failed to obtain address: %r', err)
+        return _NO_VALUE_MSG, _NO_VALUE_MSG
 
 
 class AbstractConfigGenerator(abc.ABC):
@@ -72,30 +71,6 @@ class AbstractConfigGenerator(abc.ABC):
     """
 
     _HOSTNAME, _IP = get_address()
-    _TEMPLATE_CONFIG: Dict[str, Any] = {
-        'scope': _NO_VALUE_MSG,
-        'name': _HOSTNAME,
-        'postgresql': {
-            'data_dir': _NO_VALUE_MSG,
-            'connect_address': _NO_VALUE_MSG + ':5432',
-            'listen': _NO_VALUE_MSG + ':5432',
-            'bin_dir': '',
-            'authentication': {
-                'superuser': {
-                    'username': 'postgres',
-                    'password': _NO_VALUE_MSG
-                },
-                'replication': {
-                    'username': 'replicator',
-                    'password': _NO_VALUE_MSG
-                }
-            }
-        },
-        'restapi': {
-            'connect_address': _IP + ':8008',
-            'listen': _IP + ':8008'
-        }
-    }
 
     def __init__(self, output_file: Optional[str], dsn: Optional[str] = None) -> None:
         """Set up the output file (if passed), helper vars and the minimal config structure.
@@ -105,19 +80,51 @@ class AbstractConfigGenerator(abc.ABC):
         """
         self.output_file = output_file
         self.pg_major = 0
-        self.dsn = dsn
-        self.parsed_dsn = {}
+        self.config = self.get_template_config()
 
-        config: Dict[str, Any] = Config('', None).local_configuration  # Get values from env
+        self.generate()
+
+    @classmethod
+    def get_template_config(cls) -> Dict[str, Any]:
+        """Generate a template config for further extension (e.g. in the inherited classes).
+
+        :returns: dictionary with the values gathered from Patroni env, hopefully defined hostname and ip address
+        (otherwise set to `~patroni.config_generator._NO_VALUE_MSG`), and some sane defaults.
+        """
+        template_config: Dict[str, Any] = {
+            'scope': _NO_VALUE_MSG,
+            'name': cls._HOSTNAME,
+            'postgresql': {
+                'data_dir': _NO_VALUE_MSG,
+                'connect_address': _NO_VALUE_MSG + ':5432',
+                'listen': _NO_VALUE_MSG + ':5432',
+                'bin_dir': '',
+                'authentication': {
+                    'superuser': {
+                        'username': 'postgres',
+                        'password': _NO_VALUE_MSG
+                    },
+                    'replication': {
+                        'username': 'replicator',
+                        'password': _NO_VALUE_MSG
+                    }
+                }
+            },
+            'restapi': {
+                'connect_address': cls._IP + ':8008',
+                'listen': cls._IP + ':8008'
+            }
+        }
+
         dynamic_config = Config.get_default_config()
         dynamic_config['postgresql']['parameters'] = dict(dynamic_config['postgresql']['parameters'])
+        config = Config('', None).local_configuration  # Get values from env
         config.setdefault('bootstrap', {})['dcs'] = dynamic_config
         config.setdefault('postgresql', {})
         del config['bootstrap']['dcs']['standby_cluster']
-        self.config = config
 
-        self.generate()
-        self.merge_with_template()
+        patch_config(template_config, config)
+        return template_config
 
     def _get_int_major_version(self) -> int:
         """Get major PostgreSQL version from the binary as an integer.
@@ -132,12 +139,6 @@ class AbstractConfigGenerator(abc.ABC):
     @abc.abstractmethod
     def generate(self) -> None:
         """Generate config and store in :attr:`~AbstractConfigGenerator.config`."""
-
-    def merge_with_template(self) -> None:
-        """Merge and update current :attr:`~AbstractConfigGenerator.config` with the template."""
-        temp_config = copy.deepcopy(self._TEMPLATE_CONFIG)
-        patch_config(temp_config, self.config)
-        self.config = temp_config
 
     def write_config(self) -> None:
         """Write current :attr:`~AbstractConfigGenerator.config` to the output file if provided, to stdout otherwise."""
@@ -156,13 +157,6 @@ class SampleConfigGenerator(AbstractConfigGenerator):
 
     Sane defults are used based on the gathered PG version.
     """
-
-    def __init__(self, output_file: Optional[str] = None) -> None:
-        """Additionally set the PG major version from the binary and run config generation.
-
-        :param output_file: full path to the output file to be used.
-        """
-        super().__init__(output_file)
 
     @property
     def get_auth_method(self) -> str:
@@ -210,6 +204,9 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
         :raises:
             :exc:`~patroni.exceptions.PatroniException`: if DSN parsing failed.
         """
+        self.dsn = dsn
+        self.parsed_dsn = {}
+
         super().__init__(output_file, dsn)
 
     @property
@@ -459,7 +456,7 @@ def generate_config(output_file: str, sample: bool, dsn: Optional[str]) -> None:
             config_generator = RunningClusterConfigGenerator(output_file, dsn)
 
         config_generator.write_config()
-    except (PatroniException, OSError) as e:
+    except PatroniException as e:
         sys.exit(str(e))
     except Exception as e:
         sys.exit(f'Unexpected exception: {e}')
