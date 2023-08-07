@@ -147,8 +147,8 @@ class Ha(object):
         self.cluster = Cluster.empty()
         self.global_config = self.patroni.config.get_global_config(None)
         self.old_cluster = Cluster.empty()
-        self._is_leader = False
-        self._is_leader_lock = RLock()
+        self._leader_expiry = 0
+        self._leader_expiry_lock = RLock()
         self._failsafe = Failsafe(patroni.dcs)
         self._was_paused = False
         self._leader_timeline = None
@@ -193,12 +193,12 @@ class Ha(object):
         return self.global_config.is_standby_cluster
 
     def is_leader(self) -> bool:
-        with self._is_leader_lock:
-            return self._is_leader > time.time()
+        with self._leader_expiry_lock:
+            return self._leader_expiry > time.time()
 
     def set_is_leader(self, value: bool) -> None:
-        with self._is_leader_lock:
-            self._is_leader = time.time() + self.dcs.ttl if value else 0
+        with self._leader_expiry_lock:
+            self._leader_expiry = time.time() + self.dcs.ttl if value else 0
 
     def load_cluster_from_dcs(self) -> None:
         cluster = self.dcs.get_cluster()
