@@ -74,12 +74,15 @@ class TestSlotsHandler(BaseTestPostgresql):
             'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
             'tags': {'replicatefrom': 'postgresql0'}
         })
-        cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem, cascading_replica],
-                          None, SyncState.empty(), None, None, None)
+        cluster = Cluster(True, config, self.leader, 0,
+                          [self.me, self.other, self.leadermem, cascading_replica],
+                          None, SyncState.empty(), None, {'ls': 10}, None)
         self.p.set_role('replica')
-
-        with patch.object(Postgresql, 'is_leader', Mock(return_value=False)):
-            self.s.sync_replication_slots(cluster, False)
+        with patch.object(Postgresql, '_query') as mock_query, \
+                patch.object(Postgresql, 'is_leader', Mock(return_value=False)):
+            mock_query.return_value = [('ls', 'logical', 'b', 'a', 5, 12345, 105)]
+            ret = self.s.sync_replication_slots(cluster, False)
+        self.assertEqual(ret, [])
 
     def test_process_permanent_slots(self):
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}},
