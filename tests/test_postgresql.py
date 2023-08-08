@@ -346,8 +346,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, 'start', Mock())
     def test_follow(self):
         self.p.call_nowait(CallbackAction.ON_START)
-        m = RemoteMember.from_name_and_data('1', {'restore_command': '2', 'primary_slot_name': 'foo',
-                                                  'conn_kwargs': {'host': 'bar'}})
+        m = RemoteMember('1', {'restore_command': '2', 'primary_slot_name': 'foo', 'conn_kwargs': {'host': 'bar'}})
         self.p.follow(m)
         with patch.object(Postgresql, 'ensure_major_version_is_known', Mock(return_value=False)):
             self.assertIsNone(self.p.follow(m))
@@ -523,8 +522,9 @@ class TestPostgresql(BaseTestPostgresql):
     def test_save_configuration_files(self):
         self.p.config.save_configuration_files()
 
-    @patch('os.path.isfile', Mock(side_effect=[False, True]))
-    @patch('shutil.copy', Mock(side_effect=IOError))
+    @patch('os.path.isfile', Mock(side_effect=[False, True, False, True]))
+    @patch('shutil.copy', Mock(side_effect=[None, IOError]))
+    @patch('os.chmod', Mock())
     def test_restore_configuration_files(self):
         self.p.config.restore_configuration_files()
 

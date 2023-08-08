@@ -84,11 +84,7 @@ class Failsafe(object):
     def __init__(self, dcs: AbstractDCS) -> None:
         self._lock = RLock()
         self._dcs = dcs
-        self._last_update = 0
-        self._name = None
-        self._conn_url = None
-        self._api_url = None
-        self._slots = None
+        self._reset_state()
 
     def update(self, data: Dict[str, Any]) -> None:
         with self._lock:
@@ -98,13 +94,20 @@ class Failsafe(object):
             self._api_url = data['api_url']
             self._slots = data.get('slots')
 
+    def _reset_state(self) -> None:
+        self._last_update = 0
+        self._name = None
+        self._conn_url = None
+        self._api_url = None
+        self._slots = None
+
     @property
     def leader(self) -> Optional[Leader]:
         with self._lock:
             if self._last_update + self._dcs.ttl > time.time() and self._name:
-                return Leader('', '', RemoteMember.from_name_and_data(self._name, {'api_url': self._api_url,
-                                                                                   'conn_url': self._conn_url,
-                                                                                   'slots': self._slots}))
+                return Leader('', '', RemoteMember(self._name, {'api_url': self._api_url,
+                                                                'conn_url': self._conn_url,
+                                                                'slots': self._slots}))
 
     def update_cluster(self, cluster: Cluster) -> Cluster:
         # Enreach cluster with the real leader if there was a ping from it
@@ -131,6 +134,8 @@ class Failsafe(object):
     def set_is_active(self, value: float) -> None:
         with self._lock:
             self._last_update = value
+            if not value:
+                self._reset_state()
 
 
 class Ha(object):
@@ -531,10 +536,17 @@ class Ha(object):
         return msg
 
     def _get_node_to_follow(self, cluster: Cluster) -> Union[Leader, Member, None]:
-        # determine the node to follow. If replicatefrom tag is set,
-        # try to follow the node mentioned there, otherwise, follow the leader.
-        if self.is_standby_cluster() and (self.cluster.is_unlocked() or self.has_lock(False)):
+        """Determine the node to follow.
+
+        :param cluster: the currently known cluster state from DCS.
+
+        :returns: the node which we should be replicating from.
+        """
+        # The standby leader or when there is no standby leader we want to follow
+        # the remote member, except when there is no standby leader in pause.
+        if self.is_standby_cluster() and (self.has_lock(False) or self.cluster.is_unlocked() and not self.is_paused()):
             node_to_follow = self.get_remote_member()
+        # If replicatefrom tag is set, try to follow the node mentioned there, otherwise, follow the leader.
         elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
             node_to_follow = cluster.get_member(self.patroni.replicatefrom)
         else:
@@ -907,6 +919,9 @@ class Ha(object):
                 # postpone promotion until next cycle. TODO: trigger immediate retry of run_cycle.
                 return 'Postponing promotion because synchronous replication state was updated by somebody else'
             if self.state_handler.role not in ('master', 'promoted', 'primary'):
+                # reset failsafe state when promote
+                self._failsafe.set_is_active(0)
+
                 def before_promote():
                     self.notify_citus_coordinator('before_promote')
 
@@ -973,7 +988,7 @@ class Ha(object):
             data['slots'] = self.state_handler.slots()
         except Exception:
             logger.exception('Exception when called state_handler.slots()')
-        members = [RemoteMember.from_name_and_data(name, {'api_url': url})
+        members = [RemoteMember(name, {'api_url': url})
                    for name, url in failsafe.items() if name != self.state_handler.name]
         if not members:  # A sinlge node cluster
             return True
@@ -1219,8 +1234,7 @@ class Ha(object):
                 if failsafe_members and self.state_handler.name not in failsafe_members:
                     return False
                 # Race among not only existing cluster members, but also all known members from the failsafe config
-                all_known_members += [RemoteMember.from_name_and_data(name, {'api_url': url})
-                                      for name, url in failsafe_members.items()]
+                all_known_members += [RemoteMember(name, {'api_url': url}) for name, url in failsafe_members.items()]
         all_known_members += self.cluster.members
 
         # Special handling if synchronous mode was requested and activated (the leader in /sync is not empty)
@@ -2104,7 +2118,7 @@ class Ha(object):
                 data['conn_kwargs'] = conn_kwargs
 
         name = member.name if member else 'remote_member:{}'.format(uuid.uuid1())
-        return RemoteMember.from_name_and_data(name, data)
+        return RemoteMember(name, data)
 
     def get_failover_candidates(self, check_sync: bool = False) -> List[Member]:
         """Return list of candidates for either manual or automatic failover.
