@@ -12,7 +12,7 @@ from datetime import datetime
 from dateutil import tz
 from psutil import TimeoutExpired
 from threading import current_thread, Lock
-from typing import Any, Callable, Dict, Generator, List, Optional, Union, Tuple, TYPE_CHECKING
+from typing import Any, Callable, Dict, Iterator, List, Optional, Union, Tuple, TYPE_CHECKING
 
 from .bootstrap import Bootstrap
 from .callback_executor import CallbackAction, CallbackExecutor
@@ -999,7 +999,7 @@ class Postgresql(object):
 
     @contextmanager
     def get_replication_connection_cursor(self, host: Optional[str] = None, port: int = 5432,
-                                          **kwargs: Any) -> Generator[Union['cursor', 'Cursor[Any]'], None, None]:
+                                          **kwargs: Any) -> Iterator[Union['cursor', 'Cursor[Any]']]:
         conn_kwargs = self.config.replication.copy()
         conn_kwargs.update(host=host, port=int(port) if port else None, user=conn_kwargs.pop('username'),
                            connect_timeout=3, replication=1, options='-c statement_timeout=2000')

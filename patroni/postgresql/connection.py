@@ -2,7 +2,7 @@ import logging
 
 from contextlib import contextmanager
 from threading import Lock
-from typing import Any, Dict, Generator, Union, TYPE_CHECKING
+from typing import Any, Dict, Iterator, Union, TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Connection as Connection3, Cursor
     from psycopg2 import connection, cursor
@@ -44,7 +44,7 @@ class Connection(object):
 
 
 @contextmanager
-def get_connection_cursor(**kwargs: Any) -> Generator[Union['cursor', 'Cursor[Any]'], None, None]:
+def get_connection_cursor(**kwargs: Any) -> Iterator[Union['cursor', 'Cursor[Any]']]:
     conn = psycopg.connect(**kwargs)
     with conn.cursor() as cur:
         yield cur

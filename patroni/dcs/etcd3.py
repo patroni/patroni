@@ -228,7 +228,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         return self.http.urlopen
 
     def _handle_server_response(self, response: urllib3.response.HTTPResponse) -> Dict[str, Any]:
-        data: Union[bytes, str] = response.data
+        data = response.data
         try:
             data = data.decode('utf-8')
             ret: Dict[str, Any] = json.loads(data)

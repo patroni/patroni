@@ -253,8 +253,8 @@ class TestRewind(BaseTestPostgresql):
                                          mock_logger_info.call_args[0])
                         mock_logger_info.reset_mock()
                         mock_subprocess_call.assert_called_once()
-                        self.assertEqual(mock_subprocess_call.call_args.args[0], ['command 000000000000000000000000'])
-                        self.assertEqual(mock_subprocess_call.call_args.kwargs['shell'], True)
+                        self.assertEqual(mock_subprocess_call.call_args[0][0], ['command 000000000000000000000000'])
+                        self.assertEqual(mock_subprocess_call.call_args[1]['shell'], True)
                         mock_subprocess_call.reset_mock()
 
             # failed archive_command call
