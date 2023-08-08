@@ -193,10 +193,16 @@ class Ha(object):
         return self.global_config.is_standby_cluster
 
     def is_leader(self) -> bool:
+        """:returns: `True` if the current node is the leader, based on expiration set when it last held the key."""
         with self._leader_expiry_lock:
             return self._leader_expiry > time.time()
 
     def set_is_leader(self, value: bool) -> None:
+        """Updates the current node's view of it's own leadership status. Will update the expiry timestamp to match
+        the dcs ttl if setting leadership to true, otherwise will set the expiry to the past to immediately
+        invalidate.
+
+        :param value: Is the current node the leader."""
         with self._leader_expiry_lock:
             self._leader_expiry = time.time() + self.dcs.ttl if value else 0
 
