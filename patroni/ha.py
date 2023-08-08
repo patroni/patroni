@@ -201,6 +201,10 @@ class Ha(object):
             self._is_leader = time.time() + self.dcs.ttl if value else 0
 
     def sync_mode_is_active(self) -> bool:
+        """Check whether synchronous replication is requested and already active.
+
+        :returns: ``True`` if the primary already put its name into the ``/sync`` in DCS.
+        """
         return self.is_synchronous_mode() and not self.cluster.sync.is_empty
 
     def load_cluster_from_dcs(self) -> None:
@@ -902,8 +906,7 @@ class Ha(object):
                     logger.info('Wal position of %s is ahead of my wal position', st.member.name)
                     # In synchronous mode the former leader might be still accessible and even be ahead of us.
                     # We should not disqualify himself from the leader race in such a situation.
-                    if not self.is_synchronous_mode() or self.cluster.sync.is_empty\
-                            or not self.cluster.sync.leader_matches(st.member.name):
+                    if not self.sync_mode_is_active() or not self.cluster.sync.leader_matches(st.member.name):
                         return False
                     logger.info('Ignoring the former leader being ahead of us')
         return True
