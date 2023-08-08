@@ -813,6 +813,8 @@ class Ha(object):
         return _MemberStatus.unknown(member)
 
     def fetch_nodes_statuses(self, members: List[Member]) -> List[_MemberStatus]:
+        if not members:
+            return []
         pool = ThreadPool(len(members))
         results = pool.map(self.fetch_node_status, members)  # Run API calls on members in parallel
         pool.close()
@@ -891,20 +893,19 @@ class Ha(object):
         # Prepare list of nodes to run check against
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
 
-        if members:
-            for st in self.fetch_nodes_statuses(members):
-                if st.failover_limitation() is None:
-                    if st.in_recovery is False:
-                        logger.warning('Primary (%s) is still alive', st.member.name)
+        for st in self.fetch_nodes_statuses(members):
+            if st.failover_limitation() is None:
+                if st.in_recovery is False:
+                    logger.warning('Primary (%s) is still alive', st.member.name)
+                    return False
+                if my_wal_position < st.wal_position:
+                    logger.info('Wal position of %s is ahead of my wal position', st.member.name)
+                    # In synchronous mode the former leader might be still accessible and even be ahead of us.
+                    # We should not disqualify himself from the leader race in such a situation.
+                    if not self.is_synchronous_mode() or self.cluster.sync.is_empty\
+                            or not self.cluster.sync.leader_matches(st.member.name):
                         return False
-                    if my_wal_position < st.wal_position:
-                        logger.info('Wal position of %s is ahead of my wal position', st.member.name)
-                        # In synchronous mode the former leader might be still accessible and even be ahead of us.
-                        # We should not disqualify himself from the leader race in such a situation.
-                        if not self.is_synchronous_mode() or self.cluster.sync.is_empty\
-                                or not self.cluster.sync.leader_matches(st.member.name):
-                            return False
-                        logger.info('Ignoring the former leader being ahead of us')
+                    logger.info('Ignoring the former leader being ahead of us')
         return True
 
     def is_failover_possible(self, *, cluster_lsn: int = 0, exclude_failover_candidate: bool = False) -> bool:
@@ -920,24 +921,23 @@ class Ha(object):
         if self.is_synchronous_mode() and self.cluster.failover and self.cluster.failover.candidate and not candidates:
             logger.warning('Failover candidate=%s does not match with sync_standbys=%s',
                            self.cluster.failover.candidate, self.cluster.sync.sync_standby)
+        elif not candidates:
+            logger.warning('manual failover: candidates list is empty')
 
         ret = False
         cluster_timeline = self.cluster.timeline
-        if candidates:
-            for st in self.fetch_nodes_statuses(candidates):
-                not_allowed_reason = st.failover_limitation()
-                if not_allowed_reason:
-                    logger.info('Member %s is %s', st.member.name, not_allowed_reason)
-                elif cluster_lsn and st.wal_position < cluster_lsn or \
-                        not cluster_lsn and self.is_lagging(st.wal_position):
-                    logger.info('Member %s exceeds maximum replication lag', st.member.name)
-                elif self.check_timeline() and (not st.timeline or st.timeline < cluster_timeline):
-                    logger.info('Timeline %s of member %s is behind the cluster timeline %s',
-                                st.timeline, st.member.name, cluster_timeline)
-                else:
-                    ret = True
-        else:
-            logger.warning('manual failover: candidates list is empty')
+        for st in self.fetch_nodes_statuses(candidates):
+            not_allowed_reason = st.failover_limitation()
+            if not_allowed_reason:
+                logger.info('Member %s is %s', st.member.name, not_allowed_reason)
+            elif cluster_lsn and st.wal_position < cluster_lsn or \
+                    not cluster_lsn and self.is_lagging(st.wal_position):
+                logger.info('Member %s exceeds maximum replication lag', st.member.name)
+            elif self.check_timeline() and (not st.timeline or st.timeline < cluster_timeline):
+                logger.info('Timeline %s of member %s is behind the cluster timeline %s',
+                            st.timeline, st.member.name, cluster_timeline)
+            else:
+                ret = True
         return ret
 
     def manual_failover_process_no_leader(self) -> Optional[bool]:
