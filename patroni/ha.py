@@ -200,6 +200,9 @@ class Ha(object):
         with self._is_leader_lock:
             self._is_leader = time.time() + self.dcs.ttl if value else 0
 
+    def sync_mode_is_active(self) -> bool:
+        return self.is_synchronous_mode() and not self.cluster.sync.is_empty
+
     def load_cluster_from_dcs(self) -> None:
         cluster = self.dcs.get_cluster()
 
@@ -904,7 +907,7 @@ class Ha(object):
                         logger.info('Ignoring the former leader being ahead of us')
         return True
 
-    def is_failover_possible(self, cluster_lsn: int = 0, exclude_candidate: bool = False) -> bool:
+    def is_failover_possible(self, *, cluster_lsn: int = 0, exclude_candidate: bool = False) -> bool:
         """Checks whether any of the cluster members is allowed to promote and is healthy enough for that.
 
         :param cluster_lsn: to calculate replication lag and exclude member if it is lagging.
@@ -920,7 +923,6 @@ class Ha(object):
 
         ret = False
         cluster_timeline = self.cluster.timeline
-        candidates = [m for m in candidates if not m.nofailover and m.api_url]
         if candidates:
             for st in self.fetch_nodes_statuses(candidates):
                 not_allowed_reason = st.failover_limitation()
@@ -1038,8 +1040,8 @@ class Ha(object):
 
         if self.cluster.failover:
             # When doing a switchover in synchronous mode only synchronous nodes and former leader are allowed to race
-            if self.is_synchronous_mode() and self.cluster.failover.leader and \
-                    not self.cluster.sync.is_empty and not self.cluster.sync.matches(self.state_handler.name, True):
+            if self.sync_mode_is_active() and not self.cluster.sync.matches(self.state_handler.name, True) and \
+               self.cluster.failover.leader:
                 return False
             return self.manual_failover_process_no_leader() or False
 
@@ -1060,7 +1062,7 @@ class Ha(object):
         all_known_members += self.cluster.members
 
         # When in sync mode, only last known primary and sync standby are allowed to promote automatically.
-        if self.is_synchronous_mode() and not self.cluster.sync.is_empty:
+        if self.sync_mode_is_active():
             if not self.cluster.sync.matches(self.state_handler.name, True):
                 return False
             # pick between synchronous candidates so we minimize unnecessary failovers/demotions
@@ -1111,7 +1113,7 @@ class Ha(object):
             # It could happen if Postgres is still archiving the backlog of WAL files.
             # If we know that there are replicas that received the shutdown checkpoint
             # location, we can remove the leader key and allow them to start leader race.
-            if self.is_failover_possible(checkpoint_location):
+            if self.is_failover_possible(cluster_lsn=checkpoint_location):
                 self.state_handler.set_role('demoted')
                 with self._async_executor:
                     self.release_leader_key_voluntarily(checkpoint_location)
@@ -1869,7 +1871,7 @@ class Ha(object):
                     # If we know that there are replicas that received the shutdown checkpoint
                     # location, we can remove the leader key and allow them to start leader race.
 
-                    if self.is_failover_possible(checkpoint_location):
+                    if self.is_failover_possible(cluster_lsn=checkpoint_location):
                         self.dcs.delete_leader(checkpoint_location)
                         status['deleted'] = True
                     else:
@@ -1943,14 +1945,17 @@ class Ha(object):
 
         :returns: a list of :class:`Member` ojects or an empty list if there is no candidate available.
         """
-        def is_eligible(node_name: str, exclude_candidate: bool) -> bool:
-            # TODO: allow manual failover (=no leader specified) to async node
-            failover = self.cluster.failover
-            exclude = [self.state_handler.name] + ([failover.candidate] if failover and exclude_candidate else [])
-            if self.is_synchronous_mode() and not self.cluster.sync.is_empty and \
-               not self.cluster.sync.matches(node_name):
-                return False
-            return node_name not in exclude and \
-                (not failover or not failover.candidate or node_name == failover.candidate)
+        failover = self.cluster.failover
+        exclude = [self.state_handler.name] + ([failover.candidate] if failover and exclude_candidate else [])
 
-        return list(filter(lambda m: is_eligible(m.name, exclude_candidate), self.cluster.members))
+        def is_eligible(node: Member) -> bool:
+            # TODO: allow manual failover (=no leader specified) to async node
+            if self.sync_mode_is_active() and not self.cluster.sync.matches(node.name):
+                return False
+            # Don't spend time on "nofailover" nodes checking.
+            # We also don't need nodes which we can't query with the api in the list.
+            return node.name not in exclude and \
+                not node.nofailover and bool(node.api_url) and \
+                (not failover or not failover.candidate or node.name == failover.candidate)
+
+        return list(filter(is_eligible, self.cluster.members))
