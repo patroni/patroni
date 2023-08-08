@@ -907,15 +907,15 @@ class Ha(object):
                         logger.info('Ignoring the former leader being ahead of us')
         return True
 
-    def is_failover_possible(self, *, cluster_lsn: int = 0, exclude_candidate: bool = False) -> bool:
+    def is_failover_possible(self, *, cluster_lsn: int = 0, exclude_failover_candidate: bool = False) -> bool:
         """Checks whether any of the cluster members is allowed to promote and is healthy enough for that.
 
         :param cluster_lsn: to calculate replication lag and exclude member if it is lagging.
-        :param exclude_candidate: if ``True``, exclude :attr:`failover.candidate` from the members list against which
-            the failover possibility checks are run.
+        :param exclude_failover_candidate: if ``True``, exclude :attr:`failover.candidate` from the members
+                                           list against which the failover possibility checks are run.
         :returns: `True` if there are members eligible to become the new leader.
         """
-        candidates = self.get_failover_candidates(exclude_candidate)
+        candidates = self.get_failover_candidates(exclude_failover_candidate)
 
         if self.is_synchronous_mode() and self.cluster.failover and self.cluster.failover.candidate and not candidates:
             logger.warning('Failover candidate=%s does not match with sync_standbys=%s',
@@ -987,7 +987,7 @@ class Ha(object):
         if failover.leader:
             if self.state_handler.name == failover.leader:  # I was the leader
                 # exclude desired member which is unhealthy if it was specified
-                if self.is_failover_possible(exclude_candidate=bool(failover.candidate)):
+                if self.is_failover_possible(exclude_failover_candidate=bool(failover.candidate)):
                     return False
                 else:  # I was the leader and it looks like currently I am the only healthy member
                     return True
@@ -1932,7 +1932,7 @@ class Ha(object):
         name = member.name if member else 'remote_member:{}'.format(uuid.uuid1())
         return RemoteMember(name, data)
 
-    def get_failover_candidates(self, exclude_candidate: bool) -> List[Member]:
+    def get_failover_candidates(self, exclude_failover_candidate: bool) -> List[Member]:
         """Return a list of candidates for either manual or automatic failover.
 
         Exclude non-sync members when in synchronous mode, the current node (its checks are always performed earlier)
@@ -1941,12 +1941,12 @@ class Ha(object):
         The result is further evaluated in the caller :func:`Ha.is_failover_possible` to check if any member is actually
         healthy enough and is allowed to poromote.
 
-        :param exclude_candidate: if ``True``, exclude :attr:`failover.candidate` from the candidates.
+        :param exclude_failover_candidate: if ``True``, exclude :attr:`failover.candidate` from the candidates.
 
         :returns: a list of :class:`Member` ojects or an empty list if there is no candidate available.
         """
         failover = self.cluster.failover
-        exclude = [self.state_handler.name] + ([failover.candidate] if failover and exclude_candidate else [])
+        exclude = [self.state_handler.name] + ([failover.candidate] if failover and exclude_failover_candidate else [])
 
         def is_eligible(node: Member) -> bool:
             # TODO: allow manual failover (=no leader specified) to async node
