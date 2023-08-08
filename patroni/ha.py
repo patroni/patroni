@@ -1218,12 +1218,11 @@ class Ha(object):
             if not failover.candidate or failover.candidate != self.state_handler.name:
                 if not failover.candidate and self.is_paused():
                     logger.warning('Failover is possible only to a specific candidate in a paused state')
+                elif self.is_failover_possible():
+                    ret = self._async_executor.try_run_async('manual failover: demote', self.demote, ('graceful',))
+                    return ret or 'manual failover: demoting myself'
                 else:
-                    if self.is_failover_possible():
-                        ret = self._async_executor.try_run_async('manual failover: demote', self.demote, ('graceful',))
-                        return ret or 'manual failover: demoting myself'
-                    else:
-                        logger.warning('manual failover: no healthy members found, failover is not possible')
+                    logger.warning('manual failover: no healthy members found, failover is not possible')
             else:
                 logger.warning('manual failover: I am already the leader, no need to failover')
         else:
