@@ -72,11 +72,10 @@ class AbstractConfigGenerator(abc.ABC):
 
     _HOSTNAME, _IP = get_address()
 
-    def __init__(self, output_file: Optional[str], dsn: Optional[str] = None) -> None:
+    def __init__(self, output_file: Optional[str]) -> None:
         """Set up the output file (if passed), helper vars and the minimal config structure.
 
         :param output_file: full path to the output file to be used.
-        :param dsn: DSN string for the local instance to get GUC values from.
         """
         self.output_file = output_file
         self.pg_major = 0
@@ -207,7 +206,7 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
         self.dsn = dsn
         self.parsed_dsn = {}
 
-        super().__init__(output_file, dsn)
+        super().__init__(output_file)
 
     @property
     def _get_hba_conn_types(self) -> Tuple[str, ...]:

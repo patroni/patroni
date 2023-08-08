@@ -476,7 +476,7 @@ def read_stripped(file_path: str) -> Iterator[str]:
     :yields: each line from the given filed stripped
     """
     with open(file_path) as f:
-        for line in f.readlines():
+        for line in f:
             yield line.strip()
 
 
