@@ -363,11 +363,11 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertRaises(psycopg.ProgrammingError, self.p.query, 'blabla')
 
     @patch.object(Postgresql, 'pg_isready', Mock(return_value=STATE_REJECT))
-    def test_is_leader(self):
-        self.assertTrue(self.p.is_leader())
+    def test_is_primary(self):
+        self.assertTrue(self.p.is_primary())
         self.p.reset_cluster_info_state(None)
         with patch.object(Postgresql, '_query', Mock(side_effect=RetryFailedError(''))):
-            self.assertFalse(self.p.is_leader())
+            self.assertFalse(self.p.is_primary())
 
     @patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'shut down',
                                                                 'Latest checkpoint location': '0/1ADBC18',
@@ -461,7 +461,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertIsNone(self.p.call_nowait(CallbackAction.ON_START))
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
-    def test_is_leader_exception(self):
+    def test_is_primary_exception(self):
         self.p.start()
         self.p.query = Mock(side_effect=psycopg.OperationalError("not supported"))
         self.assertTrue(self.p.stop())

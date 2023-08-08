@@ -120,9 +120,9 @@ class Postgresql(object):
 
         if self.is_running():  # we are "joining" already running postgres
             self.set_state('running')
-            self.set_role('master' if self.is_leader() else 'replica')
+            self.set_role('master' if self.is_primary() else 'replica')
             # postpone writing postgresql.conf for 12+ because recovery parameters are not yet known
-            if self.major_version < 120000 or self.is_leader():
+            if self.major_version < 120000 or self.is_primary():
                 self.config.write_postgresql_conf()
             hba_saved = self.config.replace_pg_hba()
             ident_saved = self.config.replace_pg_ident()
@@ -474,14 +474,14 @@ class Postgresql(object):
         """:returns: a result set of 'SELECT * FROM pg_stat_replication'."""
         return self._cluster_info_state_get('pg_stat_replication') or []
 
-    def replication_state_from_parameters(self, is_leader: bool, receiver_state: Optional[str],
+    def replication_state_from_parameters(self, is_primary: bool, receiver_state: Optional[str],
                                           restore_command: Optional[str]) -> Optional[str]:
         """Figure out the replication state from input parameters.
 
         .. note::
             This method could be only called when Postgres is up, running and queries are successfuly executed.
 
-        :is_leader: `True` is postgres is not running in recovery
+        :is_primary: `True` is postgres is not running in recovery
         :receiver_state: value from `pg_stat_get_wal_receiver.state` or None if Postgres is older than 9.6
         :restore_command: value of ``restore_command`` GUC for PostgreSQL 12+ or
                           `postgresql.recovery_conf.restore_command` if it is set in Patroni configuration
@@ -490,7 +490,7 @@ class Postgresql(object):
                   - 'streaming' if replica is streaming according to the `pg_stat_wal_receiver` view;
                   - 'in archive recovery' if replica isn't streaming and there is a `restore_command`
         """
-        if self._major_version >= 90600 and not is_leader:
+        if self._major_version >= 90600 and not is_primary:
             if receiver_state == 'streaming':
                 return 'streaming'
             # For Postgres older than 12 we get `restore_command` from Patroni config, otherwise we check GUC
@@ -505,11 +505,11 @@ class Postgresql(object):
 
         :returns: ``streaming``, ``in archive recovery``, or ``None``
         """
-        return self.replication_state_from_parameters(self.is_leader(),
+        return self.replication_state_from_parameters(self.is_primary(),
                                                       self._cluster_info_state_get('receiver_state'),
                                                       self._cluster_info_state_get('restore_command'))
 
-    def is_leader(self) -> bool:
+    def is_primary(self) -> bool:
         try:
             return bool(self._cluster_info_state_get('timeline'))
         except PostgresConnectionException:
@@ -1157,9 +1157,9 @@ class Postgresql(object):
         return ret
 
     @staticmethod
-    def _wal_position(is_leader: bool, wal_position: int,
+    def _wal_position(is_primary: bool, wal_position: int,
                       received_location: Optional[int], replayed_location: Optional[int]) -> int:
-        return wal_position if is_leader else max(received_location or 0, replayed_location or 0)
+        return wal_position if is_primary else max(received_location or 0, replayed_location or 0)
 
     def timeline_wal_position(self) -> Tuple[int, int, Optional[int]]:
         # This method could be called from different threads (simultaneously with some other `_query` calls).
@@ -1195,7 +1195,7 @@ class Postgresql(object):
             return None
 
     def last_operation(self) -> int:
-        return self._wal_position(self.is_leader(), self._cluster_info_state_get('wal_position') or 0,
+        return self._wal_position(self.is_primary(), self._cluster_info_state_get('wal_position') or 0,
                                   self.received_location(), self.replayed_location())
 
     def configure_server_parameters(self) -> None:
