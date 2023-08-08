@@ -70,6 +70,23 @@ class TestSlotsHandler(BaseTestPostgresql):
             with patch.object(Postgresql, 'major_version', PropertyMock(return_value=90618)):
                 self.s.sync_replication_slots(cluster, False)
 
+    def test_cascading_replica_sync_replication_slots(self):
+        """Test sync with a cascading replica so physical slots are present on a replica."""
+        config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}}}, 1)
+        cascading_replica = Member(0, 'test-2', 28, {
+            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+            'tags': {'replicatefrom': 'postgresql0'}
+        })
+        cluster = Cluster(True, config, self.leader, 0,
+                          [self.me, self.other, self.leadermem, cascading_replica],
+                          None, SyncState.empty(), None, {'ls': 10}, None)
+        self.p.set_role('replica')
+        with patch.object(Postgresql, '_query') as mock_query, \
+                patch.object(Postgresql, 'is_leader', Mock(return_value=False)):
+            mock_query.return_value = [('ls', 'logical', 'b', 'a', 5, 12345, 105)]
+            ret = self.s.sync_replication_slots(cluster, False)
+        self.assertEqual(ret, [])
+
     def test_process_permanent_slots(self):
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}},
                                    'ignore_slots': [{'name': 'blabla'}]}, 1)
