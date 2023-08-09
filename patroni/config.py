@@ -194,10 +194,9 @@ class Config(object):
             'recovery_min_apply_delay': ''
         },
         'postgresql': {
-            'bin_dir': '',
             'use_slots': True,
             'parameters': CaseInsensitiveDict({p: v[0] for p, v in ConfigHandler.CMDLINE_OPTIONS.items()
-                                               if p not in ('wal_keep_segments', 'wal_keep_size')})
+                                               if v[0] is not None and p not in ('wal_keep_segments', 'wal_keep_size')})
         }
     }
 
@@ -235,6 +234,22 @@ class Config(object):
     @property
     def dynamic_configuration(self) -> Dict[str, Any]:
         return deepcopy(self._dynamic_configuration)
+
+    @property
+    def local_configuration(self) -> Dict[str, Any]:
+        """Deep copy of cached Patroni local configuration.
+
+        :returns: copy of :attr:`~Config._local_configuration`
+        """
+        return deepcopy(dict(self._local_configuration))
+
+    @classmethod
+    def get_default_config(cls) -> Dict[str, Any]:
+        """Deep copy default configuration.
+
+        :returns: copy of :attr:`~Config.__DEFAULT_CONFIG`
+        """
+        return deepcopy(cls.__DEFAULT_CONFIG)
 
     def _load_config_path(self, path: str) -> Dict[str, Any]:
         """
@@ -348,7 +363,7 @@ class Config(object):
         return pg_params
 
     def _safe_copy_dynamic_configuration(self, dynamic_configuration: Dict[str, Any]) -> Dict[str, Any]:
-        config = deepcopy(self.__DEFAULT_CONFIG)
+        config = self.get_default_config()
 
         for name, value in dynamic_configuration.items():
             if name == 'postgresql':
