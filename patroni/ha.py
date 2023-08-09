@@ -198,11 +198,13 @@ class Ha(object):
             return self._leader_expiry > time.time()
 
     def set_is_leader(self, value: bool) -> None:
-        """Updates the current node's view of it's own leadership status. Will update the expiry timestamp to match
-        the dcs ttl if setting leadership to true, otherwise will set the expiry to the past to immediately
-        invalidate.
+        """Update the current node's view of it's own leadership status.
 
-        :param value: Is the current node the leader."""
+        Will update the expiry timestamp to match the dcs ttl if setting leadership to true,
+        otherwise will set the expiry to the past to immediately invalidate.
+
+        :param value: Is the current node the leader.
+        """
         with self._leader_expiry_lock:
             self._leader_expiry = time.time() + self.dcs.ttl if value else 0
 
