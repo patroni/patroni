@@ -693,14 +693,14 @@ class TestHa(PostgresInit):
         with patch('patroni.ha.logger.warning') as mock_warning:
             self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', self.p.name, None))
             self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
-            mock_warning.assert_called_with('manual %s: I am already the leader, no need to %s', 'failover', 'failover')
+            mock_warning.assert_called_with('%s: I am already the leader, no need to %s', 'manual failover', 'failover')
 
         # to a non-existent candidate
         with patch('patroni.ha.logger.warning') as mock_warning:
             self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', 'blabla', None))
             self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
             mock_warning.assert_called_with(
-                'manual %s: no healthy members found, %s is not possible', 'failover', 'failover')
+                '%s: no healthy members found, %s is not possible', 'manual failover', 'failover')
 
         # to an existent candidate
         self.ha.fetch_node_status = get_node_status()
@@ -735,14 +735,14 @@ class TestHa(PostgresInit):
             self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, 'blabla', '', None))
             self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
             mock_warning.assert_called_with(
-                'manual %s: leader name does not match: %s != %s', 'switchover', 'blabla', 'postgresql0')
+                '%s: leader name does not match: %s != %s', 'switchover', 'blabla', 'postgresql0')
 
         # no candidate
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, '', None))
-        self.assertEqual(self.ha.run_cycle(), 'manual switchover: demoting myself')
+        self.assertEqual(self.ha.run_cycle(), 'switchover: demoting myself')
 
         self.ha._rewind.rewind_or_reinitialize_needed_and_possible = true
-        self.assertEqual(self.ha.run_cycle(), 'manual switchover: demoting myself')
+        self.assertEqual(self.ha.run_cycle(), 'switchover: demoting myself')
 
         # other members with failover_limitation_s
         with patch('patroni.ha.logger.info') as mock_info:
@@ -782,7 +782,7 @@ class TestHa(PostgresInit):
         scheduled = datetime.datetime.utcnow().replace(tzinfo=tzutc)
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, 'b', scheduled))
         self.ha.cluster.members.append(Member(0, 'b', 28, {'api_url': 'http://127.0.0.1:8011/patroni'}))
-        self.assertEqual('manual switchover: demoting myself', self.ha.run_cycle())
+        self.assertEqual('switchover: demoting myself', self.ha.run_cycle())
 
         # scheduled in the future
         with patch('patroni.ha.logger.info') as mock_info:
@@ -857,7 +857,7 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, 'a', None),
                                                               sync=(self.p.name, 'a'))
         self.ha.cluster.members.append(Member(0, 'a', 28, {'api_url': 'http://127.0.0.1:8011/patroni'}))
-        self.assertEqual('manual switchover: demoting myself', self.ha.run_cycle())
+        self.assertEqual('switchover: demoting myself', self.ha.run_cycle())
 
         # the candidate is in sync members but is not healthy
         with patch('patroni.ha.logger.info') as mock_info:
@@ -874,7 +874,7 @@ class TestHa(PostgresInit):
             self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'leader', None))
             self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
             self.assertEqual(mock_warning.call_args_list[1][0],
-                             ('manual %s: member %s is %s', 'failover', 'leader', 'not reachable'))
+                             ('%s: member %s is %s', 'manual failover', 'leader', 'not reachable'))
 
         # failover to another member, candidate is accessible, in_recovery
         self.p.set_role('replica')
@@ -901,14 +901,14 @@ class TestHa(PostgresInit):
             self.ha.cluster.members.append(Member(0, 'b', 28, {'api_url': 'http://127.0.0.1:8011/patroni'}))
             self.ha.fetch_node_status = get_node_status(timeline=1)
             self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
-            mock_info.assert_called_with('manual %s: to %s, i am %s', 'failover', 'b', 'postgresql0')
+            mock_info.assert_called_with('%s: to %s, i am %s', 'manual failover', 'b', 'postgresql0')
 
         # failover to another member lagging behind the cluster_lsn (only failover_limitation() is checked)
         with patch('patroni.ha.logger.info') as mock_info:
             self.ha.cluster.config.data.update({'maximum_lag_on_failover': 5})
             self.ha.fetch_node_status = get_node_status(wal_position=1)
             self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
-            mock_info.assert_called_with('manual %s: to %s, i am %s', 'failover', 'b', 'postgresql0')
+            mock_info.assert_called_with('%s: to %s, i am %s', 'manual failover', 'b', 'postgresql0')
 
     def test_manual_switchover_process_no_leader(self):
         self.p.is_leader = false
@@ -945,7 +945,7 @@ class TestHa(PostgresInit):
             self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
             self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
             self.assertEqual(mock_warning.call_args_list[0][0],
-                             ('manual %s: member %s is %s', 'failover', 'other', 'not allowed to promote'))
+                             ('%s: member %s is %s', 'manual failover', 'other', 'not allowed to promote'))
 
         # manual failover to our node (postgresql0),
         # which name is not in sync nodes list (some sync nodes are available)
@@ -1001,7 +1001,7 @@ class TestHa(PostgresInit):
             self.assertEqual('PAUSE: acquired session lock as a leader', self.ha.run_cycle())
             self.assertEqual(
                 mock_warning.call_args_list[0][0],
-                ('manual %s: removing failover key because failover candidate is not running', 'switchover'))
+                ('%s: removing failover key because failover candidate is not running', 'switchover'))
 
         # switchover to me, I am not leader
         self.p.is_leader = false
@@ -1253,7 +1253,7 @@ class TestHa(PostgresInit):
         f = Failover(0, self.p.name, '', None)
         self.ha.cluster = get_cluster_initialized_with_leader(f)
         self.ha.fetch_node_status = get_node_status()  # accessible, in_recovery
-        self.assertEqual(self.ha.run_cycle(), 'manual switchover: demoting myself')
+        self.assertEqual(self.ha.run_cycle(), 'switchover: demoting myself')
 
     @patch('patroni.ha.Ha.demote')
     def test_failover_immediately_on_zero_primary_start_timeout(self, demote):

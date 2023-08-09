@@ -207,6 +207,17 @@ class Ha(object):
         """
         return self.is_synchronous_mode() and not self.cluster.sync.is_empty
 
+    def _get_failover_action_name(self) -> str:
+        """Return the currently requested manual failover action name or the default ``failover``.
+
+        :returns: :class:`str` representing the manually requested action (``manual failover`` if no leader
+            is specified in the ``/failover`` in DCS, ``switchover`` otherwise) or ``failover`` if
+            ``/failover`` is empty.
+        """
+        if not self.cluster.failover:
+            return 'failover'
+        return 'switchover' if self.cluster.failover.leader else 'manual failover'
+
     def load_cluster_from_dcs(self) -> None:
         cluster = self.dcs.get_cluster()
 
@@ -921,13 +932,12 @@ class Ha(object):
         """
         candidates = self.get_failover_candidates(exclude_failover_candidate)
 
-        action = 'switchover' if self.cluster.failover and self.cluster.failover.leader else 'failover'
+        action = self._get_failover_action_name()
         if self.is_synchronous_mode() and self.cluster.failover and self.cluster.failover.candidate and not candidates:
             logger.warning('%s candidate=%s does not match with sync_standbys=%s',
                            action.title(), self.cluster.failover.candidate, self.cluster.sync.sync_standby)
         elif not candidates:
-            logger.warning('%s%s: candidates list is empty', '' if not self.cluster.failover else 'manual ', action)
-            logger.warning('manual failover: candidates list is empty')
+            logger.warning('%s: candidates list is empty', action)
 
         ret = False
         cluster_timeline = self.cluster.timeline
@@ -955,7 +965,7 @@ class Ha(object):
         if TYPE_CHECKING:  # pragma: no cover
             assert failover is not None
 
-        action = 'switchover' if failover.leader else 'failover'
+        action = self._get_failover_action_name()
 
         if failover.candidate:  # manual failover/switchover to specific member
             if failover.candidate == self.state_handler.name:  # manual failover/switchover to me
@@ -965,7 +975,7 @@ class Ha(object):
                 # In order to avoid attempts to delete this key from all nodes only the primary is allowed to do it.
                 if not self.cluster.get_member(failover.candidate, fallback_to_leader=False)\
                         and self.state_handler.is_leader():
-                    logger.warning("manual %s: removing failover key because failover candidate is not running", action)
+                    logger.warning("%s: removing failover key because failover candidate is not running", action)
                     self.dcs.manual_failover('', '', version=failover.version)
                     return None
                 return False
@@ -981,10 +991,10 @@ class Ha(object):
                 st = self.fetch_node_status(member)
                 not_allowed_reason = st.failover_limitation()
                 if not_allowed_reason is None:  # node is healthy
-                    logger.info('manual %s: to %s, i am %s', action, st.member.name, self.state_handler.name)
+                    logger.info('%s: to %s, i am %s', action, st.member.name, self.state_handler.name)
                     return False
                 # we wanted to failover/switchover to specific member but it is not healthy
-                logger.warning('manual %s: member %s is %s', action, st.member.name, not_allowed_reason)
+                logger.warning('%s: member %s is %s', action, st.member.name, not_allowed_reason)
 
             # at this point we should consider all members as a candidates for failover/switchover
             # i.e. we assume that failover.candidate is None
@@ -1217,7 +1227,7 @@ class Ha(object):
         if not failover or (self.is_paused() and not self.state_handler.is_leader()):
             return
 
-        action = 'failover' if not failover.leader else 'switchover'
+        action = self._get_failover_action_name()
 
         # it is not the time for the the scheduled failover yet, do nothing
         if (failover.scheduled_at and not
@@ -1230,15 +1240,15 @@ class Ha(object):
                 if not failover.candidate and self.is_paused():
                     logger.warning('%s is possible only to a specific candidate in a paused state', action.title())
                 elif self.is_failover_possible():
-                    ret = self._async_executor.try_run_async(f'manual {action}: demote', self.demote, ('graceful',))
-                    return ret or f'manual {action}: demoting myself'
+                    ret = self._async_executor.try_run_async(f'{action}: demote', self.demote, ('graceful',))
+                    return ret or f'{action}: demoting myself'
                 else:
-                    logger.warning('manual %s: no healthy members found, %s is not possible', action, action)
+                    logger.warning('%s: no healthy members found, %s is not possible',
+                                   action, action.removeprefix('manual '))
             else:
-                logger.warning('manual %s: I am already the leader, no need to %s', action, action)
+                logger.warning('%s: I am already the leader, no need to %s', action, action.removeprefix('manual '))
         else:
-            logger.warning('manual %s: leader name does not match: %s != %s',
-                           action, failover.leader, self.state_handler.name)
+            logger.warning('%s: leader name does not match: %s != %s', action, failover.leader, self.state_handler.name)
 
         logger.info('Cleaning up failover key')
         self.dcs.manual_failover('', '', version=failover.version)
