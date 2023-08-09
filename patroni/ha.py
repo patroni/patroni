@@ -1244,9 +1244,9 @@ class Ha(object):
                     return ret or f'{action}: demoting myself'
                 else:
                     logger.warning('%s: no healthy members found, %s is not possible',
-                                   action, action.removeprefix('manual '))
+                                   action, action.replace('manual ', ''))
             else:
-                logger.warning('%s: I am already the leader, no need to %s', action, action.removeprefix('manual '))
+                logger.warning('%s: I am already the leader, no need to %s', action, action.replace('manual ', ''))
         else:
             logger.warning('%s: leader name does not match: %s != %s', action, failover.leader, self.state_handler.name)
 
