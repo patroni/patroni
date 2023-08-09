@@ -1038,6 +1038,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
             logger.warning('received failover request with leader specifed - performing switchover')
             action = 'switchover'
 
+        if not data and leader == candidate:
+            data = 'Switchover target and source are the same'
+
         if not data and not scheduled_at:
             data = self.is_failover_possible(cluster, leader, candidate, action)
             if data:

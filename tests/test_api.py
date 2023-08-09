@@ -526,7 +526,6 @@ class TestRestApiHandler(unittest.TestCase):
             response_mock.assert_called_with(
                 400, 'Switchover is possible only to a specific candidate in a paused state')
 
-        # Switchover without a candidate specified
         # No healthy nodes to promote in both sync and async mode
         for is_synchronous_mode, response in (
                 (True, 'switchover is not possible: can not find sync_standby'),
@@ -537,6 +536,12 @@ class TestRestApiHandler(unittest.TestCase):
                 response_mock.assert_called_with(412, response)
 
         # [Switchover to the candidate specified]
+
+        # Candidate to promote is the same as the leader specified
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            request = post + '53\n\n{"leader": "postgresql2", "candidate": "postgresql2"}'
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(400, 'Switchover target and source are the same')
 
         # Current leader is different from the one specified
         with patch.object(RestApiHandler, 'write_response') as response_mock:
