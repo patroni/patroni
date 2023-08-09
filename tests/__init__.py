@@ -184,7 +184,7 @@ class MockConnectionInfo(object):
 
 class MockConnect(object):
 
-    server_version = 999999
+    server_version = 99999
     autocommit = False
     closed = 0
     info = MockConnectionInfo()

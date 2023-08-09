@@ -3,7 +3,7 @@ import psutil
 import socket
 import unittest
 
-from . import MockCursor, MockConnectionInfo
+from . import MockConnect, MockCursor, MockConnectionInfo
 from copy import deepcopy
 from mock import MagicMock, Mock, PropertyMock, mock_open, patch
 
@@ -245,6 +245,7 @@ class TestGenerateConfig(unittest.TestCase):
 
         with patch('builtins.open', Mock(side_effect=self._get_running_instance_open_res())), \
              patch('sys.argv', ['patroni.py', '--generate-config']), \
+             patch.object(MockConnect, 'server_version', PropertyMock(return_value=160000)), \
              self.assertRaises(SystemExit) as e:
             _main()
         self.assertEqual(e.exception.code, 0)
