@@ -224,7 +224,8 @@ class Config(object):
         self.__effective_configuration = self._build_effective_configuration({}, self._local_configuration)
         self._data_dir = self.__effective_configuration.get('postgresql', {}).get('data_dir', "")
         self._cache_file = os.path.join(self._data_dir, self.__CACHE_FILENAME)
-        self._load_cache()
+        if validator:  # patronictl uses validator=None and we don't want to load anything from local cache in this case
+            self._load_cache()
         self._cache_needs_saving = False
 
     @property
@@ -341,8 +342,8 @@ class Config(object):
                 if ConfigHandler.CMDLINE_OPTIONS[name][1](value):
                     pg_params[name] = value
                 else:
-                    logging.warning("postgresql parameter %s=%s failed validation, defaulting to %s",
-                                    name, value, ConfigHandler.CMDLINE_OPTIONS[name][0])
+                    logger.warning("postgresql parameter %s=%s failed validation, defaulting to %s",
+                                   name, value, ConfigHandler.CMDLINE_OPTIONS[name][0])
 
         return pg_params
 

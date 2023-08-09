@@ -508,7 +508,7 @@ class SlotsHandler:
 
                 self._ensure_physical_slots(slots)
 
-                if self._postgresql.is_leader():
+                if self._postgresql.is_primary():
                     self._logical_slots_processing_queue.clear()
                     self._ensure_logical_slots_primary(slots)
                 elif cluster.slots and slots:
