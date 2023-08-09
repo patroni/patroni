@@ -1,3 +1,4 @@
+"""Structures and tools related to membership status and leader races."""
 import datetime
 import functools
 import json
@@ -198,8 +199,7 @@ class Ha(object):
             return self._leader_expiry > time.time()
 
     def set_is_leader(self, value: bool) -> None:
-        """Update the current node's view of it's own leadership status.
-
+        """Updates the current node's view of it's own leadership status.
         Will update the expiry timestamp to match the dcs ttl if setting leadership to true,
         otherwise will set the expiry to the past to immediately invalidate.
 
@@ -1485,9 +1485,7 @@ class Ha(object):
         self._async_executor.run_async(self._do_reinitialize, args=(cluster, ))
 
     def handle_long_action_in_progress(self) -> str:
-        """
-        Figure out what to do with the task AsyncExecutor is performing.
-        """
+        """Figure out what to do with the task AsyncExecutor is performing."""
         if self.has_lock() and self.update_lock():
             if self._async_executor.scheduled_action == 'doing crash recovery in a single user mode':
                 time_left = self.global_config.primary_start_timeout - (time.time() - self._crash_recovery_started)
@@ -1524,12 +1522,14 @@ class Ha(object):
 
     @staticmethod
     def sysid_valid(sysid: Optional[str]) -> bool:
+        """Is this a valid sysid."""
         # sysid does tv_sec << 32, where tv_sec is the number of seconds sine 1970,
         # so even 1 << 32 would have 10 digits.
         sysid = str(sysid)
         return len(sysid) >= 10 and sysid.isdigit()
 
     def post_recover(self) -> Optional[str]:
+        """Cleanup and recover a former leader after trying and failing to start postgres."""
         if not self.state_handler.is_running():
             self.watchdog.disable()
             if self.has_lock():
@@ -1541,6 +1541,7 @@ class Ha(object):
         return None
 
     def cancel_initialization(self) -> None:
+        """Perform cleanup after a failed bootstrap attempt."""
         logger.info('removing initialize key after failed attempt to bootstrap the cluster')
         self.dcs.cancel_initialization()
         self.state_handler.stop('immediate', stop_timeout=self.patroni.config['retry_timeout'])
@@ -1548,6 +1549,7 @@ class Ha(object):
         raise PatroniFatalException('Failed to bootstrap cluster')
 
     def post_bootstrap(self) -> str:
+        """Initialize a new cluster after bootstrap completes."""
         with self._async_response:
             result = self._async_response.result
         # bootstrap has failed if postgres is not running
@@ -1582,9 +1584,11 @@ class Ha(object):
         return 'initialized a new cluster'
 
     def handle_starting_instance(self) -> Optional[str]:
-        """Starting up PostgreSQL may take a long time. In case we are the leader we may want to
-        fail over to."""
+        """Perform checks during a start up (which may be slow) and failover if needed.
 
+        Starting up PostgreSQL may take a long time. In case we are the leader we may want to
+        fail over to.
+        """
         # Check if we are in startup, when paused defer to main loop for manual failovers.
         if not self.state_handler.check_for_startup() or self.is_paused():
             self.set_start_timeout(None)
@@ -1623,7 +1627,8 @@ class Ha(object):
     def set_start_timeout(self, value: Optional[int]) -> None:
         """Sets timeout for starting as primary before eligible for failover.
 
-        Must be called when async_executor is busy or in the main thread."""
+        Must be called when async_executor is busy or in the main thread.
+        """
         self._start_timeout = value
 
     def _run_cycle(self) -> str:
@@ -1828,8 +1833,8 @@ class Ha(object):
         """Handles replication slots.
 
         :param dcs_failed: bool, indicates that communication with DCS failed (get_cluster() or update_leader())
-        :returns: list[str], replication slots names that should be copied from the primary"""
-
+        :returns: list[str], replication slots names that should be copied from the primary
+        """
         slots: List[str] = []
 
         # If dcs_failed we don't want to touch replication slots on a leader or replicas if failsafe_mode isn't enabled.
@@ -1851,6 +1856,7 @@ class Ha(object):
         return [] if self.failsafe_is_active() else slots
 
     def run_cycle(self) -> str:
+        """A wrapper for the internal cycle which captures errors in a more application-friendly way."""
         with self._async_executor:
             try:
                 info = self._run_cycle()
@@ -1862,6 +1868,7 @@ class Ha(object):
                 return 'Unexpected exception raised, please report it as a BUG'
 
     def shutdown(self) -> None:
+        """Shuts down the current node."""
         if self.is_paused():
             logger.info('Leader key is not deleted and Postgresql is not stopped due paused state')
             self.watchdog.disable()
@@ -1909,7 +1916,7 @@ class Ha(object):
                              (" Leaving watchdog running." if self.watchdog.is_running else ""))
 
     def watch(self, timeout: float) -> bool:
-        # watch on leader key changes if the postgres is running and leader is known and current node is not lock owner
+        """Watch for leader key changes is there is a known leader that is not the current node."""
         if self._async_executor.busy or not self.cluster or self.cluster.is_unlocked() or self.has_lock(False):
             leader_version = None
         else:
@@ -1918,15 +1925,16 @@ class Ha(object):
         return self.dcs.watch(leader_version, timeout)
 
     def wakeup(self) -> None:
-        """Call of this method will trigger the next run of HA loop if there is
-        no "active" leader watch request in progress.
-        This usually happens on the leader or if the node is running async action"""
+        """Trigger the next run of the HA loop if there is no "active" leader watch request.
+
+        This usually happens on the leader or if the node is running async action.
+        """
         self.dcs.event.set()
 
     def get_remote_member(self, member: Union[Leader, Member, None] = None) -> RemoteMember:
-        """ In case of standby cluster this will tel us from which remote
-            member to stream. Config can be both patroni config or
-            cluster.config.data
+        """In case of standby cluster this will tell us from which remote member to stream.
+
+        Config can be both patroni config or cluster.config.data
         """
         data: Dict[str, Any] = {}
         cluster_params = self.global_config.get_standby_cluster_config()
