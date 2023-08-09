@@ -197,9 +197,10 @@ class TestConsul(unittest.TestCase):
 
     @patch.object(consul.Consul.KV, 'delete', Mock(return_value=True))
     def test_delete_leader(self):
-        self.c.delete_leader()
+        leader = self.c.get_cluster().leader
+        self.c.delete_leader(leader)
         self.c._name = 'other'
-        self.c.delete_leader()
+        self.c.delete_leader(leader)
 
     @patch.object(consul.Consul.KV, 'put', Mock(return_value=True))
     def test_initialize(self):
