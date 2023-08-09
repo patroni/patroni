@@ -50,7 +50,7 @@ def get_address() -> Tuple[str, str]:
     :returns: tuple consisting of the hostname returned by :func:`~socket.gethostname`
         and the first element in the sorted list of the addresses returned by :func:`~socket.getaddrinfo`.
         Sorting guarantees it will prefer IPv4.
-        If an exception occured, hostname and ip values are equal to `~patroni.config_generator._NO_VALUE_MSG`.
+        If an exception occured, hostname and ip values are equal to :data:`~patroni.config_generator._NO_VALUE_MSG`.
     """
     hostname = None
     try:
@@ -88,7 +88,7 @@ class AbstractConfigGenerator(abc.ABC):
         """Generate a template config for further extension (e.g. in the inherited classes).
 
         :returns: dictionary with the values gathered from Patroni env, hopefully defined hostname and ip address
-        (otherwise set to `~patroni.config_generator._NO_VALUE_MSG`), and some sane defaults.
+                  (otherwise set to :data:`~patroni.config_generator._NO_VALUE_MSG`), and some sane defaults.
         """
         template_config: Dict[str, Any] = {
             'scope': _NO_VALUE_MSG,
@@ -116,6 +116,7 @@ class AbstractConfigGenerator(abc.ABC):
         }
 
         dynamic_config = Config.get_default_config()
+        # to properly dump CaseInsensitiveDict as YAML later
         dynamic_config['postgresql']['parameters'] = dict(dynamic_config['postgresql']['parameters'])
         config = Config('', None).local_configuration  # Get values from env
         config.setdefault('bootstrap', {})['dcs'] = dynamic_config
@@ -124,16 +125,6 @@ class AbstractConfigGenerator(abc.ABC):
 
         patch_config(template_config, config)
         return template_config
-
-    def _get_int_major_version(self) -> int:
-        """Get major PostgreSQL version from the binary as an integer.
-
-        :returns: an integer PostgreSQL major version representation gathered from the PostgreSQL binary.
-            See :func:`~patroni.postgresql.misc.postgres_major_version_to_int` and
-            :func:`~patroni.utils.get_major_version`.
-        """
-        postgres_bin = ((self.config.get('postgresql') or {}).get('bin_name') or {}).get('postgres', 'postgres')
-        return postgres_major_version_to_int(get_major_version(self.config['postgresql'].get('bin_dir'), postgres_bin))
 
     @abc.abstractmethod
     def generate(self) -> None:
@@ -164,6 +155,16 @@ class SampleConfigGenerator(AbstractConfigGenerator):
         :returns: :class:`str` value for the preferred authentication method.
         """
         return 'scram-sha-256' if self.pg_major and self.pg_major >= 100000 else 'md5'
+
+    def _get_int_major_version(self) -> int:
+        """Get major PostgreSQL version from the binary as an integer.
+
+        :returns: an integer PostgreSQL major version representation gathered from the PostgreSQL binary.
+                  See :func:`~patroni.postgresql.misc.postgres_major_version_to_int` and
+                  :func:`~patroni.utils.get_major_version`.
+        """
+        postgres_bin = ((self.config.get('postgresql') or {}).get('bin_name') or {}).get('postgres', 'postgres')
+        return postgres_major_version_to_int(get_major_version(self.config['postgresql'].get('bin_dir'), postgres_bin))
 
     def generate(self) -> None:
         """Generate sample config using some sane defaults and update :attr:`~AbstractConfigGenerator.config`."""
@@ -282,7 +283,7 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
             * Non-internal having configuration file, postmaster command line or environment variable
               as a source.
 
-            * List of the always required parameters (see :func:`~RunningClusterConfigGenerator._required_pg_params`).
+            * List of the always required parameters (see :meth:`~RunningClusterConfigGenerator._required_pg_params`).
 
         :param cur: connection cursor to use.
         """
@@ -342,7 +343,8 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
 
         .. note::
             This function only defines ``postgresql.pg_hba`` and ``postgresql.pg_ident`` when
-            ``hba_file`` and ``ident_file`` are set to the defaults.
+            ``hba_file`` and ``ident_file`` are set to the defaults. It may happen these files
+            are located outside of ``PGDATA`` and Patroni doesn't have write permissions for them.
 
         :raises:
             :exc:`~patroni.exceptions.PatroniException`: if :exc:`OSError` occured during the conf files handling.
@@ -370,10 +372,10 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
 
         Retrieve the following information from the running PostgreSQL instance:
 
-        * superuser auth parameters (see :func:`~RunningClusterConfigGenerator._set_su_params`);
-        * some GUC values (see :func:`~RunningClusterConfigGenerator._set_pg_params`);
+        * superuser auth parameters (see :meth:`~RunningClusterConfigGenerator._set_su_params`);
+        * some GUC values (see :meth:`~RunningClusterConfigGenerator._set_pg_params`);
         * ``postgresql.connect_address``, ``postgresql.listen``;
-        * ``postgresql.pg_hba`` and ``postgresql.pg_ident`` (see :func:`~RunningClusterConfigGenerator._set_conf_files`)
+        * ``postgresql.pg_hba`` and ``postgresql.pg_ident`` (see :meth:`~RunningClusterConfigGenerator._set_conf_files`)
 
         And redefine ``scope`` with the ``cluster_name`` GUC value if set.
 
@@ -418,7 +420,7 @@ def generate_config(output_file: str, sample: bool, dsn: Optional[str]) -> None:
     * ``scope``: ``cluster_name`` GUC value or ``PATRONI_SCOPE ENV`` variable value if available.
     * ``name``: ``PATRONI_NAME`` ENV variable value if set, otherwise hostname.
 
-    * ``bootsrtap.dcs``: section with all the parameters (incl. the majority of PG GUCs) set to their default values
+    * ``bootstrap.dcs``: section with all the parameters (incl. the majority of PG GUCs) set to their default values
       defined by Patroni and adjusted by the source instances's configuration values.
 
     * ``postgresql.parameters``: the source instance's ``archive_command``, ``restore_command``,
@@ -440,7 +442,7 @@ def generate_config(output_file: str, sample: bool, dsn: Optional[str]) -> None:
         * rewind user is defined only for sample config, if PG version can be defined and PG version is >=11
           (if possible, username is set from the respective Patroni ENV var).
 
-    * ``bootsrtap.dcs.postgresql.use_pg_rewind`` set to ``True`` for a sample config only.
+    * ``bootstrap.dcs.postgresql.use_pg_rewind`` set to ``True`` for a sample config only.
     * ``postgresql.pg_hba`` defaults or the lines gathered from the source instance's ``hba_file``.
     * ``postgresql.pg_ident`` the lines gathered from the source instance's ``ident_file``.
 
