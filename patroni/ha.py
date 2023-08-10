@@ -203,7 +203,7 @@ class Ha(object):
         Will update the expiry timestamp to match the dcs ttl if setting leadership to true,
         otherwise will set the expiry to the past to immediately invalidate.
 
-        :param value: Is the current node the leader.
+        :param value: is the current node the leader.
         """
         with self._leader_expiry_lock:
             self._leader_expiry = time.time() + self.dcs.ttl if value else 0
