@@ -27,17 +27,18 @@ logger = logging.getLogger(__name__)
 
 
 class _MemberStatus(NamedTuple):
-    """Node status distilled from API response:
+    """Node status distilled from API response.
 
-        member - dcs.Member object of the node
-        reachable - `!False` if the node is not reachable or is not responding with correct JSON
-        in_recovery - `!True` if pg_is_in_recovery() == true
-        dcs_last_seen - timestamp from JSON of last succesful communication with DCS
-        timeline - timeline value from JSON
-        wal_position - maximum value of `replayed_location` or `received_location` from JSON
-        tags - dictionary with values of different tags (i.e. nofailover)
-        watchdog_failed - indicates that watchdog is required by configuration but not available or failed
+    member - dcs.Member object of the node
+    reachable - `!False` if the node is not reachable or is not responding with correct JSON
+    in_recovery - `!True` if pg_is_in_recovery() == true
+    dcs_last_seen - timestamp from JSON of last succesful communication with DCS
+    timeline - timeline value from JSON
+    wal_position - maximum value of `replayed_location` or `received_location` from JSON
+    tags - dictionary with values of different tags (i.e. nofailover)
+    watchdog_failed - indicates that watchdog is required by configuration but not available or failed
     """
+
     member: Member
     reachable: bool
     in_recovery: Optional[bool]
@@ -49,7 +50,8 @@ class _MemberStatus(NamedTuple):
 
     @classmethod
     def from_api_response(cls, member: Member, json: Dict[str, Any]) -> '_MemberStatus':
-        """
+        """Construct member status from an API response.
+
         :param member: dcs.Member object
         :param json: RestApiHandler.get_postgresql_status() result
         :returns: _MemberStatus object
@@ -80,13 +82,16 @@ class _MemberStatus(NamedTuple):
 
 
 class Failsafe(object):
+    """A thread-safe class to manage failsafe status."""
 
     def __init__(self, dcs: AbstractDCS) -> None:
+        """Create a failsafe manager."""
         self._lock = RLock()
         self._dcs = dcs
         self._reset_state()
 
     def update(self, data: Dict[str, Any]) -> None:
+        """Update failsafe data."""
         with self._lock:
             self._last_update = time.time()
             self._name = data['name']
@@ -103,6 +108,7 @@ class Failsafe(object):
 
     @property
     def leader(self) -> Optional[Leader]:
+        """The currently perceived leader during failsafe mode."""
         with self._lock:
             if self._last_update + self._dcs.ttl > time.time() and self._name:
                 return Leader('', '', RemoteMember(self._name, {'api_url': self._api_url,
@@ -110,7 +116,7 @@ class Failsafe(object):
                                                                 'slots': self._slots}))
 
     def update_cluster(self, cluster: Cluster) -> Cluster:
-        # Enreach cluster with the real leader if there was a ping from it
+        """Enreach cluster with the real leader if there was a ping from it."""
         leader = self.leader
         if leader:
             # We rely on the strict order of fields in the namedtuple
@@ -120,18 +126,19 @@ class Failsafe(object):
     def is_active(self) -> bool:
         """Is used to report in REST API whether the failsafe mode was activated.
 
-           On primary the self._last_update is set from the
-           set_is_active() method and always returns the correct value.
+        On primary the self._last_update is set from the
+        set_is_active() method and always returns the correct value.
 
-           On replicas the self._last_update is set at the moment when
-           the primary performs POST /failsafe REST API calls.
-           The side-effect - it is possible that replicas will show
-           failsafe_is_active values different from the primary."""
-
+        On replicas the self._last_update is set at the moment when
+        the primary performs POST /failsafe REST API calls.
+        The side-effect - it is possible that replicas will show
+        failsafe_is_active values different from the primary.
+        """
         with self._lock:
             return self._last_update + self._dcs.ttl > time.time()
 
     def set_is_active(self, value: float) -> None:
+        """Update the active status of failsafe mode."""
         with self._lock:
             self._last_update = value
             if not value:
@@ -139,8 +146,13 @@ class Failsafe(object):
 
 
 class Ha(object):
+    """A class to manage high availability coordination between nodes."""
 
     def __init__(self, patroni: Patroni):
+        """Initalize a new HA manager.
+
+        :param patroni: A reference to the underlying Patroni object.
+        """
         self.patroni = patroni
         self.state_handler = patroni.postgresql
         self._rewind = Rewind(self.state_handler)
@@ -200,6 +212,7 @@ class Ha(object):
 
     def set_is_leader(self, value: bool) -> None:
         """Updates the current node's view of it's own leadership status.
+
         Will update the expiry timestamp to match the dcs ttl if setting leadership to true,
         otherwise will set the expiry to the past to immediately invalidate.
 
@@ -216,6 +229,7 @@ class Ha(object):
         return self.is_synchronous_mode() and not self.cluster.sync.is_empty
 
     def load_cluster_from_dcs(self) -> None:
+        """Get the cluster information from the DCS."""
         cluster = self.dcs.get_cluster()
 
         # We want to keep the state of cluster when it was healthy
@@ -233,6 +247,7 @@ class Ha(object):
         self._leader_timeline = cluster.leader.timeline if cluster.leader else None
 
     def acquire_lock(self) -> bool:
+        """Race for the leader lock in the DCS."""
         try:
             ret = self.dcs.attempt_to_acquire_leader()
         except DCSError:
@@ -251,6 +266,7 @@ class Ha(object):
             return ret
 
     def update_lock(self, write_leader_optime: bool = False) -> bool:
+        """As the leader, use attempt to update the leader in DCS to refresh leadership."""
         last_lsn = slots = None
         if write_leader_optime:
             try:
@@ -273,6 +289,10 @@ class Ha(object):
         return ret
 
     def has_lock(self, info: bool = True) -> bool:
+        """Determine if this node has the lock.
+
+        :param info: Should this information be logged at the INFO level.
+        """
         lock_owner = self.cluster.leader and self.cluster.leader.name
         if info:
             logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
@@ -287,6 +307,7 @@ class Ha(object):
         return tags
 
     def notify_citus_coordinator(self, event: str) -> None:
+        """Notify the citus coordinator of an event."""
         if self.state_handler.citus_handler.is_worker():
             coordinator = self.dcs.get_citus_coordinator()
             if coordinator and coordinator.leader and coordinator.leader.conn_url:
@@ -303,6 +324,7 @@ class Ha(object):
                                    coordinator.leader.name, coordinator.leader.member.api_url, e)
 
     def touch_member(self) -> bool:
+        """Create a new member in the HA setup based on configuration in this node."""
         with self._member_state_lock:
             data: Dict[str, Any] = {
                 'conn_url': self.state_handler.connection_string,
@@ -367,6 +389,7 @@ class Ha(object):
             return ret
 
     def clone(self, clone_member: Union[Leader, Member, None] = None, msg: str = '(without leader)') -> Optional[bool]:
+        """Bootstrap this node by cloning from another member and following."""
         if self.is_standby_cluster() and not isinstance(clone_member, RemoteMember):
             clone_member = self.get_remote_member(clone_member)
 
@@ -381,6 +404,10 @@ class Ha(object):
             self.state_handler.remove_data_directory()
 
     def bootstrap(self) -> str:
+        """Attempt to bootstrap this node.
+
+        :returns: A string describing what happened during this bootstrap attempt.
+        """
         # no initialize key and node is allowed to be primary and has 'bootstrap' section in a configuration file
         if self.cluster.is_unlocked() and self.cluster.initialize is None\
                 and not self.patroni.nofailover and 'bootstrap' in self.patroni.config:
@@ -418,10 +445,7 @@ class Ha(object):
         return 'waiting for {0}leader to bootstrap'.format('standby_' if self.is_standby_cluster() else '')
 
     def bootstrap_standby_leader(self) -> Optional[bool]:
-        """ If we found 'standby' key in the configuration, we need to bootstrap
-            not a real primary, but a 'standby leader', that will take base backup
-            from a remote member and start follow it.
-        """
+        """Bootstrap a standby leader who will take a base backup from a remote and start to follow it."""
         clone_source = self.get_remote_member()
         msg = 'clone from remote member {0}'.format(clone_source.conn_url)
         result = self.clone(clone_source, msg)
@@ -577,6 +601,7 @@ class Ha(object):
         return node_to_follow
 
     def follow(self, demote_reason: str, follow_reason: str, refresh: bool = True) -> str:
+        """Start operation as a replica and record the reason for this transition."""
         if refresh:
             self.load_cluster_from_dcs()
 
@@ -700,8 +725,8 @@ class Ha(object):
 
         There is a small race window where this function runs between a primary picking us the sync standby and
         publishing it to the DCS. As the window is rather tiny consequences are holding up commits for one cycle
-        period we don't worry about it here."""
-
+        period we don't worry about it here.
+        """
         if not self.is_synchronous_mode() or self.patroni.nosync:
             return func()
 
@@ -728,6 +753,7 @@ class Ha(object):
                 self._disable_sync -= 1
 
     def update_cluster_history(self) -> None:
+        """Update the view of the cluster history in the DCS."""
         primary_timeline = self.state_handler.get_primary_timeline()
         cluster_history = self.cluster.history.lines if self.cluster.history else []
         if primary_timeline == 1:
@@ -749,14 +775,12 @@ class Ha(object):
                 self.dcs.set_history_value(json.dumps(history, separators=(',', ':')))
 
     def enforce_follow_remote_member(self, message: str) -> str:
+        """Start following in a standby cluster while acknowledging it's not a 'real' primary."""
         demote_reason = 'cannot be a real primary in standby cluster'
         return self.follow(demote_reason, message)
 
     def enforce_primary_role(self, message: str, promote_message: str) -> str:
-        """
-        Ensure the node that has won the race for the leader key meets criteria
-        for promoting its PG server to the 'primary' role.
-        """
+        """Ensure the node that won the leader key meets criteria to its PG server to the 'primary' role."""
         if not self.is_paused():
             if not self.watchdog.is_running and not self.watchdog.activate():
                 if self.state_handler.is_leader():
@@ -811,10 +835,10 @@ class Ha(object):
             return promote_message
 
     def fetch_node_status(self, member: Member) -> _MemberStatus:
-        """This function perform http get request on member.api_url and fetches its status
+        """This function perform http get request on member.api_url and fetches its status.
+
         :returns: `_MemberStatus` object
         """
-
         try:
             response = self.patroni.request(member, timeout=2, retries=0)
             data = response.data.decode('utf-8')
@@ -825,6 +849,7 @@ class Ha(object):
         return _MemberStatus.unknown(member)
 
     def fetch_nodes_statuses(self, members: List[Member]) -> List[_MemberStatus]:
+        """Fetch the status of all members given."""
         if not members:
             return []
         pool = ThreadPool(len(members))
@@ -834,14 +859,17 @@ class Ha(object):
         return results
 
     def update_failsafe(self, data: Dict[str, Any]) -> Optional[str]:
+        """Update the failsafe information in the cluster."""
         if self.state_handler.state == 'running' and self.state_handler.role in ('master', 'primary'):
             return 'Running as a leader'
         self._failsafe.update(data)
 
     def failsafe_is_active(self) -> bool:
+        """Determine if failsafe is currently active."""
         return self._failsafe.is_active()
 
     def call_failsafe_member(self, data: Dict[str, Any], member: Member) -> bool:
+        """Ping a specific member to determine DCS failover participation."""
         try:
             response = self.patroni.request(member, 'post', 'failsafe', data, timeout=2, retries=1)
             response_data = response.data.decode('utf-8')
@@ -852,6 +880,7 @@ class Ha(object):
         return False
 
     def check_failsafe_topology(self) -> bool:
+        """Determine if the configuration topology is amenable to failsafes."""
         failsafe = self.dcs.failsafe
         if not isinstance(failsafe, dict) or self.state_handler.name not in failsafe:
             return False
@@ -886,7 +915,6 @@ class Ha(object):
 
     def _is_healthiest_node(self, members: Collection[Member], check_replication_lag: bool = True) -> bool:
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
-
         my_wal_position = self.state_handler.last_operation()
         if check_replication_lag and self.is_lagging(my_wal_position):
             logger.info('My wal position exceeds maximum replication lag')
@@ -956,7 +984,7 @@ class Ha(object):
 
         :returns: - `True` if the current node is the best candidate to become the new leader
                   - `None` if the current node is running as a primary and requested candidate doesn't exist
-                  """
+        """
         failover = self.cluster.failover
         if TYPE_CHECKING:  # pragma: no cover
             assert failover is not None
@@ -1090,6 +1118,7 @@ class Ha(object):
         self.dcs.reset_cluster()
 
     def release_leader_key_voluntarily(self, last_lsn: Optional[int] = None) -> None:
+        """Voluntarily step down from leadership."""
         self._delete_leader(last_lsn)
         self.touch_member()
         logger.info("Leader key released")
@@ -1174,6 +1203,7 @@ class Ha(object):
 
     def should_run_scheduled_action(self, action_name: str, scheduled_at: Optional[datetime.datetime],
                                     cleanup_fn: Callable[..., Any]) -> bool:
+        """Determine if it's time to execute a specific scheduled action."""
         if scheduled_at and not self.is_paused():
             # If the scheduled action is in the far future, we shouldn't do anything and just return.
             # If the scheduled action is in the past, we consider the value to be stale and we remove
@@ -1212,7 +1242,8 @@ class Ha(object):
 
         Cleans up failover key if failover conditions are not matched.
 
-        :returns: action message if demote was initiated, None if no action was taken"""
+        :returns: action message if demote was initiated, None if no action was taken
+        """
         failover = self.cluster.failover
         if not failover or (self.is_paused() and not self.state_handler.is_leader()):
             return
@@ -1241,8 +1272,7 @@ class Ha(object):
         self.dcs.manual_failover('', '', version=failover.version)
 
     def process_unhealthy_cluster(self) -> str:
-        """Cluster has no leader key"""
-
+        """Cluster has no leader key."""
         if self.is_healthiest_node():
             if self.acquire_lock():
                 failover = self.cluster.failover
@@ -1283,6 +1313,7 @@ class Ha(object):
                                'following a different leader because i am not the healthiest node')
 
     def process_healthy_cluster(self) -> str:
+        """The execution logic for a cycle while the cluster appears to be healthy."""
         if self.has_lock():
             if self.is_paused() and not self.state_handler.is_leader():
                 if self.cluster.failover and self.cluster.failover.candidate == self.state_handler.name:
@@ -1335,6 +1366,7 @@ class Ha(object):
                                self.state_handler.name, lock_owner), refresh=False)
 
     def evaluate_scheduled_restart(self) -> Optional[str]:
+        """Go through and do the work of a scheduled restart."""
         if self._async_executor.busy:  # Restart already in progress
             return None
 
@@ -1361,6 +1393,7 @@ class Ha(object):
                 self.delete_future_restart()
 
     def restart_matches(self, role: Optional[str], postgres_version: Optional[str], pending_restart: bool) -> bool:
+        """Determine whether this node matches the restart criteria in a restart request."""
         reason_to_cancel = ""
         # checking the restart filters here seem to be less ugly than moving them into the
         # run_scheduled_action.
@@ -1380,6 +1413,10 @@ class Ha(object):
         return False
 
     def schedule_future_restart(self, restart_data: Dict[str, Any]) -> bool:
+        """Schedule a relstart in the future.
+
+        :param restart_data: Information about which nodes to restart and when.
+        """
         with self._async_executor:
             restart_data['postmaster_start_time'] = self.state_handler.postmaster_start_time()
             if not self.patroni.scheduled_restart:
@@ -1389,6 +1426,7 @@ class Ha(object):
         return False
 
     def delete_future_restart(self) -> bool:
+        """Cancel a restart scheduled for the future."""
         ret = False
         with self._async_executor:
             if self.patroni.scheduled_restart:
@@ -1398,13 +1436,15 @@ class Ha(object):
         return ret
 
     def future_restart_scheduled(self) -> Dict[str, Any]:
+        """Access the internal restart schedule mapping of the patroni instance."""
         return self.patroni.scheduled_restart.copy()
 
     def restart_scheduled(self) -> bool:
+        """Is there a restart scheduled in the future."""
         return self._async_executor.scheduled_action == 'restart'
 
     def restart(self, restart_data: Dict[str, Any], run_async: bool = False) -> Tuple[bool, str]:
-        """ conditional and unconditional restart """
+        """Conditional and unconditional restart."""
         assert isinstance(restart_data, dict)
 
         if (not self.restart_matches(restart_data.get('role'),
@@ -1453,6 +1493,10 @@ class Ha(object):
                 return (False, 'restart failed')
 
     def _do_reinitialize(self, cluster: Cluster) -> Optional[bool]:
+        """Reinitialize a node.
+
+        :param cluster: The cluster to clone a new member from during reinitialization.
+        """
         self.state_handler.stop('immediate', stop_timeout=self.patroni.config['retry_timeout'])
         # Commented redundant data directory cleanup here
         # self.state_handler.remove_data_directory()
@@ -1463,6 +1507,10 @@ class Ha(object):
             return self.clone(clone_member, "from {0} '{1}'".format(member_role, clone_member.name))
 
     def reinitialize(self, force: bool = False) -> Optional[str]:
+        """Reinitialize a non-leader node.
+
+        :param force: Whether current async execution should be cancelled
+        """
         with self._async_executor:
             self.load_cluster_from_dcs()
 
