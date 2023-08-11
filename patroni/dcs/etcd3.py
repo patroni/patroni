@@ -912,11 +912,10 @@ class Etcd3(AbstractEtcd):
         return self.retry(self._client.put, self.initialize_path, sysid, create_revision='0' if create_new else None)
 
     @catch_etcd_errors
-    def _delete_leader(self) -> bool:
-        cluster = self.cluster
-        if cluster and isinstance(cluster.leader, Leader) and cluster.leader.name == self._name:
-            return self._client.deleterange(self.leader_path, mod_revision=cluster.leader.version)
-        return True
+    def _delete_leader(self, leader: Leader) -> bool:
+        fields = build_range_request(self.leader_path)
+        compare = {'key': fields['key'], 'target': 'VALUE', 'value': base64_encode(self._name)}
+        return bool(self._client.txn(compare, {'request_delete_range': fields}))
 
     @catch_etcd_errors
     def cancel_initialization(self) -> bool:

@@ -1078,7 +1078,7 @@ class Ha(object):
 
     def _delete_leader(self, last_lsn: Optional[int] = None) -> None:
         self.set_is_leader(False)
-        self.dcs.delete_leader(last_lsn)
+        self.dcs.delete_leader(self.cluster.leader, last_lsn)
         self.dcs.reset_cluster()
 
     def release_leader_key_voluntarily(self, last_lsn: Optional[int] = None) -> None:
@@ -1874,7 +1874,7 @@ class Ha(object):
                     # location, we can remove the leader key and allow them to start leader race.
 
                     if self.is_failover_possible(cluster_lsn=checkpoint_location):
-                        self.dcs.delete_leader(checkpoint_location)
+                        self.dcs.delete_leader(self.cluster.leader, checkpoint_location)
                         status['deleted'] = True
                     else:
                         self.dcs.write_leader_optime(checkpoint_location)
@@ -1891,7 +1891,7 @@ class Ha(object):
             if not self.state_handler.is_running():
                 if self.is_leader() and not status['deleted']:
                     checkpoint_location = self.state_handler.latest_checkpoint_location()
-                    self.dcs.delete_leader(checkpoint_location)
+                    self.dcs.delete_leader(self.cluster.leader, checkpoint_location)
                 self.touch_member()
             else:
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device
