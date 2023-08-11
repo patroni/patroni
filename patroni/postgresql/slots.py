@@ -186,7 +186,7 @@ class SlotsHandler:
         self.pg_replslot_dir = os.path.join(self._postgresql.data_dir, 'pg_replslot')
         self.schedule()
 
-    def _query(self, sql: str, *params: Any) -> Union['cursor', 'Cursor[Any]']:
+    def _query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
         """Helper method for :meth:`Postgresql.query`.
 
         :param sql: SQL statement to execute.
@@ -263,9 +263,8 @@ class SlotsHandler:
             extra = ", catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint" \
                 if self._postgresql.major_version >= 100000 else ""
             skip_temp_slots = ' WHERE NOT temporary' if self._postgresql.major_version >= 100000 else ''
-            cursor = self._query(f'SELECT slot_name, slot_type, plugin, database, datoid'
-                                 f'{extra} FROM pg_catalog.pg_replication_slots{skip_temp_slots}')
-            for r in cursor:
+            for r in self._query(f'SELECT slot_name, slot_type, plugin, database, datoid'
+                                 f'{extra} FROM pg_catalog.pg_replication_slots{skip_temp_slots}'):
                 value = {'type': r[1]}
                 if r[1] == 'logical':
                     value.update(plugin=r[2], database=r[3], datoid=r[4])
@@ -308,16 +307,13 @@ class SlotsHandler:
                   ``dropped`` is ``True`` if the slot was successfully dropped. If the slot was not found return
                   ``False`` for both.
         """
-        cursor = self._query(('WITH slots AS (SELECT slot_name, active'
-                              ' FROM pg_catalog.pg_replication_slots WHERE slot_name = %s),'
-                              ' dropped AS (SELECT pg_catalog.pg_drop_replication_slot(slot_name),'
-                              ' true AS dropped FROM slots WHERE not active) '
-                              'SELECT active, COALESCE(dropped, false) FROM slots'
-                              ' FULL OUTER JOIN dropped ON true'), name)
-        row = cursor.fetchone()
-        if not row:
-            row = (False, False)
-        return row
+        rows = self._query(('WITH slots AS (SELECT slot_name, active'
+                            ' FROM pg_catalog.pg_replication_slots WHERE slot_name = %s),'
+                            ' dropped AS (SELECT pg_catalog.pg_drop_replication_slot(slot_name),'
+                            ' true AS dropped FROM slots WHERE not active) '
+                            'SELECT active, COALESCE(dropped, false) FROM slots'
+                            ' FULL OUTER JOIN dropped ON true'), name)
+        return rows[0] if rows else (False, False)
 
     def _drop_incorrect_slots(self, cluster: Cluster, slots: Dict[str, Any], paused: bool) -> None:
         """Compare required slots and configured as permanent slots with those found, dropping extraneous ones.
@@ -595,11 +591,8 @@ class SlotsHandler:
 
         # Replica isn't streaming or the hot_standby_feedback isn't enabled
         try:
-            cur = self._query("SELECT pg_catalog.current_setting('hot_standby_feedback')::boolean")
-            row = cur.fetchone()
-            if row and not row[0]:
-                logger.error('Logical slot failover requires "hot_standby_feedback".'
-                             ' Please check postgresql.auto.conf')
+            if not self._query("SELECT pg_catalog.current_setting('hot_standby_feedback')::boolean")[0][0]:
+                logger.error('Logical slot failover requires "hot_standby_feedback". Please check postgresql.auto.conf')
         except Exception as e:
             logger.error('Failed to check the hot_standby_feedback setting: %r', e)
         return False
