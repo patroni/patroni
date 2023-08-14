@@ -270,8 +270,8 @@ def process_arguments() -> Namespace:
       * ``--generate-sample-config`` -- used to generate a sample Patroni configuration
 
     .. note::
-        If running with ``--generate-config``, ``--generate-sample-config`` or ``--validate-flag`` then exit
-        after validating configuration.
+        If running with ``--generate-config``, ``--generate-sample-config`` or ``--validate-flag`` will exit
+        after generating or validating configuration.
 
     :returns: parsed arguments, if not running with ``--validate-config`` flag.
     """
