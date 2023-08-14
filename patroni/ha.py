@@ -1228,10 +1228,11 @@ class Ha(object):
             return
 
         action = self._get_failover_action_name()
+        bare_action = action.replace('manual ', '')
 
         # it is not the time for the the scheduled failover yet, do nothing
         if (failover.scheduled_at and not
-            self.should_run_scheduled_action(action, failover.scheduled_at, lambda:
+            self.should_run_scheduled_action(bare_action, failover.scheduled_at, lambda:
                                              self.dcs.manual_failover('', '', version=failover.version))):
             return
 
@@ -1244,9 +1245,9 @@ class Ha(object):
                     return ret or f'{action}: demoting myself'
                 else:
                     logger.warning('%s: no healthy members found, %s is not possible',
-                                   action, action.replace('manual ', ''))
+                                   action, bare_action)
             else:
-                logger.warning('%s: I am already the leader, no need to %s', action, action.replace('manual ', ''))
+                logger.warning('%s: I am already the leader, no need to %s', action, bare_action)
         else:
             logger.warning('%s: leader name does not match: %s != %s', action, failover.leader, self.state_handler.name)
 
