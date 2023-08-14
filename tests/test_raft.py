@@ -142,24 +142,24 @@ class TestRaft(unittest.TestCase):
         raft._citus_group = '1'
         self.assertTrue(raft.manual_failover('foo', 'bar'))
         raft._citus_group = '0'
+        self.assertTrue(raft.take_leader())
         cluster = raft.get_cluster()
         self.assertIsInstance(cluster, Cluster)
         self.assertIsInstance(cluster.workers[1], Cluster)
+        leader = cluster.leader
+        self.assertTrue(raft.delete_leader(leader))
         self.assertTrue(raft._sync_obj.set(raft.status_path, '{"optime":1234567,"slots":{"ls":12345}}'))
-        leader = raft.get_cluster().leader
+        raft.get_cluster()
         self.assertTrue(raft.update_leader(leader, '1', failsafe={'foo': 'bat'}))
         self.assertTrue(raft._sync_obj.set(raft.failsafe_path, '{"foo"}'))
         self.assertTrue(raft._sync_obj.set(raft.status_path, '{'))
         raft.get_citus_coordinator()
         self.assertTrue(raft.delete_sync_state())
-        self.assertTrue(raft.delete_leader())
         self.assertTrue(raft.set_history_value(''))
         self.assertTrue(raft.delete_cluster())
         raft._citus_group = '1'
         self.assertTrue(raft.delete_cluster())
         raft._citus_group = None
-        raft.get_cluster()
-        self.assertTrue(raft.take_leader())
         raft.get_cluster()
         raft.watch(None, 0.001)
         raft._sync_obj.destroy()

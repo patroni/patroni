@@ -809,7 +809,7 @@ class Etcd(AbstractEtcd):
         return bool(self.retry(self._client.write, self.initialize_path, sysid, prevExist=(not create_new)))
 
     @catch_etcd_errors
-    def _delete_leader(self) -> bool:
+    def _delete_leader(self, leader: Leader) -> bool:
         return bool(self._client.delete(self.leader_path, prevValue=self._name))
 
     @catch_etcd_errors

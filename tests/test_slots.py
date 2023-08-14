@@ -48,7 +48,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.s.sync_replication_slots(cluster, False)
             mock_debug.assert_called_once()
         self.p.set_role('replica')
-        with patch.object(Postgresql, 'is_leader', Mock(return_value=False)), \
+        with patch.object(Postgresql, 'is_primary', Mock(return_value=False)), \
                 patch.object(SlotsHandler, 'drop_replication_slot') as mock_drop:
             self.s.sync_replication_slots(cluster, False, paused=True)
             mock_drop.assert_not_called()
@@ -79,7 +79,7 @@ class TestSlotsHandler(BaseTestPostgresql):
                           None, SyncState.empty(), None, {'ls': 10}, None)
         self.p.set_role('replica')
         with patch.object(Postgresql, '_query') as mock_query, \
-                patch.object(Postgresql, 'is_leader', Mock(return_value=False)):
+                patch.object(Postgresql, 'is_primary', Mock(return_value=False)):
             mock_query.return_value = [('ls', 'logical', 'b', 'a', 5, 12345, 105)]
             ret = self.s.sync_replication_slots(cluster, False)
         self.assertEqual(ret, [])
@@ -106,7 +106,7 @@ class TestSlotsHandler(BaseTestPostgresql):
                   "confirmed_flush_lsn": 12345, "catalog_xmin": 105}])
             self.assertEqual(self.p.slots(), {})
 
-    @patch.object(Postgresql, 'is_leader', Mock(return_value=False))
+    @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     def test__ensure_logical_slots_replica(self):
         self.p.set_role('replica')
         self.cluster.slots['ls'] = 12346
@@ -133,7 +133,7 @@ class TestSlotsHandler(BaseTestPostgresql):
 
     @patch.object(Postgresql, 'stop', Mock(return_value=True))
     @patch.object(Postgresql, 'start', Mock(return_value=True))
-    @patch.object(Postgresql, 'is_leader', Mock(return_value=False))
+    @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     def test_check_logical_slots_readiness(self):
         self.s.copy_logical_slots(self.cluster, ['ls'])
         with patch.object(MockCursor, '__iter__', Mock(return_value=iter([('postgresql0', None)]))), \
@@ -147,7 +147,7 @@ class TestSlotsHandler(BaseTestPostgresql):
 
     @patch.object(Postgresql, 'stop', Mock(return_value=True))
     @patch.object(Postgresql, 'start', Mock(return_value=True))
-    @patch.object(Postgresql, 'is_leader', Mock(return_value=False))
+    @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     def test_on_promote(self):
         self.s.schedule_advance_slots({'foo': {'bar': 100}})
         self.s.copy_logical_slots(self.cluster, ['ls'])

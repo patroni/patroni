@@ -1766,26 +1766,29 @@ class AbstractDCS(abc.ABC):
         """
 
     @abc.abstractmethod
-    def _delete_leader(self) -> bool:
+    def _delete_leader(self, leader: Leader) -> bool:
         """Remove leader key from DCS.
 
         This method should remove leader key if current instance is the leader.
 
+        :param leader: :class:`Leader` object with information about the leader.
+
         :returns: ``True`` if successfully committed to DCS.
         """
 
-    def delete_leader(self, last_lsn: Optional[int] = None) -> bool:
+    def delete_leader(self, leader: Optional[Leader], last_lsn: Optional[int] = None) -> bool:
         """Update ``optime/leader`` and voluntarily remove leader key from DCS.
 
         This method should remove leader key if current instance is the leader.
 
+        :param leader: :class:`Leader` object with information about the leader.
         :param last_lsn: latest checkpoint location in bytes.
 
         :returns: boolean result of called abstract :meth:`~AbstractDCS._delete_leader`.
         """
         if last_lsn:
             self.write_status({self._OPTIME: last_lsn})
-        return self._delete_leader()
+        return bool(leader) and self._delete_leader(leader)
 
     @abc.abstractmethod
     def cancel_initialization(self) -> bool:

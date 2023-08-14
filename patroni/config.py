@@ -199,10 +199,9 @@ class Config(object):
             'recovery_min_apply_delay': ''
         },
         'postgresql': {
-            'bin_dir': '',
             'use_slots': True,
             'parameters': CaseInsensitiveDict({p: v[0] for p, v in ConfigHandler.CMDLINE_OPTIONS.items()
-                                               if p not in ('wal_keep_segments', 'wal_keep_size')})
+                                               if v[0] is not None and p not in ('wal_keep_segments', 'wal_keep_size')})
         }
     }
 
@@ -229,7 +228,8 @@ class Config(object):
         self.__effective_configuration = self._build_effective_configuration({}, self._local_configuration)
         self._data_dir = self.__effective_configuration.get('postgresql', {}).get('data_dir', "")
         self._cache_file = os.path.join(self._data_dir, self.__CACHE_FILENAME)
-        self._load_cache()
+        if validator:  # patronictl uses validator=None and we don't want to load anything from local cache in this case
+            self._load_cache()
         self._cache_needs_saving = False
 
     @property
@@ -239,6 +239,22 @@ class Config(object):
     @property
     def dynamic_configuration(self) -> Dict[str, Any]:
         return deepcopy(self._dynamic_configuration)
+
+    @property
+    def local_configuration(self) -> Dict[str, Any]:
+        """Deep copy of cached Patroni local configuration.
+
+        :returns: copy of :attr:`~Config._local_configuration`
+        """
+        return deepcopy(dict(self._local_configuration))
+
+    @classmethod
+    def get_default_config(cls) -> Dict[str, Any]:
+        """Deep copy default configuration.
+
+        :returns: copy of :attr:`~Config.__DEFAULT_CONFIG`
+        """
+        return deepcopy(cls.__DEFAULT_CONFIG)
 
     def _load_config_path(self, path: str) -> Dict[str, Any]:
         """
@@ -346,13 +362,13 @@ class Config(object):
                 if ConfigHandler.CMDLINE_OPTIONS[name][1](value):
                     pg_params[name] = value
                 else:
-                    logging.warning("postgresql parameter %s=%s failed validation, defaulting to %s",
-                                    name, value, ConfigHandler.CMDLINE_OPTIONS[name][0])
+                    logger.warning("postgresql parameter %s=%s failed validation, defaulting to %s",
+                                   name, value, ConfigHandler.CMDLINE_OPTIONS[name][0])
 
         return pg_params
 
     def _safe_copy_dynamic_configuration(self, dynamic_configuration: Dict[str, Any]) -> Dict[str, Any]:
-        config = deepcopy(self.__DEFAULT_CONFIG)
+        config = self.get_default_config()
 
         for name, value in dynamic_configuration.items():
             if name == 'postgresql':

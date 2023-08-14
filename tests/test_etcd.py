@@ -313,7 +313,7 @@ class TestEtcd(unittest.TestCase):
         self.assertFalse(self.etcd.cancel_initialization())
 
     def test_delete_leader(self):
-        self.assertFalse(self.etcd.delete_leader())
+        self.assertFalse(self.etcd.delete_leader(self.etcd.get_cluster().leader))
 
     def test_delete_cluster(self):
         self.assertFalse(self.etcd.delete_cluster())

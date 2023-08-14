@@ -412,7 +412,7 @@ class CitusHandler(Thread):
         parameters['wal_level'] = 'logical'
 
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
-        if isinstance(self._config, dict) and self._postgresql.is_leader() and\
+        if isinstance(self._config, dict) and self._postgresql.is_primary() and\
                 slot['type'] == 'logical' and slot['database'] == self._config['database']:
             m = CITUS_SLOT_NAME_RE.match(slot['name'])
             return bool(m and {'move': 'pgoutput', 'split': 'citus'}.get(m.group(1)) == slot['plugin'])

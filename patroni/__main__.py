@@ -163,11 +163,26 @@ def patroni_main(configfile: str) -> None:
 
 
 def process_arguments() -> Namespace:
+    from patroni.config_generator import generate_config
+
     parser = get_base_arg_parser()
-    parser.add_argument('--validate-config', action='store_true', help='Run config validator and exit')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--validate-config', action='store_true', help='Run config validator and exit')
+    group.add_argument('--generate-sample-config', action='store_true',
+                       help='Generate a sample Patroni yaml configuration file')
+    group.add_argument('--generate-config', action='store_true',
+                       help='Generate a Patroni yaml configuration file for a running instance')
+    parser.add_argument('--dsn', help='Optional DSN string of the instance to be used as a source \
+                                    for config generation. Superuser connection is required.')
     args = parser.parse_args()
 
-    if args.validate_config:
+    if args.generate_sample_config:
+        generate_config(args.configfile, True, None)
+        sys.exit(0)
+    elif args.generate_config:
+        generate_config(args.configfile, False, args.dsn)
+        sys.exit(0)
+    elif args.validate_config:
         from patroni.validator import schema
         from patroni.config import Config, ConfigParseError
 

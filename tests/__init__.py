@@ -118,6 +118,21 @@ class MockCursor(object):
                                '"state":"streaming","sync_state":"async","sync_priority":0}]'
             now = datetime.datetime.now(tzutc)
             self.results = [(now, 0, '', 0, '', False, now, 'streaming', None, replication_info)]
+        elif sql.startswith('SELECT name, current_setting(name) FROM pg_settings'):
+            self.results = [('data_directory', 'data'),
+                            ('hba_file', os.path.join('data', 'pg_hba.conf')),
+                            ('ident_file', os.path.join('data', 'pg_ident.conf')),
+                            ('max_connections', 42),
+                            ('max_locks_per_transaction', 73),
+                            ('max_prepared_transactions', 0),
+                            ('max_replication_slots', 21),
+                            ('max_wal_senders', 37),
+                            ('track_commit_timestamp', 'off'),
+                            ('wal_level', 'replica'),
+                            ('listen_addresses', '6.6.6.6'),
+                            ('port', 1984),
+                            ('archive_command', 'my archive command'),
+                            ('cluster_name', 'my_cluster')]
         elif sql.startswith('SELECT name, setting'):
             self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
                             ('wal_block_size', '8192', None, 'integer', 'internal'),
@@ -159,11 +174,20 @@ class MockCursor(object):
         pass
 
 
+class MockConnectionInfo(object):
+
+    def parameter_status(self, param_name):
+        if param_name == 'is_superuser':
+            return 'on'
+        return '0'
+
+
 class MockConnect(object):
 
     server_version = 99999
     autocommit = False
     closed = 0
+    info = MockConnectionInfo()
 
     def cursor(self):
         return MockCursor(self)

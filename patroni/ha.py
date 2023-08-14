@@ -148,8 +148,8 @@ class Ha(object):
         self.cluster = Cluster.empty()
         self.global_config = self.patroni.config.get_global_config(None)
         self.old_cluster = Cluster.empty()
-        self._is_leader = False
-        self._is_leader_lock = RLock()
+        self._leader_expiry = 0
+        self._leader_expiry_lock = RLock()
         self._failsafe = Failsafe(patroni.dcs)
         self._was_paused = False
         self._promote_timestamp = 0
@@ -195,12 +195,20 @@ class Ha(object):
         return self.global_config.is_standby_cluster
 
     def is_leader(self) -> bool:
-        with self._is_leader_lock:
-            return self._is_leader > time.time()
+        """:returns: `True` if the current node is the leader, based on expiration set when it last held the key."""
+        with self._leader_expiry_lock:
+            return self._leader_expiry > time.time()
 
     def set_is_leader(self, value: bool) -> None:
-        with self._is_leader_lock:
-            self._is_leader = time.time() + self.dcs.ttl if value else 0
+        """Update the current node's view of it's own leadership status.
+
+        Will update the expiry timestamp to match the dcs ttl if setting leadership to true,
+        otherwise will set the expiry to the past to immediately invalidate.
+
+        :param value: is the current node the leader.
+        """
+        with self._leader_expiry_lock:
+            self._leader_expiry = time.time() + self.dcs.ttl if value else 0
             if not value:
                 self._promote_timestamp = 0
 
@@ -583,7 +591,7 @@ class Ha(object):
         if refresh:
             self.load_cluster_from_dcs()
 
-        is_leader = self.state_handler.is_leader()
+        is_leader = self.state_handler.is_primary()
 
         node_to_follow = self._get_node_to_follow(self.cluster)
 
@@ -772,7 +780,7 @@ class Ha(object):
             # in the /sync key. Further changes of synchronous_standby_names and /sync key should
             # be postponed for `loop_wait` seconds, to give a chance to some replicas to start streaming.
             # In opposite case the /sync key will end up without synchronous nodes.
-            if self.state_handler.is_leader():
+            if self.state_handler.is_primary():
                 if self._promote_timestamp == 0 or time.time() - self._promote_timestamp > self.dcs.loop_wait:
                     self._process_quorum_replication()
                 if self._promote_timestamp == 0:
@@ -892,7 +900,7 @@ class Ha(object):
         """
         if not self.is_paused():
             if not self.watchdog.is_running and not self.watchdog.activate():
-                if self.state_handler.is_leader():
+                if self.state_handler.is_primary():
                     self.demote('immediate')
                     return 'Demoting self because watchdog could not be activated'
                 else:
@@ -908,7 +916,7 @@ class Ha(object):
                     self._async_response.reset()
                     return 'Promotion cancelled because the pre-promote script failed'
 
-        if self.state_handler.is_leader():
+        if self.state_handler.is_primary():
             # Inform the state handler about its primary role.
             # It may be unaware of it if postgres is promoted manually.
             self.state_handler.set_role('master')
@@ -1135,7 +1143,7 @@ class Ha(object):
                 # Remove failover key if the node to failover has terminated to avoid waiting for it indefinitely
                 # In order to avoid attempts to delete this key from all nodes only the primary is allowed to do it.
                 if not self.cluster.get_member(failover.candidate, fallback_to_leader=False)\
-                        and self.state_handler.is_leader():
+                        and self.state_handler.is_primary():
                     logger.warning("manual failover: removing failover key because failover candidate is not running")
                     self.dcs.manual_failover('', '', version=failover.version)
                     return None
@@ -1194,7 +1202,7 @@ class Ha(object):
             if ret is not None:  # continue if we just deleted the stale failover key as a leader
                 return ret
 
-        if self.state_handler.is_leader():
+        if self.state_handler.is_primary():
             if self.is_paused():
                 # in pause leader is the healthiest only when no initialize or sysid matches with initialize!
                 return not self.cluster.initialize or self.state_handler.sysid == self.cluster.initialize
@@ -1257,7 +1265,7 @@ class Ha(object):
 
     def _delete_leader(self, last_lsn: Optional[int] = None) -> None:
         self.set_is_leader(False)
-        self.dcs.delete_leader(last_lsn)
+        self.dcs.delete_leader(self.cluster.leader, last_lsn)
         self.dcs.reset_cluster()
 
     def release_leader_key_voluntarily(self, last_lsn: Optional[int] = None) -> None:
@@ -1385,7 +1393,7 @@ class Ha(object):
 
         :returns: action message if demote was initiated, None if no action was taken"""
         failover = self.cluster.failover
-        if not failover or (self.is_paused() and not self.state_handler.is_leader()):
+        if not failover or (self.is_paused() and not self.state_handler.is_primary()):
             return
 
         if (failover.scheduled_at and not
@@ -1455,7 +1463,7 @@ class Ha(object):
 
     def process_healthy_cluster(self) -> str:
         if self.has_lock():
-            if self.is_paused() and not self.state_handler.is_leader():
+            if self.is_paused() and not self.state_handler.is_primary():
                 if self.cluster.failover and self.cluster.failover.candidate == self.state_handler.name:
                     return 'waiting to become primary after promote...'
 
@@ -1487,7 +1495,7 @@ class Ha(object):
             else:
                 # Either there is no connection to DCS or someone else acquired the lock
                 logger.error('failed to update leader lock')
-                if self.state_handler.is_leader():
+                if self.state_handler.is_primary():
                     if self.is_paused():
                         return 'continue to run as primary after failing to update leader lock in DCS'
                     self.demote('immediate-nolock')
@@ -1726,7 +1734,7 @@ class Ha(object):
             self.cancel_initialization()
 
         if result is None:
-            if not self.state_handler.is_leader():
+            if not self.state_handler.is_primary():
                 return 'waiting for end of recovery after bootstrap'
 
             self.state_handler.set_role('master')
@@ -1910,7 +1918,7 @@ class Ha(object):
                 elif self.cluster.is_unlocked() and not self.is_paused():
                     # "bootstrap", but data directory is not empty
                     if not self.state_handler.cb_called and self.state_handler.is_running() \
-                            and not self.state_handler.is_leader():
+                            and not self.state_handler.is_primary():
                         self._join_aborted = True
                         logger.error('No initialize key in DCS and PostgreSQL is running as replica, aborting start')
                         logger.error('Please first start Patroni on the node running as primary')
@@ -1953,7 +1961,7 @@ class Ha(object):
                 create_slots = self._sync_replication_slots(False)
 
                 if not self.state_handler.cb_called:
-                    if not is_promoting and not self.state_handler.is_leader():
+                    if not is_promoting and not self.state_handler.is_primary():
                         self._rewind.trigger_check_diverged_lsn()
                     self.state_handler.call_nowait(CallbackAction.ON_START)
 
@@ -1978,7 +1986,7 @@ class Ha(object):
 
     def _handle_dcs_error(self) -> str:
         if not self.is_paused() and self.state_handler.is_running():
-            if self.state_handler.is_leader():
+            if self.state_handler.is_primary():
                 if self.is_failsafe_mode() and self.check_failsafe_topology():
                     self.set_is_leader(True)
                     self._failsafe.set_is_active(time.time())
@@ -2053,7 +2061,7 @@ class Ha(object):
                     # location, we can remove the leader key and allow them to start leader race.
 
                     if self.is_failover_possible(cluster_lsn=checkpoint_location):
-                        self.dcs.delete_leader(checkpoint_location)
+                        self.dcs.delete_leader(self.cluster.leader, checkpoint_location)
                         status['deleted'] = True
                     else:
                         self.dcs.write_leader_optime(checkpoint_location)
@@ -2070,7 +2078,7 @@ class Ha(object):
             if not self.state_handler.is_running():
                 if self.is_leader() and not status['deleted']:
                     checkpoint_location = self.state_handler.latest_checkpoint_location()
-                    self.dcs.delete_leader(checkpoint_location)
+                    self.dcs.delete_leader(self.cluster.leader, checkpoint_location)
                 self.touch_member()
             else:
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device

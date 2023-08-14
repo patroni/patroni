@@ -16,6 +16,7 @@ import platform
 import random
 import re
 import socket
+import subprocess
 import sys
 import tempfile
 import time
@@ -465,6 +466,18 @@ def _sleep(interval: Union[int, float]) -> None:
         subsecond precision.
     """
     time.sleep(interval)
+
+
+def read_stripped(file_path: str) -> Iterator[str]:
+    """Iterate over stripped lines in the given file.
+
+    :param file_path: path to the file to read from
+
+    :yields: each line from the given file stripped
+    """
+    with open(file_path) as f:
+        for line in f:
+            yield line.strip()
 
 
 class RetryFailedError(PatroniException):
@@ -978,3 +991,34 @@ def unquote(string: str) -> str:
     except ValueError:
         ret = string
     return ret
+
+
+def get_major_version(bin_dir: Optional[str] = None, bin_name: str = 'postgres') -> str:
+    """Get the major version of PostgreSQL.
+
+    It is based on the output of ``postgres --version``.
+
+    :param bin_dir: path to the PostgreSQL binaries directory. If ``None`` or an empty string, it will use the first
+    *bin_name* binary that is found by the subprocess in the ``PATH``.
+    :param bin_name: name of the postgres binary to call (``postgres`` by default)
+    :returns: the PostgreSQL major version.
+    :raises:
+        :exc:`~patroni.exceptions.PatroniException`: if the postgres binary call failed due to :exc:`OSError`.
+
+    :Example:
+
+        * Returns `9.6` for PostgreSQL 9.6.24
+        * Returns `15` for PostgreSQL 15.2
+    """
+    if not bin_dir:
+        binary = bin_name
+    else:
+        binary = os.path.join(bin_dir, bin_name)
+    try:
+        version = subprocess.check_output([binary, '--version']).decode()
+    except OSError as e:
+        raise PatroniException(f'Failed to get postgres version: {e}')
+    version = re.match(r'^[^\s]+ [^\s]+ (\d+)(\.(\d+))?', version)
+    if TYPE_CHECKING:  # pragma: no cover
+        assert version is not None
+    return '.'.join([version.group(1), version.group(3)]) if int(version.group(1)) < 10 else version.group(1)
