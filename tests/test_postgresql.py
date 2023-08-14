@@ -955,3 +955,10 @@ class TestPostgresql2(BaseTestPostgresql):
         gucs = self.p.available_gucs
         self.assertIsInstance(gucs, CaseInsensitiveSet)
         self.assertEqual(gucs, mock_available_gucs.return_value)
+
+    def test_cluster_info_query(self):
+        self.assertIn('diff(pg_catalog.pg_current_wal_flush_lsn(', self.p.cluster_info_query)
+        self.p._major_version = 90600
+        self.assertIn('diff(pg_catalog.pg_current_xlog_flush_location(', self.p.cluster_info_query)
+        self.p._major_version = 90500
+        self.assertIn('diff(pg_catalog.pg_current_xlog_location(', self.p.cluster_info_query)
