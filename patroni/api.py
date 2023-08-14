@@ -1179,8 +1179,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     " application_name, client_addr, w.state, sync_state, sync_priority"
                     " FROM pg_catalog.pg_stat_get_wal_senders() w, pg_catalog.pg_stat_get_activity(pid)) AS ri")
 
-            row = self.query(stmt.format(postgresql.wal_name, postgresql.lsn_name), retry=retry)[0]
-
+            row = self.query(stmt.format(postgresql.wal_name, postgresql.lsn_name,
+                                         postgresql.wal_flush), retry=retry)[0]
             result = {
                 'state': postgresql.state,
                 'postmaster_start_time': row[0],
