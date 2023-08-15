@@ -664,7 +664,7 @@ class Config(object):
                     ret[first][second] = value
 
         def _parse_dict(value: str) -> Optional[Dict[str, Any]]:
-            """Parse an YAML dictioary *value* as a :class:`dict`.
+            """Parse an YAML dictionary *value* as a :class:`dict`.
 
             :param value: YAML dictionary as a string.
 
