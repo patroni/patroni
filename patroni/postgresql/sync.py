@@ -182,7 +182,7 @@ class _ReplicaList(List[_Replica]):
     swapping, but only if lag on this member is exceeding a threshold (``maximum_lag_on_syncnode``).
 
     :ivar max_lsn: maximum value of ``_Replica.lsn`` among all values. In case if there is just one
-                   element in the list we take value of ``pg_current_wal_lsn()``.
+                   element in the list we take value of ``pg_current_wal_flush_lsn()``.
     """
 
     def __init__(self, postgresql: 'Postgresql', cluster: Cluster) -> None:

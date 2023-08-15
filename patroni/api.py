@@ -448,7 +448,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         * ``patroni_postmaster_start_time``: epoch timestamp since Postmaster was started;
         * ``patroni_master``: ``1`` if this node holds the leader lock, else ``0``;
         * ``patroni_primary``: same as ``patroni_master``;
-        * ``patroni_xlog_location``: ``pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0')`` if leader, else ``0``;
+        * ``patroni_xlog_location``: ``pg_wal_lsn_diff(pg_current_wal_flush_lsn(), '0/0')`` if leader, else ``0``;
         * ``patroni_standby_leader``: ``1`` if standby leader node, else ``0``;
         * ``patroni_replica``: ``1`` if a replica, else ``0``;
         * ``patroni_sync_standby``: ``1`` if a sync replica, else ``0``;
@@ -1141,7 +1141,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``server_version``: Postgres version without periods, e.g. ``150002`` for Postgres ``15.2``;
             * ``xlog``: dictionary. Its structure depends on ``role``:
                 * If ``master``:
-                    * ``location``: ``pg_current_wal_lsn()``
+                    * ``location``: ``pg_current_wal_flush_lsn()``
                 * If ``replica``:
                     * ``received_location``: ``pg_wal_lsn_diff(pg_last_wal_receive_lsn(), '0/0')``;
                     * ``replayed_location``: ``pg_wal_lsn_diff(pg_last_wal_replay_lsn(), '0/0)``;
@@ -1179,8 +1179,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     " application_name, client_addr, w.state, sync_state, sync_priority"
                     " FROM pg_catalog.pg_stat_get_wal_senders() w, pg_catalog.pg_stat_get_activity(pid)) AS ri")
 
-            row = self.query(stmt.format(postgresql.wal_name, postgresql.lsn_name), retry=retry)[0]
-
+            row = self.query(stmt.format(postgresql.wal_name, postgresql.lsn_name,
+                                         postgresql.wal_flush), retry=retry)[0]
             result = {
                 'state': postgresql.state,
                 'postmaster_start_time': row[0],

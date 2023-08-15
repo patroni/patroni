@@ -57,8 +57,8 @@ class Postgresql(object):
     TL_LSN = ("CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
               "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
               "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "  # primary timeline
-              "CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
-              "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint END, "  # write_lsn
+              "CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 ELSE "
+              "pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}{2}_{1}(), '0/0')::bigint END, "  # wal(_flush)?_lsn
               "pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint, "
               "pg_catalog.pg_{0}_{1}_diff(COALESCE(pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint, "
               "pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused()")
@@ -160,6 +160,11 @@ class Postgresql(object):
         return 'wal' if self._major_version >= 100000 else 'xlog'
 
     @property
+    def wal_flush(self) -> str:
+        """For PostgreSQL 9.6 onwards we want to use pg_current_wal_flush_lsn()/pg_current_xlog_flush_location()."""
+        return '_flush' if self._major_version >= 90600 else ''
+
+    @property
     def lsn_name(self) -> str:
         return 'lsn' if self._major_version >= 100000 else 'location'
 
@@ -211,7 +216,7 @@ class Postgresql(object):
         else:
             extra = "0, NULL, NULL, NULL, NULL, NULL, NULL" + extra
 
-        return ("SELECT " + self.TL_LSN + ", {2}").format(self.wal_name, self.lsn_name, extra)
+        return ("SELECT " + self.TL_LSN + ", {3}").format(self.wal_name, self.lsn_name, self.wal_flush, extra)
 
     @property
     def available_gucs(self) -> CaseInsensitiveSet:
