@@ -458,7 +458,8 @@ class Config(object):
 
             When setting parameters from :attr:`~patroni.postgresql.config.ConfigHandler.CMDLINE_OPTIONS` through
             dynamic configuration their value will be validated as per the validator defined in that very same
-            attribute entry.
+            attribute entry. If the given value cannot be validated, a warning will be logged and the default value of
+            the GUC will be used instead.
 
             Some parameters from :attr:`~patroni.postgresql.config.ConfigHandler.CMDLINE_OPTIONS` cannot be set even if
             not *is_local* configuration:
