@@ -13,7 +13,7 @@ from ..exceptions import PostgresConnectionException
 logger = logging.getLogger(__name__)
 
 
-class Connection(object):
+class Connection:
     """Helper class to manage connections from Patroni to PostgreSQL.
 
     :ivar server_version: PostgreSQL version in integer format where we are connected to.
@@ -22,7 +22,7 @@ class Connection(object):
     server_version: int
 
     def __init__(self) -> None:
-        """"Create an instance of Connection class."""
+        """Create an instance of :class:`Connection` class."""
         self._lock = Lock()  # used to make sure that only one connection to postgres is established
         self._connection = None
 
@@ -57,6 +57,7 @@ class Connection(object):
         :returns: a query response as a list of tuples if there is any.
         :raises:
             :exc:`~psycopg.Error` if had issues while executing *sql*.
+
             :exc:`~patroni.exceptions.PostgresConnectionException`: if had issues while connecting to the database.
         """
         cursor = None
@@ -64,16 +65,16 @@ class Connection(object):
             with self.get().cursor() as cursor:
                 cursor.execute(sql.encode('utf-8'), params or None)
                 return cursor.fetchall() if cursor.rowcount and cursor.rowcount > 0 else []
-        except psycopg.Error as e:
+        except psycopg.Error as exc:
             if cursor and cursor.connection.closed == 0:
                 # When connected via unix socket, psycopg2 can't recoginze 'connection lost' and leaves
                 # `self._connection.closed == 0`, but the generic exception is raised. It doesn't make
                 # sense to continue with existing connection and we will close it, to avoid its reuse.
-                if type(e) in (psycopg.DatabaseError, psycopg.OperationalError):
+                if type(exc) in (psycopg.DatabaseError, psycopg.OperationalError):
                     self.close()
                 else:
-                    raise e
-            raise PostgresConnectionException('connection problems')
+                    raise exc
+            raise PostgresConnectionException('connection problems') from exc
 
     def close(self) -> None:
         """Close the psycopg connection to postgres."""

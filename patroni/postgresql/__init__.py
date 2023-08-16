@@ -334,15 +334,17 @@ class Postgresql(object):
         :returns: a query response as a list of tuples if there is any.
         :raises:
             :exc:`~psycopg.Error` if had issues while executing *sql*.
+
             :exc:`~patroni.exceptions.PostgresConnectionException`: if had issues while connecting to the database.
+
             :exc:`~patroni.utils.RetryFailedError`: if it was detected that connection/query failed due to PostgreSQL
-                                                    restart.
+            restart.
         """
         try:
             return self._connection.query(sql, *params)
-        except PostgresConnectionException:
+        except PostgresConnectionException as exc:
             if self.state == 'restarting':
-                raise RetryFailedError('cluster is being restarted')
+                raise RetryFailedError('cluster is being restarted') from exc
             raise
 
     def query(self, sql: str, *params: Any, retry: bool = True) -> List[Tuple[Any, ...]]:
@@ -355,16 +357,18 @@ class Postgresql(object):
         :returns: a query response as a list of tuples if there is any.
         :raises:
             :exc:`~psycopg.Error` if had issues while executing *sql*.
+
             :exc:`~patroni.exceptions.PostgresConnectionException`: if had issues while connecting to the database.
+
             :exc:`~patroni.utils.RetryFailedError`: if it was detected that connection/query failed due to PostgreSQL
-                                                    restart or if retry deadline was exceeded.
+            restart or if retry deadline was exceeded.
         """
         if not retry:
             return self._query(sql, *params)
         try:
             return self.retry(self._query, sql, *params)
-        except RetryFailedError as e:
-            raise PostgresConnectionException(str(e))
+        except RetryFailedError as exc:
+            raise PostgresConnectionException(str(exc)) from exc
 
     def pg_control_exists(self) -> bool:
         return os.path.isfile(self._pg_control)
@@ -1180,11 +1184,11 @@ class Postgresql(object):
             received_location = self.received_location()
             pg_control_timeline = self._cluster_info_state_get('pg_control_timeline')
         else:
-            (timeline, wal_position, replayed_location, received_location, _, pg_control_timeline) =\
+            timeline, wal_position, replayed_location, received_location, _, pg_control_timeline = \
                 self._query(self.cluster_info_query)[0][:6]
 
         wal_position = self._wal_position(bool(timeline), wal_position, received_location, replayed_location)
-        return (timeline, wal_position, pg_control_timeline)
+        return timeline, wal_position, pg_control_timeline
 
     def postmaster_start_time(self) -> Optional[str]:
         try:

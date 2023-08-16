@@ -263,7 +263,7 @@ class SlotsHandler:
             extra = ", catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint" \
                 if self._postgresql.major_version >= 100000 else ""
             skip_temp_slots = ' WHERE NOT temporary' if self._postgresql.major_version >= 100000 else ''
-            for r in self._query(f'SELECT slot_name, slot_type, plugin, database, datoid'
+            for r in self._query('SELECT slot_name, slot_type, plugin, database, datoid'
                                  f'{extra} FROM pg_catalog.pg_replication_slots{skip_temp_slots}'):
                 value = {'type': r[1]}
                 if r[1] == 'logical':
