@@ -332,9 +332,11 @@ class Postgresql(object):
         :param params: parameters to pass.
 
         :returns: a query response as a list of tuples if there is any.
-        :raises psycopg.Error: if had issues while executing *sql*.
-        :raises PostgresConnectionException: if had issues while connecting to the database.
-        :raises RetryFailedError: if it was detected that connection/query failed due to PostgreSQL restart.
+        :raises:
+            :exc:`~psycopg.Error` if had issues while executing *sql*.
+            :exc:`~patroni.exceptions.PostgresConnectionException`: if had issues while connecting to the database.
+            :exc:`~patroni.utils.RetryFailedError`: if it was detected that connection/query failed due to PostgreSQL
+                                                    restart.
         """
         try:
             return self._connection.query(sql, *params)
@@ -351,10 +353,11 @@ class Postgresql(object):
         :param retry: whether the query should be retried upon failure or given up immediately.
 
         :returns: a query response as a list of tuples if there is any.
-        :raises psycopg.Error: if had issues while executing *sql*.
-        :raises PostgresConnectionException: if had issues while connecting to the database.
-        :raises RetryFailedError: if it was detected that connection/query failed due to PostgreSQL restart;
-                                 or if retry deadline was exceeded.
+        :raises:
+            :exc:`~psycopg.Error` if had issues while executing *sql*.
+            :exc:`~patroni.exceptions.PostgresConnectionException`: if had issues while connecting to the database.
+            :exc:`~patroni.utils.RetryFailedError`: if it was detected that connection/query failed due to PostgreSQL
+                                                    restart or if retry deadline was exceeded.
         """
         if not retry:
             return self._query(sql, *params)

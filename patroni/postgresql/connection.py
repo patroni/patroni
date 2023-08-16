@@ -55,6 +55,9 @@ class Connection(object):
         :param params: parameters to pass.
 
         :returns: a query response as a list of tuples if there is any.
+        :raises:
+            :exc:`~psycopg.Error` if had issues while executing *sql*.
+            :exc:`~patroni.exceptions.PostgresConnectionException`: if had issues while connecting to the database.
         """
         cursor = None
         try:
