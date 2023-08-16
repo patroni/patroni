@@ -475,7 +475,7 @@ class SlotsHandler:
             elif cluster.slots and name in cluster.slots:  # We want to copy only slots with feedback in a DCS
                 create_slots.append(name)
 
-        # slots to be copied from the primary should be removed from the structure,
+        # Slots to be copied from the primary should be removed from the *slots* structure,
         # otherwise Patroni falsely assumes that they already exist.
         for name in create_slots:
             slots.pop(name)

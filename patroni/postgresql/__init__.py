@@ -421,7 +421,7 @@ class Postgresql(object):
             return
 
         if self._global_config.is_standby_cluster:
-            # standby cluster can't have logical replication slots and we don't need to enforce hot_standby_feedback
+            # Standby cluster can't have logical replication slots, and we don't need to enforce hot_standby_feedback
             self._has_permanent_logical_slots = False
             self.set_enforce_hot_standby_feedback(False)
         elif cluster and cluster.config and cluster.config.modify_version:

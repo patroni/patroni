@@ -1029,12 +1029,12 @@ class Cluster(NamedTuple('Cluster',
 
         .. note::
             Permanent replication slots are only considered if ``use_slots`` configuration is enabled.
-            Node that is not supposed to become a leader (nofailover) will not have permanent replication slots.
+            A node that is not supposed to become a leader (*nofailover*) will not have permanent replication slots.
 
-            In a standby cluster we support only physical replication slots.
+            In a standby cluster we only support physical replication slots.
 
-            For non-standby cluster returned dictionary always contains permanent logical replication slots in order
-            to show a warning if they are not supported by PostgreSQL before v11.
+            The returned dictionary for a non-standby cluster always contains permanent logical replication slots in
+            order to show a warning if they are not supported by PostgreSQL before v11.
 
         :param is_standby_cluster: ``True`` if it is known that this is a standby cluster. We pass the value from
                                    the outside because we want to protect from the ``/config`` key removal.
