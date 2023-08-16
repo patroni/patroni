@@ -544,7 +544,7 @@ class SlotsHandler:
 
         1) Retrieve the current ``catalog_xmin`` value for the physical slot from the cluster leader, and
         2) using previously stored list of "unready" logical slots, those which have yet to be checked hence have no
-        stored slot attributes,
+           stored slot attributes,
         3) store logical slot ``catalog_xmin`` when the physical slot ``catalog_xmin`` becomes valid.
 
         :param cluster: object containing stateful information for the cluster.
