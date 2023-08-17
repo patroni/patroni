@@ -181,8 +181,3 @@ That said, here are some pieces of your infrastructure you should be sure to tes
 * ``kill -9`` of any postgres process (except postmaster!). This is a decent simulation of a segfault.
 
 One thing that you should not do is run ``kill -9`` on a postmaster process. This is because doing so does not mimic any real life scenario. If you are concerned your infrastructure is insecure and an attacker could run ``kill -9``, no amount of HA process is going to fix that. The attacker will simply kill the process again, or cause chaos in another way.
-
-.. |Tests Status| image:: https://github.com/zalando/patroni/actions/workflows/tests.yaml/badge.svg
-   :target: https://github.com/zalando/patroni/actions/workflows/tests.yaml?query=branch%3Amaster
-.. |Coverage Status| image:: https://coveralls.io/repos/zalando/patroni/badge.svg?branch=master
-   :target: https://coveralls.io/github/zalando/patroni?branch=master
