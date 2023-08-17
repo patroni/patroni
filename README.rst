@@ -74,9 +74,8 @@ There are a few options available:
 
 ::
 
-    sudo apt-get install python-psycopg2   # install python2 psycopg2 module on Debian/Ubuntu
-    sudo apt-get install python3-psycopg2  # install python3 psycopg2 module on Debian/Ubuntu
-    sudo yum install python-psycopg2       # install python2 psycopg2 on RedHat/Fedora/CentOS
+    sudo apt-get install python3-psycopg2  # install psycopg2 module on Debian/Ubuntu
+    sudo yum install python3-psycopg2      # install psycopg2 on RedHat/Fedora/CentOS
 
 2. Install psycopg2 from the binary package
 
