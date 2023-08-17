@@ -634,11 +634,20 @@ class Ha(object):
         promoting standbys that were guaranteed to be replicating synchronously.
         """
         if self.is_synchronous_mode():
-            current = CaseInsensitiveSet(self.cluster.sync.members)
+            sync = self.cluster.sync
+            if sync.is_empty:
+                # corner case: we need to explicitly enable synchronous mode by updating the
+                # ``/sync`` key with the current leader name and empty members. In opposite case
+                # it will never be automatically enabled if there are not eligible candidates.
+                sync = self.dcs.write_sync_state(self.state_handler.name, None, version=sync.version)
+                if not sync:
+                    return logger.warning("Updating sync state failed")
+                logger.info("Enabled synchronous replication")
+
+            current = CaseInsensitiveSet(sync.members)
             picked, allow_promote = self.state_handler.sync_handler.current_state(self.cluster)
 
             if picked != current:
-                sync = self.cluster.sync
                 # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
                 sync_common = current & allow_promote
                 if sync_common != current:
