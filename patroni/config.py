@@ -898,7 +898,17 @@ class Config(object):
         return get_global_config(cluster, self._dynamic_configuration)
 
     def _validate_failover_tags(self) -> None:
-        """Check ``nofailover``/``failover_priority`` config and warn user if it's contradictory."""
+        """Check ``nofailover``/``failover_priority`` config and warn user if it's contradictory.
+
+        .. note::
+          To preserve sanity (and backwards compatibility) the ``nofailover`` tag will still exist. A contradictory
+          configuration is one where ``nofailover`` is ``True`` but ``failover_priority > 0``, or where
+          ``nofailover`` is ``False``, but ``failover_priority <= 0``. Essentially, ``nofailover`` and
+          ``failover_priority`` are communicating different things.
+          This checks for this edge case (which is a misconfiguration on the part of the user) and warns them.
+          The behaviour is as if ``failover_priority`` were not provided (i.e ``nofailover`` is the
+          bedrock source of truth)
+        """
         tags = self.get('tags', {})
         nofailover_tag = tags.get('nofailover', None)
         failover_priority_tag = tags.get('failover_priority', None)
