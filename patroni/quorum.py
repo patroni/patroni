@@ -27,7 +27,9 @@ class QuorumStateResolver(object):
     is one optimal state satisfying this condition. Given the node set ``active``, the optimal state is:
 
         sync = voters = active
+
         numsync = min(sync_wanted, len(active))
+
         quorum = len(active) - numsync
 
     We need to be able to produce a series of state changes that take the system to this desired state from any
@@ -39,11 +41,14 @@ class QuorumStateResolver(object):
     Order of adding or removing nodes from ``sync`` and ``voters`` depends on the state of
     ``synchronous_standby_names``.
     When adding new nodes:
+
         if ``sync`` (``synchronous_standby_names``) is empty:
             add new nodes first to ``sync`` and then to ``voters`` when ``numsync_confirmed`` > ``0``.
         else:
             add new nodes first to ``voters`` and then to ``sync``.
+
     When removing nodes:
+
         if ``sync`` (``synchronous_standby_names``) will become empty after removal:
             first remove nodes from ``voters`` and then from ``sync``.
         else:
