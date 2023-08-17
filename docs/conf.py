@@ -20,9 +20,14 @@
 import os
 
 import sys
+
 sys.path.insert(0, os.path.abspath('..'))
 
 from patroni.version import __version__
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+module_dir = os.path.abspath(os.path.join(project_root, 'patroni'))
+excludes = ['tests', 'setup.py', 'conf']
 
 # -- General configuration ------------------------------------------------
 
@@ -33,11 +38,21 @@ from patroni.version import __version__
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-extensions = ['sphinx.ext.intersphinx',
+extensions = [
+    'sphinx.ext.intersphinx',
     'sphinx.ext.todo',
     'sphinx.ext.mathjax',
     'sphinx.ext.ifconfig',
-    'sphinx.ext.viewcode']
+    # 'sphinx.ext.viewcode',
+    'sphinx_github_style',  # Generate "View on GitHub" for source code
+    'sphinxcontrib.apidoc',  # For generating module docs from code
+    'sphinx.ext.autodoc',  # For generating module docs from docstrings
+    'sphinx.ext.napoleon',  # For Google and Numpy formatted docstrings
+]
+apidoc_module_dir = module_dir
+apidoc_output_dir = 'modules'
+apidoc_excluded_paths = excludes
+apidoc_separate_modules = True
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -107,6 +122,34 @@ if not on_rtd:  # only import and set the theme if we're building docs locally
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
 
+# Replace "source" links with "edit on GitHub" when using rtd theme
+html_context = {
+    'display_github': True,
+    'github_user': 'zalando',
+    'github_repo': 'patroni',
+    'github_version': 'master',
+    'conf_py_path': '/docs/',
+}
+
+# sphinx-github-style options, https://sphinx-github-style.readthedocs.io/en/latest/index.html
+
+# The name of the top-level package.
+top_level = "patroni"
+
+# The blob to link to on GitHub - any of "head", "last_tag", or "{blob}"
+# linkcode_blob = 'head'
+
+# The link to your GitHub repository formatted as https://github.com/user/repo
+# If not provided, will attempt to create the link from the html_context dict
+# linkcode_url = f"https://github.com/{html_context['github_user']}/" \
+#                f"{html_context['github_repo']}/{html_context['github_version']}"
+
+# The text to use for the linkcode link
+# linkcode_link_text: str = "View on GitHub"
+
+# A linkcode_resolve() function to use for resolving the link target
+# linkcode_resolve: types.FunctionType
+
 
 # -- Options for HTMLHelp output ------------------------------------------
 
@@ -165,7 +208,6 @@ texinfo_documents = [
 ]
 
 
-
 # -- Options for Epub output ----------------------------------------------
 
 # Bibliographic Dublin Core info.
@@ -187,9 +229,56 @@ epub_copyright = copyright
 epub_exclude_files = ['search.html']
 
 
-
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {'python': ('https://docs.python.org/', None)}
+
+
+# Remove these pages from index, references, toc trees, etc.
+# If the builder is not 'html' then add the API docs modules index to pages to be removed.
+exclude_from_builder = {
+    'latex': ['modules/modules'],
+    'epub': ['modules/modules'],
+}
+# Internal holding list, anything added here will always be excluded
+_docs_to_remove = []
+
+
+def builder_inited(app):
+    """Run during Sphinx `builder-inited` phase.
+
+    Set a config value to builder name and add module docs to `docs_to_remove`.
+    """
+    print(f'The builder is: {app.builder.name}')
+    app.add_config_value('builder', app.builder.name, 'env')
+
+    # Remove pages when builder matches any referenced in exclude_from_builder
+    if exclude_from_builder.get(app.builder.name):
+        _docs_to_remove.extend(exclude_from_builder[app.builder.name])
+
+
+def env_get_outdated(app, env, added, changed, removed):
+    """Run during Sphinx `env-get-outdated` phase.
+
+    Remove the items listed in `docs_to_remove` from known pages.
+    """
+    added.difference_update(_docs_to_remove)
+    changed.difference_update(_docs_to_remove)
+    removed.update(_docs_to_remove)
+    return []
+
+
+def doctree_read(app, doctree):
+    """Run during Sphinx `doctree-read` phase.
+
+    Remove the items listed in `docs_to_remove` from the table of contents.
+    """
+    from sphinx import addnodes
+    for toc_tree_node in doctree.traverse(addnodes.toctree):
+        for e in toc_tree_node['entries']:
+            ref = str(e[1])
+            if ref in _docs_to_remove:
+                toc_tree_node['entries'].remove(e)
+
 
 # A possibility to have an own stylesheet, to add new rules or override existing ones
 # For the latter case, the CSS specificity of the rules should be higher than the default ones
@@ -198,3 +287,8 @@ def setup(app):
         app.add_css_file('custom.css')
     else:
         app.add_stylesheet('custom.css')
+
+    # Run extra steps to remove module docs when running with a non-html builder
+    app.connect('builder-inited', builder_inited)
+    app.connect('env-get-outdated', env_get_outdated)
+    app.connect('doctree-read', doctree_read)

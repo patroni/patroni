@@ -21,17 +21,17 @@ _LOGGER = logging.getLogger(__name__)
 def debug_exception(self: logging.Logger, msg: object, *args: Any, **kwargs: Any) -> None:
     """Add full stack trace info to debug log messages and partial to others.
 
-    Handle :func:`exception` calls for *self*.
+    Handle :func:`~self.exception` calls for *self*.
 
     .. note::
         * If *self* log level is set to ``DEBUG``, then issue a ``DEBUG`` message with the complete stack trace;
         * If *self* log level is ``INFO`` or higher, then issue an ``ERROR`` message with only the last line of
             the stack trace.
 
-    :param self: logger for which :func:`exception` will be processed.
+    :param self: logger for which :func:`~self.exception` will be processed.
     :param msg: the message related to the exception to be logged.
-    :param args: positional arguments to be passed to :func:`self.debug` or :func:`loger_obj.error`.
-    :param kwargs: keyword arguments to be passed to :func:`self.debug` or :func:`loger_obj.error`.
+    :param args: positional arguments to be passed to :func:`~self.debug` or :func:`~self.error`.
+    :param kwargs: keyword arguments to be passed to :func:`~self.debug` or :func:`~self.error`.
     """
     kwargs.pop("exc_info", False)
     if self.isEnabledFor(logging.DEBUG):
@@ -44,16 +44,16 @@ def debug_exception(self: logging.Logger, msg: object, *args: Any, **kwargs: Any
 def error_exception(self: logging.Logger, msg: object, *args: Any, **kwargs: Any) -> None:
     """Add full stack trace info to error messages.
 
-    Handle :func:`exception` calls for *self*.
+    Handle :func:`~self.exception` calls for *self*.
 
     .. note::
         * By default issue an ``ERROR`` message with the complete stack trace. If you do not want to show the complete
-        stack trace, call with ``exc_info=False``.
+          stack trace, call with ``exc_info=False``.
 
-    :param self: logger for which :func:`exception` will be processed.
+    :param self: logger for which :func:`~self.exception` will be processed.
     :param msg: the message related to the exception to be logged.
-    :param args: positional arguments to be passed to :func:`loger_obj.error`.
-    :param kwargs: keyword arguments to be passed to :func:`loger_obj.error`.
+    :param args: positional arguments to be passed to :func:`~self.error`.
+    :param kwargs: keyword arguments to be passed to :func:`~self.error`.
     """
     exc_info = kwargs.pop("exc_info", True)
     self.error(msg, *args, exc_info=exc_info, **kwargs)
@@ -140,7 +140,7 @@ class ProxyHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         """Emit each log record that is handled.
 
-        Will push the log record down to :func:`handle` method of the currently configured log handler.
+        Will push the log record down to :func:`~logging.Handler.handle` method of the currently configured log handler.
 
         :param record: the record that was emitted.
         """
@@ -203,7 +203,7 @@ class PatroniLogger(Thread):
         self._root_logger.addHandler(self._proxy_handler)
 
     def update_loggers(self) -> None:
-        """Configure loggers' log level as defined in ``log.loggers` section of Patroni configuration.
+        """Configure loggers' log level as defined in ``log.loggers`` section of Patroni configuration.
 
         .. note::
             It creates logger objects that are not defined yet in the log manager.
@@ -281,7 +281,8 @@ class PatroniLogger(Thread):
 
         .. note::
             It is used to remove different handlers that were configured previous to a reload in the configuration,
-            e.g. if we are switching from :class:`RotatingFileHandler` to class:`StreamHandler` and vice-versa.
+            e.g. if we are switching from :class:`~logging.handlers.RotatingFileHandler` to
+            class:`~logging.StreamHandler` and vice-versa.
         """
         while True:
             with self.log_handler_lock:
