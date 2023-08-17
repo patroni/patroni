@@ -134,6 +134,8 @@ class K8sConfig(object):
             config: Dict[str, Any] = yaml.safe_load(f)
 
         context = context or config['current-context']
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(context, str)
         context_value = self._get_by_name(config, 'context', context)
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(context_value, dict)
@@ -1306,11 +1308,11 @@ class Kubernetes(AbstractDCS):
             if cluster and cluster.config and cluster.config.version else None
         return self.patch_or_create_config({self._INITIALIZE: sysid}, resource_version)
 
-    def _delete_leader(self) -> bool:
+    def _delete_leader(self, leader: Leader) -> bool:
         """Unused"""
         raise NotImplementedError  # pragma: no cover
 
-    def delete_leader(self, last_lsn: Optional[int] = None) -> bool:
+    def delete_leader(self, leader: Optional[Leader], last_lsn: Optional[int] = None) -> bool:
         ret = False
         kind = self._kinds.get(self.leader_path)
         if kind and (kind.metadata.annotations or {}).get(self._LEADER) == self._name:

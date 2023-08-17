@@ -32,8 +32,11 @@ Configuration
 
 Patroni Kubernetes :ref:`settings <kubernetes_settings>` and :ref:`environment variables <kubernetes_environment>` are described in the general chapters of the documentation.
 
+.. _kubernetes_role_values:
+
 Customize role label
 ^^^^^^^^^^^^^^^^^^^^
+
 By default, Patroni will set corresponding labels on the pod it runs in based on node's role, such as ``role=master``.
 The key and value of label can be customized by `kubernetes.role_label`, `kubernetes.leader_label_value`, `kubernetes.follower_label_value` and `kubernetes.standby_leader_label_value`.
 

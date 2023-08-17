@@ -643,12 +643,8 @@ class Consul(AbstractDCS):
         return self._client.kv.put(self.history_path, value)
 
     @catch_consul_errors
-    def _delete_leader(self) -> bool:
-        cluster = self.cluster
-        if cluster and isinstance(cluster.leader, Leader) and\
-                cluster.leader.name == self._name and isinstance(cluster.leader.version, int):
-            return self._client.kv.delete(self.leader_path, cas=cluster.leader.version)
-        return True
+    def _delete_leader(self, leader: Leader) -> bool:
+        return self._client.kv.delete(self.leader_path, cas=int(leader.version))
 
     @catch_consul_errors
     def set_sync_state_value(self, value: str, version: Optional[int] = None) -> Union[int, bool]:

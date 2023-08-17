@@ -346,8 +346,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, 'start', Mock())
     def test_follow(self):
         self.p.call_nowait(CallbackAction.ON_START)
-        m = RemoteMember.from_name_and_data('1', {'restore_command': '2', 'primary_slot_name': 'foo',
-                                                  'conn_kwargs': {'host': 'bar'}})
+        m = RemoteMember('1', {'restore_command': '2', 'primary_slot_name': 'foo', 'conn_kwargs': {'host': 'bar'}})
         self.p.follow(m)
         with patch.object(Postgresql, 'ensure_major_version_is_known', Mock(return_value=False)):
             self.assertIsNone(self.p.follow(m))
@@ -364,11 +363,11 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertRaises(psycopg.ProgrammingError, self.p.query, 'blabla')
 
     @patch.object(Postgresql, 'pg_isready', Mock(return_value=STATE_REJECT))
-    def test_is_leader(self):
-        self.assertTrue(self.p.is_leader())
+    def test_is_primary(self):
+        self.assertTrue(self.p.is_primary())
         self.p.reset_cluster_info_state(None)
         with patch.object(Postgresql, '_query', Mock(side_effect=RetryFailedError(''))):
-            self.assertFalse(self.p.is_leader())
+            self.assertFalse(self.p.is_primary())
 
     @patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'shut down',
                                                                 'Latest checkpoint location': '0/1ADBC18',
@@ -462,7 +461,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertIsNone(self.p.call_nowait(CallbackAction.ON_START))
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
-    def test_is_leader_exception(self):
+    def test_is_primary_exception(self):
         self.p.start()
         self.p.query = Mock(side_effect=psycopg.OperationalError("not supported"))
         self.assertTrue(self.p.stop())
@@ -523,8 +522,9 @@ class TestPostgresql(BaseTestPostgresql):
     def test_save_configuration_files(self):
         self.p.config.save_configuration_files()
 
-    @patch('os.path.isfile', Mock(side_effect=[False, True]))
-    @patch('shutil.copy', Mock(side_effect=IOError))
+    @patch('os.path.isfile', Mock(side_effect=[False, True, False, True]))
+    @patch('shutil.copy', Mock(side_effect=[None, IOError]))
+    @patch('os.chmod', Mock())
     def test_restore_configuration_files(self):
         self.p.config.restore_configuration_files()
 
@@ -955,3 +955,10 @@ class TestPostgresql2(BaseTestPostgresql):
         gucs = self.p.available_gucs
         self.assertIsInstance(gucs, CaseInsensitiveSet)
         self.assertEqual(gucs, mock_available_gucs.return_value)
+
+    def test_cluster_info_query(self):
+        self.assertIn('diff(pg_catalog.pg_current_wal_flush_lsn(', self.p.cluster_info_query)
+        self.p._major_version = 90600
+        self.assertIn('diff(pg_catalog.pg_current_xlog_flush_location(', self.p.cluster_info_query)
+        self.p._major_version = 90500
+        self.assertIn('diff(pg_catalog.pg_current_xlog_location(', self.p.cluster_info_query)

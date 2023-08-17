@@ -182,7 +182,7 @@ class _ReplicaList(List[_Replica]):
     swapping, but only if lag on this member is exceeding a threshold (``maximum_lag_on_syncnode``).
 
     :ivar max_lsn: maximum value of ``_Replica.lsn`` among all values. In case if there is just one
-                   element in the list we take value of ``pg_current_wal_lsn()``.
+                   element in the list we take value of ``pg_current_wal_flush_lsn()``.
     """
 
     def __init__(self, postgresql: 'Postgresql', cluster: Cluster) -> None:
@@ -283,12 +283,13 @@ END;$$""")
                 self._ready_replicas[replica.application_name] = replica.pid
 
     def current_state(self, cluster: Cluster) -> Tuple[CaseInsensitiveSet, CaseInsensitiveSet]:
-        """Finds best candidates to be the synchronous standbys.
+        """Find the best candidates to be the synchronous standbys.
 
         Current synchronous standby is always preferred, unless it has disconnected or does not want to be a
         synchronous standby any longer.
 
         Standbys are selected based on values from the global configuration:
+
         - `maximum_lag_on_syncnode`: would help swapping unhealthy sync replica in case if it stops
           responding (or hung). Please set the value high enough so it won't unncessarily swap sync
           standbys during high loads. Any value less or equal of 0 keeps the behavior backward compatible.
@@ -338,7 +339,7 @@ END;$$""")
             sync_param = next(iter(sync), None)
 
         if not (self._postgresql.config.set_synchronous_standby_names(sync_param)
-                and self._postgresql.state == 'running' and self._postgresql.is_leader()) or has_asterisk:
+                and self._postgresql.state == 'running' and self._postgresql.is_primary()) or has_asterisk:
             return
 
         time.sleep(0.1)  # Usualy it takes 1ms to reload postgresql.conf, but we will give it 100ms

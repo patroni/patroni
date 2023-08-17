@@ -12,7 +12,7 @@ In both cases, it is important to be clear about the following concepts:
 - You should run the odd number of etcd, ZooKeeper or Consul nodes: 3 or 5!
 
 Synchronous Replication
-----------------------------
+-----------------------
 
 To have a multi DC cluster that can automatically tolerate a zone drop, a minimum of 3 is required.
 
@@ -27,7 +27,7 @@ Regarding postgres, we must deploy at least 2 nodes, in different DC. Then you h
 This enables sync replication and the primary node will choose one of the nodes as synchronous.
 
 Asynchronous Replication
-----------------------------------
+------------------------
 
 With only two data centers it would be better to have two independent etcd clusters and run Patroni :ref:`standby cluster <standby_cluster>` in the second data center. If the first site is down, you can MANUALLY promote the ``standby_cluster``.
 

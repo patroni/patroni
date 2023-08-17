@@ -298,9 +298,10 @@ class TestEtcd3(BaseTestEtcd3):
         self.etcd3.cancel_initialization()
 
     def test_delete_leader(self):
-        self.etcd3.delete_leader()
+        leader = self.etcd3.get_cluster().leader
+        self.etcd3.delete_leader(leader)
         self.etcd3._name = 'other'
-        self.etcd3.delete_leader()
+        self.etcd3.delete_leader(leader)
 
     def test_delete_cluster(self):
         self.etcd3.delete_cluster()
@@ -312,7 +313,7 @@ class TestEtcd3(BaseTestEtcd3):
         self.etcd3.set_sync_state_value('', 1)
 
     def test_delete_sync_state(self):
-        self.etcd3.delete_sync_state()
+        self.etcd3.delete_sync_state('1')
 
     def test_watch(self):
         self.etcd3.set_ttl(10)

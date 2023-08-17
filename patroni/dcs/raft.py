@@ -446,7 +446,7 @@ class Raft(AbstractDCS):
     def initialize(self, create_new: bool = True, sysid: str = '') -> bool:
         return self._sync_obj.set(self.initialize_path, sysid, prevExist=(not create_new)) is not False
 
-    def _delete_leader(self) -> bool:
+    def _delete_leader(self, leader: Leader) -> bool:
         return self._sync_obj.delete(self.leader_path, prevValue=self._name, timeout=1)
 
     def cancel_initialization(self) -> bool:
