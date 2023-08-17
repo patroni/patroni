@@ -14,7 +14,7 @@ Feature: priority replication
   Scenario: check higher failover priority is respected
     Given I configure and start postgres2 with a tag failover_priority 1
     And I configure and start postgres3 with a tag failover_priority 2
-    And I sleep for 5 seconds
+    And I sleep for 10 seconds
     When I shut down postgres0
     Then postgres3 role is the primary after 10 seconds
-    And there is a "postgres3 is not lagging and has priority 2, while this node has priority 1" INFO in the postgres2 patroni log
+    And there is a "postgres3 has equally tolerable WAL position and priority 2, while this node has priority 1" INFO in the postgres2 patroni log

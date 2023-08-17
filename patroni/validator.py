@@ -319,6 +319,23 @@ class Result(object):
         return str(self.path) + (" " + str(self.data) + " " + str(self._error) if self.error else "")
 
 
+class Optional(object):
+    """Mark a configuration option as optional.
+
+    :ivar name: name of the configuration option.
+    :ivar default: value to set if the configuration option is not explicitly provided
+    """
+
+    def __init__(self, name: str, default: OptionalType[Any] = None) -> None:
+        """Create an :class:`Optional` object.
+
+        :param name: name of the configuration option.
+        :param default: value to set if the configuration option is not explicitly provided
+        """
+        self.name = name
+        self.default = default
+
+
 class Case(object):
     """Map how a dict of available configuration options should be validated.
 
@@ -329,7 +346,7 @@ class Case(object):
         them, if they are set.
     """
 
-    def __init__(self, schema: Dict[str, Any]) -> None:
+    def __init__(self, schema: Dict[Union[str, Optional], Any]) -> None:
         """Create a :class:`Case` object.
 
         :param schema: the schema for validating a set of attributes that may be available in the configuration.
@@ -346,7 +363,7 @@ class Case(object):
         That will check that ``host`` configuration, if given, is valid based on :func:`validate_host_port`, and will
         also check that ``url`` configuration, if given, is a ``str`` instance.
         """
-        self._schema = schema
+        self._schema = {(k if isinstance(k, str) else k.name): v for (k, v) in schema.items()}
 
 
 class Or(object):
@@ -375,25 +392,8 @@ class Or(object):
         self.args = args
 
 
-class Optional(object):
-    """Mark a configuration option as optional.
-
-    :ivar name: name of the configuration option.
-    :ivar default: value to set if the configuration option is not explicitly provided
-    """
-
-    def __init__(self, name: str, default: OptionalType[Any] = None) -> None:
-        """Create an :class:`Optional` object.
-
-        :param name: name of the configuration option.
-        :param default: value to set if the configuration option is not explicitly provided
-        """
-        self.name = name
-        self.default = default
-
-
 class OneOf(object):
-    """Mark that at most one option from a `Case` can be suplied
+    """Mark that at most one option from a :class:`Case` can be suplied
 
     Represents a list of possible configuration options in a given scope, where at most one can actually
     be provided.
@@ -708,8 +708,7 @@ class Schema(object):
                     if d not in self.data and isinstance(key, Optional):
                         self.data[d] = key.default
                     validator = self.validator[key]
-                    if isinstance(key, Or) and isinstance(self.validator[key], Case) \
-                            or isinstance(key, OneOf) and isinstance(self.validator[key], Case):
+                    if isinstance(key, (Or, OneOf)) and isinstance(self.validator[key], Case):
                         validator = self.validator[key]._schema[d]
                     # In this loop we may be calling a new `Schema` either over an intermediate node in the tree, or
                     # over a leaf node. In the latter case the recursive calls in the given path will finish.
@@ -1094,8 +1093,8 @@ schema = Schema({
     },
     Optional("tags"): {
         OneOf("nofailover", "failover_priority"): Case({
-            "nofailover": bool,
-            "failover_priority": IntValidator(min=0, raise_assert=True),
+            Optional("nofailover"): bool,
+            Optional("failover_priority"): IntValidator(min=0, raise_assert=True),
         }),
         Optional("clonefrom"): bool,
         Optional("noloadbalance"): bool,
