@@ -653,7 +653,7 @@ class Ha(object):
             if sync.is_empty:
                 # corner case: we need to explicitly enable synchronous mode by updating the
                 # ``/sync`` key with the current leader name and empty members. In opposite case
-                # it will never be automatically enabled if there are not elligible candidates.
+                # it will never be automatically enabled if there are not eligible candidates.
                 sync = self.dcs.write_sync_state(self.state_handler.name, None, version=sync.version)
                 if not sync:
                     return logger.warning("Updating sync state failed")
