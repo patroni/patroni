@@ -15,38 +15,38 @@ class QuorumStateResolver(object):
     """Calculates a list of state transition tuples of the form `('sync'/'quorum'/'restart',leader,number,set_of_names)`
 
     Synchronous replication state is set in two places. PostgreSQL configuration sets how many and which nodes are
-    needed for a commit to succeed, abbreviated as `numsync` and `sync` set here. DCS contains information about how
-    many and which nodes need to be interrogated to be sure to see an xlog position containing latest confirmed commit,
-    abbreviated as `quorum` and `voters` set. Both pairs have the meaning "ANY n OF set".
+    needed for a commit to succeed, abbreviated as ``numsync`` and ``sync`` set here. DCS contains information about how
+    many and which nodes need to be interrogated to be sure to see an wal position containing latest confirmed commit,
+    abbreviated as ``quorum`` and ``voters`` set. Both pairs have the meaning "ANY n OF set".
 
-    The number of nodes needed for commit to succeed, `numsync`, is also called the replication factor.
+    The number of nodes needed for commit to succeed, ``numsync``, is also called the replication factor.
 
-    To guarantee zero lost transactions on failover we need to keep the invariant that at all times any subset of
+    To guarantee zero transaction loss on failover we need to keep the invariant that at all times any subset of
     nodes that can acknowledge a commit overlaps with any subset of nodes that can achieve quorum to promote a new
     leader. Given a desired replication factor and a set of nodes able to participate in sync replication there
-    is one optimal state satisfying this condition. Given the node set `active`, the optimal state is:
+    is one optimal state satisfying this condition. Given the node set ``active``, the optimal state is:
 
         sync = voters = active
         numsync = min(sync_wanted, len(active))
         quorum = len(active) - numsync
 
     We need to be able to produce a series of state changes that take the system to this desired state from any
-    other state arbitrary given arbitrary changes is node availability, configuration and interrupted transitions.
+    other arbitrary state given arbitrary changes is node availability, configuration and interrupted transitions.
 
-    To keep the invariant the rule to follow is that when increasing `numsync` or `quorum`, we need to perform the
+    To keep the invariant the rule to follow is that when increasing ``numsync`` or ``quorum``, we need to perform the
     increasing operation first. When decreasing either, the decreasing operation needs to be performed later.
 
-    Order of adding or removing nodes from sync and voters depends on the state of synchronous_standby_names:
+    Order of adding or removing nodes from ``sync`` and ``voters`` depends on the state of ``synchronous_standby_names``:
     When adding new nodes:
-        if sync (synchronous_standby_names) is empty:
-            add new nodes first to sync and then to voters when numsync_confirmed > 0
+        if ``sync`` (``synchronous_standby_names``) is empty:
+            add new nodes first to ``sync`` and then to ``voters`` when ``numsync_confirmed`` > ``0``
         else:
-            add new nodes first to voters and than to sync
+            add new nodes first to ``voters`` and then to ``sync``
     When removing nodes:
-        if sync (synchronous_standby_names) will become empty after removal:
-            first remove nodes from voters and than from sync
+        if ``sync`` (``synchronous_standby_names``) will become empty after removal:
+            first remove nodes from ``voters`` and then from ``sync``
         else:
-            first remove nodes from sync and than from voters. make voters empty if numsync_confirmed == 0"""
+            first remove nodes from ``sync`` and then from ``voters``. Make ``voters`` empty if ``numsync_confirmed`` == ``0``"""
 
     def __init__(self, leader: str, quorum: int, voters: Collection[str],
                  numsync: int, sync: Collection[str], numsync_confirmed: int,
@@ -64,9 +64,10 @@ class QuorumStateResolver(object):
         self.leader_wanted = leader_wanted          # The desired leader
 
     def check_invariants(self) -> None:
-        """Checks invatiant of synchronous_standby_names and /sync key in DCS.
+        """Checks invatiant of ``synchronous_standby_names`` and ``/sync`` key in DCS.
 
-        :raises `QuorumError`: in case of broken state"""
+        :raises:
+            :exc:`QuorumError`: in case of broken state"""
         voters = CaseInsensitiveSet(self.voters | CaseInsensitiveSet([self.leader]))
         sync = CaseInsensitiveSet(self.sync | CaseInsensitiveSet([self.leader_wanted]))
 
@@ -85,17 +86,18 @@ class QuorumStateResolver(object):
                       adjust_quorum: Optional[bool] = True) -> Iterator[Tuple[str, str, int, CaseInsensitiveSet]]:
         """Updates quorum, voters and optionally leader fields.
 
-        :param quorum: the new value for `self.quorum`, could be adjusted depending
-                       on values of `self.numsync_confirmed` and `adjust_quorum`
-        :param voters: the new value for `self.voters`, could be adjusted if numsync_confirmed == 0
-        :param leader: the new value for `self.leader`, optional
-        :param adjust_quorum: if set to `True` the quorum requirement will be increased by the
-                              difference between `self.numsync` and ``self.numsync_confirmed`
-        :rtype: Iterator[tuple(type, leader, quorum, voters)] with the new quorum state,
-                where type could be 'quorum' or 'restart'. The latter means that
+        :param quorum: the new value for :attr:`quorum`, could be adjusted depending
+                       on values of :attr:`numsync_confirmed` and *adjust_quorum*
+        :param voters: the new value for :attr:`voters`, could be adjusted if :attr:`numsync_confirmed` == ``0``
+        :param leader: the new value for :attr:`leader`, optional
+        :param adjust_quorum: if set to ``True`` the quorum requirement will be increased by the
+                              difference between :attr:`numsync` and :attr:`numsync_confirmed`
+        :yields: the new quorum state,
+                where type could be ``quorum`` or ``restart``. The latter means that
                 quorum could not be updated with the current input data
                 and the :class:`QuorumStateResolver` should be restarted.
-        :raises `QuorumError`: in case of invalid data or if invariant after transition could not be satisfied
+        :raises:
+            :exc:`QuorumError`: in case of invalid data or if invariant after transition could not be satisfied
         """
         if quorum < 0:
             raise QuorumError("Quorum %d < 0 of (%s)" % (quorum, voters))
