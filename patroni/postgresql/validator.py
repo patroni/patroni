@@ -178,10 +178,11 @@ class ValidatorFactory:
 
         :returns: the Patroni validator object that corresponds to the specification found in *validator*.
 
-        :raises :class:`ValidatorFactoryNoType`: if *validator* contains no ``type`` key.
-        :raises :class:`ValidatorFactoryInvalidType`: if ``type`` key from *validator* contains an invalid value.
-        :raises :class:`ValidatorFactoryInvalidSpec`: if *validator* contains an invalid set of attributes for the
-            given ``type``.
+        :raises:
+            :class:`ValidatorFactoryNoType`: if *validator* contains no ``type`` key.
+            :class:`ValidatorFactoryInvalidType`: if ``type`` key from *validator* contains an invalid value.
+            :class:`ValidatorFactoryInvalidSpec`: if *validator* contains an invalid set of attributes for the given
+                ``type``.
 
         :Example:
 
@@ -265,7 +266,8 @@ def _read_postgres_gucs_validators_file(file: str) -> Dict[str, Any]:
     :returns: the YAML content parsed into a Python object. If any issue is faced while reading/parsing the file, then
         return ``None``.
 
-    :raises :class:`InvalidGucValidatorsFile`: if faces an issue while reading or parsing *file*.
+    :raises:
+        :class:`InvalidGucValidatorsFile`: if faces an issue while reading or parsing *file*.
     """
     try:
         with open(file, encoding='UTF-8') as stream:
@@ -462,11 +464,13 @@ def transform_postgresql_parameter_value(version: int, name: str, value: Any,
     :param value: value of the Postgres GUC.
     :param available_gucs: a set of all GUCs available in Postgres *version*. Each item is the name of a Postgres
         GUC. Used for a couple purposes:
-        * Disallow writing GUCs to ``postgresql.conf`` that does not exist in Postgres *version*;
-        * Avoid ignoring GUC *name* if it does not have a validator in ``parameters``, but is a valid GUC in Postgres
-            *version*.
 
-    :returns: The return value may be one among
+            * Disallow writing GUCs to ``postgresql.conf`` that does not exist in Postgres *version*;
+            * Avoid ignoring GUC *name* if it does not have a validator in ``parameters``, but is a valid GUC in
+                Postgres *version*.
+
+    :returns: The return value may be one among:
+
         * The original *value* if *name* seems to be an extension GUC (contains a period '.'); or
         * ``None`` if **name** is a recovery GUC; or
         * *value* transformed to the expected format for GUC *name* in Postgres *version* using validators defined in
@@ -490,10 +494,11 @@ def transform_recovery_parameter_value(version: int, name: str, value: Any,
     :param value: value of the Postgres recovery GUC.
     :param available_gucs: a set of all GUCs available in Postgres *version*. Each item is the name of a Postgres
         GUC. Used for a couple purposes:
-        * Disallow writing GUCs to ``recovery.conf`` (or ``postgresql.conf`` depending on *version*), that does not
-        exist in Postgres *version*;
-        * Avoid ignoring recovery GUC *name* if it does not have a validator in ``recovery_parameters``, but is a valid
-            GUC in Postgres *version*.
+
+            * Disallow writing GUCs to ``recovery.conf`` (or ``postgresql.conf`` depending on *version*), that does not
+                exist in Postgres *version*;
+            * Avoid ignoring recovery GUC *name* if it does not have a validator in ``recovery_parameters``, but is a
+                valid GUC in Postgres *version*.
 
     :returns: *value* transformed to the expected format for recovery GUC *name* in Postgres *version* using validators
         defined in ``recovery_parameters``. It can also return ``None``. See :func:`_transform_parameter_value`.

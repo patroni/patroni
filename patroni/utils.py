@@ -129,8 +129,8 @@ def parse_bool(value: Any) -> Union[bool, None]:
     .. note::
 
         The parsing is case-insensitive, and takes into consideration these values:
-        * ``on``, ``true``, ``yes``, and ``1`` as ``True``.
-        * ``off``, ``false``, ``no``, and ``0`` as ``False``.
+            * ``on``, ``true``, ``yes``, and ``1`` as ``True``.
+            * ``off``, ``false``, ``no``, and ``0`` as ``False``.
 
     :param value: value to be parsed to :class:`bool`.
 
@@ -245,14 +245,16 @@ def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: Optiona
     """Convert *value* as a *unit* of compute information or time to *base_unit*.
 
     :param value: value to be converted to the base unit.
-    :param unit: unit of *value*. Accepts these units (case sensitive)
-        * For space: ``B``, ``kB``, ``MB``, ``GB``, or ``TB``;
-        * For time: ``d``, ``h``, ``min``, ``s``, ``ms``, or ``us``.
+    :param unit: unit of *value*. Accepts these units (case sensitive):
+
+            * For space: ``B``, ``kB``, ``MB``, ``GB``, or ``TB``;
+            * For time: ``d``, ``h``, ``min``, ``s``, ``ms``, or ``us``.
 
     :param base_unit: target unit in the conversion. May contain the target unit with an associated value, e.g
-        ``512MB``. Accepts these units (case sensitive)
-        * For space: ``B``, ``kB``, or ``MB``;
-        * For time: ``ms``, ``s``, or ``min``.
+        ``512MB``. Accepts these units (case sensitive):
+
+            * For space: ``B``, ``kB``, or ``MB``;
+            * For time: ``ms``, ``s``, or ``min``.
 
     :returns: *value* in *unit* converted to *base_unit*. Returns ``None`` if *unit* or *base_unit* is invalid.
 
@@ -402,7 +404,8 @@ def compare_values(vartype: str, unit: Optional[str], old_value: Any, new_value:
     """Check if *old_value* and *new_value* are equivalent after parsing them as *vartype*.
 
     :param vartpe: the target type to parse *old_value* and *new_value* before comparing them. Accepts any among of the
-        following (case sensitive)
+        following (case sensitive):
+
         * ``bool``: parse values using :func:`parse_bool`; or
         * ``integer``: parse values using :func:`parse_int`; or
         * ``real``: parse values using :func:`parse_real`; or
@@ -459,7 +462,7 @@ def compare_values(vartype: str, unit: Optional[str], old_value: Any, new_value:
 
 
 def _sleep(interval: Union[int, float]) -> None:
-    """Wrap :func:`time.sleep`.
+    """Wrap :func:`~time.sleep`.
 
     :param interval: Delay execution for a given number of seconds. The argument may be a floating point number for
         subsecond precision.
@@ -536,6 +539,7 @@ class Retry(object):
         """Set next cycle delay.
 
         It will be the minimum value between:
+
             * current delay with ``backoff``; or
             * ``max_delay``.
         """
@@ -549,10 +553,14 @@ class Retry(object):
     def ensure_deadline(self, timeout: float, raise_ex: Optional[Exception] = None) -> bool:
         """Calculates, sets, and checks the remaining deadline time.
 
-        :param timeout: if the *deadline* is smaller than the provided *timeout* value raise *raise_ex* exception
-        :param raise_ex: the exception object that will be raised if the *deadline* is smaller than provided *timeout*
-        :returns: `False` if *deadline* is smaller than a provided *timeout* and *raise_ex* isn't set. Otherwise `True`
-        :raises Exception: if calculated deadline is smaller than provided *timeout*
+        :param timeout: if the *deadline* is smaller than the provided *timeout* value raise *raise_ex* exception.
+        :param raise_ex: the exception object that will be raised if the *deadline* is smaller than provided *timeout*.
+
+        :returns: ``False`` if *deadline* is smaller than a provided *timeout* and *raise_ex* isn't set. Otherwise
+            ``True``.
+
+        :raises:
+            :class:`Exception`: *raise_ex* if calculated deadline is smaller than provided *timeout*.
         """
         self.deadline = self.stoptime - time.time()
         if self.deadline < timeout:
@@ -565,9 +573,10 @@ class Retry(object):
         """Call a function *func* with arguments ``*args`` and ``*kwargs`` in a loop.
 
         *func* will be called until one of the following conditions is met:
-        * It completes without throwing one of the configured ``retry_exceptions``; or
-        * ``max_retries`` is exceeded.; or
-        * ``deadline`` is exceeded.
+
+            * It completes without throwing one of the configured ``retry_exceptions``; or
+            * ``max_retries`` is exceeded.; or
+            * ``deadline`` is exceeded.
 
         .. note::
             * It will set loop stop time based on ``deadline`` attribute.
@@ -576,9 +585,10 @@ class Retry(object):
         :param func: function to call.
         :param args: positional arguments to call *func* with.
         :params kwargs: keyword arguments to call *func* with.
-        :raises :class:`RetryFailedError`
-            * If ``max_tries`` is exceeded; or
-            * If ``deadline`` is exceeded.
+        :raises:
+            :class:`RetryFailedError`:
+                * If ``max_tries`` is exceeded; or
+                * If ``deadline`` is exceeded.
         """
         self.reset()
 
@@ -613,7 +623,8 @@ def polling_loop(timeout: Union[int, float], interval: Union[int, float] = 1) ->
 
     :param timeout: for how long (in seconds) from now it should keep returning values.
     :param interval: for how long to sleep before returning a new value.
-    :rtype: Iterator[:class:`int`] with current iteration counter, starting from ``0``.
+
+    :yields: current iteration counter, starting from ``0``.
     """
     start_time = time.time()
     iteration = 0
@@ -627,14 +638,16 @@ def polling_loop(timeout: Union[int, float], interval: Union[int, float] = 1) ->
 def split_host_port(value: str, default_port: Optional[int]) -> Tuple[str, int]:
     """Extract host(s) and port from *value*.
 
-    :param value: string from where host(s) and port will be extracted. Accepts either of these formats
-        * ``host:port``; or
-        * ``host1,host2,...,hostn:port``.
+    :param value: string from where host(s) and port will be extracted. Accepts either of these formats:
+
+            * ``host:port``; or
+            * ``host1,host2,...,hostn:port``.
 
         Each ``host`` portion of *value* can be either:
-        * A FQDN; or
-        * An IPv4 address; or
-        * An IPv6 address, with or without square brackets.
+
+            * A FQDN; or
+            * An IPv4 address; or
+            * An IPv6 address, with or without square brackets.
 
     :param default_port: if no port can be found in *param*, use *default_port* instead.
 
@@ -669,18 +682,23 @@ def uri(proto: str, netloc: Union[List[str], Tuple[str, Union[int, str]], str], 
 
     :param proto: the URI protocol.
     :param netloc: the URI host(s) and port. Can be specified in either way among
+
         * A :class:`list` or :class:`tuple`. The second item should be a port, and the first item should be composed of
             hosts in either of these formats:
+
             * ``host``; or.
             * ``host1,host2,...,hostn``.
+
         * A :class:`str` in either of these formats:
+
             * ``host:port``; or
             * ``host1,host2,...,hostn:port``.
 
         In all cases, each ``host`` portion of *netloc* can be either:
-        * An FQDN; or
-        * An IPv4 address; or
-        * An IPv6 address, with or without square brackets.
+
+            * An FQDN; or
+            * An IPv4 address; or
+            * An IPv6 address, with or without square brackets.
 
     :param path: the URI path.
     :param user: the authenticating user, if any.
@@ -698,10 +716,11 @@ def uri(proto: str, netloc: Union[List[str], Tuple[str, Union[int, str]], str], 
 
 
 def iter_response_objects(response: HTTPResponse) -> Iterator[Dict[str, Any]]:
-    """Iterate over the chunks of a :class:`HTTPResponse` and yield each JSON document that is found along the way.
+    """Iterate over the chunks of a :class:`~urllib3.response.HTTPResponse` and yield each JSON document that is found.
 
     :param response: the HTTP response from which JSON documents will be retrieved.
-    :rtype: Iterator[:class:`dict`] with current JSON document.
+
+    :yields: current JSON document.
     """
     prev = ''
     decoder = JSONDecoder()
@@ -730,33 +749,36 @@ def iter_response_objects(response: HTTPResponse) -> Iterator[Dict[str, Any]]:
 def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] = None) -> Dict[str, Any]:
     """Get a JSON representation of *cluster*.
 
-    :param cluster: the :class:`Cluster` object to be parsed as JSON.
-    :param global_config: optional :class:`GlobalConfig` object to check the cluster state.
+    :param cluster: the :class:`~patroni.dcs.Cluster` object to be parsed as JSON.
+    :param global_config: optional :class:`~patroni.config.GlobalConfig` object to check the cluster state.
                           if not provided will be instantiated from the `Cluster.config`.
 
     :returns: JSON representation of *cluster*.
 
     These are the possible keys in the returning object depending on the available information in *cluster*:
 
-    * ``members``: list of members in the cluster. Each value is a :class:`dict` that may have the following keys:
-        * ``name``: the name of the host (unique in the cluster). The ``members`` list is sorted by this key;
-        * ``role``: ``leader``, ``standby_leader``, ``sync_standby``, or ``replica``;
-        * ``state``: ``stopping``, ``stopped``, ``stop failed``, ``crashed``, ``running``, ``starting``,
-            ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``, ``initdb failed``,
-            ``running custom bootstrap script``, ``custom bootstrap failed``, or ``creating replica``;
-        * ``api_url``: REST API URL based on ``restapi->connect_address`` configuration;
-        * ``host``: PostgreSQL host based on ``postgresql->connect_address``;
-        * ``port``: PostgreSQL port based on ``postgresql->connect_address``;
-        * ``timeline``: PostgreSQL current timeline;
-        * ``pending_restart``: ``True`` if PostgreSQL is pending to be restarted;
-        * ``scheduled_restart``: scheduled restart timestamp, if any;
-        * ``tags``: any tags that were set for this member;
-        * ``lag``: replication lag, if applicable;
-    * ``pause``: ``True`` if cluster is in maintenance mode;
-    * ``scheduled_switchover``: if a switchover has been scheduled, then it contains this entry with these keys:
-        * ``at``: timestamp when switchover was scheduled to occur;
-        * ``from``: name of the member to be demoted;
-        * ``to``: name of the member to be promoted.
+        * ``members``: list of members in the cluster. Each value is a :class:`dict` that may have the following keys:
+
+            * ``name``: the name of the host (unique in the cluster). The ``members`` list is sorted by this key;
+            * ``role``: ``leader``, ``standby_leader``, ``sync_standby``, or ``replica``;
+            * ``state``: ``stopping``, ``stopped``, ``stop failed``, ``crashed``, ``running``, ``starting``,
+                ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``, ``initdb failed``,
+                ``running custom bootstrap script``, ``custom bootstrap failed``, or ``creating replica``;
+            * ``api_url``: REST API URL based on ``restapi->connect_address`` configuration;
+            * ``host``: PostgreSQL host based on ``postgresql->connect_address``;
+            * ``port``: PostgreSQL port based on ``postgresql->connect_address``;
+            * ``timeline``: PostgreSQL current timeline;
+            * ``pending_restart``: ``True`` if PostgreSQL is pending to be restarted;
+            * ``scheduled_restart``: scheduled restart timestamp, if any;
+            * ``tags``: any tags that were set for this member;
+            * ``lag``: replication lag, if applicable;
+
+        * ``pause``: ``True`` if cluster is in maintenance mode;
+        * ``scheduled_switchover``: if a switchover has been scheduled, then it contains this entry with these keys:
+
+            * ``at``: timestamp when switchover was scheduled to occur;
+            * ``from``: name of the member to be demoted;
+            * ``to``: name of the member to be promoted.
     """
     if not global_config:
         from patroni.config import get_global_config
@@ -832,15 +854,18 @@ def validate_directory(d: str, msg: str = "{} {}") -> None:
         If the directory does not exist, :func:`validate_directory` will attempt to create it.
 
     :param d: the directory to be checked.
-    :param msg: a message to be thrown when raising :class:`PatroniException`, if any issue is faced. It must contain
-        2 placeholders to be used by :func:`format`:
-        * The first placeholder will be replaced with path *d*;
-        * The second placeholder will be replaced with the error condition.
+    :param msg: a message to be thrown when raising :class:`~patroni.exceptions.PatroniException`, if any issue is
+        faced. It must contain 2 placeholders to be used by :func:`format`:
 
-    :raises :class:`PatroniException`: if any issue is observed while validating *d*. Can be thrown in these situations
-        * *d* did not exist, and :func:`validate_directory` was not able to create it; or
-        * *d* is an existing directory, but Patroni is not able to write to that directory; or
-        * *d* is an existing file, not a directory.
+            * The first placeholder will be replaced with path *d*;
+            * The second placeholder will be replaced with the error condition.
+
+    :raises:
+        :class:`~patroni.exceptions.PatroniException`: if any issue is observed while validating *d*. Can be thrown if:
+
+            * *d* did not exist, and :func:`validate_directory` was not able to create it; or
+            * *d* is an existing directory, but Patroni is not able to write to that directory; or
+            * *d* is an existing file, not a directory.
     """
     if not os.path.exists(d):
         try:
@@ -895,13 +920,22 @@ def keepalive_socket_options(timeout: int, idle: int, cnt: int = 3) -> Iterator[
     :param idle: value for ``TCP_KEEPIDLE``.
     :param cnt: value for ``TCP_KEEPCNT``.
 
-    :rtype: Iterator[Tuple[:class:`int`, :class:`int`, :class:`int`]] of all keepalive related socket options to be
-        set. The first item in the tuple is the protocol, the second item is the option, and the third item is the
-        value to be used. The return values depend on the platform:
-        * ``Windows``: yield ``SO_KEEPALIVE``;
-        * ``Linux``: yield ``SO_KEEPALIVE``, ``TCP_USER_TIMEOUT``, ``TCP_KEEPIDLE`, ``TCP_KEEPINTVL``, and
-            ``TCP_KEEPCNT``;
-        * ``MacOS``: yield ``SO_KEEPALIVE``, ``TCP_KEEPIDLE`, ``TCP_KEEPINTVL``, and ``TCP_KEEPCNT``
+    :yields: all keepalive related socket options to be set. The first item in the tuple is the protocol, the second
+        item is the option, and the third item is the value to be used. The return values depend on the platform:
+
+            * ``Windows``:
+                * ``SO_KEEPALIVE``.
+            * ``Linux``:
+                * ``SO_KEEPALIVE``;
+                * ``TCP_USER_TIMEOUT``;
+                * ``TCP_KEEPIDLE``;
+                * ``TCP_KEEPINTVL``;
+                * ``TCP_KEEPCNT``.
+            * ``MacOS``:
+                * ``SO_KEEPALIVE``;
+                * ``TCP_KEEPIDLE``;
+                * ``TCP_KEEPINTVL``;
+                * ``TCP_KEEPCNT``.
     """
     yield (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
@@ -939,7 +973,7 @@ def enable_keepalive(sock: socket.socket, timeout: int, idle: int, cnt: int = 3)
     :param idle: value for ``TCP_KEEPIDLE``.
     :param cnt: value for ``TCP_KEEPCNT``.
 
-    :returns: output of :func:`socket.ioctl` if we are on Windows, nothing otherwise.
+    :returns: output of :func:`~socket.ioctl` if we are on Windows, nothing otherwise.
     """
     SIO_KEEPALIVE_VALS = getattr(socket, 'SIO_KEEPALIVE_VALS', None)
     if SIO_KEEPALIVE_VALS is not None:  # Windows
@@ -953,23 +987,27 @@ def enable_keepalive(sock: socket.socket, timeout: int, idle: int, cnt: int = 3)
 def unquote(string: str) -> str:
     """Unquote a fully quoted *string*.
 
+    :param string: The string to be checked for quoting.
+
+    :returns: The string with quotes removed, if it is a fully quoted single string, or the original string if quoting
+        is not detected, or unquoting was not possible.
+
     :Examples:
 
         A *string* with quotes will have those quotes removed
+
         >>> unquote('"a quoted string"')
         'a quoted string'
 
         A *string* with multiple quotes will be returned as is
+
         >>> unquote('"a multi" "quoted string"')
         '"a multi" "quoted string"'
 
         So will a *string* with unbalanced quotes
+
         >>> unquote('unbalanced "quoted string')
         'unbalanced "quoted string'
-
-    :param string: The string to be checked for quoting.
-    :returns: The string with quotes removed, if it is a fully quoted single string,
-              or the original string if quoting is not detected, or unquoting was not possible.
     """
     try:
         ret = split(string)

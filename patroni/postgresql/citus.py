@@ -174,11 +174,13 @@ class CitusHandler(Thread):
         """Returns the tuple(i, task), where `i` - is the task index in the self._tasks list
 
         Tasks are picked by following priorities:
+
         1. If there is already a transaction in progress, pick a task
            that that will change already affected worker primary.
         2. If the coordinator address should be changed - pick a task
            with group=0 (coordinators are always in group 0).
-        3. Pick a task that is the oldest (first from the self._tasks)"""
+        3. Pick a task that is the oldest (first from the self._tasks)
+        """
 
         with self._condition:
             if self._in_flight:
