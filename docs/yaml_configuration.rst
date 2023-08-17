@@ -49,16 +49,23 @@ Bootstrap configuration
       -  **- data-checksums**: Must be enabled when pg_rewind is needed on 9.3.
       -  **- encoding: UTF8**: default encoding for new databases.
       -  **- locale: UTF8**: default locale for new databases.
-   -  **users**: Some additional users which need to be created after initializing new cluster
-
-      -  **admin**: the name of user
-
-         -  **password**: (optional) password for the user
-         -  **options**: list of options for CREATE USER statement
-
-            -  **- createrole**
-            -  **- createdb**
+   -  **users**: Some additional users which need to be created after initializing new cluster, see :ref:`Bootstrap users configuration <bootstrap_users_configuration>` below.
    -  **post\_bootstrap** or **post\_init**: An additional script that will be executed after initializing the cluster. The script receives a connection string URL (with the cluster superuser as a user name). The PGPASSFILE variable is set to the location of pgpass file.
+
+.. _bootstrap_users_configuration:
+
+Bootstrap users configuration
+=============================
+
+Users which need to be created after initializing the cluster:
+
+-  **admin**: the name of user
+
+  -  **password**: (optional) password for the user
+  -  **options**: list of options for CREATE USER statement
+
+    -  **- createrole**
+    -  **- createdb**
 
 .. _citus_settings:
 

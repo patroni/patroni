@@ -317,7 +317,7 @@ END;$$""")
                     self._ready_replicas[replica.application_name] = replica.pid
 
     def current_state(self, cluster: Cluster) -> _SyncState:
-        """Finds best candidates to be the synchronous standbys.
+        """Find the best candidates to be the synchronous standbys.
 
         Current synchronous standby is always preferred, unless it has disconnected or does not want to be a
         synchronous standby any longer.

@@ -282,7 +282,6 @@ Config endpoint
 	    "use_pg_rewind": true,
 	    "parameters": {
 	      "hot_standby": "on",
-	      "wal_log_hints": "on",
 	      "wal_level": "hot_standby",
 	      "max_wal_senders": 5,
 	      "max_replication_slots": 5,
@@ -309,7 +308,6 @@ Config endpoint
 	    "use_pg_rewind": true,
 	    "parameters": {
 	      "hot_standby": "on",
-	      "wal_log_hints": "on",
 	      "wal_level": "hot_standby",
 	      "max_wal_senders": 5,
 	      "max_replication_slots": 5,
@@ -362,7 +360,6 @@ If you want to remove (reset) some setting just patch it with ``null``:
 	      "hot_standby": "on",
 	      "unix_socket_directories": ".",
 	      "wal_level": "hot_standby",
-	      "wal_log_hints": "on",
 	      "max_wal_senders": 5,
 	      "max_replication_slots": 5
 	    }
@@ -376,7 +373,7 @@ The above call removes ``postgresql.parameters.max_connections`` from the dynami
 .. code-block:: bash
 
 	$ curl -s -XPUT -d \
-		'{"maximum_lag_on_failover":1048576,"retry_timeout":10,"postgresql":{"use_slots":true,"use_pg_rewind":true,"parameters":{"hot_standby":"on","wal_log_hints":"on","wal_level":"hot_standby","unix_socket_directories":".","max_wal_senders":5}},"loop_wait":3,"ttl":20}' \
+		'{"maximum_lag_on_failover":1048576,"retry_timeout":10,"postgresql":{"use_slots":true,"use_pg_rewind":true,"parameters":{"hot_standby":"on","wal_level":"hot_standby","unix_socket_directories":".","max_wal_senders":5}},"loop_wait":3,"ttl":20}' \
 		http://localhost:8008/config | jq .
 	{
 	  "ttl": 20,
@@ -388,7 +385,6 @@ The above call removes ``postgresql.parameters.max_connections`` from the dynami
 	      "hot_standby": "on",
 	      "unix_socket_directories": ".",
 	      "wal_level": "hot_standby",
-	      "wal_log_hints": "on",
 	      "max_wal_senders": 5
 	    },
 	    "use_pg_rewind": true
