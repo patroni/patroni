@@ -36,17 +36,20 @@ class QuorumStateResolver(object):
     To keep the invariant the rule to follow is that when increasing ``numsync`` or ``quorum``, we need to perform the
     increasing operation first. When decreasing either, the decreasing operation needs to be performed later.
 
-    Order of adding or removing nodes from ``sync`` and ``voters`` depends on the state of ``synchronous_standby_names``:
+    Order of adding or removing nodes from ``sync`` and ``voters`` depends on the state of
+    ``synchronous_standby_names``.
     When adding new nodes:
         if ``sync`` (``synchronous_standby_names``) is empty:
-            add new nodes first to ``sync`` and then to ``voters`` when ``numsync_confirmed`` > ``0``
+            add new nodes first to ``sync`` and then to ``voters`` when ``numsync_confirmed`` > ``0``.
         else:
-            add new nodes first to ``voters`` and then to ``sync``
+            add new nodes first to ``voters`` and then to ``sync``.
     When removing nodes:
         if ``sync`` (``synchronous_standby_names``) will become empty after removal:
-            first remove nodes from ``voters`` and then from ``sync``
+            first remove nodes from ``voters`` and then from ``sync``.
         else:
-            first remove nodes from ``sync`` and then from ``voters``. Make ``voters`` empty if ``numsync_confirmed`` == ``0``"""
+            first remove nodes from ``sync`` and then from ``voters``.
+            Make ``voters`` empty if ``numsync_confirmed`` == ``0``.
+    """
 
     def __init__(self, leader: str, quorum: int, voters: Collection[str],
                  numsync: int, sync: Collection[str], numsync_confirmed: int,

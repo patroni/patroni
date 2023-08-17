@@ -753,7 +753,7 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
 
     * ``members``: list of members in the cluster. Each value is a :class:`dict` that may have the following keys:
         * ``name``: the name of the host (unique in the cluster). The ``members`` list is sorted by this key;
-        * ``role``: ``leader``, ``standby_leader``, ``sync_standby``, or ``replica``;
+        * ``role``: ``leader``, ``standby_leader``, ``quorum_standby``, ``sync_standby``, or ``replica``;
         * ``state``: ``stopping``, ``stopped``, ``stop failed``, ``crashed``, ``running``, ``starting``,
             ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``, ``initdb failed``,
             ``running custom bootstrap script``, ``custom bootstrap failed``, or ``creating replica``;

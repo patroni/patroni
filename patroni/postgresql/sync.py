@@ -234,10 +234,10 @@ class _ReplicaList(List[_Replica]):
                                      row['sync_state'], row[sort_col], bool(member.nofailover)))
 
         # Prefer replicas that are in state ``sync`` and with higher values of ``write``/``flush``/``replay`` LSN.
-        self.sort(key=lambda r: (r.nofailover, r.sync_state, r.lsn), reverse=True)
+        self.sort(key=lambda r: (r.sync_state, r.lsn), reverse=True)
 
         # When checking ``maximum_lag_on_syncnode`` we want to compare with the most
-        # up-to-date replica or with cluster LSN if there is only one replica.
+        # up-to-date replica otherwise with cluster LSN if there is only one replica.
         self.max_lsn = max(self, key=lambda x: x.lsn).lsn if len(self) > 1 else postgresql.last_operation()
 
 
