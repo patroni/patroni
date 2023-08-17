@@ -159,20 +159,22 @@ class PgDistGroup(Set[PgDistNode]):
         """Compares this topology with the old one and yields transitions that transform the old to the new one.
 
         .. note::
-
             In addition to the yielding transactions this method fills up *nodeid*
             attribute for nodes that are presented in the old and in the new topology.
 
             There are a few simple rules/constraints that are imposed by Citus and must be followed:
             - adding/removing nodes is only possible when metadata is synced to all registered "priorities".
+
             - the "primary" row in "pg_dist_node" always keeps the nodeid (unless it is
               removed, but it is not supported by Patroni).
+
             - "nodename", "nodeport" must be unique across all rows in the "pg_dist_node".
+
             - updating "broken" nodes always works and metadata is synced asynchnonously after commit.
 
         Following these rules below is an example of the switchover between node1 (primary) and node2 (secondary).
 
-        :Example:
+        .. code-block:: SQL
 
             BEGIN;
                 SELECT citus_update_node(4, 'node1-demoted', 5432);
@@ -181,6 +183,7 @@ class PgDistGroup(Set[PgDistNode]):
             COMMIT;
 
         :param old: the last know topology registered in "pg_dist_node" for a given *group*
+
         :yields: :class:`PgDistNode` objects that must be updated/added/removed in "pg_dist_node".
         """
         self.failover = old.failover
