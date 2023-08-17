@@ -799,7 +799,7 @@ class IntValidator(object):
 
         :returns: ``True`` if *value* is valid and within the expected range.
         """
-        value = parse_int(value, self.base_unit) or ""
+        value = parse_int(value, self.base_unit)
         ret = isinstance(value, int)\
             and (self.min is None or value >= self.min)\
             and (self.max is None or value <= self.max)
