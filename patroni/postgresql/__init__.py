@@ -57,8 +57,8 @@ class Postgresql(object):
     TL_LSN = ("CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
               "ELSE ('x' || pg_catalog.substr(pg_catalog.pg_{0}file_name("
               "pg_catalog.pg_current_{0}_{1}()), 1, 8))::bit(32)::int END, "  # primary timeline
-              "CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
-              "ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), '0/0')::bigint END, "  # write_lsn
+              "CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 ELSE "
+              "pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}{2}_{1}(), '0/0')::bigint END, "  # wal(_flush)?_lsn
               "pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_last_{0}_replay_{1}(), '0/0')::bigint, "
               "pg_catalog.pg_{0}_{1}_diff(COALESCE(pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint, "
               "pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused()")
@@ -160,6 +160,11 @@ class Postgresql(object):
         return 'wal' if self._major_version >= 100000 else 'xlog'
 
     @property
+    def wal_flush(self) -> str:
+        """For PostgreSQL 9.6 onwards we want to use pg_current_wal_flush_lsn()/pg_current_xlog_flush_location()."""
+        return '_flush' if self._major_version >= 90600 else ''
+
+    @property
     def lsn_name(self) -> str:
         return 'lsn' if self._major_version >= 100000 else 'location'
 
@@ -173,6 +178,7 @@ class Postgresql(object):
         """Returns the monitoring query with a fixed number of fields.
 
         The query text is constructed based on current state in DCS and PostgreSQL version:
+
         1. function names depend on version. wal/lsn for v10+ and xlog/location for pre v10.
         2. for primary we query timeline_id (extracted from pg_walfile_name()) and pg_current_wal_lsn()
         3. for replicas we query pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn(), and  pg_is_wal_replay_paused()
@@ -182,7 +188,8 @@ class Postgresql(object):
         7. if sync replication is enabled we query pg_stat_replication and aggregate the result.
            In addition to that we get current values of synchronous_commit and synchronous_standby_names GUCs.
 
-        If some conditions are not satisfied we simply put static values instead. E.g., NULL, 0, '', and so on."""
+        If some conditions are not satisfied we simply put static values instead. E.g., NULL, 0, '', and so on.
+        """
 
         extra = ", " + (("pg_catalog.current_setting('synchronous_commit'), "
                          "pg_catalog.current_setting('synchronous_standby_names'), "
@@ -211,7 +218,7 @@ class Postgresql(object):
         else:
             extra = "0, NULL, NULL, NULL, NULL, NULL, NULL" + extra
 
-        return ("SELECT " + self.TL_LSN + ", {2}").format(self.wal_name, self.lsn_name, extra)
+        return ("SELECT " + self.TL_LSN + ", {3}").format(self.wal_name, self.lsn_name, self.wal_flush, extra)
 
     @property
     def available_gucs(self) -> CaseInsensitiveSet:

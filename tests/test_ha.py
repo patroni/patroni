@@ -1294,6 +1294,19 @@ class TestHa(PostgresInit):
         mock_restart.assert_called_once()
         self.ha.dcs.get_cluster.assert_not_called()
 
+    def test_enable_synchronous_mode(self):
+        self.ha.is_synchronous_mode = true
+        self.ha.has_lock = true
+        self.p.name = 'leader'
+        self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
+        with patch('patroni.ha.logger.info') as mock_logger:
+            self.ha.run_cycle()
+            self.assertEqual(mock_logger.call_args[0][0], 'Enabled synchronous replication')
+        self.ha.dcs.write_sync_state = Mock(return_value=None)
+        with patch('patroni.ha.logger.warning') as mock_logger:
+            self.ha.run_cycle()
+            self.assertEqual(mock_logger.call_args[0][0], 'Updating sync state failed')
+
     def test_effective_tags(self):
         self.ha._disable_sync = True
         self.assertEqual(self.ha.get_effective_tags(), {'foo': 'bar', 'nosync': True})
