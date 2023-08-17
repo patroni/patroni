@@ -23,6 +23,7 @@ import dateutil.parser
 
 from ..exceptions import PatroniFatalException
 from ..utils import deep_compare, uri
+from ..tags import Tags
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
@@ -191,11 +192,11 @@ _Version = Union[int, str]
 _Session = Union[int, float, str, None]
 
 
-class Member(NamedTuple('Member',
-                        [('version', _Version),
-                         ('name', str),
-                         ('session', _Session),
-                         ('data', Dict[str, Any])])):
+class Member(Tags, NamedTuple('Member',
+                              [('version', _Version),
+                               ('name', str),
+                               ('session', _Session),
+                               ('data', Dict[str, Any])])):
     """Immutable object (namedtuple) which represents single member of PostgreSQL cluster.
 
     .. note::
@@ -317,19 +318,9 @@ class Member(NamedTuple('Member',
         return self.data.get('tags', {})
 
     @property
-    def nofailover(self) -> bool:
-        """The value for ``nofailover`` in :attr:`Member`.tags`` if defined, otherwise ``False``."""
-        return self.tags.get('nofailover', False)
-
-    @property
-    def replicatefrom(self) -> Optional[str]:
-        """The value for ``replicatefrom`` in :attr:`Member`.tags`` if defined."""
-        return self.tags.get('replicatefrom')
-
-    @property
     def clonefrom(self) -> bool:
         """``True`` if both ``clonefrom`` tag is ``True`` and a connection URL is defined."""
-        return self.tags.get('clonefrom', False) and bool(self.conn_url)
+        return super().clonefrom and bool(self.conn_url)
 
     @property
     def state(self) -> str:
