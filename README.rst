@@ -93,7 +93,7 @@ There are a few options available:
 
 ::
 
-    pip install psycopg[binary]
+    pip install psycopg[binary]>=3.0.0
 
 **General installation for pip**
 
