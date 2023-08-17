@@ -40,6 +40,13 @@ Currently supported PostgreSQL versions: 9.3 to 15.
 Indices and tables
 ==================
 
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+.. ifconfig:: builder == 'html'
+
+  * :ref:`genindex`
+  * :ref:`modindex`
+  * :ref:`search`
+
+.. ifconfig:: builder != 'html'
+
+  * :ref:`genindex`
+  * :ref:`search`
