@@ -429,7 +429,18 @@ class Postgresql(object):
         :param global_config: last known :class:`GlobalConfig` object
         """
         self._cluster_info_state = {}
-        if cluster and cluster.config and cluster.config.modify_version:
+
+        if global_config:
+            self._global_config = global_config
+
+        if not self._global_config:
+            return
+
+        if self._global_config.is_standby_cluster:
+            # Standby cluster can't have logical replication slots, and we don't need to enforce hot_standby_feedback
+            self._has_permanent_logical_slots = False
+            self.set_enforce_hot_standby_feedback(False)
+        elif cluster and cluster.config and cluster.config.modify_version:
             self._has_permanent_logical_slots =\
                 cluster.has_permanent_logical_slots(self.name, nofailover, self.major_version)
 
@@ -438,9 +449,6 @@ class Postgresql(object):
             self.set_enforce_hot_standby_feedback(
                 self._has_permanent_logical_slots
                 or cluster.should_enforce_hot_standby_feedback(self.name, nofailover, self.major_version))
-
-        if global_config:
-            self._global_config = global_config
 
     def _cluster_info_state_get(self, name: str) -> Optional[Any]:
         if not self._cluster_info_state:
