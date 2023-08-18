@@ -545,9 +545,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch('time.sleep', Mock())
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
-    @patch.object(MockCursor, 'fetchone')
-    def test_reload_config(self, mock_fetchone):
-        mock_fetchone.return_value = (1,)
+    def test_reload_config(self):
         parameters = self._PARAMETERS.copy()
         parameters.pop('f.oo')
         parameters['wal_buffers'] = '512'
@@ -555,9 +553,14 @@ class TestPostgresql(BaseTestPostgresql):
                   'authentication': {},
                   'retry_timeout': 10, 'listen': '*', 'krbsrvname': 'postgres', 'parameters': parameters}
         self.p.reload_config(config)
-        mock_fetchone.side_effect = Exception
         parameters['b.ar'] = 'bar'
-        self.p.reload_config(config)
+        with patch.object(MockCursor, 'fetchall',
+                          Mock(side_effect=[[('wal_block_size', '8191', None, 'integer', 'internal'),
+                                             ('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
+                                             ('shared_buffers', '16384', '8kB', 'integer', 'postmaster'),
+                                             ('wal_buffers', '-1', '8kB', 'integer', 'postmaster'),
+                                             ('port', '5433', None, 'integer', 'postmaster')], Exception])):
+            self.p.reload_config(config)
         parameters['autovacuum'] = 'on'
         self.p.reload_config(config)
         parameters['autovacuum'] = 'off'
@@ -585,7 +588,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     def test_postmaster_start_time(self):
         now = datetime.datetime.now()
-        with patch.object(MockCursor, "fetchone", Mock(return_value=(now, True, '', '', '', '', False))):
+        with patch.object(MockCursor, "fetchall", Mock(return_value=[(now, True, '', '', '', '', False)])):
             self.assertEqual(self.p.postmaster_start_time(), now.isoformat(sep=' '))
             t = Thread(target=self.p.postmaster_start_time)
             t.start()

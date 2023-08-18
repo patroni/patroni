@@ -7,6 +7,7 @@ from mock import Mock, PropertyMock, patch
 from threading import Thread
 
 from patroni import psycopg
+from patroni.config import GlobalConfig
 from patroni.dcs import Cluster, ClusterConfig, Member, SyncState
 from patroni.postgresql import Postgresql
 from patroni.postgresql.misc import fsync_dir
@@ -28,6 +29,7 @@ class TestSlotsHandler(BaseTestPostgresql):
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def setUp(self):
         super(TestSlotsHandler, self).setUp()
+        self.p._global_config = GlobalConfig({})
         self.s = self.p.slots_handler
         self.p.start()
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}}}, 1)
@@ -44,6 +46,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.s.sync_replication_slots(cluster, False)
         self.p.set_role('standby_leader')
         with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(True, False))), \
+                patch.object(GlobalConfig, 'is_standby_cluster', PropertyMock(return_value=True)), \
                 patch('patroni.postgresql.slots.logger.debug') as mock_debug:
             self.s.sync_replication_slots(cluster, False)
             mock_debug.assert_called_once()
@@ -93,17 +96,17 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.s.sync_replication_slots(cluster, False)
         with patch.object(Postgresql, '_query') as mock_query:
             self.p.reset_cluster_info_state(None)
-            mock_query.return_value.fetchone.return_value = (
+            mock_query.return_value = [(
                 1, 0, 0, 0, 0, 0, 0, 0, 0, None, None,
                 [{"slot_name": "ls", "type": "logical", "datoid": 5, "plugin": "b",
-                  "confirmed_flush_lsn": 12345, "catalog_xmin": 105}])
+                  "confirmed_flush_lsn": 12345, "catalog_xmin": 105}])]
             self.assertEqual(self.p.slots(), {'ls': 12345})
 
             self.p.reset_cluster_info_state(None)
-            mock_query.return_value.fetchone.return_value = (
+            mock_query.return_value = [(
                 1, 0, 0, 0, 0, 0, 0, 0, 0, None, None,
                 [{"slot_name": "ls", "type": "logical", "datoid": 6, "plugin": "b",
-                  "confirmed_flush_lsn": 12345, "catalog_xmin": 105}])
+                  "confirmed_flush_lsn": 12345, "catalog_xmin": 105}])]
             self.assertEqual(self.p.slots(), {})
 
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
@@ -137,10 +140,10 @@ class TestSlotsHandler(BaseTestPostgresql):
     def test_check_logical_slots_readiness(self):
         self.s.copy_logical_slots(self.cluster, ['ls'])
         with patch.object(MockCursor, '__iter__', Mock(return_value=iter([('postgresql0', None)]))), \
-                patch.object(MockCursor, 'fetchone', Mock(side_effect=Exception)):
+                patch.object(MockCursor, 'fetchall', Mock(side_effect=Exception)):
             self.assertFalse(self.s.check_logical_slots_readiness(self.cluster, None))
         with patch.object(MockCursor, '__iter__', Mock(return_value=iter([('postgresql0', None)]))), \
-                patch.object(MockCursor, 'fetchone', Mock(return_value=(False,))):
+                patch.object(MockCursor, 'fetchall', Mock(return_value=[(False,)])):
             self.assertFalse(self.s.check_logical_slots_readiness(self.cluster, None))
         with patch.object(MockCursor, '__iter__', Mock(return_value=iter([('ls', 100)]))):
             self.s.check_logical_slots_readiness(self.cluster, None)

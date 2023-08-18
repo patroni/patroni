@@ -1301,6 +1301,19 @@ class TestHa(PostgresInit):
         mock_restart.assert_called_once()
         self.ha.dcs.get_cluster.assert_not_called()
 
+    def test_enable_synchronous_mode(self):
+        self.ha.is_synchronous_mode = true
+        self.ha.has_lock = true
+        self.p.name = 'leader'
+        self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
+        with patch('patroni.ha.logger.info') as mock_logger:
+            self.ha.run_cycle()
+            self.assertEqual(mock_logger.call_args[0][0], 'Enabled synchronous replication')
+        self.ha.dcs.write_sync_state = Mock(return_value=None)
+        with patch('patroni.ha.logger.warning') as mock_logger:
+            self.ha.run_cycle()
+            self.assertEqual(mock_logger.call_args[0][0], 'Updating sync state failed')
+
     def test_effective_tags(self):
         self.ha._disable_sync = True
         self.assertEqual(self.ha.get_effective_tags(), {'foo': 'bar', 'nosync': True})
@@ -1520,7 +1533,7 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_set_sync.call_count, 0)
 
         self.ha._promote_timestamp = 1
-        mock_write_sync = self.ha.dcs.write_sync_state = Mock(side_effect=[SyncState.empty(), None])
+        mock_write_sync = self.ha.dcs.write_sync_state = Mock(side_effect=[SyncState(None, self.p.name, None, 0), None])
         # Test /sync key is attempted to set and succeed when missing or invalid
         with patch.object(SyncState, 'is_empty', Mock(side_effect=[True, False])):
             self.ha.run_cycle()

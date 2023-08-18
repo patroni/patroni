@@ -14,7 +14,7 @@ from . import psycopg
 from .__main__ import Patroni
 from .async_executor import AsyncExecutor, CriticalTask
 from .collections import CaseInsensitiveSet
-from .dcs import AbstractDCS, Cluster, Leader, Member, RemoteMember
+from .dcs import AbstractDCS, Cluster, Leader, Member, RemoteMember, SyncState
 from .exceptions import DCSError, PostgresConnectionException, PatroniFatalException
 from .postgresql.callback_executor import CallbackAction
 from .postgresql.misc import postgres_version_to_int
@@ -661,6 +661,24 @@ class Ha(object):
         """:returns: `True` if failsafe_mode is enabled in global configuration."""
         return self.global_config.check_mode('failsafe_mode')
 
+    def _maybe_enable_synchronous_mode(self) -> Optional[SyncState]:
+        """Explicitly enable synchronous mode if not yet enabled.
+
+        We are trying to solve a corner case: synchronous mode needs to be explicitly enabled
+        by updating the ``/sync`` key with the current leader name and empty members. In opposite
+        case it will never be automatically enabled if there are no eligible candidates.
+
+        :returns: the latest version of :class:`~patroni.dcs.SyncState` object.
+        """
+        sync = self.cluster.sync
+        if sync.is_empty:
+            sync = self.dcs.write_sync_state(self.state_handler.name, None, 0, version=sync.version)
+            if sync:
+                logger.info("Enabled synchronous replication")
+            else:
+                logger.warning("Updating sync state failed")
+        return sync
+
     def disable_synchronous_replication(self) -> None:
         """Cleans up /sync key in DCS if synchronous replication is disabled."""
         if not self.cluster.sync.is_empty and self.dcs.delete_sync_state(version=self.cluster.sync.version):
@@ -682,12 +700,11 @@ class Ha(object):
         min_sync = self.global_config.min_synchronous_nodes
         sync_wanted = self.global_config.synchronous_node_count
 
-        sync = self.cluster.sync
-        leader = sync.leader or self.state_handler.name
-        if sync.is_empty:
-            sync = self.dcs.write_sync_state(leader, None, 0, version=sync.version)
-            if not sync:
-                return logger.warning("Updating sync state failed")
+        sync = self._maybe_enable_synchronous_mode()
+        if not sync or not sync.leader:
+            return
+
+        leader = sync.leader
 
         def _check_timeout(offset: float = 0) -> bool:
             return time.time() - start_time + offset >= self.dcs.loop_wait
@@ -740,15 +757,18 @@ class Ha(object):
         and then in DCS. When removing, first remove in DCS, then in postgresql.conf. This is so we only consider
         promoting standbys that were guaranteed to be replicating synchronously.
         """
+
+        sync = self._maybe_enable_synchronous_mode()
+        if not sync:
+            return
+
         current_state = self.state_handler.sync_handler.current_state(self.cluster)
         picked = current_state.active
         allow_promote = current_state.sync
-        voters = CaseInsensitiveSet(self.cluster.sync.voters)
+        voters = CaseInsensitiveSet(sync.voters)
 
         if picked == voters:
             return
-
-        sync = self.cluster.sync
 
         # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
         sync_common = voters & allow_promote

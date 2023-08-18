@@ -337,36 +337,50 @@ class Postgresql(object):
         self._connection.set_conn_kwargs(kwargs.copy())
         self.citus_handler.set_conn_kwargs(kwargs.copy())
 
-    def _query(self, sql: str, *params: Any) -> Union['Cursor[Any]', 'cursor']:
-        """We are always using the same cursor, therefore this method is not thread-safe!!!
-        You can call it from different threads only if you are holding explicit `AsyncExecutor` lock,
-        because the main thread is always holding this lock when running HA cycle."""
-        cursor = None
-        try:
-            cursor = self._connection.cursor()
-            cursor.execute(sql.encode('utf-8'), params or None)
-            return cursor
-        except psycopg.Error as e:
-            if cursor and cursor.connection.closed == 0:
-                # When connected via unix socket, psycopg2 can't recoginze 'connection lost'
-                # and leaves `_cursor_holder.connection.closed == 0`, but psycopg2.OperationalError
-                # is still raised (what is correct). It doesn't make sense to continiue with existing
-                # connection and we will close it, to avoid its reuse by the `cursor` method.
-                if isinstance(e, psycopg.OperationalError):
-                    self._connection.close()
-                else:
-                    raise e
-            if self.state == 'restarting':
-                raise RetryFailedError('cluster is being restarted')
-            raise PostgresConnectionException('connection problems')
+    def _query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
+        """Execute *sql* query with *params* and optionally return results.
 
-    def query(self, sql: str, *args: Any, **kwargs: Any) -> Union['Cursor[Any]', 'cursor']:
-        if not kwargs.get('retry', True):
-            return self._query(sql, *args)
+        :param sql: SQL statement to execute.
+        :param params: parameters to pass.
+
+        :returns: a query response as a list of tuples if there is any.
+        :raises:
+            :exc:`~psycopg.Error` if had issues while executing *sql*.
+
+            :exc:`~patroni.exceptions.PostgresConnectionException`: if had issues while connecting to the database.
+
+            :exc:`~patroni.utils.RetryFailedError`: if it was detected that connection/query failed due to PostgreSQL
+            restart.
+        """
         try:
-            return self.retry(self._query, sql, *args)
-        except RetryFailedError as e:
-            raise PostgresConnectionException(str(e))
+            return self._connection.query(sql, *params)
+        except PostgresConnectionException as exc:
+            if self.state == 'restarting':
+                raise RetryFailedError('cluster is being restarted') from exc
+            raise
+
+    def query(self, sql: str, *params: Any, retry: bool = True) -> List[Tuple[Any, ...]]:
+        """Execute *sql* query with *params* and optionally return results.
+
+        :param sql: SQL statement to execute.
+        :param params: parameters to pass.
+        :param retry: whether the query should be retried upon failure or given up immediately.
+
+        :returns: a query response as a list of tuples if there is any.
+        :raises:
+            :exc:`~psycopg.Error` if had issues while executing *sql*.
+
+            :exc:`~patroni.exceptions.PostgresConnectionException`: if had issues while connecting to the database.
+
+            :exc:`~patroni.utils.RetryFailedError`: if it was detected that connection/query failed due to PostgreSQL
+            restart or if retry deadline was exceeded.
+        """
+        if not retry:
+            return self._query(sql, *params)
+        try:
+            return self.retry(self._query, sql, *params)
+        except RetryFailedError as exc:
+            raise PostgresConnectionException(str(exc)) from exc
 
     def pg_control_exists(self) -> bool:
         return os.path.isfile(self._pg_control)
@@ -420,7 +434,18 @@ class Postgresql(object):
         :param global_config: last known :class:`GlobalConfig` object
         """
         self._cluster_info_state = {}
-        if cluster and cluster.config and cluster.config.modify_version:
+
+        if global_config:
+            self._global_config = global_config
+
+        if not self._global_config:
+            return
+
+        if self._global_config.is_standby_cluster:
+            # Standby cluster can't have logical replication slots, and we don't need to enforce hot_standby_feedback
+            self._has_permanent_logical_slots = False
+            self.set_enforce_hot_standby_feedback(False)
+        elif cluster and cluster.config and cluster.config.modify_version:
             self._has_permanent_logical_slots =\
                 cluster.has_permanent_logical_slots(self.name, nofailover, self.major_version)
 
@@ -430,13 +455,10 @@ class Postgresql(object):
                 self._has_permanent_logical_slots
                 or cluster.should_enforce_hot_standby_feedback(self.name, nofailover, self.major_version))
 
-        if global_config:
-            self._global_config = global_config
-
     def _cluster_info_state_get(self, name: str) -> Optional[Any]:
         if not self._cluster_info_state:
             try:
-                result = self._is_leader_retry(self._query, self.cluster_info_query).fetchone()
+                result = self._is_leader_retry(self._query, self.cluster_info_query)[0]
                 cluster_info_state = dict(zip(['timeline', 'wal_position', 'replayed_location',
                                                'received_location', 'replay_paused', 'pg_control_timeline',
                                                'received_tli', 'slot_name', 'conninfo', 'receiver_state',
@@ -878,11 +900,10 @@ class Postgresql(object):
 
     def _wait_for_connection_close(self, postmaster: PostmasterProcess) -> None:
         try:
-            with self.connection().cursor() as cur:
-                while postmaster.is_running():  # Need a timeout here?
-                    cur.execute("SELECT 1")
-                    time.sleep(STOP_POLLING_INTERVAL)
-        except psycopg.Error:
+            while postmaster.is_running():  # Need a timeout here?
+                self._connection.query("SELECT 1")
+                time.sleep(STOP_POLLING_INTERVAL)
+        except (psycopg.Error, PostgresConnectionException):
             pass
 
     def reload(self, block_callbacks: bool = False) -> bool:
@@ -1183,26 +1204,16 @@ class Postgresql(object):
             received_location = self.received_location()
             pg_control_timeline = self._cluster_info_state_get('pg_control_timeline')
         else:
-            with self.connection().cursor() as cursor:
-                cursor.execute(self.cluster_info_query.encode('utf-8'))
-                row = cursor.fetchone()
-                if TYPE_CHECKING:  # pragma: no cover
-                    assert row is not None
-                (timeline, wal_position, replayed_location, received_location, _, pg_control_timeline) = row[:6]
+            timeline, wal_position, replayed_location, received_location, _, pg_control_timeline = \
+                self._query(self.cluster_info_query)[0][:6]
 
         wal_position = self._wal_position(bool(timeline), wal_position, received_location, replayed_location)
-        return (timeline, wal_position, pg_control_timeline)
+        return timeline, wal_position, pg_control_timeline
 
     def postmaster_start_time(self) -> Optional[str]:
         try:
-            query = "SELECT " + self.POSTMASTER_START_TIME
-            if current_thread().ident == self.__thread_ident:
-                row = self.query(query).fetchone()
-            else:
-                with self.connection().cursor() as cursor:
-                    cursor.execute(query)
-                    row = cursor.fetchone()
-            return row[0].isoformat(sep=' ') if row else None
+            sql = "SELECT " + self.POSTMASTER_START_TIME
+            return self.query(sql, retry=current_thread().ident == self.__thread_ident)[0][0].isoformat(sep=' ')
         except psycopg.Error:
             return None
 

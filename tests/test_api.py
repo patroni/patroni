@@ -3,8 +3,6 @@ import json
 import unittest
 import socket
 
-import patroni.psycopg as psycopg
-
 from http.server import HTTPServer
 from io import BytesIO as IO
 from mock import Mock, PropertyMock, patch
@@ -14,9 +12,8 @@ from patroni.api import RestApiHandler, RestApiServer
 from patroni.config import GlobalConfig
 from patroni.dcs import ClusterConfig, Member
 from patroni.ha import _MemberStatus
-from patroni.utils import tzutc
+from patroni.utils import RetryFailedError, tzutc
 
-from . import psycopg_connect, MockCursor
 from .test_ha import get_cluster_initialized_without_leader
 
 
@@ -42,10 +39,6 @@ class MockPostgresql(object):
     citus_handler = Mock()
 
     @staticmethod
-    def connection():
-        return psycopg_connect()
-
-    @staticmethod
     def postmaster_start_time():
         return postmaster_start_time
 
@@ -60,6 +53,12 @@ class MockPostgresql(object):
     @staticmethod
     def replication_state_from_parameters(*args):
         return 'streaming'
+
+    @staticmethod
+    def query(sql, *params, retry=False):
+        return [(postmaster_start_time, 0, '', 0, '', False, postmaster_start_time, 'streaming', None,
+                 '[{"application_name":"walreceiver","client_addr":"1.2.3.4",'
+                 + '"state":"streaming","sync_state":"async","sync_priority":0}]')]
 
 
 class MockWatchdog(object):
@@ -491,9 +490,7 @@ class TestRestApiHandler(unittest.TestCase):
 
     @patch('time.sleep', Mock())
     def test_RestApiServer_query(self):
-        with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError)):
-            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
-        with patch.object(MockPostgresql, 'connection', Mock(side_effect=psycopg.OperationalError)):
+        with patch.object(MockPostgresql, 'query', Mock(side_effect=RetryFailedError('bla'))):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
 
     @patch('time.sleep', Mock())

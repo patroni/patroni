@@ -1205,20 +1205,18 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 self.command = mname
         return ret
 
-    def query(self, sql: str, *params: Any, **kwargs: Any) -> List[Tuple[Any, ...]]:
-        """Execute *sql* query with *params*.
+    def query(self, sql: str, *params: Any, retry: bool = False) -> List[Tuple[Any, ...]]:
+        """Execute *sql* query with *params* and optionally return results.
 
         :param sql: the SQL statement to be run.
         :param params: positional arguments to call :func:`RestApiServer.query` with.
-        :param kwargs: can contain the key ``retry``. If the key is present its value should be a :class:`bool` which
-            indicates whether the query should be retried upon failure or given up immediately.
+        :param retry: whether the query should be retried upon failure or given up immediately.
 
         :returns: a list of rows that were fetched from the database.
         """
-        if not kwargs.get('retry', False):
+        if not retry:
             return self.server.query(sql, *params)
-        retry = Retry(delay=1, retry_exceptions=PostgresConnectionException)
-        return retry(self.server.query, sql, *params)
+        return Retry(delay=1, retry_exceptions=PostgresConnectionException)(self.server.query, sql, *params)
 
     def get_postgresql_status(self, retry: bool = False) -> Dict[str, Any]:
         """Builds an object representing a status of "postgres".
@@ -1390,7 +1388,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.daemon = True
 
     def query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
-        """Execute *sql* query with *params*.
+        """Execute *sql* query with *params* and optionally return results.
 
         :param sql: the SQL statement to be run.
         :param params: positional arguments to be used as parameters for *sql*.
@@ -1401,15 +1399,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             :class:`psycopg.Error`: if had issues while executing *sql*.
             :class:`~patroni.exceptions.PostgresConnectionException`: if had issues while connecting to the database.
         """
-        cursor = None
         try:
-            with self.patroni.postgresql.connection().cursor() as cursor:
-                cursor.execute(sql.encode('utf-8'), params)
-                return [r for r in cursor]
-        except psycopg.Error as e:
-            if cursor and cursor.connection.closed == 0:
-                raise e
-            raise PostgresConnectionException('connection problems')
+            return self.patroni.postgresql.query(sql, *params, retry=False)
+        except RetryFailedError as e:
+            raise PostgresConnectionException(str(e))
 
     @staticmethod
     def _set_fd_cloexec(fd: socket.socket) -> None:
