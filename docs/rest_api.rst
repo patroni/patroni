@@ -92,26 +92,184 @@ Monitoring endpoint
 
 The ``GET /patroni`` is used by Patroni during the leader race. It also could be used by your monitoring system. The JSON document produced by this endpoint has the same structure as the JSON produced by the health check endpoints.
 
+**Example:** A healthy cluster
+
 .. code-block:: bash
 
     $ curl -s http://localhost:8008/patroni | jq .
     {
       "state": "running",
-      "postmaster_start_time": "2019-09-24 09:22:32.555 CEST",
+      "postmaster_start_time": "2023-08-18 11:03:37.966359+00:00",
       "role": "master",
-      "server_version": 110005,
-      "cluster_unlocked": false,
+      "server_version": 150004,
       "xlog": {
-        "location": 25624640
+        "location": 67395656
       },
-      "timeline": 3,
-      "database_system_identifier": "6739877027151648096",
+      "timeline": 1,
+      "replication": [
+        {
+          "usename": "replicator",
+          "application_name": "patroni2",
+          "client_addr": "10.89.0.6",
+          "state": "streaming",
+          "sync_state": "async",
+          "sync_priority": 0
+        },
+        {
+          "usename": "replicator",
+          "application_name": "patroni3",
+          "client_addr": "10.89.0.2",
+          "state": "streaming",
+          "sync_state": "async",
+          "sync_priority": 0
+        }
+      ],
+      "dcs_last_seen": 1692356718,
+      "tags": {
+        "clonefrom": true
+      },
+      "database_system_identifier": "7268616322854375442",
       "patroni": {
-        "version": "1.6.0",
-        "scope": "batman"
+        "version": "3.1.0",
+        "scope": "demo"
       }
     }
 
+**Example:** An unlocked cluster
+
+.. code-block:: bash
+
+    $ curl -s http://localhost:8008/patroni  | jq .
+    {
+      "state": "running",
+      "postmaster_start_time": "2023-08-18 11:09:08.615242+00:00",
+      "role": "replica",
+      "server_version": 150004,
+      "xlog": {
+        "received_location": 67419744,
+        "replayed_location": 67419744,
+        "replayed_timestamp": null,
+        "paused": false
+      },
+      "timeline": 1,
+      "replication": [
+        {
+          "usename": "replicator",
+          "application_name": "patroni2",
+          "client_addr": "10.89.0.6",
+          "state": "streaming",
+          "sync_state": "async",
+          "sync_priority": 0
+        },
+        {
+          "usename": "replicator",
+          "application_name": "patroni3",
+          "client_addr": "10.89.0.2",
+          "state": "streaming",
+          "sync_state": "async",
+          "sync_priority": 0
+        }
+      ],
+      "cluster_unlocked": true,
+      "dcs_last_seen": 1692356928,
+      "tags": {
+        "clonefrom": true
+      },
+      "database_system_identifier": "7268616322854375442",
+      "patroni": {
+        "version": "3.1.0",
+        "scope": "demo"
+      }
+    }
+
+**Example:** An unlocked cluster with :ref:`DCS failsafe mode <dcs_failsafe_mode>` enabled
+
+.. code-block:: bash
+
+    $ curl -s http://localhost:8008/patroni  | jq .
+    {
+      "state": "running",
+      "postmaster_start_time": "2023-08-18 11:09:08.615242+00:00",
+      "role": "replica",
+      "server_version": 150004,
+      "xlog": {
+        "location": 67420024
+      },
+      "timeline": 1,
+      "replication": [
+        {
+          "usename": "replicator",
+          "application_name": "patroni2",
+          "client_addr": "10.89.0.6",
+          "state": "streaming",
+          "sync_state": "async",
+          "sync_priority": 0
+        },
+        {
+          "usename": "replicator",
+          "application_name": "patroni3",
+          "client_addr": "10.89.0.2",
+          "state": "streaming",
+          "sync_state": "async",
+          "sync_priority": 0
+        }
+      ],
+      "cluster_unlocked": true,
+      "failsafe_mode_is_active": true,
+      "dcs_last_seen": 1692356928,
+      "tags": {
+        "clonefrom": true
+      },
+      "database_system_identifier": "7268616322854375442",
+      "patroni": {
+        "version": "3.1.0",
+        "scope": "demo"
+      }
+    }
+
+**Example:** A cluster with the :ref:`pause mode <pause>` enabled
+
+.. code-block:: bash
+
+    $ curl -s http://localhost:8008/patroni  | jq .
+    {
+      "state": "running",
+      "postmaster_start_time": "2023-08-18 11:09:08.615242+00:00",
+      "role": "replica",
+      "server_version": 150004,
+      "xlog": {
+        "location": 67420024
+      },
+      "timeline": 1,
+      "replication": [
+        {
+          "usename": "replicator",
+          "application_name": "patroni2",
+          "client_addr": "10.89.0.6",
+          "state": "streaming",
+          "sync_state": "async",
+          "sync_priority": 0
+        },
+        {
+          "usename": "replicator",
+          "application_name": "patroni3",
+          "client_addr": "10.89.0.2",
+          "state": "streaming",
+          "sync_state": "async",
+          "sync_priority": 0
+        }
+      ],
+      "pause": true,
+      "dcs_last_seen": 1692356928,
+      "tags": {
+        "clonefrom": true
+      },
+      "database_system_identifier": "7268616322854375442",
+      "patroni": {
+        "version": "3.1.0",
+        "scope": "demo"
+      }
+    }
 
 Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` endpoint.
 
@@ -131,6 +289,9 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.
 	# TYPE patroni_master gauge
 	patroni_master{scope="batman"} 1
+	# HELP patroni_primary Value is 1 if this node is the leader, 0 otherwise.
+	# TYPE patroni_primary gauge
+	patroni_primary{scope="batman"} 1
 	# HELP patroni_xlog_location Current location of the Postgres transaction log, 0 if this node is not the leader.
 	# TYPE patroni_xlog_location counter
 	patroni_xlog_location{scope="batman"} 22320573386952
@@ -169,6 +330,9 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	patroni_cluster_unlocked{scope="batman"} 0
 	# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.
 	# TYPE patroni_postgres_timeline counter
+	patroni_failsafe_mode_is_active{scope="batman"} 0
+	# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.
+	# TYPE patroni_postgres_timeline counter
 	patroni_postgres_timeline{scope="batman"} 24
 	# HELP patroni_dcs_last_seen Epoch timestamp when DCS was last contacted successfully by Patroni.
 	# TYPE patroni_dcs_last_seen gauge
@@ -192,24 +356,24 @@ Cluster status endpoints
     {
       "members": [
         {
-          "name": "postgresql0",
-          "host": "127.0.0.1",
-          "port": 5432,
+          "name": "patroni1",
           "role": "leader",
           "state": "running",
-          "api_url": "http://127.0.0.1:8008/patroni",
+          "api_url": "http://10.89.0.4:8008/patroni",
+          "host": "10.89.0.4",
+          "port": 5432,
           "timeline": 5,
           "tags": {
             "clonefrom": true
           }
         },
         {
-          "name": "postgresql1",
-          "host": "127.0.0.1",
-          "port": 5433,
+          "name": "patroni2",
           "role": "replica",
-          "state": "running",
-          "api_url": "http://127.0.0.1:8009/patroni",
+          "state": "streaming",
+          "api_url": "http://10.89.0.6:8008/patroni",
+          "host": "10.89.0.6",
+          "port": 5433,
           "timeline": 5,
           "tags": {
             "clonefrom": true
@@ -218,8 +382,9 @@ Cluster status endpoints
         }
       ],
       "scheduled_switchover": {
-        "at": "2019-09-24T10:36:00+02:00",
-        "from": "postgresql0"
+        "at": "2023-09-24T10:36:00+02:00",
+        "from": "patroni1",
+        "to": "patroni3"
       }
     }
 
@@ -264,7 +429,7 @@ Config endpoint
 
 .. code-block:: bash
 
-	$ curl -s localhost:8008/config | jq .
+	$ curl -s http://localhost:8008/config | jq .
 	{
 	  "ttl": 30,
 	  "loop_wait": 10,
