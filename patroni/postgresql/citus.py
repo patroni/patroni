@@ -11,8 +11,6 @@ from ..dcs import CITUS_COORDINATOR_GROUP_ID, Cluster
 from ..psycopg import connect, quote_ident
 
 if TYPE_CHECKING:  # pragma: no cover
-    from psycopg import Cursor
-    from psycopg2 import cursor
     from . import Postgresql
 
 CITUS_SLOT_NAME_RE = re.compile(r'^citus_shard_(move|split)_slot(_[1-9][0-9]*){2,3}$')
@@ -384,12 +382,10 @@ class CitusHandler(Thread):
             self._tasks[:] = []
             self._in_flight = None
 
-    def query(self, sql: str, *params: Any) -> Union['Cursor[Any]', 'cursor']:
+    def query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
         try:
             logger.debug('query(%s, %s)', sql, params)
-            cursor = self._connection.cursor()
-            cursor.execute(sql.encode('utf-8'), params or None)
-            return cursor
+            return self._connection.query(sql, *params)
         except Exception as e:
             logger.error('Exception when executing query "%s", (%s): %r', sql, params, e)
             self._connection.close()
@@ -407,13 +403,13 @@ class CitusHandler(Thread):
             self._schedule_load_pg_dist_group = False
 
         try:
-            cursor = self.query('SELECT groupid, nodename, nodeport, noderole, nodeid FROM pg_catalog.pg_dist_node')
+            rows = self.query('SELECT groupid, nodename, nodeport, noderole, nodeid FROM pg_catalog.pg_dist_node')
         except Exception:
             return False
 
         pg_dist_group: Dict[int, PgDistTask] = {}
 
-        for row in cursor:
+        for row in rows:
             if row[0] not in pg_dist_group:
                 pg_dist_group[row[0]] = PgDistTask(row[0], nodes=set(), event='after_promote')
             pg_dist_group[row[0]].add(PgDistNode(*row[1:]))
@@ -491,10 +487,8 @@ class CitusHandler(Thread):
             self.query('SELECT pg_catalog.citus_update_node(%s, %s, %s, true, %s)',
                        node.nodeid, host, node.port, cooldown)
         elif node.role != 'demoted':
-            row = self.query("SELECT pg_catalog.citus_add_node(%s, %s, %s, %s, 'default')",
-                             node.host, node.port, group, node.role).fetchone()
-            if row is not None:
-                node.nodeid = row[0]
+            node.nodeid = self.query("SELECT pg_catalog.citus_add_node(%s, %s, %s, %s, 'default')",
+                                     node.host, node.port, group, node.role)[0][0]
 
     def update_group(self, task: PgDistTask, transaction: bool) -> None:
         current_state = self._in_flight\

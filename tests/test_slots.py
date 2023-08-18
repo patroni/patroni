@@ -93,17 +93,17 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.s.sync_replication_slots(cluster, False)
         with patch.object(Postgresql, '_query') as mock_query:
             self.p.reset_cluster_info_state(None)
-            mock_query.return_value.fetchone.return_value = (
+            mock_query.return_value = [(
                 1, 0, 0, 0, 0, 0, 0, 0, 0, None, None,
                 [{"slot_name": "ls", "type": "logical", "datoid": 5, "plugin": "b",
-                  "confirmed_flush_lsn": 12345, "catalog_xmin": 105}])
+                  "confirmed_flush_lsn": 12345, "catalog_xmin": 105}])]
             self.assertEqual(self.p.slots(), {'ls': 12345})
 
             self.p.reset_cluster_info_state(None)
-            mock_query.return_value.fetchone.return_value = (
+            mock_query.return_value = [(
                 1, 0, 0, 0, 0, 0, 0, 0, 0, None, None,
                 [{"slot_name": "ls", "type": "logical", "datoid": 6, "plugin": "b",
-                  "confirmed_flush_lsn": 12345, "catalog_xmin": 105}])
+                  "confirmed_flush_lsn": 12345, "catalog_xmin": 105}])]
             self.assertEqual(self.p.slots(), {})
 
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
@@ -137,10 +137,10 @@ class TestSlotsHandler(BaseTestPostgresql):
     def test_check_logical_slots_readiness(self):
         self.s.copy_logical_slots(self.cluster, ['ls'])
         with patch.object(MockCursor, '__iter__', Mock(return_value=iter([('postgresql0', None)]))), \
-                patch.object(MockCursor, 'fetchone', Mock(side_effect=Exception)):
+                patch.object(MockCursor, 'fetchall', Mock(side_effect=Exception)):
             self.assertFalse(self.s.check_logical_slots_readiness(self.cluster, None))
         with patch.object(MockCursor, '__iter__', Mock(return_value=iter([('postgresql0', None)]))), \
-                patch.object(MockCursor, 'fetchone', Mock(return_value=(False,))):
+                patch.object(MockCursor, 'fetchall', Mock(return_value=[(False,)])):
             self.assertFalse(self.s.check_logical_slots_readiness(self.cluster, None))
         with patch.object(MockCursor, '__iter__', Mock(return_value=iter([('ls', 100)]))):
             self.s.check_logical_slots_readiness(self.cluster, None)
