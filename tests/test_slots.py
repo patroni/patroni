@@ -7,6 +7,7 @@ from mock import Mock, PropertyMock, patch
 from threading import Thread
 
 from patroni import psycopg
+from patroni.config import GlobalConfig
 from patroni.dcs import Cluster, ClusterConfig, Member, SyncState
 from patroni.postgresql import Postgresql
 from patroni.postgresql.misc import fsync_dir
@@ -28,6 +29,7 @@ class TestSlotsHandler(BaseTestPostgresql):
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def setUp(self):
         super(TestSlotsHandler, self).setUp()
+        self.p._global_config = GlobalConfig({})
         self.s = self.p.slots_handler
         self.p.start()
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}}}, 1)
@@ -44,6 +46,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.s.sync_replication_slots(cluster, False)
         self.p.set_role('standby_leader')
         with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(True, False))), \
+                patch.object(GlobalConfig, 'is_standby_cluster', PropertyMock(return_value=True)), \
                 patch('patroni.postgresql.slots.logger.debug') as mock_debug:
             self.s.sync_replication_slots(cluster, False)
             mock_debug.assert_called_once()

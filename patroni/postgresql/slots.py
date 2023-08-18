@@ -309,6 +309,11 @@ class SlotsHandler(object):
                 elif cluster.slots and name in cluster.slots:  # We want to copy only slots with feedback in a DCS
                     create_slots.append(name)
 
+        # Slots to be copied from the primary should be removed from the *slots* structure,
+        # otherwise Patroni falsely assumes that they already exist.
+        for name in create_slots:
+            slots.pop(name)
+
         error, copy_slots = self.schedule_advance_slots(advance_slots)
         if error:
             self._schedule_load_slots = True
@@ -317,12 +322,13 @@ class SlotsHandler(object):
     def sync_replication_slots(self, cluster: Cluster, nofailover: bool,
                                replicatefrom: Optional[str] = None, paused: bool = False) -> List[str]:
         ret = []
-        if self._postgresql.major_version >= 90400 and cluster.config:
+        if self._postgresql.major_version >= 90400 and self._postgresql.global_config and cluster.config:
             try:
                 self.load_replication_slots()
 
-                slots = cluster.get_replication_slots(self._postgresql.name, self._postgresql.role,
-                                                      nofailover, self._postgresql.major_version, True)
+                slots = cluster.get_replication_slots(
+                    self._postgresql.name, self._postgresql.role, nofailover, self._postgresql.major_version,
+                    is_standby_cluster=self._postgresql.global_config.is_standby_cluster, show_error=True)
 
                 self._drop_incorrect_slots(cluster, slots, paused)
 
