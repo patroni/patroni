@@ -1,4 +1,4 @@
-"""Tags handling"""
+"""Tags handling."""
 import abc
 
 from typing import Any, Dict, Optional
@@ -32,6 +32,10 @@ class Tags(abc.ABC):
     @property
     @abc.abstractmethod
     def tags(self) -> Dict[str, Any]:
+        """Configured tags.
+
+        Must be implemented in a child class.
+        """
         raise NotImplementedError  # pragma: no cover
 
     @property
