@@ -36,7 +36,7 @@ class Tags(abc.ABC):
 
     @property
     def clonefrom(self) -> bool:
-        """``True`` if ``clonefrom`` tag is ``True``."""
+        """``True`` if ``clonefrom`` tag is ``True``, else ``False``."""
         return self.tags.get('clonefrom', False)
 
     @property

@@ -36,7 +36,7 @@ class _MemberStatus(Tags, NamedTuple('_MemberStatus',
 
     Consists of the following fields:
 
-    :ivar member: :class:`Member` object of the node.
+    :ivar member: :class:`~patroni.dcs.Member` object of the node.
     :ivar reachable: ``False`` if the node is not reachable or is not responding with correct JSON.
     :ivar in_recovery: ``False`` if the node is running as a primary (`if pg_is_in_recovery() == true`).
     :ivar wal_position: maximum value of ``replayed_location`` or ``received_location`` from JSON.
