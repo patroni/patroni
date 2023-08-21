@@ -64,3 +64,6 @@ venv*/
 
 # Default test data directory
 data/
+
+# macOS
+**/.DS_Store
