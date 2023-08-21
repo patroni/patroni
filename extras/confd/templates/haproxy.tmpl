@@ -21,12 +21,12 @@ listen primary
 	option httpchk HEAD /primary
 	http-check expect status 200
 	default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
-{{range gets "/members/*"}}	server {{base .Key}} {{$data := json .Value}}{{base (replace (index (split $data.conn_url "/") 2) "@" "/" -1)}} maxconn 100 check port {{index (split (index (split $data.api_url "/") 2) ":") 1}}
-{{end}}
+{{with get "/leader"}}{{$leader := .Value}}{{$leadkey := printf "/members/%s" $leader}}{{with get $leadkey}}	server {{base .Key}} {{$data := json .Value}}{{base (replace (index (split $data.conn_url "/") 2) "@" "/" -1)}} maxconn 100 check port {{index (split (index (split $data.api_url "/") 2) ":") 1}}
+{{end}}{{end}}
 listen replicas
 	bind *:5001
 	option httpchk HEAD /replica
 	http-check expect status 200
 	default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
-{{range gets "/members/*"}}	server {{base .Key}} {{$data := json .Value}}{{base (replace (index (split $data.conn_url "/") 2) "@" "/" -1)}} maxconn 100 check port {{index (split (index (split $data.api_url "/") 2) ":") 1}}
-{{end}}
+{{ "\" with get "/leader"}}{{$leader := .Value}}{{$leadkey := printf "/members/%s" $leader}}{{range gets "/members/*"}} {{ if (ne $leadkey .Key) }} server {{base .Key}} {{$data := json .Value}}{{base (replace (index (split $data.conn_url "/") 2) "@" "/" -1)}} maxconn 100 check port {{index (split (index (split $data.api_url "/") 2) ":") 1}} {{printf "\n" }} 
+{{ end }}{{ end }}{{ end }}
