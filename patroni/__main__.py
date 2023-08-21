@@ -13,6 +13,7 @@ from argparse import Namespace
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from patroni.daemon import AbstractPatroniDaemon, abstract_main, get_base_arg_parser
+from patroni.tags import Tags
 
 if TYPE_CHECKING:  # pragma: no cover
     from .config import Config
@@ -20,7 +21,7 @@ if TYPE_CHECKING:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
-class Patroni(AbstractPatroniDaemon):
+class Patroni(AbstractPatroniDaemon, Tags):
     """Implement ``patroni`` command daemon.
 
     :ivar version: Patroni version.
@@ -30,7 +31,6 @@ class Patroni(AbstractPatroniDaemon):
     :ivar api: REST API server instance of this node.
     :ivar request: wrapper for performing HTTP requests.
     :ivar ha: HA handler.
-    :ivar tags: cache of custom tags configured for this node.
     :ivar next_run: time when to run the next HA loop cycle.
     :ivar scheduled_restart: when a restart has been scheduled to occur, if any. In that case, should contain two keys:
         * ``schedule``: timestamp when restart should occur;
@@ -71,7 +71,7 @@ class Patroni(AbstractPatroniDaemon):
         self.api = RestApiServer(self, self.config['restapi'])
         self.ha = Ha(self)
 
-        self.tags = self.get_tags()
+        self._tags = self._get_tags()
         self.next_run = time.time()
         self.scheduled_restart: Dict[str, Any] = {}
 
@@ -121,33 +121,12 @@ class Patroni(AbstractPatroniDaemon):
         except Exception:
             return
 
-    def get_tags(self) -> Dict[str, Any]:
+    def _get_tags(self) -> Dict[str, Any]:
         """Get tags configured for this node, if any.
 
-        Handle both predefined Patroni tags and custom defined tags.
-
-        .. note::
-            A custom tag is any tag added to the configuration ``tags`` section that is not one of ``clonefrom``,
-            ``nofailover``, ``noloadbalance`` or ``nosync``.
-
-            For the Patroni predefined tags, the returning object will only contain them if they are enabled as they
-            all are boolean values that default to disabled.
-
-        :returns: a dictionary of tags set for this node. The key is the tag name, and the value is the corresponding
-            tag value.
+        :returns: a dictionary of tags set for this node.
         """
-        return {tag: value for tag, value in self.config.get('tags', {}).items()
-                if tag not in ('clonefrom', 'nofailover', 'noloadbalance', 'nosync') or value}
-
-    @property
-    def nofailover(self) -> bool:
-        """``True`` if ``tags.nofailover`` configuration is enabled for this node, else ``False``."""
-        return bool(self.tags.get('nofailover', False))
-
-    @property
-    def nosync(self) -> bool:
-        """``True`` if ``tags.nosync`` configuration is enabled for this node, else ``False``."""
-        return bool(self.tags.get('nosync', False))
+        return self._filter_tags(self.config.get('tags', {}))
 
     def reload_config(self, sighup: bool = False, local: Optional[bool] = False) -> None:
         """Apply new configuration values for ``patroni`` daemon.
@@ -166,7 +145,7 @@ class Patroni(AbstractPatroniDaemon):
         try:
             super(Patroni, self).reload_config(sighup, local)
             if local:
-                self.tags = self.get_tags()
+                self._tags = self._get_tags()
                 self.request.reload_config(self.config)
             if local or sighup and self.api.reload_local_certificate():
                 self.api.reload_config(self.config['restapi'])
@@ -177,14 +156,9 @@ class Patroni(AbstractPatroniDaemon):
             logger.exception('Failed to reload config_file=%s', self.config.config_file)
 
     @property
-    def replicatefrom(self) -> Optional[str]:
-        """Value of ``tags.replicatefrom`` configuration, if any."""
-        return self.tags.get('replicatefrom')
-
-    @property
-    def noloadbalance(self) -> bool:
-        """``True`` if ``tags.noloadbalance`` configuration is enabled for this node, else ``False``."""
-        return bool(self.tags.get('noloadbalance', False))
+    def tags(self) -> Dict[str, Any]:
+        """Tags configured for this node, if any."""
+        return self._tags
 
     def schedule_next_run(self) -> None:
         """Schedule the next run of the ``patroni`` daemon main loop.
