@@ -27,7 +27,8 @@ RUN set -ex \
     && apt-get update \
     && apt-get reinstall init-system-helpers \
     && apt-get install -y \
-      python3-full \
+      python3-dev \
+      python3-venv \
       rsync \
       curl \
       gcc \
