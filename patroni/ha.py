@@ -69,11 +69,12 @@ class _MemberStatus(Tags, NamedTuple('_MemberStatus',
 
     @property
     def watchdog_failed(self) -> bool:
-        """indicates that watchdog is required by configuration but not available or failed."""
+        """Indicates that watchdog is required by configuration but not available or failed."""
         return self.data.get('watchdog_failed', False)
 
     @classmethod
     def unknown(cls, member: Member) -> '_MemberStatus':
+        """Create a new class instance with empty or null values."""
         return cls(member, False, None, 0, {})
 
     def failover_limitation(self) -> Optional[str]:
