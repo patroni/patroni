@@ -46,7 +46,7 @@ try:
 except ImportError:  # pragma: no cover
     from cdiff import markup_to_pager, PatchStream  # pyright: ignore [reportMissingModuleSource]
 
-from .config import get_global_config
+from .config import Config, get_global_config
 from .dcs import get_dcs as _get_dcs, AbstractDCS, Cluster, Member
 from .exceptions import PatroniException
 from .postgresql.misc import postgres_version_to_int
@@ -226,8 +226,6 @@ def load_config(path: str, dcs_url: Optional[str]) -> Dict[str, Any]:
     :raises:
         :class:`PatroniCtlException`: if *path* does not exist or is not readable.
     """
-    from patroni.config import Config
-
     if not (os.path.exists(path) and os.access(path, os.R_OK)):
         if path != CONFIG_FILE_PATH:    # bail if non-default config location specified but file not found / readable
             raise PatroniCtlException('Provided config file {0} not existing or no read rights.'

@@ -2,7 +2,6 @@ import etcd
 import mock
 import os
 import unittest
-import urllib3
 
 from click.testing import CliRunner
 from datetime import datetime, timedelta
@@ -193,7 +192,7 @@ class TestCtl(unittest.TestCase):
 
     @patch('patroni.ctl.get_dcs')
     @patch.object(PoolManager, 'request', Mock(return_value=MockResponse()))
-    @patch('patroni.ctl.request_patroni', Mock(return_value=urllib3.HTTPResponse()))
+    @patch('patroni.ctl.request_patroni', Mock(return_value=MockResponse()))
     def test_failover(self, mock_get_dcs):
         mock_get_dcs.return_value.set_failover_value = Mock()
 
