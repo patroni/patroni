@@ -18,7 +18,7 @@ from .bootstrap import Bootstrap
 from .callback_executor import CallbackAction, CallbackExecutor
 from .cancellable import CancellableSubprocess
 from .config import ConfigHandler, mtime
-from .connection import Connection, get_connection_cursor
+from .connection import ConnectionPool, get_connection_cursor
 from .citus import CitusHandler
 from .misc import parse_history, parse_lsn, postgres_major_version_to_int
 from .postmaster import PostmasterProcess
@@ -79,7 +79,8 @@ class Postgresql(object):
         self.set_state('stopped')
 
         self._pending_restart = False
-        self._connection = Connection()
+        self.connection_pool = ConnectionPool()
+        self._connection = self.connection_pool.get('__main__')
         self.citus_handler = CitusHandler(self, config.get('citus'))
         self.config = ConfigHandler(self, config)
         self.config.check_directories()
@@ -277,7 +278,7 @@ class Postgresql(object):
 
         :returns: 'ok' if PostgreSQL is up, 'reject' if starting up, 'no_resopnse' if not up."""
 
-        r = self.config.local_connect_kwargs
+        r = self.connection_pool.conn_kwargs
         cmd = [self.pgcommand('pg_isready'), '-p', r['port'], '-d', self._database]
 
         # Host is not set if we are connecting via default unix socket
@@ -327,10 +328,6 @@ class Postgresql(object):
 
     def connection(self) -> Union['connection3', 'Connection3[Any]']:
         return self._connection.get()
-
-    def set_connection_kwargs(self, kwargs: Dict[str, Any]) -> None:
-        self._connection.set_conn_kwargs(kwargs.copy())
-        self.citus_handler.set_conn_kwargs(kwargs.copy())
 
     def _query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
         """Execute *sql* query with *params* and optionally return results.
@@ -694,7 +691,7 @@ class Postgresql(object):
         # the former node, otherwise, we might get a stalled one
         # after kill -9, which would report incorrect data to
         # patroni.
-        self._connection.close()
+        self.connection_pool.close()
 
         if self.is_running():
             logger.error('Cannot start PostgreSQL because one is already running.')
@@ -765,7 +762,7 @@ class Postgresql(object):
     def checkpoint(self, connect_kwargs: Optional[Dict[str, Any]] = None,
                    timeout: Optional[float] = None) -> Optional[str]:
         check_not_is_in_recovery = connect_kwargs is not None
-        connect_kwargs = connect_kwargs or self.config.local_connect_kwargs
+        connect_kwargs = connect_kwargs or self.connection_pool.conn_kwargs
         for p in ['connect_timeout', 'options']:
             connect_kwargs.pop(p, None)
         if timeout:

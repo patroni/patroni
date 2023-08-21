@@ -176,7 +176,7 @@ class Bootstrap(object):
         """
         cmd = config.get('post_bootstrap') or config.get('post_init')
         if cmd:
-            r = self._postgresql.config.local_connect_kwargs
+            r = self._postgresql.connection_pool.conn_kwargs
             connstring = self._postgresql.config.format_dsn(r, True)
             if 'host' not in r:
                 # https://www.postgresql.org/docs/current/static/libpq-pgpass.html
