@@ -46,9 +46,8 @@ There are a few options available:
 
 ::
 
-    sudo apt-get install python-psycopg2   # install python2 psycopg2 module on Debian/Ubuntu
-    sudo apt-get install python3-psycopg2  # install python3 psycopg2 module on Debian/Ubuntu
-    sudo yum install python-psycopg2       # install python2 psycopg2 on RedHat/Fedora/CentOS
+    sudo apt-get install python3-psycopg2  # install psycopg2 module on Debian/Ubuntu
+    sudo yum install python3-psycopg2      # install psycopg2 on RedHat/Fedora/CentOS
 
 2. Install psycopg2 from the binary package
 
@@ -165,10 +164,6 @@ Applications Should Not Use Superusers
 
 When connecting from an application, always use a non-superuser. Patroni requires access to the database to function properly. By using a superuser from an application, you can potentially use the entire connection pool, including the connections reserved for superusers, with the ``superuser_reserved_connections`` setting. If Patroni cannot access the Primary because the connection pool is full, behavior will be undesirable.
 
-.. |Build Status| image:: https://travis-ci.org/zalando/patroni.svg?branch=master
-   :target: https://travis-ci.org/zalando/patroni
-.. |Coverage Status| image:: https://coveralls.io/repos/zalando/patroni/badge.svg?branch=master
-   :target: https://coveralls.io/r/zalando/patroni?branch=master
 
 Testing Your HA Solution
 --------------------------------------

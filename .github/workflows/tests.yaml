@@ -174,3 +174,27 @@ jobs:
     - uses: jakebailey/pyright-action@v1
       with:
         version: 1.1.320
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+        cache: pip
+
+    - name: Install dependencies
+      run: pip install tox
+
+    - name: Install package dependencies
+      run: |
+        sudo apt update \
+        && sudo apt install -y \
+            latexmk texlive-latex-extra tex-gyre \
+            --no-install-recommends
+
+    - name: Generate documentation
+      run: tox -m docs

@@ -106,7 +106,7 @@ class MockCursor(object):
         elif sql.startswith('SELECT slot_name'):
             self.results = [('blabla', 'physical'), ('foobar', 'physical'), ('ls', 'logical', 'a', 'b', 5, 100, 500)]
         elif sql.startswith('WITH slots AS (SELECT slot_name, active'):
-            self.results = [(False, True)] if self.rowcount == 1 else [None]
+            self.results = [(False, True)] if self.rowcount == 1 else []
         elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):
             self.results = [(1, 2, 1, 0, False, 1, 1, None, None, 'streaming', '',
                              [{"slot_name": "ls", "confirmed_flush_lsn": 12345}],
@@ -114,10 +114,22 @@ class MockCursor(object):
         elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
             self.results = [(False, 2)]
         elif sql.startswith('SELECT pg_catalog.pg_postmaster_start_time'):
-            replication_info = '[{"application_name":"walreceiver","client_addr":"1.2.3.4",' +\
-                               '"state":"streaming","sync_state":"async","sync_priority":0}]'
-            now = datetime.datetime.now(tzutc)
-            self.results = [(now, 0, '', 0, '', False, now, 'streaming', None, replication_info)]
+            self.results = [(datetime.datetime.now(tzutc),)]
+        elif sql.startswith('SELECT name, current_setting(name) FROM pg_settings'):
+            self.results = [('data_directory', 'data'),
+                            ('hba_file', os.path.join('data', 'pg_hba.conf')),
+                            ('ident_file', os.path.join('data', 'pg_ident.conf')),
+                            ('max_connections', 42),
+                            ('max_locks_per_transaction', 73),
+                            ('max_prepared_transactions', 0),
+                            ('max_replication_slots', 21),
+                            ('max_wal_senders', 37),
+                            ('track_commit_timestamp', 'off'),
+                            ('wal_level', 'replica'),
+                            ('listen_addresses', '6.6.6.6'),
+                            ('port', 1984),
+                            ('archive_command', 'my archive command'),
+                            ('cluster_name', 'my_cluster')]
         elif sql.startswith('SELECT name, setting'):
             self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
                             ('wal_block_size', '8192', None, 'integer', 'internal'),
@@ -128,6 +140,8 @@ class MockCursor(object):
                             ('listen_addresses', '*', None, 'string', 'postmaster'),
                             ('autovacuum', 'on', None, 'bool', 'sighup'),
                             ('unix_socket_directories', '/tmp', None, 'string', 'postmaster')]
+        elif sql.startswith('SELECT COUNT(*) FROM pg_catalog.pg_settings'):
+            self.results = [(1,)]
         elif sql.startswith('IDENTIFY_SYSTEM'):
             self.results = [('1', 3, '0/402EEC0', '')]
         elif sql.startswith('TIMELINE_HISTORY '):
@@ -141,6 +155,7 @@ class MockCursor(object):
             self.results = [(1, 0, 'host1', 5432, 'primary'), (2, 1, 'host2', 5432, 'primary')]
         else:
             self.results = [(None, None, None, None, None, None, None, None, None, None)]
+        self.rowcount = len(self.results)
 
     def fetchone(self):
         return self.results[0]
@@ -159,11 +174,20 @@ class MockCursor(object):
         pass
 
 
+class MockConnectionInfo(object):
+
+    def parameter_status(self, param_name):
+        if param_name == 'is_superuser':
+            return 'on'
+        return '0'
+
+
 class MockConnect(object):
 
     server_version = 99999
     autocommit = False
     closed = 0
+    info = MockConnectionInfo()
 
     def cursor(self):
         return MockCursor(self)

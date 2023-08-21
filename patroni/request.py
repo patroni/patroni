@@ -34,10 +34,11 @@ class PatroniRequest(object):
         """Create a new :class:`PatroniRequest` instance with given *config*.
 
         :param config: Patroni YAML configuration.
-        :param insecure: how to deal with SSL certs verification
+        :param insecure: how to deal with SSL certs verification:
+
             * If ``True`` it will perform REST API requests without verifying SSL certs; or
             * If ``False`` it will perform REST API requests and verify SSL certs; or
-            * If ``None`` it will behave according to the value of ``ctl -> insecure`` configuration; or
+            * If ``None`` it will behave according to the value of ``ctl.insecure`` configuration; or
             * If none of the above applies, then it falls back to ``False``.
         """
         self._insecure = insecure
@@ -51,7 +52,7 @@ class PatroniRequest(object):
         :param config: Patroni YAML configuration.
         :param name: name of the setting value to be retrieved.
 
-        :returns: value of ``ctl -> *name*`` if present, ``None`` otherwise.
+        :returns: value of ``ctl.*name*`` if present, ``None`` otherwise.
         """
         return config.get('ctl', {}).get(name, default)
 
@@ -83,12 +84,13 @@ class PatroniRequest(object):
 
         :param config: Patroni YAML configuration.
         :param name: prefix of the Patroni SSL related setting name. Currently, supports these:
+
             * ``cert``: gets translated to ``certfile``
             * ``key``: gets translated to ``keyfile``
 
             Will attempt to fetch the requested key first from ``ctl`` section.
 
-        :returns: value of ``ctl -> *name*file`` if present, ``None`` otherwise.
+        :returns: value of ``ctl.*name*file`` if present, ``None`` otherwise.
         """
         value = self._get_ctl_value(config, name + 'file')
         self._apply_pool_param(name + '_file', value)
@@ -99,13 +101,13 @@ class PatroniRequest(object):
 
         Configure these HTTP headers for requests:
 
-        * ``authorization``: based on Patroni' CTL or REST API authentication config;
-        * ``user-agent``: based on `patroni.utils.USER_AGENT`.
+            * ``authorization``: based on Patroni' CTL or REST API authentication config;
+            * ``user-agent``: based on ``patroni.utils.USER_AGENT``.
 
         Also configure SSL related settings for requests:
 
-        * ``ca_certs`` is configured if ``ctl -> cacert`` or ``restapi -> cafile`` is available;
-        * ``cert``, ``key`` and ``key_password`` are configured if ``ctl -> certfile`` is available.
+            * ``ca_certs`` is configured if ``ctl.cacert`` or ``restapi.cafile`` is available;
+            * ``cert``, ``key`` and ``key_password`` are configured if ``ctl.certfile`` is available.
 
         :param config: Patroni YAML configuration.
         """

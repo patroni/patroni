@@ -1,0 +1,5 @@
+sphinx>=4
+sphinx_rtd_theme>1
+sphinxcontrib-apidoc
+sphinx-github-style
+pyyaml

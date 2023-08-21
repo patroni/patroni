@@ -30,9 +30,15 @@ Log
 
 Bootstrap configuration
 -----------------------
+
+.. note::
+    Once Patroni has initialized the cluster for the first time and settings have been stored in the DCS, all future
+    changes to the ``bootstrap.dcs`` section of the YAML configuration will not take any effect! If you want to change
+    them please use either ``patronictl edit-config`` or the Patroni :ref:`REST API <rest_api>`.
+
 -  **bootstrap**:
 
-   -  **dcs**: This section will be written into `/<namespace>/<scope>/config` of the given configuration store after initializing of new cluster. The global dynamic configuration for the cluster. Under the ``bootstrap.dcs`` you can put any of the parameters described in the :ref:`Dynamic Configuration settings <dynamic_configuration>` and after Patroni initialized (bootstrapped) the new cluster, it will write this section into `/<namespace>/<scope>/config` of the configuration store. All later changes of ``bootstrap.dcs`` will not take any effect! If you want to change them please use either ``patronictl edit-config`` or Patroni :ref:`REST API <rest_api>`.
+   -  **dcs**: This section will be written into `/<namespace>/<scope>/config` of the given configuration store after initializing the new cluster. The global dynamic configuration for the cluster. You can put any of the parameters described in the :ref:`Dynamic Configuration settings <dynamic_configuration>` under ``bootstrap.dcs`` and after Patroni has initialized (bootstrapped) the new cluster, it will write this section into `/<namespace>/<scope>/config` of the configuration store.
    -  **method**: custom script to use for bootstrapping this cluster.
 
       See :ref:`custom bootstrap methods documentation <custom_bootstrap>` for details.
@@ -43,16 +49,23 @@ Bootstrap configuration
       -  **- data-checksums**: Must be enabled when pg_rewind is needed on 9.3.
       -  **- encoding: UTF8**: default encoding for new databases.
       -  **- locale: UTF8**: default locale for new databases.
-   -  **users**: Some additional users which need to be created after initializing new cluster
-
-      -  **admin**: the name of user
-
-         -  **password**: (optional) password for the user
-         -  **options**: list of options for CREATE USER statement
-
-            -  **- createrole**
-            -  **- createdb**
+   -  **users**: Some additional users which need to be created after initializing new cluster, see :ref:`Bootstrap users configuration <bootstrap_users_configuration>` below.
    -  **post\_bootstrap** or **post\_init**: An additional script that will be executed after initializing the cluster. The script receives a connection string URL (with the cluster superuser as a user name). The PGPASSFILE variable is set to the location of pgpass file.
+
+.. _bootstrap_users_configuration:
+
+Bootstrap users configuration
+=============================
+
+Users which need to be created after initializing the cluster:
+
+-  **admin**: the name of user
+
+  -  **password**: (optional) password for the user
+  -  **options**: list of options for CREATE USER statement
+
+    -  **- createrole**
+    -  **- createdb**
 
 .. _citus_settings:
 

@@ -466,7 +466,7 @@ class ZooKeeper(AbstractDCS):
                 return False
         return True
 
-    def _delete_leader(self) -> bool:
+    def _delete_leader(self, leader: Leader) -> bool:
         self._client.restart()
         return True
 
