@@ -23,7 +23,7 @@ import dateutil.parser
 
 from ..exceptions import PatroniFatalException
 from ..tags import Tags
-from ..utils import deep_compare, nofailover_from_tags, uri
+from ..utils import deep_compare, uri
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
 

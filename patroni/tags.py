@@ -3,6 +3,8 @@ import abc
 
 from typing import Any, Dict, Optional
 
+from patroni.utils import parse_int
+
 
 class Tags(abc.ABC):
     """An abstract class that encapsulates all the ``tags`` logic.
@@ -45,8 +47,29 @@ class Tags(abc.ABC):
 
     @property
     def nofailover(self) -> bool:
-        """``True`` if ``nofailover`` is ``True``, else ``False``."""
-        return bool(self.tags.get('nofailover', False))
+        """Common logic for obtaining the value of ``nofailover`` from ``tags`` if defined.
+
+        If ``no_failover is not defined, this methods returns True if ``failover_priority`` in
+        :attr:`Member`.tags`` is non-positive, else defaults to ``False``.
+        """
+        from_tags = self.tags.get('nofailover', None)
+        if from_tags is not None:
+            # Value of `nofailover` takes precedence over `failover_priority`
+            return bool(from_tags)
+        failover_priority = parse_int(self.tags.get('failover_priority', 1))
+        return failover_priority <= 0 if failover_priority is not None else False
+
+    @property
+    def failover_priority(self) -> int:
+        """Common logic for obtaining the value of ``failover_priority`` from ``tags`` if defined.
+
+        If ``nofailover`` is defined as True, this will return 0. Otherwise, it will return the value of
+        ``failover_priority``, defaulting to 1 if it's not defined.
+        """
+        from_tags = self.tags.get('nofailover', None)
+        failover_priority = parse_int(self.tags.get('failover_priority', 1))
+        failover_priority = 1 if failover_priority is None else failover_priority
+        return 0 if from_tags else failover_priority
 
     @property
     def noloadbalance(self) -> bool:

@@ -21,7 +21,7 @@ from .postgresql.misc import postgres_version_to_int
 from .postgresql.postmaster import PostmasterProcess
 from .postgresql.rewind import Rewind
 from .tags import Tags
-from .utils import failover_priority_from_tags, polling_loop, tzutc
+from .utils import polling_loop, tzutc
 
 logger = logging.getLogger(__name__)
 
@@ -86,14 +86,6 @@ class _MemberStatus(Tags, NamedTuple('_MemberStatus',
         if self.watchdog_failed:
             return 'not watchdog capable'
         return None
-
-    @property
-    def failover_priority(self) -> int:
-        """The failover priority of this node based on :attr:``tags``.
-
-        :returns: An integer representing this node's priority during failover.
-        """
-        return failover_priority_from_tags(self.tags)
 
 
 class Failsafe(object):
