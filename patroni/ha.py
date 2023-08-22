@@ -21,31 +21,28 @@ from .postgresql.misc import postgres_version_to_int
 from .postgresql.postmaster import PostmasterProcess
 from .postgresql.rewind import Rewind
 from .quorum import QuorumStateResolver
+from .tags import Tags
 from .utils import polling_loop, tzutc
 
 logger = logging.getLogger(__name__)
 
 
-class _MemberStatus(NamedTuple):
-    """Node status distilled from API response:
+class _MemberStatus(Tags, NamedTuple('_MemberStatus',
+                                     [('member', Member),
+                                      ('reachable', bool),
+                                      ('in_recovery', Optional[bool]),
+                                      ('wal_position', int),
+                                      ('data', Dict[str, Any])])):
+    """Node status distilled from API response.
 
-        member - dcs.Member object of the node
-        reachable - `!False` if the node is not reachable or is not responding with correct JSON
-        in_recovery - `!True` if pg_is_in_recovery() == true
-        dcs_last_seen - timestamp from JSON of last succesful communication with DCS
-        timeline - timeline value from JSON
-        wal_position - maximum value of `replayed_location` or `received_location` from JSON
-        tags - dictionary with values of different tags (i.e. nofailover)
-        watchdog_failed - indicates that watchdog is required by configuration but not available or failed
+    Consists of the following fields:
+
+    :ivar member: :class:`~patroni.dcs.Member` object of the node.
+    :ivar reachable: ``False`` if the node is not reachable or is not responding with correct JSON.
+    :ivar in_recovery: ``False`` if the node is running as a primary (`if pg_is_in_recovery() == true`).
+    :ivar wal_position: maximum value of ``replayed_location`` or ``received_location`` from JSON.
+    :ivar data: the whole JSON response for future usage.
     """
-    member: Member
-    reachable: bool
-    in_recovery: Optional[bool]
-    dcs_last_seen: int
-    timeline: int
-    wal_position: int
-    tags: Dict[str, Any]
-    watchdog_failed: bool
 
     @classmethod
     def from_api_response(cls, member: Member, json: Dict[str, Any]) -> '_MemberStatus':
@@ -58,21 +55,34 @@ class _MemberStatus(NamedTuple):
         wal: Dict[str, Any] = json.get('wal') or json['xlog']
         # abuse difference in primary/replica response format
         in_recovery = not (bool(wal.get('location')) or json.get('role') in ('master', 'primary'))
-        timeline = json.get('timeline', 0)
-        dcs_last_seen = json.get('dcs_last_seen', 0)
         lsn = int(in_recovery and max(wal.get('received_location', 0), wal.get('replayed_location', 0)))
-        return cls(member, True, in_recovery, dcs_last_seen, timeline, lsn,
-                   json.get('tags', {}), json.get('watchdog_failed', False))
+        return cls(member, True, in_recovery, lsn, json)
+
+    @property
+    def tags(self) -> Dict[str, Any]:
+        """Dictionary with values of different tags (i.e. nofailover)."""
+        return self.data.get('tags', {})
+
+    @property
+    def timeline(self) -> int:
+        """Timeline value from JSON."""
+        return self.data.get('timeline', 0)
+
+    @property
+    def watchdog_failed(self) -> bool:
+        """Indicates that watchdog is required by configuration but not available or failed."""
+        return self.data.get('watchdog_failed', False)
 
     @classmethod
     def unknown(cls, member: Member) -> '_MemberStatus':
-        return cls(member, False, None, 0, 0, 0, {}, False)
+        """Create a new class instance with empty or null values."""
+        return cls(member, False, None, 0, {})
 
     def failover_limitation(self) -> Optional[str]:
         """Returns reason why this node can't promote or None if everything is ok."""
         if not self.reachable:
             return 'not reachable'
-        if self.tags.get('nofailover', False):
+        if self.nofailover:
             return 'not allowed to promote'
         if self.watchdog_failed:
             return 'not watchdog capable'

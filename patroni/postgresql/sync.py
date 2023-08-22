@@ -229,7 +229,7 @@ class _ReplicaList(List[_Replica]):
             # 2. can be mapped to a ``Member`` of the ``Cluster``:
             #   a. ``Member`` doesn't have ``nosync`` tag set;
             #   b. PostgreSQL on the member is known to be running and accepting client connections.
-            if member and row[sort_col] is not None and member.is_running and not member.tags.get('nosync', False):
+            if member and row[sort_col] is not None and member.is_running and not member.nosync:
                 self.append(_Replica(row['pid'], row['application_name'],
                                      row['sync_state'], row[sort_col], bool(member.nofailover)))
 
