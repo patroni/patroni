@@ -22,8 +22,9 @@ from urllib.parse import urlparse, urlunparse, parse_qsl
 import dateutil.parser
 
 from ..exceptions import PatroniFatalException
-from ..tags import Tags
 from ..utils import deep_compare, uri
+from ..tags import Tags
+
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
 

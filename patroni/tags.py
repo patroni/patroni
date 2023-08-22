@@ -49,25 +49,25 @@ class Tags(abc.ABC):
     def nofailover(self) -> bool:
         """Common logic for obtaining the value of ``nofailover`` from ``tags`` if defined.
 
-        If ``no_failover is not defined, this methods returns True if ``failover_priority`` in
-        :attr:`Member`.tags`` is non-positive, else defaults to ``False``.
+        If ``nofailover`` is not defined, this methods returns ``True`` if ``failover_priority`` is non-positive,
+        ``False`` otherwise.
         """
-        from_tags = self.tags.get('nofailover', None)
+        from_tags = self.tags.get('nofailover')
         if from_tags is not None:
             # Value of `nofailover` takes precedence over `failover_priority`
             return bool(from_tags)
-        failover_priority = parse_int(self.tags.get('failover_priority', 1))
-        return failover_priority <= 0 if failover_priority is not None else False
+        failover_priority = parse_int(self.tags.get('failover_priority'))
+        return failover_priority is not None and failover_priority <= 0
 
     @property
     def failover_priority(self) -> int:
         """Common logic for obtaining the value of ``failover_priority`` from ``tags`` if defined.
 
-        If ``nofailover`` is defined as True, this will return 0. Otherwise, it will return the value of
-        ``failover_priority``, defaulting to 1 if it's not defined.
+        If ``nofailover`` is defined as ``True``, this will return ``0``. Otherwise, it will return the value of
+        ``failover_priority``, defaulting to ``1`` if it's not defined or invalid.
         """
-        from_tags = self.tags.get('nofailover', None)
-        failover_priority = parse_int(self.tags.get('failover_priority', 1))
+        from_tags = self.tags.get('nofailover')
+        failover_priority = parse_int(self.tags.get('failover_priority'))
         failover_priority = 1 if failover_priority is None else failover_priority
         return 0 if from_tags else failover_priority
 

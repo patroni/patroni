@@ -910,13 +910,8 @@ class Config(object):
           bedrock source of truth)
         """
         tags = self.get('tags', {})
-        nofailover_tag = tags.get('nofailover', None)
-        failover_priority_tag = tags.get('failover_priority', None)
-        # First handle case where `failover_priority` is str, not int
-        if isinstance(failover_priority_tag, str):
-            self['tags']['failover_priority'] = parse_int(failover_priority_tag)
-            failover_priority_tag = tags.get('failover_priority', None)
-        # Next validate semantics between `failover_priority` and `nofailover`
+        nofailover_tag = tags.get('nofailover')
+        failover_priority_tag = parse_int(tags.get('failover_priority'))
         if nofailover_tag is not None and failover_priority_tag is not None:
             if (
                 nofailover_tag is True and failover_priority_tag > 0
