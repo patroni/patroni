@@ -103,6 +103,7 @@ class TestCtl(unittest.TestCase):
 
         # Confirm
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
+        print(result.output)
         self.assertEqual(result.exit_code, 0)
 
         # Abort

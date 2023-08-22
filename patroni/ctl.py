@@ -16,8 +16,6 @@ import click
 import codecs
 import copy
 import datetime
-import dateutil.parser
-import dateutil.tz
 import difflib
 import io
 import json
@@ -49,8 +47,9 @@ except ImportError:  # pragma: no cover
 from .config import Config, get_global_config
 from .dcs import get_dcs as _get_dcs, AbstractDCS, Cluster, Member
 from .exceptions import PatroniException
+from .manual_failover import ManualFailover
 from .postgresql.misc import postgres_version_to_int
-from .utils import cluster_as_json, manual_failover_precheck, parse_schedule, patch_config, polling_loop
+from .utils import cluster_as_json, parse_schedule, patch_config, polling_loop
 from .request import PatroniRequest
 from .version import __version__
 
@@ -1030,7 +1029,7 @@ def restart(obj: Dict[str, Any], cluster_name: str, group: Optional[int], member
         scheduled = click.prompt('When should the restart take place (e.g. ' + next_hour + ') ',
                                  type=str, default='now')
 
-    parse_result, scheduled_at = parse_schedule(scheduled if scheduled != 'now' else None)
+    parse_result, scheduled_at = parse_schedule(scheduled)
     if parse_result:
         raise PatroniCtlException(parse_result.value[0].format(action='restart'))
     confirm_members_action(members, force, 'restart', scheduled_at)
@@ -1222,9 +1221,10 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
                                  type=str, default='now')
 
     # Now, when we collected all the possible info, run checks
+    manual_failover = ManualFailover(action, cluster, leader, candidate, scheduled,
+                                     global_config.is_paused, global_config.is_synchronous_mode)
 
-    result_text, _ = manual_failover_precheck(action, cluster, leader, candidate, bool(scheduled),
-                                              global_config.is_paused, global_config.is_synchronous_mode).value
+    result_text, _ = manual_failover.run_precheck().value
     if result_text:
         raise PatroniCtlException(result_text.format(action=action, leader=leader, candidate=candidate,
                                                      cluster_name=cluster_name))
@@ -1232,7 +1232,7 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
     scheduled_at_str = None
     scheduled_at = None
     if action == 'switchover':
-        parse_result, scheduled_at = parse_schedule(scheduled if scheduled != 'now' else None)
+        parse_result, scheduled_at = manual_failover.parse_scheduled()
         if parse_result:
             raise PatroniCtlException(parse_result.value[0].format(action=action))
         if scheduled_at:

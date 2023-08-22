@@ -35,9 +35,8 @@ from .exceptions import PatroniException
 from .version import __version__
 
 if TYPE_CHECKING:  # pragma: no cover
-    from .dcs import Cluster, Member
+    from .dcs import Cluster
     from .config import GlobalConfig
-    from .ha import Patroni
 
 tzutc = tz.tzutc()
 
@@ -1073,29 +1072,9 @@ class ParseScheduleErrors(Enum):
     PARSING_ERROR = ('Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601', 422)
 
 
-class ManualFailoverPrecheckStatus(Enum):
-    FAILOVER_NO_CANDIDATE = ('Failover could be performed only to a specific candidate', 400)
-    SWITCHOVER_NO_LEADER = ('Switchover could be performed only from a specific leader', 400)
-    SCHEDULED_FAILOVER = ("Failover can't be scheduled", 400)
-    SCHEDULED_SWITCHOVER_PAUSE = ("Can't schedule switchover in the paused state", 400)
-    SWITCHOVER_PAUSE_NO_CANDIDATE = ('Switchover is possible only to a specific candidate in a paused state', 400)
-    SWITCHOVER_TO_LEADER = ('Switchover target and source are the same', 400)
-
-    CLUSTER_NO_LEADER = ('Cluster {cluster_name} has no leader', 412)
-    LEADER_NOT_MEMBER = ('Member {leader} is not the leader of cluster {cluster_name}', 412)
-    CANDIDATE_NOT_SYNC_STANDBY = ('candidate name does not match with sync_standby', 412)
-    NO_SYNC_CANDIDATE = ('{action} is not possible: can not find sync_standby', 412)
-    ONLY_LEADER = ('{action} is not possible: cluster does not have members except leader', 412)
-    CANDIDATE_NOT_MEMEBER = ('Member {candidate} does not exist in cluster {cluster_name} or is tagged as nofailover',
-                             412)
-    NO_GOOD_CANDIDATES = ('{action} is not possible: no good candidates have been found', 412)
-
-    CHECK_PASSED = ('', None)
-
-
 def parse_schedule(schedule: Optional[str]) -> Tuple[Optional[ParseScheduleErrors], Optional[datetime.datetime]]:
     scheduled_at = None
-    if schedule is not None:
+    if schedule is not None and (schedule or 'now') != 'now':
         try:
             scheduled_at = dateutil.parser.parse(schedule)
             if scheduled_at.tzinfo is None:
@@ -1105,55 +1084,3 @@ def parse_schedule(schedule: Optional[str]) -> Tuple[Optional[ParseScheduleError
         except (ValueError, TypeError):
             return ParseScheduleErrors.PARSING_ERROR, scheduled_at
     return None, scheduled_at
-
-
-def manual_failover_precheck(action: str, cluster: 'Cluster',
-                             leader: Optional[str], candidate: Optional[str], scheduled: bool = False,
-                             paused: bool = False, sync_mode: bool = False,
-                             patroni_obj: Optional['Patroni'] = None) -> ManualFailoverPrecheckStatus:
-    if action == 'failover' and not candidate:
-        return ManualFailoverPrecheckStatus.FAILOVER_NO_CANDIDATE
-    elif action == 'switchover' and not leader:
-        return ManualFailoverPrecheckStatus.SWITCHOVER_NO_LEADER
-
-    if scheduled:
-        if action == 'failover':
-            return ManualFailoverPrecheckStatus.SCHEDULED_FAILOVER
-        elif paused:
-            return ManualFailoverPrecheckStatus.SCHEDULED_SWITCHOVER_PAUSE
-
-    if paused and not candidate:
-        return ManualFailoverPrecheckStatus.SWITCHOVER_PAUSE_NO_CANDIDATE
-
-    if leader == candidate:
-        return ManualFailoverPrecheckStatus.SWITCHOVER_TO_LEADER
-
-    if action == 'switchover':
-        if cluster.leader is None or not cluster.leader.name:
-            return ManualFailoverPrecheckStatus.CLUSTER_NO_LEADER
-        if cluster.leader.name != leader:
-            return ManualFailoverPrecheckStatus.LEADER_NOT_MEMBER
-
-    if candidate:
-        if action == 'switchover' and sync_mode and not cluster.sync.matches(candidate):
-            return ManualFailoverPrecheckStatus.CANDIDATE_NOT_SYNC_STANDBY
-        members = [m for m in cluster.members if m.name == candidate]
-        if not members:
-            return ManualFailoverPrecheckStatus.CANDIDATE_NOT_MEMEBER
-    elif sync_mode:
-        members = [m for m in cluster.members if cluster.sync.matches(m.name)]
-        if not members:
-            return ManualFailoverPrecheckStatus.NO_SYNC_CANDIDATE
-    else:
-        members = [m for m in cluster.members if not cluster.leader or m.name != cluster.leader.name and m.api_url]
-        if not members:
-            return ManualFailoverPrecheckStatus.ONLY_LEADER
-
-    if patroni_obj:
-        for st in patroni_obj.ha.fetch_nodes_statuses(members):
-            if st.failover_limitation() is None:
-                break
-        else:
-            return ManualFailoverPrecheckStatus.NO_GOOD_CANDIDATES
-
-    return ManualFailoverPrecheckStatus.CHECK_PASSED

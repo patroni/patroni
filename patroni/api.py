@@ -12,7 +12,6 @@ import json
 import logging
 import time
 import traceback
-import dateutil.parser
 import datetime
 import os
 import socket
@@ -29,9 +28,10 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TYPE_CH
 from . import psycopg
 from .__main__ import Patroni
 from .exceptions import PostgresConnectionException, PostgresException
+from .manual_failover import ManualFailover
 from .postgresql.misc import postgres_version_to_int
 from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Retry, \
-    RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json, parse_schedule, manual_failover_precheck
+    RetryFailedError, parse_int, parse_schedule, split_host_port, tzutc, uri, cluster_as_json
 
 logger = logging.getLogger(__name__)
 
@@ -1019,12 +1019,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
             logger.warning('received failover request with leader specifed - performing switchover')
             action = 'switchover'
 
-        data, status_code = manual_failover_precheck(action, cluster, leader, candidate, bool(scheduled_at),
-                                                     global_config.is_paused, global_config.is_synchronous_mode,
-                                                     self.server.patroni).value
+        manual_failover = ManualFailover(action, cluster, leader, candidate, scheduled_at,
+                                         global_config.is_paused, global_config.is_synchronous_mode,
+                                         self.server.patroni)
+        data, status_code = manual_failover.run_precheck().value
 
         if not data and scheduled_at:
-            parse_result, scheduled_at = parse_schedule(scheduled_at)
+            parse_result, scheduled_at = manual_failover.parse_scheduled()
             if parse_result:
                 data, status_code = parse_result.value[0], parse_result.value[1]
 
