@@ -946,24 +946,24 @@ class ConfigHandler(object):
         """Calculates and sets local and remote connection urls and options.
 
         This method sets:
-            * ``Postgresql.connection_string`` attribute, which is later written to the member key in DCS
+            * :attr:``Postgresql.connection_string`` attribute, which is later written to the member key in DCS
               as ``conn_url``.
-            * ``ConfigHandler.local_replication_address`` attribute, is used for replication connections
+            * :attr:``ConfigHandler.local_replication_address`` attribute, is used for replication connections
               to local postgres.
-            * ``ConnectionPool.conn_kwargs`` attribute, is used for superuser connections to local postgres.
+            * :attr:``ConnectionPool.conn_kwargs`` attribute, is used for superuser connections to local postgres.
 
         .. note::
-            If there is a valid directory in ``postgresql.parameters.unix_socket_directories``  in the Patroni
-            configuration and there are ``postgresql.use_unix_socket`` and/or ``postgresql.use_unix_socket_repl``
+            If there is a valid directory in ``postgresql.parameters.unix_socket_directories`` in the Patroni
+            configuration and ``postgresql.use_unix_socket`` and/or ``postgresql.use_unix_socket_repl``
             are set to ``True``, we respectively use unix sockets for superuser and replication connections
             to local postgres.
 
             If there is a requirement to use unix sockets, but nothing is set in the
-            ``postgresql.parameters.unix_socket_directories`` we omit a ``host`` in connection parameters relying
+            ``postgresql.parameters.unix_socket_directories``, we omit a ``host`` in connection parameters relying
             on the ability of ``libpq`` to connect via some default unix socket directory.
 
-            If unix sockets are not requested we "switch" to TCP, but prefer to use ``localhost`` if it is possible
-            to deduct that Postgres is listening on it.
+            If unix sockets are not requested we "switch" to TCP, prefering to use ``localhost`` if it is possible
+            to deduce that Postgres is listening on a local interface address.
 
             Otherwise we just used the first address specified in the ``listen_addresses`` GUC.
         """
