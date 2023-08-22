@@ -88,7 +88,7 @@ class NamedConnection:
 
         :param silent: whether the method should write logs.
 
-        :returns: ``True`` if ``psycopg`` connection was closed, ``False``, otherwise.``
+        :returns: ``True`` if ``psycopg`` connection was closed, ``False`` otherwise.``
         """
         ret = False
         if self._connection and self._connection.closed == 0:
@@ -122,7 +122,7 @@ class ConnectionPool:
     def conn_kwargs(self, value: Dict[str, Any]) -> None:
         """Set new connection parameters.
 
-        :param value: :class:`dict` object with connection parameters .
+        :param value: :class:`dict` object with connection parameters.
         """
         with self._lock:
             self._conn_kwargs = value
@@ -131,7 +131,7 @@ class ConnectionPool:
         """Get a new named :class:`NamedConnection` object from the pool.
 
         .. note::
-            Creates a new :class:`NamedConnection` object if it doesn't jet exist in the pool.
+            Creates a new :class:`NamedConnection` object if it doesn't yet exist in the pool.
 
         :param name: name of the connection.
         :param kwargs_override: :class:`dict` object with connection parameters that should be
