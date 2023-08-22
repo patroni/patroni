@@ -28,6 +28,10 @@ from .test_ha import get_cluster_initialized_without_leader, get_cluster_initial
 class TestCtl(unittest.TestCase):
     TEST_ROLES = ('master', 'primary', 'leader')
 
+    SCHEDULED_TS = '2055-01-01T12:00:00+01:00'
+    SCHEDULED_TS_NO_TZ = '2055-01-01T12:00:00'
+    SCHEDULED_TS_INVALID = '2055-02-30T12:00:00'
+
     @patch('socket.getaddrinfo', socket_getaddrinfo)
     @patch.object(AbstractEtcdClientWithFailover, '_get_machines_list', Mock(return_value=['http://remotehost:2379']))
     def setUp(self):
@@ -111,23 +115,23 @@ class TestCtl(unittest.TestCase):
 
         # Scheduled (confirm)
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'],
-                                    input='leader\nother\n2300-01-01T12:23:00\ny')
+                                    input=f'leader\nother\n{self.SCHEDULED_TS}\ny')
         self.assertEqual(result.exit_code, 0)
 
         # Scheduled (abort)
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
-                                    '--scheduled', '2015-01-01T12:00:00+01:00'], input='leader\nother\n\nN')
+                                    '--scheduled', self.SCHEDULED_TS], input='leader\nother\n\nN')
         self.assertEqual(result.exit_code, 1)
 
         # Scheduled with --force option
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
-                                    '--force', '--scheduled', '2015-01-01T12:00:00+01:00'])
+                                    '--force', '--scheduled', self.SCHEDULED_TS])
         self.assertEqual(result.exit_code, 0)
 
         # Scheduled in pause mode
         with patch('patroni.config.GlobalConfig.is_paused', PropertyMock(return_value=True)):
             result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
-                                              '--force', '--scheduled', '2015-01-01T12:00:00'])
+                                              '--force', '--scheduled', self.SCHEDULED_TS])
             self.assertEqual(result.exit_code, 1)
             self.assertIn("Can't schedule switchover in the paused state", result.output)
 
@@ -141,16 +145,23 @@ class TestCtl(unittest.TestCase):
         self.assertEqual(result.exit_code, 1)
         self.assertIn('Member Reality does not exist in cluster dummy or is tagged as nofailover', result.output)
 
-        # Invalid timestamp
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0', '--force', '--scheduled', 'invalid'])
+        # Invalid timestamp with force
+        result = self.runner.invoke(ctl,['switchover', 'dummy', '--group', '0', '--force', '--scheduled',
+                                         self.SCHEDULED_TS_INVALID])
         self.assertEqual(result.exit_code, 1)
         self.assertIn('Unable to parse scheduled timestamp', result.output)
 
         # Invalid timestamp
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
-                                          '--force', '--scheduled', '2115-02-30T12:00:00+01:00'])
+                                          '--force', '--scheduled', self.SCHEDULED_TS_INVALID])
         self.assertEqual(result.exit_code, 1)
         self.assertIn('Unable to parse scheduled timestamp', result.output)
+
+        # Invalid timestamp - no timezone
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
+                                          '--force', '--scheduled', self.SCHEDULED_TS_NO_TZ])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn('Timezone information is mandatory for the scheduled switchover', result.output)
 
         # Specifying wrong leader
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='dummy')
@@ -160,7 +171,7 @@ class TestCtl(unittest.TestCase):
         # Errors while sending Patroni REST API request
         with patch.object(PoolManager, 'request', Mock(side_effect=Exception)):
             result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'],
-                                        input='leader\nother\n2300-01-01T12:23:00\ny')
+                                        input=f'leader\nother\n{self.SCHEDULED_TS}\ny')
             self.assertIn('falling back to DCS', result.output)
 
         with patch.object(PoolManager, 'request') as mock_api_request:
@@ -327,7 +338,7 @@ class TestCtl(unittest.TestCase):
         assert result.exit_code == 0
 
         # Aborted scheduled restart
-        result = self.runner.invoke(ctl, ['restart', 'alpha', '--scheduled', '2019-10-01T14:30'], input='N')
+        result = self.runner.invoke(ctl, ['restart', 'alpha', '--scheduled', self.SCHEDULED_TS], input='N')
         assert result.exit_code == 1
 
         # Not a member
@@ -343,19 +354,19 @@ class TestCtl(unittest.TestCase):
         assert result.exit_code == 0
 
         # normal restart, the schedule is actually parsed, but not validated in patronictl
-        result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force', '--scheduled', '2300-10-01T14:30'])
+        result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force', '--scheduled', self.SCHEDULED_TS])
         assert 'Failed: flush scheduled restart' in result.output
 
         with patch('patroni.config.GlobalConfig.is_paused', PropertyMock(return_value=True)):
             result = self.runner.invoke(ctl,
-                                        ['restart', 'alpha', 'other', '--force', '--scheduled', '2300-10-01T14:30'])
+                                        ['restart', 'alpha', 'other', '--force', '--scheduled', self.SCHEDULED_TS])
             assert result.exit_code == 1
 
         # force restart with restart already present
-        result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force', '--scheduled', '2300-10-01T14:30'])
+        result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force', '--scheduled', self.SCHEDULED_TS])
         assert result.exit_code == 0
 
-        ctl_args = ['restart', 'alpha', '--pg-version', '99.0', '--scheduled', '2300-10-01T14:30']
+        ctl_args = ['restart', 'alpha', '--pg-version', '99.0', '--scheduled', self.SCHEDULED_TS]
         # normal restart, the schedule is actually parsed, but not validated in patronictl
         mock_post.return_value.status = 200
         result = self.runner.invoke(ctl, ctl_args, input='y')

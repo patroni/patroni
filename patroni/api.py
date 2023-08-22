@@ -28,11 +28,10 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TYPE_CH
 
 from . import psycopg
 from .__main__ import Patroni
-from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
 from .postgresql.misc import postgres_version_to_int
 from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Retry, \
-    RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json
+    RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json, parse_schedule, manual_failover_precheck
 
 logger = logging.getLogger(__name__)
 
@@ -770,44 +769,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
             self.server.patroni.api_sigterm()
         self.write_response(202, 'shutdown scheduled')
 
-    @staticmethod
-    def parse_schedule(schedule: str,
-                       action: str) -> Tuple[Union[int, None], Union[str, None], Union[datetime.datetime, None]]:
-        """Parse the given *schedule* and validate it.
-
-        :param schedule: a string representing a timestamp, e.g. ``2023-04-14T20:27:00+00:00``.
-        :param action: the action to be scheduled (``restart``, ``switchover``, or ``failover``).
-
-        :returns: a tuple composed of 3 items:
-
-            * Suggested HTTP status code for a response:
-
-                * ``None``: if no issue was faced while parsing, leaving it up to the caller to decide the status; or
-                * ``400``: if no timezone information could be found in *schedule*; or
-                * ``422``: if *schedule* is invalid -- in the past or not parsable.
-
-            * An error message, if any error is faced, otherwise ``None``;
-            * Parsed *schedule*, if able to parse, otherwise ``None``.
-
-        """
-        error = None
-        scheduled_at = None
-        try:
-            scheduled_at = dateutil.parser.parse(schedule)
-            if scheduled_at.tzinfo is None:
-                error = 'Timezone information is mandatory for the scheduled {0}'.format(action)
-                status_code = 400
-            elif scheduled_at < datetime.datetime.now(tzutc):
-                error = 'Cannot schedule {0} in the past'.format(action)
-                status_code = 422
-            else:
-                status_code = None
-        except (ValueError, TypeError):
-            logger.exception('Invalid scheduled %s time: %s', action, schedule)
-            error = 'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601'
-            status_code = 422
-        return status_code, error, scheduled_at
-
     @check_access
     def do_POST_restart(self) -> None:
         """Handle a ``POST`` request to ``/restart`` path.
@@ -863,9 +824,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         for k in request:
             if k == 'schedule':
-                (_, data, request[k]) = self.parse_schedule(request[k], "restart")
-                if _:
-                    status_code = _
+                parse_result, request[k] = parse_schedule(request[k])
+                if parse_result:
+                    data, status_code = parse_result.value[0], parse_result.value[1]
                     break
             elif k == 'role':
                 if request[k] not in ('master', 'primary', 'replica'):
@@ -1015,39 +976,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 logger.debug('Exception occurred during polling %s result: %s', action, e)
         return 503, action.title() + ' status unknown'
 
-    def is_failover_possible(self, cluster: Cluster, leader: Optional[str], candidate: Optional[str],
-                             action: str) -> Optional[str]:
-        """Checks whether there are nodes that could take over after demoting the primary.
-
-        :param cluster: the Patroni cluster.
-        :param leader: name of the current Patroni leader.
-        :param candidate: name of the Patroni node to be promoted.
-        :param action: the action to be performed (``switchover`` or ``failover``).
-
-        :returns: a string with the error message or ``None`` if good nodes are found.
-        """
-        is_synchronous_mode = self.server.patroni.config.get_global_config(cluster).is_synchronous_mode
-        if leader and (not cluster.leader or cluster.leader.name != leader):
-            return 'leader name does not match'
-        if candidate:
-            if action == 'switchover' and is_synchronous_mode and not cluster.sync.matches(candidate):
-                return 'candidate name does not match with sync_standby'
-            members = [m for m in cluster.members if m.name == candidate]
-            if not members:
-                return 'candidate does not exists'
-        elif is_synchronous_mode:
-            members = [m for m in cluster.members if cluster.sync.matches(m.name)]
-            if not members:
-                return action + ' is not possible: can not find sync_standby'
-        else:
-            members = [m for m in cluster.members if not cluster.leader or m.name != cluster.leader.name and m.api_url]
-            if not members:
-                return action + ' is not possible: cluster does not have members except leader'
-        for st in self.server.patroni.ha.fetch_nodes_statuses(members):
-            if st.failover_limitation() is None:
-                return None
-        return action + ' is not possible: no good candidates have been found'
-
     @check_access
     def do_POST_failover(self, action: str = 'failover') -> None:
         """Handle a ``POST`` request to ``/failover`` path.
@@ -1075,7 +1003,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :param action: the action to be performed (``switchover`` or ``failover``).
         """
         request = self._read_json_content()
-        (status_code, data) = (400, '')
         if not request:
             return
 
@@ -1088,33 +1015,18 @@ class RestApiHandler(BaseHTTPRequestHandler):
         logger.info("received %s request with leader=%s candidate=%s scheduled_at=%s",
                     action, leader, candidate, scheduled_at)
 
-        if action == 'failover' and not candidate:
-            data = 'Failover could be performed only to a specific candidate'
-        elif action == 'switchover' and not leader:
-            data = 'Switchover could be performed only from a specific leader'
-
-        if not data and scheduled_at:
-            if action == 'failover':
-                data = "Failover can't be scheduled"
-            elif global_config.is_paused:
-                data = "Can't schedule switchover in the paused state"
-            else:
-                (status_code, data, scheduled_at) = self.parse_schedule(scheduled_at, action)
-
-        if not data and global_config.is_paused and not candidate:
-            data = 'Switchover is possible only to a specific candidate in a paused state'
-
         if action == 'failover' and leader:
             logger.warning('received failover request with leader specifed - performing switchover')
             action = 'switchover'
 
-        if not data and leader == candidate:
-            data = 'Switchover target and source are the same'
+        data, status_code = manual_failover_precheck(action, cluster, leader, candidate, bool(scheduled_at),
+                                                     global_config.is_paused, global_config.is_synchronous_mode,
+                                                     self.server.patroni).value
 
-        if not data and not scheduled_at:
-            data = self.is_failover_possible(cluster, leader, candidate, action)
-            if data:
-                status_code = 412
+        if not data and scheduled_at:
+            parse_result, scheduled_at = parse_schedule(scheduled_at)
+            if parse_result:
+                data, status_code = parse_result.value[0], parse_result.value[1]
 
         if not data:
             if self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at):
@@ -1128,12 +1040,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
             else:
                 data = 'failed to write failover key into DCS'
                 status_code = 503
-        # pyright thinks ``status_code`` can be ``None`` because ``parse_schedule`` call may return ``None``. However,
-        # if that's the case, ``status_code`` will be overwritten somewhere between ``parse_schedule`` and
-        # ``write_response`` calls.
-        if TYPE_CHECKING:  # pragma: no cover
-            assert isinstance(status_code, int)
-        self.write_response(status_code, data)
+
+        status_code = status_code or 400
+        self.write_response(status_code, data.format(action=action, leader=leader, candidate=candidate,
+                                                     cluster_name=self.server.patroni.postgresql.scope))
 
     def do_POST_switchover(self) -> None:
         """Handle a ``POST`` request to ``/switchover`` path.
