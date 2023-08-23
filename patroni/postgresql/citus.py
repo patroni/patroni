@@ -90,17 +90,17 @@ class PgDistGroup(Set[PgDistNode]):
     In adding to that there could be some "secondaries".
 
     :ivar failover: whether as a result of :func:`transition` method call the "primary" row should be updated.
-    :ivar group: the "groupid" from "pg_dist_node"
+    :ivar groupid: the "groupid" from "pg_dist_node"
     """
 
-    def __init__(self, group: int, nodes: Optional[Collection[PgDistNode]] = None) -> None:
+    def __init__(self, groupid: int, nodes: Optional[Collection[PgDistNode]] = None) -> None:
         """Creates a :class:`PgDistGroup` object based on given arguments.
 
-        :param group: the groupid from "pg_dist_node".
-        :param nodes: a collection of :class:`PgDistNode` objects that belog to a *group*.
+        :param groupid: the groupid from "pg_dist_node".
+        :param nodes: a collection of :class:`PgDistNode` objects that belog to a *groupid*.
         """
         self.failover = False
-        self.group = group
+        self.groupid = groupid
 
         if nodes:
             self.update(nodes)
@@ -177,7 +177,7 @@ class PgDistGroup(Set[PgDistNode]):
                 SELECT citus_update_node(4, 'node2', 5432);
             COMMIT;
 
-        :param old: the last know topology registered in "pg_dist_node" for a given *group*
+        :param old: the last know topology registered in "pg_dist_node" for a given *groupid*
 
         :yields: :class:`PgDistNode` objects that must be updated/added/removed in "pg_dist_node".
         """
@@ -282,7 +282,7 @@ class PgDistGroup(Set[PgDistNode]):
 
 
 class PgDistTask(PgDistGroup):
-    """A "task" that represents the current or desired state of "pg_dist_node" for a provided *group*.
+    """A "task" that represents the current or desired state of "pg_dist_node" for a provided *groupid*.
 
     :ivar group: the "groupid" in "pg_dist_node".
     :ivar event: an "event" that resulted in creating this task.
@@ -292,17 +292,17 @@ class PgDistTask(PgDistGroup):
     :ivar deadline: the time in unix seconds when the transaction is allowed to be rolled back.
     """
 
-    def __init__(self, group: int, nodes: Optional[Collection[PgDistNode]], event: str,
+    def __init__(self, groupid: int, nodes: Optional[Collection[PgDistNode]], event: str,
                  timeout: Optional[float] = None, cooldown: Optional[float] = None) -> None:
         """Create a :class:`PgDistTask` object based on given arguments.
 
-        :param group: the groupid from "pg_dist_node".
-        :param nodes: a collection of :class:`PgDistNode` objects that belog to a *group*.
+        :param groupid: the groupid from "pg_dist_node".
+        :param nodes: a collection of :class:`PgDistNode` objects that belog to a *groupid*.
         :param event: an "event" that resulted in creating this task.
         :param timeout: a transaction timeout if the task resulted in starting a transaction.
         :param cooldown: the cooldown value for ``citus_update_node()`` UDF call.
         """
-        super(PgDistTask, self).__init__(group, nodes)
+        super(PgDistTask, self).__init__(groupid, nodes)
 
         # Event that is trying to change or changed the given row.
         # Possible values: before_demote, before_promote, after_promote.
@@ -434,15 +434,15 @@ class CitusHandler(Thread):
         self.add_task('after_promote', CITUS_COORDINATOR_GROUP_ID, cluster,
                       self._postgresql.name, self._postgresql.connection_string)
 
-        for group, worker in cluster.workers.items():
+        for groupid, worker in cluster.workers.items():
             leader = worker.leader
             if leader and leader.conn_url\
                     and leader.data.get('role') in ('master', 'primary') and leader.data.get('state') == 'running':
-                self.add_task('after_promote', group, worker, leader.name, leader.conn_url)
+                self.add_task('after_promote', groupid, worker, leader.name, leader.conn_url)
 
-    def find_task_by_group(self, group: int) -> Optional[int]:
+    def find_task_by_groupid(self, groupid: int) -> Optional[int]:
         for i, task in enumerate(self._tasks):
-            if task.group == group:
+            if task.groupid == groupid:
                 return i
 
     def pick_task(self) -> Tuple[Optional[int], Optional[PgDistTask]]:
@@ -453,22 +453,22 @@ class CitusHandler(Thread):
         1. If there is already a transaction in progress, pick a task
            that that will change already affected worker primary.
         2. If the coordinator address should be changed - pick a task
-           with group=0 (coordinators are always in group 0).
+           with groupid=0 (coordinators are always in groupid 0).
         3. Pick a task that is the oldest (first from the self._tasks)
         """
 
         with self._condition:
             if self._in_flight:
-                i = self.find_task_by_group(self._in_flight.group)
+                i = self.find_task_by_groupid(self._in_flight.groupid)
             else:
                 while True:
-                    i = self.find_task_by_group(CITUS_COORDINATOR_GROUP_ID)  # set_coordinator
+                    i = self.find_task_by_groupid(CITUS_COORDINATOR_GROUP_ID)  # set_coordinator
                     if i is None and self._tasks:
                         i = 0
                     if i is None:
                         break
                     task = self._tasks[i]
-                    if task == self._pg_dist_group.get(task.group):
+                    if task == self._pg_dist_group.get(task.groupid):
                         self._tasks.pop(i)  # nothing to do because cached version of pg_dist_group already matches
                     else:
                         break
@@ -476,7 +476,7 @@ class CitusHandler(Thread):
 
             return i, task
 
-    def update_node(self, group: int, node: PgDistNode, cooldown: float = 10000) -> None:
+    def update_node(self, groupid: int, node: PgDistNode, cooldown: float = 10000) -> None:
         if node.role not in ('primary', 'secondary', 'demoted'):
             self.query('SELECT pg_catalog.citus_remove_node(%s, %s)', node.host, node.port)
         elif node.nodeid is not None:
@@ -485,18 +485,18 @@ class CitusHandler(Thread):
                        node.nodeid, host, node.port, cooldown)
         elif node.role != 'demoted':
             node.nodeid = self.query("SELECT pg_catalog.citus_add_node(%s, %s, %s, %s, 'default')",
-                                     node.host, node.port, group, node.role)[0][0]
+                                     node.host, node.port, groupid, node.role)[0][0]
 
     def update_group(self, task: PgDistTask, transaction: bool) -> None:
         current_state = self._in_flight\
-            or self._pg_dist_group.get(task.group)\
-            or PgDistTask(task.group, set(), 'after_promote')
+            or self._pg_dist_group.get(task.groupid)\
+            or PgDistTask(task.groupid, set(), 'after_promote')
         transitions = list(task.transition(current_state))
         if transitions:
             if not transaction and len(transitions) > 1:
                 self.query('BEGIN')
             for node in transitions:
-                self.update_node(task.group, node, task.cooldown)
+                self.update_node(task.groupid, node, task.cooldown)
             if not transaction and len(transitions) > 1:
                 task.failover = False
                 self.query('COMMIT')
@@ -550,7 +550,7 @@ class CitusHandler(Thread):
             with self._condition:
                 if self._tasks:
                     if update_cache:
-                        self._pg_dist_group[task.group] = task
+                        self._pg_dist_group[task.groupid] = task
 
                     if update_cache is False:  # an indicator that process_tasks has started a transaction
                         self._in_flight = task
@@ -584,7 +584,7 @@ class CitusHandler(Thread):
 
     def _add_task(self, task: PgDistTask) -> bool:
         with self._condition:
-            i = self.find_task_by_group(task.group)
+            i = self.find_task_by_groupid(task.groupid)
 
             # The `PgDistTask.timeout` == None is an indicator that it was scheduled from the sync_pg_dist_group().
             if task.timeout is None:
@@ -596,11 +596,11 @@ class CitusHandler(Thread):
                 # key is updated in DCS. Therefore it is possible that :func:`sync_pg_dist_group` will try to create a
                 # task based on the outdated values of "state"/"role". To solve it we introduce an artificial timeout.
                 # Only when the timeout is reached new tasks could be scheduled from sync_pg_dist_group()
-                if self._in_flight and self._in_flight.group == task.group and self._in_flight.timeout is not None\
+                if self._in_flight and self._in_flight.groupid == task.groupid and self._in_flight.timeout is not None\
                         and self._in_flight.deadline > time.time():
                     return False
 
-            # Override already existing task for the same worker group
+            # Override already existing task for the same worker groupid
             if i is not None:
                 if task != self._tasks[i]:
                     logger.debug('Overriding existing task: %s != %s', self._tasks[i], task)
@@ -608,8 +608,8 @@ class CitusHandler(Thread):
                     self._condition.notify()
                     return True
             # Add the task to the list if Worker node state is different from the cached `pg_dist_group`
-            elif self._schedule_load_pg_dist_group or task != self._pg_dist_group.get(task.group)\
-                    or self._in_flight and task.group == self._in_flight.group:
+            elif self._schedule_load_pg_dist_group or task != self._pg_dist_group.get(task.groupid)\
+                    or self._in_flight and task.groupid == self._in_flight.groupid:
                 logger.debug('Adding the new task: %s', task)
                 self._tasks.append(task)
                 self._condition.notify()
@@ -625,13 +625,13 @@ class CitusHandler(Thread):
         except Exception as e:
             logger.error('Failed to parse connection url %s: %r', conn_url, e)
 
-    def add_task(self, event: str, group: int, cluster: Cluster, leader_name: str, leader_url: str,
+    def add_task(self, event: str, groupid: int, cluster: Cluster, leader_name: str, leader_url: str,
                  timeout: Optional[float] = None, cooldown: Optional[float] = None) -> Optional[PgDistTask]:
         primary = self._pg_dist_node('demoted' if event == 'before_demote' else 'primary', leader_url)
         if not primary:
             return
 
-        task = PgDistTask(group, {primary}, event=event, timeout=timeout, cooldown=cooldown)
+        task = PgDistTask(groupid, {primary}, event=event, timeout=timeout, cooldown=cooldown)
         for member in cluster.members:
             secondary = self._pg_dist_node('secondary', member.conn_url)\
                 if member.name != leader_name and member.is_running and member.conn_url else None

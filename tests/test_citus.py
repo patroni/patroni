@@ -88,7 +88,7 @@ class TestCitus(BaseTestPostgresql):
 
         # If there is no transaction in progress and cached pg_dist_node matching desired state task should not be added
         self.c._schedule_load_pg_dist_node = False
-        self.c._pg_dist_group[self.c._in_flight.group] = self.c._in_flight
+        self.c._pg_dist_group[self.c._in_flight.groupid] = self.c._in_flight
         self.c._in_flight = None
         self.assertIsNone(self.c.add_task('after_promote', 1, self.cluster,
                                           self.cluster.leader_name, 'postgres://host:5432/postgres'))
@@ -203,7 +203,7 @@ class TestGroupTransition(unittest.TestCase):
             old_node = node.nodeid and next(iter(v for v in check_topology if v.nodeid == node.nodeid), None)
             if old_node:
                 check_topology.discard(old_node)
-            transitions.append(self.map_to_sql(new_topology.group, node))
+            transitions.append(self.map_to_sql(new_topology.groupid, node))
             check_topology.add(node)
         self.assertEqual(transitions, expected_transitions)
 
