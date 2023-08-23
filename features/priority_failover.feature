@@ -18,5 +18,6 @@ Feature: priority replication
     Then replication works from postgres0 to postgres2 after 20 seconds
     And replication works from postgres0 to postgres3 after 20 seconds
     When I shut down postgres0
+    And I sleep for 5 seconds
     Then postgres3 role is the primary after 10 seconds
     And there is a "postgres3 has equally tolerable WAL position and priority 2, while this node has priority 1" INFO in the postgres2 patroni log
