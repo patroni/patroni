@@ -99,7 +99,9 @@ def get_node_status(reachable=True, in_recovery=True, dcs_last_seen=0,
         tags = {}
         if nofailover:
             tags['nofailover'] = True
-        return _MemberStatus(e, reachable, in_recovery, dcs_last_seen, timeline, wal_position, tags, watchdog_failed)
+        return _MemberStatus(e, reachable, in_recovery, wal_position,
+                             {'tags': tags, 'watchdog_failed': watchdog_failed,
+                              'dcs_last_seen': dcs_last_seen, 'timeline': timeline})
     return fetch_node_status
 
 
@@ -1294,14 +1296,16 @@ class TestHa(PostgresInit):
         mock_restart.assert_called_once()
         self.ha.dcs.get_cluster.assert_not_called()
 
+    @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_enable_synchronous_mode(self):
         self.ha.is_synchronous_mode = true
         self.ha.has_lock = true
         self.p.name = 'leader'
+        self.p.sync_handler.current_state = Mock(return_value=(CaseInsensitiveSet(), CaseInsensitiveSet()))
         self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
         with patch('patroni.ha.logger.info') as mock_logger:
             self.ha.run_cycle()
-            self.assertEqual(mock_logger.call_args[0][0], 'Enabled synchronous replication')
+            self.assertEqual(mock_logger.call_args_list[0][0][0], 'Enabled synchronous replication')
         self.ha.dcs.write_sync_state = Mock(return_value=None)
         with patch('patroni.ha.logger.warning') as mock_logger:
             self.ha.run_cycle()
