@@ -38,7 +38,7 @@ class NamedConnection:
     @property
     def _conn_kwargs(self) -> Dict[str, Any]:
         """Connection parameters for this ``NamedConnection``."""
-        return {**self._pool.conn_kwargs, **self._kwargs_override}
+        return {**self._pool.conn_kwargs, **self._kwargs_override, 'application_name': f'Patroni {self._name}'}
 
     def get(self) -> Union['connection', 'Connection[Any]']:
         """Get ``psycopg``/``psycopg2`` connection object.

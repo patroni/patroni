@@ -80,7 +80,7 @@ class Postgresql(object):
 
         self._pending_restart = False
         self.connection_pool = ConnectionPool()
-        self._connection = self.connection_pool.get('__main__')
+        self._connection = self.connection_pool.get('heartbeat')
         self.citus_handler = CitusHandler(self, config.get('citus'))
         self.config = ConfigHandler(self, config)
         self.config.check_directories()
