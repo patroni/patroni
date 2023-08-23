@@ -62,9 +62,6 @@ class PgDistNode:
         """
         return isinstance(other, PgDistNode) and self.host == other.host and self.port == other.port
 
-    def __ne__(self, other: Any) -> bool:
-        return not self == other
-
     def __str__(self) -> str:
         return ('PgDistNode(nodeid={0},host={1},port={2},role={3})'
                 .format(self.nodeid, self.host, self.port, self.role))
