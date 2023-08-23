@@ -1,14 +1,38 @@
 import logging
 
-from typing import Collection, Iterator, Optional, Tuple
+from typing import Collection, Iterator, NamedTuple, Optional
 
 from .collections import CaseInsensitiveSet
 
 logger = logging.getLogger(__name__)
 
 
+class Transition(NamedTuple):
+    """Object describing transition of ``/sync`` or ``synchronous_standby_names`` to the new state.
+
+    .. note::
+        Object attributes represent the new state.
+
+    :ivar transition_type: possible values:
+
+        * ``sync`` - indicates that we needed to update ``synchronous_standby_names``.
+        * ``quorum`` - indicates that we need to update ``/sync`` key in DCS.
+        * ``restart`` - caller should stop iterating over transitions and restart :class:`QuorumStateResolver`.
+    :ivar leader: the new value of the ``leader`` field in the ``/sync`` key.
+    :ivar num: the new value of the synchronous nodes in ``synchronous_standby_names`` or value of the ``quorum``
+               field in the ``/sync`` key for *transition_type* values ``sync`` and ``quorum`` respectively.
+    :ivar names: the new value of node names listed in ``synchronous_standby_names`` or value of ``voters``
+                 field in the ``/sync`` key  for *transition_type* values ``sync`` and ``quorum`` respectively.
+    """
+
+    transition_type: str
+    leader: str
+    num: int
+    names: CaseInsensitiveSet
+
+
 class QuorumError(Exception):
-    pass
+    """Exception indicating that the quorum state is broken."""
 
 
 class QuorumStateResolver(object):
@@ -54,22 +78,52 @@ class QuorumStateResolver(object):
         else:
             first remove nodes from ``sync`` and then from ``voters``.
             Make ``voters`` empty if ``numsync_confirmed`` == ``0``.
+
+    :ivar leader: name of the leader, according to the ``/sync`` key.
+    :ivar quorum: ``quorum`` value from the ``/sync`` key, the minimal number of nodes we need see
+                  when doing the leader race.
+    :ivar voters: ``sync_standby`` value from the ``/sync`` key, set of node names we will be
+                  running the leader race against.
+    :ivar numsync: the number of synchronous nodes from the ``synchronous_standby_names``.
+    :ivar sync: set of node names listed in the ``synchronous_standby_names``.
+    :ivar numsync_confirmed: the number of nodes that are confirmed to reach "safe" LSN after they were added to the
+                  ``synchronous_standby_names``.
+    :ivar active: set of node names that are replicating from the primary (according to ``pg_stat_replication``)
+                  and are eligible to be listed in ``synchronous_standby_names``.
+    :ivar sync_wanted: desired number of synchronous nodes (``synchronous_node_count`` from the global configuration).
+    :ivar leader_wanted: the desired leader (could be different from the *leader* right after a failover).
     """
 
     def __init__(self, leader: str, quorum: int, voters: Collection[str],
                  numsync: int, sync: Collection[str], numsync_confirmed: int,
                  active: Collection[str], sync_wanted: int, leader_wanted: str) -> None:
-        self.leader = leader                        # The leader according to the `/sync` key
-        self.quorum = quorum                        # The number of nodes we need to check when doing leader race
-        self.voters = CaseInsensitiveSet(voters)    # Set of nodes we need to check (both stored in the /sync key)
-        self.numsync = min(numsync, len(sync))      # The number of sync nodes in synchronous_standby_names
-        self.sync = CaseInsensitiveSet(sync)        # Set of nodes in synchronous_standby_names
-        # The number of nodes that are confirmed to reach safe LSN after adding them to `synchronous_standby_names`.
-        # We don't list them because it is known that they are always included into active.
+        """Instantiate :class:``QuorumStateResolver`` based on input parameters.
+
+        :param leader: name of the leader, according to the ``/sync`` key.
+        :param quorum: ``quorum`` value from the ``/sync`` key, the minimal number of nodes we need see
+                        when doing the leader race.
+        :param voters: ``sync_standby`` value from the ``/sync`` key, set of node names we will be
+                       running the leader race against.
+        :param numsync: the number of synchronous nodes from the ``synchronous_standby_names``.
+        :param sync: Set of node names listed in the ``synchronous_standby_names``.
+        :param numsync_confirmed: the number of nodes that are confirmed to reach "safe" LSN after
+                                  they were added to the ``synchronous_standby_names``.
+        :param active: set of node names that are replicating from the primary (according to ``pg_stat_replication``)
+                       and are eligible to be listed in ``synchronous_standby_names``.
+        :param sync_wanted: desired number of synchronous nodes
+                            (``synchronous_node_count`` from the global configuration).
+        :param leader_wanted: the desired leader (could be different from the *leader* right after a failover).
+
+        """
+        self.leader = leader
+        self.quorum = quorum
+        self.voters = CaseInsensitiveSet(voters)
+        self.numsync = min(numsync, len(sync))  # numsync can't be bigger than number of listed synchronous nodes.
+        self.sync = CaseInsensitiveSet(sync)
         self.numsync_confirmed = numsync_confirmed
-        self.active = CaseInsensitiveSet(active)    # Set of active nodes from `pg_stat_replication`
-        self.sync_wanted = sync_wanted              # The desired number of sync nodes
-        self.leader_wanted = leader_wanted          # The desired leader
+        self.active = CaseInsensitiveSet(active)
+        self.sync_wanted = sync_wanted
+        self.leader_wanted = leader_wanted
 
     def check_invariants(self) -> None:
         """Checks invatiant of ``synchronous_standby_names`` and ``/sync`` key in DCS.
@@ -91,26 +145,25 @@ class QuorumStateResolver(object):
                               (voters - sync, sync - voters))
 
     def quorum_update(self, quorum: int, voters: CaseInsensitiveSet, leader: Optional[str] = None,
-                      adjust_quorum: Optional[bool] = True) -> Iterator[Tuple[str, str, int, CaseInsensitiveSet]]:
+                      adjust_quorum: Optional[bool] = True) -> Iterator[Transition]:
         """Updates quorum, voters and optionally leader fields.
 
         :param quorum: the new value for :attr:`quorum`, could be adjusted depending
-                       on values of :attr:`numsync_confirmed` and *adjust_quorum*
-        :param voters: the new value for :attr:`voters`, could be adjusted if :attr:`numsync_confirmed` == ``0``
-        :param leader: the new value for :attr:`leader`, optional
+                       on values of :attr:`numsync_confirmed` and *adjust_quorum*.
+        :param voters: the new value for :attr:`voters`, could be adjusted if :attr:`numsync_confirmed` == ``0``.
+        :param leader: the new value for :attr:`leader`, optional.
         :param adjust_quorum: if set to ``True`` the quorum requirement will be increased by the
-                              difference between :attr:`numsync` and :attr:`numsync_confirmed`
-        :yields: the new quorum state,
-                where type could be ``quorum`` or ``restart``. The latter means that
-                quorum could not be updated with the current input data
-                and the :class:`QuorumStateResolver` should be restarted.
+                              difference between :attr:`numsync` and :attr:`numsync_confirmed`.
+
+        :yields: the new state of the ``/sync`` key as a :class:`Transition` object.
+
         :raises:
-            :exc:`QuorumError`: in case of invalid data or if invariant after transition could not be satisfied
+            :exc:`QuorumError` in case of invalid data or if the invariant after transition could not be satisfied.
         """
         if quorum < 0:
-            raise QuorumError("Quorum %d < 0 of (%s)" % (quorum, voters))
+            raise QuorumError(f'Quorum {quorum} < 0 of ({voters})')
         if quorum > 0 and quorum >= len(voters):
-            raise QuorumError("Quorum %d >= N of (%s)" % (quorum, voters))
+            raise QuorumError(f'Quorum {quorum} >= N of ({voters})')
 
         old_leader = self.leader
         if leader is not None:  # Change of leader was requested
@@ -129,66 +182,80 @@ class QuorumStateResolver(object):
                 return
             # If transition produces no change of leader/quorum/voters we want to give a hint to
             # the caller to fetch the new state from the database and restart QuorumStateResolver.
-            yield 'restart', self.leader, self.quorum, self.voters
+            yield Transition('restart', self.leader, self.quorum, self.voters)
 
         self.quorum = quorum
         self.voters = voters
         self.check_invariants()
         logger.debug('quorum %s %s %s', self.leader, self.quorum, self.voters)
-        yield 'quorum', self.leader, self.quorum, self.voters
+        yield Transition('quorum', self.leader, self.quorum, self.voters)
 
-    def sync_update(self, numsync: int, sync: CaseInsensitiveSet) -> Iterator[Tuple[str, str, int, CaseInsensitiveSet]]:
-        """Updates numsync and sync fields.
+    def sync_update(self, numsync: int, sync: CaseInsensitiveSet) -> Iterator[Transition]:
+        """Updates :attr:`numsync` and :attr:`sync` fields.
 
-        :param numsync: the new value for `self.numsync`
-        :param sync: the new value for `self.sync`
-        :rtype: Iterator[tuple('sync', leader, numsync, sync)] with the new state of synchronous_standby_names
-        :raises `QuorumError`: in case of invalid data or if invariant after transition could not be satisfied
+        :param numsync: the new value for :attr:`numsync`.
+        :param sync: the new value for :attr:`sync`:
+
+        :yields: the new state of ``synchronous_standby_names`` as a :class:`Transition` object.
+
+        :raises:
+            :exc:`QuorumError` in case of invalid data or if invariant after transition could not be satisfied
         """
         if numsync < 0:
-            raise QuorumError("Sync %d < 0 of (%s)" % (numsync, sync))
+            raise QuorumError(f'Sync {numsync} < 0 of ({sync})')
         if numsync > len(sync):
-            raise QuorumError("Sync %s > N of (%s)" % (numsync, sync))
+            raise QuorumError(f'Sync {numsync} > N of ({sync})')
 
         self.numsync = numsync
         self.sync = sync
         self.check_invariants()
         logger.debug('sync %s %s %s', self.leader, self.numsync, self.sync)
-        yield 'sync', self.leader, self.numsync, self.sync
+        yield Transition('sync', self.leader, self.numsync, self.sync)
 
-    def __iter__(self) -> Iterator[Tuple[str, str, int, CaseInsensitiveSet]]:
+    def __iter__(self) -> Iterator[Transition]:
+        """Merge two transitions of the same type to a single one.
+
+        .. note::
+            This is always safe because skipping the first transition is equivalent
+            to no one observing the intermediate state.
+
+        :yields: transitions as :class:`Transition` objects.
+        """
         transitions = list(self._generate_transitions())
-        # Merge 2 transitions of the same type to a single one. This is always safe because skipping the first
-        # transition is equivalent to no one observing the intermediate state.
         for cur_transition, next_transition in zip(transitions, transitions[1:] + [None]):
-            if isinstance(next_transition, tuple) and cur_transition[0] == next_transition[0]:
+            if isinstance(next_transition, Transition) \
+                    and cur_transition.transition_type == next_transition.transition_type:
                 continue
             yield cur_transition
-            if cur_transition[0] == 'restart':
+            if cur_transition.transition_type == 'restart':
                 break
 
-    def __handle_non_steady_cases(self) -> Iterator[Tuple[str, str, int, CaseInsensitiveSet]]:
+    def __handle_non_steady_cases(self) -> Iterator[Transition]:
+        """Handle cases when set of transitions produces on previous run was interrupted.
+
+        :yields: transitions as :class:`Transition` objects.
+        """
         if self.sync < self.voters:
             logger.debug("Case 1: synchronous_standby_names subset of DCS state")
-            # Case 1: quorum is superset of sync nodes. In the middle of changing quorum.
-            # Evict from quorum dead nodes that are not being synced.
-            remove_from_quorum = self.voters - (self.sync | self.active)
-            if remove_from_quorum:
+            # Case 1: voters is superset of sync nodes. In the middle of changing voters (quorum).
+            # Evict  dead nodes from voters that are not being synced.
+            remove_from_voters = self.voters - (self.sync | self.active)
+            if remove_from_voters:
                 yield from self.quorum_update(
-                    quorum=len(self.voters) - len(remove_from_quorum) - self.numsync,
-                    voters=CaseInsensitiveSet(self.voters - remove_from_quorum),
+                    quorum=len(self.voters) - len(remove_from_voters) - self.numsync,
+                    voters=CaseInsensitiveSet(self.voters - remove_from_voters),
                     adjust_quorum=not (self.sync - self.active))
-            # Start syncing to nodes that are in quorum and alive
+            # Start syncing to nodes that are in voters and alive
             add_to_sync = (self.voters & self.active) - self.sync
             if add_to_sync:
                 yield from self.sync_update(self.numsync, CaseInsensitiveSet(self.sync | add_to_sync))
         elif self.sync > self.voters:
             logger.debug("Case 2: synchronous_standby_names superset of DCS state")
-            # Case 2: sync is superset of quorum nodes. In the middle of changing replication factor.
-            # Add to quorum voters nodes that are already synced and active
-            add_to_quorum = (self.sync - self.voters) & self.active
-            if add_to_quorum:
-                voters = CaseInsensitiveSet(self.voters | add_to_quorum)
+            # Case 2: sync is superset of voters nodes. In the middle of changing replication factor (sync).
+            # Add to voters nodes that are already synced and active
+            add_to_voters = (self.sync - self.voters) & self.active
+            if add_to_voters:
+                voters = CaseInsensitiveSet(self.voters | add_to_voters)
                 yield from self.quorum_update(len(voters) - self.numsync, voters)
             # Remove from sync nodes that are dead
             remove_from_sync = self.sync - self.voters
@@ -197,7 +264,7 @@ class QuorumStateResolver(object):
                     numsync=min(self.numsync, len(self.sync) - len(remove_from_sync)),
                     sync=CaseInsensitiveSet(self.sync - remove_from_sync))
 
-        # After handling these two cases quorum and sync must match.
+        # After handling these two cases voters and sync must match.
         assert self.voters == self.sync
 
         safety_margin = self.quorum + min(self.numsync, self.numsync_confirmed) - len(self.voters | self.sync)
@@ -213,8 +280,11 @@ class QuorumStateResolver(object):
             if self.numsync == self.sync_wanted and safety_margin > 0 and self.numsync > self.numsync_confirmed:
                 yield from self.quorum_update(len(self.sync) - self.numsync, self.voters)
 
-    def __remove_gone_nodes(self) -> Iterator[Tuple[str, str, int, CaseInsensitiveSet]]:
-        # If any nodes have gone away, evict them
+    def __remove_gone_nodes(self) -> Iterator[Transition]:
+        """Remove inactive nodes from ``synchronous_standby_names`` and from ``/sync`` key.
+
+        :yields: transitions as :class:`Transition` objects.
+        """
         to_remove = self.sync - self.active
         if to_remove and self.sync == to_remove:
             logger.debug("Removing nodes: %s", to_remove)
@@ -245,8 +315,11 @@ class QuorumStateResolver(object):
                 yield from self.quorum_update(quorum, voters, adjust_quorum=False)
                 yield from self.sync_update(numsync, sync)
 
-    def __add_new_nodes(self) -> Iterator[Tuple[str, str, int, CaseInsensitiveSet]]:
-        # If any new nodes, join them to quorum
+    def __add_new_nodes(self) -> Iterator[Transition]:
+        """Add new active nodes to ``synchronous_standby_names`` and to ``/sync`` key.
+
+        :yields: transitions as :class:`Transition` objects.
+        """
         to_add = self.active - self.sync
         if to_add:
             # First get to requested replication factor
@@ -269,7 +342,11 @@ class QuorumStateResolver(object):
                                               adjust_quorum=sync_wanted > self.numsync_confirmed)
                 yield from self.sync_update(sync_wanted, CaseInsensitiveSet(self.sync | to_add))
 
-    def __handle_replication_factor_change(self) -> Iterator[Tuple[str, str, int, CaseInsensitiveSet]]:
+    def __handle_replication_factor_change(self) -> Iterator[Transition]:
+        """Handle change of the replication factor (:attr:`sync_wanted`, aka ``synchronous_node_count``).
+
+        :yields: transitions as :class:`Transition` objects.
+        """
         # Apply requested replication factor change
         sync_increase = min(self.sync_wanted, len(self.sync)) - self.numsync
         if sync_increase > 0:
@@ -285,13 +362,17 @@ class QuorumStateResolver(object):
                                               adjust_quorum=self.sync_wanted > self.numsync_confirmed)
             yield from self.sync_update(self.numsync + sync_increase, self.sync)
 
-    def _generate_transitions(self) -> Iterator[Tuple[str, str, int, CaseInsensitiveSet]]:
+    def _generate_transitions(self) -> Iterator[Transition]:
+        """Produce a set of changes to safely transition from the current state to the desired.
+
+        :yields: transitions as :class:`Transition` objects.
+        """
         logger.debug("Quorum state: leader %s quorum %s, voters %s, numsync %s, sync %s, "
                      "numsync_confirmed %s, active %s, sync_wanted %s leader_wanted %s",
                      self.leader, self.quorum, self.voters, self.numsync, self.sync,
                      self.numsync_confirmed, self.active, self.sync_wanted, self.leader_wanted)
         try:
-            if self.leader_wanted != self.leader:
+            if self.leader_wanted != self.leader:  # failover
                 voters = (self.voters - CaseInsensitiveSet([self.leader_wanted])) | CaseInsensitiveSet([self.leader])
                 if not self.sync:
                     # If sync is empty we need to update synchronous_standby_names first

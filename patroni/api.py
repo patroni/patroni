@@ -1248,6 +1248,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     * ``paused``: ``pg_is_wal_replay_paused()``;
 
             * ``sync_standby``: ``True`` if replication mode is synchronous and this is a sync standby;
+            * ``quorum_standby``: ``True`` if replication mode is quorum and this is a quorum standby;
             * ``timeline``: PostgreSQL primary node timeline;
             * ``replication``: :class:`list` of :class:`dict` entries, one for each replication connection. Each entry
                 contains the following keys:
