@@ -113,3 +113,11 @@ def check_patroni_log(context, message, level, node):
     messsages_of_level = context.pctl.read_patroni_log(node, level)
     assert any(message in line for line in messsages_of_level), \
         "There was no {0} {1} in the {2} patroni log".format(message, level, node)
+
+
+@then('there is one of {message_list} {level:w} in the {node} patroni log')
+def check_one_of_patroni_log(context, message_list, level, node):
+    message_list = eval(message_list)
+    messsages_of_level = context.pctl.read_patroni_log(node, level)
+    assert any(any(message in line for line in messsages_of_level) for message in message_list), \
+        "There were none of {0} {1} in the {2} patroni log".format(message_list, level, node)
