@@ -6,7 +6,6 @@ from threading import Condition, Event, Thread
 from urllib.parse import urlparse
 from typing import Any, Collection, Dict, Iterator, List, Optional, Union, Set, Tuple, TYPE_CHECKING
 
-from .connection import Connection
 from ..dcs import CITUS_COORDINATOR_GROUP_ID, Cluster
 from ..psycopg import connect, quote_ident
 
@@ -359,7 +358,10 @@ class CitusHandler(Thread):
         self.daemon = True
         self._postgresql = postgresql
         self._config = config
-        self._connection = Connection()
+        if config:
+            self._connection = postgresql.connection_pool.get(
+                'citus', {'dbname': config['database'],
+                          'options': '-c statement_timeout=0 -c idle_in_transaction_session_timeout=0'})
         self._pg_dist_group: Dict[int, PgDistTask] = {}  # Cache of pg_dist_node: {groupid: PgDistTask()}
         self._tasks: List[PgDistTask] = []  # Requests to change pg_dist_group, every task is a `PgDistTask`
         self._in_flight: Optional[PgDistTask] = None  # Reference to the `PgDistTask` being changed in a transaction
@@ -378,12 +380,6 @@ class CitusHandler(Thread):
 
     def is_worker(self) -> bool:
         return self.is_enabled() and not self.is_coordinator()
-
-    def set_conn_kwargs(self, kwargs: Dict[str, Any]) -> None:
-        if isinstance(self._config, dict):  # self.is_enabled():
-            kwargs.update({'dbname': self._config['database'],
-                           'options': '-c statement_timeout=0 -c idle_in_transaction_session_timeout=0'})
-            self._connection.set_conn_kwargs(kwargs)
 
     def schedule_cache_rebuild(self) -> None:
         with self._condition:
@@ -673,8 +669,8 @@ class CitusHandler(Thread):
         if not isinstance(self._config, dict):  # self.is_enabled()
             return
 
-        conn_kwargs = self._postgresql.config.local_connect_kwargs
-        conn_kwargs['options'] = '-c synchronous_commit=local -c statement_timeout=0'
+        conn_kwargs = {**self._postgresql.connection_pool.conn_kwargs,
+                       'options': '-c synchronous_commit=local -c statement_timeout=0'}
         if self._config['database'] != self._postgresql.database:
             conn = connect(**conn_kwargs)
             try:

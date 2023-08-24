@@ -942,24 +942,32 @@ class ConfigHandler(object):
                 return 'localhost'  # connection via localhost is preferred
         return listen_addresses[0].strip()  # can't use localhost, take first address from listen_addresses
 
-    @property
-    def local_connect_kwargs(self) -> Dict[str, Any]:
-        ret = self._local_address.copy()
-        # add all of the other connection settings that are available
-        ret.update(self._superuser)
-        # if the "username" parameter is present, it actually needs to be "user"
-        # for connecting to PostgreSQL
-        if 'username' in self._superuser:
-            ret['user'] = self._superuser['username']
-            del ret['username']
-        # ensure certain Patroni configurations are available
-        ret.update({'dbname': self._postgresql.database,
-                    'fallback_application_name': 'Patroni',
-                    'connect_timeout': 3,
-                    'options': '-c statement_timeout=2000'})
-        return ret
-
     def resolve_connection_addresses(self) -> None:
+        """Calculates and sets local and remote connection urls and options.
+
+        This method sets:
+            * :attr:`Postgresql.connection_string <patroni.postgresql.Postgresql.connection_string>` attribute, which
+              is later written to the member key in DCS as ``conn_url``.
+            * :attr:`ConfigHandler.local_replication_address` attribute, which is used for replication connections to
+              local postgres.
+            * :attr:`ConnectionPool.conn_kwargs <patroni.postgresql.connection.ConnectionPool.conn_kwargs>` attribute,
+              which is used for superuser connections to local postgres.
+
+        .. note::
+            If there is a valid directory in ``postgresql.parameters.unix_socket_directories`` in the Patroni
+            configuration and ``postgresql.use_unix_socket`` and/or ``postgresql.use_unix_socket_repl``
+            are set to ``True``, we respectively use unix sockets for superuser and replication connections
+            to local postgres.
+
+            If there is a requirement to use unix sockets, but nothing is set in the
+            ``postgresql.parameters.unix_socket_directories``, we omit a ``host`` in connection parameters relying
+            on the ability of ``libpq`` to connect via some default unix socket directory.
+
+            If unix sockets are not requested we "switch" to TCP, prefering to use ``localhost`` if it is possible
+            to deduce that Postgres is listening on a local interface address.
+
+            Otherwise we just used the first address specified in the ``listen_addresses`` GUC.
+        """
         port = self._server_parameters['port']
         tcp_local_address = self._get_tcp_local_address()
         netloc = self._config.get('connect_address') or tcp_local_address + ':' + port
@@ -972,12 +980,25 @@ class ConfigHandler(object):
 
         tcp_local_address = {'host': tcp_local_address, 'port': port}
 
-        self._local_address = unix_local_address if self._config.get('use_unix_socket') else tcp_local_address
         self.local_replication_address = unix_local_address\
             if self._config.get('use_unix_socket_repl') else tcp_local_address
 
         self._postgresql.connection_string = uri('postgres', netloc, self._postgresql.database)
-        self._postgresql.set_connection_kwargs(self.local_connect_kwargs)
+
+        local_address = unix_local_address if self._config.get('use_unix_socket') else tcp_local_address
+        local_conn_kwargs = {
+            **local_address,
+            **self._superuser,
+            'dbname': self._postgresql.database,
+            'fallback_application_name': 'Patroni',
+            'connect_timeout': 3,
+            'options': '-c statement_timeout=2000'
+        }
+        # if the "username" parameter is present, it actually needs to be "user" for connecting to PostgreSQL
+        if 'username' in local_conn_kwargs:
+            local_conn_kwargs['user'] = local_conn_kwargs.pop('username')
+        # "notify" connection_pool about the "new" local connection address
+        self._postgresql.connection_pool.conn_kwargs = local_conn_kwargs
 
     def _get_pg_settings(
             self, names: Collection[str]

@@ -384,8 +384,7 @@ class SlotsHandler:
 
         :yields: connection cursor object, note implementation varies depending on version of :mod:`psycopg`.
         """
-        conn_kwargs = self._postgresql.config.local_connect_kwargs
-        conn_kwargs.update(kwargs)
+        conn_kwargs = {**self._postgresql.connection_pool.conn_kwargs, **kwargs}
         with get_connection_cursor(**conn_kwargs) as cur:
             yield cur
 
