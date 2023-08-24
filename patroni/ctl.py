@@ -642,7 +642,8 @@ def get_members(obj: Dict[str, Any], cluster: Cluster, cluster_name: str, member
     if member_names:
         member_names = list(set(member_names) & candidates)
         if not member_names:
-            raise PatroniCtlException('No {0} among provided members'.format(role))
+            raise PatroniCtlException(
+                'No{0} among provided members'.format('t a single cluster member' if role == 'any' else ' ' + role))
     elif action != 'reinitialize':
         member_names = list(candidates)
 
@@ -1021,9 +1022,10 @@ def restart(obj: Dict[str, Any], cluster_name: str, group: Optional[int], member
             * *version* could not be parsed; or
             * a restart is attempted against a cluster that is in maintenance mode.
     """
+    action = 'restart'
     cluster = get_dcs(obj, cluster_name, group).get_cluster()
 
-    members = get_members(obj, cluster, cluster_name, member_names, role, force, 'restart', False, group=group)
+    members = get_members(obj, cluster, cluster_name, member_names, role, force, action, False, group=group)
     if scheduled is None and not force:
         next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
         scheduled = click.prompt('When should the restart take place (e.g. ' + next_hour + ') ',
@@ -1031,8 +1033,8 @@ def restart(obj: Dict[str, Any], cluster_name: str, group: Optional[int], member
 
     parse_result, scheduled_at = parse_schedule(scheduled)
     if parse_result:
-        raise PatroniCtlException(parse_result.value[0].format(action='restart'))
-    confirm_members_action(members, force, 'restart', scheduled_at)
+        raise PatroniCtlException(parse_result.value[0].format(action=action))
+    confirm_members_action(members, force, action, scheduled_at)
 
     if p_any:
         random.shuffle(members)

@@ -348,7 +348,12 @@ class TestCtl(unittest.TestCase):
         # Not a member
         result = self.runner.invoke(ctl, ['restart', 'alpha', 'dummy', '--any'], input='now\ny')
         self.assertEqual(result.exit_code, 1)
-        self.assertIn('No any among provided members', result.output)
+        self.assertIn('Not a single cluster member among provided members', result.output)
+
+        # Not a member with the specified role
+        result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--role', 'primary'], input='now\ny')
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn('No primary among provided members', result.output)
 
         # Wrong pg version
         result = self.runner.invoke(ctl, ['restart', 'alpha', '--any', '--pg-version', '9.1'], input='now\ny')
