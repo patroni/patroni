@@ -56,8 +56,6 @@ class PgDistNode:
     def __eq__(self, other: Any) -> bool:
         """Defines a comparison function.
 
-        It is used exclusively to support overriden :func:``PgDistNode.__hash__``.
-
         :returns: ``True`` if *host* and *port* between two instances are the same.
         """
         return isinstance(other, PgDistNode) and self.host == other.host and self.port == other.port
@@ -72,7 +70,7 @@ class PgDistNode:
     def is_primary(self) -> bool:
         """Checks whether this object represents "primary" in a corresponding group.
 
-        :returns: `True` if this object represents "primary".
+        :returns: ``True`` if this object represents "primary".
         """
         return self.role in ('primary', 'demoted')
 
@@ -82,15 +80,16 @@ class PgDistGroup(Set[PgDistNode]):
 
     This class implements a set of methods to compare topology and if it is necessary
     to transition from the old to the new topology in a "safe" manner:
-    - register new primary/secondaries
-    - replace gone secondaries with added
-    - failover and switchover
 
-    Typically there will be at least one :class:`PgDistNode` object registered ('primary').
-    In adding to that there could be some "secondaries".
+        * register new primary/secondaries
+        * replace gone secondaries with added secondaries
+        * failover and switchover
 
-    :ivar failover: whether as a result of :func:`transition` method call the "primary" row should be updated.
-    :ivar groupid: the "groupid" from "pg_dist_node"
+    Typically there will be at least one :class:`PgDistNode` object registered (``primary``).
+    In addition to that there could be one or more ``secondary`` nodes.
+
+    :ivar failover: whether the ``primary`` row should be updated as a result of :func:`transition` method call.
+    :ivar groupid: the "groupid" from "pg_dist_node".
     """
 
     def __init__(self, groupid: int, nodes: Optional[Collection[PgDistNode]] = None) -> None:
@@ -111,7 +110,7 @@ class PgDistGroup(Set[PgDistNode]):
 
         .. note::
 
-            *include_nodeid* is set to `True` only in unit-tests.
+            *include_nodeid* is set to ``True`` only in unit-tests.
 
         :param node: the PgDistNode we want to build hash for.
         :param include_nodeid: whether *nodeid* should be taken into account when comparison is performed.
@@ -125,11 +124,11 @@ class PgDistGroup(Set[PgDistNode]):
         .. note::
 
             Normally only *host*, *port*, and *role* values are compared for all :class:`PgDistNode` objects.
-            But, optionally it can also compare *nodeid* if *check_nodeid* if set to `True` (used only in unit-tests).
+            But, optionally it can also compare *nodeid* if *check_nodeid* if set to ``True`` (used only in unit-tests).
 
         :param other: what we want to compare with.
         :param check_nodeid: whether *nodeid* should be compared in addition to *host*, *port*, and *role*.
-        :returns: `True` if all two objects are identical.
+        :returns: ``True`` if all two objects are identical.
         """
         return set(self._node_hash(v, check_nodeid) for v in self)\
             == set(self._node_hash(v, check_nodeid) for v in other)
@@ -146,7 +145,7 @@ class PgDistGroup(Set[PgDistNode]):
             are redefined and effectively they check only *host* and *port* attributes.
 
         :param value: the key we search for.
-        :returns: the actual value from this :class:`set` object.
+        :returns: the actual :class:`PgDistNode`` value from this :class:`PgDistGroup` object or ``None``.
         """
         return next(iter(v for v in self if v == value), None)
 
@@ -154,6 +153,9 @@ class PgDistGroup(Set[PgDistNode]):
         """Compares this topology with the old one and yields transitions that transform the old to the new one.
 
         .. note::
+            The actual yielded object is :class:`PgDistNode` that will be passed to
+            the :meth:`CitusHandler.update_node` to execute all transitions in a transaction.
+
             In addition to the yielding transactions this method fills up *nodeid*
             attribute for nodes that are presented in the old and in the new topology.
 
@@ -163,11 +165,14 @@ class PgDistGroup(Set[PgDistNode]):
             - the "primary" row in "pg_dist_node" always keeps the nodeid (unless it is
               removed, but it is not supported by Patroni).
 
-            - "nodename", "nodeport" must be unique across all rows in the "pg_dist_node".
+            - "nodename", "nodeport" must be unique across all rows in the "pg_dist_node". This means that
+              every time we want to change the nodeid of an existing node (i.e. to change it from secondary
+              to primary), we should first write some other "nodename"/"port" to the row it's currently in.
 
             - updating "broken" nodes always works and metadata is synced asynchnonously after commit.
 
-        Following these rules below is an example of the switchover between node1 (primary) and node2 (secondary).
+        Following these rules below is an example of the switchover between node1 (primary, nodeid=4)
+        and node2 (secondary, nodeid=5).
 
         .. code-block:: SQL
 
@@ -177,7 +182,7 @@ class PgDistGroup(Set[PgDistNode]):
                 SELECT citus_update_node(4, 'node2', 5432);
             COMMIT;
 
-        :param old: the last know topology registered in "pg_dist_node" for a given *groupid*
+        :param old: the last known topology registered in "pg_dist_node" for a given *groupid*
 
         :yields: :class:`PgDistNode` objects that must be updated/added/removed in "pg_dist_node".
         """
@@ -191,11 +196,12 @@ class PgDistGroup(Set[PgDistNode]):
         added_nodes = self - old - {new_primary}
 
         if not old_primary:
+            # We did not have any nodes in the group yet and we're adding one now
             yield new_primary
         elif old_primary == new_primary:
             new_primary.nodeid = old_primary.nodeid
             # Controlled switchover with pausing client connections.
-            # Achived by updating the primary row and putting hostname = '${host}-demoted' in a transaction.
+            # Achieved by updating the primary row and putting hostname = '${host}-demoted' in a transaction.
             if old_primary.role != new_primary.role:
                 self.failover = True
                 yield new_primary
@@ -239,12 +245,12 @@ class PgDistGroup(Set[PgDistNode]):
             new_primary.nodeid = old_primary.nodeid
             yield new_primary
 
-            # The new primary was never registered as a standby and there are secondaries that gone away.
-            # Since nodes can't be removed while metadata isn't synced we have to temporary "add" the old primary back.
+            # The new primary was never registered as a standby and there are secondaries that have gone away. Since
+            # nodes can't be removed while metadata isn't synced we have to temporarily "add" the old primary back.
             if not new_primary_old_node and gone_nodes:
                 # We were in the middle of controlled switchover while the primary disappeared.
                 # If there are any gone nodes that can't be reused for new secondaries we will
-                # use one of them to temporary "add" the old primary back as a secondary.
+                # use one of them to temporarily "add" the old primary back as a secondary.
                 if not old_primary_new_node and old_primary.role == 'demoted' and len(gone_nodes) > len(added_nodes):
                     old_primary_new_node = PgDistNode(old_primary.host, old_primary.port, 'secondary')
                     self.add(old_primary_new_node)
@@ -266,19 +272,29 @@ class PgDistGroup(Set[PgDistNode]):
             a.nodeid = gone_nodes.pop().nodeid
             yield a
 
-        # Remove remaining nodes that are gone, but only in case if metadata is in sync
-        for g in gone_nodes:
-            if self.failover:  # Otherwise add these nodes to the new topology
-                self.add(g)
-            else:
-                yield PgDistNode(g.host, g.port, '')
+        # Adding or removing nodes operations are executed on primaries in all Citus groups in 2PC.
+        # If we know that the primary was updated (self.failover is True) that automatically means that
+        # adding/removing nodes calls will fail and the whole transaction will be aborted. Therefore
+        # we discard operations that add/remove secondaries if we know that the primary was just updated.
+        # The inconsistency will be automatically resolved on the next Patroni heartbeat loop.
 
-        # Add new nodes to the metadata, but only in case if metadata is in sync
-        for a in added_nodes:
-            if self.failover:
-                self.discard(a)  # Otherwise remove them from the new topology
+        # Remove remaining nodes that are gone, but only in case if metadata is in sync (self.failover is False).
+        for g in gone_nodes:
+            if not self.failover:
+                # Remove the node if we expect metadata to be in sync
+                yield PgDistNode(g.host, g.port, '')
             else:
+                # Otherwise add these nodes to the new topology
+                self.add(g)
+
+        # Add new nodes to the metadata, but only in case if metadata is in sync (self.failover is False).
+        for a in added_nodes:
+            if not self.failover:
+                # Add the node if we expect metadata to be in sync
                 yield a
+            else:
+                # Otherwise remove them from the new topology
+                self.discard(a)
 
 
 class PgDistTask(PgDistGroup):
@@ -514,7 +530,7 @@ class CitusHandler(Thread):
             Read access to `self._in_flight` isn't protected because we know it can't be changed outside of our thread.
 
         :param task: reference to a :class:`PgDistTask` object that represents a row to be updated/created.
-        :returns: `True` if the row was succesfully created/updated or transaction in progress
+        :returns: ``True`` if the row was succesfully created/updated or transaction in progress
             was committed as an indicator that the `self._pg_dist_group` cache should be updated,
             or, if the new transaction was opened, this method returns `False`.
         """
