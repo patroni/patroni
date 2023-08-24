@@ -19,10 +19,10 @@ class Transition(NamedTuple):
         * ``quorum`` - indicates that we need to update ``/sync`` key in DCS.
         * ``restart`` - caller should stop iterating over transitions and restart :class:`QuorumStateResolver`.
     :ivar leader: the new value of the ``leader`` field in the ``/sync`` key.
-    :ivar num: the new value of the synchronous nodes in ``synchronous_standby_names`` or value of the ``quorum``
-               field in the ``/sync`` key for *transition_type* values ``sync`` and ``quorum`` respectively.
+    :ivar num: the new value of the synchronous nodes count in ``synchronous_standby_names`` or value of the ``quorum``
+               field in the ``/sync`` key for :attr:`transition_type` values ``sync`` and ``quorum`` respectively.
     :ivar names: the new value of node names listed in ``synchronous_standby_names`` or value of ``voters``
-                 field in the ``/sync`` key  for *transition_type* values ``sync`` and ``quorum`` respectively.
+                 field in the ``/sync`` key  for :attr:`transition_type` values ``sync`` and ``quorum`` respectively.
     """
 
     transition_type: str
@@ -38,17 +38,22 @@ class QuorumError(Exception):
 class QuorumStateResolver(object):
     """Calculates a list of state transition tuples of the form `('sync'/'quorum'/'restart',leader,number,set_of_names)`
 
-    Synchronous replication state is set in two places. PostgreSQL configuration sets how many and which nodes are
-    needed for a commit to succeed, abbreviated as ``numsync`` and ``sync`` set here. DCS contains information about how
-    many and which nodes need to be interrogated to be sure to see an wal position containing latest confirmed commit,
-    abbreviated as ``quorum`` and ``voters`` set. Both pairs have the meaning "ANY n OF set".
+    Synchronous replication state is set in two places:
 
-    The number of nodes needed for commit to succeed, ``numsync``, is also called the replication factor.
+    * PostgreSQL configuration sets how many and which nodes are needed for a commit to succeed, abbreviated as
+      ``numsync`` and ``sync`` set here;
+    * DCS contains information about how many and which nodes need to be interrogated to be sure to see an wal position
+      containing latest confirmed commit, abbreviated as ``quorum`` and ``voters`` set.
+
+    .. note::
+        Both of above pairs have the meaning "ANY n OF set".
+
+        The number of nodes needed for commit to succeed, ``numsync``, is also called the replication factor.
 
     To guarantee zero transaction loss on failover we need to keep the invariant that at all times any subset of
     nodes that can acknowledge a commit overlaps with any subset of nodes that can achieve quorum to promote a new
     leader. Given a desired replication factor and a set of nodes able to participate in sync replication there
-    is one optimal state satisfying this condition. Given the node set ``active``, the optimal state is:
+    is one optimal state satisfying this condition. Given the node set ``active``, the optimal state is::
 
         sync = voters = active
 
@@ -60,18 +65,25 @@ class QuorumStateResolver(object):
     other arbitrary state given arbitrary changes is node availability, configuration and interrupted transitions.
 
     To keep the invariant the rule to follow is that when increasing ``numsync`` or ``quorum``, we need to perform the
-    increasing operation first. When decreasing either, the decreasing operation needs to be performed later.
+    increasing operation first. When decreasing either, the decreasing operation needs to be performed later. In other
+    words:
+
+    * If a user increases ``synchronous_node_count`` configuration, first we increase ``synchronous_standby_names``
+      (``numsync``), then we decrease ``quorum`` field in the ``/sync`` key;
+    * If a user decreases ``synchronous_node_count`` configuration, first we increase ``quorum`` field in the ``/sync``
+      key, then we decrease ``synchronous_standby_names`` (``numsync``).
 
     Order of adding or removing nodes from ``sync`` and ``voters`` depends on the state of
     ``synchronous_standby_names``.
-    When adding new nodes:
+
+    When adding new nodes::
 
         if ``sync`` (``synchronous_standby_names``) is empty:
             add new nodes first to ``sync`` and then to ``voters`` when ``numsync_confirmed`` > ``0``.
         else:
             add new nodes first to ``voters`` and then to ``sync``.
 
-    When removing nodes:
+    When removing nodes::
 
         if ``sync`` (``synchronous_standby_names``) will become empty after removal:
             first remove nodes from ``voters`` and then from ``sync``.
@@ -91,7 +103,7 @@ class QuorumStateResolver(object):
     :ivar active: set of node names that are replicating from the primary (according to ``pg_stat_replication``)
                   and are eligible to be listed in ``synchronous_standby_names``.
     :ivar sync_wanted: desired number of synchronous nodes (``synchronous_node_count`` from the global configuration).
-    :ivar leader_wanted: the desired leader (could be different from the *leader* right after a failover).
+    :ivar leader_wanted: the desired leader (could be different from the :attr:`leader` right after a failover).
     """
 
     def __init__(self, leader: str, quorum: int, voters: Collection[str],
@@ -126,8 +138,10 @@ class QuorumStateResolver(object):
         self.leader_wanted = leader_wanted
 
     def check_invariants(self) -> None:
-        """Checks invatiant of ``synchronous_standby_names`` and ``/sync`` key in DCS.
+        """Checks invariant of ``synchronous_standby_names`` and ``/sync`` key in DCS.
 
+        .. seealso::
+            Check :class:`QuorumStateResolver`'s docstring for more information.
         :raises:
             :exc:`QuorumError`: in case of broken state"""
         voters = CaseInsensitiveSet(self.voters | CaseInsensitiveSet([self.leader]))
@@ -135,6 +149,7 @@ class QuorumStateResolver(object):
 
         # We need to verify that subset of nodes that can acknowledge a commit overlaps
         # with any subset of nodes that can achieve quorum to promote a new leader.
+        # ``+ 1`` is required because the leader is included in the set.
         if self.voters and not (len(voters | sync) <= self.quorum + self.numsync + 1):
             raise QuorumError("Quorum and sync not guaranteed to overlap: nodes %d >= quorum %d + sync %d" %
                               (len(voters | sync), self.quorum, self.numsync))
@@ -146,7 +161,7 @@ class QuorumStateResolver(object):
 
     def quorum_update(self, quorum: int, voters: CaseInsensitiveSet, leader: Optional[str] = None,
                       adjust_quorum: Optional[bool] = True) -> Iterator[Transition]:
-        """Updates quorum, voters and optionally leader fields.
+        """Updates :attr:`quorum`, :attr:`voters` and optionally :attr:`leader` fields.
 
         :param quorum: the new value for :attr:`quorum`, could be adjusted depending
                        on values of :attr:`numsync_confirmed` and *adjust_quorum*.

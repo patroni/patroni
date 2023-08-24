@@ -170,7 +170,7 @@ class Postgresql(object):
 
     @property
     def supports_quorum_commit(self) -> bool:
-        """:returns: `True` if quorum commit is supported by Postgres."""
+        """``True`` if quorum commit is supported by Postgres."""
         return self._major_version >= 100000
 
     @property
