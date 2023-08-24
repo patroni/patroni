@@ -171,7 +171,7 @@ Kubernetes
 -  **role\_label**: (optional) name of the label containing role (master or replica or other custom value). Patroni will set this label on the pod it runs in. Default value is ``role``.
 -  **leader\_label\_value**: (optional) value of the pod label when Postgres role is ``master``. Default value is ``master``.
 -  **follower\_label\_value**: (optional) value of the pod label when Postgres role is ``replica``. Default value is ``replica``.
--  **standby\_leader\_label\_value**: (optional) value of the pod label when Postgres role is ``standby-leader``. Default value is ``standby-leader``.
+-  **standby\_leader\_label\_value**: (optional) value of the pod label when Postgres role is ``standby_leader``. Default value is ``master``.
 -  **tmp_\role\_label**: (optional) name of the temporary label containing role (master or replica). Value of this label will always use the default of corresponding role. Set only when necessary.
 -  **use\_endpoints**: (optional) if set to true, Patroni will use Endpoints instead of ConfigMaps to run leader elections and keep cluster state.
 -  **pod\_ip**: (optional) IP address of the pod Patroni is running in. This value is required when `use_endpoints` is enabled and is used to populate the leader endpoint subsets when the pod's PostgreSQL is promoted.
