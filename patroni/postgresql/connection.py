@@ -37,7 +37,7 @@ class NamedConnection:
 
     @property
     def _conn_kwargs(self) -> Dict[str, Any]:
-        """Connection parameters for this ``NamedConnection``."""
+        """Connection parameters for this :class:`NamedConnection`."""
         return {**self._pool.conn_kwargs, **self._kwargs_override, 'application_name': f'Patroni {self._name}'}
 
     def get(self) -> Union['connection', 'Connection[Any]']:
@@ -86,7 +86,7 @@ class NamedConnection:
     def close(self, silent: bool = False) -> bool:
         """Close the psycopg connection to postgres.
 
-        :param silent: whether the method should write logs.
+        :param silent: whether the method should not write logs.
 
         :returns: ``True`` if ``psycopg`` connection was closed, ``False`` otherwise.``
         """
@@ -107,7 +107,7 @@ class ConnectionPool:
     """
 
     def __init__(self) -> None:
-        """Create and instance of :class:`ConnectionPool` class."""
+        """Create an instance of :class:`ConnectionPool` class."""
         self._lock = Lock()
         self._connections: Dict[str, NamedConnection] = {}
         self._conn_kwargs: Dict[str, Any] = {}
@@ -135,7 +135,7 @@ class ConnectionPool:
 
         :param name: name of the connection.
         :param kwargs_override: :class:`dict` object with connection parameters that should be
-                                different from default values provided by ``conn_kwargs``.
+                                different from default values provided by :attr:`conn_kwargs`.
 
         :returns: :class:`NamedConnection` object.
         """

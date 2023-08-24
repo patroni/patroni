@@ -946,11 +946,12 @@ class ConfigHandler(object):
         """Calculates and sets local and remote connection urls and options.
 
         This method sets:
-            * :attr:``Postgresql.connection_string`` attribute, which is later written to the member key in DCS
-              as ``conn_url``.
-            * :attr:``ConfigHandler.local_replication_address`` attribute, is used for replication connections
-              to local postgres.
-            * :attr:``ConnectionPool.conn_kwargs`` attribute, is used for superuser connections to local postgres.
+            * :attr:`Postgresql.connection_string <patroni.postgresql.Postgresql.connection_string>` attribute, which
+              is later written to the member key in DCS as ``conn_url``.
+            * :attr:`ConfigHandler.local_replication_address` attribute, which is used for replication connections to
+              local postgres.
+            * :attr:`ConnectionPool.conn_kwargs <patroni.postgresql.connection.ConnectionPool.conn_kwargs>` attribute,
+              which is used for superuser connections to local postgres.
 
         .. note::
             If there is a valid directory in ``postgresql.parameters.unix_socket_directories`` in the Patroni
