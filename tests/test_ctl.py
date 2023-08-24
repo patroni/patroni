@@ -103,7 +103,6 @@ class TestCtl(unittest.TestCase):
 
         # Confirm
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
-        print(result.output)
         self.assertEqual(result.exit_code, 0)
 
         # Abort
@@ -317,12 +316,9 @@ class TestCtl(unittest.TestCase):
 
     @patch.object(PoolManager, 'request')
     @patch('patroni.ctl.get_dcs')
-    def test_restart_reinit(self, mock_get_dcs, mock_post):
+    def test_reinit(self, mock_get_dcs, mock_post):
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
         mock_post.return_value.status = 503
-        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='now\ny\n')
-        assert 'Failed: restart for' in result.output
-        assert result.exit_code == 0
 
         result = self.runner.invoke(ctl, ['reinit', 'alpha'], input='y')
         assert result.exit_code == 1
@@ -331,67 +327,83 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['reinit', 'alpha', 'other'], input='y\ny')
         assert result.exit_code == 0
 
-        # Aborted restart
+    @patch.object(PoolManager, 'request')
+    @patch('patroni.ctl.get_dcs')
+    def test_restart(self, mock_get_dcs, mock_post):
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+        mock_post.return_value.status = 200
+
+        # Successful restart
+        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='now\ny\n')
+        self.assertEqual(result.exit_code, 0)
+
+        # Aborted
         result = self.runner.invoke(ctl, ['restart', 'alpha'], input='now\nN')
-        assert result.exit_code == 1
+        self.assertEqual(result.exit_code, 1)
 
+        # With pending the flag
         result = self.runner.invoke(ctl, ['restart', 'alpha', '--pending', '--force'])
-        assert result.exit_code == 0
-
-        # Aborted scheduled restart
-        result = self.runner.invoke(ctl, ['restart', 'alpha', '--scheduled', self.SCHEDULED_TS], input='N')
-        assert result.exit_code == 1
+        self.assertEqual(result.exit_code, 0)
 
         # Not a member
         result = self.runner.invoke(ctl, ['restart', 'alpha', 'dummy', '--any'], input='now\ny')
-        assert result.exit_code == 1
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn('No any among provided members', result.output)
 
         # Wrong pg version
         result = self.runner.invoke(ctl, ['restart', 'alpha', '--any', '--pg-version', '9.1'], input='now\ny')
-        assert 'Error: Invalid PostgreSQL version format' in result.output
-        assert result.exit_code == 1
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn('Error: Invalid PostgreSQL version format', result.output)
 
+        # Restart with timeout
         result = self.runner.invoke(ctl, ['restart', 'alpha', '--pending', '--force', '--timeout', '10min'])
-        assert result.exit_code == 0
+        self.assertEqual(result.exit_code, 0)
 
-        # normal restart, the schedule is actually parsed, but not validated in patronictl
-        result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force', '--scheduled', self.SCHEDULED_TS])
-        assert 'Failed: flush scheduled restart' in result.output
+        # Scheduled restart
 
+        # Aborted scheduled restart
+        result = self.runner.invoke(ctl, ['restart', 'alpha', '--scheduled', self.SCHEDULED_TS], input='N')
+        self.assertEqual(result.exit_code, 1)
+
+        # Error parsing scheduled flag value (no tz)
+        result = self.runner.invoke(ctl,
+                                    ['restart', 'alpha', 'other', '--force', '--scheduled', self.SCHEDULED_TS_NO_TZ])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn('Timezone information is mandatory for the scheduled restart', result.output)
+
+        # Error parsing scheduled flag value (invalid date)
+        result = self.runner.invoke(ctl,
+                                    ['restart', 'alpha', 'other', '--force', '--scheduled', self.SCHEDULED_TS_INVALID])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn('Unable to parse scheduled timestamp', result.output)
+
+        # Successfully scheduled restart
+        result = self.runner.invoke(ctl, ['restart', 'alpha', '--scheduled', self.SCHEDULED_TS], input='Y')
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn('Success: restart on member other', result.output)
+
+        # Not possible to schedule in pause mode
         with patch('patroni.config.GlobalConfig.is_paused', PropertyMock(return_value=True)):
             result = self.runner.invoke(ctl,
                                         ['restart', 'alpha', 'other', '--force', '--scheduled', self.SCHEDULED_TS])
-            assert result.exit_code == 1
+            self.assertEqual(result.exit_code, 1)
+            self.assertIn("Can't schedule restart in the paused state", result.output)
 
-        # force restart with restart already present
+        # Force restart with restart already scheduled
         result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force', '--scheduled', self.SCHEDULED_TS])
-        assert result.exit_code == 0
+        self.assertEqual(result.exit_code, 0)
 
+        # get restart with the non-200 return code
         ctl_args = ['restart', 'alpha', '--pg-version', '99.0', '--scheduled', self.SCHEDULED_TS]
-        # normal restart, the schedule is actually parsed, but not validated in patronictl
-        mock_post.return_value.status = 200
-        result = self.runner.invoke(ctl, ctl_args, input='y')
-        assert result.exit_code == 0
-
-        # get restart with the non-200 return code
-        # normal restart, the schedule is actually parsed, but not validated in patronictl
-        mock_post.return_value.status = 204
-        result = self.runner.invoke(ctl, ctl_args, input='y')
-        assert result.exit_code == 0
-
-        # get restart with the non-200 return code
-        # normal restart, the schedule is actually parsed, but not validated in patronictl
-        mock_post.return_value.status = 202
-        result = self.runner.invoke(ctl, ctl_args, input='y')
-        assert 'Success: restart scheduled' in result.output
-        assert result.exit_code == 0
-
-        # get restart with the non-200 return code
-        # normal restart, the schedule is actually parsed, but not validated in patronictl
-        mock_post.return_value.status = 409
-        result = self.runner.invoke(ctl, ctl_args, input='y')
-        assert 'Failed: another restart is already' in result.output
-        assert result.exit_code == 0
+        for code, output in [
+            (204, 'Failed: restart for member other, status code=204'),
+            (202, 'Success: restart scheduled'),
+            (409, 'Failed: another restart is already')
+        ]:
+            mock_post.return_value.status = code
+            result = self.runner.invoke(ctl, ctl_args, input='y')
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn(output, result.output)
 
     @patch('patroni.ctl.get_dcs')
     def test_remove(self, mock_get_dcs):
