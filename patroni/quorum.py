@@ -1,8 +1,10 @@
+"""Implement state machine to manage ``synchronous_standby_names`` GUC and ``/sync`` key in DCS."""
 import logging
 
 from typing import Collection, Iterator, NamedTuple, Optional
 
 from .collections import CaseInsensitiveSet
+from .exceptions import PatroniException
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +33,12 @@ class Transition(NamedTuple):
     names: CaseInsensitiveSet
 
 
-class QuorumError(Exception):
+class QuorumError(PatroniException):
     """Exception indicating that the quorum state is broken."""
 
 
-class QuorumStateResolver(object):
-    """Calculates a list of state transition tuples of the form `('sync'/'quorum'/'restart',leader,number,set_of_names)`
+class QuorumStateResolver:
+    """Calculates a list of state transitions and yields them as :class:`Transition` named tuples.
 
     Synchronous replication state is set in two places:
 
@@ -142,6 +144,7 @@ class QuorumStateResolver(object):
 
         .. seealso::
             Check :class:`QuorumStateResolver`'s docstring for more information.
+
         :raises:
             :exc:`QuorumError`: in case of broken state"""
         voters = CaseInsensitiveSet(self.voters | CaseInsensitiveSet([self.leader]))

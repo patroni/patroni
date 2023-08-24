@@ -159,8 +159,8 @@ class _SyncState(NamedTuple):
     :ivar sync_type: possible values: ``off``, ``priority``, ``quorum``
     :ivar numsync: how many nodes are required to be synchronous (according to ``synchronous_standby_names``).
                    Is ``0`` if ``synchronous_standby_names`` value is invalid or contains ``*``.
-    :ivar numsync_confirmed: how many nodes are known to be synchronous according to the ``pg_stat_replication``
-                             view. Only nodes that caught up with the :attr:`SyncHandler._primary_flush_lsn` are counted.
+    :ivar numsync_confirmed: how many nodes are known to be synchronous according to the ``pg_stat_replication`` view.
+                             Only nodes that caught up with the :attr:`SyncHandler._primary_flush_lsn` are counted.
     :ivar sync: collection of synchronous node names. In case of quorum commit all nodes listed
                 in ``synchronous_standby_names``, otherwise nodes that are confirmed to be synchronous according
                 to the ``pg_stat_replication`` view.
