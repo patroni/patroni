@@ -22,9 +22,9 @@ class PgDistNode:
 
     .. note::
 
-        Unlike "noderole" possible values of ``role`` are 'primary', 'secondary', and 'demoted'.
+        Unlike "noderole" possible values of ``role`` are ``primary``, ``secondary``, and ``demoted``.
         The last one is used to pause client connections on the coordinator to the worker by
-        appending '-demoted' suffix to the "nodename". The actual "noderole" in DB remains 'primary'.
+        appending ``-demoted`` suffix to the "nodename". The actual "noderole" in DB remains ``primary``.
 
     :ivar host: "nodename" value
     :ivar port: "nodeport" value
@@ -48,15 +48,16 @@ class PgDistNode:
     def __hash__(self) -> int:
         """Defines a hash function to put :class:`PgDistNode` objects to :class:`PgDistGroup` set-like object.
 
-        We use (*host*, *port*) tuple here because it is one of the UNIQUE constraints on the "pg_dist_node" table.
-        The *role* value is irrelevant here because nodes may change their roles.
+        .. note::
+            We use (:attr:`host`, :attr:`port`) tuple here because it is one of the UNIQUE constraints on the
+            "pg_dist_node" table. The :attr:`role` value is irrelevant here because nodes may change their roles.
         """
         return hash((self.host, self.port))
 
     def __eq__(self, other: Any) -> bool:
         """Defines a comparison function.
 
-        :returns: ``True`` if *host* and *port* between two instances are the same.
+        :returns: ``True`` if :attr:`host` and :attr:`port` between two instances are the same.
         """
         return isinstance(other, PgDistNode) and self.host == other.host and self.port == other.port
 
@@ -70,9 +71,22 @@ class PgDistNode:
     def is_primary(self) -> bool:
         """Checks whether this object represents "primary" in a corresponding group.
 
-        :returns: ``True`` if this object represents "primary".
+        :returns: ``True`` if this object represents the ``primary``.
         """
         return self.role in ('primary', 'demoted')
+
+    def as_tuple(self, include_nodeid: bool = False) -> Tuple[str, int, str, Optional[int]]:
+        """Helper method to compare two :class:`PgDistGroup` objects.
+
+        .. note::
+
+            *include_nodeid* is set to ``True`` only in unit-tests.
+
+        :param include_nodeid: whether :attr:`nodeid` should be taken into account when comparison is performed.
+
+        :returns: :class:`tuple` object with :attr:`host`, :attr:`port`, :attr:`role`, and optionally :attr:`nodeid`.
+        """
+        return self.host, self.port, self.role, (self.nodeid if include_nodeid else None)
 
 
 class PgDistGroup(Set[PgDistNode]):
@@ -104,48 +118,34 @@ class PgDistGroup(Set[PgDistNode]):
         if nodes:
             self.update(nodes)
 
-    @staticmethod
-    def _node_hash(node: PgDistNode, include_nodeid: bool = False) -> Tuple[str, int, str, Optional[int]]:
-        """Helper function to compare two :class:`PgDistGroup` objects.
-
-        .. note::
-
-            *include_nodeid* is set to ``True`` only in unit-tests.
-
-        :param node: the PgDistNode we want to build hash for.
-        :param include_nodeid: whether *nodeid* should be taken into account when comparison is performed.
-        :returns: :class:`tuple` object with *host*, *port*, *role*, and optionally *nodeid*
-        """
-        return node.host, node.port, node.role, (node.nodeid if include_nodeid else None)
-
     def equals(self, other: 'PgDistGroup', check_nodeid: bool = False) -> bool:
         """Compares two :class:`PgDistGroup` objects.
 
-        .. note::
-
-            Normally only *host*, *port*, and *role* values are compared for all :class:`PgDistNode` objects.
-            But, optionally it can also compare *nodeid* if *check_nodeid* if set to ``True`` (used only in unit-tests).
-
         :param other: what we want to compare with.
-        :param check_nodeid: whether *nodeid* should be compared in addition to *host*, *port*, and *role*.
-        :returns: ``True`` if all two objects are identical.
+        :param check_nodeid: whether :attr:`PgDistNode.nodeid` should be compared in addition to
+                             :attr:`PgDistNode.host`, :attr:`PgDistNode.port`, and :attr:`PgDistNode.role`.
+
+        :returns: ``True`` if two :class:`PgDistGroup` objects are fully identical.
         """
-        return set(self._node_hash(v, check_nodeid) for v in self)\
-            == set(self._node_hash(v, check_nodeid) for v in other)
+        return self.groupid == other.groupid\
+            and set(v.as_tuple(check_nodeid) for v in self) == set(v.as_tuple(check_nodeid) for v in other)
 
     def primary(self) -> Optional[PgDistNode]:
-        """Finds and returns :class:`PgDistNode` object that represents "primary"."""
+        """Finds and returns :class:`PgDistNode` object that represents the "primary".
+
+        :returns: :class:`PgDistNode` object which represents the "primary" or ``None`` if not found.
+        """
         return next(iter(v for v in self if v.is_primary()), None)
 
     def get(self, value: PgDistNode) -> Optional[PgDistNode]:
-        """Performs a lookup of the actual value in a given set.
+        """Performs a lookup of the actual value in a set.
 
         .. note::
-            It is necessary because :func:`__hash__` and :func:`__eq__` methods in :class:`PgDistNode`
-            are redefined and effectively they check only *host* and *port* attributes.
+            It is necessary because :func:`__hash__` and :func:`__eq__` methods in :class:`PgDistNode` are
+            redefined and effectively they check only :attr:`PgDistNode.host` and :attr:`PgDistNode.port` attributes.
 
         :param value: the key we search for.
-        :returns: the actual :class:`PgDistNode`` value from this :class:`PgDistGroup` object or ``None``.
+        :returns: the actual :class:`PgDistNode` value from this :class:`PgDistGroup` object or ``None`` if not found.
         """
         return next(iter(v for v in self if v == value), None)
 
@@ -156,7 +156,7 @@ class PgDistGroup(Set[PgDistNode]):
             The actual yielded object is :class:`PgDistNode` that will be passed to
             the :meth:`CitusHandler.update_node` to execute all transitions in a transaction.
 
-            In addition to the yielding transactions this method fills up *nodeid*
+            In addition to the yielding transactions this method fills up :attr:`PgDistNode.nodeid`
             attribute for nodes that are presented in the old and in the new topology.
 
             There are a few simple rules/constraints that are imposed by Citus and must be followed:
@@ -167,9 +167,9 @@ class PgDistGroup(Set[PgDistNode]):
 
             - "nodename", "nodeport" must be unique across all rows in the "pg_dist_node". This means that
               every time we want to change the nodeid of an existing node (i.e. to change it from secondary
-              to primary), we should first write some other "nodename"/"port" to the row it's currently in.
+              to primary), we should first write some other "nodename"/"nodeport" to the row it's currently in.
 
-            - updating "broken" nodes always works and metadata is synced asynchnonously after commit.
+            - updating "broken" nodes always works and metadata is synced asynchnonously after the commit.
 
         Following these rules below is an example of the switchover between node1 (primary, nodeid=4)
         and node2 (secondary, nodeid=5).
@@ -182,7 +182,7 @@ class PgDistGroup(Set[PgDistNode]):
                 SELECT citus_update_node(4, 'node2', 5432);
             COMMIT;
 
-        :param old: the last known topology registered in "pg_dist_node" for a given *groupid*
+        :param old: the last known topology registered in "pg_dist_node" for a given :attr:`groupid`.
 
         :yields: :class:`PgDistNode` objects that must be updated/added/removed in "pg_dist_node".
         """
