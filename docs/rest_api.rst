@@ -565,7 +565,7 @@ When calling ``/switchover`` endpoint candidate can be specified but is not requ
 
 In the JSON body of the ``POST`` request, you must specify at least the ``leader`` field and, optionally, the ``candidate`` and ``scheduled_at`` field if you want to schedule a switchover at a specific time.
 
-Depending on the situation request might finish with different HTTP status codes and bodies. Status code **200** is returned when the switchover or failover successfully completed. If the switchover was successfully scheduled, Patroni will return HTTP status code **202**. In case something went wrong, the error status code (one of **400**, **412**, or **503**) will be returned with some details in the response body.
+Depending on the situation, requests might return different HTTP status codes and bodies. Status code **200** is returned when the switchover or failover successfully completed. If the switchover was successfully scheduled, Patroni will return HTTP status code **202**. In case something went wrong, the error status code (one of **400**, **412**, or **503**) will be returned with some details in the response body.
 
 ``DELETE /switchover`` can be used to delete the currently scheduled switchover.
 
@@ -586,7 +586,7 @@ Depending on the situation request might finish with different HTTP status codes
 	Successfully switched over to "postgresql2"
 
 
-**Example:** schedule a switchover from the leader to any other healthy standby in the cluster at a specific time
+**Example:** schedule a switchover from the leader to any other healthy standby in the cluster at a specific time.
 
 .. code-block:: bash
 
@@ -598,7 +598,7 @@ Depending on the situation request might finish with different HTTP status codes
 Failover
 ^^^^^^^^
 
-``/failover`` endpoint allows to perform a manual failover when there are no healthy nodes (e.g. to an asynchronous standby if all synchronous standbys are not healthy to promote). However there is no requirement for a cluster not to have leader - failover can also be run on a healthy cluster.
+``/failover`` endpoint can be used to perform a manual failover when there are no healthy nodes (e.g. to an asynchronous standby if all synchronous standbys are not healthy enough to promote). However there is no requirement for a cluster not to have leader - failover can also be run on a healthy cluster.
 
 In the JSON body of the ``POST`` request you must specify ``candidate`` field. If ``leader`` field is specified, switchover is triggered. 
 
@@ -645,20 +645,20 @@ Healthy standby
 There are a couple of checks that a member of a cluster should pass to be able to participate in the leader race during a switchover or to become a leader as a failover/switchover candidate:
 
 - be reachable via Patroni API,
-- not to have ``nofailover`` tag,
+- not have ``nofailover`` tag set to ``true``,
 - have watchdog fully functional (if required by the configuration),
-- in case of a switchover or a failover in a healthy cluster, not to exceed maximum replication lag (``maximum_lag_on_failover`` :ref:`configuration parameter <dynamic_configuration>`),
-- in case of a switchover or a failover in a healthy cluster, not to have the timeline number smaller than the cluster timeline,
+- in case of a switchover or a failover in a healthy cluster, not exceed maximum replication lag (``maximum_lag_on_failover`` :ref:`configuration parameter <dynamic_configuration>`),
+- in case of a switchover or a failover in a healthy cluster, not have a timeline number smaller than the cluster timeline,
 - in :ref:`synchronous mode <synchronous_mode>`:
 
   - In case of a switchover (both with and without a candidate): be listed in the ``/sync`` key members.
   - For a failover in both healthy and unhealthy clusters, this check is omitted.
 
 .. warning::
-    In case of a failover in a cluster without a leader, a candidate will be allowed to promote even:
-	- if it is not in the ``/sync`` key members when synchronous mode is enabled,
-	- if its lag exceeds the maximum replication lag allowed,
-	- if it has the timeline number smaller than the cluster timeline.
+    In case of a failover in a cluster without a leader, a candidate will be allowed to promote even if:
+	- it is not in the ``/sync`` key members when synchronous mode is enabled,
+	- its lag exceeds the maximum replication lag allowed,
+	- it has the timeline number smaller than the cluster timeline.
 
 
 Restart endpoint
