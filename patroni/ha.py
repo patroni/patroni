@@ -912,6 +912,27 @@ class Ha(object):
         lag = (self.cluster.last_lsn or 0) - wal_position
         return lag > self.global_config.maximum_lag_on_failover
 
+    def has_members_eligible_to_promote(self, members: List[Member], reference_lsn: int = 0,
+                                        fast_path: bool = False) -> bool:
+        ret = False
+        cluster_timeline = self.cluster.timeline
+
+        for st in self.fetch_nodes_statuses(members):
+            not_allowed_reason = st.failover_limitation()
+            if not_allowed_reason:
+                logger.info('Member %s is %s', st.member.name, not_allowed_reason)
+            elif fast_path:
+                return True
+            elif reference_lsn and st.wal_position < reference_lsn or \
+                    not reference_lsn and self.is_lagging(st.wal_position):
+                logger.info('Member %s exceeds maximum replication lag', st.member.name)
+            elif self.check_timeline() and (not st.timeline or st.timeline < cluster_timeline):
+                logger.info('Timeline %s of member %s is behind the cluster timeline %s',
+                            st.timeline, st.member.name, cluster_timeline)
+            else:
+                ret = True
+        return ret
+
     def _is_healthiest_node(self, members: Collection[Member], check_replication_lag: bool = True) -> bool:
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
 
@@ -964,21 +985,7 @@ class Ha(object):
         elif not candidates:
             logger.warning('%s: candidates list is empty', action)
 
-        ret = False
-        cluster_timeline = self.cluster.timeline
-        for st in self.fetch_nodes_statuses(candidates):
-            not_allowed_reason = st.failover_limitation()
-            if not_allowed_reason:
-                logger.info('Member %s is %s', st.member.name, not_allowed_reason)
-            elif cluster_lsn and st.wal_position < cluster_lsn or \
-                    not cluster_lsn and self.is_lagging(st.wal_position):
-                logger.info('Member %s exceeds maximum replication lag', st.member.name)
-            elif self.check_timeline() and (not st.timeline or st.timeline < cluster_timeline):
-                logger.info('Timeline %s of member %s is behind the cluster timeline %s',
-                            st.timeline, st.member.name, cluster_timeline)
-            else:
-                ret = True
-        return ret
+        return self.has_members_eligible_to_promote(candidates, cluster_lsn)
 
     def manual_failover_process_no_leader(self) -> Optional[bool]:
         """Handles manual failover/switchover when the old leader already stepped down.

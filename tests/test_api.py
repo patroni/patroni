@@ -122,6 +122,9 @@ class MockHa(object):
     def is_paused():
         return True
 
+    def has_members_eligible_to_promote(*args, **kwargs):
+        return True
+
 
 class MockLogger(object):
 
@@ -599,7 +602,7 @@ class TestRestApiHandler(unittest.TestCase):
         dcs.manual_failover.return_value = True
 
         # Candidate is not healthy to be promoted
-        with patch.object(MockHa, 'fetch_nodes_statuses', Mock(return_value=[])), \
+        with patch.object(MockHa, 'has_members_eligible_to_promote', Mock(return_value=False)), \
              patch.object(RestApiHandler, 'write_response') as response_mock:
             MockRestApiServer(RestApiHandler, request)
             response_mock.assert_called_with(412, 'switchover is not possible: no good candidates have been found')

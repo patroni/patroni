@@ -1626,3 +1626,13 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.patroni.request.call_args[1]['timeout'], 2)
             mock_logger.assert_called()
             self.assertTrue(mock_logger.call_args[0][0].startswith('Request to Citus coordinator'))
+
+    def test_has_members_eligible_to_promote(self):
+        self.ha.fetch_node_status = get_node_status()
+        members = [
+            Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni', 'conn_url': 'postgres://127.0.0.1:5432/postgres'}),
+            Member(0, 'test2', 1, {'api_url': 'http://127.0.0.1:8011/patroni', 'conn_url': 'postgres://127.0.0.1:5432/postgres'}),
+        ]
+        with patch('patroni.ha.logger.info') as mock_logger:
+            self.assertTrue(self.ha.has_members_eligible_to_promote(members, fast_path=True))
+            mock_logger.assert_not_called()

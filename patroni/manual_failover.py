@@ -87,11 +87,7 @@ class ManualFailover(object):
             if not members:
                 return ManualFailoverPrecheckStatus.ONLY_LEADER
 
-        if self.patroni:
-            for st in self.patroni.ha.fetch_nodes_statuses(members):
-                if st.failover_limitation() is None:
-                    break
-            else:
-                return ManualFailoverPrecheckStatus.NO_GOOD_CANDIDATES
+        if self.patroni and not self.patroni.ha.has_members_eligible_to_promote(members, fast_path=True):
+            return ManualFailoverPrecheckStatus.NO_GOOD_CANDIDATES
 
         return ManualFailoverPrecheckStatus.CHECK_PASSED
