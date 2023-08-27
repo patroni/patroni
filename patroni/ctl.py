@@ -1027,7 +1027,7 @@ def restart(obj: Dict[str, Any], cluster_name: str, group: Optional[int], member
 
     members = get_members(obj, cluster, cluster_name, member_names, role, force, action, False, group=group)
     if scheduled is None and not force:
-        next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
+        next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M+00')
         scheduled = click.prompt('When should the restart take place (e.g. ' + next_hour + ') ',
                                  type=str, default='now')
         scheduled = scheduled if scheduled != 'now' else None
@@ -1216,7 +1216,7 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
             raise PatroniCtlException('Aborting ' + action)
 
     if action == 'switchover' and scheduled is None and not force:
-        next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
+        next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M+00')
         scheduled = click.prompt('When should the switchover take place (e.g. ' + next_hour + ') ',
                                  type=str, default='now')
         scheduled = scheduled if scheduled != 'now' else None
