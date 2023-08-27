@@ -6,12 +6,14 @@ import unittest
 from click.testing import CliRunner
 from datetime import datetime, timedelta
 from mock import patch, Mock, PropertyMock
+from patroni.config import GlobalConfig
 from patroni.ctl import ctl, load_config, output_members, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, PatroniCtlException, apply_config_changes, \
     format_config_for_editing, show_diff, invoke_editor, format_pg_version, CONFIG_FILE_PATH, PatronictlPrettyTable
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover, Cluster, Failover
+from patroni.manual_failover import ManualFailoverPrecheckStatus
 from patroni.psycopg import OperationalError
-from patroni.utils import tzutc
+from patroni.utils import ParseScheduleErrors, tzutc
 from prettytable import PrettyTable, ALL
 from urllib3 import PoolManager
 
@@ -113,77 +115,6 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0', '--force'])
         self.assertEqual(result.exit_code, 0)
 
-        # Scheduled (confirm)
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'],
-                                    input=f'leader\nother\n{self.SCHEDULED_TS}\ny')
-        self.assertEqual(result.exit_code, 0)
-
-        # Scheduled (abort)
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
-                                    '--scheduled', self.SCHEDULED_TS], input='leader\nother\n\nN')
-        self.assertEqual(result.exit_code, 1)
-
-        # Scheduled with --force option
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
-                                    '--force', '--scheduled', self.SCHEDULED_TS])
-        self.assertEqual(result.exit_code, 0)
-
-        # Scheduled in pause mode
-        with patch('patroni.config.GlobalConfig.is_paused', PropertyMock(return_value=True)):
-            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
-                                              '--force', '--scheduled', self.SCHEDULED_TS])
-            self.assertEqual(result.exit_code, 1)
-            self.assertIn("Can't schedule switchover in the paused state", result.output)
-
-        # Target and source are equal
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nleader\n\ny')
-        self.assertEqual(result.exit_code, 1)
-        self.assertIn('Switchover target and source are the same', result.output)
-
-        # Candidate is not a member of the cluster
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nReality\n\ny')
-        self.assertEqual(result.exit_code, 1)
-        self.assertIn('Member Reality does not exist in cluster dummy or is tagged as nofailover', result.output)
-
-        # Invalid timestamp with force
-        result = self.runner.invoke(ctl,['switchover', 'dummy', '--group', '0', '--force', '--scheduled',
-                                         self.SCHEDULED_TS_INVALID])
-        self.assertEqual(result.exit_code, 1)
-        self.assertIn('Unable to parse scheduled timestamp', result.output)
-
-        # Invalid timestamp
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
-                                          '--force', '--scheduled', self.SCHEDULED_TS_INVALID])
-        self.assertEqual(result.exit_code, 1)
-        self.assertIn('Unable to parse scheduled timestamp', result.output)
-
-        # Invalid timestamp - no timezone
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
-                                          '--force', '--scheduled', self.SCHEDULED_TS_NO_TZ])
-        self.assertEqual(result.exit_code, 1)
-        self.assertIn('Timezone information is mandatory for the scheduled switchover', result.output)
-
-        # Specifying wrong leader
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='dummy')
-        self.assertEqual(result.exit_code, 1)
-        self.assertIn('Member dummy is not the leader of cluster dummy', result.output)
-
-        # Errors while sending Patroni REST API request
-        with patch.object(PoolManager, 'request', Mock(side_effect=Exception)):
-            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'],
-                                        input=f'leader\nother\n{self.SCHEDULED_TS}\ny')
-            self.assertIn('falling back to DCS', result.output)
-
-        with patch.object(PoolManager, 'request') as mock_api_request:
-            mock_api_request.return_value.status = 500
-            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
-            self.assertIn('Switchover failed', result.output)
-
-            mock_api_request.return_value.status = 501
-            mock_api_request.return_value.data = b'Server does not support this operation'
-            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
-            self.assertIn('Switchover failed', result.output)
-
         # No members available
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_only_leader
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
@@ -201,6 +132,132 @@ class TestCtl(unittest.TestCase):
         self.assertEqual(result.exit_code, 1)
         self.assertIn('For Citus clusters the --group must me specified', result.output)
 
+        # [Scheduled]
+
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+
+        # Scheduled (confirm)
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'],
+                                    input=f'leader\nother\n{self.SCHEDULED_TS}\ny')
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn(f'Are you sure you want to schedule switchover of cluster dummy '
+                      f'at {self.SCHEDULED_TS}, demoting current leader', result.output)
+
+        # Scheduled (abort)
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
+                                    '--scheduled', self.SCHEDULED_TS], input='leader\nother\n\nN')
+        self.assertEqual(result.exit_code, 1)
+
+        # Scheduled with --force option
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
+                                    '--force', '--scheduled', self.SCHEDULED_TS])
+        self.assertEqual(result.exit_code, 0)
+
+        # Scheduled in pause mode
+        with patch('patroni.config.GlobalConfig.is_paused', PropertyMock(return_value=True)):
+            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
+                                              '--force', '--scheduled', self.SCHEDULED_TS])
+            self.assertEqual(result.exit_code, 1)
+            self.assertIn(ManualFailoverPrecheckStatus.SCHEDULED_SWITCHOVER_PAUSE.value[0], result.output)
+
+        # Invalid timestamp with force
+        result = self.runner.invoke(ctl,['switchover', 'dummy', '--group', '0', '--force', '--scheduled',
+                                         self.SCHEDULED_TS_INVALID])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn('Unable to parse scheduled timestamp', result.output)
+
+        # Invalid timestamp
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
+                                          '--force', '--scheduled', self.SCHEDULED_TS_INVALID])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn('Unable to parse scheduled timestamp', result.output)
+
+        # Invalid timestamp - no timezone
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
+                                          '--force', '--scheduled', self.SCHEDULED_TS_NO_TZ])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn(ParseScheduleErrors.NO_TIMEZONE.value[0].format(action='switchover'), result.output)
+
+        # [Other erroneous combinations]
+
+        # No candidate in pause mode
+        with patch('patroni.config.GlobalConfig.is_paused', PropertyMock(return_value=True)):
+            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\n\n\ny')
+            self.assertEqual(result.exit_code, 1)
+            self.assertIn(ManualFailoverPrecheckStatus.SWITCHOVER_PAUSE_NO_CANDIDATE.value[0], result.output)
+
+        # Target and source are equal
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nleader\n\ny')
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn(ManualFailoverPrecheckStatus.SWITCHOVER_TO_LEADER.value[0], result.output)
+
+        # Candidate is not a member of the cluster
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nReality\n\ny')
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn(ManualFailoverPrecheckStatus.CANDIDATE_NOT_MEMEBER.value[0].format(candidate='Reality',
+                                                                                         cluster_name='dummy'),
+                      result.output)
+
+        # Specifying wrong leader
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='dummy')
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn(
+            ManualFailoverPrecheckStatus.LEADER_NOT_MEMBER.value[0].format(leader='dummy',
+                                                                           cluster_name='dummy'),
+            result.output)
+
+        mock_get_dcs.return_value.get_cluster = Mock(
+            return_value=get_cluster_initialized_with_leader(sync=('leader', 'other')))
+
+        # Candidate is not a sync standby
+        with patch.object(GlobalConfig, 'is_synchronous_mode', PropertyMock(return_value=True)):
+            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\notherMember\n\ny')
+            self.assertEqual(result.exit_code, 1)
+            self.assertIn(ManualFailoverPrecheckStatus.CANDIDATE_NOT_SYNC_STANDBY.value[0], result.output)
+
+        # No healthy nodes to promote in sync mode
+        mock_get_dcs.return_value.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('leader')))
+        with patch.object(GlobalConfig, 'is_synchronous_mode', PropertyMock(return_value=True)):
+            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0', '--force'])
+            self.assertEqual(result.exit_code, 1)
+            self.assertIn(ManualFailoverPrecheckStatus.NO_SYNC_CANDIDATE.value[0].format(action='switchover'),
+                          result.output)
+
+        # No healthy nodes to promote in async mode
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_only_leader
+        with patch.object(GlobalConfig, 'is_synchronous_mode', PropertyMock(return_value=False)):
+            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0', '--force'])
+            self.assertEqual(result.exit_code, 1)
+            self.assertIn(ManualFailoverPrecheckStatus.ONLY_LEADER.value[0].format(action='switchover'),
+                          result.output)
+
+        # Cluster has no leader
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_without_leader
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0', '--leader', 'leader', '--force'])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn(
+            ManualFailoverPrecheckStatus.CLUSTER_NO_LEADER.value[0].format(leader='leader', cluster_name='dummy'),
+            result.output)
+
+        # [Errors while sending Patroni REST API request]
+
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+
+        with patch.object(PoolManager, 'request', Mock(side_effect=Exception)):
+            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'],
+                                        input=f'leader\nother\n{self.SCHEDULED_TS}\ny')
+            self.assertIn('falling back to DCS', result.output)
+
+        with patch.object(PoolManager, 'request') as mock_api_request:
+            mock_api_request.return_value.status = 500
+            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
+            self.assertIn('Switchover failed', result.output)
+
+            mock_api_request.return_value.status = 501
+            mock_api_request.return_value.data = b'Server does not support this operation'
+            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
+            self.assertIn('Switchover failed', result.output)
+
     @patch('patroni.ctl.get_dcs')
     @patch.object(PoolManager, 'request', Mock(return_value=MockResponse()))
     @patch('patroni.ctl.request_patroni', Mock(return_value=MockResponse()))
@@ -210,7 +267,7 @@ class TestCtl(unittest.TestCase):
         # No candidate specified
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
         result = self.runner.invoke(ctl, ['failover', 'dummy'], input='0\n')
-        self.assertIn('Failover could be performed only to a specific candidate', result.output)
+        self.assertIn(ManualFailoverPrecheckStatus.FAILOVER_NO_CANDIDATE.value[0], result.output)
 
         # Failover to an async member in sync mode (confirm)
         cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
@@ -374,7 +431,7 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl,
                                     ['restart', 'alpha', 'other', '--force', '--scheduled', self.SCHEDULED_TS_NO_TZ])
         self.assertEqual(result.exit_code, 1)
-        self.assertIn('Timezone information is mandatory for the scheduled restart', result.output)
+        self.assertIn(ParseScheduleErrors.NO_TIMEZONE.value[0].format(action='restart'), result.output)
 
         # Error parsing scheduled flag value (invalid date)
         result = self.runner.invoke(ctl,

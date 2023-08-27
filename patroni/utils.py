@@ -1074,7 +1074,7 @@ class ParseScheduleErrors(Enum):
 
 def parse_schedule(schedule: Optional[str]) -> Tuple[Optional[ParseScheduleErrors], Optional[datetime.datetime]]:
     scheduled_at = None
-    if schedule is not None and (schedule or 'now') != 'now':
+    if schedule is not None:
         try:
             scheduled_at = dateutil.parser.parse(schedule)
             if scheduled_at.tzinfo is None:

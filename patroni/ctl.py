@@ -1030,6 +1030,7 @@ def restart(obj: Dict[str, Any], cluster_name: str, group: Optional[int], member
         next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
         scheduled = click.prompt('When should the restart take place (e.g. ' + next_hour + ') ',
                                  type=str, default='now')
+        scheduled = scheduled if scheduled != 'now' else None
 
     parse_result, scheduled_at = parse_schedule(scheduled)
     if parse_result:
@@ -1190,24 +1191,21 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
     global_config = get_global_config(cluster)
 
     # Leader is required for switchover only
-    if action == 'switchover':
+    if action == 'switchover' and leader is None:
         if cluster.leader is None or not cluster.leader.name:
             raise PatroniCtlException('This cluster has no leader')
+        if force:
+            leader = cluster.leader.name
+        else:
+            prompt = 'Standby Leader' if global_config.is_standby_cluster else 'Primary'
+            leader = click.prompt(prompt, type=str, default=(cluster.leader and cluster.leader.name))
 
-        if leader is None:
-            if force:
-                leader = cluster.leader.name
-            else:
-                prompt = 'Standby Leader' if global_config.is_standby_cluster else 'Primary'
-                leader = click.prompt(prompt, type=str, default=(cluster.leader and cluster.leader.name))
-
-    # Check if there are any candidates available at all
-    candidate_names = [str(m.name) for m in cluster.members if m.name != leader and not m.nofailover]
-    if not candidate_names:
-        raise PatroniCtlException('No candidates found to {0} to'.format(action))
-
-    candidate_names.sort()   # we sort the names for consistent output to the client
     if candidate is None and not force:
+        # Check if there are any candidates available at all
+        candidate_names = [str(m.name) for m in cluster.members if m.name != leader and not m.nofailover]
+        if not candidate_names:
+            raise PatroniCtlException('No candidates found to {0} to'.format(action))
+        candidate_names.sort()   # we sort the names for consistent output to the client
         candidate = click.prompt('Candidate ' + str(candidate_names), type=str, default='')
 
     # We allow manual failover to an aync node in the sync mode, so we better ask for the confirmation
@@ -1219,8 +1217,9 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
 
     if action == 'switchover' and scheduled is None and not force:
         next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
-        scheduled = click.prompt('When should the switchover take place (e.g. ' + next_hour + ' ) ',
+        scheduled = click.prompt('When should the switchover take place (e.g. ' + next_hour + ') ',
                                  type=str, default='now')
+        scheduled = scheduled if scheduled != 'now' else None
 
     # Now, when we collected all the possible info, run checks
     manual_failover = ManualFailover(action, cluster, leader, candidate, scheduled,

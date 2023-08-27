@@ -1015,10 +1015,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         logger.info("received %s request with leader=%s candidate=%s scheduled_at=%s",
                     action, leader, candidate, scheduled_at)
 
-        if action == 'failover' and leader:
-            logger.warning('received failover request with leader specifed - performing switchover')
-            action = 'switchover'
-
         manual_failover = ManualFailover(action, cluster, leader, candidate, scheduled_at,
                                          global_config.is_paused, global_config.is_synchronous_mode,
                                          self.server.patroni)
