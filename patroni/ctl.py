@@ -1209,10 +1209,12 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
         candidate = click.prompt('Candidate ' + str(candidate_names), type=str, default='')
 
     # We allow manual failover to an aync node in the sync mode, so we better ask for the confirmation
-    if not force and action == 'failover':
-        if global_config.is_synchronous_mode and not cluster.sync.is_empty \
-           and not cluster.sync.matches(candidate, True) \
-           and not click.confirm(f'Are you sure you want to failover to the asynchronous node {candidate}'):
+    if all((not force,
+            action == 'failover',
+            global_config.is_synchronous_mode,
+            not cluster.sync.is_empty,
+            not cluster.sync.matches(candidate, True))):
+        if click.confirm(f'Are you sure you want to failover to the asynchronous node {candidate}'):
             raise PatroniCtlException('Aborting ' + action)
 
     if action == 'switchover' and scheduled is None and not force:
@@ -1245,8 +1247,8 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
         demote_msg = f', demoting current leader {cluster.leader.name}' if cluster.leader else ''
         if scheduled_at_str:
             # only switchover can be scheduled
-            if not click.confirm(f'Are you sure you want to schedule switchover of cluster \
-{cluster_name} at {scheduled_at_str}{demote_msg}?'):
+            if not click.confirm(f'Are you sure you want to schedule switchover of cluster'
+                                 f'{cluster_name} at {scheduled_at_str}{demote_msg}?'):
                 raise PatroniCtlException('Aborting scheduled ' + action)
         else:
             if not click.confirm(f'Are you sure you want to {action} cluster {cluster_name}{demote_msg}?'):
