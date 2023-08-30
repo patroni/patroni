@@ -1562,8 +1562,7 @@ def output_members(obj: Dict[str, Any], cluster: Cluster, name: str,
 
     title = 'Citus cluster' if is_citus_cluster else 'Cluster'
     group_title = '' if group is None else 'group: {0}, '.format(group)
-    title_details = group_title and ' ({0}{1})'.format(group_title, initialize)
-    title = ' {0}: {1}{2} '.format(title, name, title_details)
+    title = f' {title}: {name} ({group_title}{initialize}) '
     print_output(columns, rows, {'Group': 'r', 'Lag in MB': 'r', 'TL': 'r'}, fmt, title)
 
     if fmt not in ('pretty', 'topology'):  # Omit service info when using machine-readable formats
