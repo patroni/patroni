@@ -1130,7 +1130,7 @@ class Kubernetes(AbstractDCS):
 
     def _write_status(self, value: str) -> bool:
         """Unused"""
-        raise NotImplementedError  # pragma: no cover
+        pass
 
     def _write_failsafe(self, value: str) -> bool:
         """Unused"""
