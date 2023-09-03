@@ -1380,7 +1380,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             :class:`psycopg.Error`: if had issues while executing *sql*.
             :class:`~patroni.exceptions.PostgresConnectionException`: if had issues while connecting to the database.
         """
-        # We first try top get a heartbeat connection because it is always required for the main thread
+        # We first try to get a heartbeat connection because it is always required for the main thread.
         try:
             heartbeat_connection = self.patroni.postgresql.connection_pool.get('heartbeat')
             heartbeat_connection.get()  # try to open psycopg connection to postgres
