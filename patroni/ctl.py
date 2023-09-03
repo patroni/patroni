@@ -1294,6 +1294,7 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
             # only switchover can be scheduled
             if not click.confirm(f'Are you sure you want to schedule switchover of cluster '
                                  f'{cluster_name} at {scheduled_at_str}{demote_msg}?'):
+                # action as a var to catch a regression in the tests
                 raise PatroniCtlException('Aborting scheduled ' + action)
         else:
             if not click.confirm(f'Are you sure you want to {action} cluster {cluster_name}{demote_msg}?'):

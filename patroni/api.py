@@ -1067,7 +1067,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``412``: if operation is not possible;
             * ``503``: if unable to register the operation to the DCS;
             * HTTP status returned by :func:`parse_schedule`, if any error was observed while parsing the schedule;
-            * HTTP status returned by :func:`poll_failover_result` if the operation has been processed immediately.
+            * HTTP status returned by :func:`poll_failover_result` if the operation has been processed immediately;
+            * ``400``: if none of the above applies.
 
         .. note::
             If unable to parse the request body, then the request is silently discarded.
@@ -1105,7 +1106,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             data = 'Switchover is possible only to a specific candidate in a paused state'
 
         if action == 'failover' and leader:
-            logger.warning('received failover request with leader specifed - performing switchover')
+            logger.warning('received failover request with leader specifed - performing switchover instead')
             action = 'switchover'
 
         if not data and leader == candidate:

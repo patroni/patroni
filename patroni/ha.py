@@ -1026,7 +1026,7 @@ class Ha(object):
         elif self.is_paused():
             return False
 
-        # try to pick some other members to switchover and check that they are healthy
+        # try to pick some other members for switchover and check that they are healthy
         if failover.leader:
             if self.state_handler.name == failover.leader:  # I was the leader
                 # exclude desired member which is unhealthy if it was specified
@@ -1258,7 +1258,7 @@ class Ha(object):
         action = self._get_failover_action_name()
         bare_action = action.replace('manual ', '')
 
-        # it is not the time for the the scheduled failover yet, do nothing
+        # it is not the time for the scheduled switchover yet, do nothing
         if (failover.scheduled_at and not
             self.should_run_scheduled_action(bare_action, failover.scheduled_at, lambda:
                                              self.dcs.manual_failover('', '', version=failover.version))):
