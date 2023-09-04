@@ -364,6 +364,7 @@ Cluster status endpoints
     {
       "members": [
         {
+          "scope": "demo",
           "name": "patroni1",
           "role": "leader",
           "state": "running",
@@ -376,6 +377,7 @@ Cluster status endpoints
           }
         },
         {
+          "scope": "demo",
           "name": "patroni2",
           "role": "replica",
           "state": "streaming",
