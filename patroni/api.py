@@ -1567,7 +1567,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         :param listen: IP and port to bind REST API to. It should be a string in the format ``host:port``, where
             ``host`` can be a hostname or IP address. It is the value of ``restapi.listen`` setting.
         :param ssl_options: dictionary that may contain the following keys, depending on what has been configured in
-            ``restapi` section:
+            ``restapi`` section:
 
             * ``certfile``: path to PEM certificate. If given, will start in HTTPS mode;
             * ``keyfile``: path to key of ``certfile``;
