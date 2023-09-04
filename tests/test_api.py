@@ -681,5 +681,7 @@ class TestRestApiServer(unittest.TestCase):
     def test_query(self):
         with patch.object(MockConnection, 'get', Mock(side_effect=OperationalError)):
             self.assertRaises(PostgresConnectionException, self.srv.query, 'SELECT 1')
-        with patch.object(MockConnection, 'get', Mock(side_effect=[MockConnect(), OperationalError])):
+        with patch.object(MockConnection, 'get', Mock(side_effect=[MockConnect(), OperationalError])), \
+                patch.object(MockConnection, 'query') as mock_query:
             self.srv.query('SELECT 1')
+            mock_query.assert_called_once_with('SELECT 1')
