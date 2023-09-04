@@ -1263,6 +1263,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             row = self.query(stmt.format(postgresql.wal_name, postgresql.lsn_name,
                                          postgresql.wal_flush), retry=retry)[0]
             result = {
+                'scope': postgresql.scope,
                 'name': postgresql.name,
                 'state': postgresql.state,
                 'postmaster_start_time': row[0],
