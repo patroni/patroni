@@ -662,11 +662,11 @@ class ConfigHandler(object):
             self._auto_conf_mtime = auto_conf_mtime
             self._postmaster_ctime = postmaster_ctime
         except Exception as exc:
-            if all(isinstance(exc, PostgresConnectionException),
-                   self._postgresql_conf_mtime == pg_conf_mtime,
-                   self._auto_conf_mtime == auto_conf_mtime,
-                   self._passfile_mtime == passfile_mtime,
-                   self._postmaster_ctime != postmaster_ctime):
+            if all((isinstance(exc, PostgresConnectionException),
+                    self._postgresql_conf_mtime == pg_conf_mtime,
+                    self._auto_conf_mtime == auto_conf_mtime,
+                    self._passfile_mtime == passfile_mtime,
+                    self._postmaster_ctime != postmaster_ctime)):
                 # We detected that the connection to postgres fails, but the process creation time of the postmaster
                 # doesn't match the old value. It is an indicator that Postgres crashed and either doing crash
                 # recovery or down. In this case we return values like nothing changed in the config.
