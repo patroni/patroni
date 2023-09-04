@@ -630,8 +630,8 @@ class ConfigHandler(object):
             We query Postgres only if we detected that Postgresql was restarted
             or when at least one of the following files was updated:
 
-                * `postgresql.conf`
-                * `postgresql.auto.conf`
+                * ``postgresql.conf``;
+                * ``postgresql.auto.conf``;
                 * ``passfile`` that is used in the ``primary_conninfo``.
 
         :returns: a tuple with two elements:
@@ -662,14 +662,14 @@ class ConfigHandler(object):
             self._auto_conf_mtime = auto_conf_mtime
             self._postmaster_ctime = postmaster_ctime
         except Exception as exc:
-            if isinstance(exc, PostgresConnectionException) \
-                    and self._postgresql_conf_mtime == pg_conf_mtime \
-                    and self._auto_conf_mtime == auto_conf_mtime \
-                    and self._passfile_mtime == passfile_mtime \
-                    and self._postmaster_ctime != postmaster_ctime:
-                # We detected that connection to postgres fails, but the process creation time of the postmaster
+            if all(isinstance(exc, PostgresConnectionException),
+                   self._postgresql_conf_mtime == pg_conf_mtime,
+                   self._auto_conf_mtime == auto_conf_mtime,
+                   self._passfile_mtime == passfile_mtime,
+                   self._postmaster_ctime != postmaster_ctime):
+                # We detected that the connection to postgres fails, but the process creation time of the postmaster
                 # doesn't match the old value. It is an indicator that Postgres crashed and either doing crash
-                # a recovery or down. In this case we return values like nothing changed in the config.
+                # recovery or down. In this case we return values like nothing changed in the config.
                 return None, False
             values = None
         return values, True
