@@ -1140,6 +1140,13 @@ class Kubernetes(AbstractDCS):
         """Unused"""
         raise NotImplementedError  # pragma: no cover
 
+    def write_leader_optime(self, last_lsn: int) -> None:
+        """Write value for WAL LSN to ``optime`` annotation of the leader object.
+
+        :param last_lsn: absolute WAL LSN in bytes.
+        """
+        self.patch_or_create(self.leader_path, {self._OPTIME: str(last_lsn)}, patch=True, retry=False)
+
     def _update_leader_with_retry(self, annotations: Dict[str, Any],
                                   resource_version: Optional[str], ips: List[str]) -> bool:
         retry = self._retry.copy()

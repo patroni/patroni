@@ -436,6 +436,10 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         mock_logger_exception.assert_called_once()
         self.assertEqual(('create_config_service failed',), mock_logger_exception.call_args[0])
 
+    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', mock_namespaced_kind, create=True)
+    def test_write_leader_optime(self):
+        self.k.write_leader_optime(12345)
+
 
 def mock_watch(*args):
     return urllib3.HTTPResponse()
