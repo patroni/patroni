@@ -364,7 +364,6 @@ Cluster status endpoints
     {
       "members": [
         {
-          "scope": "demo",
           "name": "patroni1",
           "role": "leader",
           "state": "running",
@@ -377,7 +376,6 @@ Cluster status endpoints
           }
         },
         {
-          "scope": "demo",
           "name": "patroni2",
           "role": "replica",
           "state": "streaming",
@@ -391,6 +389,7 @@ Cluster status endpoints
           "lag": 0
         }
       ],
+      "scope": "demo",
       "scheduled_switchover": {
         "at": "2023-09-24T10:36:00+02:00",
         "from": "patroni1",
