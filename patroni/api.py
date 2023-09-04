@@ -493,6 +493,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         The response contains the following items:
 
             * ``patroni_version``: Patroni version without periods, e.g. ``030002`` for Patroni ``3.0.2``;
+            * ``patroni_name``: Patroni name, e.g. ``patroni1``;
             * ``patroni_postgres_running``: ``1`` if PostgreSQL is running, else ``0``;
             * ``patroni_postmaster_start_time``: epoch timestamp since Postmaster was started;
             * ``patroni_master``: ``1`` if this node holds the leader lock, else ``0``;
@@ -531,6 +532,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_version gauge")
         padded_semver = ''.join([x.zfill(2) for x in patroni.version.split('.')])  # 2.0.2 => 020002
         metrics.append("patroni_version{0} {1}".format(scope_label, padded_semver))
+
+        metrics.append("# HELP patroni_name Patroni name.")
+        metrics.append("# TYPE patroni_name gauge")
+        metrics.append("patroni_name{0} {1}".format(scope_label, postgres.name))
 
         metrics.append("# HELP patroni_postgres_running Value is 1 if Postgres is running, 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_running gauge")
