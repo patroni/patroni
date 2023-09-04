@@ -589,7 +589,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# HELP patroni_xlog_paused Value is 1 if the Postgres xlog is paused, 0 otherwise.")
         metrics.append("# TYPE patroni_xlog_paused gauge")
         metrics.append("patroni_xlog_paused{0} {1}"
-                       .format(scope_label, int(postgres.get('xlog', {}).get('paused', False) is True)))
+                       .format(labels, int(postgres.get('xlog', {}).get('paused', False) is True)))
 
         if postgres.get('server_version', 0) >= 90600:
             metrics.append("# HELP patroni_postgres_streaming Value is 1 if Postgres is streaming, 0 otherwise.")
