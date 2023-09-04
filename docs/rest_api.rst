@@ -98,6 +98,7 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
 
     $ curl -s http://localhost:8008/patroni | jq .
     {
+      "scope": "demo",
       "name": "patroni1",
       "state": "running",
       "postmaster_start_time": "2023-08-18 11:03:37.966359+00:00",
@@ -142,6 +143,7 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
 
     $ curl -s http://localhost:8008/patroni  | jq .
     {
+      "scope": "demo", 
       "name": "patroni1",
       "state": "running",
       "postmaster_start_time": "2023-08-18 11:09:08.615242+00:00",
@@ -190,6 +192,7 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
 
     $ curl -s http://localhost:8008/patroni  | jq .
     {
+      "scope": "demo",
       "name": "patroni1",
       "state": "running",
       "postmaster_start_time": "2023-08-18 11:09:08.615242+00:00",
@@ -236,6 +239,7 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
 
     $ curl -s http://localhost:8008/patroni  | jq .
     {
+      "scope": "demo",
       "name": "patroni1",
       "state": "running",
       "postmaster_start_time": "2023-08-18 11:09:08.615242+00:00",
