@@ -486,7 +486,7 @@ Let's check that the node processed this configuration. First of all it should s
 
 	$ curl -s http://localhost:8008/patroni | jq .
 	{
-      "name": "patroni1",
+	  "name": "patroni1",
 	  "pending_restart": true,
 	  "database_system_identifier": "6287881213849985952",
 	  "postmaster_start_time": "2016-06-13 13:13:05.211 CEST",
