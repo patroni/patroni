@@ -198,7 +198,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response['database_system_identifier'] = patroni.postgresql.sysid
         if patroni.postgresql.pending_restart:
             response['pending_restart'] = True
-        response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
+        response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope, 'name', patroni.postgresql.name}
         if patroni.scheduled_restart:
             response['scheduled_restart'] = patroni.scheduled_restart.copy()
             del response['scheduled_restart']['postmaster_start_time']
@@ -1265,9 +1265,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
             row = self.query(stmt.format(postgresql.wal_name, postgresql.lsn_name,
                                          postgresql.wal_flush), retry=retry)[0]
-            result = {
-                'scope': postgresql.scope,
-                'name': postgresql.name,
+            result = 
                 'state': postgresql.state,
                 'postmaster_start_time': row[0],
                 'role': 'replica' if row[1] == 0 else 'master',

@@ -98,8 +98,6 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
 
     $ curl -s http://localhost:8008/patroni | jq .
     {
-      "scope": "demo",
-      "name": "patroni1",
       "state": "running",
       "postmaster_start_time": "2023-08-18 11:03:37.966359+00:00",
       "role": "master",
@@ -133,7 +131,8 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
       "database_system_identifier": "7268616322854375442",
       "patroni": {
         "version": "3.1.0",
-        "scope": "demo"
+        "scope": "demo",
+        "name": "patroni1"
       }
     }
 
@@ -143,8 +142,6 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
 
     $ curl -s http://localhost:8008/patroni  | jq .
     {
-      "scope": "demo", 
-      "name": "patroni1",
       "state": "running",
       "postmaster_start_time": "2023-08-18 11:09:08.615242+00:00",
       "role": "replica",
@@ -182,7 +179,8 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
       "database_system_identifier": "7268616322854375442",
       "patroni": {
         "version": "3.1.0",
-        "scope": "demo"
+        "scope": "demo",
+        "name": "patroni1"
       }
     }
 
@@ -192,8 +190,6 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
 
     $ curl -s http://localhost:8008/patroni  | jq .
     {
-      "scope": "demo",
-      "name": "patroni1",
       "state": "running",
       "postmaster_start_time": "2023-08-18 11:09:08.615242+00:00",
       "role": "replica",
@@ -229,7 +225,8 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
       "database_system_identifier": "7268616322854375442",
       "patroni": {
         "version": "3.1.0",
-        "scope": "demo"
+        "scope": "demo",
+        "name": "patroni1"
       }
     }
 
@@ -239,8 +236,6 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
 
     $ curl -s http://localhost:8008/patroni  | jq .
     {
-      "scope": "demo",
-      "name": "patroni1",
       "state": "running",
       "postmaster_start_time": "2023-08-18 11:09:08.615242+00:00",
       "role": "replica",
@@ -275,7 +270,8 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
       "database_system_identifier": "7268616322854375442",
       "patroni": {
         "version": "3.1.0",
-        "scope": "demo"
+        "scope": "demo",
+        "name": "patroni1"
       }
     }
 
@@ -491,7 +487,6 @@ Let's check that the node processed this configuration. First of all it should s
 
 	$ curl -s http://localhost:8008/patroni | jq .
 	{
-	  "name": "patroni1",
 	  "pending_restart": true,
 	  "database_system_identifier": "6287881213849985952",
 	  "postmaster_start_time": "2016-06-13 13:13:05.211 CEST",
@@ -500,7 +495,8 @@ Let's check that the node processed this configuration. First of all it should s
 	  },
 	  "patroni": {
 	    "scope": "batman",
-	    "version": "1.0"
+	    "version": "1.0",
+      "name": "patroni1" 
 	  },
 	  "state": "running",
 	  "role": "master",
