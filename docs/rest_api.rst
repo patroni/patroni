@@ -495,8 +495,8 @@ Let's check that the node processed this configuration. First of all it should s
 	  },
 	  "patroni": {
 	    "scope": "batman",
-	    "version": "1.0",
-      "name": "patroni1" 
+	    "name": "patroni1",
+      "version": "1.0"
 	  },
 	  "state": "running",
 	  "role": "master",
