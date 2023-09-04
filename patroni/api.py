@@ -449,7 +449,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         cluster = self.server.patroni.dcs.get_cluster(True)
         global_config = self.server.patroni.config.get_global_config(cluster)
-        self._write_json_response(200, cluster_as_json(cluster, global_config))
+        
+        response = cluster_as_json(cluster, global_config)
+        response['scope'] = self.server.patroni.postgresql.scope
+        self._write_json_response(200, response) 
 
     def do_GET_history(self) -> None:
         """Handle a ``GET`` request to ``/history`` path.
