@@ -21,10 +21,17 @@ from .test_ha import get_cluster_initialized_without_leader, get_cluster_initial
     get_cluster_initialized_with_only_leader, get_cluster_not_initialized_without_leader, get_cluster, Member
 
 
-@patch('patroni.ctl.load_config', Mock(return_value={
-    'scope': 'alpha', 'restapi': {'listen': '::', 'certfile': 'a'}, 'ctl': {'certfile': 'a'},
-    'etcd': {'host': 'localhost:2379'}, 'citus': {'database': 'citus', 'group': 0},
-    'postgresql': {'data_dir': '.', 'pgpass': './pgpass', 'parameters': {}, 'retry_timeout': 5}}))
+DEFAULT_CONFIG = {
+    'scope': 'alpha',
+    'restapi': {'listen': '::', 'certfile': 'a'},
+    'ctl': {'certfile': 'a'},
+    'etcd': {'host': 'localhost:2379'},
+    'citus': {'database': 'citus', 'group': 0},
+    'postgresql': {'data_dir': '.', 'pgpass': './pgpass', 'parameters': {}, 'retry_timeout': 5}
+}
+
+
+@patch('patroni.ctl.load_config', Mock(return_value=DEFAULT_CONFIG))
 class TestCtl(unittest.TestCase):
     TEST_ROLES = ('master', 'primary', 'leader')
 
@@ -201,8 +208,16 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['failover', 'dummy'], input='0\n')
         self.assertIn('Failover could be performed only to a specific candidate', result.output)
 
-        # Failover to an async member in sync mode (confirm)
         cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+
+        # Temp test to check a fallback to switchover if leader is specified
+        with patch('patroni.ctl._do_failover_or_switchover') as failover_func_mock:
+            result = self.runner.invoke(ctl, ['failover', '--leader', 'leader', 'dummy'], input='0\n')
+            self.assertIn('Supplying a leader name using this command is deprecated', result.output)
+            failover_func_mock.assert_called_once_with(
+                DEFAULT_CONFIG, 'switchover', 'dummy', None, 'leader', None, False)
+
+        # Failover to an async member in sync mode (confirm)
         cluster.members.append(Member(0, 'async', 28, {'api_url': 'http://127.0.0.1:8012/patroni'}))
         cluster.config.data['synchronous_mode'] = True
         mock_get_dcs.return_value.get_cluster = Mock(return_value=cluster)

@@ -1173,8 +1173,8 @@ def reinit(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
 
 
 def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: str,
-                               group: Optional[int], candidate: Optional[str], force: bool,
-                               leader: Optional[str] = None, scheduled: Optional[str] = None) -> None:
+                               group: Optional[int], leader: Optional[str], candidate: Optional[str],
+                               force: bool, scheduled: Optional[str] = None) -> None:
     """Perform a failover or a switchover operation in the cluster.
 
     Informational messages are printed in the console during the operation, as well as the list of members before and
@@ -1188,9 +1188,9 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
     :param cluster_name: name of the Patroni cluster.
     :param group: filter Citus group within we should perform a failover or switchover. If ``None``, user will be
         prompted for filling it -- unless *force* is ``True``, in which case an exception is raised.
+    :param leader: name of the current leader member.
     :param candidate: name of a standby member to be promoted. Nodes that are tagged with ``nofailover`` cannot be used.
     :param force: perform the failover or switchover without asking for confirmations.
-    :param leader: name of the leader passed to the switchover command if any.
     :param scheduled: timestamp when the switchover should be scheduled to occur. If ``now`` perform immediately.
 
     :raises:
@@ -1331,14 +1331,18 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
 @ctl.command('failover', help='Failover to a replica')
 @arg_cluster_name
 @option_citus_group
+@click.option('--leader', '--primary', '--master', 'leader', help='The name of the current leader', default=None)
 @click.option('--candidate', help='The name of the candidate', default=None)
 @option_force
 @click.pass_obj
 def failover(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
-             candidate: Optional[str], force: bool) -> None:
+             leader: Optional[str], candidate: Optional[str], force: bool) -> None:
     """Process ``failover`` command of ``patronictl`` utility.
 
     Perform a failover operation immediately in the cluster.
+
+    .. note::
+        If *leader* is given perform a switchover instead of a failover.
 
     .. seealso::
         Refer to :func:`_do_failover_or_switchover` for details.
@@ -1348,10 +1352,17 @@ def failover(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
     :param group: filter Citus group within we should perform a failover or switchover. If ``None``, user will be
         prompted for filling it -- unless *force* is ``True``, in which case an exception is raised by
         :func:`_do_failover_or_switchover`.
+    :param leader: name of the current leader member.
     :param candidate: name of a standby member to be promoted. Nodes that are tagged with ``nofailover`` cannot be used.
     :param force: perform the failover or switchover without asking for confirmations.
     """
-    _do_failover_or_switchover(obj, 'failover', cluster_name, group, candidate, force)
+    action = 'failover'
+    if leader:
+        action = 'switchover'
+        click.echo(click.style(
+            'Supplying a leader name using this command is deprecated and will be removed in a future version of'
+            ' Patroni, change your scripts to use `switchover` instead.\nExecuting switchover!', fg='red'))
+    _do_failover_or_switchover(obj, action, cluster_name, group, leader, candidate, force)
 
 
 @ctl.command('switchover', help='Switchover to a replica')
@@ -1382,7 +1393,7 @@ def switchover(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
     :param force: perform the switchover without asking for confirmations.
     :param scheduled: timestamp when the switchover should be scheduled to occur. If ``now`` perform immediately.
     """
-    _do_failover_or_switchover(obj, 'switchover', cluster_name, group, candidate, force, leader, scheduled)
+    _do_failover_or_switchover(obj, 'switchover', cluster_name, group, leader, candidate, force, scheduled)
 
 
 def generate_topology(level: int, member: Dict[str, Any],
