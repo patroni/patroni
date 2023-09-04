@@ -264,7 +264,9 @@ role_choice = click.Choice(['leader', 'primary', 'standby-leader', 'replica', 's
 @click.option('-k', '--insecure', is_flag=True, help='Allow connections to SSL sites without certs')
 @click.pass_context
 def ctl(ctx: click.Context, config_file: str, dcs_url: Optional[str], insecure: bool) -> None:
-    """Entry point of ``patronictl`` utility.
+    """Command-line interface for interacting with Patroni.
+    \f
+    Entry point of ``patronictl`` utility.
 
     Load the configuration file.
 
