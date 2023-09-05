@@ -1343,6 +1343,8 @@ def failover(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
 
     .. note::
         If *leader* is given perform a switchover instead of a failover.
+        This behavior is deprecated. ``--leader`` option support will be
+        removed in the next major release.
 
     .. seealso::
         Refer to :func:`_do_failover_or_switchover` for details.
