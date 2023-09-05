@@ -559,9 +559,9 @@ Switchover and failover endpoints
 Switchover
 ^^^^^^^^^^
 
-``/switchover`` endpoint only works when the cluster is healthy (there is a leader). It allows to schedule a switchover at a given time.
+``/switchover`` endpoint only works when the cluster is healthy (there is a leader). It also allows to schedule a switchover at a given time.
 
-When calling ``/switchover`` endpoint candidate can be specified but is not required, in contrast to ``/failover`` endpoint. If candidate is not provided, all the healthy nodes that are allowed to failover participate in the leader race.
+When calling ``/switchover`` endpoint a candidate can be specified but is not required, in contrast to ``/failover`` endpoint. If a candidate is not provided, all the eligible nodes of the cluster will participate in the leader race after the leader stepped down.
 
 In the JSON body of the ``POST`` request, you must specify at least the ``leader`` field and, optionally, the ``candidate`` and ``scheduled_at`` field if you want to schedule a switchover at a specific time.
 
@@ -647,18 +647,18 @@ There are a couple of checks that a member of a cluster should pass to be able t
 - be reachable via Patroni API;
 - not have ``nofailover`` tag set to ``true``;
 - have watchdog fully functional (if required by the configuration);
-- in case of a switchover or a failover in a healthy cluster, not exceed maximum replication lag (``maximum_lag_on_failover`` :ref:`configuration parameter <dynamic_configuration>`);
-- in case of a switchover or a failover in a healthy cluster, not have a timeline number smaller than the cluster timeline;
+- in case of a switchover in a healthy cluster or an automatic failover, not exceed maximum replication lag (``maximum_lag_on_failover`` :ref:`configuration parameter <dynamic_configuration>`);
+- in case of a switchover in a healthy cluster or an automatic failover, not have a timeline number smaller than the cluster timeline if ``check_timeline`` :ref:`configuration parameter <dynamic_configuration>` is set to ``true``;
 - in :ref:`synchronous mode <synchronous_mode>`:
 
   - In case of a switchover (both with and without a candidate): be listed in the ``/sync`` key members;
   - For a failover in both healthy and unhealthy clusters, this check is omitted.
 
 .. warning::
-    In case of a failover in a cluster without a leader, a candidate will be allowed to promote even if:
+    In case of a manual failover in a cluster without a leader, a candidate will be allowed to promote even if:
 	- it is not in the ``/sync`` key members when synchronous mode is enabled;
 	- its lag exceeds the maximum replication lag allowed;
-	- it has the timeline number smaller than the cluster timeline.
+	- it has the timeline number smaller than the last known cluster timeline.
 
 
 Restart endpoint
