@@ -1375,6 +1375,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
         """Execute *sql* query with *params* and optionally return results.
 
+        .. note::
+            Prefer to use own connection to postgres and fallback to ``heartbeat`` when own isn't available.
+
         :param sql: the SQL statement to be run.
         :param params: positional arguments to be used as parameters for *sql*.
 
@@ -1384,10 +1387,21 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             :class:`psycopg.Error`: if had issues while executing *sql*.
             :class:`~patroni.exceptions.PostgresConnectionException`: if had issues while connecting to the database.
         """
+        # We first try to get a heartbeat connection because it is always required for the main thread.
         try:
-            return self.patroni.postgresql.query(sql, *params, retry=False)
-        except RetryFailedError as e:
-            raise PostgresConnectionException(str(e))
+            heartbeat_connection = self.patroni.postgresql.connection_pool.get('heartbeat')
+            heartbeat_connection.get()  # try to open psycopg connection to postgres
+        except psycopg.Error as exc:
+            raise PostgresConnectionException('connection problems') from exc
+
+        try:
+            connection = self.patroni.postgresql.connection_pool.get('restapi')
+            connection.get()  # try to open psycopg connection to postgres
+        except psycopg.Error:
+            logger.debug('restapi connection to postgres is not available')
+            connection = heartbeat_connection
+
+        return connection.query(sql, *params)
 
     @staticmethod
     def _set_fd_cloexec(fd: socket.socket) -> None:
