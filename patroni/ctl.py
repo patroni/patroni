@@ -1563,9 +1563,11 @@ def output_members(obj: Dict[str, Any], cluster: Cluster, name: str,
             rows.append([member.get(n.lower().replace(' ', '_'), '') for n in columns])
 
     title = 'Citus cluster' if is_citus_cluster else 'Cluster'
-    group_title = '' if group is None else 'group: {0}, '.format(group)
-    title_details = group_title and ' ({0}{1})'.format(group_title, initialize)
-    title = ' {0}: {1}{2} '.format(title, name, title_details)
+    title_details = f' ({initialize})'
+    if is_citus_cluster:
+        title_details = '' if group is None else f' (group: {group}, {initialize})'
+
+    title = f' {title}: {name}{title_details} '
     print_output(columns, rows, {'Group': 'r', 'Lag in MB': 'r', 'TL': 'r'}, fmt, title)
 
     if fmt not in ('pretty', 'topology'):  # Omit service info when using machine-readable formats
