@@ -458,7 +458,7 @@ class SlotsHandler:
                 continue
 
             # If the logical already exists, copy some information about it into the original structure
-            if self._replication_slots.get(name, {}).get('datoid'):
+            if name in self._replication_slots and compare_slots(value, self._replication_slots[name]):
                 self._copy_items(self._replication_slots[name], value)
                 if 'lsn' in value:  # The slot has feedback in DCS
                     try:  # Skip slots that don't need to be advanced
@@ -466,7 +466,8 @@ class SlotsHandler:
                             advance_slots[value['database']][name] = int(value['lsn'])
                     except Exception as e:
                         logger.error('Failed to parse "%s": %r', value['lsn'], e)
-            elif 'lsn' in value:  # We want to copy only slots with feedback in a DCS
+            elif name not in self._replication_slots and 'lsn' in value:
+                # We want to copy only slots with feedback in a DCS
                 create_slots.append(name)
 
         # Slots to be copied from the primary should be removed from the *slots* structure,

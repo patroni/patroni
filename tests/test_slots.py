@@ -32,9 +32,9 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.p._global_config = GlobalConfig({})
         self.s = self.p.slots_handler
         self.p.start()
-        config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}}}, 1)
+        config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}, 'ls2': None}}, 1)
         self.cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem],
-                               None, SyncState.empty(), None, {'ls': 12345}, None)
+                               None, SyncState.empty(), None, {'ls': 12345, 'ls2': 12345}, None)
 
     def test_sync_replication_slots(self):
         config = ClusterConfig(1, {'slots': {'test_3': {'database': 'a', 'plugin': 'b'},
@@ -123,6 +123,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.assertEqual(self.s.sync_replication_slots(self.cluster, False), ['ls'])
         self.cluster.slots['ls'] = 'a'
         self.assertEqual(self.s.sync_replication_slots(self.cluster, False), [])
+        self.cluster.config.data['slots']['ls']['database'] = 'b'
         with patch.object(MockCursor, 'rowcount', PropertyMock(return_value=1), create=True):
             self.assertEqual(self.s.sync_replication_slots(self.cluster, False), ['ls'])
 
