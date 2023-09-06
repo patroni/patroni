@@ -310,6 +310,17 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.config.write_postgresql_conf()
         self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
         self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
+
+        # Config files changed, but can't connect to postgres
+        mock_get_pg_settings.side_effect = PostgresConnectionException('')
+        with patch('patroni.postgresql.config.mtime', mock_mtime):
+            self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
+
+        # Config files didn't change, but postgres crashed or in crash recovery
+        with patch.object(MockPostmaster, 'create_time', Mock(return_value=1234568), create=True):
+            self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
+
+        # Any other exception raised when executing the query
         mock_get_pg_settings.side_effect = Exception
         with patch('patroni.postgresql.config.mtime', mock_mtime):
             self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
