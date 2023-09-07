@@ -280,13 +280,12 @@ def _read_postgres_gucs_validators_file(file: str) -> Dict[str, Any]:
 def _load_postgres_gucs_validators() -> None:
     """Load all Postgres GUC validators from YAML files.
 
-    Load validators from YAML files that were found.
-
     Recursively walk through ``available_parameters`` directory and load validators of each found YAML file into
     ``parameters`` and/or ``recovery_parameters`` variables.
 
     Walk through directories in top-down fashion and for each of them:
         * Sort files by name;
+        * Load validators from YAML files that were found.
 
     Any problem faced while reading or parsing files will be logged as a ``WARNING`` by the child function, and the
     corresponding file or validator will be ignored.
