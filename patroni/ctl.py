@@ -830,9 +830,9 @@ def topology_sort(members):
 def get_cluster_service_info(cluster):
     service_info = []
 
-    leader_name = cluster.leader.name if cluster.leader else None
-    for m in cluster.members:
-        if m.name == leader_name:
+    leader_name = cluster['leader']['name'] if cluster.get('leader') else None
+    for m in cluster['members']:
+        if m['name'] == leader_name:
             try:
                 response = request_patroni(m, endpoint="multisite")
                 msdata = json.loads(response.data.decode('utf-8'))
