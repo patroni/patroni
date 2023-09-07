@@ -434,7 +434,7 @@ class SlotsHandler:
             self._advance = SlotsAdvanceThread(self)
         return self._advance.schedule(slots)
 
-    def _ensure_logical_slots_replica(self, cluster: Cluster, slots: Dict[str, Any]) -> List[str]:
+    def _ensure_logical_slots_replica(self, slots: Dict[str, Any]) -> List[str]:
         """Update logical *slots* on replicas.
 
         If the logical slot already exists, copy state information into the replication slots structure stored in the
@@ -444,7 +444,6 @@ class SlotsHandler:
         As logical slots can only be created when the primary is available, pass the list of slots that need to be
         copied back to the caller. They will be created on replicas with :meth:`SlotsHandler.copy_logical_slots`.
 
-        :param cluster: object containing stateful information for the cluster.
         :param slots: A dictionary mapping slot name to slot attributes. This method only considers a slot
                       if the value is a dictionary with the key ``type`` and a value of ``logical``.
 
@@ -459,15 +458,16 @@ class SlotsHandler:
                 continue
 
             # If the logical already exists, copy some information about it into the original structure
-            if self._replication_slots.get(name, {}).get('datoid'):
+            if name in self._replication_slots and compare_slots(value, self._replication_slots[name]):
                 self._copy_items(self._replication_slots[name], value)
-                if cluster.slots and name in cluster.slots:
+                if 'lsn' in value:  # The slot has feedback in DCS
                     try:  # Skip slots that don't need to be advanced
-                        if value['confirmed_flush_lsn'] < int(cluster.slots[name]):
-                            advance_slots[value['database']][name] = int(cluster.slots[name])
+                        if value['confirmed_flush_lsn'] < int(value['lsn']):
+                            advance_slots[value['database']][name] = int(value['lsn'])
                     except Exception as e:
-                        logger.error('Failed to parse "%s": %r', cluster.slots[name], e)
-            elif cluster.slots and name in cluster.slots:  # We want to copy only slots with feedback in a DCS
+                        logger.error('Failed to parse "%s": %r', value['lsn'], e)
+            elif name not in self._replication_slots and 'lsn' in value:
+                # We want to copy only slots with feedback in a DCS
                 create_slots.append(name)
 
         # Slots to be copied from the primary should be removed from the *slots* structure,
@@ -512,10 +512,9 @@ class SlotsHandler:
                 if self._postgresql.is_primary():
                     self._logical_slots_processing_queue.clear()
                     self._ensure_logical_slots_primary(slots)
-                elif cluster.slots and slots:
+                else:
                     self.check_logical_slots_readiness(cluster, replicatefrom)
-
-                    ret = self._ensure_logical_slots_replica(cluster, slots)
+                    ret = self._ensure_logical_slots_replica(slots)
 
                 self._replication_slots = slots
             except Exception:

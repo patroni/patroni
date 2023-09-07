@@ -903,8 +903,16 @@ class Cluster(NamedTuple('Cluster',
 
     @property
     def __permanent_slots(self) -> Dict[str, Union[Dict[str, Any], Any]]:
-        """Dictionary of permanent replication slots."""
-        return self.config and self.config.permanent_slots or {}
+        """Dictionary of permanent replication slots with their known LSN."""
+        ret = deepcopy(self.config.permanent_slots if self.config else {})
+        # If primary reported flush LSN for permanent slots we want to enrich our structure with it
+        for name, lsn in (self.slots or {}).items():
+            if name in ret:
+                if not ret[name]:
+                    ret[name] = {}
+                if isinstance(ret[name], dict):
+                    ret[name]['lsn'] = lsn
+        return ret
 
     @property
     def __permanent_physical_slots(self) -> Dict[str, Any]:
@@ -929,7 +937,6 @@ class Cluster(NamedTuple('Cluster',
 
         Will log an error if:
 
-            * Conflicting slot names between members are found
             * Any logical slots are disabled, due to version compatibility, and *show_error* is ``True``.
 
         :param my_name: name of this node.
@@ -942,21 +949,9 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: final dictionary of slot names, after merging with permanent slots and performing sanity checks.
         """
-        slot_members: List[str] = self._get_slot_members(my_name, role)
-
-        slots: Dict[str, Dict[str, str]] = {slot_name_from_member_name(name): {'type': 'physical'}
-                                            for name in slot_members}
-
-        if len(slots) < len(slot_members):
-            # Find which names are conflicting for a nicer error message
-            slot_conflicts: Dict[str, List[str]] = defaultdict(list)
-            for name in slot_members:
-                slot_conflicts[slot_name_from_member_name(name)].append(name)
-            logger.error("Following cluster members share a replication slot name: %s",
-                         "; ".join(f"{', '.join(v)} map to {k}"
-                                   for k, v in slot_conflicts.items() if len(v) > 1))
-
+        slots: Dict[str, Dict[str, str]] = self._get_members_slots(my_name, role)
         permanent_slots: Dict[str, Any] = self._get_permanent_slots(is_standby_cluster, role, nofailover)
+
         disabled_permanent_logical_slots: List[str] = self._merge_permanent_slots(
             slots, permanent_slots, my_name, major_version)
 
@@ -1016,7 +1011,7 @@ class Cluster(NamedTuple('Cluster',
         return disabled_permanent_logical_slots
 
     def _get_permanent_slots(self, is_standby_cluster: bool, role: str, nofailover: bool) -> Dict[str, Any]:
-        """Get configured permanent slot names.
+        """Get configured permanent replication slots.
 
         .. note::
             Permanent replication slots are only considered if ``use_slots`` configuration is enabled.
@@ -1042,35 +1037,48 @@ class Cluster(NamedTuple('Cluster',
 
         return self.__permanent_slots if role in ('master', 'primary') else self.__permanent_logical_slots
 
-    def _get_slot_members(self, my_name: str, role: str) -> List[str]:
-        """Get a list of member names that have replication slots sourcing from this node.
+    def _get_members_slots(self, my_name: str, role: str) -> Dict[str, Dict[str, str]]:
+        """Get physical replication slots configuration for members that sourcing from this node.
 
         If the ``replicatefrom`` tag is set on the member - we should not create the replication slot for it on
         the current primary, because that member would replicate from elsewhere. We still create the slot if
         the ``replicatefrom`` destination member is currently not a member of the cluster (fallback to the
         primary), or if ``replicatefrom`` destination member happens to be the current primary.
 
+        Will log an error if:
+
+            * Conflicting slot names between members are found
+
         :param my_name: name of this node.
         :param role: role of this node, if this is a ``primary`` or ``standby_leader`` return list of members
                      replicating from this node. If not then return a list of members replicating as cascaded
                      replicas from this node.
 
-        :returns: list of member names.
+        :returns: dictionary of physical replication slots that should exist on a given node.
         """
         if not self.use_slots:
-            return []
+            return {}
+
+        # we always want to exclude the member with our name from the list
+        members = filter(lambda m: m.name != my_name, self.members)
 
         if role in ('master', 'primary', 'standby_leader'):
-            slot_members = [m.name for m in self.members
-                            if m.name != my_name
-                            and (m.replicatefrom is None
-                                 or m.replicatefrom == my_name
-                                 or not self.has_member(m.replicatefrom))]
+            members = [m for m in members if m.replicatefrom is None
+                       or m.replicatefrom == my_name or not self.has_member(m.replicatefrom)]
         else:
             # only manage slots for replicas that replicate from this one, except for the leader among them
-            slot_members = [m.name for m in self.members
-                            if m.replicatefrom == my_name and m.name != self.leader_name]
-        return slot_members
+            members = [m for m in members if m.replicatefrom == my_name and m.name != self.leader_name]
+
+        slots = {slot_name_from_member_name(m.name): {'type': 'physical'} for m in members}
+        if len(slots) < len(members):
+            # Find which names are conflicting for a nicer error message
+            slot_conflicts: Dict[str, List[str]] = defaultdict(list)
+            for member in members:
+                slot_conflicts[slot_name_from_member_name(member.name)].append(member.name)
+            logger.error("Following cluster members share a replication slot name: %s",
+                         "; ".join(f"{', '.join(v)} map to {k}"
+                                   for k, v in slot_conflicts.items() if len(v) > 1))
+        return slots
 
     def has_permanent_logical_slots(self, my_name: str, nofailover: bool, major_version: int = 110000) -> bool:
         """Check if the given member node has permanent ``logical`` replication slots configured.
