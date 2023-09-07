@@ -16,6 +16,7 @@ from .misc import format_lsn, fsync_dir
 from ..dcs import Cluster, Leader
 from ..file_perm import pg_perm
 from ..psycopg import OperationalError
+from ..utils import parse_int
 
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
@@ -238,6 +239,8 @@ class SlotsHandler:
                         if value['type'] == 'logical':
                             ret[name] = value['confirmed_flush_lsn']
                             self._copy_items(value, self._replication_slots[name])
+                        else:
+                            self._replication_slots[name]['restart_lsn'] = ret[name] = value['restart_lsn']
                     else:
                         self._schedule_load_slots = True
 
@@ -260,16 +263,19 @@ class SlotsHandler:
         """
         if self._postgresql.major_version >= 90400 and self._schedule_load_slots:
             replication_slots: Dict[str, Dict[str, Any]] = {}
-            extra = ", catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint" \
+            pg_wal_lsn_diff = f'pg_catalog.pg_{self._postgresql.wal_name}_{self._postgresql.lsn_name}_diff'
+            extra = f", catalog_xmin, {pg_wal_lsn_diff}(confirmed_flush_lsn, '0/0')::bigint" \
                 if self._postgresql.major_version >= 100000 else ""
             skip_temp_slots = ' WHERE NOT temporary' if self._postgresql.major_version >= 100000 else ''
-            for r in self._query('SELECT slot_name, slot_type, plugin, database, datoid'
-                                 f'{extra} FROM pg_catalog.pg_replication_slots{skip_temp_slots}'):
+            for r in self._query(f"SELECT slot_name, slot_type, {pg_wal_lsn_diff}(restart_lsn, '0/0')::bigint, plugin,"
+                                 f" database, datoid{extra} FROM pg_catalog.pg_replication_slots{skip_temp_slots}"):
                 value = {'type': r[1]}
                 if r[1] == 'logical':
-                    value.update(plugin=r[2], database=r[3], datoid=r[4])
+                    value.update(plugin=r[3], database=r[4], datoid=r[5])
                     if self._postgresql.major_version >= 100000:
-                        value.update(catalog_xmin=r[5], confirmed_flush_lsn=r[6])
+                        value.update(catalog_xmin=r[6], confirmed_flush_lsn=r[7])
+                else:
+                    value['restart_lsn'] = r[2]
                 replication_slots[r[0]] = value
             self._replication_slots = replication_slots
             self._schedule_load_slots = False
@@ -362,7 +368,9 @@ class SlotsHandler:
         """
         immediately_reserve = ', true' if self._postgresql.major_version >= 90600 else ''
         for name, value in slots.items():
-            if name not in self._replication_slots and value['type'] == 'physical':
+            if value['type'] != 'physical':
+                continue
+            if name not in self._replication_slots:
                 try:
                     self._query(f"SELECT pg_catalog.pg_create_physical_replication_slot(%s{immediately_reserve})"
                                 f" WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots"
@@ -371,6 +379,12 @@ class SlotsHandler:
                 except Exception:
                     logger.exception("Failed to create physical replication slot '%s'", name)
                 self._schedule_load_slots = True
+            elif not self._postgresql.is_primary() and self._postgresql.major_version >= 110000\
+                    and self._replication_slots[name]['type'] == 'physical':
+                value['restart_lsn'] = self._replication_slots[name]['restart_lsn']
+                lsn = parse_int(value.get('lsn'))
+                if lsn and lsn > value['restart_lsn']:
+                    self._query("SELECT pg_catalog.pg_replication_slot_advance(%s, %s)", name, format_lsn(lsn))
 
     @contextmanager
     def get_local_connection_cursor(self, **kwargs: Any) -> Iterator[Union['cursor', 'Cursor[Any]']]:

@@ -104,12 +104,14 @@ class MockCursor(object):
         elif sql.startswith('SELECT slot_name, slot_type, datname, plugin, catalog_xmin'):
             self.results = [('ls', 'logical', 'a', 'b', 100, 500, b'123456')]
         elif sql.startswith('SELECT slot_name'):
-            self.results = [('blabla', 'physical'), ('foobar', 'physical'), ('ls', 'logical', 'b', 'a', 5, 100, 500)]
+            self.results = [('blabla', 'physical', 12345),
+                            ('foobar', 'physical', 12345),
+                            ('ls', 'logical', 499, 'b', 'a', 5, 100, 500)]
         elif sql.startswith('WITH slots AS (SELECT slot_name, active'):
             self.results = [(False, True)] if self.rowcount == 1 else []
         elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):
             self.results = [(1, 2, 1, 0, False, 1, 1, None, None, 'streaming', '',
-                             [{"slot_name": "ls", "confirmed_flush_lsn": 12345}],
+                             [{"slot_name": "ls", "confirmed_flush_lsn": 12345, "restart_lsn": 12344}],
                              'on', 'n1', None)]
         elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
             self.results = [(False, 2)]
