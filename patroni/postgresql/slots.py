@@ -232,17 +232,16 @@ class SlotsHandler:
         ret: Dict[str, int] = {}
 
         slots_dict: Dict[str, Dict[str, Any]] = {slot['slot_name']: slot for slot in slots or []}
-        if slots_dict:
-            for name, value in slots_dict.items():
-                if name in self._replication_slots:
-                    if compare_slots(value, self._replication_slots[name], 'datoid'):
-                        if value['type'] == 'logical':
-                            ret[name] = value['confirmed_flush_lsn']
-                            self._copy_items(value, self._replication_slots[name])
-                        else:
-                            self._replication_slots[name]['restart_lsn'] = ret[name] = value['restart_lsn']
+        for name, value in slots_dict.items():
+            if name in self._replication_slots:
+                if compare_slots(value, self._replication_slots[name], 'datoid'):
+                    if value['type'] == 'logical':
+                        ret[name] = value['confirmed_flush_lsn']
+                        self._copy_items(value, self._replication_slots[name])
                     else:
-                        self._schedule_load_slots = True
+                        self._replication_slots[name]['restart_lsn'] = ret[name] = value['restart_lsn']
+                else:
+                    self._schedule_load_slots = True
 
         # It could happen that the slot was deleted in the background, we want to detect this case
         if any(name not in slots_dict for name in self._replication_slots.keys()):
@@ -359,7 +358,7 @@ class SlotsHandler:
                     self._schedule_load_slots = True
 
     def _ensure_physical_slots(self, slots: Dict[str, Any]) -> None:
-        """Create any missing physical replication *slots*.
+        """Create or advance physical replication *slots*.
 
         Any failures are logged and do not interrupt creation of all *slots*.
 
@@ -383,8 +382,12 @@ class SlotsHandler:
                     and self._replication_slots[name]['type'] == 'physical':
                 value['restart_lsn'] = self._replication_slots[name]['restart_lsn']
                 lsn = parse_int(value.get('lsn'))
-                if lsn and lsn > value['restart_lsn']:
-                    self._query("SELECT pg_catalog.pg_replication_slot_advance(%s, %s)", name, format_lsn(lsn))
+                if lsn and lsn > value['restart_lsn']:  # The slot has feedback in DCS and needs to be advanced
+                    try:
+                        lsn = format_lsn(lsn)
+                        self._query("SELECT pg_catalog.pg_replication_slot_advance(%s, %s)", name, lsn)
+                    except Exception as exc:
+                        logger.error("Error while advancing replication slot %s to position '%s': %r", name, lsn, exc)
 
     @contextmanager
     def get_local_connection_cursor(self, **kwargs: Any) -> Iterator[Union['cursor', 'Cursor[Any]']]:
