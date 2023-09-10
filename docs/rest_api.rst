@@ -131,7 +131,8 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
       "database_system_identifier": "7268616322854375442",
       "patroni": {
         "version": "3.1.0",
-        "scope": "demo"
+        "scope": "demo",
+        "name": "patroni1"
       }
     }
 
@@ -178,7 +179,8 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
       "database_system_identifier": "7268616322854375442",
       "patroni": {
         "version": "3.1.0",
-        "scope": "demo"
+        "scope": "demo",
+        "name": "patroni1"
       }
     }
 
@@ -223,7 +225,8 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
       "database_system_identifier": "7268616322854375442",
       "patroni": {
         "version": "3.1.0",
-        "scope": "demo"
+        "scope": "demo",
+        "name": "patroni1"
       }
     }
 
@@ -267,7 +270,8 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
       "database_system_identifier": "7268616322854375442",
       "patroni": {
         "version": "3.1.0",
-        "scope": "demo"
+        "scope": "demo",
+        "name": "patroni1"
       }
     }
 
@@ -279,70 +283,70 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	
 	# HELP patroni_version Patroni semver without periods. \
 	# TYPE patroni_version gauge
-	patroni_version{scope="batman"} 020103
+	patroni_version{scope="batman",name="patroni1"} 020103
 	# HELP patroni_postgres_running Value is 1 if Postgres is running, 0 otherwise.
 	# TYPE patroni_postgres_running gauge
-	patroni_postgres_running{scope="batman"} 1
+	patroni_postgres_running{scope="batman",name="patroni1"} 1
 	# HELP patroni_postmaster_start_time Epoch seconds since Postgres started.
 	# TYPE patroni_postmaster_start_time gauge
-	patroni_postmaster_start_time{scope="batman"} 1657656955.179243
+	patroni_postmaster_start_time{scope="batman",name="patroni1"} 1657656955.179243
 	# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.
 	# TYPE patroni_master gauge
-	patroni_master{scope="batman"} 1
+	patroni_master{scope="batman",name="patroni1"} 1
 	# HELP patroni_primary Value is 1 if this node is the leader, 0 otherwise.
 	# TYPE patroni_primary gauge
-	patroni_primary{scope="batman"} 1
+	patroni_primary{scope="batman",name="patroni1"} 1
 	# HELP patroni_xlog_location Current location of the Postgres transaction log, 0 if this node is not the leader.
 	# TYPE patroni_xlog_location counter
-	patroni_xlog_location{scope="batman"} 22320573386952
+	patroni_xlog_location{scope="batman",name="patroni1"} 22320573386952
 	# HELP patroni_standby_leader Value is 1 if this node is the standby_leader, 0 otherwise.
 	# TYPE patroni_standby_leader gauge
-	patroni_standby_leader{scope="batman"} 0
+	patroni_standby_leader{scope="batman",name="patroni1"} 0
 	# HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.
 	# TYPE patroni_replica gauge
-	patroni_replica{scope="batman"} 0
+	patroni_replica{scope="batman",name="patroni1"} 0
 	# HELP patroni_sync_standby Value is 1 if this node is a sync standby replica, 0 otherwise.
 	# TYPE patroni_sync_standby gauge
-	patroni_sync_standby{scope="batman"} 0
+	patroni_sync_standby{scope="batman",name="patroni1"} 0
 	# HELP patroni_xlog_received_location Current location of the received Postgres transaction log, 0 if this node is not a replica.
 	# TYPE patroni_xlog_received_location counter
-	patroni_xlog_received_location{scope="batman"} 0
+	patroni_xlog_received_location{scope="batman",name="patroni1"} 0
 	# HELP patroni_xlog_replayed_location Current location of the replayed Postgres transaction log, 0 if this node is not a replica.
 	# TYPE patroni_xlog_replayed_location counter
-	patroni_xlog_replayed_location{scope="batman"} 0
+	patroni_xlog_replayed_location{scope="batman",name="patroni1"} 0
 	# HELP patroni_xlog_replayed_timestamp Current timestamp of the replayed Postgres transaction log, 0 if null.
 	# TYPE patroni_xlog_replayed_timestamp gauge
-	patroni_xlog_replayed_timestamp{scope="batman"} 0
+	patroni_xlog_replayed_timestamp{scope="batman",name="patroni1"} 0
 	# HELP patroni_xlog_paused Value is 1 if the Postgres xlog is paused, 0 otherwise.
 	# TYPE patroni_xlog_paused gauge
-	patroni_xlog_paused{scope="batman"} 0
+	patroni_xlog_paused{scope="batman",name="patroni1"} 0
 	# HELP patroni_postgres_streaming Value is 1 if Postgres is streaming, 0 otherwise.
 	# TYPE patroni_postgres_streaming gauge
-	patroni_postgres_streaming{scope="batman"} 1
+	patroni_postgres_streaming{scope="batman",name="patroni1"} 1
 	# HELP patroni_postgres_in_archive_recovery Value is 1 if Postgres is replicating from archive, 0 otherwise.
 	# TYPE patroni_postgres_in_archive_recovery gauge
-	patroni_postgres_in_archive_recovery{scope="batman"} 0
+	patroni_postgres_in_archive_recovery{scope="batman",name="patroni1"} 0
 	# HELP patroni_postgres_server_version Version of Postgres (if running), 0 otherwise.
 	# TYPE patroni_postgres_server_version gauge
-	patroni_postgres_server_version {scope="batman"} 140004
+	patroni_postgres_server_version{scope="batman",name="patroni1"} 140004
 	# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.
 	# TYPE patroni_cluster_unlocked gauge
-	patroni_cluster_unlocked{scope="batman"} 0
+	patroni_cluster_unlocked{scope="batman",name="patroni1"} 0
 	# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.
 	# TYPE patroni_postgres_timeline counter
-	patroni_failsafe_mode_is_active{scope="batman"} 0
+	patroni_failsafe_mode_is_active{scope="batman",name="patroni1"} 0
 	# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.
 	# TYPE patroni_postgres_timeline counter
-	patroni_postgres_timeline{scope="batman"} 24
+	patroni_postgres_timeline{scope="batman",name="patroni1"} 24
 	# HELP patroni_dcs_last_seen Epoch timestamp when DCS was last contacted successfully by Patroni.
 	# TYPE patroni_dcs_last_seen gauge
-	patroni_dcs_last_seen{scope="batman"} 1677658321
+	patroni_dcs_last_seen{scope="batman",name="patroni1"} 1677658321
 	# HELP patroni_pending_restart Value is 1 if the node needs a restart, 0 otherwise.
 	# TYPE patroni_pending_restart gauge
-	patroni_pending_restart{scope="batman"} 1
+	patroni_pending_restart{scope="batman",name="patroni1"} 1
 	# HELP patroni_is_paused Value is 1 if auto failover is disabled, 0 otherwise.
 	# TYPE patroni_is_paused gauge
-	patroni_is_paused{scope="batman"} 1
+	patroni_is_paused{scope="batman",name="patroni1"} 1
 
 
 Cluster status endpoints
@@ -381,6 +385,7 @@ Cluster status endpoints
           "lag": 0
         }
       ],
+      "scope": "demo",
       "scheduled_switchover": {
         "at": "2023-09-24T10:36:00+02:00",
         "from": "patroni1",
@@ -489,8 +494,9 @@ Let's check that the node processed this configuration. First of all it should s
 	    "location": 2197818976
 	  },
 	  "patroni": {
+	    "version": "1.0",
 	    "scope": "batman",
-	    "version": "1.0"
+	    "name": "patroni1"
 	  },
 	  "state": "running",
 	  "role": "master",

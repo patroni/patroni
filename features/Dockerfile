@@ -27,8 +27,8 @@ RUN set -ex \
     && apt-get update \
     && apt-get reinstall init-system-helpers \
     && apt-get install -y \
-      python3-pip \
       python3-dev \
+      python3-venv \
       rsync \
       curl \
       gcc \
@@ -40,7 +40,9 @@ RUN set -ex \
       net-tools \
       iputils-ping \
     && rm -rf /var/cache/apt \
-    && python3 -m pip install --no-cache-dir tox \
+    \
+    && python3 -m venv /tox \
+    && /tox/bin/pip install --no-cache-dir tox>=4 \
     \
     && mkdir -p "$PGHOME" \
     && sed -i "s|/var/lib/postgresql.*|$PGHOME:/bin/bash|" /etc/passwd \
@@ -50,6 +52,7 @@ RUN set -ex \
     && curl -sL "$ETCDURL/etcd-v$ETCDVERSION-linux-$(dpkg --print-architecture).tar.gz" \
        | tar xz -C /usr/local/bin --strip=1 --wildcards --no-anchored etcd etcdctl
 
+ENV PATH="/tox/bin:$PATH"
 
 # This Dockerfile syntax only works with docker buildx and the syntax
 # line at the top of this file.

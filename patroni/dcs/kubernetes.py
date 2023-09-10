@@ -756,7 +756,7 @@ class Kubernetes(AbstractDCS):
         self._role_label = config.get('role_label', 'role')
         self._leader_label_value = config.get('leader_label_value', 'master')
         self._follower_label_value = config.get('follower_label_value', 'replica')
-        self._standby_leader_label_value = config.get('standby_leader_label_value', 'standby-leader')
+        self._standby_leader_label_value = config.get('standby_leader_label_value', 'master')
         self._tmp_role_label = config.get('tmp_role_label')
         self._ca_certs = os.environ.get('PATRONI_KUBERNETES_CACERT', config.get('cacert')) or SERVICE_CERT_FILENAME
         super(Kubernetes, self).__init__({**config, 'namespace': ''})
@@ -1140,6 +1140,13 @@ class Kubernetes(AbstractDCS):
         """Unused"""
         raise NotImplementedError  # pragma: no cover
 
+    def write_leader_optime(self, last_lsn: int) -> None:
+        """Write value for WAL LSN to ``optime`` annotation of the leader object.
+
+        :param last_lsn: absolute WAL LSN in bytes.
+        """
+        self.patch_or_create(self.leader_path, {self._OPTIME: str(last_lsn)}, patch=True, retry=False)
+
     def _update_leader_with_retry(self, annotations: Dict[str, Any],
                                   resource_version: Optional[str], ips: List[str]) -> bool:
         retry = self._retry.copy()
@@ -1269,13 +1276,10 @@ class Kubernetes(AbstractDCS):
     def touch_member(self, data: Dict[str, Any]) -> bool:
         cluster = self.cluster
         if cluster and cluster.leader and cluster.leader.name == self._name:
-            role = self._leader_label_value
+            role = self._standby_leader_label_value if data['role'] == 'standby_leader' else self._leader_label_value
             tmp_role = 'master'
         elif data['state'] == 'running' and data['role'] not in ('master', 'primary'):
-            role = {
-                'replica': self._follower_label_value,
-                'standby-leader': self._standby_leader_label_value,
-            }.get(data['role'], data['role'])
+            role = {'replica': self._follower_label_value}.get(data['role'], data['role'])
             tmp_role = data['role']
         else:
             role = None
