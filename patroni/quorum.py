@@ -154,13 +154,15 @@ class QuorumStateResolver:
         # with any subset of nodes that can achieve quorum to promote a new leader.
         # ``+ 1`` is required because the leader is included in the set.
         if self.voters and not (len(voters | sync) <= self.quorum + self.numsync + 1):
-            raise QuorumError("Quorum and sync not guaranteed to overlap: nodes %d >= quorum %d + sync %d" %
-                              (len(voters | sync), self.quorum, self.numsync))
+            len_nodes = len(voters | sync)
+            raise QuorumError("Quorum and sync not guaranteed to overlap: "
+                              f"nodes {len_nodes} >= quorum {self.quorum} + sync {self.sync} + 1")
         # unstable cases, we are changing synchronous_standby_names and /sync key
         # one after another, hence one set is allowed to be a subset of another
         if not (voters.issubset(sync) or sync.issubset(voters)):
-            raise QuorumError("Mismatched sets: quorum only=%s sync only=%s" %
-                              (voters - sync, sync - voters))
+            voters_only = voters - sync
+            sync_only = sync - voters
+            raise QuorumError(f"Mismatched sets: voter only={voters_only} sync only={sync_only}")
 
     def quorum_update(self, quorum: int, voters: CaseInsensitiveSet, leader: Optional[str] = None,
                       adjust_quorum: Optional[bool] = True) -> Iterator[Transition]:
