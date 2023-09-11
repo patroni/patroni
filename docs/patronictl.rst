@@ -53,7 +53,7 @@ This is the synopsis for running a command from the ``patronictl``:
     patronictl [ { -c | --config-file } CONFIG_FILE ]
       [ { -d | --dcs-url | --dcs } DCS_URL ] 
       [ { -k | --insecure } ]
-      COMMAND
+      SUBCOMMAND
 
 .. note::
 
@@ -61,9 +61,10 @@ This is the synopsis for running a command from the ``patronictl``:
 
     - Options between square brackets are optional;
     - Options between curly brackets represent a "chose one of set" operation;
+    - Options with ``[, ... ]`` can be specified multiple times;
     - Things written in uppercase represent a literal that should be given a value to.
 
-    We will use this same syntax when describing ``patronictl`` commands later. Also, when describing commands in the following sub-sections, the commands' synposis should be replace the ``COMMAND`` in the above synopsis.
+    We will use this same syntax when describing ``patronictl`` sub-commands in the following sub-sections. Also, when describing sub-commands in the following sub-sections, the commands' synposis should replace the ``SUBCOMMAND`` in the above synopsis.
 
 In the following sub-sections you can find a description of each command implemented by ``patronictl``. For sake of example, we will use the configuration files present in the GitHub repository of Patroni (files ``postgres0.yml``, ``postgres1.yml`` and ``postgres2.yml``).
 
@@ -75,7 +76,8 @@ Synopsis
 
 .. code:: text
 
-    dsn [ { { -r | --role } { leader | primary | standby-leader | replica | standby | any | master } | { -m | --member } MEMBER_NAME } ]
+    dsn
+      [ { { -r | --role } { leader | primary | standby-leader | replica | standby | any | master } | { -m | --member } MEMBER_NAME } ]
       [ --group CITUS_GROUP ]
       [ CLUSTER_NAME ]
 
@@ -91,12 +93,12 @@ Parameters
 
 - ``-r`` / ``--role``: chose a member that has the given role:
 
-    - ``leader``: the leader of either a regular Patroni cluster or a standby Patroni cluster;
-    - ``primary``: the leader of a regular Patroni cluster;
-    - ``standby-leader``: the leader of a standby Patroni cluster;
-    - ``replica``: a replica of a Patroni cluster;
-    - ``standby``: same as ``replica``;
-    - ``any``: any role. Same as omitting this parameter;
+    - ``leader``: the leader of either a regular Patroni cluster or a standby Patroni cluster; or
+    - ``primary``: the leader of a regular Patroni cluster; or
+    - ``standby-leader``: the leader of a standby Patroni cluster; or
+    - ``replica``: a replica of a Patroni cluster; or
+    - ``standby``: same as ``replica``; or
+    - ``any``: any role. Same as omitting this parameter; or
     - ``master``: same as ``primary``.
 
 - ``-m`` / ``--member``: chose a member of the cluster with the given name:
@@ -107,7 +109,7 @@ Parameters
 
     - ``CITUS_GROUP``: the ID of the Citus group;
 
-- ``CLUSTER_NAME``: name of the Patroni cluster. If not given, ``patronictl`` will fetch that from ``scope`` configuration.
+- ``CLUSTER_NAME``: name of the Patroni cluster. If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
 
 Examples
 """"""""
@@ -125,3 +127,118 @@ Get DSN of the standby node named ``postgresql1``:
 
     patronictl -c postgres0.yml dsn batman --member postgresql1
     host=127.0.0.1 port=5433
+
+patronictl edit-config
+^^^^^^^^^^^^^^
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    edit-config
+      [ --group CITUS_GROUP ]
+      [ { -q | --quiet } ]
+      [ { -s | --set } CONFIG="VALUE" [, ... ] ]
+      [ { -p | --pg } PG_CONFIG="PG_VALUE" [, ... ] ]
+      [ { --apply | --replace } CONFIG_FILE ]
+      [ --force ]
+      [ CLUSTER_NAME ]
+
+Description
+"""""""""""
+
+``patronictl edit-config`` changes the dynamic configuration of the cluster and updates the DCS with that.
+
+**Note:** when invoked through a TTY the command attempts to show a diff of the dynamic configuration through a pager. By default it attempts to use either ``less`` or ``more``. If you want to use a different pager, set ``PAGER`` environment variable with the desired pager.
+
+Parameters
+""""""""""
+
+- ``--group``: change dynamic configuration of the given Citus group:
+
+    - ``CITUS_GROUP``: the ID of the Citus group;
+
+- ``-q`` / ``--quiet``: flag to skip showing the configuration diff;
+
+- ``-s`` / ``--set``: set a given dynamic configuration option with a given value:
+
+    - ``CONFIG``: name of the dynamic configuration path in the YAML tree, with levels joined by ``.`` ;
+    - ``VALUE``: value for ``CONFIG``. If it is ``null``, then ``CONFIG`` will be removed from the dynamic configuration.
+
+- ``-p`` / ``--pg``: set a given dynamic Postgres configuration option with the given value. It is essentially a shorthand for ``--s`` / ``--set`` with ``CONFIG`` prepended with ``postgresql.parameters.``:
+
+    - ``PG_CONFIG``: name of the Postgres configuration;
+    - ``PG_VALUE``: value for ``PG_CONFIG``. If it is ``nulll``, then ``PG_CONFIG`` will be removed from the dynamic configuration.
+
+- ``--apply``: apply dynamic configuration from a given file. It is similar to specifying multiple ``-s`` / ``--set``, with each configuration from ``CONFIG_FILE``:
+
+    - ``CONFIG_FILE``: path to a file containing the dynamic configuration to be applied, in YAML format. Use ``-`` if you want to read from ``stdin``.
+
+- ``--replace``: replace the dynamic configuration in the DCS with the dynamic configuration specified in a given file:
+
+    - ``CONFIG_FILE``: path to a file containing the new dynamic configuration to take effect, in YAML format. Use ``-`` if you want to read from ``stdin``.
+
+- ``--force``: skip confirmation prompts when changing the dynamic configuration. Useful for scripts.
+
+- ``CLUSTER_NAME``: name of the Patroni cluster. If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+
+Examples
+""""""""
+
+Change ``max_connections`` Postgres GUC:
+
+.. code:: text
+
+    patronictl -c postgres0.yml edit-config batman --pg max_connections="150" --force
+    ---
+    +++
+    @@ -1,6 +1,8 @@
+    loop_wait: 10
+    maximum_lag_on_failover: 1048576
+    postgresql:
+    +  parameters:
+    +    max_connections: 150
+    pg_hba:
+    - host replication replicator 127.0.0.1/32 md5
+    - host all all 0.0.0.0/0 md5
+
+    Configuration changed
+
+Change ``loop_wait`` and ``ttl`` settings:
+
+.. code:: text
+
+    patronictl -c postgres0.yml edit-config batman --set loop_wait="15" --set ttl="45" --force
+    ---
+    +++
+    @@ -1,4 +1,4 @@
+    -loop_wait: 10
+    +loop_wait: 15
+    maximum_lag_on_failover: 1048576
+    postgresql:
+    pg_hba:
+    @@ -6,4 +6,4 @@
+    - host all all 0.0.0.0/0 md5
+    use_pg_rewind: true
+    retry_timeout: 10
+    -ttl: 30
+    +ttl: 45
+
+    Configuration changed
+
+Remove ``maximum_lag_on_failover`` setting from dynamic configuration:
+
+.. code:: text
+
+    patronictl -c postgres0.yml edit-config batman --set maximum_lag_on_failover="null" --force
+    ---
+    +++
+    @@ -1,5 +1,4 @@
+    loop_wait: 10
+    -maximum_lag_on_failover: 1048576
+    postgresql:
+    pg_hba:
+    - host replication replicator 127.0.0.1/32 md5
+
+    Configuration changed
