@@ -34,7 +34,7 @@ There are only a few simple rules you need to follow:
 
 After that you just need to start Patroni and it will handle the rest:
 
-0. Patroni will set ``bootstrap.dcs.synchronous_mode`` to :ref:`quorum <quorum_modes`
+0. Patroni will set ``bootstrap.dcs.synchronous_mode`` to :ref:`quorum <quorum_mode>`
    if it is not explicitly set to any other value.
 1. ``citus`` extension will be automatically added to ``shared_preload_libraries``.
 2. If ``max_prepared_transactions`` isn't explicitly set in the global
