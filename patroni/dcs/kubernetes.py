@@ -19,7 +19,7 @@ from urllib3.exceptions import HTTPError
 from threading import Condition, Lock, Thread
 from typing import Any, Callable, Collection, Dict, List, Optional, Tuple, Type, Union, TYPE_CHECKING
 
-from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState, \
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, \
     TimelineHistory, CITUS_COORDINATOR_GROUP_ID, citus_group_re
 from ..exceptions import DCSError
 from ..utils import deep_compare, iter_response_objects, keepalive_socket_options, \
@@ -888,18 +888,8 @@ class Kubernetes(AbstractDCS):
             self._leader_resource_version = metadata.resource_version if metadata else None
         annotations: Dict[str, str] = metadata and metadata.annotations or {}
 
-        # get last known leader lsn
-        try:
-            last_lsn = int(annotations.get(self._OPTIME, ''))
-        except Exception:
-            last_lsn = 0
-
-        # get permanent slots state (confirmed_flush_lsn)
-        slots = annotations.get('slots')
-        try:
-            slots = json.loads(annotations.get('slots', ''))
-        except Exception:
-            slots = None
+        # get last known leader lsn and slots
+        status = Status.from_node(annotations)
 
         # get failsafe topology
         try:
@@ -945,7 +935,7 @@ class Kubernetes(AbstractDCS):
         metadata = sync and sync.metadata
         sync = SyncState.from_node(metadata and metadata.resource_version, metadata and metadata.annotations)
 
-        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
+        return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
     def _cluster_loader(self, path: Dict[str, Any]) -> Cluster:
         return self._cluster_from_nodes(path['group'], path['nodes'], path['pods'].values())
