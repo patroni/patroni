@@ -257,7 +257,7 @@ class Config(object):
 
               * file or directory path passed as command-line argument (*configfile*), if it exists and the file or
                 files found in the directory can be parsed (see :meth:`~Config._load_config_path`), otherwise
-              * YAML file passed via the environment variable (see :cvar:`PATRONI_CONFIG_VARIABLE`), if the referenced
+              * YAML file passed via the environment variable (see :attr:`PATRONI_CONFIG_VARIABLE`), if the referenced
                 file exists and can be parsed, otherwise
               * from configuration values defined as environment variables, see
                 :meth:`~Config._build_environment_configuration`.
