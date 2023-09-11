@@ -79,9 +79,9 @@ def physical_slot_get_changes(context, slot_name, pg_name):
 def has_physical_replication_slot(context, pg_name, slot_name, time_limit):
     time_limit *= context.timeout_multiplier
     max_time = time.time() + int(time_limit)
+    query = f"SELECT * FROM pg_catalog.pg_replication_slots WHERE slot_type = 'physical' AND slot_name = '{slot_name}'"
     while time.time() < max_time:
         try:
-            query = f"SELECT * FROM pg_catalog.pg_replication_slots WHERE slot_name = '{slot_name}'"
             row = context.pctl.query(pg_name, query).fetchone()
             if row:
                 return
