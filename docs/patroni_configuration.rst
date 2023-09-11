@@ -105,8 +105,10 @@ Changing these parameters require a PostgreSQL restart to take effect, and their
 
 As explained before, Patroni restrict changing their values through :ref:`dynamic configuration <dynamic_configuration>`, which usually consists of:
 
-1. Applying changes through `patronictl edit-config` (or via REST API `/config` endpoint)
-2. Restarting nodes through `patronictl restart` (or via REST API `/restart` endpoint)
+1. Applying changes through ``patronictl edit-config`` (or via REST API ``/config`` endpoint)
+2. Restarting nodes through ``patronictl restart`` (or via REST API ``/restart`` endpoint)
+
+**Note:** please keep in mind that you should perform a restart of the PostgreSQL nodes through ``patronictl restart`` command, or via REST API ``/restart`` endpoint. An attempt to restart PostgreSQL by restarting the Patroni daemon, e.g. by executing ``systemctl restart patroni``, can cause a failover to occur in the cluster, if you are restarting the primary node.
 
 However, as those settings manage shared memory, some extra care should be taken when restarting the nodes:
 
@@ -120,7 +122,7 @@ However, as those settings manage shared memory, some extra care should be taken
    1. Restart the primary first
    2. Restart all standbys after that
 
-**Note:** if you attempt to restart all nodes in one go after **decreasing** the value of any of those settings, Patroni will ignore the change and restart the standby with the original setting value, thus requiring that you restart the standbys again later. Patroni does that to prevent the standby to enter in an infinite crash loop, because PostgreSQL quits with a `FATAL` message if you attempt to set any of those parameters to a value lower than what is visible in `pg_controldata` on the Standby cluster. In other words, we can only decrease the setting on the standby once its `pg_controldata` is up-to-date with the primary in regards to these changes on the primary.
+**Note:** if you attempt to restart all nodes in one go after **decreasing** the value of any of those settings, Patroni will ignore the change and restart the standby with the original setting value, thus requiring that you restart the standbys again later. Patroni does that to prevent the standby to enter in an infinite crash loop, because PostgreSQL quits with a `FATAL` message if you attempt to set any of those parameters to a value lower than what is visible in ``pg_controldata`` on the Standby node. In other words, we can only decrease the setting on the standby once its ``pg_controldata`` is up-to-date with the primary in regards to these changes on the primary.
 
 More information about that can be found at `PostgreSQL Administrator's Overview <https://www.postgresql.org/docs/current/hot-standby.html#HOT-STANDBY-ADMIN>`__.
 
