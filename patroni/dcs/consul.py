@@ -141,6 +141,36 @@ class HTTPClient(object):
 class ConsulClient(base.Consul):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """
+        Consul client with Patroni customisations.
+
+        .. note::
+
+            Parameters, *token*, *cert* and *ca_cert* are not passed to the parent class :class:`consul.base.Consul`.
+
+        Original class documentation,
+
+            *token* is an optional ``ACL token``. If supplied it will be used by
+            default for all requests made with this client session. It's still
+            possible to override this token by passing a token explicitly for a
+            request.
+
+            *consistency* sets the consistency mode to use by default for all reads
+            that support the consistency option. It's still possible to override
+            this by passing explicitly for a given request. *consistency* can be
+            either 'default', 'consistent' or 'stale'.
+
+            *dc* is the datacenter that this agent will communicate with.
+            By default, the datacenter of the host is used.
+
+            *verify* is whether to verify the SSL certificate for HTTPS requests
+
+            *cert* client side certificates for HTTPS requests
+
+        :param args: positional arguments to pass to :class:`consul.base.Consul`
+        :param kwargs: keyword arguments, with *cert*, *ca_cert* and *token* removed, passed to
+                       :class:`consul.base.Consul`
+        """
         self._cert = kwargs.pop('cert', None)
         self._ca_cert = kwargs.pop('ca_cert', None)
         self.token = kwargs.get('token')

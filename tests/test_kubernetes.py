@@ -308,13 +308,15 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
         mock_patch_namespaced_pod.assert_called()
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['isMaster'], 'false')
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['tmp_role'], 'replica')
-
-        self.k.touch_member({'state': 'running', 'role': 'standby-leader'})
-        mock_patch_namespaced_pod.assert_called()
-        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['isMaster'], 'false')
-        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['tmp_role'], 'standby-leader')
+        mock_patch_namespaced_pod.rest_mock()
 
         self.k._name = 'p-0'
+        self.k.touch_member({'role': 'standby_leader'})
+        mock_patch_namespaced_pod.assert_called()
+        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['isMaster'], 'false')
+        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['tmp_role'], 'master')
+        mock_patch_namespaced_pod.rest_mock()
+
         self.k.touch_member({'role': 'primary'})
         mock_patch_namespaced_pod.assert_called()
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['isMaster'], 'true')
@@ -433,6 +435,10 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         self.k.touch_member({'state': 'running', 'role': 'replica'})
         mock_logger_exception.assert_called_once()
         self.assertEqual(('create_config_service failed',), mock_logger_exception.call_args[0])
+
+    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', mock_namespaced_kind, create=True)
+    def test_write_leader_optime(self):
+        self.k.write_leader_optime(12345)
 
 
 def mock_watch(*args):

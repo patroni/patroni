@@ -14,7 +14,7 @@ from typing import Any, Collection, Dict, Iterator, List, Optional, Union, Tuple
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
-from ..exceptions import PatroniFatalException
+from ..exceptions import PatroniFatalException, PostgresConnectionException
 from ..file_perm import pg_perm
 from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, validate_directory, is_subpath
 from ..validator import IntValidator, EnumValidator
@@ -623,7 +623,24 @@ class ConfigHandler(object):
                                           'recovery_target_action', 'standby_mode', self._triggerfile_wrong_name})
         return CaseInsensitiveSet(self._RECOVERY_PARAMETERS - skip_params)
 
-    def _read_recovery_params(self) -> Tuple[Optional[CaseInsensitiveDict], Optional[bool]]:
+    def _read_recovery_params(self) -> Tuple[Optional[CaseInsensitiveDict], bool]:
+        """Read current recovery parameters values.
+
+        .. note::
+            We query Postgres only if we detected that Postgresql was restarted
+            or when at least one of the following files was updated:
+
+                * ``postgresql.conf``;
+                * ``postgresql.auto.conf``;
+                * ``passfile`` that is used in the ``primary_conninfo``.
+
+        :returns: a tuple with two elements:
+
+            * :class:`CaseInsensitiveDict` object with current values of recovery parameters,
+              or ``None`` if no configuration files were updated;
+
+            * ``True`` if new values of recovery parameters were queried, ``False`` otherwise.
+        """
         if self._postgresql.is_starting():
             return None, False
 
@@ -644,11 +661,20 @@ class ConfigHandler(object):
             self._postgresql_conf_mtime = pg_conf_mtime
             self._auto_conf_mtime = auto_conf_mtime
             self._postmaster_ctime = postmaster_ctime
-        except Exception:
+        except Exception as exc:
+            if all((isinstance(exc, PostgresConnectionException),
+                    self._postgresql_conf_mtime == pg_conf_mtime,
+                    self._auto_conf_mtime == auto_conf_mtime,
+                    self._passfile_mtime == passfile_mtime,
+                    self._postmaster_ctime != postmaster_ctime)):
+                # We detected that the connection to postgres fails, but the process creation time of the postmaster
+                # doesn't match the old value. It is an indicator that Postgres crashed and either doing crash
+                # recovery or down. In this case we return values like nothing changed in the config.
+                return None, False
             values = None
         return values, True
 
-    def _read_recovery_params_pre_v12(self) -> Tuple[Optional[CaseInsensitiveDict], Optional[bool]]:
+    def _read_recovery_params_pre_v12(self) -> Tuple[Optional[CaseInsensitiveDict], bool]:
         recovery_conf_mtime = mtime(self._recovery_conf)
         passfile_mtime = mtime(self._passfile) if self._passfile else False
         if recovery_conf_mtime == self._recovery_conf_mtime and passfile_mtime == self._passfile_mtime:

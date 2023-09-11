@@ -33,7 +33,7 @@ nosetests.xml
 coverage.xml
 htmlcov
 junit.xml
-features/output
+features/output*
 dummy
 
 # Translations

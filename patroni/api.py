@@ -198,7 +198,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response['database_system_identifier'] = patroni.postgresql.sysid
         if patroni.postgresql.pending_restart:
             response['pending_restart'] = True
-        response['patroni'] = {'version': patroni.version, 'scope': patroni.postgresql.scope}
+        response['patroni'] = {
+            'version': patroni.version,
+            'scope': patroni.postgresql.scope,
+            'name': patroni.postgresql.name
+        }
         if patroni.scheduled_restart:
             response['scheduled_restart'] = patroni.scheduled_restart.copy()
             del response['scheduled_restart']['postmaster_start_time']
@@ -449,7 +453,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         cluster = self.server.patroni.dcs.get_cluster(True)
         global_config = self.server.patroni.config.get_global_config(cluster)
-        self._write_json_response(200, cluster_as_json(cluster, global_config))
+
+        response = cluster_as_json(cluster, global_config)
+        response['scope'] = self.server.patroni.postgresql.scope
+        self._write_json_response(200, response)
 
     def do_GET_history(self) -> None:
         """Handle a ``GET`` request to ``/history`` path.
@@ -526,113 +533,113 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics: List[str] = []
 
-        scope_label = '{{scope="{0}"}}'.format(patroni.postgresql.scope)
+        labels = f'{{scope="{patroni.postgresql.scope}",name="{patroni.postgresql.name}"}}'
         metrics.append("# HELP patroni_version Patroni semver without periods.")
         metrics.append("# TYPE patroni_version gauge")
         padded_semver = ''.join([x.zfill(2) for x in patroni.version.split('.')])  # 2.0.2 => 020002
-        metrics.append("patroni_version{0} {1}".format(scope_label, padded_semver))
+        metrics.append("patroni_version{0} {1}".format(labels, padded_semver))
 
         metrics.append("# HELP patroni_postgres_running Value is 1 if Postgres is running, 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_running gauge")
-        metrics.append("patroni_postgres_running{0} {1}".format(scope_label, int(postgres['state'] == 'running')))
+        metrics.append("patroni_postgres_running{0} {1}".format(labels, int(postgres['state'] == 'running')))
 
         metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Postgres started.")
         metrics.append("# TYPE patroni_postmaster_start_time gauge")
         postmaster_start_time = postgres.get('postmaster_start_time')
         postmaster_start_time = (postmaster_start_time - epoch).total_seconds() if postmaster_start_time else 0
-        metrics.append("patroni_postmaster_start_time{0} {1}".format(scope_label, postmaster_start_time))
+        metrics.append("patroni_postmaster_start_time{0} {1}".format(labels, postmaster_start_time))
 
         metrics.append("# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.")
         metrics.append("# TYPE patroni_master gauge")
-        metrics.append("patroni_master{0} {1}".format(scope_label, int(postgres['role'] in ('master', 'primary'))))
+        metrics.append("patroni_master{0} {1}".format(labels, int(postgres['role'] in ('master', 'primary'))))
 
         metrics.append("# HELP patroni_primary Value is 1 if this node is the leader, 0 otherwise.")
         metrics.append("# TYPE patroni_primary gauge")
-        metrics.append("patroni_primary{0} {1}".format(scope_label, int(postgres['role'] in ('master', 'primary'))))
+        metrics.append("patroni_primary{0} {1}".format(labels, int(postgres['role'] in ('master', 'primary'))))
 
         metrics.append("# HELP patroni_xlog_location Current location of the Postgres"
                        " transaction log, 0 if this node is not the leader.")
         metrics.append("# TYPE patroni_xlog_location counter")
-        metrics.append("patroni_xlog_location{0} {1}".format(scope_label, postgres.get('xlog', {}).get('location', 0)))
+        metrics.append("patroni_xlog_location{0} {1}".format(labels, postgres.get('xlog', {}).get('location', 0)))
 
         metrics.append("# HELP patroni_standby_leader Value is 1 if this node is the standby_leader, 0 otherwise.")
         metrics.append("# TYPE patroni_standby_leader gauge")
-        metrics.append("patroni_standby_leader{0} {1}".format(scope_label, int(postgres['role'] == 'standby_leader')))
+        metrics.append("patroni_standby_leader{0} {1}".format(labels, int(postgres['role'] == 'standby_leader')))
 
         metrics.append("# HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.")
         metrics.append("# TYPE patroni_replica gauge")
-        metrics.append("patroni_replica{0} {1}".format(scope_label, int(postgres['role'] == 'replica')))
+        metrics.append("patroni_replica{0} {1}".format(labels, int(postgres['role'] == 'replica')))
 
         metrics.append("# HELP patroni_sync_standby Value is 1 if this node is a sync standby replica, 0 otherwise.")
         metrics.append("# TYPE patroni_sync_standby gauge")
-        metrics.append("patroni_sync_standby{0} {1}".format(scope_label, int(postgres.get('sync_standby', False))))
+        metrics.append("patroni_sync_standby{0} {1}".format(labels, int(postgres.get('sync_standby', False))))
 
         metrics.append("# HELP patroni_xlog_received_location Current location of the received"
                        " Postgres transaction log, 0 if this node is not a replica.")
         metrics.append("# TYPE patroni_xlog_received_location counter")
         metrics.append("patroni_xlog_received_location{0} {1}"
-                       .format(scope_label, postgres.get('xlog', {}).get('received_location', 0)))
+                       .format(labels, postgres.get('xlog', {}).get('received_location', 0)))
 
         metrics.append("# HELP patroni_xlog_replayed_location Current location of the replayed"
                        " Postgres transaction log, 0 if this node is not a replica.")
         metrics.append("# TYPE patroni_xlog_replayed_location counter")
         metrics.append("patroni_xlog_replayed_location{0} {1}"
-                       .format(scope_label, postgres.get('xlog', {}).get('replayed_location', 0)))
+                       .format(labels, postgres.get('xlog', {}).get('replayed_location', 0)))
 
         metrics.append("# HELP patroni_xlog_replayed_timestamp Current timestamp of the replayed"
                        " Postgres transaction log, 0 if null.")
         metrics.append("# TYPE patroni_xlog_replayed_timestamp gauge")
         replayed_timestamp = postgres.get('xlog', {}).get('replayed_timestamp')
         replayed_timestamp = (replayed_timestamp - epoch).total_seconds() if replayed_timestamp else 0
-        metrics.append("patroni_xlog_replayed_timestamp{0} {1}".format(scope_label, replayed_timestamp))
+        metrics.append("patroni_xlog_replayed_timestamp{0} {1}".format(labels, replayed_timestamp))
 
         metrics.append("# HELP patroni_xlog_paused Value is 1 if the Postgres xlog is paused, 0 otherwise.")
         metrics.append("# TYPE patroni_xlog_paused gauge")
         metrics.append("patroni_xlog_paused{0} {1}"
-                       .format(scope_label, int(postgres.get('xlog', {}).get('paused', False) is True)))
+                       .format(labels, int(postgres.get('xlog', {}).get('paused', False) is True)))
 
         if postgres.get('server_version', 0) >= 90600:
             metrics.append("# HELP patroni_postgres_streaming Value is 1 if Postgres is streaming, 0 otherwise.")
             metrics.append("# TYPE patroni_postgres_streaming gauge")
             metrics.append("patroni_postgres_streaming{0} {1}"
-                           .format(scope_label, int(postgres.get('replication_state') == 'streaming')))
+                           .format(labels, int(postgres.get('replication_state') == 'streaming')))
 
             metrics.append("# HELP patroni_postgres_in_archive_recovery Value is 1"
                            " if Postgres is replicating from archive, 0 otherwise.")
             metrics.append("# TYPE patroni_postgres_in_archive_recovery gauge")
             metrics.append("patroni_postgres_in_archive_recovery{0} {1}"
-                           .format(scope_label, int(postgres.get('replication_state') == 'in archive recovery')))
+                           .format(labels, int(postgres.get('replication_state') == 'in archive recovery')))
 
         metrics.append("# HELP patroni_postgres_server_version Version of Postgres (if running), 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_server_version gauge")
-        metrics.append("patroni_postgres_server_version {0} {1}".format(scope_label, postgres.get('server_version', 0)))
+        metrics.append("patroni_postgres_server_version {0} {1}".format(labels, postgres.get('server_version', 0)))
 
         metrics.append("# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.")
         metrics.append("# TYPE patroni_cluster_unlocked gauge")
-        metrics.append("patroni_cluster_unlocked{0} {1}".format(scope_label, int(postgres.get('cluster_unlocked', 0))))
+        metrics.append("patroni_cluster_unlocked{0} {1}".format(labels, int(postgres.get('cluster_unlocked', 0))))
 
         metrics.append("# HELP patroni_failsafe_mode_is_active Value is 1 if failsafe mode is active, 0 if inactive.")
         metrics.append("# TYPE patroni_failsafe_mode_is_active gauge")
         metrics.append("patroni_failsafe_mode_is_active{0} {1}"
-                       .format(scope_label, int(postgres.get('failsafe_mode_is_active', 0))))
+                       .format(labels, int(postgres.get('failsafe_mode_is_active', 0))))
 
         metrics.append("# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_timeline counter")
-        metrics.append("patroni_postgres_timeline{0} {1}".format(scope_label, postgres.get('timeline', 0)))
+        metrics.append("patroni_postgres_timeline{0} {1}".format(labels, postgres.get('timeline', 0)))
 
         metrics.append("# HELP patroni_dcs_last_seen Epoch timestamp when DCS was last contacted successfully"
                        " by Patroni.")
         metrics.append("# TYPE patroni_dcs_last_seen gauge")
-        metrics.append("patroni_dcs_last_seen{0} {1}".format(scope_label, postgres.get('dcs_last_seen', 0)))
+        metrics.append("patroni_dcs_last_seen{0} {1}".format(labels, postgres.get('dcs_last_seen', 0)))
 
         metrics.append("# HELP patroni_pending_restart Value is 1 if the node needs a restart, 0 otherwise.")
         metrics.append("# TYPE patroni_pending_restart gauge")
         metrics.append("patroni_pending_restart{0} {1}"
-                       .format(scope_label, int(patroni.postgresql.pending_restart)))
+                       .format(labels, int(patroni.postgresql.pending_restart)))
 
         metrics.append("# HELP patroni_is_paused Value is 1 if auto failover is disabled, 0 otherwise.")
         metrics.append("# TYPE patroni_is_paused gauge")
-        metrics.append("patroni_is_paused{0} {1}".format(scope_label, int(postgres.get('pause', 0))))
+        metrics.append("patroni_is_paused{0} {1}".format(labels, int(postgres.get('pause', 0))))
 
         self.write_response(200, '\n'.join(metrics) + '\n', content_type='text/plain')
 
@@ -1368,6 +1375,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
     def query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
         """Execute *sql* query with *params* and optionally return results.
 
+        .. note::
+            Prefer to use own connection to postgres and fallback to ``heartbeat`` when own isn't available.
+
         :param sql: the SQL statement to be run.
         :param params: positional arguments to be used as parameters for *sql*.
 
@@ -1377,10 +1387,21 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             :class:`psycopg.Error`: if had issues while executing *sql*.
             :class:`~patroni.exceptions.PostgresConnectionException`: if had issues while connecting to the database.
         """
+        # We first try to get a heartbeat connection because it is always required for the main thread.
         try:
-            return self.patroni.postgresql.query(sql, *params, retry=False)
-        except RetryFailedError as e:
-            raise PostgresConnectionException(str(e))
+            heartbeat_connection = self.patroni.postgresql.connection_pool.get('heartbeat')
+            heartbeat_connection.get()  # try to open psycopg connection to postgres
+        except psycopg.Error as exc:
+            raise PostgresConnectionException('connection problems') from exc
+
+        try:
+            connection = self.patroni.postgresql.connection_pool.get('restapi')
+            connection.get()  # try to open psycopg connection to postgres
+        except psycopg.Error:
+            logger.debug('restapi connection to postgres is not available')
+            connection = heartbeat_connection
+
+        return connection.query(sql, *params)
 
     @staticmethod
     def _set_fd_cloexec(fd: socket.socket) -> None:
@@ -1546,7 +1567,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         :param listen: IP and port to bind REST API to. It should be a string in the format ``host:port``, where
             ``host`` can be a hostname or IP address. It is the value of ``restapi.listen`` setting.
         :param ssl_options: dictionary that may contain the following keys, depending on what has been configured in
-            ``restapi` section:
+            ``restapi`` section:
 
             * ``certfile``: path to PEM certificate. If given, will start in HTTPS mode;
             * ``keyfile``: path to key of ``certfile``;
