@@ -333,15 +333,17 @@ class Case(object):
         """Create a :class:`Case` object.
 
         :param schema: the schema for validating a set of attributes that may be available in the configuration.
-            Each key is the configuration that is available in a given scope and that should be validated, and the
-            related value is the validation function or expected type.
+                       Each key is the configuration that is available in a given scope and that should be validated,
+                       and the related value is the validation function or expected type.
 
         :Example:
 
-            Case({
-                "host": validate_host_port,
-                "url": str,
-            })
+            .. code-block:: python
+
+                Case({
+                    "host": validate_host_port,
+                    "url": str,
+                })
 
         That will check that ``host`` configuration, if given, is valid based on :func:`validate_host_port`, and will
         also check that ``url`` configuration, if given, is a ``str`` instance.
@@ -363,14 +365,16 @@ class Or(object):
 
         :Example:
 
-            Or("host", "hosts"): Case({
-                "host": validate_host_port,
-                "hosts": Or(comma_separated_host_port, [validate_host_port]),
-            })
+            .. code-block:: python
 
-        The outer :class:`Or` is used to define that ``host`` and ``hosts`` are possible options in this scope.
-        The inner :class`Or` in the ``hosts`` key value is used to define that ``hosts`` option is valid if either of
-            :func:`comma_separated_host_port` or :func:`validate_host_port` succeed to validate it.
+                Or("host", "hosts"): Case({
+                    "host": validate_host_port,
+                    "hosts": Or(comma_separated_host_port, [validate_host_port]),
+                })
+
+            The outer :class:`Or` is used to define that ``host`` and ``hosts`` are possible options in this scope.
+            The inner :class`Or` in the ``hosts`` key value is used to define that ``hosts`` option is valid if either
+            of :func:`comma_separated_host_port` or :func:`validate_host_port` succeed to validate it.
         """
         self.args = args
 
@@ -535,32 +539,34 @@ class Schema(object):
 
         :Example:
 
-            Schema({
-                "application_name": str,
-                "bind": {
-                    "host": validate_host,
-                    "port": int,
-                },
-                "aliases": [str],
-                Optional("data_directory"): "/var/lib/myapp",
-                Or("log_to_file", "log_to_db"): Case({
-                    "log_to_file": bool,
-                    "log_to_db": bool,
-                }),
-                "version": Or(int, float),
-            })
+            .. code-block:: python
 
-        This sample schema defines that your YAML configuration follows these rules:
+                Schema({
+                    "application_name": str,
+                    "bind": {
+                        "host": validate_host,
+                        "port": int,
+                    },
+                    "aliases": [str],
+                    Optional("data_directory"): "/var/lib/myapp",
+                    Or("log_to_file", "log_to_db"): Case({
+                        "log_to_file": bool,
+                        "log_to_db": bool,
+                    }),
+                    "version": Or(int, float),
+                })
 
-            * It must contain an ``application_name`` entry which value should be a :class:`str` instance;
-            * It must contain a ``bind.host`` entry which value should be valid as per function ``validate_host``;
-            * It must contain a ``bind.port`` entry which value should be an :class:`int` instance;
-            * It must contain a ``aliases`` entry which value should be a :class:`list` of :class:`str` instances;
-            * It may optionally contain a ``data_directory`` entry, with a value which should be a string;
-            * It must contain at least one of ``log_to_file`` or ``log_to_db``, with a value which should be a
-              :class:`bool` instance;
-            * It must contain a ``version`` entry which value should be either an :class:`int` or a :class:`float`
-              instance.
+            This sample schema defines that your YAML configuration follows these rules:
+
+                * It must contain an ``application_name`` entry which value should be a :class:`str` instance;
+                * It must contain a ``bind.host`` entry which value should be valid as per function ``validate_host``;
+                * It must contain a ``bind.port`` entry which value should be an :class:`int` instance;
+                * It must contain a ``aliases`` entry which value should be a :class:`list` of :class:`str` instances;
+                * It may optionally contain a ``data_directory`` entry, with a value which should be a string;
+                * It must contain at least one of ``log_to_file`` or ``log_to_db``, with a value which should be a
+                  :class:`bool` instance;
+                * It must contain a ``version`` entry which value should be either an :class:`int` or a :class:`float`
+                  instance.
         """
         self.validator = validator
 

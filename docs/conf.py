@@ -54,6 +54,13 @@ apidoc_output_dir = 'modules'
 apidoc_excluded_paths = excludes
 apidoc_separate_modules = True
 
+# Include autodoc for all members, including private ones and the ones that are missing a docstring.
+autodoc_default_options = {
+    "members": True,
+    "undoc-members": True,
+    "private-members": True,
+}
+
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
@@ -280,6 +287,14 @@ def doctree_read(app, doctree):
                 toc_tree_node['entries'].remove(e)
 
 
+def autodoc_skip(app, what, name, obj, would_skip, options):
+    """Include autodoc of ``__init__`` methods, which are skipped by default."""
+    if name == "__init__":
+        return False
+    return would_skip
+
+
+
 # A possibility to have an own stylesheet, to add new rules or override existing ones
 # For the latter case, the CSS specificity of the rules should be higher than the default ones
 def setup(app):
@@ -292,3 +307,4 @@ def setup(app):
     app.connect('builder-inited', builder_inited)
     app.connect('env-get-outdated', env_get_outdated)
     app.connect('doctree-read', doctree_read)
+    app.connect("autodoc-skip-member", autodoc_skip)
