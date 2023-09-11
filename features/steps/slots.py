@@ -15,6 +15,8 @@ def create_logical_replication_slot(context, slot_name, pg_name, plugin):
         assert False, "Error creating slot {0} on {1} with plugin {2}".format(slot_name, pg_name, plugin)
 
 
+@step('{pg_name:w} has a logical replication slot named {slot_name}'
+      ' with the {plugin:w} plugin after {time_limit:d} seconds')
 @then('{pg_name:w} has a logical replication slot named {slot_name}'
       ' with the {plugin:w} plugin after {time_limit:d} seconds')
 def has_logical_replication_slot(context, pg_name, slot_name, plugin, time_limit):

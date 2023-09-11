@@ -28,6 +28,7 @@ from ..tags import Tags
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
 
+_SLOT_ADVANCE_AVAILABLE_VERSION = 110000
 CITUS_COORDINATOR_GROUP_ID = 0
 citus_group_re = re.compile('^(0|[1-9][0-9]*)$')
 slot_name_re = re.compile('^[a-z0-9_]{1,63}$')
@@ -998,7 +999,7 @@ class Cluster(NamedTuple('Cluster',
                     continue
 
                 if value['type'] == 'logical' and value.get('database') and value.get('plugin'):
-                    if major_version < 110000:
+                    if major_version < _SLOT_ADVANCE_AVAILABLE_VERSION:
                         disabled_permanent_logical_slots.append(name)
                     elif name in slots:
                         logger.error("Permanent logical replication slot {'%s': %s} is conflicting with"
@@ -1035,10 +1036,11 @@ class Cluster(NamedTuple('Cluster',
             return {}
 
         if is_standby_cluster:
-            return self.__permanent_physical_slots if major_version >= 110000 or role == 'standby_leader' else {}
+            return self.__permanent_physical_slots\
+                if major_version >= _SLOT_ADVANCE_AVAILABLE_VERSION or role == 'standby_leader' else {}
 
-        return self.__permanent_slots\
-            if major_version >= 110000 or role in ('master', 'primary') else self.__permanent_logical_slots
+        return self.__permanent_slots if major_version >= _SLOT_ADVANCE_AVAILABLE_VERSION\
+            or role in ('master', 'primary') else self.__permanent_logical_slots
 
     def _get_members_slots(self, my_name: str, role: str) -> Dict[str, Dict[str, str]]:
         """Get physical replication slots configuration for members that sourcing from this node.
@@ -1092,9 +1094,10 @@ class Cluster(NamedTuple('Cluster',
         :returns: ``True`` if there are permanent replication slots configured, otherwise ``False``.
         """
         members_slots: Dict[str, Dict[str, str]] = self._get_members_slots(my_name, 'replica')
-        permanent_slots: Dict[str, Any] = self._get_permanent_slots(nofailover, 'replica', False, 110000)
+        permanent_slots: Dict[str, Any] = self._get_permanent_slots(nofailover, 'replica', False,
+                                                                    _SLOT_ADVANCE_AVAILABLE_VERSION)
         slots = deepcopy(members_slots)
-        self._merge_permanent_slots(slots, permanent_slots, my_name, 110000)
+        self._merge_permanent_slots(slots, permanent_slots, my_name, _SLOT_ADVANCE_AVAILABLE_VERSION)
         return len(slots) > len(members_slots)
 
     def _has_permanent_logical_slots(self, my_name: str, nofailover: bool) -> bool:
@@ -1105,7 +1108,7 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: ``True`` if any detected replications slots are ``logical``, otherwise ``False``.
         """
-        slots = self.get_replication_slots(my_name, 'replica', nofailover, 110000).values()
+        slots = self.get_replication_slots(my_name, 'replica', nofailover, _SLOT_ADVANCE_AVAILABLE_VERSION).values()
         return any(v for v in slots if v.get("type") == "logical")
 
     def should_enforce_hot_standby_feedback(self, my_name: str, nofailover: bool) -> bool:
@@ -1117,8 +1120,8 @@ class Cluster(NamedTuple('Cluster',
         :param my_name: name of the member node to check.
         :param nofailover: ``True`` if this node is tagged to not be a failover candidate.
 
-        :returns: ``True`` if this node or any member replicating from this node has permanent logical slots.
-                 ``False`` if PostgreSQL major version is < 11.
+        :returns: ``True`` if this node or any member replicating from this node has
+                  permanent logical slots, otherwise ``False``.
         """
         if self._has_permanent_logical_slots(my_name, nofailover):
             return True

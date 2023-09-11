@@ -190,3 +190,11 @@ class TestSlotsHandler(BaseTestPostgresql):
         cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem],
                           None, SyncState.empty(), None, {'blabla': 12346}, None)
         self.s.sync_replication_slots(cluster, False)
+        with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('blabla', 'physical', 12345, None, None, None,
+                                                                      None, None)], Exception])) as mock_query, \
+                patch('patroni.postgresql.slots.logger.error') as mock_error:
+            self.s.sync_replication_slots(cluster, False)
+            self.assertEqual(mock_query.call_args[0],
+                             ("SELECT pg_catalog.pg_replication_slot_advance(%s, %s)", "blabla", '0/303A'))
+            self.assertEqual(mock_error.call_args[0][0],
+                             "Error while advancing replication slot %s to position '%s': %r")

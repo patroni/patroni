@@ -501,10 +501,11 @@ class SlotsHandler:
                                replicatefrom: Optional[str] = None, paused: bool = False) -> List[str]:
         """During the HA loop read, check and alter replication slots found in the cluster.
 
-        Read physical and logical slots found on the primary, then compare to those configured in the DCS.
+        Read physical and logical slots from ``pg_replication_slots``, then compare to those configured in the DCS.
         Drop any slots that do not match those required by configuration and are not configured as permanent.
-        Create any missing physical slots. If we are the leader then logical slots too, otherwise if logical slots
-        are known and active create them on replica nodes.
+        Create any missing physical slots, or advance their position according to feedback stored in DCS.
+        If we are the primary then create logical slots, otherwise if logical slots are known and active create
+        them on replica nodes by copying slot files from the primary.
 
         :param cluster: object containing stateful information for the cluster.
         :param nofailover: ``True`` if this node has been tagged to not be a failover candidate.
