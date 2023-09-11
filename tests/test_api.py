@@ -11,9 +11,12 @@ from socketserver import ThreadingMixIn
 from patroni.api import RestApiHandler, RestApiServer
 from patroni.config import GlobalConfig
 from patroni.dcs import ClusterConfig, Member
+from patroni.exceptions import PostgresConnectionException
 from patroni.ha import _MemberStatus
+from patroni.psycopg import OperationalError
 from patroni.utils import RetryFailedError, tzutc
 
+from . import MockConnect, psycopg_connect
 from .test_ha import get_cluster_initialized_without_leader
 
 
@@ -21,8 +24,29 @@ future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)
 postmaster_start_time = datetime.datetime.now(tzutc)
 
 
-class MockPostgresql(object):
+class MockConnection:
 
+    @staticmethod
+    def get(*args):
+        return psycopg_connect()
+
+    @staticmethod
+    def query(sql, *params):
+        return [(postmaster_start_time, 0, '', 0, '', False, postmaster_start_time, 'streaming', None,
+                 '[{"application_name":"walreceiver","client_addr":"1.2.3.4",'
+                 + '"state":"streaming","sync_state":"async","sync_priority":0}]')]
+
+
+class MockConnectionPool:
+
+    @staticmethod
+    def get(*args):
+        return MockConnection()
+
+
+class MockPostgresql:
+
+    connection_pool = MockConnectionPool()
     name = 'test'
     state = 'running'
     role = 'primary'
@@ -53,12 +77,6 @@ class MockPostgresql(object):
     @staticmethod
     def replication_state_from_parameters(*args):
         return 'streaming'
-
-    @staticmethod
-    def query(sql, *params, retry=False):
-        return [(postmaster_start_time, 0, '', 0, '', False, postmaster_start_time, 'streaming', None,
-                 '[{"application_name":"walreceiver","client_addr":"1.2.3.4",'
-                 + '"state":"streaming","sync_state":"async","sync_priority":0}]')]
 
 
 class MockWatchdog(object):
@@ -490,7 +508,7 @@ class TestRestApiHandler(unittest.TestCase):
 
     @patch('time.sleep', Mock())
     def test_RestApiServer_query(self):
-        with patch.object(MockPostgresql, 'query', Mock(side_effect=RetryFailedError('bla'))):
+        with patch.object(MockConnection, 'query', Mock(side_effect=RetryFailedError('bla'))):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
 
     @patch('time.sleep', Mock())
@@ -662,3 +680,11 @@ class TestRestApiServer(unittest.TestCase):
 
     def test_get_certificate_serial_number(self):
         self.assertIsNone(self.srv.get_certificate_serial_number())
+
+    def test_query(self):
+        with patch.object(MockConnection, 'get', Mock(side_effect=OperationalError)):
+            self.assertRaises(PostgresConnectionException, self.srv.query, 'SELECT 1')
+        with patch.object(MockConnection, 'get', Mock(side_effect=[MockConnect(), OperationalError])), \
+                patch.object(MockConnection, 'query') as mock_query:
+            self.srv.query('SELECT 1')
+            mock_query.assert_called_once_with('SELECT 1')

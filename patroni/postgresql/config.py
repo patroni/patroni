@@ -14,7 +14,7 @@ from typing import Any, Collection, Dict, Iterator, List, Optional, Union, Tuple
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
-from ..exceptions import PatroniFatalException
+from ..exceptions import PatroniFatalException, PostgresConnectionException
 from ..file_perm import pg_perm
 from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, validate_directory, is_subpath
 from ..validator import IntValidator, EnumValidator
@@ -623,7 +623,24 @@ class ConfigHandler(object):
                                           'recovery_target_action', 'standby_mode', self._triggerfile_wrong_name})
         return CaseInsensitiveSet(self._RECOVERY_PARAMETERS - skip_params)
 
-    def _read_recovery_params(self) -> Tuple[Optional[CaseInsensitiveDict], Optional[bool]]:
+    def _read_recovery_params(self) -> Tuple[Optional[CaseInsensitiveDict], bool]:
+        """Read current recovery parameters values.
+
+        .. note::
+            We query Postgres only if we detected that Postgresql was restarted
+            or when at least one of the following files was updated:
+
+                * ``postgresql.conf``;
+                * ``postgresql.auto.conf``;
+                * ``passfile`` that is used in the ``primary_conninfo``.
+
+        :returns: a tuple with two elements:
+
+            * :class:`CaseInsensitiveDict` object with current values of recovery parameters,
+              or ``None`` if no configuration files were updated;
+
+            * ``True`` if new values of recovery parameters were queried, ``False`` otherwise.
+        """
         if self._postgresql.is_starting():
             return None, False
 
@@ -644,11 +661,20 @@ class ConfigHandler(object):
             self._postgresql_conf_mtime = pg_conf_mtime
             self._auto_conf_mtime = auto_conf_mtime
             self._postmaster_ctime = postmaster_ctime
-        except Exception:
+        except Exception as exc:
+            if all((isinstance(exc, PostgresConnectionException),
+                    self._postgresql_conf_mtime == pg_conf_mtime,
+                    self._auto_conf_mtime == auto_conf_mtime,
+                    self._passfile_mtime == passfile_mtime,
+                    self._postmaster_ctime != postmaster_ctime)):
+                # We detected that the connection to postgres fails, but the process creation time of the postmaster
+                # doesn't match the old value. It is an indicator that Postgres crashed and either doing crash
+                # recovery or down. In this case we return values like nothing changed in the config.
+                return None, False
             values = None
         return values, True
 
-    def _read_recovery_params_pre_v12(self) -> Tuple[Optional[CaseInsensitiveDict], Optional[bool]]:
+    def _read_recovery_params_pre_v12(self) -> Tuple[Optional[CaseInsensitiveDict], bool]:
         recovery_conf_mtime = mtime(self._recovery_conf)
         passfile_mtime = mtime(self._passfile) if self._passfile else False
         if recovery_conf_mtime == self._recovery_conf_mtime and passfile_mtime == self._passfile_mtime:
@@ -942,24 +968,32 @@ class ConfigHandler(object):
                 return 'localhost'  # connection via localhost is preferred
         return listen_addresses[0].strip()  # can't use localhost, take first address from listen_addresses
 
-    @property
-    def local_connect_kwargs(self) -> Dict[str, Any]:
-        ret = self._local_address.copy()
-        # add all of the other connection settings that are available
-        ret.update(self._superuser)
-        # if the "username" parameter is present, it actually needs to be "user"
-        # for connecting to PostgreSQL
-        if 'username' in self._superuser:
-            ret['user'] = self._superuser['username']
-            del ret['username']
-        # ensure certain Patroni configurations are available
-        ret.update({'dbname': self._postgresql.database,
-                    'fallback_application_name': 'Patroni',
-                    'connect_timeout': 3,
-                    'options': '-c statement_timeout=2000'})
-        return ret
-
     def resolve_connection_addresses(self) -> None:
+        """Calculates and sets local and remote connection urls and options.
+
+        This method sets:
+            * :attr:`Postgresql.connection_string <patroni.postgresql.Postgresql.connection_string>` attribute, which
+              is later written to the member key in DCS as ``conn_url``.
+            * :attr:`ConfigHandler.local_replication_address` attribute, which is used for replication connections to
+              local postgres.
+            * :attr:`ConnectionPool.conn_kwargs <patroni.postgresql.connection.ConnectionPool.conn_kwargs>` attribute,
+              which is used for superuser connections to local postgres.
+
+        .. note::
+            If there is a valid directory in ``postgresql.parameters.unix_socket_directories`` in the Patroni
+            configuration and ``postgresql.use_unix_socket`` and/or ``postgresql.use_unix_socket_repl``
+            are set to ``True``, we respectively use unix sockets for superuser and replication connections
+            to local postgres.
+
+            If there is a requirement to use unix sockets, but nothing is set in the
+            ``postgresql.parameters.unix_socket_directories``, we omit a ``host`` in connection parameters relying
+            on the ability of ``libpq`` to connect via some default unix socket directory.
+
+            If unix sockets are not requested we "switch" to TCP, prefering to use ``localhost`` if it is possible
+            to deduce that Postgres is listening on a local interface address.
+
+            Otherwise we just used the first address specified in the ``listen_addresses`` GUC.
+        """
         port = self._server_parameters['port']
         tcp_local_address = self._get_tcp_local_address()
         netloc = self._config.get('connect_address') or tcp_local_address + ':' + port
@@ -972,12 +1006,25 @@ class ConfigHandler(object):
 
         tcp_local_address = {'host': tcp_local_address, 'port': port}
 
-        self._local_address = unix_local_address if self._config.get('use_unix_socket') else tcp_local_address
         self.local_replication_address = unix_local_address\
             if self._config.get('use_unix_socket_repl') else tcp_local_address
 
         self._postgresql.connection_string = uri('postgres', netloc, self._postgresql.database)
-        self._postgresql.set_connection_kwargs(self.local_connect_kwargs)
+
+        local_address = unix_local_address if self._config.get('use_unix_socket') else tcp_local_address
+        local_conn_kwargs = {
+            **local_address,
+            **self._superuser,
+            'dbname': self._postgresql.database,
+            'fallback_application_name': 'Patroni',
+            'connect_timeout': 3,
+            'options': '-c statement_timeout=2000'
+        }
+        # if the "username" parameter is present, it actually needs to be "user" for connecting to PostgreSQL
+        if 'username' in local_conn_kwargs:
+            local_conn_kwargs['user'] = local_conn_kwargs.pop('username')
+        # "notify" connection_pool about the "new" local connection address
+        self._postgresql.connection_pool.conn_kwargs = local_conn_kwargs
 
     def _get_pg_settings(
             self, names: Collection[str]

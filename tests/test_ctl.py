@@ -402,9 +402,19 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.ctl.get_dcs')
     def test_members(self, mock_get_dcs):
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+
         result = self.runner.invoke(ctl, ['list'])
         assert '127.0.0.1' in result.output
         assert result.exit_code == 0
+        assert 'Citus cluster: alpha -' in result.output
+
+        result = self.runner.invoke(ctl, ['list', '--group', '0'])
+        assert 'Citus cluster: alpha (group: 0, 12345678901) -' in result.output
+
+        with patch('patroni.ctl.load_config', Mock(return_value={'scope': 'alpha'})):
+            result = self.runner.invoke(ctl, ['list'])
+            assert 'Cluster: alpha (12345678901) -' in result.output
+
         with patch('patroni.ctl.load_config', Mock(return_value={})):
             self.runner.invoke(ctl, ['list'])
 
