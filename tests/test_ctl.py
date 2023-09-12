@@ -75,6 +75,21 @@ class TestCtl(unittest.TestCase):
 
         self.assertIsNotNone(get_cursor({}, get_cluster_initialized_with_leader(), None, {'dbname': 'foo'}, role='any'))
 
+        # Mutually exclusive options
+        with self.assertRaises(PatroniCtlException) as e:
+            get_cursor({}, get_cluster_initialized_with_leader(), None, {'dbname': 'foo'}, member_name='other',
+                       role='replica')
+
+        self.assertEqual(str(e.exception), '--role and --member are mutually exclusive options')
+
+        # Invalid member provided
+        self.assertIsNone(get_cursor({}, get_cluster_initialized_with_leader(), None, {'dbname': 'foo'},
+                                     member_name='invalid'))
+
+        # Valid member provided
+        self.assertIsNotNone(get_cursor({}, get_cluster_initialized_with_leader(), None, {'dbname': 'foo'},
+                                        member_name='other'))
+
     def test_parse_dcs(self):
         assert parse_dcs(None) is None
         assert parse_dcs('localhost') == {'etcd': {'host': 'localhost:2379'}}

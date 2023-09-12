@@ -561,9 +561,10 @@ def get_cursor(obj: Dict[str, Any], cluster: Cluster, group: Optional[int], conn
     from . import psycopg
     conn = psycopg.connect(**params)
     cursor = conn.cursor()
-    # If we want ``any`` node we are fine to return the cursor
+    # If we want ``any`` node we are fine to return the cursor. ``None`` is similar to ``any`` at this point, as it's
+    # been dealt with through :func:`get_any_member`.
     # If we want the Patroni leader node, :func:`get_any_member` already checks that for us
-    if role in ('any', 'leader'):
+    if role in (None, 'any', 'leader'):
         return cursor
 
     # If we want something other than ``any`` or ``leader``, then we do not rely only on the DCS information about
