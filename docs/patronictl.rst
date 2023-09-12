@@ -468,3 +468,102 @@ Discard scheduled restart of nodes ``postgresql0`` and ``postgresql1``:
     +-------------+----------------+---------+-----------+----+-----------+---------------------------+
     Success: flush scheduled restart for member postgresql0
     Success: flush scheduled restart for member postgresql1
+
+patronictl history
+^^^^^^^^^^^^^^^^^^
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    history
+      [ CLUSTER_NAME ]
+      [ --group CITUS_GROUP ]
+      [ { -f | --format } { pretty | tsv | json | yaml } ]
+
+Description
+"""""""""""
+
+``patronictl history`` shows a history of failover and/or switchover events from the cluster, if any.
+
+The following information is included in the output:
+
+- ``TL``: the Postgres timeline at which the event occurred;
+- ``LSN``: Postgres LSN at which the event occurred;
+- ``Reason``: reason fetched from the Postgres ``.history`` file;
+- ``Timestamp``: time when the event occurred;
+- ``New Leader``: the Patroni member that has been promoted during the event.
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+
+``--group``
+    Show history of events from the given Citus group.
+
+    ``CITUS_GROUP`` is the ID of the Citus group.
+
+``-f`` / ``--format``
+    How to format the list of events in the output.
+
+    Format can be one of:
+
+    - ``pretty``: prints history as a pretty table; or
+    - ``tsv``: prints history as tabular information, with columns delimited by ``\t``; or
+    - ``json``: prints history in JSON format; or
+    - ``yaml``: prints history in YAML format.
+
+    The default is ``pretty``.
+
+``--force``
+    Flag to skip confirmation prompts when performing the flush.
+
+    Useful for scripts.
+
+Examples
+""""""""
+
+Show the history of events:
+
+.. code:: text
+
+    patronictl -c postgres0.yml history batman
+    +----+----------+------------------------------+----------------------------------+-------------+
+    | TL |      LSN | Reason                       | Timestamp                        | New Leader  |
+    +----+----------+------------------------------+----------------------------------+-------------+
+    |  1 | 24392648 | no recovery target specified | 2023-09-11T22:11:27.125527+00:00 | postgresql0 |
+    |  2 | 50331864 | no recovery target specified | 2023-09-12T11:34:03.148097+00:00 | postgresql0 |
+    |  3 | 83886704 | no recovery target specified | 2023-09-12T11:52:26.948134+00:00 | postgresql2 |
+    |  4 | 83887280 | no recovery target specified | 2023-09-12T11:53:09.620136+00:00 | postgresql0 |
+    +----+----------+------------------------------+----------------------------------+-------------+
+
+Show the history of events in YAML format:
+
+.. code:: text
+
+    patronictl -c postgres0.yml history batman -f yaml
+    - LSN: 24392648
+      New Leader: postgresql0
+      Reason: no recovery target specified
+      TL: 1
+      Timestamp: '2023-09-11T22:11:27.125527+00:00'
+    - LSN: 50331864
+      New Leader: postgresql0
+      Reason: no recovery target specified
+      TL: 2
+      Timestamp: '2023-09-12T11:34:03.148097+00:00'
+    - LSN: 83886704
+      New Leader: postgresql2
+      Reason: no recovery target specified
+      TL: 3
+      Timestamp: '2023-09-12T11:52:26.948134+00:00'
+    - LSN: 83887280
+      New Leader: postgresql0
+      Reason: no recovery target specified
+      TL: 4
+      Timestamp: '2023-09-12T11:53:09.620136+00:00'
