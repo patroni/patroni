@@ -858,9 +858,11 @@ def query_member(obj: Dict[str, Any], cluster: Cluster, group: Optional[int],
 
         if cursor is None:
             if member is not None:
-                message = 'No connection to member {0} is available'.format(member)
+                message = f'No connection to member {member} is available'
+            elif role is not None:
+                message = f'No connection to role {role} is available'
             else:
-                message = 'No connection to role={0} is available'.format(role)
+                message = 'No connection is available'
             logging.debug(message)
             return [[timestamp(0), message]], None
 

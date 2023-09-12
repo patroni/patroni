@@ -293,11 +293,17 @@ class TestCtl(unittest.TestCase):
                 rows = query_member({}, None, None, None, None, 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
 
         with patch('patroni.ctl.get_cursor', Mock(return_value=None)):
+            # No role nor member given -- generic message
             rows = query_member({}, None, None, None, None, None, 'SELECT pg_catalog.pg_is_in_recovery()', {})
-            self.assertTrue('No connection to' in str(rows))
+            self.assertTrue('No connection is available' in str(rows))
 
-            rows = query_member({}, None, None, None, 'foo', 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
-            self.assertTrue('No connection to' in str(rows))
+            # Member given -- message pointing to member
+            rows = query_member({}, None, None, None, 'foo', None, 'SELECT pg_catalog.pg_is_in_recovery()', {})
+            self.assertTrue('No connection to member foo' in str(rows))
+
+            # Role given -- message pointing to role
+            rows = query_member({}, None, None, None, None, 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
+            self.assertTrue('No connection to role replica' in str(rows))
 
         with patch('patroni.ctl.get_cursor', Mock(side_effect=OperationalError('bla'))):
             rows = query_member({}, None, None, None, None, 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
