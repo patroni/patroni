@@ -803,3 +803,48 @@ Show information about the cluster in YAML format, with timestamp of execution:
       Role: Replica
       State: streaming
       TL: 5
+
+patronictl pause
+^^^^^^^^^^^^^^^^
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    pause
+      [ CLUSTER_NAME ]
+      [ --group CITUS_GROUP ]
+      [ --wait ]
+
+Description
+"""""""""""
+
+``patronictl pause`` temporarily puts the Patroni cluster in maintenance mode and disables automatic failover.
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+
+``--group``
+    Pause the given Citus group.
+
+    ``CITUS_GROUP`` is the ID of the Citus group.
+
+``--wait``
+    Wait until all Patroni members are paused before returning control the the caller.
+
+Examples
+""""""""
+
+Put the cluster in maintenance mode:
+
+.. code:: text
+
+    patronictl -c postgres0.yml pause batman --wait
+    'pause' request sent, waiting until it is recognized by all nodes
+    Success: cluster management is paused
