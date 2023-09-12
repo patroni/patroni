@@ -489,11 +489,20 @@ Description
 
 The following information is included in the output:
 
-- ``TL``: the Postgres timeline at which the event occurred;
-- ``LSN``: Postgres LSN at which the event occurred;
-- ``Reason``: reason fetched from the Postgres ``.history`` file;
-- ``Timestamp``: time when the event occurred;
-- ``New Leader``: the Patroni member that has been promoted during the event.
+``TL``
+    Postgres timeline at which the event occurred.
+
+``LSN``
+    Postgres LSN at which the event occurred.
+
+``Reason``
+    Reason fetched from the Postgres ``.history`` file.
+
+``Timestamp``
+    Time when the event occurred.
+
+``New Leader``
+    Patroni member that has been promoted during the event.
 
 Parameters
 """"""""""
@@ -567,3 +576,230 @@ Show the history of events in YAML format:
       Reason: no recovery target specified
       TL: 4
       Timestamp: '2023-09-12T11:53:09.620136+00:00'
+
+patronictl list
+^^^^^^^^^^^^^^^
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    list
+      [ CLUSTER_NAME [, ... ] ]
+      [ --group CITUS_GROUP ]
+      [ { -e | --extended } ]
+      [ { -t | --timestamp } ]
+      [ { -f | --format } { pretty | tsv | json | yaml } ]
+      [ { -W | { -w | --watch } TIME } ]
+
+Description
+"""""""""""
+
+``patronictl list`` shows information about Patroni cluster and its members.
+
+The following information is included in the output:
+
+``Cluster``
+    Name of the Patroni cluster.
+
+``Member``
+    Name of the Patroni member.
+
+``Host``
+    Host where the member is located.
+
+``Role``
+    Current role of the member.
+
+    Can be one among:
+
+    * ``Leader``: the current leader of a regular Patroni cluster; or
+    * ``Standby Leader``: the current leader of a Patroni standby cluster; or
+    * ``Sync Standby``: a synchronous standby of a Patroni cluster with synchronous mode enabled; or
+    * ``Replica``: a regular standby of a Patroni cluster.
+
+``State``
+    Current state of Postgres in the Patroni member.
+
+    Some examples among the possible states:
+
+    * ``running``: if Postgres is currently up and running;
+    * ``streaming``: if a replica and Postgres is currently streaming WALs from the primary node;
+    * ``in archive recovery``: if a replica and Postgres is currently fetching WALs from the archive;
+    * ``stopped``: if Postgres had been shut down;
+    * ``crashed``: if Postgres has crashed.
+
+``TL``
+    Current Postgres timeline in the Patroni member.
+
+``Lag in MB``
+    Amount worth of replication lag in megabytes between the Patroni member and its upstream.
+
+Besides that, the following information may be included in the output:
+
+``System identifier``
+    Postgres system identifier.
+
+    .. note::
+        Shown in the table header.
+
+        Only shown if output format is ``pretty``.
+
+``Group``
+    Citus group ID.
+
+    .. note::
+        Shown in the table header.
+
+        Only shown if a Citus cluster.
+
+``Pending restart``
+    ``*`` indicates the node needs a restart for some Postgres configuration to take effect. An empty value indicates the node does not require a restart.
+
+    .. note::
+        Shown as a member attribute.
+
+        Shown if:
+
+        - Printing in ``pretty`` or ``tsv`` format and with extended output enabled; or
+        - If node requires a restart.
+
+``Scheduled restart``
+    Timestamp at which a restart has been scheduled for the Postgres instance managed by the Patroni member. An empty value indicates there is no scheduled restart for the member.
+
+    .. note::
+        Shown as a member attribute.
+
+        Shown if:
+
+        - Printing in ``pretty`` or ``tsv`` format and with extended output enabled; or
+        - If node has a scheduled restart.
+
+``Tags``
+    Contains tags set for the Patroni member. An empty value indicates that either no tags have been configured, or that they have been configured with default values.
+
+    .. note::
+        Shown as a member attribute.
+
+        Shown if:
+
+        - Printing in ``pretty`` or ``tsv`` format and with extended output enabled; or
+        - If node has any custom tags, or any default tags with non-default values.
+
+``Scheduled switchover``
+    Timestamp at which a switchover has been scheduled for the Patroni cluster, if any.
+
+    .. note::
+        Shown in the table footer.
+
+        Only shown if there is a scheduled switchover, and output format is ``pretty``.
+
+``Maintenance mode``
+
+    If the cluster monitoring is currently paused.
+
+    .. note::
+        Shown in the table footer.
+
+        Only shown if the cluster is paused, and output format is ``pretty``.
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+
+``--group``
+    Show information about members from the given Citus group.
+
+    ``CITUS_GROUP`` is the ID of the Citus group.
+
+``-e`` / ``--extended``
+    Show extended information.
+
+    Force showing ``Pending restart``, ``Scheduled restart`` and ``Tags`` attributes, even if their value is empty.
+
+    .. note::
+        Only applies to ``pretty`` and ``tsv`` output formats.
+
+``-t`` / ``--timestamp``
+    Print timestamp before printing information about the cluster and its members.
+
+``-f`` / ``--format``
+    How to format the list of events in the output.
+
+    Format can be one of:
+
+    - ``pretty``: prints history as a pretty table; or
+    - ``tsv``: prints history as tabular information, with columns delimited by ``\t``; or
+    - ``json``: prints history in JSON format; or
+    - ``yaml``: prints history in YAML format.
+
+    The default is ``pretty``.
+
+``-W``
+    Automatically refresh information every 2 seconds.
+
+``-w`` / ``--watch``
+    Automatically refresh information at the specified interval.
+
+    ``TIME`` is the interval between refreshes, in seconds.
+
+Examples
+""""""""
+
+Show information about the cluster in pretty format:
+
+.. code:: text
+
+    patronictl -c postgres0.yml list batman
+    + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
+    | Member      | Host           | Role    | State     | TL | Lag in MB |
+    +-------------+----------------+---------+-----------+----+-----------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |           |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |         0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |         0 |
+    +-------------+----------------+---------+-----------+----+-----------+
+
+Show information about the cluster in pretty format with extended columns:
+
+.. code:: text
+
+    patronictl -c postgres0.yml list batman -e
+    + Cluster: batman (7277694203142172922) -+-----------+----+-----------+-----------------+-------------------+------+
+    | Member      | Host           | Role    | State     | TL | Lag in MB | Pending restart | Scheduled restart | Tags |
+    +-------------+----------------+---------+-----------+----+-----------+-----------------+-------------------+------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |           |                 |                   |      |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |         0 |                 |                   |      |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |         0 |                 |                   |      |
+    +-------------+----------------+---------+-----------+----+-----------+-----------------+-------------------+------+
+
+Show information about the cluster in YAML format, with timestamp of execution:
+
+.. code:: text
+
+    patronictl -c postgres0.yml list batman -f yaml -t
+    2023-09-12 13:30:48
+    - Cluster: batman
+      Host: 127.0.0.1:5432
+      Member: postgresql0
+      Role: Leader
+      State: running
+      TL: 5
+    - Cluster: batman
+      Host: 127.0.0.1:5433
+      Lag in MB: 0
+      Member: postgresql1
+      Role: Replica
+      State: streaming
+      TL: 5
+    - Cluster: batman
+      Host: 127.0.0.1:5434
+      Lag in MB: 0
+      Member: postgresql2
+      Role: Replica
+      State: streaming
+      TL: 5
