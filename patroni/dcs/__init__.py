@@ -790,7 +790,11 @@ class Status(NamedTuple):
     slots: Optional[Dict[str, int]]
 
     @staticmethod
-    def empty():
+    def empty() -> 'Status':
+        """Construct an empty :class:`Status` instance.
+
+        :returns: empty :class:`Status` object.
+        """
         return Status(0, None)
 
     @staticmethod
