@@ -1095,7 +1095,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``412``: if operation is not possible;
             * ``503``: if unable to register the operation to the DCS;
             * HTTP status returned by :func:`parse_schedule`, if any error was observed while parsing the schedule;
-            * HTTP status returned by :func:`poll_failover_result` if the operation has been processed immediately.
+            * HTTP status returned by :func:`poll_failover_result` if the operation has been processed immediately;
+            * ``400``: if none of the above applies.
 
         .. note::
             If unable to parse the request body, then the request is silently discarded.
@@ -1122,15 +1123,22 @@ class RestApiHandler(BaseHTTPRequestHandler):
             data = 'Switchover could be performed only from a specific leader'
 
         if not data and scheduled_at:
-            if not leader:
-                data = 'Scheduled {0} is possible only from a specific leader'.format(action)
-            if not data and global_config.is_paused:
-                data = "Can't schedule {0} in the paused state".format(action)
-            if not data:
+            if action == 'failover':
+                data = "Failover can't be scheduled"
+            elif global_config.is_paused:
+                data = "Can't schedule switchover in the paused state"
+            else:
                 (status_code, data, scheduled_at) = self.parse_schedule(scheduled_at, action)
 
         if not data and global_config.is_paused and not candidate:
-            data = action.title() + ' is possible only to a specific candidate in a paused state'
+            data = 'Switchover is possible only to a specific candidate in a paused state'
+
+        if action == 'failover' and leader:
+            logger.warning('received failover request with leader specifed - performing switchover instead')
+            action = 'switchover'
+
+        if not data and leader == candidate:
+            data = 'Switchover target and source are the same'
 
         if not data and not scheduled_at:
             data = self.is_failover_possible(cluster, leader, candidate, action)
@@ -1147,7 +1155,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name,
                                                                   candidate, action)
             else:
-                data = 'failed to write {0} key into DCS'.format(action)
+                data = 'failed to write failover key into DCS'
                 status_code = 503
         # pyright thinks ``status_code`` can be ``None`` because ``parse_schedule`` call may return ``None``. However,
         # if that's the case, ``status_code`` will be overwritten somewhere between ``parse_schedule`` and

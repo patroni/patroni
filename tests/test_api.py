@@ -519,86 +519,161 @@ class TestRestApiHandler(unittest.TestCase):
 
         post = 'POST /switchover HTTP/1.0' + self._authorization + '\nContent-Length: '
 
-        MockRestApiServer(RestApiHandler, post + '7\n\n{"1":2}')
+        # Invalid content
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, post + '7\n\n{"1":2}')
+            response_mock.assert_called_with(400, 'Switchover could be performed only from a specific leader')
 
+        # Empty content
         request = post + '0\n\n'
         MockRestApiServer(RestApiHandler, request)
 
-        cluster.leader.name = 'postgresql1'
-        MockRestApiServer(RestApiHandler, request)
+        # [Switchover without a candidate]
 
-        request = post + '25\n\n{"leader": "postgresql1"}'
-
-        with patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)):
+        # Cluster with only a leader
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            cluster.leader.name = 'postgresql1'
+            request = post + '25\n\n{"leader": "postgresql1"}'
             MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(
+                412, 'switchover is not possible: cluster does not have members except leader')
 
-        for is_synchronous_mode in (True, False):
-            with patch.object(GlobalConfig, 'is_synchronous_mode', PropertyMock(return_value=is_synchronous_mode)):
+        # Switchover in pause mode
+        with patch.object(RestApiHandler, 'write_response') as response_mock, \
+             patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)):
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(
+                400, 'Switchover is possible only to a specific candidate in a paused state')
+
+        # No healthy nodes to promote in both sync and async mode
+        for is_synchronous_mode, response in (
+                (True, 'switchover is not possible: can not find sync_standby'),
+                (False, 'switchover is not possible: cluster does not have members except leader')):
+            with patch.object(GlobalConfig, 'is_synchronous_mode', PropertyMock(return_value=is_synchronous_mode)), \
+                 patch.object(RestApiHandler, 'write_response') as response_mock:
                 MockRestApiServer(RestApiHandler, request)
+                response_mock.assert_called_with(412, response)
 
-        cluster.leader.name = 'postgresql2'
-        request = post + '53\n\n{"leader": "postgresql1", "candidate": "postgresql2"}'
-        MockRestApiServer(RestApiHandler, request)
+        # [Switchover to the candidate specified]
 
+        # Candidate to promote is the same as the leader specified
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            request = post + '53\n\n{"leader": "postgresql2", "candidate": "postgresql2"}'
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(400, 'Switchover target and source are the same')
+
+        # Current leader is different from the one specified
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            cluster.leader.name = 'postgresql2'
+            request = post + '53\n\n{"leader": "postgresql1", "candidate": "postgresql2"}'
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(412, 'leader name does not match')
+
+        # Candidate to promote is not a member of the cluster
         cluster.leader.name = 'postgresql1'
         cluster.sync.matches.return_value = False
-        for is_synchronous_mode in (True, False):
-            with patch.object(GlobalConfig, 'is_synchronous_mode', PropertyMock(return_value=is_synchronous_mode)):
+        for is_synchronous_mode, response in (
+                (True, 'candidate name does not match with sync_standby'), (False, 'candidate does not exists')):
+            with patch.object(GlobalConfig, 'is_synchronous_mode', PropertyMock(return_value=is_synchronous_mode)), \
+                 patch.object(RestApiHandler, 'write_response') as response_mock:
                 MockRestApiServer(RestApiHandler, request)
+                response_mock.assert_called_with(412, response)
 
         cluster.members = [Member(0, 'postgresql0', 30, {'api_url': 'http'}),
                            Member(0, 'postgresql2', 30, {'api_url': 'http'})]
-        MockRestApiServer(RestApiHandler, request)
 
-        cluster.failover = None
-        MockRestApiServer(RestApiHandler, request)
+        # Failover key is empty in DCS
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            cluster.failover = None
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(503, 'Switchover failed')
 
-        dcs.get_cluster.side_effect = [cluster]
-        MockRestApiServer(RestApiHandler, request)
+        # Result polling failed
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            dcs.get_cluster.side_effect = [cluster]
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(503, 'Switchover status unknown')
 
-        cluster2 = cluster.copy()
-        cluster2.leader.name = 'postgresql0'
-        cluster2.is_unlocked.return_value = False
-        dcs.get_cluster.side_effect = [cluster, cluster2]
-        MockRestApiServer(RestApiHandler, request)
+        # Switchover to a node different from the candidate specified
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            cluster2 = cluster.copy()
+            cluster2.leader.name = 'postgresql0'
+            cluster2.is_unlocked.return_value = False
+            dcs.get_cluster.side_effect = [cluster, cluster2]
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(200, 'Switched over to "postgresql0" instead of "postgresql2"')
 
-        cluster2.leader.name = 'postgresql2'
-        dcs.get_cluster.side_effect = [cluster, cluster2]
-        MockRestApiServer(RestApiHandler, request)
+        # Successful switchover to the candidate
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            cluster2.leader.name = 'postgresql2'
+            dcs.get_cluster.side_effect = [cluster, cluster2]
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(200, 'Successfully switched over to "postgresql2"')
 
-        dcs.get_cluster.side_effect = None
-        dcs.manual_failover.return_value = False
-        MockRestApiServer(RestApiHandler, request)
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            dcs.manual_failover.return_value = False
+            dcs.get_cluster.side_effect = None
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(503, 'failed to write failover key into DCS')
+
         dcs.manual_failover.return_value = True
 
-        with patch.object(MockHa, 'fetch_nodes_statuses', Mock(return_value=[])):
+        # Candidate is not healthy to be promoted
+        with patch.object(MockHa, 'fetch_nodes_statuses', Mock(return_value=[])), \
+             patch.object(RestApiHandler, 'write_response') as response_mock:
             MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(412, 'switchover is not possible: no good candidates have been found')
+
+        # [Scheduled switchover]
 
         # Valid future date
-        request = post + '103\n\n{"leader": "postgresql1", "member": "postgresql2",' +\
-                         ' "scheduled_at": "6016-02-15T18:13:30.568224+01:00"}'
-        MockRestApiServer(RestApiHandler, request)
-        with patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)), \
-                patch.object(MockPatroni, 'dcs') as d:
-            d.manual_failover.return_value = False
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            request = post + '103\n\n{"leader": "postgresql1", "member": "postgresql2",' + \
+                             ' "scheduled_at": "6016-02-15T18:13:30.568224+01:00"}'
             MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(202, 'Switchover scheduled')
 
-        # Exception: No timezone specified
-        request = post + '97\n\n{"leader": "postgresql1", "member": "postgresql2",' +\
-                         ' "scheduled_at": "6016-02-15T18:13:30.568224"}'
-        MockRestApiServer(RestApiHandler, request)
+        # Schedule in paused mode
+        with patch.object(RestApiHandler, 'write_response') as response_mock, \
+             patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)):
+            dcs.manual_failover.return_value = False
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(400, "Can't schedule switchover in the paused state")
 
-        # Exception: Scheduled in the past
+        # No timezone specified
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            request = post + '97\n\n{"leader": "postgresql1", "member": "postgresql2",' + \
+                             ' "scheduled_at": "6016-02-15T18:13:30.568224"}'
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(400, 'Timezone information is mandatory for the scheduled switchover')
+
         request = post + '103\n\n{"leader": "postgresql1", "member": "postgresql2", "scheduled_at": "'
-        MockRestApiServer(RestApiHandler, request + '1016-02-15T18:13:30.568224+01:00"}')
+
+        # Scheduled in the past
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, request + '1016-02-15T18:13:30.568224+01:00"}')
+            response_mock.assert_called_with(422, 'Cannot schedule switchover in the past')
 
         # Invalid date
-        self.assertIsNotNone(MockRestApiServer(RestApiHandler, request + '2010-02-29T18:13:30.568224+01:00"}'))
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, request + '2010-02-29T18:13:30.568224+01:00"}')
+            response_mock.assert_called_with(
+                422, 'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601')
 
     def test_do_POST_failover(self):
         post = 'POST /failover HTTP/1.0' + self._authorization + '\nContent-Length: '
-        MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
-        MockRestApiServer(RestApiHandler, post + '37\n\n{"candidate":"2","scheduled_at": "1"}')
+
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
+            response_mock.assert_called_once_with(400, 'Failover could be performed only to a specific candidate')
+
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, post + '37\n\n{"candidate":"2","scheduled_at": "1"}')
+            response_mock.assert_called_once_with(400, "Failover can't be scheduled")
+
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, post + '30\n\n{"leader":"1","candidate":"2"}')
+            response_mock.assert_called_once_with(412, 'leader name does not match')
 
     @patch.object(MockHa, 'is_leader', Mock(return_value=True))
     def test_do_POST_citus(self):
