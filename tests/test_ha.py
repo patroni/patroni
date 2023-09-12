@@ -1290,7 +1290,7 @@ class TestHa(PostgresInit):
         self.ha.demote('immediate')
         follow.assert_called_once_with(None)
 
-    def test_process__multisync_replication(self):
+    def test__process_multisync_replication(self):
         self.ha.has_lock = true
         mock_set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock()
         self.p.name = 'leader'
@@ -1685,7 +1685,7 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 3 (foo,other,postgresql0)',))
 
-    def test_process_quorum_replication(self):
+    def test__process_quorum_replication(self):
         self.p._major_version = 150000
         self.ha.has_lock = true
         mock_set_sync = self.p.config.set_synchronous_standby_names = Mock()
