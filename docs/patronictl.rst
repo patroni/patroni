@@ -848,3 +848,172 @@ Put the cluster in maintenance mode:
     patronictl -c postgres0.yml pause batman --wait
     'pause' request sent, waiting until it is recognized by all nodes
     Success: cluster management is paused
+
+patronictl query
+^^^^^^^^^^^^^^^^
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    query
+      [ CLUSTER_NAME ]
+      [ --group CITUS_GROUP ]
+      [ { { -r | --role } { leader | primary | standby-leader | replica | standby | any | master } | { -m | --member } MEMBER_NAME } ]
+      [ { -d | --dbname } DBNAME ]
+      [ { -U | --username } USERNAME ]
+      [ --password ]
+      [ --format { pretty | tsv | json | yaml } ]
+      [ { { -f | --file } FILE_NAME | { -c | --command } SQL_COMMAND } ]
+      [ --delimiter ]
+      [ { -W | { -w | --watch } TIME } ]
+
+Description
+"""""""""""
+
+``patronictl query`` executes a SQL command or script against a member of the Patroni cluster.
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+
+``--group``
+    Query the given Citus group.
+
+    ``CITUS_GROUP`` is the ID of the Citus group.
+
+``-r`` / ``--role``
+    Choose a member that has the given role.
+
+    Role can be one of:
+
+    - ``leader``: the leader of either a regular Patroni cluster or a standby Patroni cluster; or
+    - ``primary``: the leader of a regular Patroni cluster; or
+    - ``standby-leader``: the leader of a standby Patroni cluster; or
+    - ``replica``: a replica of a Patroni cluster; or
+    - ``standby``: same as ``replica``; or
+    - ``any``: any role. Same as omitting this parameter; or
+    - ``master``: same as ``primary``.
+
+``-m`` / ``--member``
+    Choose a member that has the given name.
+
+    ``MEMBER_NAME`` is the name of the member to be picked.
+
+``-d`` / ``--dbname``
+    Database to connect and run the query.
+
+    ``DBNAME`` is the name of the database. If not given, defaults to the same name as ``USERNAME``.
+
+``-U`` / ``--username``
+    User to connect to the database.
+
+    ``USERNAME`` name of the user. If not given, defaults to the operating system user running ``patronictl query``.
+
+``--password``
+    Prompt for the password of the connecting user.
+
+    As Patroni uses ``libpq``, alternatively you can use create a ``~/.pgpass`` file or set ``PGPASSWORD`` environment variable.
+
+``--format``
+    How to format the output of the query.
+
+    Format can be one of:
+
+    - ``pretty``: prints query output as a pretty table; or
+    - ``tsv``: prints query output as tabular information, with columns delimited by ``\t``; or
+    - ``json``: prints query output in JSON format; or
+    - ``yaml``: prints query output in YAML format.
+
+    The default is ``tsv``.
+
+``-f`` / ``--file``
+    Use a file as source of commands to run queries.
+
+    ``FILE_NAME`` is the path to the source file.
+
+``-c`` / ``--command``
+    Run the given SQL command in the query.
+
+    ``SQL_COMMAND`` is the command to be run.
+
+``--delimiter``
+    The delimiter when printing information in ``tsv`` format.
+
+``-W``
+    Automatically re-run the query every 2 seconds.
+
+``-w`` / ``--watch``
+    Automatically re-run the query at the specified interval.
+
+    ``TIME`` is the interval between re-runs, in seconds.
+
+Examples
+""""""""
+
+Run a SQL command as ``postgres`` user, and ask for its password:
+
+.. code:: text
+
+    patronictl -c postgres0.yml query batman -U postgres --password -c "SELECT now()"
+    Password:
+    now
+    2023-09-12 18:10:53.228084+00:00
+
+Run a SQL command as ``postgres`` user, and take password from ``libpq`` environment variable:
+
+.. code:: text
+
+    PGPASSWORD=zalando patronictl -c postgres0.yml query batman -U postgres -c "SELECT now()"
+    now
+    2023-09-12 18:11:37.639500+00:00
+
+Run a SQL command and print in ``pretty`` format every 2 seconds:
+
+.. code:: text
+
+    patronictl -c postgres0.yml query batman -c "SELECT now()" --format pretty -W
+    +----------------------------------+
+    | now                              |
+    +----------------------------------+
+    | 2023-09-12 18:12:16.716235+00:00 |
+    +----------------------------------+
+    +----------------------------------+
+    | now                              |
+    +----------------------------------+
+    | 2023-09-12 18:12:18.732645+00:00 |
+    +----------------------------------+
+    +----------------------------------+
+    | now                              |
+    +----------------------------------+
+    | 2023-09-12 18:12:20.750573+00:00 |
+    +----------------------------------+
+
+Run a SQL command on database ``test`` and print the output in YAML format:
+
+.. code:: text
+
+    patronictl -c postgres0.yml query batman -d test -c "SELECT now() AS column_1, 'test' AS column_2" --format yaml
+    - column_1: 2023-09-12 18:14:22.052060+00:00
+      column_2: test
+
+Run a SQL command on member ``postgresql2``:
+
+.. code:: text
+
+    patronictl -c postgres0.yml query batman -m postgresql2 -c "SHOW port"
+    port
+    5434
+
+Run a SQL command on any of the standbys:
+
+.. code:: text
+
+    patronictl -c postgres0.yml query batman -r replica -c "SHOW port"
+    port
+    5433
