@@ -839,8 +839,9 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
         ret['pause'] = True
     if cluster.failover and cluster.failover.scheduled_at:
         ret['scheduled_switchover'] = {'at': cluster.failover.scheduled_at.isoformat()}
-        if cluster.failover.leader:
-            ret['scheduled_switchover']['from'] = cluster.failover.leader
+        if TYPE_CHECKING:  # pragma: no cover
+            assert cluster.failover.leader
+        ret['scheduled_switchover']['from'] = cluster.failover.leader
         if cluster.failover.candidate:
             ret['scheduled_switchover']['to'] = cluster.failover.candidate
     return ret

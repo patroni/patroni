@@ -451,7 +451,7 @@ class Leader(NamedTuple):
 
 
 class Failover(NamedTuple):
-    """Immutable object (namedtuple) representing configuration information required for failover/switchover capability.
+    """Immutable object (namedtuple) which represents failover key.
 
     :ivar version: version of the object.
     :ivar leader: name of the leader. If value isn't empty we treat it as a switchover from the specified node.
@@ -547,6 +547,13 @@ class Failover(NamedTuple):
         """
         return int(bool(self.leader)) + int(bool(self.candidate))
 
+    @property
+    def is_switchover(self) -> bool:
+        return bool(self.leader)
+
+    @property
+    def is_failover(self) -> bool:
+        return not self.is_switchover
 
 class ClusterConfig(NamedTuple):
     """Immutable object (namedtuple) which represents cluster configuration.

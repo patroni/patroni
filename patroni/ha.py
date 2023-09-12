@@ -234,7 +234,7 @@ class Ha(object):
         """
         if not self.cluster.failover:
             return 'failover'
-        return 'switchover' if self.cluster.failover.leader else 'manual failover'
+        return 'switchover' if self.cluster.failover.is_switchover else 'manual failover'
 
     def load_cluster_from_dcs(self) -> None:
         cluster = self.dcs.get_cluster()
@@ -1044,7 +1044,7 @@ class Ha(object):
             return False
 
         # try to pick some other members for switchover and check that they are healthy
-        if failover.leader:
+        if failover.is_switchover:
             if self.state_handler.name == failover.leader:  # I was the leader
                 # exclude desired member which is unhealthy if it was specified
                 if self.is_failover_possible(exclude_failover_candidate=bool(failover.candidate)):
@@ -1101,7 +1101,7 @@ class Ha(object):
 
         if self.cluster.failover:
             # When doing a switchover in synchronous mode only synchronous nodes and former leader are allowed to race
-            if self.cluster.failover.leader and self.sync_mode_is_active() \
+            if self.cluster.failover.is_switchover and self.sync_mode_is_active() \
                     and not self.cluster.sync.matches(self.state_handler.name, True):
                 return False
             return self.manual_failover_process_no_leader() or False
@@ -2022,7 +2022,7 @@ class Ha(object):
         def is_eligible(node: Member) -> bool:
             # in synchronous mode we allow failover (not switchover!) to async node
             if self.sync_mode_is_active() and not self.cluster.sync.matches(node.name)\
-                    and not (failover and not failover.leader):
+                    and not (failover and failover.is_failover):
                 return False
             # Don't spend time on "nofailover" nodes checking.
             # We also don't need nodes which we can't query with the api in the list.
