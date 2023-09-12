@@ -36,7 +36,7 @@ You can override that behavior either by:
     If you are running ``patronictl`` in the same host as ``patroni`` daemon is running, you may just use the same configuration file if it contains all the configuration sections required by ``patronictl``.
 
 Usage
---------------------
+-----
 
 ``patronictl`` exposes several handy operations. This section is intended to describe each of them.
 
@@ -87,9 +87,9 @@ Synopsis
 .. code:: text
 
     dsn
+      [ CLUSTER_NAME ]
       [ { { -r | --role } { leader | primary | standby-leader | replica | standby | any | master } | { -m | --member } MEMBER_NAME } ]
       [ --group CITUS_GROUP ]
-      [ CLUSTER_NAME ]
 
 Description
 """""""""""
@@ -100,6 +100,11 @@ If multiple members match the parameters of this command, one of them will be ch
 
 Parameters
 """"""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
 
 ``-r`` / ``--role``
     Choose a member that has the given role.
@@ -124,11 +129,6 @@ Parameters
 
     ``CITUS_GROUP`` is the ID of the Citus group.
 
-``CLUSTER_NAME``
-    Name of the Patroni cluster.
-
-    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
-
 Examples
 """"""""
 
@@ -147,7 +147,7 @@ Get DSN of the standby node named ``postgresql1``:
     host=127.0.0.1 port=5433
 
 patronictl edit-config
-^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^
 
 Synopsis
 """"""""
@@ -155,13 +155,13 @@ Synopsis
 .. code:: text
 
     edit-config
+      [ CLUSTER_NAME ]
       [ --group CITUS_GROUP ]
       [ { -q | --quiet } ]
       [ { -s | --set } CONFIG="VALUE" [, ... ] ]
       [ { -p | --pg } PG_CONFIG="PG_VALUE" [, ... ] ]
       [ { --apply | --replace } CONFIG_FILE ]
       [ --force ]
-      [ CLUSTER_NAME ]
 
 Description
 """""""""""
@@ -173,6 +173,11 @@ Description
 
 Parameters
 """"""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
 
 ``group``
     Change dynamic configuration of the given Citus group.
@@ -214,11 +219,6 @@ Parameters
     Flag to skip confirmation prompts when changing the dynamic configuration.
 
     Useful for scripts.
-
-``CLUSTER_NAME``
-    Name of the Patroni cluster.
-
-    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
 
 Examples
 """"""""
@@ -279,3 +279,86 @@ Remove ``maximum_lag_on_failover`` setting from dynamic configuration:
     - host replication replicator 127.0.0.1/32 md5
 
     Configuration changed
+
+patronictl failover
+^^^^^^^^^^^^^^^^^^^
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    failover
+      [ CLUSTER_NAME ]
+      [ --group CITUS_GROUP ]
+      [ { --leader | --primary | --master } LEADER_NAME ]
+      --candidate CANDIDATE_NAME
+      [ --force ]
+
+Description
+"""""""""""
+
+``patronictl failover`` performs a manual failover in the cluster.
+
+It is designed to be used when the cluster is not healthy, e.g.:
+
+- There is no leader; or
+- There is no synchronous standby available in a synchronous cluster.
+
+.. note::
+    Nothing prevents you from running ``patronictl failover`` in a healthy cluster. However, we recommend using ``patronictl switchover`` in that case.
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+
+``group``
+    Perform a failover in the given Citus group.
+
+    ``CITUS_GROUP`` is the ID of the Citus group.
+
+``--leader`` / ``--primary`` / ``--master``
+    Indicate who is the expected leader at failover time.
+
+    If given, a switchover is performed instead of a failover.
+
+    ``LEADER_NAME`` should match the name of the current leader in the cluster.
+
+``--candidate``
+    The node to be promoted on failover.
+
+    ``CANDIDATE_NAME`` is the name of the node to be promoted.
+
+``--force``
+    Flag to skip confirmation prompts when performing the failover.
+
+    Useful for scripts.
+
+Examples
+""""""""
+
+Failover to node ``postgresql2``:
+
+.. code:: text
+
+    patronictl -c postgres0.yml failover batman --candidate postgresql2 --force
+    Current cluster topology
+    + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
+    | Member      | Host           | Role    | State     | TL | Lag in MB |
+    +-------------+----------------+---------+-----------+----+-----------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  3 |           |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  3 |         0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  3 |         0 |
+    +-------------+----------------+---------+-----------+----+-----------+
+    2023-09-12 11:52:27.50978 Successfully failed over to "postgresql2"
+    + Cluster: batman (7277694203142172922) -+---------+----+-----------+
+    | Member      | Host           | Role    | State   | TL | Lag in MB |
+    +-------------+----------------+---------+---------+----+-----------+
+    | postgresql0 | 127.0.0.1:5432 | Replica | stopped |    |   unknown |
+    | postgresql1 | 127.0.0.1:5433 | Replica | running |  3 |         0 |
+    | postgresql2 | 127.0.0.1:5434 | Leader  | running |  3 |           |
+    +-------------+----------------+---------+---------+----+-----------+
