@@ -147,7 +147,7 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'],
                                     input=f'leader\nother\n{self.SCHEDULED_TS}\ny')
         self.assertEqual(result.exit_code, 0)
-        self.assertIn(f'Are you sure you want to schedule switchover of cluster dummy '
+        self.assertIn(f'Are you sure you want to schedule a switchover in the cluster dummy '
                       f'at {self.SCHEDULED_TS}, demoting current leader', result.output)
 
         # Scheduled (abort)

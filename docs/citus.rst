@@ -140,7 +140,7 @@ An example of ``patronictl switchover`` on the worker cluster::
     | work2-1 | 172.27.0.5 | Sync Standby | running |  1 |         0 |
     | work2-2 | 172.27.0.7 | Leader       | running |  1 |           |
     +---------+------------+--------------+---------+----+-----------+
-    Are you sure you want to switchover cluster demo, demoting current primary work2-2? [y/N]: y
+    Are you sure you want to perform a switchover in the cluster demo, demoting current primary work2-2? [y/N]: y
     2022-12-22 07:02:40.33003 Successfully switched over to "work2-1"
     + Citus cluster: demo (group: 2, 7179854924063375386) ------+
     | Member  | Host       | Role    | State   | TL | Lag in MB |
