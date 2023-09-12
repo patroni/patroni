@@ -42,9 +42,18 @@ Usage
 
 Before jumping into each of the sub-commands of ``patronictl``, be aware that ``patronictl`` itself has the following command-line arguments:
 
-- ``-c`` / ``--config-file``: as explained before, used to provide a path to a configuration file for ``patronictl``;
-- ``-d`` / ``--dcs-url`` / ``--dcs``: provide a connection string to the DCS used by Patroni. This argument can be used either to override the DCS settings from the ``patronictl`` configuration, or to define it if it's missing in the configuration. The value should be in the format ``DCS://HOST:PORT``, e.g. ``etcd3://localhost:2379`` to connect to etcd v3 running on ``localhost``;
-- ``-k`` / ``--insecure``: bypass validation of REST API server SSL certificate.
+``-c`` / ``--config-file``
+    As explained before, used to provide a path to a configuration file for ``patronictl``.
+
+``-d`` / ``--dcs-url`` / ``--dcs``
+    Provide a connection string to the DCS used by Patroni.
+
+    This argument can be used either to override the DCS settings from the ``patronictl`` configuration, or to define it if it's missing in the configuration.
+
+    The value should be in the format ``DCS://HOST:PORT``, e.g. ``etcd3://localhost:2379`` to connect to etcd v3 running on ``localhost``.
+
+``-k`` / ``--insecure``
+    Flag to bypass validation of REST API server SSL certificate.
 
 This is the synopsis for running a command from the ``patronictl``:
 
@@ -64,7 +73,8 @@ This is the synopsis for running a command from the ``patronictl``:
     - Options with ``[, ... ]`` can be specified multiple times;
     - Things written in uppercase represent a literal that should be given a value to.
 
-    We will use this same syntax when describing ``patronictl`` sub-commands in the following sub-sections. Also, when describing sub-commands in the following sub-sections, the commands' synposis should replace the ``SUBCOMMAND`` in the above synopsis.
+    We will use this same syntax when describing ``patronictl`` sub-commands in the following sub-sections.
+    Also, when describing sub-commands in the following sub-sections, the commands' synposis should be seen as a replacement for the ``SUBCOMMAND`` in the above synopsis.
 
 In the following sub-sections you can find a description of each command implemented by ``patronictl``. For sake of example, we will use the configuration files present in the GitHub repository of Patroni (files ``postgres0.yml``, ``postgres1.yml`` and ``postgres2.yml``).
 
@@ -84,14 +94,17 @@ Synopsis
 Description
 """""""""""
 
-``patronictl dsn`` will get the connection string to one member of the Patroni cluster.
+``patronictl dsn`` gets the connection string to one member of the Patroni cluster.
 
 If multiple members match the parameters of this command, one of them will be chosen, prioritizing the primary node.
 
 Parameters
 """"""""""
 
-- ``-r`` / ``--role``: chose a member that has the given role:
+``-r`` / ``--role``
+    Choose a member that has the given role.
+
+    Role can be one of:
 
     - ``leader``: the leader of either a regular Patroni cluster or a standby Patroni cluster; or
     - ``primary``: the leader of a regular Patroni cluster; or
@@ -101,15 +114,20 @@ Parameters
     - ``any``: any role. Same as omitting this parameter; or
     - ``master``: same as ``primary``.
 
-- ``-m`` / ``--member``: chose a member of the cluster with the given name:
+``-m`` / ``--member``
+    Choose a member of the cluster with the given name.
 
-    - ``MEMBER_NAME``: name of the member;
+    ``MEMBER_NAME`` is the name of the member.
 
-- ``--group``: chose a member that is part of the given Citus group:
+``--group``
+    Choose a member that is part of the given Citus group.
 
-    - ``CITUS_GROUP``: the ID of the Citus group;
+    ``CITUS_GROUP`` is the ID of the Citus group.
 
-- ``CLUSTER_NAME``: name of the Patroni cluster. If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
 
 Examples
 """"""""
@@ -150,38 +168,57 @@ Description
 
 ``patronictl edit-config`` changes the dynamic configuration of the cluster and updates the DCS with that.
 
-**Note:** when invoked through a TTY the command attempts to show a diff of the dynamic configuration through a pager. By default it attempts to use either ``less`` or ``more``. If you want to use a different pager, set ``PAGER`` environment variable with the desired pager.
+.. note::
+    When invoked through a TTY the command attempts to show a diff of the dynamic configuration through a pager. By default it attempts to use either ``less`` or ``more``. If you want to use a different pager, set ``PAGER`` environment variable with the desired pager.
 
 Parameters
 """"""""""
 
-- ``--group``: change dynamic configuration of the given Citus group:
+``group``
+    Change dynamic configuration of the given Citus group.
 
-    - ``CITUS_GROUP``: the ID of the Citus group;
+    ``CITUS_GROUP`` is the ID of the Citus group.
 
-- ``-q`` / ``--quiet``: flag to skip showing the configuration diff;
+``-q`` / ``--quiet``
+    Flag to skip showing the configuration diff.
 
-- ``-s`` / ``--set``: set a given dynamic configuration option with a given value:
+``-s`` / ``--set``
+    Set a given dynamic configuration option with a given value.
 
-    - ``CONFIG``: name of the dynamic configuration path in the YAML tree, with levels joined by ``.`` ;
-    - ``VALUE``: value for ``CONFIG``. If it is ``null``, then ``CONFIG`` will be removed from the dynamic configuration.
+    ``CONFIG`` is the name of the dynamic configuration path in the YAML tree, with levels joined by ``.`` .
 
-- ``-p`` / ``--pg``: set a given dynamic Postgres configuration option with the given value. It is essentially a shorthand for ``--s`` / ``--set`` with ``CONFIG`` prepended with ``postgresql.parameters.``:
+    ``VALUE`` is the value for ``CONFIG``. If it is ``null``, then ``CONFIG`` will be removed from the dynamic configuration.
 
-    - ``PG_CONFIG``: name of the Postgres configuration;
-    - ``PG_VALUE``: value for ``PG_CONFIG``. If it is ``nulll``, then ``PG_CONFIG`` will be removed from the dynamic configuration.
+``-p`` / ``--pg``
+    Set a given dynamic Postgres configuration option with the given value.
 
-- ``--apply``: apply dynamic configuration from a given file. It is similar to specifying multiple ``-s`` / ``--set``, with each configuration from ``CONFIG_FILE``:
+    It is essentially a shorthand for ``--s`` / ``--set`` with ``CONFIG`` prepended with ``postgresql.parameters.``.
 
-    - ``CONFIG_FILE``: path to a file containing the dynamic configuration to be applied, in YAML format. Use ``-`` if you want to read from ``stdin``.
+    ``PG_CONFIG`` is the name of the Postgres configuration to be set.
 
-- ``--replace``: replace the dynamic configuration in the DCS with the dynamic configuration specified in a given file:
+    ``PG_VALUE`` is the value for ``PG_CONFIG``. If it is ``nulll``, then ``PG_CONFIG`` will be removed from the dynamic configuration.
 
-    - ``CONFIG_FILE``: path to a file containing the new dynamic configuration to take effect, in YAML format. Use ``-`` if you want to read from ``stdin``.
+``--apply``
+    Apply dynamic configuration from the given file.
 
-- ``--force``: skip confirmation prompts when changing the dynamic configuration. Useful for scripts.
+    It is similar to specifying multiple ``-s`` / ``--set`` options, one for each configuration from ``CONFIG_FILE``.
 
-- ``CLUSTER_NAME``: name of the Patroni cluster. If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+    ``CONFIG_FILE`` is the path to a file containing the dynamic configuration to be applied, in YAML format. Use ``-`` if you want to read from ``stdin``.
+
+``--replace``
+    Replace the dynamic configuration in the DCS with the dynamic configuration specified in the given file.
+
+    ``CONFIG_FILE`` is the path to a file containing the new dynamic configuration to take effect, in YAML format. Use ``-`` if you want to read from ``stdin``.
+
+``--force``
+    Flag to skip confirmation prompts when changing the dynamic configuration.
+
+    Useful for scripts.
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
 
 Examples
 """"""""
