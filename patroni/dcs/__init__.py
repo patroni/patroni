@@ -1036,10 +1036,10 @@ class Cluster(NamedTuple('Cluster',
             return {}
 
         if is_standby_cluster:
-            return self.__permanent_physical_slots\
+            return self.__permanent_physical_slots \
                 if major_version >= _SLOT_ADVANCE_AVAILABLE_VERSION or role == 'standby_leader' else {}
 
-        return self.__permanent_slots if major_version >= _SLOT_ADVANCE_AVAILABLE_VERSION\
+        return self.__permanent_slots if major_version >= _SLOT_ADVANCE_AVAILABLE_VERSION \
             or role in ('master', 'primary') else self.__permanent_logical_slots
 
     def _get_members_slots(self, my_name: str, role: str) -> Dict[str, Dict[str, str]]:

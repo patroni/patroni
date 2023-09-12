@@ -262,7 +262,7 @@ class SlotsHandler:
         """
         if self._postgresql.major_version >= 90400 and self._schedule_load_slots:
             replication_slots: Dict[str, Dict[str, Any]] = {}
-            pg_wal_lsn_diff = f'pg_catalog.pg_{self._postgresql.wal_name}_{self._postgresql.lsn_name}_diff'
+            pg_wal_lsn_diff = f"pg_catalog.pg_{self._postgresql.wal_name}_{self._postgresql.lsn_name}_diff"
             extra = f", catalog_xmin, {pg_wal_lsn_diff}(confirmed_flush_lsn, '0/0')::bigint" \
                 if self._postgresql.major_version >= 100000 else ""
             skip_temp_slots = ' WHERE NOT temporary' if self._postgresql.major_version >= 100000 else ''
@@ -378,7 +378,7 @@ class SlotsHandler:
                 except Exception:
                     logger.exception("Failed to create physical replication slot '%s'", name)
                 self._schedule_load_slots = True
-            elif not self._postgresql.is_primary() and self._postgresql.major_version >= 110000\
+            elif not self._postgresql.is_primary() and self._postgresql.major_version >= 110000 \
                     and self._replication_slots[name]['type'] == 'physical':
                 value['restart_lsn'] = self._replication_slots[name]['restart_lsn']
                 lsn = parse_int(value.get('lsn'))
