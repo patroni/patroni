@@ -9,6 +9,8 @@
 :var DBL_RE: regular expression to match double precision numbers, signed or unsigned. Matches scientific notation too.
 :var WHITESPACE_RE: regular expression to match whitespace characters
 """
+import datetime
+import dateutil.parser
 import errno
 import logging
 import os
@@ -20,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from enum import Enum
 from shlex import split
 
 from typing import Any, Callable, Dict, Iterator, List, Optional, Union, Tuple, Type, TYPE_CHECKING
@@ -1061,3 +1064,23 @@ def get_major_version(bin_dir: Optional[str] = None, bin_name: str = 'postgres')
     if TYPE_CHECKING:  # pragma: no cover
         assert version is not None
     return '.'.join([version.group(1), version.group(3)]) if int(version.group(1)) < 10 else version.group(1)
+
+
+class ParseScheduleErrors(Enum):
+    NO_TIMEZONE = ('Timezone information is mandatory for the scheduled {action}', 400)
+    SCHEDULED_IN_PAST = ('Cannot schedule {action} in the past', 422)
+    PARSING_ERROR = ('Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601', 422)
+
+
+def parse_schedule(schedule: Optional[str]) -> Tuple[Optional[ParseScheduleErrors], Optional[datetime.datetime]]:
+    scheduled_at = None
+    if schedule is not None:
+        try:
+            scheduled_at = dateutil.parser.parse(schedule)
+            if scheduled_at.tzinfo is None:
+                return ParseScheduleErrors.NO_TIMEZONE, scheduled_at
+            elif scheduled_at < datetime.datetime.now(tzutc):
+                return ParseScheduleErrors.SCHEDULED_IN_PAST, scheduled_at
+        except (ValueError, TypeError):
+            return ParseScheduleErrors.PARSING_ERROR, scheduled_at
+    return None, scheduled_at

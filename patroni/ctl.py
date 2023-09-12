@@ -16,8 +16,6 @@ import click
 import codecs
 import copy
 import datetime
-import dateutil.parser
-import dateutil.tz
 import difflib
 import io
 import json
@@ -49,8 +47,9 @@ except ImportError:  # pragma: no cover
 from .config import Config, get_global_config
 from .dcs import get_dcs as _get_dcs, AbstractDCS, Cluster, Member
 from .exceptions import PatroniException
+from .manual_failover import ManualFailover
 from .postgresql.misc import postgres_version_to_int
-from .utils import cluster_as_json, patch_config, polling_loop
+from .utils import cluster_as_json, parse_schedule, patch_config, polling_loop
 from .request import PatroniRequest
 from .version import __version__
 
@@ -645,7 +644,8 @@ def get_members(obj: Dict[str, Any], cluster: Cluster, cluster_name: str, member
     if member_names:
         member_names = list(set(member_names) & candidates)
         if not member_names:
-            raise PatroniCtlException('No {0} among provided members'.format(role))
+            raise PatroniCtlException(
+                'No{0} among provided members'.format('t a single cluster member' if role == 'any' else ' ' + role))
     elif action != 'reinitialize':
         member_names = list(candidates)
 
@@ -945,43 +945,6 @@ def check_response(response: urllib3.response.HTTPResponse, member_name: str,
     return True
 
 
-def parse_scheduled(scheduled: Optional[str]) -> Optional[datetime.datetime]:
-    """Parse a string *scheduled* timestamp as a :class:`~datetime.datetime` object.
-
-    :param scheduled: string representation of the timestamp. May also be ``now``.
-
-    :returns: the corresponding :class:`~datetime.datetime` object, if *scheduled* is not ``now``, otherwise ``None``.
-
-    :raises:
-        :class:`PatroniCtlException`: if unable to parse *scheduled* from :class:`str` to :class:`~datetime.datetime`.
-
-    :Example:
-
-        >>> parse_scheduled(None) is None
-        True
-
-        >>> parse_scheduled('now') is None
-        True
-
-        >>> parse_scheduled('2023-05-29T04:32:31')
-        datetime.datetime(2023, 5, 29, 4, 32, 31, tzinfo=tzlocal())
-
-        >>> parse_scheduled('2023-05-29T04:32:31-3')
-        datetime.datetime(2023, 5, 29, 4, 32, 31, tzinfo=tzoffset(None, -10800))
-    """
-    if scheduled is not None and (scheduled or 'now') != 'now':
-        try:
-            scheduled_at = dateutil.parser.parse(scheduled)
-            if scheduled_at.tzinfo is None:
-                scheduled_at = scheduled_at.replace(tzinfo=dateutil.tz.tzlocal())
-        except (ValueError, TypeError):
-            message = 'Unable to parse scheduled timestamp ({0}). It should be in an unambiguous format (e.g. ISO 8601)'
-            raise PatroniCtlException(message.format(scheduled))
-        return scheduled_at
-
-    return None
-
-
 @ctl.command('reload', help='Reload cluster member configuration')
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
@@ -1061,16 +1024,20 @@ def restart(obj: Dict[str, Any], cluster_name: str, group: Optional[int], member
             * *version* could not be parsed; or
             * a restart is attempted against a cluster that is in maintenance mode.
     """
+    action = 'restart'
     cluster = get_dcs(obj, cluster_name, group).get_cluster()
 
-    members = get_members(obj, cluster, cluster_name, member_names, role, force, 'restart', False, group=group)
+    members = get_members(obj, cluster, cluster_name, member_names, role, force, action, False, group=group)
     if scheduled is None and not force:
-        next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
+        next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M+00')
         scheduled = click.prompt('When should the restart take place (e.g. ' + next_hour + ') ',
                                  type=str, default='now')
+        scheduled = scheduled if scheduled != 'now' else None
 
-    scheduled_at = parse_scheduled(scheduled)
-    confirm_members_action(members, force, 'restart', scheduled_at)
+    parse_result, scheduled_at = parse_schedule(scheduled)
+    if parse_result:
+        raise PatroniCtlException(parse_result.value[0].format(action=action))
+    confirm_members_action(members, force, action, scheduled_at)
 
     if p_any:
         random.shuffle(members)
@@ -1212,6 +1179,9 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
     click.echo('Current cluster topology')
     output_members(obj, cluster, cluster_name, group=group)
 
+    # Define everything missing via interactive input or available cluster info (if force mode)
+
+    # Require Citus group
     if obj.get('citus') and group is None:
         if force:
             raise PatroniCtlException('For Citus clusters the --group must me specified')
@@ -1222,42 +1192,25 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
 
     global_config = get_global_config(cluster)
 
-    # leader has to be be defined for switchover only
-    if action == 'switchover':
+    # Leader is required for switchover only
+    if action == 'switchover' and leader is None:
         if cluster.leader is None or not cluster.leader.name:
             raise PatroniCtlException('This cluster has no leader')
-
-        if leader is None:
-            if force:
-                leader = cluster.leader.name
-            else:
-                prompt = 'Standby Leader' if global_config.is_standby_cluster else 'Primary'
-                leader = click.prompt(prompt, type=str, default=(cluster.leader and cluster.leader.name))
-
-        if cluster.leader.name != leader:
-            raise PatroniCtlException(f'Member {leader} is not the leader of cluster {cluster_name}')
-
-    # excluding members with nofailover tag
-    candidate_names = [str(m.name) for m in cluster.members if m.name != leader and not m.nofailover]
-    # We sort the names for consistent output to the client
-    candidate_names.sort()
-
-    if not candidate_names:
-        raise PatroniCtlException('No candidates found to {0} to'.format(action))
+        if force:
+            leader = cluster.leader.name
+        else:
+            prompt = 'Standby Leader' if global_config.is_standby_cluster else 'Primary'
+            leader = click.prompt(prompt, type=str, default=(cluster.leader and cluster.leader.name))
 
     if candidate is None and not force:
+        # Check if there are any candidates available at all
+        candidate_names = [str(m.name) for m in cluster.members if m.name != leader and not m.nofailover]
+        if not candidate_names:
+            raise PatroniCtlException('No candidates found to {0} to'.format(action))
+        candidate_names.sort()   # we sort the names for consistent output to the client
         candidate = click.prompt('Candidate ' + str(candidate_names), type=str, default='')
 
-    if action == 'failover' and not candidate:
-        raise PatroniCtlException('Failover could be performed only to a specific candidate')
-
-    if candidate == leader:
-        raise PatroniCtlException(action.title() + ' target and source are the same.')
-
-    if candidate and candidate not in candidate_names:
-        raise PatroniCtlException(
-            f'Member {candidate} does not exist in cluster {cluster_name} or is tagged as nofailover')
-
+    # We allow manual failover to an aync node in the sync mode, so we better ask for the confirmation
     if all((not force,
             action == 'failover',
             global_config.is_synchronous_mode,
@@ -1266,30 +1219,32 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
         if click.confirm(f'Are you sure you want to failover to the asynchronous node {candidate}'):
             raise PatroniCtlException('Aborting ' + action)
 
+    if action == 'switchover' and scheduled is None and not force:
+        next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M+00')
+        scheduled = click.prompt('When should the switchover take place (e.g. ' + next_hour + ') ',
+                                 type=str, default='now')
+        scheduled = scheduled if scheduled != 'now' else None
+
+    # Now, when we collected all the possible info, run checks
+    manual_failover = ManualFailover(action, cluster, leader, candidate, scheduled,
+                                     global_config.is_paused, global_config.is_synchronous_mode)
+
+    result_text, _ = manual_failover.run_precheck().value
+    if result_text:
+        raise PatroniCtlException(result_text.format(action=action, leader=leader, candidate=candidate,
+                                                     cluster_name=cluster_name))
+
     scheduled_at_str = None
     scheduled_at = None
-
     if action == 'switchover':
-        if scheduled is None and not force:
-            next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
-            scheduled = click.prompt('When should the switchover take place (e.g. ' + next_hour + ' ) ',
-                                     type=str, default='now')
-
-        scheduled_at = parse_scheduled(scheduled)
+        parse_result, scheduled_at = manual_failover.parse_scheduled()
+        if parse_result:
+            raise PatroniCtlException(parse_result.value[0].format(action=action))
         if scheduled_at:
-            if global_config.is_paused:
-                raise PatroniCtlException("Can't schedule switchover in the paused state")
             scheduled_at_str = scheduled_at.isoformat()
 
-    failover_value = {'candidate': candidate}
-    if action == 'switchover':
-        failover_value['leader'] = leader
-    if scheduled_at_str:
-        failover_value['scheduled_at'] = scheduled_at_str
-
-    logging.debug(failover_value)
-
-    # By now we have established that the leader exists and the candidate exists
+    # By now we have established that the leader exists and the candidate exists,
+    # so confirm the action that is about to be run
     if not force:
         demote_msg = f', demoting current leader {cluster.leader.name}' if cluster.leader else ''
         if scheduled_at_str:
@@ -1301,6 +1256,15 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
         else:
             if not click.confirm(f'Are you sure you want to {action} cluster {cluster_name}{demote_msg}?'):
                 raise PatroniCtlException('Aborting ' + action)
+
+    # And finally the actual work
+    failover_value = {'candidate': candidate}
+    if action == 'switchover':
+        failover_value['leader'] = leader
+    if scheduled_at_str:
+        failover_value['scheduled_at'] = scheduled_at_str
+
+    logging.debug(failover_value)
 
     r = None
     try:
