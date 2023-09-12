@@ -1170,3 +1170,68 @@ Request a reload of the local configuration of all members of the Patroni cluste
     Reload request received for member postgresql0 and will be processed within 10 seconds
     Reload request received for member postgresql1 and will be processed within 10 seconds
     Reload request received for member postgresql2 and will be processed within 10 seconds
+
+patronictl remove
+^^^^^^^^^^^^^^^^^
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    remove
+      CLUSTER_NAME
+      [ --group CITUS_GROUP ]
+      [ { -f | --format } { pretty | tsv | json | yaml } ]
+
+Description
+"""""""""""
+
+``patronictl remove`` remove information about the cluster from the DCS.
+
+It is an interactive action.
+
+.. warning::
+    This operation will destroy the information about the Patroni cluster in the DCS.
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+``--group``
+    Remove information about the Patroni cluster related with the given Citus group.
+
+    ``CITUS_GROUP`` is the ID of the Citus group.
+
+``-f`` / ``--format``
+    How to format the list of members in the output when prompting for confirmation.
+
+    Format can be one of:
+
+    - ``pretty``: prints members as a pretty table; or
+    - ``tsv``: prints members as tabular information, with columns delimited by ``\t``; or
+    - ``json``: prints members in JSON format; or
+    - ``yaml``: prints members in YAML format.
+
+    The default is ``pretty``.
+
+Examples
+""""""""
+
+Remove information about Patroni cluster ``batman`` from the DCS:
+
+.. code:: text
+
+    patronictl -c postgres0.yml remove batman
+    + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
+    | Member      | Host           | Role    | State     | TL | Lag in MB |
+    +-------------+----------------+---------+-----------+----+-----------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |           |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |         0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |         0 |
+    +-------------+----------------+---------+-----------+----+-----------+
+    Please confirm the cluster name to remove: batman
+    You are about to remove all information in DCS for batman, please type: "Yes I am aware": Yes I am aware
+    This cluster currently is healthy. Please specify the leader name to continue: postgresql0
