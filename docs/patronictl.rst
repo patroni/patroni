@@ -394,6 +394,8 @@ Parameters
 ``MEMBER_NAME``
     Discard scheduled events for the given Patroni member(s).
 
+    Multiple members can be specified. If no members are specified, all of them are considered.
+
     .. note::
         Only used if discarding scheduled restart events.
 
@@ -1017,3 +1019,81 @@ Run a SQL command on any of the standbys:
     patronictl -c postgres0.yml query batman -r replica -c "SHOW port"
     port
     5433
+
+patronictl reinit
+^^^^^^^^^^^^^^^^^
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    reinit
+      CLUSTER_NAME
+      [ MEMBER_NAME [, ... ] ]
+      [ --group CITUS_GROUP ]
+      [ --wait ]
+      [ --force ]
+
+Description
+"""""""""""
+
+``patronictl reinit`` rebuilds a Postgres standby instance managed by a replica member of the Patroni cluster.
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+``MEMBER_NAME``
+    Name of the replica member which Postgres instance is to be rebuilt.
+
+    Multiple replica members can be specified. If no members are specified, the command does nothing.
+
+``--group``
+    Rebuild a replica member of the given Citus group.
+
+    ``CITUS_GROUP`` is the ID of the Citus group.
+
+``--wait``
+    Wait until the reinitialization of the Postgres standby node(s) is finished.
+
+``--force``
+    Flag to skip confirmation prompts when rebuilding Postgres standby instances.
+
+    Useful for scripts.
+
+Examples
+""""""""
+
+Request a rebuild of all replica members of the Patroni cluster and immediately return control to the caller:
+
+.. code:: text
+
+    patronictl -c postgres0.yml reinit batman postgresql1 postgresql2 --force
+    + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
+    | Member      | Host           | Role    | State     | TL | Lag in MB |
+    +-------------+----------------+---------+-----------+----+-----------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |           |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |         0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |         0 |
+    +-------------+----------------+---------+-----------+----+-----------+
+    Success: reinitialize for member postgresql1
+    Success: reinitialize for member postgresql2
+
+Request a rebuild of ``postgresql2`` and wait for it to complete:
+
+.. code:: text
+
+    patronictl -c postgres0.yml reinit batman postgresql2 --wait --force
+    + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
+    | Member      | Host           | Role    | State     | TL | Lag in MB |
+    +-------------+----------------+---------+-----------+----+-----------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |           |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |         0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |         0 |
+    +-------------+----------------+---------+-----------+----+-----------+
+    Success: reinitialize for member postgresql2
+    Waiting for reinitialize to complete on: postgresql2
+    Reinitialize is completed on: postgresql2
