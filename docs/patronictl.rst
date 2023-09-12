@@ -1097,3 +1097,76 @@ Request a rebuild of ``postgresql2`` and wait for it to complete:
     Success: reinitialize for member postgresql2
     Waiting for reinitialize to complete on: postgresql2
     Reinitialize is completed on: postgresql2
+
+patronictl reload
+^^^^^^^^^^^^^^^^^
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    reload
+      CLUSTER_NAME
+      [ MEMBER_NAME [, ... ] ]
+      [ --group CITUS_GROUP ]
+      [ { -r | --role } { leader | primary | standby-leader | replica | standby | any | master } ]
+      [ --force ]
+
+Description
+"""""""""""
+
+``patronictl reload`` requests a reload of local configuration for one or more Patroni members.
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+``MEMBER_NAME``
+    Request a reload of local configuration for the given Patroni member(s).
+
+    Multiple members can be specified. If no members are specified, all of them are considered.
+
+``--group``
+    Request a reload of members of the given Citus group.
+
+    ``CITUS_GROUP`` is the ID of the Citus group.
+
+``-r`` / ``--role``
+    Select members that have the given role.
+
+    Role can be one of:
+
+    - ``leader``: the leader of either a regular Patroni cluster or a standby Patroni cluster; or
+    - ``primary``: the leader of a regular Patroni cluster; or
+    - ``standby-leader``: the leader of a standby Patroni cluster; or
+    - ``replica``: a replica of a Patroni cluster; or
+    - ``standby``: same as ``replica``; or
+    - ``any``: any role. Same as omitting this parameter; or
+    - ``master``: same as ``primary``.
+
+``--force``
+    Flag to skip confirmation prompts when requesting a reload of the local configuration.
+
+    Useful for scripts.
+
+Examples
+""""""""
+
+Request a reload of the local configuration of all members of the Patroni cluster:
+
+.. code:: text
+
+    patronictl -c postgres0.yml reload batman --force
+    + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
+    | Member      | Host           | Role    | State     | TL | Lag in MB |
+    +-------------+----------------+---------+-----------+----+-----------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |           |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |         0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |         0 |
+    +-------------+----------------+---------+-----------+----+-----------+
+    Reload request received for member postgresql0 and will be processed within 10 seconds
+    Reload request received for member postgresql1 and will be processed within 10 seconds
+    Reload request received for member postgresql2 and will be processed within 10 seconds
