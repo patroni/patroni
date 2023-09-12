@@ -179,7 +179,7 @@ Parameters
 
     If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
 
-``group``
+``--group``
     Change dynamic configuration of the given Citus group.
 
     ``CITUS_GROUP`` is the ID of the Citus group.
@@ -316,7 +316,7 @@ Parameters
 
     If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
 
-``group``
+``--group``
     Perform a failover in the given Citus group.
 
     ``CITUS_GROUP`` is the ID of the Citus group.
@@ -362,3 +362,109 @@ Failover to node ``postgresql2``:
     | postgresql1 | 127.0.0.1:5433 | Replica | running |  3 |         0 |
     | postgresql2 | 127.0.0.1:5434 | Leader  | running |  3 |           |
     +-------------+----------------+---------+---------+----+-----------+
+
+
+patronictl flush
+^^^^^^^^^^^^^^^^
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    flush
+      CLUSTER_NAME
+      [ MEMBER_NAME [, ... ] ]
+      { restart | switchover }
+      [ --group CITUS_GROUP ]
+      [ { -r | --role } { leader | primary | standby-leader | replica | standby | any | master } ]
+      [ --force ]
+
+Description
+"""""""""""
+
+``patronictl flush`` discards scheduled events, if any.
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+``MEMBER_NAME``
+    Discard scheduled events for the given Patroni member(s).
+
+    .. note::
+        Only used if discarding scheduled restart events.
+
+``restart``
+    Discard scheduled restart events.
+
+``switchover``
+    Discard scheduled switchover event.
+
+``--group``
+    Discard scheduled events from the given Citus group.
+
+    ``CITUS_GROUP`` is the ID of the Citus group.
+
+``-r`` / ``--role``
+    Discard scheduled events for members that have the given role.
+
+    Role can be one of:
+
+    - ``leader``: the leader of either a regular Patroni cluster or a standby Patroni cluster; or
+    - ``primary``: the leader of a regular Patroni cluster; or
+    - ``standby-leader``: the leader of a standby Patroni cluster; or
+    - ``replica``: a replica of a Patroni cluster; or
+    - ``standby``: same as ``replica``; or
+    - ``any``: any role. Same as omitting this parameter; or
+    - ``master``: same as ``primary``.
+
+    .. note::
+        Only used if discarding scheduled restart events.
+
+``--force``
+    Flag to skip confirmation prompts when performing the flush.
+
+    Useful for scripts.
+
+Examples
+""""""""
+
+Discard a scheduled switchover event:
+
+.. code:: text
+
+    patronictl -c postgres0.yml flush batman switchover --force
+    Success: scheduled switchover deleted
+
+Discard scheduled restart of all standby nodes:
+
+.. code:: text
+
+    patronictl -c postgres0.yml flush batman restart -r replica --force
+    + Cluster: batman (7277694203142172922) -+-----------+----+-----------+---------------------------+
+    | Member      | Host           | Role    | State     | TL | Lag in MB | Scheduled restart         |
+    +-------------+----------------+---------+-----------+----+-----------+---------------------------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |           | 2023-09-12T17:17:00+00:00 |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |         0 | 2023-09-12T17:17:00+00:00 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |         0 | 2023-09-12T17:17:00+00:00 |
+    +-------------+----------------+---------+-----------+----+-----------+---------------------------+
+    Success: flush scheduled restart for member postgresql1
+    Success: flush scheduled restart for member postgresql2
+
+Discard scheduled restart of nodes ``postgresql0`` and ``postgresql1``:
+
+.. code:: text
+
+    patronictl -c postgres0.yml flush batman postgresql0 postgresql1 restart --force
+    + Cluster: batman (7277694203142172922) -+-----------+----+-----------+---------------------------+
+    | Member      | Host           | Role    | State     | TL | Lag in MB | Scheduled restart         |
+    +-------------+----------------+---------+-----------+----+-----------+---------------------------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |           | 2023-09-12T17:17:00+00:00 |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |         0 | 2023-09-12T17:17:00+00:00 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |         0 | 2023-09-12T17:17:00+00:00 |
+    +-------------+----------------+---------+-----------+----+-----------+---------------------------+
+    Success: flush scheduled restart for member postgresql0
+    Success: flush scheduled restart for member postgresql1
