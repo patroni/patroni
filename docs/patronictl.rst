@@ -1724,3 +1724,66 @@ Show topology of the cluster ``batman`` -- ``postgresql1`` and ``postgresql2`` a
     | + postgresql1 | 127.0.0.1:5433 | Replica | streaming |  8 |         0 |
     | + postgresql2 | 127.0.0.1:5434 | Replica | streaming |  8 |         0 |
     +---------------+----------------+---------+-----------+----+-----------+
+
+patronictl version
+^^^^^^^^^^^^^^^^^^
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    version
+      [ CLUSTER_NAME [, ... ] ]
+      [ MEMBER_NAME [, ... ] ]
+      [ --group CITUS_GROUP ]
+
+Description
+"""""""""""
+
+``patronictl version`` gets the version of ``patronictl`` application. Besides that it may also include version information about Patroni clusters and their members.
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+``MEMBER_NAME``
+    Name of the member of the Patroni cluster.
+
+``--group``
+    Consider a Patroni cluster with the given Citus group.
+
+    ``CITUS_GROUP`` is the ID of the Citus group.
+
+Examples
+""""""""
+
+Get version of ``patronictl`` only:
+
+.. code:: text
+
+    patronictl -c postgres0.yml version
+    patronictl version 3.1.0
+
+Get version of ``patronictl`` and of all members of cluster ``batman``:
+
+.. code:: text
+
+    patronictl -c postgres0.yml version batman
+    patronictl version 3.1.0
+
+    postgresql0: Patroni 3.1.0 PostgreSQL 15.2
+    postgresql1: Patroni 3.1.0 PostgreSQL 15.2
+    postgresql2: Patroni 3.1.0 PostgreSQL 15.2
+
+Get version of ``patronictl`` and of members ``postgresql1`` and ``postgresql2`` of cluster ``batman``:
+
+.. code:: text
+
+    patronictl -c postgres0.yml version batman postgresql1 postgresql2
+    patronictl version 3.1.0
+
+    postgresql1: Patroni 3.1.0 PostgreSQL 15.2
+    postgresql2: Patroni 3.1.0 PostgreSQL 15.2
