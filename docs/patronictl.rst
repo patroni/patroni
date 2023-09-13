@@ -1361,3 +1361,48 @@ Schedule a restart to occur at ``2023-09-13T18:00-03:00``:
     Success: restart scheduled on member postgresql0
     Success: restart scheduled on member postgresql1
     Success: restart scheduled on member postgresql2
+
+patronictl resume
+^^^^^^^^^^^^^^^^^
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    resume
+      [ CLUSTER_NAME ]
+      [ --group CITUS_GROUP ]
+      [ --wait ]
+
+Description
+"""""""""""
+
+``patronictl resume`` takes the Patroni cluster out of the maintenance mode and re-enables automatic failover.
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+
+``--group``
+    Resume the given Citus group.
+
+    ``CITUS_GROUP`` is the ID of the Citus group.
+
+``--wait``
+    Wait until all Patroni members are unpaused before returning control the the caller.
+
+Examples
+""""""""
+
+Put the cluster out of maintenance mode:
+
+.. code:: text
+
+    patronictl -c postgres0.yml resume batman --wait
+    'resume' request sent, waiting until it is recognized by all nodes
+    Success: cluster management is resumed
