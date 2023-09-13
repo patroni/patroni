@@ -805,30 +805,32 @@ class Status(NamedTuple):
 
         :returns: constructed :class:`Status` object.
         """
-        slots: Union[str, Dict[str, int], None] = None
-        last_lsn = 0
         try:
             if isinstance(value, str):
                 value = json.loads(value)
-            if isinstance(value, int):  # legacy
-                return Status(value, None)
-            assert isinstance(value, dict)
-            last_lsn = value.get('optime')
-            slots = value.get('slots')
         except Exception:
             return Status.empty()
 
+        if isinstance(value, int):  # legacy
+            return Status(value, None)
+
+        if not isinstance(value, dict):
+            return Status.empty()
+
         try:
-            last_lsn = int(last_lsn or '')
+            last_lsn = int(value.get('optime', ''))
         except Exception:
             last_lsn = 0
 
-        try:
-            if isinstance(slots, str):
+        slots: Union[str, Dict[str, int], None] = value.get('slots')
+        if isinstance(slots, str):
+            try:
                 slots = json.loads(slots)
-            assert isinstance(slots, dict)
-        except Exception:
+            except Exception:
+                slots = None
+        if not isinstance(slots, dict):
             slots = None
+
         return Status(last_lsn, slots)
 
 
