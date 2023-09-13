@@ -1568,3 +1568,159 @@ Schedule a switchover between ``postgresql0`` and ``postgresql2`` to occur at ``
     Switchover scheduled at: 2023-09-13T18:00:00-03:00
                         from: postgresql0
                         to: postgresql2
+
+patronictl topology
+^^^^^^^^^^^^^^^^^^^
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    topology
+      [ CLUSTER_NAME [, ... ] ]
+      [ --group CITUS_GROUP ]
+      [ { -W | { -w | --watch } TIME } ]
+
+Description
+"""""""""""
+
+``patronictl topology`` shows information about Patroni cluster and its members with a tree view approach for the members.
+
+The following information is included in the output:
+
+``Cluster``
+    Name of the Patroni cluster.
+
+    .. note::
+        Shown in the table header.
+
+``System identifier``
+    Postgres system identifier.
+
+    .. note::
+        Shown in the table header.
+
+``Member``
+    Name of the Patroni member.
+
+    .. note::
+        Information in this column is shown as a tree view of members in terms of replication connections.
+
+``Host``
+    Host where the member is located.
+
+``Role``
+    Current role of the member.
+
+    Can be one among:
+
+    * ``Leader``: the current leader of a regular Patroni cluster; or
+    * ``Standby Leader``: the current leader of a Patroni standby cluster; or
+    * ``Sync Standby``: a synchronous standby of a Patroni cluster with synchronous mode enabled; or
+    * ``Replica``: a regular standby of a Patroni cluster.
+
+``State``
+    Current state of Postgres in the Patroni member.
+
+    Some examples among the possible states:
+
+    * ``running``: if Postgres is currently up and running;
+    * ``streaming``: if a replica and Postgres is currently streaming WALs from the primary node;
+    * ``in archive recovery``: if a replica and Postgres is currently fetching WALs from the archive;
+    * ``stopped``: if Postgres had been shut down;
+    * ``crashed``: if Postgres has crashed.
+
+``TL``
+    Current Postgres timeline in the Patroni member.
+
+``Lag in MB``
+    Amount worth of replication lag in megabytes between the Patroni member and its upstream.
+
+Besides that, the following information may be included in the output:
+
+``Group``
+    Citus group ID.
+
+    .. note::
+        Shown in the table header.
+
+        Only shown if a Citus cluster.
+
+``Pending restart``
+    ``*`` indicates the node needs a restart for some Postgres configuration to take effect. An empty value indicates the node does not require a restart.
+
+    .. note::
+        Shown as a member attribute.
+
+        Shown if node requires a restart.
+
+``Scheduled restart``
+    Timestamp at which a restart has been scheduled for the Postgres instance managed by the Patroni member. An empty value indicates there is no scheduled restart for the member.
+
+    .. note::
+        Shown as a member attribute.
+
+        Shown if node has a scheduled restart.
+
+``Tags``
+    Contains tags set for the Patroni member. An empty value indicates that either no tags have been configured, or that they have been configured with default values.
+
+    .. note::
+        Shown as a member attribute.
+
+        Shown if node has any custom tags, or any default tags with non-default values.
+
+``Scheduled switchover``
+    Timestamp at which a switchover has been scheduled for the Patroni cluster, if any.
+
+    .. note::
+        Shown in the table footer.
+
+        Only shown if there is a scheduled switchover.
+
+``Maintenance mode``
+
+    If the cluster monitoring is currently paused.
+
+    .. note::
+        Shown in the table footer.
+
+        Only shown if the cluster is paused.
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+
+``--group``
+    Show information about members from the given Citus group.
+
+    ``CITUS_GROUP`` is the ID of the Citus group.
+
+``-W``
+    Automatically refresh information every 2 seconds.
+
+``-w`` / ``--watch``
+    Automatically refresh information at the specified interval.
+
+    ``TIME`` is the interval between refreshes, in seconds.
+
+Examples
+""""""""
+
+Show topology of the cluster ``batman`` -- ``postgresql1`` and ``postgresql2`` are replicating from ``postgresql0``:
+
+.. code:: text
+
+    patronictl -c postgres0.yml topology batman
+    + Cluster: batman (7277694203142172922) ---+-----------+----+-----------+
+    | Member        | Host           | Role    | State     | TL | Lag in MB |
+    +---------------+----------------+---------+-----------+----+-----------+
+    | postgresql0   | 127.0.0.1:5432 | Leader  | running   |  8 |           |
+    | + postgresql1 | 127.0.0.1:5433 | Replica | streaming |  8 |         0 |
+    | + postgresql2 | 127.0.0.1:5434 | Replica | streaming |  8 |         0 |
+    +---------------+----------------+---------+-----------+----+-----------+
