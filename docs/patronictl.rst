@@ -1235,3 +1235,129 @@ Remove information about Patroni cluster ``batman`` from the DCS:
     Please confirm the cluster name to remove: batman
     You are about to remove all information in DCS for batman, please type: "Yes I am aware": Yes I am aware
     This cluster currently is healthy. Please specify the leader name to continue: postgresql0
+
+patronictl restart
+^^^^^^^^^^^^^^^^^^
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    restart
+      CLUSTER_NAME
+      [ MEMBER_NAME [, ...] ]
+      [ --group CITUS_GROUP ]
+      [ { -r | --role } { leader | primary | standby-leader | replica | standby | any | master } ]
+      [ --any ]
+      [ --pg-version PG_VERSION ]
+      [ --pending ]
+      [ --timeout TIMEOUT ]
+      [ --scheduled TIMESTAMP ]
+      [ --force ]
+
+Description
+"""""""""""
+
+``patronictl restart`` requests a restart of the Postgres instance managed by a member of the Patroni cluster.
+
+The restart can be performed immediately or scheduled for later.
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+``--group``
+    Remove information about the Patroni cluster related with the given Citus group.
+
+    ``CITUS_GROUP`` is the ID of the Citus group.
+
+``-r`` / ``--role``
+    Choose members that have the given role.
+
+    Role can be one of:
+
+    - ``leader``: the leader of either a regular Patroni cluster or a standby Patroni cluster; or
+    - ``primary``: the leader of a regular Patroni cluster; or
+    - ``standby-leader``: the leader of a standby Patroni cluster; or
+    - ``replica``: a replica of a Patroni cluster; or
+    - ``standby``: same as ``replica``; or
+    - ``any``: any role. Same as omitting this parameter; or
+    - ``master``: same as ``primary``.
+
+``--any``
+    Restart a single random node among the ones that respect the given filters.
+
+``--pg-version``
+    Select only members which version of the managed Postgres instance is older than the given version.
+
+    ``PG_VERSION`` is the Postgres version to be compared.
+
+``--pending``
+    Select only members which are flagged as ``Pending restart``.
+
+``timeout``
+    Abort the restart if it takes more than the specified timeout, and fail over to a replica if the issue is on the primary.
+
+    ``TIMEOUT`` is the amount of seconds to wait before aborting the restart.
+
+``--scheduled``
+    Schedule a restart to occur at the given timestamp.
+
+    ``TIMESTAMP`` is the timestamp when the restart should occur. Specify it in unambiguous format, preferrably with time zone. You can also use the literal ``now`` for the restart to be executed immediately.
+
+``--force``
+    Flag to skip confirmation prompts when requesting the restart operations.
+
+    Useful for scripts.
+
+Examples
+""""""""
+
+Restart all members of the cluster immediately:
+
+.. code:: text
+
+    patronictl -c postgres0.yml restart batman --force
+    + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
+    | Member      | Host           | Role    | State     | TL | Lag in MB |
+    +-------------+----------------+---------+-----------+----+-----------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  6 |           |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  6 |         0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  6 |         0 |
+    +-------------+----------------+---------+-----------+----+-----------+
+    Success: restart on member postgresql0
+    Success: restart on member postgresql1
+    Success: restart on member postgresql2
+
+Restart a random member of the cluster immediately:
+
+.. code:: text
+
+    patronictl -c postgres0.yml restart batman --any --force
+    + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
+    | Member      | Host           | Role    | State     | TL | Lag in MB |
+    +-------------+----------------+---------+-----------+----+-----------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  6 |           |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  6 |         0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  6 |         0 |
+    +-------------+----------------+---------+-----------+----+-----------+
+    Success: restart on member postgresql1
+
+Schedule a restart to occur at ``2023-09-13T18:00-03:00``:
+
+.. code:: text
+
+    patronictl -c postgres0.yml restart batman --scheduled 2023-09-13T18:00-03:00 --force
+    + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
+    | Member      | Host           | Role    | State     | TL | Lag in MB |
+    +-------------+----------------+---------+-----------+----+-----------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  6 |           |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  6 |         0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  6 |         0 |
+    +-------------+----------------+---------+-----------+----+-----------+
+    Success: restart scheduled on member postgresql0
+    Success: restart scheduled on member postgresql1
+    Success: restart scheduled on member postgresql2
