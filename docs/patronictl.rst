@@ -1548,6 +1548,7 @@ Switch over with node ``postgresql2``:
 Schedule a switchover between ``postgresql0`` and ``postgresql2`` to occur at ``2023-09-13T18:00:00-03:00``:
 
 .. code:: text
+
     patronictl -c postgres0.yml switchover batman --leader postgresql0 --candidate postgresql2 --scheduled 2023-09-13T18:00-03:00 --force
     Current cluster topology
     + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
