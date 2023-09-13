@@ -308,6 +308,9 @@ It is designed to be used when the cluster is not healthy, e.g.:
 .. note::
     Nothing prevents you from running ``patronictl failover`` in a healthy cluster. However, we recommend using ``patronictl switchover`` in that case.
 
+.. warning::
+    Triggering a failover can cause data loss depending on how up-to-date the replica to be promoted is in comparison to the primary.
+
 Parameters
 """"""""""
 
@@ -341,7 +344,7 @@ Parameters
 Examples
 """"""""
 
-Failover to node ``postgresql2``:
+Fail over to node ``postgresql2``:
 
 .. code:: text
 
@@ -1455,3 +1458,113 @@ Show dynamic configuration of cluster ``batman``:
       use_pg_rewind: true
     retry_timeout: 10
     ttl: 30
+
+patronictl switchover
+^^^^^^^^^^^^^^^^^^^^^
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    switchover
+      [ CLUSTER_NAME ]
+      [ --group CITUS_GROUP ]
+      [ { --leader | --primary | --master } LEADER_NAME ]
+      --candidate CANDIDATE_NAME
+      [ --force ]
+
+Description
+"""""""""""
+
+``patronictl switchover`` performs a switchover in the cluster.
+
+It is designed to be used when the cluster is healthy, e.g.:
+
+- There is a leader; or
+- There are synchronous standbys available in a synchronous cluster.
+
+.. note::
+    If your cluster is unhealthy you might be interested in ``patronictl failover`` instead.
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+
+``--group``
+    Perform a switchover in the given Citus group.
+
+    ``CITUS_GROUP`` is the ID of the Citus group.
+
+``--leader`` / ``--primary`` / ``--master``
+    Indicate who is the leader to be demoted at switchover time.
+
+    ``LEADER_NAME`` should match the name of the current leader in the cluster.
+
+``--candidate``
+    The node to be promoted on switchover, and take the primary role.
+
+    ``CANDIDATE_NAME`` is the name of the node to be promoted.
+
+``--scheduled``
+    Schedule a switchover to occur at the given timestamp.
+
+    ``TIMESTAMP`` is the timestamp when the switchover should occur. Specify it in unambiguous format, preferrably with time zone. You can also use the literal ``now`` for the switchover to be executed immediately.
+
+``--force``
+    Flag to skip confirmation prompts when performing the switchover.
+
+    Useful for scripts.
+
+Examples
+""""""""
+
+Switch over with node ``postgresql2``:
+
+.. code:: text
+
+    patronictl -c postgres0.yml switchover batman --leader postgresql0 --candidate postgresql2 --force
+    Current cluster topology
+    + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
+    | Member      | Host           | Role    | State     | TL | Lag in MB |
+    +-------------+----------------+---------+-----------+----+-----------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  6 |           |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  6 |         0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  6 |         0 |
+    +-------------+----------------+---------+-----------+----+-----------+
+    2023-09-13 14:15:23.07497 Successfully switched over to "postgresql2"
+    + Cluster: batman (7277694203142172922) -+---------+----+-----------+
+    | Member      | Host           | Role    | State   | TL | Lag in MB |
+    +-------------+----------------+---------+---------+----+-----------+
+    | postgresql0 | 127.0.0.1:5432 | Replica | stopped |    |   unknown |
+    | postgresql1 | 127.0.0.1:5433 | Replica | running |  6 |         0 |
+    | postgresql2 | 127.0.0.1:5434 | Leader  | running |  6 |           |
+    +-------------+----------------+---------+---------+----+-----------+
+
+Schedule a switchover between ``postgresql0`` and ``postgresql2`` to occur at ``2023-09-13T18:00:00-03:00``:
+
+.. code:: text
+    patronictl -c postgres0.yml switchover batman --leader postgresql0 --candidate postgresql2 --scheduled 2023-09-13T18:00-03:00 --force
+    Current cluster topology
+    + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
+    | Member      | Host           | Role    | State     | TL | Lag in MB |
+    +-------------+----------------+---------+-----------+----+-----------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  8 |           |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  8 |         0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  8 |         0 |
+    +-------------+----------------+---------+-----------+----+-----------+
+    2023-09-13 14:18:11.20661 Switchover scheduled
+    + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
+    | Member      | Host           | Role    | State     | TL | Lag in MB |
+    +-------------+----------------+---------+-----------+----+-----------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  8 |           |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  8 |         0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  8 |         0 |
+    +-------------+----------------+---------+-----------+----+-----------+
+    Switchover scheduled at: 2023-09-13T18:00:00-03:00
+                        from: postgresql0
+                        to: postgresql2
