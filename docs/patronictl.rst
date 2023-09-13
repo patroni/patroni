@@ -236,9 +236,9 @@ Change ``max_connections`` Postgres GUC:
     postgresql:
     +  parameters:
     +    max_connections: 150
-    pg_hba:
-    - host replication replicator 127.0.0.1/32 md5
-    - host all all 0.0.0.0/0 md5
+      pg_hba:
+      - host replication replicator 127.0.0.1/32 md5
+      - host all all 0.0.0.0/0 md5
 
     Configuration changed
 
@@ -254,10 +254,10 @@ Change ``loop_wait`` and ``ttl`` settings:
     +loop_wait: 15
     maximum_lag_on_failover: 1048576
     postgresql:
-    pg_hba:
+      pg_hba:
     @@ -6,4 +6,4 @@
-    - host all all 0.0.0.0/0 md5
-    use_pg_rewind: true
+      - host all all 0.0.0.0/0 md5
+      use_pg_rewind: true
     retry_timeout: 10
     -ttl: 30
     +ttl: 45
@@ -275,8 +275,8 @@ Remove ``maximum_lag_on_failover`` setting from dynamic configuration:
     loop_wait: 10
     -maximum_lag_on_failover: 1048576
     postgresql:
-    pg_hba:
-    - host replication replicator 127.0.0.1/32 md5
+      pg_hba:
+      - host replication replicator 127.0.0.1/32 md5
 
     Configuration changed
 
@@ -1406,3 +1406,52 @@ Put the cluster out of maintenance mode:
     patronictl -c postgres0.yml resume batman --wait
     'resume' request sent, waiting until it is recognized by all nodes
     Success: cluster management is resumed
+
+patronictl show-config
+^^^^^^^^^^^^^^^^^^^^^^
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    show-config
+      [ CLUSTER_NAME ]
+      [ --group CITUS_GROUP ]
+
+Description
+"""""""""""
+
+``patronictl show-config`` shows the dynamic configuration of the cluster that is stored in the DCS.
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+
+``--group``
+    Show dynamic configuration of the given Citus group.
+
+    ``CITUS_GROUP`` is the ID of the Citus group.
+
+Examples
+""""""""
+
+Show dynamic configuration of cluster ``batman``:
+
+.. code:: text
+
+    patronictl -c postgres0.yml show-config batman
+    loop_wait: 10
+    postgresql:
+      parameters:
+        max_connections: 250
+      pg_hba:
+      - host replication replicator 127.0.0.1/32 md5
+      - host all all 0.0.0.0/0 md5
+      use_pg_rewind: true
+    retry_timeout: 10
+    ttl: 30
