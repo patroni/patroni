@@ -3,6 +3,7 @@ import sys
 import unittest
 import io
 
+from copy import deepcopy
 from mock import MagicMock, Mock, patch
 from patroni.config import Config, ConfigParseError
 
@@ -22,7 +23,7 @@ class TestConfig(unittest.TestCase):
             self.assertFalse(self.config.set_dynamic_configuration({'foo': 'bar'}))
         self.assertTrue(self.config.set_dynamic_configuration({'standby_cluster': {}, 'postgresql': {
             'parameters': {'cluster_name': 1, 'hot_standby': 1, 'wal_keep_size': 1,
-                           'track_commit_timestamp': 1, 'wal_level': 1}}}))
+                           'track_commit_timestamp': 1, 'wal_level': 1, 'max_connections': '100'}}}))
 
     def test_reload_local_configuration(self):
         os.environ.update({
@@ -149,3 +150,25 @@ class TestConfig(unittest.TestCase):
     @patch('os.path.isdir', Mock(return_value=False))
     def test_invalid_path(self):
         self.assertRaises(ConfigParseError, Config, 'postgres0')
+
+    def test__process_postgresql_parameters(self):
+        expected_params = {
+            'f.oo': 'bar',  # not in ConfigHandler.CMDLINE_OPTIONS
+            'max_connections': 100,  # IntValidator
+            'wal_level': 'hot_standby',  # EnumValidator
+        }
+        input_params = deepcopy(expected_params)
+
+        input_params['max_connections'] = '100'
+        self.assertEqual(self.config._process_postgresql_parameters(input_params), expected_params)
+
+        expected_params['f.oo'] = input_params['f.oo'] = '100'
+        self.assertEqual(self.config._process_postgresql_parameters(input_params), expected_params)
+
+        input_params['wal_level'] = 'cold_standby'
+        expected_params.pop('wal_level')
+        self.assertEqual(self.config._process_postgresql_parameters(input_params), expected_params)
+
+        input_params['max_connections'] = 10
+        expected_params.pop('max_connections')
+        self.assertEqual(self.config._process_postgresql_parameters(input_params), expected_params)

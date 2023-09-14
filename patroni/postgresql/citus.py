@@ -397,7 +397,7 @@ class CitusHandler(Thread):
         parameters['shared_preload_libraries'] = ','.join(['citus'] + shared_preload_libraries)
 
         # if not explicitly set Citus overrides max_prepared_transactions to max_connections*2
-        if parameters.get('max_prepared_transactions') == 0:
+        if parameters['max_prepared_transactions'] == 0:
             parameters['max_prepared_transactions'] = parameters['max_connections'] * 2
 
         # Resharding in Citus implemented using logical replication
