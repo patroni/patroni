@@ -8,7 +8,7 @@ Feature: priority replication
     When I shut down postgres0
     And I sleep for 5 seconds
     Then postgres1 role is the secondary after 10 seconds
-    And there is a "following a different leader because I am not allowed to promote" INFO in the postgres1 patroni log
+    And there is one of ["following a different leader because I am not allowed to promote"] INFO in the postgres1 patroni log after 5 seconds
     Given I start postgres0
     Then postgres0 role is the primary after 10 seconds
 
@@ -20,4 +20,4 @@ Feature: priority replication
     When I shut down postgres0
     And I sleep for 5 seconds
     Then postgres3 role is the primary after 10 seconds
-    And there is one of ["postgres3 has equally tolerable WAL position and priority 2, while this node has priority 1","Wal position of postgres3 is ahead of my wal position"] INFO in the postgres2 patroni log
+    And there is one of ["postgres3 has equally tolerable WAL position and priority 2, while this node has priority 1","Wal position of postgres3 is ahead of my wal position"] INFO in the postgres2 patroni log after 5 seconds
