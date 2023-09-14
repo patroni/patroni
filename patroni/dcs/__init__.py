@@ -784,7 +784,7 @@ class Status(NamedTuple):
     Consists of the following fields:
 
     :ivar last_lsn: :class:`int` object containing position of last known leader LSN.
-    :ivar slots: state of permanent logical replication slots on the primary in the format: ``{"slot_name": int}``.
+    :ivar slots: state of permanent replication slots on the primary in the format: ``{"slot_name": int}``.
     """
     last_lsn: int
     slots: Optional[Dict[str, int]]
@@ -879,7 +879,7 @@ class Cluster(NamedTuple('Cluster',
 
     @property
     def slots(self) -> Optional[Dict[str, int]]:
-        """State of permanent logical replication slots on the primary in the format: ``{"slot_name": int}``."""
+        """State of permanent replication slots on the primary in the format: ``{"slot_name": int}``."""
         return self.status.slots
 
     @staticmethod
