@@ -238,7 +238,8 @@ class TestBootstrap(BaseTestPostgresql):
         self.p.reload_config({'authentication': {'superuser': {'username': 'p', 'password': 'p'},
                                                  'replication': {'username': 'r', 'password': 'r'},
                                                  'rewind': {'username': 'rw', 'password': 'rw'}},
-                              'listen': '*', 'retry_timeout': 10, 'parameters': {'wal_level': '', 'hba_file': 'foo'}})
+                              'listen': '*', 'retry_timeout': 10,
+                              'parameters': {'wal_level': '', 'hba_file': 'foo', 'max_prepared_transactions': 10}})
         with patch.object(Postgresql, 'major_version', PropertyMock(return_value=110000)), \
                 patch.object(Postgresql, 'restart', Mock()) as mock_restart:
             self.b.post_bootstrap({}, task)
