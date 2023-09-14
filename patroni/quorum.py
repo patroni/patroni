@@ -189,12 +189,12 @@ class QuorumStateResolver:
         if leader is not None:  # Change of leader was requested
             self.leader = leader
         elif self.numsync_confirmed == 0:
-            # If there are no nodes that known to caught up with the primary we want to reset quorum/votes in /sync key
+            # If there are no nodes that known to caught up with the primary we want to reset quorum/voters in /sync key
             quorum = 0
             voters = CaseInsensitiveSet()
         elif adjust_quorum:
             # It could be that the number of nodes that are known to catch up with the primary is below desired numsync.
-            # We want to increase quorum to guaranty that the sync node will be found during the leader race.
+            # We want to increase quorum to guarantee that the sync node will be found during the leader race.
             quorum += max(self.numsync - self.numsync_confirmed, 0)
 
         if (self.leader, quorum, voters) == (old_leader, self.quorum, self.voters):
@@ -233,9 +233,11 @@ class QuorumStateResolver:
         yield Transition('sync', self.leader, self.numsync, self.sync)
 
     def __iter__(self) -> Iterator[Transition]:
-        """Merge two transitions of the same type to a single one.
+        """Iterate over the transitions produced by :meth:`_generate_transitions`.
 
         .. note::
+            Merge two transitions of the same type to a single one.
+
             This is always safe because skipping the first transition is equivalent
             to no one observing the intermediate state.
 
