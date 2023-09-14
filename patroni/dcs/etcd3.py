@@ -15,7 +15,7 @@ from urllib3.exceptions import ReadTimeoutError, ProtocolError
 from threading import Condition, Lock, Thread
 from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
-from . import ClusterConfig, Cluster, Failover, Leader, Member, SyncState, \
+from . import ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, \
     TimelineHistory, catch_return_false_exception, citus_group_re
 from .etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors, DnsCachingResolver, Retry
 from ..exceptions import DCSError, PatroniException
@@ -723,23 +723,8 @@ class Etcd3(AbstractEtcd):
         history = history and TimelineHistory.from_node(history['mod_revision'], history['value'])
 
         # get last know leader lsn and slots
-        status = nodes.get(self._STATUS)
-        if status:
-            try:
-                status = json.loads(status['value'])
-                last_lsn = status.get(self._OPTIME)
-                slots = status.get('slots')
-            except Exception:
-                slots = last_lsn = None
-        else:
-            last_lsn = nodes.get(self._LEADER_OPTIME)
-            last_lsn = last_lsn and last_lsn['value']
-            slots = None
-
-        try:
-            last_lsn = int(last_lsn or '')
-        except Exception:
-            last_lsn = 0
+        status = nodes.get(self._STATUS) or nodes.get(self._LEADER_OPTIME)
+        status = Status.from_node(status and status['value'])
 
         # get list of members
         members = [self.member(n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
@@ -770,7 +755,7 @@ class Etcd3(AbstractEtcd):
         except Exception:
             failsafe = None
 
-        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
+        return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
     def _cluster_loader(self, path: str) -> Cluster:
         nodes = {node['key'][len(path):]: node

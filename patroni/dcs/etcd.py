@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 from urllib3 import Timeout
 from urllib3.exceptions import HTTPError, ReadTimeoutError, ProtocolError
 
-from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState, \
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, \
     TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
 from ..exceptions import DCSError
 from ..request import get as requests_get
@@ -677,23 +677,8 @@ class Etcd(AbstractEtcd):
         history = history and TimelineHistory.from_node(history.modifiedIndex, history.value)
 
         # get last know leader lsn and slots
-        status = nodes.get(self._STATUS)
-        if status:
-            try:
-                status = json.loads(status.value)
-                last_lsn = status.get(self._OPTIME)
-                slots = status.get('slots')
-            except Exception:
-                slots = last_lsn = None
-        else:
-            last_lsn = nodes.get(self._LEADER_OPTIME)
-            last_lsn = last_lsn and last_lsn.value
-            slots = None
-
-        try:
-            last_lsn = int(last_lsn or '')
-        except Exception:
-            last_lsn = 0
+        status = nodes.get(self._STATUS) or nodes.get(self._LEADER_OPTIME)
+        status = Status.from_node(status and status.value)
 
         # get list of members
         members = [self.member(n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
@@ -722,7 +707,7 @@ class Etcd(AbstractEtcd):
         except Exception:
             failsafe = None
 
-        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
+        return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
     def _cluster_loader(self, path: str) -> Cluster:
         result = self.retry(self._client.read, path, recursive=True, quorum=self._ctl)

@@ -6,7 +6,7 @@ import sys
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni.collections import CaseInsensitiveSet
 from patroni.config import Config
-from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, SyncState, TimelineHistory
+from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, Status, SyncState, TimelineHistory
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover
 from patroni.exceptions import DCSError, PostgresConnectionException, PatroniFatalException
 from patroni.ha import Ha, _MemberStatus
@@ -39,7 +39,7 @@ def get_cluster(initialize, leader, members, failover, sync, cluster_config=None
     history = TimelineHistory(1, '[[1,67197376,"no recovery target specified","' + t + '","foo"]]',
                               [(1, 67197376, 'no recovery target specified', t, 'foo')])
     cluster_config = cluster_config or ClusterConfig(1, {'check_timeline': True}, 1)
-    return Cluster(initialize, cluster_config, leader, 10, members, failover, sync, history, None, failsafe)
+    return Cluster(initialize, cluster_config, leader, Status(10, None), members, failover, sync, history, failsafe)
 
 
 def get_cluster_not_initialized_without_leader(cluster_config=None):
