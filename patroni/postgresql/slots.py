@@ -378,7 +378,7 @@ class SlotsHandler:
                 except Exception:
                     logger.exception("Failed to create physical replication slot '%s'", name)
                 self._schedule_load_slots = True
-            elif not self._postgresql.is_primary() and self._postgresql.major_version >= 110000 \
+            elif not self._postgresql.is_primary() and self._postgresql.can_advance_slots \
                     and self._replication_slots[name]['type'] == 'physical':
                 value['restart_lsn'] = self._replication_slots[name]['restart_lsn']
                 lsn = parse_int(value.get('lsn'))

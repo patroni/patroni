@@ -254,8 +254,8 @@ class BaseTestPostgresql(PostgresInit):
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
 
-        self.leadermem = Member(0, 'leader', 28, {
-            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
+        self.leadermem = Member(0, 'leader', 28, {'xlog_location': 100, 'state': 'running',
+                                                  'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
         self.leader = Leader(-1, 28, self.leadermem)
         self.other = Member(0, 'test-1', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
                                               'state': 'running', 'tags': {'replicatefrom': 'leader'}})

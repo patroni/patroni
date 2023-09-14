@@ -186,7 +186,7 @@ class TestSlotsHandler(BaseTestPostgresql):
 
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     def test_advance_physical_slots(self):
-        config = ClusterConfig(1, {'slots': {'blabla': {'type': 'physical'}}}, 1)
+        config = ClusterConfig(1, {'slots': {'blabla': {'type': 'physical'}, 'leader': None}}, 1)
         cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem],
                           None, SyncState.empty(), None, {'blabla': 12346}, None)
         self.s.sync_replication_slots(cluster, False)
