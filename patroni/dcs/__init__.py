@@ -918,24 +918,25 @@ class Cluster(NamedTuple('Cluster',
     @property
     def __permanent_slots(self) -> Dict[str, Union[Dict[str, Any], Any]]:
         """Dictionary of permanent replication slots with their known LSN."""
-        ret = deepcopy(self.config.permanent_slots if self.config else {})
-        # If primary reported flush LSN for permanent slots we want to enrich our structure with it
-        for name, lsn in (self.slots or {}).items():
-            if name in ret:
-                if not ret[name]:
-                    ret[name] = {}
-                if isinstance(ret[name], dict):
-                    ret[name]['lsn'] = lsn
-
-        # there is no slot on the leader for itself, use `lsn` from the member key.
         leader = self.leader and self.leader.member
-        if leader and leader.lsn:
-            name = slot_name_from_member_name(leader.name)
-            if name in ret and self.is_physical_slot(ret[name]):
-                if not isinstance(ret[name], dict):
-                    ret[name] = {}
-                if 'lsn' not in ret[name]:
-                    ret[name]['lsn'] = leader.lsn
+        leader_name = slot_name_from_member_name(leader.name) if leader and leader.lsn else None
+
+        slots = self.slots or {}
+        ret: Dict[str, Union[Dict[str, Any], Any]] = deepcopy(self.config.permanent_slots if self.config else {})
+
+        for name, value in list(ret.items()):
+            if not value:
+                value = ret[name] = {}
+            if isinstance(value, dict):
+                if name in slots:
+                    # If primary reported flush LSN for permanent slots we want to enrich our structure with it
+                    value['lsn'] = slots[name]
+                elif self.is_physical_slot(value) and name == leader_name and leader and leader.lsn:
+                    # there is no slot on the leader for itself, use `lsn` from the member key.
+                    value['lsn'] = leader.lsn
+                else:
+                    # Don't let anyone set 'lsn' in the global configuration :)
+                    value.pop('lsn', None)
         return ret
 
     @property
