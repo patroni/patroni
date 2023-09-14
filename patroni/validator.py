@@ -410,10 +410,12 @@ class OneOf(object):
 
         :Example:
 
-            OneOf("nofailover", "failover_priority"): Case({
-                "nofailover": bool,
-                "failover_priority": IntValidator(min=0, raise_assert=True),
-            })
+            .. code-block:: python
+
+                OneOf("nofailover", "failover_priority"): Case({
+                    "nofailover": bool,
+                    "failover_priority": IntValidator(min=0, raise_assert=True),
+                })
 
         The :class`OneOf` object is used to define that at most one of ``nofailover`` and
         ``failover_priority`` can be provided.
