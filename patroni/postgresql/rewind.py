@@ -158,7 +158,7 @@ class Rewind(object):
     def _get_local_timeline_lsn(self) -> Tuple[Optional[bool], Optional[int], Optional[int]]:
         if self._postgresql.is_running():  # if postgres is running - get timeline from replication connection
             in_recovery = True
-            timeline = self._postgresql.received_timeline() or self._postgresql.get_replica_timeline()
+            timeline = self._postgresql.get_replica_timeline()
             lsn = self._postgresql.replayed_location()
         else:  # otherwise analyze pg_controldata output
             in_recovery, timeline, lsn = self._get_local_timeline_lsn_from_controldata()
