@@ -8,7 +8,7 @@ from threading import Thread
 
 from patroni import psycopg
 from patroni.config import GlobalConfig
-from patroni.dcs import Cluster, ClusterConfig, Member, SyncState
+from patroni.dcs import Cluster, ClusterConfig, Member, Status, SyncState
 from patroni.postgresql import Postgresql
 from patroni.postgresql.misc import fsync_dir
 from patroni.postgresql.slots import SlotsAdvanceThread, SlotsHandler
@@ -33,15 +33,15 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.s = self.p.slots_handler
         self.p.start()
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}, 'ls2': None}}, 1)
-        self.cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem],
-                               None, SyncState.empty(), None, {'ls': 12345, 'ls2': 12345}, None)
+        self.cluster = Cluster(True, config, self.leader, Status(0, {'ls': 12345, 'ls2': 12345}),
+                               [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
 
     def test_sync_replication_slots(self):
         config = ClusterConfig(1, {'slots': {'test_3': {'database': 'a', 'plugin': 'b'},
                                              'A': 0, 'ls': 0, 'b': {'type': 'logical', 'plugin': '1'}},
                                    'ignore_slots': [{'name': 'blabla'}]}, 1)
-        cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem],
-                          None, SyncState.empty(), None, {'test_3': 10}, None)
+        cluster = Cluster(True, config, self.leader, Status(0, {'test_3': 10}),
+                          [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg.OperationalError)):
             self.s.sync_replication_slots(cluster, False)
         self.p.set_role('standby_leader')
@@ -77,9 +77,8 @@ class TestSlotsHandler(BaseTestPostgresql):
             'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
             'tags': {'replicatefrom': 'postgresql0'}
         })
-        cluster = Cluster(True, config, self.leader, 0,
-                          [self.me, self.other, self.leadermem, cascading_replica],
-                          None, SyncState.empty(), None, {'ls': 10}, None)
+        cluster = Cluster(True, config, self.leader, Status(0, {'ls': 10}),
+                          [self.me, self.other, self.leadermem, cascading_replica], None, SyncState.empty(), None, None)
         self.p.set_role('replica')
         with patch.object(Postgresql, '_query') as mock_query, \
                 patch.object(Postgresql, 'is_primary', Mock(return_value=False)):
@@ -90,8 +89,8 @@ class TestSlotsHandler(BaseTestPostgresql):
     def test_process_permanent_slots(self):
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}},
                                    'ignore_slots': [{'name': 'blabla'}]}, 1)
-        cluster = Cluster(True, config, self.leader, 0, [self.me, self.other, self.leadermem],
-                          None, SyncState.empty(), None, None, None)
+        cluster = Cluster(True, config, self.leader, Status.empty(), [self.me, self.other, self.leadermem],
+                          None, SyncState.empty(), None, None)
 
         self.s.sync_replication_slots(cluster, False)
         with patch.object(Postgresql, '_query') as mock_query:

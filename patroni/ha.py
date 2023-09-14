@@ -14,7 +14,7 @@ from . import psycopg
 from .__main__ import Patroni
 from .async_executor import AsyncExecutor, CriticalTask
 from .collections import CaseInsensitiveSet
-from .dcs import AbstractDCS, Cluster, Leader, Member, RemoteMember, SyncState
+from .dcs import AbstractDCS, Cluster, Leader, Member, RemoteMember, Status, SyncState
 from .exceptions import DCSError, PostgresConnectionException, PatroniFatalException
 from .postgresql.callback_executor import CallbackAction
 from .postgresql.misc import postgres_version_to_int
@@ -124,7 +124,8 @@ class Failsafe(object):
         leader = self.leader
         if leader:
             # We rely on the strict order of fields in the namedtuple
-            cluster = Cluster(*cluster[0:2], leader, *cluster[3:8], leader.member.data['slots'], *cluster[9:])
+            status = Status(cluster.status.last_lsn, leader.member.data['slots'])
+            cluster = Cluster(*cluster[0:2], leader, status, *cluster[4:])
         return cluster
 
     def is_active(self) -> bool:
