@@ -319,23 +319,6 @@ class Result(object):
         return str(self.path) + (" " + str(self.data) + " " + str(self._error) if self.error else "")
 
 
-class Optional(object):
-    """Mark a configuration option as optional.
-
-    :ivar name: name of the configuration option.
-    :ivar default: value to set if the configuration option is not explicitly provided
-    """
-
-    def __init__(self, name: str, default: OptionalType[Any] = None) -> None:
-        """Create an :class:`Optional` object.
-
-        :param name: name of the configuration option.
-        :param default: value to set if the configuration option is not explicitly provided
-        """
-        self.name = name
-        self.default = default
-
-
 class Case(object):
     """Map how a dict of available configuration options should be validated.
 
@@ -394,6 +377,23 @@ class Or(object):
             of :func:`comma_separated_host_port` or :func:`validate_host_port` succeed to validate it.
         """
         self.args = args
+
+
+class Optional(object):
+    """Mark a configuration option as optional.
+
+    :ivar name: name of the configuration option.
+    :ivar default: value to set if the configuration option is not explicitly provided
+    """
+
+    def __init__(self, name: str, default: OptionalType[Any] = None) -> None:
+        """Create an :class:`Optional` object.
+
+        :param name: name of the configuration option.
+        :param default: value to set if the configuration option is not explicitly provided
+        """
+        self.name = name
+        self.default = default
 
 
 class OneOf(object):
