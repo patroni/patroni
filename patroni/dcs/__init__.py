@@ -778,16 +778,71 @@ class TimelineHistory(NamedTuple):
         return TimelineHistory(version, value, lines)
 
 
+class Status(NamedTuple):
+    """Immutable object (namedtuple) which represents `/status` key.
+
+    Consists of the following fields:
+
+    :ivar last_lsn: :class:`int` object containing position of last known leader LSN.
+    :ivar slots: state of permanent replication slots on the primary in the format: ``{"slot_name": int}``.
+    """
+    last_lsn: int
+    slots: Optional[Dict[str, int]]
+
+    @staticmethod
+    def empty() -> 'Status':
+        """Construct an empty :class:`Status` instance.
+
+        :returns: empty :class:`Status` object.
+        """
+        return Status(0, None)
+
+    @staticmethod
+    def from_node(value: Union[str, Dict[str, Any], None]) -> 'Status':
+        """Factory method to parse *value* as :class:`Status` object.
+
+        :param value: JSON serialized string
+
+        :returns: constructed :class:`Status` object.
+        """
+        try:
+            if isinstance(value, str):
+                value = json.loads(value)
+        except Exception:
+            return Status.empty()
+
+        if isinstance(value, int):  # legacy
+            return Status(value, None)
+
+        if not isinstance(value, dict):
+            return Status.empty()
+
+        try:
+            last_lsn = int(value.get('optime', ''))
+        except Exception:
+            last_lsn = 0
+
+        slots: Union[str, Dict[str, int], None] = value.get('slots')
+        if isinstance(slots, str):
+            try:
+                slots = json.loads(slots)
+            except Exception:
+                slots = None
+        if not isinstance(slots, dict):
+            slots = None
+
+        return Status(last_lsn, slots)
+
+
 class Cluster(NamedTuple('Cluster',
                          [('initialize', Optional[str]),
                           ('config', Optional[ClusterConfig]),
                           ('leader', Optional[Leader]),
-                          ('last_lsn', int),
+                          ('status', Status),
                           ('members', List[Member]),
                           ('failover', Optional[Failover]),
                           ('sync', SyncState),
                           ('history', Optional[TimelineHistory]),
-                          ('slots', Optional[Dict[str, int]]),
                           ('failsafe', Optional[Dict[str, str]]),
                           ('workers', Dict[int, 'Cluster'])])):
     """Immutable object (namedtuple) which represents PostgreSQL or Citus cluster.
@@ -801,13 +856,11 @@ class Cluster(NamedTuple('Cluster',
     :ivar initialize: shows whether this cluster has initialization key stored in DC or not.
     :ivar config: global dynamic configuration, reference to `ClusterConfig` object.
     :ivar leader: :class:`Leader` object which represents current leader of the cluster.
-    :ivar last_lsn: :class:int object containing position of last known leader LSN.
-                     This value is stored in the `/status` key or `/optime/leader` (legacy) key.
+    :ivar status: :class:`Status` object which represents the `/status` key.
     :ivar members: list of:class:` Member` objects, all PostgreSQL cluster members including leader
     :ivar failover: reference to :class:`Failover` object.
     :ivar sync: reference to :class:`SyncState` object, last observed synchronous replication state.
     :ivar history: reference to `TimelineHistory` object.
-    :ivar slots: state of permanent logical replication slots on the primary in the format: {"slot_name": int}.
     :ivar failsafe: failsafe topology. Node is allowed to become the leader only if its name is found in this list.
     :ivar workers: dictionary of workers of the Citus cluster, optional. Each key is an :class:`int` representing
                    the group, and the corresponding value is a :class:`Cluster` instance.
@@ -819,10 +872,20 @@ class Cluster(NamedTuple('Cluster',
             kwargs['workers'] = {}
         return super(Cluster, cls).__new__(cls, *args, **kwargs)
 
+    @property
+    def last_lsn(self) -> int:
+        """Last known leader LSN."""
+        return self.status.last_lsn
+
+    @property
+    def slots(self) -> Optional[Dict[str, int]]:
+        """State of permanent replication slots on the primary in the format: ``{"slot_name": int}``."""
+        return self.status.slots
+
     @staticmethod
     def empty() -> 'Cluster':
         """Produce an empty :class:`Cluster` instance."""
-        return Cluster(None, None, None, 0, [], None, SyncState.empty(), None, None, None, {})
+        return Cluster(None, None, None, Status.empty(), [], None, SyncState.empty(), None, None, {})
 
     def is_empty(self):
         """Validate definition of all attributes of this :class:`Cluster` instance.
@@ -845,7 +908,7 @@ class Cluster(NamedTuple('Cluster',
 
            >>> assert bool(cluster) is False
 
-           >>> cluster = Cluster(None, None, None, 0, [1, 2, 3], None, SyncState.empty(), None, None, None, {})
+           >>> cluster = Cluster(None, None, None, Status(0, None), [1, 2, 3], None, SyncState.empty(), None, None, {})
            >>> len(cluster)
            1
 
@@ -903,8 +966,16 @@ class Cluster(NamedTuple('Cluster',
 
     @property
     def __permanent_slots(self) -> Dict[str, Union[Dict[str, Any], Any]]:
-        """Dictionary of permanent replication slots."""
-        return self.config and self.config.permanent_slots or {}
+        """Dictionary of permanent replication slots with their known LSN."""
+        ret = deepcopy(self.config.permanent_slots if self.config else {})
+        # If primary reported flush LSN for permanent slots we want to enrich our structure with it
+        for name, lsn in (self.slots or {}).items():
+            if name in ret:
+                if not ret[name]:
+                    ret[name] = {}
+                if isinstance(ret[name], dict):
+                    ret[name]['lsn'] = lsn
+        return ret
 
     @property
     def __permanent_physical_slots(self) -> Dict[str, Any]:
@@ -929,7 +1000,6 @@ class Cluster(NamedTuple('Cluster',
 
         Will log an error if:
 
-            * Conflicting slot names between members are found
             * Any logical slots are disabled, due to version compatibility, and *show_error* is ``True``.
 
         :param my_name: name of this node.
@@ -942,21 +1012,9 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: final dictionary of slot names, after merging with permanent slots and performing sanity checks.
         """
-        slot_members: List[str] = self._get_slot_members(my_name, role)
-
-        slots: Dict[str, Dict[str, str]] = {slot_name_from_member_name(name): {'type': 'physical'}
-                                            for name in slot_members}
-
-        if len(slots) < len(slot_members):
-            # Find which names are conflicting for a nicer error message
-            slot_conflicts: Dict[str, List[str]] = defaultdict(list)
-            for name in slot_members:
-                slot_conflicts[slot_name_from_member_name(name)].append(name)
-            logger.error("Following cluster members share a replication slot name: %s",
-                         "; ".join(f"{', '.join(v)} map to {k}"
-                                   for k, v in slot_conflicts.items() if len(v) > 1))
-
+        slots: Dict[str, Dict[str, str]] = self._get_members_slots(my_name, role)
         permanent_slots: Dict[str, Any] = self._get_permanent_slots(is_standby_cluster, role, nofailover)
+
         disabled_permanent_logical_slots: List[str] = self._merge_permanent_slots(
             slots, permanent_slots, my_name, major_version)
 
@@ -1016,7 +1074,7 @@ class Cluster(NamedTuple('Cluster',
         return disabled_permanent_logical_slots
 
     def _get_permanent_slots(self, is_standby_cluster: bool, role: str, nofailover: bool) -> Dict[str, Any]:
-        """Get configured permanent slot names.
+        """Get configured permanent replication slots.
 
         .. note::
             Permanent replication slots are only considered if ``use_slots`` configuration is enabled.
@@ -1042,35 +1100,48 @@ class Cluster(NamedTuple('Cluster',
 
         return self.__permanent_slots if role in ('master', 'primary') else self.__permanent_logical_slots
 
-    def _get_slot_members(self, my_name: str, role: str) -> List[str]:
-        """Get a list of member names that have replication slots sourcing from this node.
+    def _get_members_slots(self, my_name: str, role: str) -> Dict[str, Dict[str, str]]:
+        """Get physical replication slots configuration for members that sourcing from this node.
 
         If the ``replicatefrom`` tag is set on the member - we should not create the replication slot for it on
         the current primary, because that member would replicate from elsewhere. We still create the slot if
         the ``replicatefrom`` destination member is currently not a member of the cluster (fallback to the
         primary), or if ``replicatefrom`` destination member happens to be the current primary.
 
+        Will log an error if:
+
+            * Conflicting slot names between members are found
+
         :param my_name: name of this node.
         :param role: role of this node, if this is a ``primary`` or ``standby_leader`` return list of members
                      replicating from this node. If not then return a list of members replicating as cascaded
                      replicas from this node.
 
-        :returns: list of member names.
+        :returns: dictionary of physical replication slots that should exist on a given node.
         """
         if not self.use_slots:
-            return []
+            return {}
+
+        # we always want to exclude the member with our name from the list
+        members = filter(lambda m: m.name != my_name, self.members)
 
         if role in ('master', 'primary', 'standby_leader'):
-            slot_members = [m.name for m in self.members
-                            if m.name != my_name
-                            and (m.replicatefrom is None
-                                 or m.replicatefrom == my_name
-                                 or not self.has_member(m.replicatefrom))]
+            members = [m for m in members if m.replicatefrom is None
+                       or m.replicatefrom == my_name or not self.has_member(m.replicatefrom)]
         else:
             # only manage slots for replicas that replicate from this one, except for the leader among them
-            slot_members = [m.name for m in self.members
-                            if m.replicatefrom == my_name and m.name != self.leader_name]
-        return slot_members
+            members = [m for m in members if m.replicatefrom == my_name and m.name != self.leader_name]
+
+        slots = {slot_name_from_member_name(m.name): {'type': 'physical'} for m in members}
+        if len(slots) < len(members):
+            # Find which names are conflicting for a nicer error message
+            slot_conflicts: Dict[str, List[str]] = defaultdict(list)
+            for member in members:
+                slot_conflicts[slot_name_from_member_name(member.name)].append(member.name)
+            logger.error("Following cluster members share a replication slot name: %s",
+                         "; ".join(f"{', '.join(v)} map to {k}"
+                                   for k, v in slot_conflicts.items() if len(v) > 1))
+        return slots
 
     def has_permanent_logical_slots(self, my_name: str, nofailover: bool, major_version: int = 110000) -> bool:
         """Check if the given member node has permanent ``logical`` replication slots configured.
@@ -1139,19 +1210,20 @@ class Cluster(NamedTuple('Cluster',
         :Example:
 
             No history provided:
-            >>> Cluster(0, 0, 0, 0, 0, 0, 0, 0, 0, None, {}).timeline
+            >>> Cluster(0, 0, 0, Status.empty(), 0, 0, 0, 0,  None, {}).timeline
             0
 
             Empty history assume timeline is ``1``:
-            >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[]'), 0, None, {}).timeline
+            >>> Cluster(0, 0, 0, Status.empty(), 0, 0, 0, TimelineHistory.from_node(1, '[]'),  None, {}).timeline
             1
 
             Invalid history format, a string of ``a``, returns ``0``:
-            >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["a"]]'), 0, None, {}).timeline
+            >>> Cluster(0, 0, 0, Status.empty(), 0, 0, 0, TimelineHistory.from_node(1, '[["a"]]'), None, {}).timeline
             0
 
             History as a list of strings:
-            >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["3", "2", "1"]]'), 0, None, {}).timeline
+            >>> history = TimelineHistory.from_node(1, '[["3", "2", "1"]]')
+            >>> Cluster(0, 0, 0, Status.empty(), 0, 0, 0, history, None, {}).timeline
             4
         """
         if self.history:

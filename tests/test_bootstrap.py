@@ -238,7 +238,8 @@ class TestBootstrap(BaseTestPostgresql):
         self.p.reload_config({'authentication': {'superuser': {'username': 'p', 'password': 'p'},
                                                  'replication': {'username': 'r', 'password': 'r'},
                                                  'rewind': {'username': 'rw', 'password': 'rw'}},
-                              'listen': '*', 'retry_timeout': 10, 'parameters': {'wal_level': '', 'hba_file': 'foo'}})
+                              'listen': '*', 'retry_timeout': 10,
+                              'parameters': {'wal_level': '', 'hba_file': 'foo', 'max_prepared_transactions': 10}})
         with patch.object(Postgresql, 'major_version', PropertyMock(return_value=110000)), \
                 patch.object(Postgresql, 'restart', Mock()) as mock_restart:
             self.b.post_bootstrap({}, task)
@@ -250,7 +251,7 @@ class TestBootstrap(BaseTestPostgresql):
         self.assertFalse(self.b.call_post_bootstrap({'post_init': '/bin/false'}))
 
         mock_cancellable_subprocess_call.return_value = 0
-        self.p.config.superuser.pop('username')
+        self.p.connection_pool._conn_kwargs.pop('user')
         self.assertTrue(self.b.call_post_bootstrap({'post_init': '/bin/false'}))
         mock_cancellable_subprocess_call.assert_called()
         args, kwargs = mock_cancellable_subprocess_call.call_args
@@ -258,7 +259,7 @@ class TestBootstrap(BaseTestPostgresql):
         self.assertEqual(args[0], ['/bin/false', 'dbname=postgres host=127.0.0.2 port=5432'])
 
         mock_cancellable_subprocess_call.reset_mock()
-        self.p.config._local_address.pop('host')
+        self.p.connection_pool._conn_kwargs.pop('host')
         self.assertTrue(self.b.call_post_bootstrap({'post_init': '/bin/false'}))
         mock_cancellable_subprocess_call.assert_called()
         self.assertEqual(mock_cancellable_subprocess_call.call_args[0][0], ['/bin/false', 'dbname=postgres port=5432'])

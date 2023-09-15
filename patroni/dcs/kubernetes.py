@@ -19,7 +19,7 @@ from urllib3.exceptions import HTTPError
 from threading import Condition, Lock, Thread
 from typing import Any, Callable, Collection, Dict, List, Optional, Tuple, Type, Union, TYPE_CHECKING
 
-from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState, \
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, \
     TimelineHistory, CITUS_COORDINATOR_GROUP_ID, citus_group_re
 from ..exceptions import DCSError
 from ..utils import deep_compare, iter_response_objects, keepalive_socket_options, \
@@ -756,7 +756,7 @@ class Kubernetes(AbstractDCS):
         self._role_label = config.get('role_label', 'role')
         self._leader_label_value = config.get('leader_label_value', 'master')
         self._follower_label_value = config.get('follower_label_value', 'replica')
-        self._standby_leader_label_value = config.get('standby_leader_label_value', 'standby-leader')
+        self._standby_leader_label_value = config.get('standby_leader_label_value', 'master')
         self._tmp_role_label = config.get('tmp_role_label')
         self._ca_certs = os.environ.get('PATRONI_KUBERNETES_CACERT', config.get('cacert')) or SERVICE_CERT_FILENAME
         super(Kubernetes, self).__init__({**config, 'namespace': ''})
@@ -888,18 +888,8 @@ class Kubernetes(AbstractDCS):
             self._leader_resource_version = metadata.resource_version if metadata else None
         annotations: Dict[str, str] = metadata and metadata.annotations or {}
 
-        # get last known leader lsn
-        try:
-            last_lsn = int(annotations.get(self._OPTIME, ''))
-        except Exception:
-            last_lsn = 0
-
-        # get permanent slots state (confirmed_flush_lsn)
-        slots = annotations.get('slots')
-        try:
-            slots = json.loads(annotations.get('slots', ''))
-        except Exception:
-            slots = None
+        # get last known leader lsn and slots
+        status = Status.from_node(annotations)
 
         # get failsafe topology
         try:
@@ -945,7 +935,7 @@ class Kubernetes(AbstractDCS):
         metadata = sync and sync.metadata
         sync = SyncState.from_node(metadata and metadata.resource_version, metadata and metadata.annotations)
 
-        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
+        return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
     def _cluster_loader(self, path: Dict[str, Any]) -> Cluster:
         return self._cluster_from_nodes(path['group'], path['nodes'], path['pods'].values())
@@ -1140,6 +1130,13 @@ class Kubernetes(AbstractDCS):
         """Unused"""
         raise NotImplementedError  # pragma: no cover
 
+    def write_leader_optime(self, last_lsn: int) -> None:
+        """Write value for WAL LSN to ``optime`` annotation of the leader object.
+
+        :param last_lsn: absolute WAL LSN in bytes.
+        """
+        self.patch_or_create(self.leader_path, {self._OPTIME: str(last_lsn)}, patch=True, retry=False)
+
     def _update_leader_with_retry(self, annotations: Dict[str, Any],
                                   resource_version: Optional[str], ips: List[str]) -> bool:
         retry = self._retry.copy()
@@ -1269,13 +1266,10 @@ class Kubernetes(AbstractDCS):
     def touch_member(self, data: Dict[str, Any]) -> bool:
         cluster = self.cluster
         if cluster and cluster.leader and cluster.leader.name == self._name:
-            role = self._leader_label_value
+            role = self._standby_leader_label_value if data['role'] == 'standby_leader' else self._leader_label_value
             tmp_role = 'master'
         elif data['state'] == 'running' and data['role'] not in ('master', 'primary'):
-            role = {
-                'replica': self._follower_label_value,
-                'standby-leader': self._standby_leader_label_value,
-            }.get(data['role'], data['role'])
+            role = {'replica': self._follower_label_value}.get(data['role'], data['role'])
             tmp_role = data['role']
         else:
             role = None

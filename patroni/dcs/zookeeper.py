@@ -12,7 +12,8 @@ from kazoo.retry import RetryFailedError
 from kazoo.security import ACL, make_acl
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
-from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory, citus_group_re
+from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, \
+    TimelineHistory, citus_group_re
 from ..exceptions import DCSError
 from ..utils import deep_compare
 if TYPE_CHECKING:  # pragma: no cover
@@ -200,29 +201,15 @@ class ZooKeeper(AbstractDCS):
         except NoNodeError:
             return None
 
-    def get_status(self, path: str, leader: Optional[Leader]) -> Tuple[int, Optional[Dict[str, int]]]:
+    def get_status(self, path: str, leader: Optional[Leader]) -> Status:
         watch = self.status_watcher if not leader or leader.name != self._name else None
 
         status = self.get_node(path + self._STATUS, watch)
+        if not status:
+            status = self.get_node(path + self._LEADER_OPTIME, watch)
         if status:
-            try:
-                status = json.loads(status[0])
-                last_lsn = status.get(self._OPTIME)
-                slots = status.get('slots')
-            except Exception:
-                slots = last_lsn = None
-        else:
-            last_lsn = self.get_node(path + self._LEADER_OPTIME, watch)
-            last_lsn = last_lsn and last_lsn[0]
-            slots = None
-
-        try:
-            last_lsn = int(last_lsn or '')
-        except Exception:
-            last_lsn = 0
-
-        self._fetch_status = False
-        return last_lsn, slots
+            self._fetch_status = False
+        return Status.from_node(status and status[0])
 
     @staticmethod
     def member(name: str, value: str, znode: ZnodeStat) -> Member:
@@ -276,7 +263,7 @@ class ZooKeeper(AbstractDCS):
             self._fetch_cluster = member.version == -1
 
         # get last known leader lsn and slots
-        last_lsn, slots = self.get_status(path, leader)
+        status = self.get_status(path, leader)
 
         # failover key
         failover = self.get_node(path + self._FAILOVER, watch=self.cluster_watcher) if self._FAILOVER in nodes else None
@@ -289,7 +276,7 @@ class ZooKeeper(AbstractDCS):
         except Exception:
             failsafe = None
 
-        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
+        return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
     def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
         fetch_cluster = False
@@ -320,11 +307,10 @@ class ZooKeeper(AbstractDCS):
                 self.event.clear()
             else:
                 try:
-                    last_lsn, slots = self.get_status(self.client_path(''), cluster.leader)
+                    status = self.get_status(self.client_path(''), cluster.leader)
                     self.event.clear()
                     new_cluster: List[Any] = list(cluster)
-                    new_cluster[3] = last_lsn
-                    new_cluster[8] = slots
+                    new_cluster[3] = status
                     cluster = Cluster(*new_cluster)
                 except Exception:
                     pass

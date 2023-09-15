@@ -15,7 +15,7 @@ from urllib3.exceptions import HTTPError
 from urllib.parse import urlencode, urlparse, quote
 from typing import Any, Callable, Dict, List, Mapping, NamedTuple, Optional, Union, Tuple, TYPE_CHECKING
 
-from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, SyncState, \
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, \
     TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
 from ..exceptions import DCSError
 from ..utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port, uri, USER_AGENT
@@ -141,6 +141,36 @@ class HTTPClient(object):
 class ConsulClient(base.Consul):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """
+        Consul client with Patroni customisations.
+
+        .. note::
+
+            Parameters, *token*, *cert* and *ca_cert* are not passed to the parent class :class:`consul.base.Consul`.
+
+        Original class documentation,
+
+            *token* is an optional ``ACL token``. If supplied it will be used by
+            default for all requests made with this client session. It's still
+            possible to override this token by passing a token explicitly for a
+            request.
+
+            *consistency* sets the consistency mode to use by default for all reads
+            that support the consistency option. It's still possible to override
+            this by passing explicitly for a given request. *consistency* can be
+            either 'default', 'consistent' or 'stale'.
+
+            *dc* is the datacenter that this agent will communicate with.
+            By default, the datacenter of the host is used.
+
+            *verify* is whether to verify the SSL certificate for HTTPS requests
+
+            *cert* client side certificates for HTTPS requests
+
+        :param args: positional arguments to pass to :class:`consul.base.Consul`
+        :param kwargs: keyword arguments, with *cert*, *ca_cert* and *token* removed, passed to
+                       :class:`consul.base.Consul`
+        """
         self._cert = kwargs.pop('cert', None)
         self._ca_cert = kwargs.pop('ca_cert', None)
         self.token = kwargs.get('token')
@@ -353,23 +383,8 @@ class Consul(AbstractDCS):
         history = history and TimelineHistory.from_node(history['ModifyIndex'], history['Value'])
 
         # get last known leader lsn and slots
-        status = nodes.get(self._STATUS)
-        if status:
-            try:
-                status = json.loads(status['Value'])
-                last_lsn = status.get(self._OPTIME)
-                slots = status.get('slots')
-            except Exception:
-                slots = last_lsn = None
-        else:
-            last_lsn = nodes.get(self._LEADER_OPTIME)
-            last_lsn = last_lsn and last_lsn['Value']
-            slots = None
-
-        try:
-            last_lsn = int(last_lsn or '')
-        except Exception:
-            last_lsn = 0
+        status = nodes.get(self._STATUS) or nodes.get(self._LEADER_OPTIME)
+        status = Status.from_node(status and status['Value'])
 
         # get list of members
         members = [self.member(n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
@@ -398,7 +413,7 @@ class Consul(AbstractDCS):
         except Exception:
             failsafe = None
 
-        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
+        return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
     @property
     def _consistency(self) -> str:

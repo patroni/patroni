@@ -16,6 +16,7 @@ from .dcs import ClusterConfig, Cluster
 from .exceptions import ConfigParseError
 from .file_perm import pg_perm
 from .postgresql.config import ConfigHandler
+from .validator import IntValidator
 from .utils import deep_compare, parse_bool, parse_int, patch_config
 
 logger = logging.getLogger(__name__)
@@ -257,7 +258,7 @@ class Config(object):
 
               * file or directory path passed as command-line argument (*configfile*), if it exists and the file or
                 files found in the directory can be parsed (see :meth:`~Config._load_config_path`), otherwise
-              * YAML file passed via the environment variable (see :cvar:`PATRONI_CONFIG_VARIABLE`), if the referenced
+              * YAML file passed via the environment variable (see :attr:`PATRONI_CONFIG_VARIABLE`), if the referenced
                 file exists and can be parsed, otherwise
               * from configuration values defined as environment variables, see
                 :meth:`~Config._build_environment_configuration`.
@@ -488,8 +489,9 @@ class Config(object):
             if name not in ConfigHandler.CMDLINE_OPTIONS:
                 pg_params[name] = value
             elif not is_local:
-                if ConfigHandler.CMDLINE_OPTIONS[name][1](value):
-                    pg_params[name] = value
+                validator = ConfigHandler.CMDLINE_OPTIONS[name][1]
+                if validator(value):
+                    pg_params[name] = int(value) if isinstance(validator, IntValidator) else value
                 else:
                     logger.warning("postgresql parameter %s=%s failed validation, defaulting to %s",
                                    name, value, ConfigHandler.CMDLINE_OPTIONS[name][0])
