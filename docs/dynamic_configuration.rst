@@ -46,7 +46,7 @@ In order to change the dynamic configuration you can use either ``patronictl edi
    -  **archive\_cleanup\_command**: cleanup command for standby leader
    -  **recovery\_min\_apply\_delay**: how long to wait before actually apply WAL records on a standby leader
 
--  **slots**: define permanent replication slots. These slots will be preserved during switchover/failover. Permanent slots that don't exist will be created by Patroni. The physical slots are maintained only in the current primary. The logical slots are copied from the primary to a standby with restart, and after that their position advanced every **loop_wait** seconds (if necessary). Copying logical slot files performed via ``libpq`` connection and using either rewind or superuser credentials (see **postgresql.authentication** section). There is always a chance that the logical slot position on the replica is a bit behind the former primary, therefore application should be prepared that some messages could be received the second time after the failover. The easiest way of doing so - tracking ``confirmed_flush_lsn``. Enabling permanent logical replication slots requires **postgresql.use_slots** to be set and will also automatically enable the ``hot_standby_feedback``. Since the failover of logical replication slots is unsafe on PostgreSQL 9.6 and older and PostgreSQL version 10 is missing some important functions, the feature only works with PostgreSQL 11+.
+-  **slots**: define permanent replication slots. These slots will be preserved during switchover/failover. Permanent slots that don't exist will be created by Patroni. With PostgreSQL 11 onwards permanent physical slots are created on all nodes and their position is advanced every **loop_wait** seconds. For older PostgreSQL sversions older than 11 permanent physical replication slots are maintained only on the current primary. The logical slots are copied from the primary to a standby with restart, and after that their position advanced every **loop_wait** seconds (if necessary). Copying logical slot files performed via ``libpq`` connection and using either rewind or superuser credentials (see **postgresql.authentication** section). There is always a chance that the logical slot position on the replica is a bit behind the former primary, therefore application should be prepared that some messages could be received the second time after the failover. The easiest way of doing so - tracking ``confirmed_flush_lsn``. Enabling permanent replication slots requires **postgresql.use_slots** to be set to ``true``. If there are permanent logical replication slots defined Patroni will automatically enable the ``hot_standby_feedback``. Since the failover of logical replication slots is unsafe on PostgreSQL 9.6 and older and PostgreSQL version 10 is missing some important functions, the feature only works with PostgreSQL 11+.
 
    -  **my\_slot\_name**: the name of the permanent replication slot. If the permanent slot name matches with the name of the current leader it will not be created. Please note that Patroni does not make checks for permanent slot names added to this configuration matching those that Patroni creates automatically for members. If those names are added, Patroni will ensure that any slots that were created are not removed even if the member becomes unresponsive, situation which would normally result in the slot's removal by Patroni. Although this can be useful in some situations, such as when importing existing members to a new Patroni cluster (see :ref:`Convert a Standalone to a Patroni Cluster <existing_data>` for details), caution should be exercised by the operator that these clashes in names are not persisted in the DCS due to its effect on normal functioning of Patroni.
 
@@ -79,5 +79,18 @@ Note: **slots** is a hashmap while **ignore_slots** is an array. For example:
             database: my_db
             plugin: test_decoding
           - name: ignored_physical_slot_name
+            type: physical
+          ...
+
+Note: if cluster topology is static (fixed number of nodes that never change their names) you can configure permanent physical replication slots with names corresponding to names of nodes to avoid recycling of WAL files while replica is temporary down:
+
+.. code:: YAML
+
+        slots:
+          node_name1:
+            type: physical
+          node_name2:
+            type: physical
+          node_name3:
             type: physical
           ...
