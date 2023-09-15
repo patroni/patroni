@@ -784,16 +784,71 @@ class TimelineHistory(NamedTuple):
         return TimelineHistory(version, value, lines)
 
 
+class Status(NamedTuple):
+    """Immutable object (namedtuple) which represents `/status` key.
+
+    Consists of the following fields:
+
+    :ivar last_lsn: :class:`int` object containing position of last known leader LSN.
+    :ivar slots: state of permanent replication slots on the primary in the format: ``{"slot_name": int}``.
+    """
+    last_lsn: int
+    slots: Optional[Dict[str, int]]
+
+    @staticmethod
+    def empty() -> 'Status':
+        """Construct an empty :class:`Status` instance.
+
+        :returns: empty :class:`Status` object.
+        """
+        return Status(0, None)
+
+    @staticmethod
+    def from_node(value: Union[str, Dict[str, Any], None]) -> 'Status':
+        """Factory method to parse *value* as :class:`Status` object.
+
+        :param value: JSON serialized string
+
+        :returns: constructed :class:`Status` object.
+        """
+        try:
+            if isinstance(value, str):
+                value = json.loads(value)
+        except Exception:
+            return Status.empty()
+
+        if isinstance(value, int):  # legacy
+            return Status(value, None)
+
+        if not isinstance(value, dict):
+            return Status.empty()
+
+        try:
+            last_lsn = int(value.get('optime', ''))
+        except Exception:
+            last_lsn = 0
+
+        slots: Union[str, Dict[str, int], None] = value.get('slots')
+        if isinstance(slots, str):
+            try:
+                slots = json.loads(slots)
+            except Exception:
+                slots = None
+        if not isinstance(slots, dict):
+            slots = None
+
+        return Status(last_lsn, slots)
+
+
 class Cluster(NamedTuple('Cluster',
                          [('initialize', Optional[str]),
                           ('config', Optional[ClusterConfig]),
                           ('leader', Optional[Leader]),
-                          ('last_lsn', int),
+                          ('status', Status),
                           ('members', List[Member]),
                           ('failover', Optional[Failover]),
                           ('sync', SyncState),
                           ('history', Optional[TimelineHistory]),
-                          ('slots', Optional[Dict[str, int]]),
                           ('failsafe', Optional[Dict[str, str]]),
                           ('workers', Dict[int, 'Cluster'])])):
     """Immutable object (namedtuple) which represents PostgreSQL or Citus cluster.
@@ -807,13 +862,11 @@ class Cluster(NamedTuple('Cluster',
     :ivar initialize: shows whether this cluster has initialization key stored in DC or not.
     :ivar config: global dynamic configuration, reference to `ClusterConfig` object.
     :ivar leader: :class:`Leader` object which represents current leader of the cluster.
-    :ivar last_lsn: :class:int object containing position of last known leader LSN.
-                     This value is stored in the `/status` key or `/optime/leader` (legacy) key.
+    :ivar status: :class:`Status` object which represents the `/status` key.
     :ivar members: list of:class:` Member` objects, all PostgreSQL cluster members including leader
     :ivar failover: reference to :class:`Failover` object.
     :ivar sync: reference to :class:`SyncState` object, last observed synchronous replication state.
     :ivar history: reference to `TimelineHistory` object.
-    :ivar slots: state of permanent logical replication slots on the primary in the format: {"slot_name": int}.
     :ivar failsafe: failsafe topology. Node is allowed to become the leader only if its name is found in this list.
     :ivar workers: dictionary of workers of the Citus cluster, optional. Each key is an :class:`int` representing
                    the group, and the corresponding value is a :class:`Cluster` instance.
@@ -825,10 +878,20 @@ class Cluster(NamedTuple('Cluster',
             kwargs['workers'] = {}
         return super(Cluster, cls).__new__(cls, *args, **kwargs)
 
+    @property
+    def last_lsn(self) -> int:
+        """Last known leader LSN."""
+        return self.status.last_lsn
+
+    @property
+    def slots(self) -> Optional[Dict[str, int]]:
+        """State of permanent replication slots on the primary in the format: ``{"slot_name": int}``."""
+        return self.status.slots
+
     @staticmethod
     def empty() -> 'Cluster':
         """Produce an empty :class:`Cluster` instance."""
-        return Cluster(None, None, None, 0, [], None, SyncState.empty(), None, None, None, {})
+        return Cluster(None, None, None, Status.empty(), [], None, SyncState.empty(), None, None, {})
 
     def is_empty(self):
         """Validate definition of all attributes of this :class:`Cluster` instance.
@@ -851,7 +914,7 @@ class Cluster(NamedTuple('Cluster',
 
            >>> assert bool(cluster) is False
 
-           >>> cluster = Cluster(None, None, None, 0, [1, 2, 3], None, SyncState.empty(), None, None, None, {})
+           >>> cluster = Cluster(None, None, None, Status(0, None), [1, 2, 3], None, SyncState.empty(), None, None, {})
            >>> len(cluster)
            1
 
@@ -1183,19 +1246,20 @@ class Cluster(NamedTuple('Cluster',
         :Example:
 
             No history provided:
-            >>> Cluster(0, 0, 0, 0, 0, 0, 0, 0, 0, None, {}).timeline
+            >>> Cluster(0, 0, 0, Status.empty(), 0, 0, 0, 0,  None, {}).timeline
             0
 
             Empty history assume timeline is ``1``:
-            >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[]'), 0, None, {}).timeline
+            >>> Cluster(0, 0, 0, Status.empty(), 0, 0, 0, TimelineHistory.from_node(1, '[]'),  None, {}).timeline
             1
 
             Invalid history format, a string of ``a``, returns ``0``:
-            >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["a"]]'), 0, None, {}).timeline
+            >>> Cluster(0, 0, 0, Status.empty(), 0, 0, 0, TimelineHistory.from_node(1, '[["a"]]'), None, {}).timeline
             0
 
             History as a list of strings:
-            >>> Cluster(0, 0, 0, 0, 0, 0, 0, TimelineHistory.from_node(1, '[["3", "2", "1"]]'), 0, None, {}).timeline
+            >>> history = TimelineHistory.from_node(1, '[["3", "2", "1"]]')
+            >>> Cluster(0, 0, 0, Status.empty(), 0, 0, 0, history, None, {}).timeline
             4
         """
         if self.history:
