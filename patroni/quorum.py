@@ -256,7 +256,7 @@ class QuorumStateResolver:
         :yields: transitions as :class:`Transition` objects.
         """
         if self.sync < self.voters:
-            logger.debug("Case 1: synchronous_standby_names subset of DCS state")
+            logger.debug("Case 1: synchronous_standby_names %s is a subset of DCS state %s", self.sync, self.voters)
             # Case 1: voters is superset of sync nodes. In the middle of changing voters (quorum).
             # Evict  dead nodes from voters that are not being synced.
             remove_from_voters = self.voters - (self.sync | self.active)
@@ -270,7 +270,7 @@ class QuorumStateResolver:
             if add_to_sync:
                 yield from self.sync_update(self.numsync, CaseInsensitiveSet(self.sync | add_to_sync))
         elif self.sync > self.voters:
-            logger.debug("Case 2: synchronous_standby_names superset of DCS state")
+            logger.debug("Case 2: synchronous_standby_names %s is a superset of DCS state %s", self.sync, self.voters)
             # Case 2: sync is superset of voters nodes. In the middle of changing replication factor (sync).
             # Add to voters nodes that are already synced and active
             add_to_voters = (self.sync - self.voters) & self.active
@@ -290,11 +290,13 @@ class QuorumStateResolver:
         safety_margin = self.quorum + min(self.numsync, self.numsync_confirmed) - len(self.voters | self.sync)
         if safety_margin > 0:  # In the middle of changing replication factor.
             if self.numsync > self.sync_wanted:
-                logger.debug('Case 3: replication factor is bigger than needed')
-                yield from self.sync_update(max(self.sync_wanted, len(self.voters) - self.quorum), self.sync)
+                numsync = max(self.sync_wanted, len(self.voters) - self.quorum)
+                logger.debug('Case 3: replication factor %d is bigger than needed %d', self.numsync, numsync)
+                yield from self.sync_update(numsync, self.sync)
             else:
-                logger.debug('Case 4: quorum is bigger than needed')
-                yield from self.quorum_update(len(self.sync) - self.numsync, self.voters)
+                quorum = len(self.sync) - self.numsync
+                logger.debug('Case 4: quorum %d is bigger than needed %d', self.quorum, quorum)
+                yield from self.quorum_update(quorum, self.voters)
         else:
             safety_margin = self.quorum + self.numsync - len(self.voters | self.sync)
             if self.numsync == self.sync_wanted and safety_margin > 0 and self.numsync > self.numsync_confirmed:
