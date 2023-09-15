@@ -353,6 +353,10 @@ class Bootstrap(object):
 
         if password:
             options.extend(['PASSWORD', quote_literal(password)])
+        
+        create_only_arg = tuple(["in role","in group","admin","user","sysid"])
+        create_only_options = [option for option in options if option.lower().startswith(create_only_arg)]
+        shared_options = [option for option in options if option not in create_only_options]
 
         sql = """DO $$
 BEGIN
@@ -361,9 +365,9 @@ BEGIN
     IF FOUND THEN
         ALTER ROLE {1} WITH {2};
     ELSE
-        CREATE ROLE {1} WITH {2};
+        CREATE ROLE {1} WITH {3};
     END IF;
-END;$$""".format(quote_literal(name), quote_ident(name, self._postgresql.connection()), ' '.join(options))
+END;$$""".format(quote_literal(name), quote_ident(name, self._postgresql.connection()),' '.join(shared_options), ' '.join(options))
         self._postgresql.query('SET log_statement TO none')
         self._postgresql.query('SET log_min_duration_statement TO -1')
         self._postgresql.query("SET log_min_error_statement TO 'log'")

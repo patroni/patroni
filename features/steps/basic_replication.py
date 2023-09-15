@@ -113,3 +113,10 @@ def check_patroni_log(context, message, level, node):
     messsages_of_level = context.pctl.read_patroni_log(node, level)
     assert any(message in line for line in messsages_of_level), \
         "There was no {0} {1} in the {2} patroni log".format(message, level, node)
+
+
+@then('{user:w} in {pg_name:w} is a member of {role:w} after {max_promotion_timeout:d} seconds')
+def check_user(context, user, pg_name, role, max_promotion_timeout):
+    max_promotion_timeout *= context.timeout_multiplier
+    assert context.pctl.check_user_member_of(pg_name, user, role, timeout=int(max_promotion_timeout)), \
+        "{0} role in {1} is not member of {2} after {3} seconds".format(user, pg_name, role, max_promotion_timeout)

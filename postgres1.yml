@@ -94,7 +94,14 @@ bootstrap:
       options:
         - createrole
         - createdb
+        - in role pg_monitor
 
+    postgres:
+      password: zalando
+      options:
+        - createrole
+        - createdb
+        
 postgresql:
   listen: 127.0.0.1:5433
   connect_address: 127.0.0.1:5433
