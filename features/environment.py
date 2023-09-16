@@ -308,21 +308,21 @@ class PatroniController(AbstractController):
                     return True
             time.sleep(1)
         return False
-    
+
     def check_user_member_of(self, username, role, timeout=10):
         bound_time = time.time() + timeout
         while time.time() < bound_time:
             cur = self.query('''
-            SELECT * 
-            FROM pg_auth_members a, 
-                 pg_roles b, 
-                 pg_roles c  
-            WHERE a.roleid = b.oid 
-            AND a.member = c.oid 
-            AND b.rolname = '{0}' 
-            AND c.rolname = '{1}' '''.format(username,role), fail_ok=True)
+            SELECT *
+            FROM pg_auth_members a,
+                 pg_roles b,
+                 pg_roles c
+            WHERE a.roleid = b.oid
+            AND a.member = c.oid
+            AND b.rolname = '{0}'
+            AND c.rolname = '{1}' '''.format(username, role), fail_ok=True)
             if cur:
-                    return True
+                return True
             time.sleep(1)
         return False
 
@@ -849,8 +849,9 @@ class PatroniPoolController(object):
         self._processes[name].start(max_wait_limit)
 
     def __getattr__(self, func):
-        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to', 'check_user_member_of',
-                        'add_tag_to_config', 'get_watchdog', 'patroni_hang', 'backup', 'read_patroni_log']:
+        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to',
+                        'check_user_member_of', 'add_tag_to_config', 'get_watchdog', 'patroni_hang',
+                        'backup', 'read_patroni_log']:
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
         def wrapper(name, *args, **kwargs):
