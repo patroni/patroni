@@ -355,8 +355,7 @@ class Bootstrap(object):
             options.extend(['PASSWORD', quote_literal(password)])
 
         create_only_arg = tuple(["in role", "in group", "admin", "user", "sysid"])
-        create_only_options = [option for option in options if option.lower().startswith(create_only_arg)]
-        shared_options = [option for option in options if option not in create_only_options]
+        shared_options = [option for option in options if not option.lower().startswith(create_only_arg)]
 
         sql = """DO $$
 BEGIN
