@@ -9,8 +9,8 @@ RUN export DEBIAN_FRONTEND=noninteractive \
             | xargs apt-get install -y vim-tiny curl jq locales git python3-pip python3-wheel \
     ## Make sure we have a en_US.UTF-8 locale available
     && localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8 \
-    && pip3 install setuptools \
-    && pip3 install 'git+https://github.com/zalando/patroni.git#egg=patroni[kubernetes]' \
+    && pip3 install --break-system-packages setuptools \
+    && pip3 install --break-system-packages 'git+https://github.com/zalando/patroni.git#egg=patroni[kubernetes]' \
     && PGHOME=/home/postgres \
     && mkdir -p $PGHOME \
     && chown postgres $PGHOME \
