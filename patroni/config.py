@@ -400,6 +400,58 @@ class Config(object):
                     except Exception:
                         logger.error('Can not remove temporary file %s', tmpfile)
 
+    def _validate_and_adjust_timeouts(self, config: Dict[str, Any]) -> None:
+        """Validate and adjust ``loop_wait``, ``retry_timeout``, and ``ttl`` values if necessary.
+
+        Minimal values:
+
+            * ``ttl``: 20 seconds;
+            * ``loop_wait``: 1 second;
+            * ``retry_timeout``: 3 seconds.
+
+        Maximum values:
+        In case if values don't fulfill the following rule, ``retry_timeout`` and ``loop_wait``
+        are reduced so that the rule is fulfilled:
+
+            .. code-block:: python
+
+                loop_wait + 2 * retry_timeout <= ttl
+
+        .. note:
+            We prefer to reduce ``loop_wait`` and will reduce ``retry_timeout`` only if ``loop_wait``
+            is already set to a minimal possible value.
+
+        :param config: :class:`dict` object with global configuration.
+        """
+        min_ttl = 20
+        ttl = config.get('ttl', self.__DEFAULT_CONFIG['ttl'])
+        if ttl < min_ttl:
+            logger.warning("ttl=%d can't be smaller than %d, adjusting...", ttl, min_ttl)
+            ttl = config['ttl'] = min_ttl
+
+        min_loop_wait = 1
+        loop_wait = config.get('loop_wait', self.__DEFAULT_CONFIG['loop_wait'])
+        if loop_wait < min_loop_wait:
+            logger.warning("loop_wait=%d can't be smaller than %d, adjusting...", loop_wait, min_loop_wait)
+            loop_wait = config['loop_wait'] = min_loop_wait
+
+        min_retry_timeout = 3
+        retry_timeout = config.get('retry_timeout', self.__DEFAULT_CONFIG['retry_timeout'])
+        if retry_timeout < min_retry_timeout:
+            logger.warning("retry_timeout=%d can't be smaller than %d, adjusting...", retry_timeout, min_retry_timeout)
+            retry_timeout = config['retry_timeout'] = min_retry_timeout
+
+        if min_loop_wait + 2 * retry_timeout > ttl:
+            config['loop_wait'] = min_loop_wait
+            config['retry_timeout'] = (ttl - min_loop_wait) // 2
+            logger.warning('Violated the rule "loop_wait + 2*retry_timeout <= ttl", where ttl=%d. '
+                           'Adjusting loop_wait from %d to %d and retry_timeout from %d to %d',
+                           ttl, loop_wait, min_loop_wait, retry_timeout, config['retry_timeout'])
+        elif loop_wait + 2 * retry_timeout > ttl:
+            config['loop_wait'] = ttl - 2 * retry_timeout
+            logger.warning('Violated the rule "loop_wait + 2*retry_timeout <= ttl", where ttl=%d and retry_timeout=%d.'
+                           ' Adjusting loop_wait from %d to %d', ttl, retry_timeout, loop_wait, config['loop_wait'])
+
     # configuration could be either ClusterConfig or dict
     def set_dynamic_configuration(self, configuration: Union[ClusterConfig, Dict[str, Any]]) -> bool:
         """Set dynamic configuration values with given *configuration*.
@@ -414,6 +466,8 @@ class Config(object):
                 return False  # If the version didn't change there is nothing to do
             self._modify_version = configuration.modify_version
             configuration = configuration.data
+
+        self._validate_and_adjust_timeouts(configuration)
 
         if not deep_compare(self._dynamic_configuration, configuration):
             try:
