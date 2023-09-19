@@ -20,12 +20,12 @@ If you opt for using environment variables, it's a straight forward approach. Pa
 
 If you opt for using a configuration file, you have different ways to inform ``patronictl`` about the file to be used. By default ``patronictl`` will attempt to load a configuration file named ``patronictl.yaml``, which is expected to be found under either of these paths, according to your system:
 
-- Mac OS X: ``~/Library/Application Support/Foo Bar/patroni``
-- Mac OS X (POSIX): ``~/.foo-bar/patroni``
-- Unix: ``~/.config/foo-bar/patroni``
-- Unix (POSIX): ``~/.foo-bar/patroni``
-- Windows (roaming): ``C:\Users\<user>\AppData\Roaming\Foo Bar/patroni``
-- Windows (not roaming): ``C:\Users\<user>\AppData\Local\Foo Bar/patroni``
+- Mac OS X: ``~/Library/Application Support/patroni``
+- Mac OS X (POSIX): ``~/.patroni``
+- Unix: ``~/.config/patroni``
+- Unix (POSIX): ``~/.patroni``
+- Windows (roaming): ``C:\Users\<user>\AppData\Roaming\patroni``
+- Windows (not roaming): ``C:\Users\<user>\AppData\Local\patroni``
 
 You can override that behavior either by:
 
