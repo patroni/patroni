@@ -148,7 +148,7 @@ behave tests. This can take quite a long time to run so you might want to limit 
 Postgres or to a specific feature set or steps.
 
 To specify the version of postgres include the full name of the dependent image build env that you want and then the
-behave env name. For instance if you want Postgres 16 use:
+behave env name. For instance if you want Postgres 14 use:
 
 .. code-block:: bash
 
