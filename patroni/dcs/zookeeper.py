@@ -89,7 +89,7 @@ class ZooKeeper(AbstractDCS):
     def __init__(self, config: Dict[str, Any]) -> None:
         super(ZooKeeper, self).__init__(config)
 
-        hosts = config.get('hosts', [])
+        hosts: Union[str, List[str]] = config.get('hosts', [])
         if isinstance(hosts, list):
             hosts = ','.join(hosts)
 

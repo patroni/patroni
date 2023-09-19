@@ -836,7 +836,7 @@ class Kubernetes(AbstractDCS):
         self._api.configure_timeouts(self.loop_wait, self._retry.deadline, self.ttl)
 
         # retriable_http_codes supposed to be either int, list of integers or comma-separated string with integers.
-        retriable_http_codes = config.get('retriable_http_codes', [])
+        retriable_http_codes: Union[str, List[Union[str, int]]] = config.get('retriable_http_codes', [])
         if not isinstance(retriable_http_codes, list):
             retriable_http_codes = [c.strip() for c in str(retriable_http_codes).split(',')]
 

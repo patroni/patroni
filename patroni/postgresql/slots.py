@@ -215,7 +215,7 @@ class SlotsHandler(object):
         row = cursor.fetchone()
         if not row:
             row = (False, False)
-        return row
+        return row[0], row[1]
 
     def _drop_incorrect_slots(self, cluster: Cluster, slots: Dict[str, Any], paused: bool) -> None:
         # drop old replication slots which are not presented in desired slots
