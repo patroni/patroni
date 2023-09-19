@@ -8,25 +8,25 @@ Version 3.1.1
 
 **Bugfixes**
 
-- Reset failsafe state when promote (ChenChangAo)
+- Reset failsafe state on promote (ChenChangAo)
 
-  If switchover/failover happened shortly after failsafe mode was than the newly promoted primary demoted itself after failsafe condition stopped.
+  If switchover/failover happened shortly after failsafe mode had been activated, the newly promoted primary was demoting itself after failsafe becomes inactive.
 
 - Silence useless warnings in ``patronictl`` (Alexander Kukushkin)
 
-  If ``patronictl`` uses the same patroni.yaml file as Patroni and can access ``PGDATA`` directory it might have showing annoying warning about incorrect values in the global configuration.
+  If ``patronictl`` uses the same patroni.yaml file as Patroni and can access ``PGDATA`` directory it might have been showing annoying warnings about incorrect values in the global configuration.
 
-- Explicitly enable synchronous mode (Alexander Kukushkin)
+- Explicitly enable synchronous mode for a corner case (Alexander Kukushkin)
 
-  Synchronous mode effectively was never actived if there is no replicas streaming from the primary.
+  Synchronous mode effectively was never activated if there is no replicas streaming from the primary.
 
-- Fixed bug with validation ``0`` integer values (Israel Barth Rubio)
+- Fixed bug with ``0`` integer values validation (Israel Barth Rubio)
 
-  In most cases it didn't cause any issues, just warnings.
+  In most cases, it didn't cause any issues, just warnings.
 
 - Don't return logical slots for standby cluster (Alexander Kukushkin)
 
-  Patroni can't create logical replication slots in the standby cluster and if they should be ignored if they are defined in the global configuration.
+  Patroni can't create logical replication slots in the standby cluster, thus they should be ignored if they are defined in the global configuration.
 
 - Fixed bug with ``kubernetes.standby_leader_label_value`` (Alexander Kukushkin)
 
@@ -34,7 +34,7 @@ Version 3.1.1
 
 - Returned cluster system identifier to the ``patronictl list`` output (Polina Bungina)
 
-  The problem was introduced while implementing support of Citus, where we need to hide the identifier because it is different for coordinator and all workers.
+  The problem was introduced while implementing the support of Citus, where we need to hide the identifier because it is different for coordinator and all workers.
 
 - Override ``write_leader_optime`` method in Kubernetes implementation (Alexander Kukushkin)
 
@@ -42,15 +42,15 @@ Version 3.1.1
 
 - Don't start stopped postgres in pause (Alexander Kukushkin)
 
-  Due to a race condition Patroni was falsely assuming that the standby should be restarted because some recovery parameters (``primary_conninfo`` or similar) were changed.
+  Due to a race condition, Patroni was falsely assuming that the standby should be restarted because some recovery parameters (``primary_conninfo`` or similar) were changed.
 
 - Fixed bug in ``patronictl query`` command (Israel Barth Rubio)
 
   It didn't work when only ``-m`` argument was provided or when none of ``-r`` or ``-m`` were provided.
 
-- Properly treat integer parameters that are used in command line to start postgres (Polina Bungina)
+- Properly treat integer parameters that are used in the command line to start postgres (Polina Bungina)
 
-  If values are supplied as strings and not casted to integer it was resulting in incorrect calculation of ``max_prepared_transactions`` based on ``max_connections`` for Citus clusters.
+  If values are supplied as strings and not casted to integer it was resulting in an incorrect calculation of ``max_prepared_transactions`` based on ``max_connections`` for Citus clusters.
 
 - Don't rely on ``pg_stat_wal_receiver`` when deciding on ``pg_rewind`` (Alexander Kukushkin)
 
