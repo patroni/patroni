@@ -139,7 +139,7 @@ Get DSN of the primary node:
     patronictl -c postgres0.yml dsn batman -r primary
     host=127.0.0.1 port=5432
 
-Get DSN of the standby node named ``postgresql1``:
+Get DSN of the node named ``postgresql1``:
 
 .. code:: text
 
@@ -1273,7 +1273,7 @@ Parameters
     Name of the Patroni cluster.
 
 ``--group``
-    Remove information about the Patroni cluster related with the given Citus group.
+    Restart the Patroni cluster related with the given Citus group.
 
     ``CITUS_GROUP`` is the ID of the Citus group.
 
