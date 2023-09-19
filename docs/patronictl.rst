@@ -69,7 +69,7 @@ This is the synopsis for running a command from the ``patronictl``:
     This is the syntax for the synopsis:
 
     - Options between square brackets are optional;
-    - Options between curly brackets represent a "chose one of set" operation;
+    - Options between curly brackets represent a "choose one of set" operation;
     - Options with ``[, ... ]`` can be specified multiple times;
     - Things written in uppercase represent a literal that should be given a value to.
 
@@ -94,7 +94,7 @@ Synopsis
 Description
 """""""""""
 
-``patronictl dsn`` gets the connection string to one member of the Patroni cluster.
+``patronictl dsn`` gets the connection string for one member of the Patroni cluster.
 
 If multiple members match the parameters of this command, one of them will be chosen, prioritizing the primary node.
 
@@ -104,7 +104,7 @@ Parameters
 ``CLUSTER_NAME``
     Name of the Patroni cluster.
 
-    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+    If not given, ``patronictl`` will attempt to fetch that from the ``scope`` configuration, if it exists.
 
 ``-r`` / ``--role``
     Choose a member that has the given role.
@@ -169,7 +169,7 @@ Description
 ``patronictl edit-config`` changes the dynamic configuration of the cluster and updates the DCS with that.
 
 .. note::
-    When invoked through a TTY the command attempts to show a diff of the dynamic configuration through a pager. By default it attempts to use either ``less`` or ``more``. If you want to use a different pager, set ``PAGER`` environment variable with the desired pager.
+    When invoked through a TTY the command attempts to show a diff of the dynamic configuration through a pager. By default, it attempts to use either ``less`` or ``more``. If you want a different pager, set the ``PAGER`` environment variable with the desired one.
 
 Parameters
 """"""""""
@@ -177,7 +177,7 @@ Parameters
 ``CLUSTER_NAME``
     Name of the Patroni cluster.
 
-    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+    If not given, ``patronictl`` will attempt to fetch that from the ``scope`` configuration, if it exists.
 
 ``--group``
     Change dynamic configuration of the given Citus group.
@@ -306,10 +306,10 @@ It is designed to be used when the cluster is not healthy, e.g.:
 - There is no synchronous standby available in a synchronous cluster.
 
 .. note::
-    Nothing prevents you from running ``patronictl failover`` in a healthy cluster. However, we recommend using ``patronictl switchover`` in that case.
+    Nothing prevents you from running ``patronictl failover`` in a healthy cluster. However, we recommend using ``patronictl switchover`` in those cases.
 
 .. warning::
-    Triggering a failover can cause data loss depending on how up-to-date the replica to be promoted is in comparison to the primary.
+    Triggering a failover can cause data loss depending on how up-to-date the promoted replica is in comparison to the primary.
 
 Parameters
 """"""""""
@@ -317,7 +317,7 @@ Parameters
 ``CLUSTER_NAME``
     Name of the Patroni cluster.
 
-    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+    If not given, ``patronictl`` will attempt to fetch that from the ``scope`` configuration, if it exists.
 
 ``--group``
     Perform a failover in the given Citus group.
@@ -490,7 +490,7 @@ Synopsis
 Description
 """""""""""
 
-``patronictl history`` shows a history of failover and/or switchover events from the cluster, if any.
+``patronictl history`` shows a history of failover and switchover events from the cluster, if any.
 
 The following information is included in the output:
 
@@ -515,7 +515,7 @@ Parameters
 ``CLUSTER_NAME``
     Name of the Patroni cluster.
 
-    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+    If not given, ``patronictl`` will attempt to fetch that from the ``scope`` configuration, if it exists.
 
 ``--group``
     Show history of events from the given Citus group.
@@ -660,7 +660,7 @@ Besides that, the following information may be included in the output:
         Only shown if a Citus cluster.
 
 ``Pending restart``
-    ``*`` indicates the node needs a restart for some Postgres configuration to take effect. An empty value indicates the node does not require a restart.
+    ``*`` indicates that the node needs a restart for some Postgres configuration to take effect. An empty value indicates the node does not require a restart.
 
     .. note::
         Shown as a member attribute.
@@ -715,7 +715,7 @@ Parameters
 ``CLUSTER_NAME``
     Name of the Patroni cluster.
 
-    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+    If not given, ``patronictl`` will attempt to fetch that from the ``scope`` configuration, if it exists.
 
 ``--group``
     Show information about members from the given Citus group.
@@ -833,7 +833,7 @@ Parameters
 ``CLUSTER_NAME``
     Name of the Patroni cluster.
 
-    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+    If not given, ``patronictl`` will attempt to fetch that from the ``scope`` configuration, if it exists.
 
 ``--group``
     Pause the given Citus group.
@@ -841,12 +841,12 @@ Parameters
     ``CITUS_GROUP`` is the ID of the Citus group.
 
 ``--wait``
-    Wait until all Patroni members are paused before returning control the the caller.
+    Wait until all Patroni members are paused before returning control to the caller.
 
 Examples
 """"""""
 
-Put the cluster in maintenance mode:
+Put the cluster in maintenance mode, and wait until all nodes have been paused:
 
 .. code:: text
 
@@ -885,7 +885,7 @@ Parameters
 ``CLUSTER_NAME``
     Name of the Patroni cluster.
 
-    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+    If not given, ``patronictl`` will attempt to fetch that from the ``scope`` configuration, if it exists.
 
 ``--group``
     Query the given Citus group.
@@ -913,7 +913,7 @@ Parameters
 ``-d`` / ``--dbname``
     Database to connect and run the query.
 
-    ``DBNAME`` is the name of the database. If not given, defaults to the same name as ``USERNAME``.
+    ``DBNAME`` is the name of the database. If not given, defaults to ``USERNAME``.
 
 ``-U`` / ``--username``
     User to connect to the database.
@@ -923,7 +923,7 @@ Parameters
 ``--password``
     Prompt for the password of the connecting user.
 
-    As Patroni uses ``libpq``, alternatively you can use create a ``~/.pgpass`` file or set ``PGPASSWORD`` environment variable.
+    As Patroni uses ``libpq``, alternatively you can create a ``~/.pgpass`` file or set the ``PGPASSWORD`` environment variable.
 
 ``--format``
     How to format the output of the query.
@@ -945,10 +945,10 @@ Parameters
 ``-c`` / ``--command``
     Run the given SQL command in the query.
 
-    ``SQL_COMMAND`` is the command to be run.
+    ``SQL_COMMAND`` is the SQL command to be executed.
 
 ``--delimiter``
-    The delimiter when printing information in ``tsv`` format.
+    The delimiter when printing information in ``tsv`` format, or ``\t`` if omitted.
 
 ``-W``
     Automatically re-run the query every 2 seconds.
@@ -1050,7 +1050,7 @@ Parameters
     Name of the Patroni cluster.
 
 ``MEMBER_NAME``
-    Name of the replica member which Postgres instance is to be rebuilt.
+    Name of the replica member for which the Postgres instance will be rebuilt.
 
     Multiple replica members can be specified. If no members are specified, the command does nothing.
 
@@ -1190,12 +1190,12 @@ Synopsis
 Description
 """""""""""
 
-``patronictl remove`` remove information about the cluster from the DCS.
+``patronictl remove`` removes information of the cluster from the DCS.
 
 It is an interactive action.
 
 .. warning::
-    This operation will destroy the information about the Patroni cluster in the DCS.
+    This operation will destroy the information of the Patroni cluster from the DCS.
 
 Parameters
 """"""""""
@@ -1291,7 +1291,7 @@ Parameters
     - ``master``: same as ``primary``.
 
 ``--any``
-    Restart a single random node among the ones that respect the given filters.
+    Restart a single random node among the ones which match the given filters.
 
 ``--pg-version``
     Select only members which version of the managed Postgres instance is older than the given version.
@@ -1381,7 +1381,7 @@ Synopsis
 Description
 """""""""""
 
-``patronictl resume`` takes the Patroni cluster out of the maintenance mode and re-enables automatic failover.
+``patronictl resume`` takes the Patroni cluster out of maintenance mode and re-enables automatic failover.
 
 Parameters
 """"""""""
@@ -1389,7 +1389,7 @@ Parameters
 ``CLUSTER_NAME``
     Name of the Patroni cluster.
 
-    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+    If not given, ``patronictl`` will attempt to fetch that from the ``scope`` configuration, if it exists.
 
 ``--group``
     Resume the given Citus group.
@@ -1397,7 +1397,7 @@ Parameters
     ``CITUS_GROUP`` is the ID of the Citus group.
 
 ``--wait``
-    Wait until all Patroni members are unpaused before returning control the the caller.
+    Wait until all Patroni members are unpaused before returning control to the caller.
 
 Examples
 """"""""
@@ -1433,7 +1433,7 @@ Parameters
 ``CLUSTER_NAME``
     Name of the Patroni cluster.
 
-    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+    If not given, ``patronictl`` will attempt to fetch that from the ``scope`` configuration, if it exists.
 
 ``--group``
     Show dynamic configuration of the given Citus group.
@@ -1493,7 +1493,7 @@ Parameters
 ``CLUSTER_NAME``
     Name of the Patroni cluster.
 
-    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+    If not given, ``patronictl`` will attempt to fetch that from the ``scope`` configuration, if it exists.
 
 ``--group``
     Perform a switchover in the given Citus group.
@@ -1586,7 +1586,7 @@ Synopsis
 Description
 """""""""""
 
-``patronictl topology`` shows information about Patroni cluster and its members with a tree view approach for the members.
+``patronictl topology`` shows information about the Patroni cluster and its members with a tree view approach.
 
 The following information is included in the output:
 
@@ -1695,7 +1695,7 @@ Parameters
 ``CLUSTER_NAME``
     Name of the Patroni cluster.
 
-    If not given, ``patronictl`` will attempt to fetch that from ``scope`` configuration, if it exists.
+    If not given, ``patronictl`` will attempt to fetch that from the ``scope`` configuration, if it exists.
 
 ``--group``
     Show information about members from the given Citus group.
