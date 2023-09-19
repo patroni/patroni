@@ -313,7 +313,7 @@ class SlotsHandler:
                             ' true AS dropped FROM slots WHERE not active) '
                             'SELECT active, COALESCE(dropped, false) FROM slots'
                             ' FULL OUTER JOIN dropped ON true'), name)
-        return rows[0] if rows else (False, False)
+        return (rows[0][0], rows[0][1]) if rows else (False, False)
 
     def _drop_incorrect_slots(self, cluster: Cluster, slots: Dict[str, Any], paused: bool) -> None:
         """Compare required slots and configured as permanent slots with those found, dropping extraneous ones.
