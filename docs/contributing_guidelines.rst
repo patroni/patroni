@@ -143,12 +143,12 @@ If you want to disable this facility set the env var `OPEN_CMD` to the `:` no-op
 Behave tests
 ^^^^^^^^^^^^
 
-Behave tests with `-m behave` will build docker images based on PG_MAJOR version 11 through 15 and then run all
+Behave tests with `-m behave` will build docker images based on PG_MAJOR version 11 through 16 and then run all
 behave tests. This can take quite a long time to run so you might want to limit the scope to a select version of
 Postgres or to a specific feature set or steps.
 
 To specify the version of postgres include the full name of the dependent image build env that you want and then the
-behave env name. For instance if you want Postgres 15 use:
+behave env name. For instance if you want Postgres 14 use:
 
 .. code-block:: bash
 
