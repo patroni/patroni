@@ -28,6 +28,10 @@ Version 3.1.1
 
   Patroni can't create logical replication slots in the standby cluster, thus they should be ignored if they are defined in the global configuration.
 
+- Avoid showing docstring in ``patronictl --help`` output (Israel Barth Rubio)
+
+  The ``click`` module needs to get a special hint for that.
+
 - Fixed bug with ``kubernetes.standby_leader_label_value`` (Alexander Kukushkin)
 
   This feature effectively never worked.
