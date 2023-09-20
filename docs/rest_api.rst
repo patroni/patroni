@@ -3,7 +3,7 @@
 Patroni REST API
 ================
 
-Patroni has a rich REST API, which is used by Patroni itself during the leader race, by the ``patronictl`` tool in order to perform failovers/switchovers/reinitialize/restarts/reloads, by HAProxy or any other kind of load balancer to perform HTTP health checks, and of course could also be used for monitoring. Below you will find the list of Patroni REST API endpoints.
+Patroni has a rich REST API, which is used by Patroni itself during the leader race, by the :ref:`patronictl` tool in order to perform failovers/switchovers/reinitialize/restarts/reloads, by HAProxy or any other kind of load balancer to perform HTTP health checks, and of course could also be used for monitoring. Below you will find the list of Patroni REST API endpoints.
 
 Health check endpoints
 ----------------------
@@ -619,9 +619,9 @@ In the JSON body of the ``POST`` request you must specify the ``candidate`` fiel
 	:ref:`Be very careful <failover_healthcheck>` when using this endpoint, as this can cause data loss in certain situations. In most cases, :ref:`the switchover endpoint <switchover_api>` satisfies the administrator's needs. 
 
 
-``POST /switchover`` and ``POST /failover`` endpoints are used by ``patronictl switchover`` and ``patronictl failover``, respectively.
+``POST /switchover`` and ``POST /failover`` endpoints are used by :ref:`patronictl_switchover` and :ref:`patronictl_failover`, respectively.
 
-``DELETE /switchover`` is used by ``patronictl flush <cluster-name> switchover``.
+``DELETE /switchover`` is used by :ref:`patronictl flush cluster-name switchover <patronictl_flush_parameters>`.
 
 .. list-table:: Failover/Switchover comparison
    :widths: 25 25 25
@@ -680,15 +680,15 @@ Restart endpoint
 
 - ``DELETE /restart``: delete the scheduled restart
 
-``POST /restart`` and ``DELETE /restart`` endpoints are used by ``patronictl restart`` and ``patronictl flush <cluster-name> restart`` respectively.
+``POST /restart`` and ``DELETE /restart`` endpoints are used by :ref:`patronictl_restart` and :ref:`patronictl flush cluster-name restart <patronictl_flush_parameters>` respectively.
 
 
 Reload endpoint
 ---------------
 
-The ``POST /reload`` call will order Patroni to re-read and apply the configuration file. This is the equivalent of sending the ``SIGHUP`` signal to the Patroni process. In case you changed some of the Postgres parameters which require a restart (like **shared_buffers**), you still have to explicitly do the restart of Postgres by either calling the ``POST /restart`` endpoint or with the help of ``patronictl restart``.
+The ``POST /reload`` call will order Patroni to re-read and apply the configuration file. This is the equivalent of sending the ``SIGHUP`` signal to the Patroni process. In case you changed some of the Postgres parameters which require a restart (like **shared_buffers**), you still have to explicitly do the restart of Postgres by either calling the ``POST /restart`` endpoint or with the help of :ref:`patronictl_restart`.
 
-The reload endpoint is used by ``patronictl reload``.
+The reload endpoint is used by :ref:`patronictl_reload`.
 
 
 Reinitialize endpoint
@@ -698,4 +698,4 @@ Reinitialize endpoint
 
 The call might fail if Patroni is in a loop trying to recover (restart) a failed Postgres. In order to overcome this problem one can specify ``{"force":true}`` in the request body.
 
-The reinitialize endpoint is used by ``patronictl reinit``.
+The reinitialize endpoint is used by :ref:`patronictl_reinit`.
