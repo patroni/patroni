@@ -522,7 +522,7 @@ Discard scheduled restart of nodes ``postgresql0`` and ``postgresql1``:
 patronictl history
 ^^^^^^^^^^^^^^^^^^
 
-.. _patronictl_flush_synopsis:
+.. _patronictl_history_synopsis:
 
 Synopsis
 """"""""
@@ -534,7 +534,7 @@ Synopsis
       [ --group CITUS_GROUP ]
       [ { -f | --format } { pretty | tsv | json | yaml } ]
 
-.. _patronictl_flush_description:
+.. _patronictl_history_description:
 
 Description
 """""""""""
@@ -558,7 +558,7 @@ The following information is included in the output:
 ``New Leader``
     Patroni member that has been promoted during the event.
 
-.. _patronictl_flush_parameters:
+.. _patronictl_history_parameters:
 
 Parameters
 """"""""""
@@ -590,7 +590,7 @@ Parameters
 
     Useful for scripts.
 
-.. _patronictl_flush_examples:
+.. _patronictl_history_examples:
 
 Examples
 """"""""
