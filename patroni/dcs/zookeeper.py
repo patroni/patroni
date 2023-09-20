@@ -301,7 +301,7 @@ class ZooKeeper(AbstractDCS):
                 raise ZooKeeperError('ZooKeeper in not responding properly')
         # The /status ZNode was updated or doesn't exist
         elif self._fetch_status and not self._fetch_cluster or not cluster.last_lsn \
-                or cluster.has_permanent_logical_slots(self._name, False) and not cluster.slots:
+                or cluster.has_permanent_slots(self._name) and not cluster.slots:
             # If current node is the leader just clear the event without fetching anything (we are updating the /status)
             if cluster.leader and cluster.leader.name == self._name:
                 self.event.clear()

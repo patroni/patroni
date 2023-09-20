@@ -16,6 +16,7 @@ from .misc import format_lsn, fsync_dir
 from ..dcs import Cluster, Leader
 from ..file_perm import pg_perm
 from ..psycopg import OperationalError
+from ..utils import parse_int
 
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
@@ -231,15 +232,16 @@ class SlotsHandler:
         ret: Dict[str, int] = {}
 
         slots_dict: Dict[str, Dict[str, Any]] = {slot['slot_name']: slot for slot in slots or []}
-        if slots_dict:
-            for name, value in slots_dict.items():
-                if name in self._replication_slots:
-                    if compare_slots(value, self._replication_slots[name], 'datoid'):
-                        if value['type'] == 'logical':
-                            ret[name] = value['confirmed_flush_lsn']
-                            self._copy_items(value, self._replication_slots[name])
+        for name, value in slots_dict.items():
+            if name in self._replication_slots:
+                if compare_slots(value, self._replication_slots[name], 'datoid'):
+                    if value['type'] == 'logical':
+                        ret[name] = value['confirmed_flush_lsn']
+                        self._copy_items(value, self._replication_slots[name])
                     else:
-                        self._schedule_load_slots = True
+                        self._replication_slots[name]['restart_lsn'] = ret[name] = value['restart_lsn']
+                else:
+                    self._schedule_load_slots = True
 
         # It could happen that the slot was deleted in the background, we want to detect this case
         if any(name not in slots_dict for name in self._replication_slots.keys()):
@@ -260,16 +262,19 @@ class SlotsHandler:
         """
         if self._postgresql.major_version >= 90400 and self._schedule_load_slots:
             replication_slots: Dict[str, Dict[str, Any]] = {}
-            extra = ", catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint" \
+            pg_wal_lsn_diff = f"pg_catalog.pg_{self._postgresql.wal_name}_{self._postgresql.lsn_name}_diff"
+            extra = f", catalog_xmin, {pg_wal_lsn_diff}(confirmed_flush_lsn, '0/0')::bigint" \
                 if self._postgresql.major_version >= 100000 else ""
             skip_temp_slots = ' WHERE NOT temporary' if self._postgresql.major_version >= 100000 else ''
-            for r in self._query('SELECT slot_name, slot_type, plugin, database, datoid'
-                                 f'{extra} FROM pg_catalog.pg_replication_slots{skip_temp_slots}'):
+            for r in self._query(f"SELECT slot_name, slot_type, {pg_wal_lsn_diff}(restart_lsn, '0/0')::bigint, plugin,"
+                                 f" database, datoid{extra} FROM pg_catalog.pg_replication_slots{skip_temp_slots}"):
                 value = {'type': r[1]}
                 if r[1] == 'logical':
-                    value.update(plugin=r[2], database=r[3], datoid=r[4])
+                    value.update(plugin=r[3], database=r[4], datoid=r[5])
                     if self._postgresql.major_version >= 100000:
-                        value.update(catalog_xmin=r[5], confirmed_flush_lsn=r[6])
+                        value.update(catalog_xmin=r[6], confirmed_flush_lsn=r[7])
+                else:
+                    value['restart_lsn'] = r[2]
                 replication_slots[r[0]] = value
             self._replication_slots = replication_slots
             self._schedule_load_slots = False
@@ -353,7 +358,7 @@ class SlotsHandler:
                     self._schedule_load_slots = True
 
     def _ensure_physical_slots(self, slots: Dict[str, Any]) -> None:
-        """Create any missing physical replication *slots*.
+        """Create or advance physical replication *slots*.
 
         Any failures are logged and do not interrupt creation of all *slots*.
 
@@ -362,7 +367,9 @@ class SlotsHandler:
         """
         immediately_reserve = ', true' if self._postgresql.major_version >= 90600 else ''
         for name, value in slots.items():
-            if name not in self._replication_slots and value['type'] == 'physical':
+            if value['type'] != 'physical':
+                continue
+            if name not in self._replication_slots:
                 try:
                     self._query(f"SELECT pg_catalog.pg_create_physical_replication_slot(%s{immediately_reserve})"
                                 f" WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots"
@@ -371,6 +378,16 @@ class SlotsHandler:
                 except Exception:
                     logger.exception("Failed to create physical replication slot '%s'", name)
                 self._schedule_load_slots = True
+            elif not self._postgresql.is_primary() and self._postgresql.can_advance_slots \
+                    and self._replication_slots[name]['type'] == 'physical':
+                value['restart_lsn'] = self._replication_slots[name]['restart_lsn']
+                lsn = parse_int(value.get('lsn'))
+                if lsn and lsn > value['restart_lsn']:  # The slot has feedback in DCS and needs to be advanced
+                    try:
+                        lsn = format_lsn(lsn)
+                        self._query("SELECT pg_catalog.pg_replication_slot_advance(%s, %s)", name, lsn)
+                    except Exception as exc:
+                        logger.error("Error while advancing replication slot %s to position '%s': %r", name, lsn, exc)
 
     @contextmanager
     def get_local_connection_cursor(self, **kwargs: Any) -> Iterator[Union['cursor', 'Cursor[Any]']]:
@@ -484,10 +501,11 @@ class SlotsHandler:
                                replicatefrom: Optional[str] = None, paused: bool = False) -> List[str]:
         """During the HA loop read, check and alter replication slots found in the cluster.
 
-        Read physical and logical slots found on the primary, then compare to those configured in the DCS.
+        Read physical and logical slots from ``pg_replication_slots``, then compare to those configured in the DCS.
         Drop any slots that do not match those required by configuration and are not configured as permanent.
-        Create any missing physical slots. If we are the leader then logical slots too, otherwise if logical slots
-        are known and active create them on replica nodes.
+        Create any missing physical slots, or advance their position according to feedback stored in DCS.
+        If we are the primary then create logical slots, otherwise if logical slots are known and active create
+        them on replica nodes by copying slot files from the primary.
 
         :param cluster: object containing stateful information for the cluster.
         :param nofailover: ``True`` if this node has been tagged to not be a failover candidate.

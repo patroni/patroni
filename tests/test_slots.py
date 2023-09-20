@@ -53,6 +53,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.p.set_role('replica')
         with patch.object(Postgresql, 'is_primary', Mock(return_value=False)), \
                 patch.object(SlotsHandler, 'drop_replication_slot') as mock_drop:
+            config.data['slots'].pop('ls')
             self.s.sync_replication_slots(cluster, False, paused=True)
             mock_drop.assert_not_called()
         self.p.set_role('primary')
@@ -69,6 +70,8 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.assertTrue("test.3" in ca, "non matching {0}".format(ca))
             with patch.object(Postgresql, 'major_version', PropertyMock(return_value=90618)):
                 self.s.sync_replication_slots(cluster, False)
+                self.p.set_role('replica')
+                self.s.sync_replication_slots(cluster, False)
 
     def test_cascading_replica_sync_replication_slots(self):
         """Test sync with a cascading replica so physical slots are present on a replica."""
@@ -82,12 +85,12 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.p.set_role('replica')
         with patch.object(Postgresql, '_query') as mock_query, \
                 patch.object(Postgresql, 'is_primary', Mock(return_value=False)):
-            mock_query.return_value = [('ls', 'logical', 'b', 'a', 5, 12345, 105)]
+            mock_query.return_value = [('ls', 'logical', 104, 'b', 'a', 5, 12345, 105)]
             ret = self.s.sync_replication_slots(cluster, False)
         self.assertEqual(ret, [])
 
     def test_process_permanent_slots(self):
-        config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}},
+        config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}, 'blabla': {'type': 'physical'}},
                                    'ignore_slots': [{'name': 'blabla'}]}, 1)
         cluster = Cluster(True, config, self.leader, Status.empty(), [self.me, self.other, self.leadermem],
                           None, SyncState.empty(), None, None)
@@ -98,8 +101,10 @@ class TestSlotsHandler(BaseTestPostgresql):
             mock_query.return_value = [(
                 1, 0, 0, 0, 0, 0, 0, 0, 0, None, None,
                 [{"slot_name": "ls", "type": "logical", "datoid": 5, "plugin": "b",
-                  "confirmed_flush_lsn": 12345, "catalog_xmin": 105}])]
-            self.assertEqual(self.p.slots(), {'ls': 12345})
+                  "confirmed_flush_lsn": 12345, "catalog_xmin": 105, "restart_lsn": 12344},
+                 {"slot_name": "blabla", "type": "physical", "datoid": None, "plugin": None,
+                  "confirmed_flush_lsn": None, "catalog_xmin": 105, "restart_lsn": 12344}])]
+            self.assertEqual(self.p.slots(), {'ls': 12345, 'blabla': 12344})
 
             self.p.reset_cluster_info_state(None)
             mock_query.return_value = [(
@@ -114,8 +119,8 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.cluster.slots['ls'] = 12346
         with patch.object(SlotsHandler, 'check_logical_slots_readiness', Mock(return_value=False)):
             self.assertEqual(self.s.sync_replication_slots(self.cluster, False), [])
-        self.s._schedule_load_slots = False
-        with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError)), \
+        with patch.object(SlotsHandler, '_query', Mock(return_value=[('ls', 'logical', 499, 'b', 'a', 5, 100, 500)])), \
+                patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError)), \
                 patch.object(SlotsAdvanceThread, 'schedule', Mock(return_value=(True, ['ls']))), \
                 patch.object(psycopg.OperationalError, 'diag') as mock_diag:
             type(mock_diag).sqlstate = PropertyMock(return_value='58P01')
@@ -177,3 +182,18 @@ class TestSlotsHandler(BaseTestPostgresql):
         with patch.object(SlotsHandler, 'get_local_connection_cursor', Mock(side_effect=Exception)):
             self.s.schedule_advance_slots({'foo': {'bar': 100}})
             self.s._advance.sync_slots()
+
+    @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
+    def test_advance_physical_slots(self):
+        config = ClusterConfig(1, {'slots': {'blabla': {'type': 'physical'}, 'leader': None}}, 1)
+        cluster = Cluster(True, config, self.leader, Status(0, {'blabla': 12346}),
+                          [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
+        self.s.sync_replication_slots(cluster, False)
+        with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('blabla', 'physical', 12345, None, None, None,
+                                                                      None, None)], Exception])) as mock_query, \
+                patch('patroni.postgresql.slots.logger.error') as mock_error:
+            self.s.sync_replication_slots(cluster, False)
+            self.assertEqual(mock_query.call_args[0],
+                             ("SELECT pg_catalog.pg_replication_slot_advance(%s, %s)", "blabla", '0/303A'))
+            self.assertEqual(mock_error.call_args[0][0],
+                             "Error while advancing replication slot %s to position '%s': %r")

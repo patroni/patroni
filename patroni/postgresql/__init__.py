@@ -27,7 +27,7 @@ from .sync import SyncHandler
 from .. import psycopg
 from ..async_executor import CriticalTask
 from ..collections import CaseInsensitiveSet
-from ..dcs import Cluster, Leader, Member
+from ..dcs import Cluster, Leader, Member, SLOT_ADVANCE_AVAILABLE_VERSION
 from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
 
@@ -112,7 +112,7 @@ class Postgresql(object):
         self._state_entry_timestamp = 0
 
         self._cluster_info_state = {}
-        self._has_permanent_logical_slots = True
+        self._has_permanent_slots = True
         self._enforce_hot_standby_feedback = False
         self._cached_replica_timeline = None
 
@@ -175,6 +175,11 @@ class Postgresql(object):
         return self._major_version >= 90600
 
     @property
+    def can_advance_slots(self) -> bool:
+        """``True`` if :attr:``major_version`` is greater than 110000."""
+        return self.major_version >= SLOT_ADVANCE_AVAILABLE_VERSION
+
+    @property
     def cluster_info_query(self) -> str:
         """Returns the monitoring query with a fixed number of fields.
 
@@ -208,8 +213,9 @@ class Postgresql(object):
             extra = ("pg_catalog.current_setting('restore_command')" if self._major_version >= 120000 else "NULL") +\
                 ", " + ("(SELECT pg_catalog.json_agg(s.*) FROM (SELECT slot_name, slot_type as type, datoid::bigint, "
                         "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint"
-                        " AS confirmed_flush_lsn FROM pg_catalog.pg_get_replication_slots()) AS s)"
-                        if self._has_permanent_logical_slots and self._major_version >= 110000 else "NULL") + extra
+                        " AS confirmed_flush_lsn, pg_catalog.pg_wal_lsn_diff(restart_lsn, '0/0')::bigint"
+                        " AS restart_lsn FROM pg_catalog.pg_get_replication_slots()) AS s)"
+                        if self._has_permanent_slots and self.can_advance_slots else "NULL") + extra
             extra = (", CASE WHEN latest_end_lsn IS NULL THEN NULL ELSE received_tli END,"
                      " slot_name, conninfo, status, {0} FROM pg_catalog.pg_stat_get_wal_receiver()").format(extra)
             if self.role == 'standby_leader':
@@ -434,18 +440,15 @@ class Postgresql(object):
             return
 
         if self._global_config.is_standby_cluster:
+            self._has_permanent_slots = False
             # Standby cluster can't have logical replication slots, and we don't need to enforce hot_standby_feedback
-            self._has_permanent_logical_slots = False
             self.set_enforce_hot_standby_feedback(False)
         elif cluster and cluster.config and cluster.config.modify_version:
-            self._has_permanent_logical_slots =\
-                cluster.has_permanent_logical_slots(self.name, nofailover, self.major_version)
-
+            self._has_permanent_slots = cluster.has_permanent_slots(self.name, nofailover)
             # We want to enable hot_standby_feedback if the replica is supposed
             # to have a logical slot or in case if it is the cascading replica.
             self.set_enforce_hot_standby_feedback(
-                self._has_permanent_logical_slots
-                or cluster.should_enforce_hot_standby_feedback(self.name, nofailover, self.major_version))
+                self.can_advance_slots and cluster.should_enforce_hot_standby_feedback(self.name, nofailover))
 
     def _cluster_info_state_get(self, name: str) -> Optional[Any]:
         if not self._cluster_info_state:
@@ -456,7 +459,7 @@ class Postgresql(object):
                                                'received_tli', 'slot_name', 'conninfo', 'receiver_state',
                                                'restore_command', 'slots', 'synchronous_commit',
                                                'synchronous_standby_names', 'pg_stat_replication'], result))
-                if self._has_permanent_logical_slots:
+                if self._has_permanent_slots and self.can_advance_slots:
                     cluster_info_state['slots'] =\
                         self.slots_handler.process_permanent_slots(cluster_info_state['slots'])
                 self._cluster_info_state = cluster_info_state
