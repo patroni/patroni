@@ -18,7 +18,7 @@ Version 3.1.1
 
 - Explicitly enable synchronous mode for a corner case (Alexander Kukushkin)
 
-  Synchronous mode effectively was never activated if there is no replicas streaming from the primary.
+  Synchronous mode effectively was never activated if there are no replicas streaming from the primary.
 
 - Fixed bug with ``0`` integer values validation (Israel Barth Rubio)
 
@@ -34,7 +34,7 @@ Version 3.1.1
 
 - Returned cluster system identifier to the ``patronictl list`` output (Polina Bungina)
 
-  The problem was introduced while implementing the support of Citus, where we need to hide the identifier because it is different for coordinator and all workers.
+  The problem was introduced while implementing the support for Citus, where we need to hide the identifier because it is different for coordinator and all workers.
 
 - Override ``write_leader_optime`` method in Kubernetes implementation (Alexander Kukushkin)
 
