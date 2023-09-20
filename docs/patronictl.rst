@@ -1,6 +1,6 @@
 .. _patronictl:
 
-Patronictl
+patronictl
 ==========
 
 Patroni has a command-line interface named ``patronictl``, which is used basically to interact with Patroni's REST API and with the DCS. It is intended to make it easier to perform operations in the cluster, and can easily be used by humans or scripts.
