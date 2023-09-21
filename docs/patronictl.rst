@@ -18,7 +18,7 @@ Configuration
 
 Those configuration options can come either from environment variables or from a configuration file. Look for the above sections in :ref:`Environment Configuration Settings <environment>` or :ref:`YAML Configuration Settings <yaml_configuration>` to understand how you can set the options for them through environment variables or through a configuration file.
 
-If you opt for using environment variables, it's a straight forward approach. Patroni will read the environment variables and use their values.
+If you opt for using environment variables, it's a straight forward approach. Patronictl will read the environment variables and use their values.
 
 If you opt for using a configuration file, you have different ways to inform ``patronictl`` about the file to be used. By default ``patronictl`` will attempt to load a configuration file named ``patronictl.yaml``, which is expected to be found under either of these paths, according to your system:
 
@@ -129,7 +129,6 @@ Parameters
     - ``replica``: a replica of a Patroni cluster; or
     - ``standby``: same as ``replica``; or
     - ``any``: any role. Same as omitting this parameter; or
-    - ``master``: same as ``primary``.
 
 ``-m`` / ``--member``
     Choose a member of the cluster with the given name.
@@ -148,9 +147,9 @@ Examples
 
 Get DSN of the primary node:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml dsn batman -r primary
+    $ patronictl -c postgres0.yml dsn batman -r primary
     host=127.0.0.1 port=5432
 
 Get DSN of the node named ``postgresql1``:
@@ -203,6 +202,8 @@ Parameters
 
 ``--group``
     Change dynamic configuration of the given Citus group.
+    
+    If not given, ``patronictl`` will attempt to fetch that from the ``citus.group`` configuration, if it exists.
 
     ``CITUS_GROUP`` is the ID of the Citus group.
 
@@ -249,7 +250,7 @@ Examples
 
 Change ``max_connections`` Postgres GUC:
 
-.. code:: text
+.. code:: diff
 
     patronictl -c postgres0.yml edit-config batman --pg max_connections="150" --force
     ---
@@ -335,6 +336,7 @@ It is designed to be used when the cluster is not healthy, e.g.:
 - There is no leader; or
 - There is no synchronous standby available in a synchronous cluster.
 
+It also allows to fail over to asynchronous node is synchronous mode is enabled.
 .. note::
     Nothing prevents you from running ``patronictl failover`` in a healthy cluster. However, we recommend using ``patronictl switchover`` in those cases.
 
@@ -572,6 +574,8 @@ Parameters
     Show history of events from the given Citus group.
 
     ``CITUS_GROUP`` is the ID of the Citus group.
+    
+    If not given, ``patronictl`` will attempt to fetch that from the ``citus.group`` configuration, if it exists.
 
 ``-f`` / ``--format``
     How to format the list of events in the output.
@@ -910,6 +914,8 @@ Parameters
     Pause the given Citus group.
 
     ``CITUS_GROUP`` is the ID of the Citus group.
+    
+    If not given, ``patronictl`` will attempt to fetch that from the ``citus.group`` configuration, if it exists.
 
 ``--wait``
     Wait until all Patroni members are paused before returning control to the caller.
@@ -1526,6 +1532,8 @@ Parameters
     Resume the given Citus group.
 
     ``CITUS_GROUP`` is the ID of the Citus group.
+    
+    If not given, ``patronictl`` will attempt to fetch that from the ``citus.group`` configuration, if it exists.
 
 ``--wait``
     Wait until all Patroni members are unpaused before returning control to the caller.
@@ -1580,6 +1588,8 @@ Parameters
     Show dynamic configuration of the given Citus group.
 
     ``CITUS_GROUP`` is the ID of the Citus group.
+    
+    If not given, ``patronictl`` will attempt to fetch that from the ``citus.group`` configuration, if it exists.
 
 .. _patronictl_show_config_examples:
 
