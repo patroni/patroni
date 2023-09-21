@@ -12,8 +12,8 @@ Configuration
 
 ``patronictl`` uses 3 sections of the configuration:
 
-- **restapi**: where the REST API server is serving requests. ``patronictl`` is mainly interested in ``restapi.connect_address`` setting;
 - **ctl**: how to authenticate against the REST API server, and how to validate the server identity;
+- **restapi**: how to authenticate against the REST API server, and how to validate the server identity. Only used if ``ctl`` configuration is not enough. ``patronictl`` is mainly interested in ``restapi.authentication`` section (in case ``ctl.authentication`` is missing) and ``restapi.cafile`` setting (in case ``ctl.cacert`` is missing);
 - DCS (e.g. **etcd**): how to contact and authenticate against the DCS used by Patroni.
 
 Those configuration options can come either from environment variables or from a configuration file. Look for the above sections in :ref:`Environment Configuration Settings <environment>` or :ref:`YAML Configuration Settings <yaml_configuration>` to understand how you can set the options for them through environment variables or through a configuration file.
@@ -96,7 +96,7 @@ Synopsis
 
     dsn
       [ CLUSTER_NAME ]
-      [ { { -r | --role } { leader | primary | standby-leader | replica | standby | any | master } | { -m | --member } MEMBER_NAME } ]
+      [ { { -r | --role } { leader | primary | standby-leader | replica | standby | any } | { -m | --member } MEMBER_NAME } ]
       [ --group CITUS_GROUP ]
 
 .. _patronictl_dsn_description:
@@ -154,9 +154,9 @@ Get DSN of the primary node:
 
 Get DSN of the node named ``postgresql1``:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml dsn batman --member postgresql1
+    $ patronictl -c postgres0.yml dsn batman --member postgresql1
     host=127.0.0.1 port=5433
 
 .. _patronictl_edit_config:
@@ -269,7 +269,7 @@ Change ``max_connections`` Postgres GUC:
 
 Change ``loop_wait`` and ``ttl`` settings:
 
-.. code:: text
+.. code:: diff
 
     patronictl -c postgres0.yml edit-config batman --set loop_wait="15" --set ttl="45" --force
     ---
@@ -291,7 +291,7 @@ Change ``loop_wait`` and ``ttl`` settings:
 
 Remove ``maximum_lag_on_failover`` setting from dynamic configuration:
 
-.. code:: text
+.. code:: diff
 
     patronictl -c postgres0.yml edit-config batman --set maximum_lag_on_failover="null" --force
     ---
@@ -320,7 +320,7 @@ Synopsis
     failover
       [ CLUSTER_NAME ]
       [ --group CITUS_GROUP ]
-      [ { --leader | --primary | --master } LEADER_NAME ]
+      [ { --leader | --primary } LEADER_NAME ]
       --candidate CANDIDATE_NAME
       [ --force ]
 
@@ -336,7 +336,8 @@ It is designed to be used when the cluster is not healthy, e.g.:
 - There is no leader; or
 - There is no synchronous standby available in a synchronous cluster.
 
-It also allows to fail over to asynchronous node is synchronous mode is enabled.
+It also allows to fail over to an asynchronous node if synchronous mode is enabled.
+
 .. note::
     Nothing prevents you from running ``patronictl failover`` in a healthy cluster. However, we recommend using ``patronictl switchover`` in those cases.
 
@@ -358,12 +359,15 @@ Parameters
 
     ``CITUS_GROUP`` is the ID of the Citus group.
 
-``--leader`` / ``--primary`` / ``--master``
+``--leader`` / ``--primary``
     Indicate who is the expected leader at failover time.
 
     If given, a switchover is performed instead of a failover.
 
     ``LEADER_NAME`` should match the name of the current leader in the cluster.
+
+    .. warning::
+        This argument is deprecated and will be removed in a future release.
 
 ``--candidate``
     The node to be promoted on failover.
@@ -382,9 +386,9 @@ Examples
 
 Fail over to node ``postgresql2``:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml failover batman --candidate postgresql2 --force
+    $ patronictl -c postgres0.yml failover batman --candidate postgresql2 --force
     Current cluster topology
     + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
     | Member      | Host           | Role    | State     | TL | Lag in MB |
@@ -419,7 +423,7 @@ Synopsis
       [ MEMBER_NAME [, ... ] ]
       { restart | switchover }
       [ --group CITUS_GROUP ]
-      [ { -r | --role } { leader | primary | standby-leader | replica | standby | any | master } ]
+      [ { -r | --role } { leader | primary | standby-leader | replica | standby | any } ]
       [ --force ]
 
 .. _patronictl_flush_description:
@@ -466,8 +470,7 @@ Parameters
     - ``standby-leader``: the leader of a standby Patroni cluster; or
     - ``replica``: a replica of a Patroni cluster; or
     - ``standby``: same as ``replica``; or
-    - ``any``: any role. Same as omitting this parameter; or
-    - ``master``: same as ``primary``.
+    - ``any``: any role. Same as omitting this parameter.
 
     .. note::
         Only used if discarding scheduled restart events.
@@ -484,16 +487,16 @@ Examples
 
 Discard a scheduled switchover event:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml flush batman switchover --force
+    $ patronictl -c postgres0.yml flush batman switchover --force
     Success: scheduled switchover deleted
 
 Discard scheduled restart of all standby nodes:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml flush batman restart -r replica --force
+    $ patronictl -c postgres0.yml flush batman restart -r replica --force
     + Cluster: batman (7277694203142172922) -+-----------+----+-----------+---------------------------+
     | Member      | Host           | Role    | State     | TL | Lag in MB | Scheduled restart         |
     +-------------+----------------+---------+-----------+----+-----------+---------------------------+
@@ -506,9 +509,9 @@ Discard scheduled restart of all standby nodes:
 
 Discard scheduled restart of nodes ``postgresql0`` and ``postgresql1``:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml flush batman postgresql0 postgresql1 restart --force
+    $ patronictl -c postgres0.yml flush batman postgresql0 postgresql1 restart --force
     + Cluster: batman (7277694203142172922) -+-----------+----+-----------+---------------------------+
     | Member      | Host           | Role    | State     | TL | Lag in MB | Scheduled restart         |
     +-------------+----------------+---------+-----------+----+-----------+---------------------------+
@@ -601,9 +604,9 @@ Examples
 
 Show the history of events:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml history batman
+    $ patronictl -c postgres0.yml history batman
     +----+----------+------------------------------+----------------------------------+-------------+
     | TL |      LSN | Reason                       | Timestamp                        | New Leader  |
     +----+----------+------------------------------+----------------------------------+-------------+
@@ -615,9 +618,9 @@ Show the history of events:
 
 Show the history of events in YAML format:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml history batman -f yaml
+    $ patronictl -c postgres0.yml history batman -f yaml
     - LSN: 24392648
       New Leader: postgresql0
       Reason: no recovery target specified
@@ -825,9 +828,9 @@ Examples
 
 Show information about the cluster in pretty format:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml list batman
+    $ patronictl -c postgres0.yml list batman
     + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
     | Member      | Host           | Role    | State     | TL | Lag in MB |
     +-------------+----------------+---------+-----------+----+-----------+
@@ -838,9 +841,9 @@ Show information about the cluster in pretty format:
 
 Show information about the cluster in pretty format with extended columns:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml list batman -e
+    $ patronictl -c postgres0.yml list batman -e
     + Cluster: batman (7277694203142172922) -+-----------+----+-----------+-----------------+-------------------+------+
     | Member      | Host           | Role    | State     | TL | Lag in MB | Pending restart | Scheduled restart | Tags |
     +-------------+----------------+---------+-----------+----+-----------+-----------------+-------------------+------+
@@ -851,9 +854,9 @@ Show information about the cluster in pretty format with extended columns:
 
 Show information about the cluster in YAML format, with timestamp of execution:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml list batman -f yaml -t
+    $ patronictl -c postgres0.yml list batman -f yaml -t
     2023-09-12 13:30:48
     - Cluster: batman
       Host: 127.0.0.1:5432
@@ -927,9 +930,9 @@ Examples
 
 Put the cluster in maintenance mode, and wait until all nodes have been paused:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml pause batman --wait
+    $ patronictl -c postgres0.yml pause batman --wait
     'pause' request sent, waiting until it is recognized by all nodes
     Success: cluster management is paused
 
@@ -948,7 +951,7 @@ Synopsis
     query
       [ CLUSTER_NAME ]
       [ --group CITUS_GROUP ]
-      [ { { -r | --role } { leader | primary | standby-leader | replica | standby | any | master } | { -m | --member } MEMBER_NAME } ]
+      [ { { -r | --role } { leader | primary | standby-leader | replica | standby | any } | { -m | --member } MEMBER_NAME } ]
       [ { -d | --dbname } DBNAME ]
       [ { -U | --username } USERNAME ]
       [ --password ]
@@ -989,8 +992,7 @@ Parameters
     - ``standby-leader``: the leader of a standby Patroni cluster; or
     - ``replica``: a replica of a Patroni cluster; or
     - ``standby``: same as ``replica``; or
-    - ``any``: any role. Same as omitting this parameter; or
-    - ``master``: same as ``primary``.
+    - ``any``: any role. Same as omitting this parameter.
 
 ``-m`` / ``--member``
     Choose a member that has the given name.
@@ -1052,26 +1054,26 @@ Examples
 
 Run a SQL command as ``postgres`` user, and ask for its password:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml query batman -U postgres --password -c "SELECT now()"
+    $ patronictl -c postgres0.yml query batman -U postgres --password -c "SELECT now()"
     Password:
     now
     2023-09-12 18:10:53.228084+00:00
 
 Run a SQL command as ``postgres`` user, and take password from ``libpq`` environment variable:
 
-.. code:: text
+.. code:: bash
 
-    PGPASSWORD=zalando patronictl -c postgres0.yml query batman -U postgres -c "SELECT now()"
+    $ PGPASSWORD=zalando patronictl -c postgres0.yml query batman -U postgres -c "SELECT now()"
     now
     2023-09-12 18:11:37.639500+00:00
 
 Run a SQL command and print in ``pretty`` format every 2 seconds:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml query batman -c "SELECT now()" --format pretty -W
+    $ patronictl -c postgres0.yml query batman -c "SELECT now()" --format pretty -W
     +----------------------------------+
     | now                              |
     +----------------------------------+
@@ -1090,25 +1092,25 @@ Run a SQL command and print in ``pretty`` format every 2 seconds:
 
 Run a SQL command on database ``test`` and print the output in YAML format:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml query batman -d test -c "SELECT now() AS column_1, 'test' AS column_2" --format yaml
+    $ patronictl -c postgres0.yml query batman -d test -c "SELECT now() AS column_1, 'test' AS column_2" --format yaml
     - column_1: 2023-09-12 18:14:22.052060+00:00
       column_2: test
 
 Run a SQL command on member ``postgresql2``:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml query batman -m postgresql2 -c "SHOW port"
+    $ patronictl -c postgres0.yml query batman -m postgresql2 -c "SHOW port"
     port
     5434
 
 Run a SQL command on any of the standbys:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml query batman -r replica -c "SHOW port"
+    $ patronictl -c postgres0.yml query batman -r replica -c "SHOW port"
     port
     5433
 
@@ -1171,9 +1173,9 @@ Examples
 
 Request a rebuild of all replica members of the Patroni cluster and immediately return control to the caller:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml reinit batman postgresql1 postgresql2 --force
+    $ patronictl -c postgres0.yml reinit batman postgresql1 postgresql2 --force
     + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
     | Member      | Host           | Role    | State     | TL | Lag in MB |
     +-------------+----------------+---------+-----------+----+-----------+
@@ -1186,9 +1188,9 @@ Request a rebuild of all replica members of the Patroni cluster and immediately 
 
 Request a rebuild of ``postgresql2`` and wait for it to complete:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml reinit batman postgresql2 --wait --force
+    $ patronictl -c postgres0.yml reinit batman postgresql2 --wait --force
     + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
     | Member      | Host           | Role    | State     | TL | Lag in MB |
     +-------------+----------------+---------+-----------+----+-----------+
@@ -1216,7 +1218,7 @@ Synopsis
       CLUSTER_NAME
       [ MEMBER_NAME [, ... ] ]
       [ --group CITUS_GROUP ]
-      [ { -r | --role } { leader | primary | standby-leader | replica | standby | any | master } ]
+      [ { -r | --role } { leader | primary | standby-leader | replica | standby | any } ]
       [ --force ]
 
 .. _patronictl_reload_description:
@@ -1225,6 +1227,8 @@ Description
 """""""""""
 
 ``patronictl reload`` requests a reload of local configuration for one or more Patroni members.
+
+It also triggers ``pg_ctl reload`` on the managed Postgres instance, even if nothing has changed.
 
 .. _patronictl_reload_parameters:
 
@@ -1254,8 +1258,7 @@ Parameters
     - ``standby-leader``: the leader of a standby Patroni cluster; or
     - ``replica``: a replica of a Patroni cluster; or
     - ``standby``: same as ``replica``; or
-    - ``any``: any role. Same as omitting this parameter; or
-    - ``master``: same as ``primary``.
+    - ``any``: any role. Same as omitting this parameter.
 
 ``--force``
     Flag to skip confirmation prompts when requesting a reload of the local configuration.
@@ -1269,9 +1272,9 @@ Examples
 
 Request a reload of the local configuration of all members of the Patroni cluster:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml reload batman --force
+    $ patronictl -c postgres0.yml reload batman --force
     + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
     | Member      | Host           | Role    | State     | TL | Lag in MB |
     +-------------+----------------+---------+-----------+----+-----------+
@@ -1344,9 +1347,9 @@ Examples
 
 Remove information about Patroni cluster ``batman`` from the DCS:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml remove batman
+    $ patronictl -c postgres0.yml remove batman
     + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
     | Member      | Host           | Role    | State     | TL | Lag in MB |
     +-------------+----------------+---------+-----------+----+-----------+
@@ -1374,7 +1377,7 @@ Synopsis
       CLUSTER_NAME
       [ MEMBER_NAME [, ...] ]
       [ --group CITUS_GROUP ]
-      [ { -r | --role } { leader | primary | standby-leader | replica | standby | any | master } ]
+      [ { -r | --role } { leader | primary | standby-leader | replica | standby | any } ]
       [ --any ]
       [ --pg-version PG_VERSION ]
       [ --pending ]
@@ -1414,8 +1417,7 @@ Parameters
     - ``standby-leader``: the leader of a standby Patroni cluster; or
     - ``replica``: a replica of a Patroni cluster; or
     - ``standby``: same as ``replica``; or
-    - ``any``: any role. Same as omitting this parameter; or
-    - ``master``: same as ``primary``.
+    - ``any``: any role. Same as omitting this parameter.
 
 ``--any``
     Restart a single random node among the ones which match the given filters.
@@ -1450,9 +1452,9 @@ Examples
 
 Restart all members of the cluster immediately:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml restart batman --force
+    $ patronictl -c postgres0.yml restart batman --force
     + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
     | Member      | Host           | Role    | State     | TL | Lag in MB |
     +-------------+----------------+---------+-----------+----+-----------+
@@ -1466,9 +1468,9 @@ Restart all members of the cluster immediately:
 
 Restart a random member of the cluster immediately:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml restart batman --any --force
+    $ patronictl -c postgres0.yml restart batman --any --force
     + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
     | Member      | Host           | Role    | State     | TL | Lag in MB |
     +-------------+----------------+---------+-----------+----+-----------+
@@ -1480,9 +1482,9 @@ Restart a random member of the cluster immediately:
 
 Schedule a restart to occur at ``2023-09-13T18:00-03:00``:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml restart batman --scheduled 2023-09-13T18:00-03:00 --force
+    $ patronictl -c postgres0.yml restart batman --scheduled 2023-09-13T18:00-03:00 --force
     + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
     | Member      | Host           | Role    | State     | TL | Lag in MB |
     +-------------+----------------+---------+-----------+----+-----------+
@@ -1545,9 +1547,9 @@ Examples
 
 Put the cluster out of maintenance mode:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml resume batman --wait
+    $ patronictl -c postgres0.yml resume batman --wait
     'resume' request sent, waiting until it is recognized by all nodes
     Success: cluster management is resumed
 
@@ -1598,9 +1600,9 @@ Examples
 
 Show dynamic configuration of cluster ``batman``:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml show-config batman
+    $ patronictl -c postgres0.yml show-config batman
     loop_wait: 10
     postgresql:
       parameters:
@@ -1627,7 +1629,7 @@ Synopsis
     switchover
       [ CLUSTER_NAME ]
       [ --group CITUS_GROUP ]
-      [ { --leader | --primary | --master } LEADER_NAME ]
+      [ { --leader | --primary } LEADER_NAME ]
       --candidate CANDIDATE_NAME
       [ --force ]
 
@@ -1640,7 +1642,7 @@ Description
 
 It is designed to be used when the cluster is healthy, e.g.:
 
-- There is a leader; or
+- There is a leader;
 - There are synchronous standbys available in a synchronous cluster.
 
 .. note::
@@ -1661,7 +1663,7 @@ Parameters
 
     ``CITUS_GROUP`` is the ID of the Citus group.
 
-``--leader`` / ``--primary`` / ``--master``
+``--leader`` / ``--primary``
     Indicate who is the leader to be demoted at switchover time.
 
     ``LEADER_NAME`` should match the name of the current leader in the cluster.
@@ -1688,9 +1690,9 @@ Examples
 
 Switch over with node ``postgresql2``:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml switchover batman --leader postgresql0 --candidate postgresql2 --force
+    $ patronictl -c postgres0.yml switchover batman --leader postgresql0 --candidate postgresql2 --force
     Current cluster topology
     + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
     | Member      | Host           | Role    | State     | TL | Lag in MB |
@@ -1710,9 +1712,9 @@ Switch over with node ``postgresql2``:
 
 Schedule a switchover between ``postgresql0`` and ``postgresql2`` to occur at ``2023-09-13T18:00:00-03:00``:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml switchover batman --leader postgresql0 --candidate postgresql2 --scheduled 2023-09-13T18:00-03:00 --force
+    $ patronictl -c postgres0.yml switchover batman --leader postgresql0 --candidate postgresql2 --scheduled 2023-09-13T18:00-03:00 --force
     Current cluster topology
     + Cluster: batman (7277694203142172922) -+-----------+----+-----------+
     | Member      | Host           | Role    | State     | TL | Lag in MB |
@@ -1888,9 +1890,9 @@ Examples
 
 Show topology of the cluster ``batman`` -- ``postgresql1`` and ``postgresql2`` are replicating from ``postgresql0``:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml topology batman
+    $ patronictl -c postgres0.yml topology batman
     + Cluster: batman (7277694203142172922) ---+-----------+----+-----------+
     | Member        | Host           | Role    | State     | TL | Lag in MB |
     +---------------+----------------+---------+-----------+----+-----------+
@@ -1946,16 +1948,16 @@ Examples
 
 Get version of ``patronictl`` only:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml version
+    $ patronictl -c postgres0.yml version
     patronictl version 3.1.0
 
 Get version of ``patronictl`` and of all members of cluster ``batman``:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml version batman
+    $ patronictl -c postgres0.yml version batman
     patronictl version 3.1.0
 
     postgresql0: Patroni 3.1.0 PostgreSQL 15.2
@@ -1964,9 +1966,9 @@ Get version of ``patronictl`` and of all members of cluster ``batman``:
 
 Get version of ``patronictl`` and of members ``postgresql1`` and ``postgresql2`` of cluster ``batman``:
 
-.. code:: text
+.. code:: bash
 
-    patronictl -c postgres0.yml version batman postgresql1 postgresql2
+    $ patronictl -c postgres0.yml version batman postgresql1 postgresql2
     patronictl version 3.1.0
 
     postgresql1: Patroni 3.1.0 PostgreSQL 15.2
