@@ -12,8 +12,8 @@ Configuration
 
 ``patronictl`` uses 3 sections of the configuration:
 
-- **ctl**: how to authenticate against the Patroni REST API, and how to validate the server identity;
-- **restapi**: how to authenticate against the REST API server, and how to validate the server identity. Only used if ``ctl`` configuration is not enough. ``patronictl`` is mainly interested in ``restapi.authentication`` section (in case ``ctl.authentication`` is missing) and ``restapi.cafile`` setting (in case ``ctl.cacert`` is missing);
+- **ctl**: how to authenticate against the Patroni REST API, and how to validate the server identity. Refer to :ref:`ctl settings <patronictl_settings>` for more details;
+- **restapi**: how to authenticate against the Patroni REST API, and how to validate the server identity. Only used if ``ctl`` configuration is not enough. ``patronictl`` is mainly interested in ``restapi.authentication`` section (in case ``ctl.authentication`` is missing) and ``restapi.cafile`` setting (in case ``ctl.cacert`` is missing). Refer to :ref:`REST API settings <restapi_settings>` for more details;
 - DCS (e.g. **etcd**): how to contact and authenticate against the DCS used by Patroni.
 
 Those configuration options can come either from environment variables or from a configuration file. Look for the above sections in :ref:`Environment Configuration Settings <environment>` or :ref:`YAML Configuration Settings <yaml_configuration>` to understand how you can set the options for them through environment variables or through a configuration file.
