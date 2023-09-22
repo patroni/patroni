@@ -12,7 +12,7 @@ Configuration
 
 ``patronictl`` uses 3 sections of the configuration:
 
-- **ctl**: how to authenticate against the REST API server, and how to validate the server identity;
+- **ctl**: how to authenticate against the Patroni REST API, and how to validate the server identity;
 - **restapi**: how to authenticate against the REST API server, and how to validate the server identity. Only used if ``ctl`` configuration is not enough. ``patronictl`` is mainly interested in ``restapi.authentication`` section (in case ``ctl.authentication`` is missing) and ``restapi.cafile`` setting (in case ``ctl.cacert`` is missing);
 - DCS (e.g. **etcd**): how to contact and authenticate against the DCS used by Patroni.
 
