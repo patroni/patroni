@@ -177,15 +177,15 @@ class TestConfig(unittest.TestCase):
         with patch('patroni.config.logger.warning') as mock_logger:
             self.config._validate_and_adjust_timeouts({'ttl': 15})
             self.assertEqual(mock_logger.call_args_list[0][0],
-                             ("ttl=%d can't be smaller than %d, adjusting...", 15, 20))
+                             ("%s=%d can't be smaller than %d, adjusting...", 'ttl', 15, 20))
         with patch('patroni.config.logger.warning') as mock_logger:
             self.config._validate_and_adjust_timeouts({'loop_wait': 0})
             self.assertEqual(mock_logger.call_args_list[0][0],
-                             ("loop_wait=%d can't be smaller than %d, adjusting...", 0, 1))
+                             ("%s=%d can't be smaller than %d, adjusting...", 'loop_wait', 0, 1))
         with patch('patroni.config.logger.warning') as mock_logger:
             self.config._validate_and_adjust_timeouts({'retry_timeout': 1})
             self.assertEqual(mock_logger.call_args_list[0][0],
-                             ("retry_timeout=%d can't be smaller than %d, adjusting...", 1, 3))
+                             ("%s=%d can't be smaller than %d, adjusting...", 'retry_timeout', 1, 3))
         with patch('patroni.config.logger.warning') as mock_logger:
             self.config._validate_and_adjust_timeouts({'ttl': 20, 'loop_wait': 11, 'retry_timeout': 5})
             self.assertEqual(mock_logger.call_args_list[0][0],

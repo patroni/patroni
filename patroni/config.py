@@ -400,14 +400,34 @@ class Config(object):
                     except Exception:
                         logger.error('Can not remove temporary file %s', tmpfile)
 
+    def __get_and_maybe_adjust_value(self, config: Dict[str, Any], param: str, min_value: int) -> int:
+        """Get, validated and maybe adjust a *param* value from the *config* :class:`dict`.
+
+        .. note:
+            If the value is smaller than provided *min_value* we update the *config*.
+
+            This method may raise an exception if value isn't :class:`int` or cannot be casted to :class:`int`.
+
+        :param config: :class:`dict` object with new global configuration.
+        :param param: name of the configuration parameter we want to read/validate/adjust.
+        :param min_value: the minimum possible value that a given *param* could have.
+
+        :returns: an integer value which corresponds to a provided *param*.
+        """
+        value = int(config.get(param, self.__DEFAULT_CONFIG[param]))
+        if value < min_value:
+            logger.warning("%s=%d can't be smaller than %d, adjusting...", param, value, min_value)
+            value = config[param] = min_value
+        return value
+
     def _validate_and_adjust_timeouts(self, config: Dict[str, Any]) -> None:
         """Validate and adjust ``loop_wait``, ``retry_timeout``, and ``ttl`` values if necessary.
 
-        Minimal values:
+        Minimum values:
 
-            * ``ttl``: 20 seconds;
             * ``loop_wait``: 1 second;
             * ``retry_timeout``: 3 seconds.
+            * ``ttl``: 20 seconds;
 
         Maximum values:
         In case if values don't fulfill the following rule, ``retry_timeout`` and ``loop_wait``
@@ -421,25 +441,13 @@ class Config(object):
             We prefer to reduce ``loop_wait`` and will reduce ``retry_timeout`` only if ``loop_wait``
             is already set to a minimal possible value.
 
-        :param config: :class:`dict` object with global configuration.
+        :param config: :class:`dict` object with new global configuration.
         """
-        min_ttl = 20
-        ttl = config.get('ttl', self.__DEFAULT_CONFIG['ttl'])
-        if ttl < min_ttl:
-            logger.warning("ttl=%d can't be smaller than %d, adjusting...", ttl, min_ttl)
-            ttl = config['ttl'] = min_ttl
 
         min_loop_wait = 1
-        loop_wait = config.get('loop_wait', self.__DEFAULT_CONFIG['loop_wait'])
-        if loop_wait < min_loop_wait:
-            logger.warning("loop_wait=%d can't be smaller than %d, adjusting...", loop_wait, min_loop_wait)
-            loop_wait = config['loop_wait'] = min_loop_wait
-
-        min_retry_timeout = 3
-        retry_timeout = config.get('retry_timeout', self.__DEFAULT_CONFIG['retry_timeout'])
-        if retry_timeout < min_retry_timeout:
-            logger.warning("retry_timeout=%d can't be smaller than %d, adjusting...", retry_timeout, min_retry_timeout)
-            retry_timeout = config['retry_timeout'] = min_retry_timeout
+        loop_wait = self.__get_and_maybe_adjust_value(config, 'loop_wait', min_loop_wait)
+        retry_timeout = self.__get_and_maybe_adjust_value(config, 'retry_timeout', 3)
+        ttl = self.__get_and_maybe_adjust_value(config, 'ttl', 20)
 
         if min_loop_wait + 2 * retry_timeout > ttl:
             config['loop_wait'] = min_loop_wait
