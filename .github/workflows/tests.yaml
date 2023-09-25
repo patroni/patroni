@@ -5,6 +5,7 @@ on:
   push:
     branches:
     - master
+    - 'REL_[0-9]+_[0-9]+'
 
 env:
   CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
@@ -173,7 +174,7 @@ jobs:
 
     - uses: jakebailey/pyright-action@v1
       with:
-        version: 1.1.320
+        version: 1.1.326
 
   docs:
     runs-on: ubuntu-latest

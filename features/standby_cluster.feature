@@ -22,9 +22,6 @@ Feature: standby cluster
   Scenario: check permanent logical slots are synced to the replica
     Given I run patronictl.py restart batman postgres1 --force
     Then Logical slot test_logical is in sync between postgres0 and postgres1 after 10 seconds
-    When I add the table replicate_me to postgres1
-    And I get all changes from logical slot test_logical on postgres1
-    Then Logical slot test_logical is in sync between postgres0 and postgres1 after 10 seconds
 
   Scenario: Detach exiting node from the cluster
     When I shut down postgres1

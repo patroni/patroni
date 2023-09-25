@@ -688,7 +688,7 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertIsNone(self.p.wait_for_startup())
 
     def test_get_server_parameters(self):
-        config = {'parameters': {'wal_level': 'hot_standby'}, 'listen': '0'}
+        config = {'parameters': {'wal_level': 'hot_standby', 'max_prepared_transactions': 100}, 'listen': '0'}
         self.p._global_config = GlobalConfig({'synchronous_mode': True})
         self.p.config.get_server_parameters(config)
         self.p._global_config = GlobalConfig({'synchronous_mode': True, 'synchronous_mode_strict': True})

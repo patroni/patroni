@@ -1026,17 +1026,14 @@ class ConfigHandler(object):
         # "notify" connection_pool about the "new" local connection address
         self._postgresql.connection_pool.conn_kwargs = local_conn_kwargs
 
-    def _get_pg_settings(
-            self, names: Collection[str]
-    ) -> Dict[str, Tuple[str, str, Optional[str], str, str, Optional[str]]]:
+    def _get_pg_settings(self, names: Collection[str]) -> Dict[Any, Tuple[Any, ...]]:
         return {r[0]: r for r in self._postgresql.query(('SELECT name, setting, unit, vartype, context, sourcefile'
                                                          + ' FROM pg_catalog.pg_settings '
                                                          + ' WHERE pg_catalog.lower(name) = ANY(%s)'),
                                                         [n.lower() for n in names])}
 
     @staticmethod
-    def _handle_wal_buffers(old_values: Dict[str, Tuple[str, str, Optional[str], str, str, Optional[str]]],
-                            changes: CaseInsensitiveDict) -> None:
+    def _handle_wal_buffers(old_values: Dict[Any, Tuple[Any, ...]], changes: CaseInsensitiveDict) -> None:
         wal_block_size = parse_int(old_values['wal_block_size'][1]) or 8192
         wal_segment_size = old_values['wal_segment_size']
         wal_segment_unit = parse_int(wal_segment_size[2], 'B') or 8192 \

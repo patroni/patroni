@@ -3,6 +3,64 @@
 Release notes
 =============
 
+Version 3.1.1
+-------------
+
+**Bugfixes**
+
+- Reset failsafe state on promote (ChenChangAo)
+
+  If switchover/failover happened shortly after failsafe mode had been activated, the newly promoted primary was demoting itself after failsafe becomes inactive.
+
+- Silence useless warnings in ``patronictl`` (Alexander Kukushkin)
+
+  If ``patronictl`` uses the same patroni.yaml file as Patroni and can access ``PGDATA`` directory it might have been showing annoying warnings about incorrect values in the global configuration.
+
+- Explicitly enable synchronous mode for a corner case (Alexander Kukushkin)
+
+  Synchronous mode effectively was never activated if there are no replicas streaming from the primary.
+
+- Fixed bug with ``0`` integer values validation (Israel Barth Rubio)
+
+  In most cases, it didn't cause any issues, just warnings.
+
+- Don't return logical slots for standby cluster (Alexander Kukushkin)
+
+  Patroni can't create logical replication slots in the standby cluster, thus they should be ignored if they are defined in the global configuration.
+
+- Avoid showing docstring in ``patronictl --help`` output (Israel Barth Rubio)
+
+  The ``click`` module needs to get a special hint for that.
+
+- Fixed bug with ``kubernetes.standby_leader_label_value`` (Alexander Kukushkin)
+
+  This feature effectively never worked.
+
+- Returned cluster system identifier to the ``patronictl list`` output (Polina Bungina)
+
+  The problem was introduced while implementing the support for Citus, where we need to hide the identifier because it is different for coordinator and all workers.
+
+- Override ``write_leader_optime`` method in Kubernetes implementation (Alexander Kukushkin)
+
+  The method is supposed to write shutdown LSN to the leader Endpoint/ConfigMap when there are no healthy replicas available to become the new primary.
+
+- Don't start stopped postgres in pause (Alexander Kukushkin)
+
+  Due to a race condition, Patroni was falsely assuming that the standby should be restarted because some recovery parameters (``primary_conninfo`` or similar) were changed.
+
+- Fixed bug in ``patronictl query`` command (Israel Barth Rubio)
+
+  It didn't work when only ``-m`` argument was provided or when none of ``-r`` or ``-m`` were provided.
+
+- Properly treat integer parameters that are used in the command line to start postgres (Polina Bungina)
+
+  If values are supplied as strings and not casted to integer it was resulting in an incorrect calculation of ``max_prepared_transactions`` based on ``max_connections`` for Citus clusters.
+
+- Don't rely on ``pg_stat_wal_receiver`` when deciding on ``pg_rewind`` (Alexander Kukushkin)
+
+  It could happen that ``received_tli`` reported by ``pg_stat_wal_recevier`` is ahead of the actual replayed timeline, while the timeline reported by ``DENTIFY_SYSTEM`` via replication connection is always correct.
+
+
 Version 3.1.0
 -------------
 
