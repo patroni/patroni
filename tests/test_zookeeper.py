@@ -276,6 +276,7 @@ class TestZooKeeper(unittest.TestCase):
         self.assertTrue(self.zk.delete_cluster())
 
     def test_watch(self):
+        self.zk.event.wait = Mock()
         self.zk.watch(None, 0)
         self.zk.event.is_set = Mock(return_value=True)
         self.zk._fetch_status = False
