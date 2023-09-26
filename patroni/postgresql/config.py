@@ -341,8 +341,6 @@ class ConfigHandler(object):
             "SELECT name, pg_catalog.current_setting(name) FROM pg_catalog.pg_settings"
             " WHERE (source IN ('command line', 'environment variable') OR sourcefile = %s)"
             " AND pg_catalog.lower(name) != ALL(%s)", self._postgresql_conf, exclude)})
-        self._config.pop('pg_hba', None)
-        self._config.pop('pg_ident', None)
 
     def setup_server_parameters(self) -> None:
         self._server_parameters = self.get_server_parameters(self._config)

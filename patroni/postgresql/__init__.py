@@ -134,9 +134,9 @@ class Postgresql(object):
             ident_saved = self.config.replace_pg_ident()
 
             if self.major_version < 120000 or self.role in ('master', 'primary'):
-                # If PostgreSQL is running as a primary or we run PostgreSQL that is older
-                # than 12 we can call reload_config() once again so that it can figure out
-                # if config files should be updated and pg_ctl reload executed.
+                # If PostgreSQL is running as a primary or we run PostgreSQL that is older than 12 we can
+                # call reload_config() once again (the first call happened in the ConfigHandler constructor),
+                # so that it can figure out if config files should be updated and pg_ctl reload executed.
                 self.config.reload_config(config, sighup=bool(hba_saved or ident_saved))
             elif hba_saved or ident_saved:
                 self.reload()
