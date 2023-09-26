@@ -38,7 +38,7 @@ _AUTH_ALLOWED_PARAMETERS_MAPPING = {
     'gssencmode': 'PGGSSENCMODE',
     'channel_binding': 'PGCHANNELBINDING'
 }
-_NO_VALUE_MSG = '#FIXME'
+NO_VALUE_MSG = '#FIXME'
 
 
 def get_address() -> Tuple[str, str]:
@@ -50,7 +50,7 @@ def get_address() -> Tuple[str, str]:
     :returns: tuple consisting of the hostname returned by :func:`~socket.gethostname`
         and the first element in the sorted list of the addresses returned by :func:`~socket.getaddrinfo`.
         Sorting guarantees it will prefer IPv4.
-        If an exception occured, hostname and ip values are equal to :data:`~patroni.config_generator._NO_VALUE_MSG`.
+        If an exception occured, hostname and ip values are equal to :data:`~patroni.config_generator.NO_VALUE_MSG`.
     """
     hostname = None
     try:
@@ -59,7 +59,7 @@ def get_address() -> Tuple[str, str]:
                                 key=lambda x: x[0])[0][4][0]
     except Exception as err:
         logging.warning('Failed to obtain address: %r', err)
-        return _NO_VALUE_MSG, _NO_VALUE_MSG
+        return NO_VALUE_MSG, NO_VALUE_MSG
 
 
 class AbstractConfigGenerator(abc.ABC):
@@ -88,24 +88,24 @@ class AbstractConfigGenerator(abc.ABC):
         """Generate a template config for further extension (e.g. in the inherited classes).
 
         :returns: dictionary with the values gathered from Patroni env, hopefully defined hostname and ip address
-                  (otherwise set to :data:`~patroni.config_generator._NO_VALUE_MSG`), and some sane defaults.
+                  (otherwise set to :data:`~patroni.config_generator.NO_VALUE_MSG`), and some sane defaults.
         """
         template_config: Dict[str, Any] = {
-            'scope': _NO_VALUE_MSG,
+            'scope': NO_VALUE_MSG,
             'name': cls._HOSTNAME,
             'postgresql': {
-                'data_dir': _NO_VALUE_MSG,
-                'connect_address': _NO_VALUE_MSG + ':5432',
-                'listen': _NO_VALUE_MSG + ':5432',
+                'data_dir': NO_VALUE_MSG,
+                'connect_address': NO_VALUE_MSG + ':5432',
+                'listen': NO_VALUE_MSG + ':5432',
                 'bin_dir': '',
                 'authentication': {
                     'superuser': {
                         'username': 'postgres',
-                        'password': _NO_VALUE_MSG
+                        'password': NO_VALUE_MSG
                     },
                     'replication': {
                         'username': 'replicator',
-                        'password': _NO_VALUE_MSG
+                        'password': NO_VALUE_MSG
                     }
                 }
             },
@@ -185,7 +185,7 @@ class SampleConfigGenerator(AbstractConfigGenerator):
         self.config['bootstrap']['dcs']['postgresql']['use_pg_rewind'] = True
         if self.pg_major >= 110000:
             self.config['postgresql']['authentication'].setdefault(
-                'rewind', {'username': 'rewind_user'}).setdefault('password', _NO_VALUE_MSG)
+                'rewind', {'username': 'rewind_user'}).setdefault('password', NO_VALUE_MSG)
 
 
 class RunningClusterConfigGenerator(AbstractConfigGenerator):
@@ -335,7 +335,7 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
             getpass('Please enter the user password:')
         self.config['postgresql']['authentication'] = {
             'superuser': su_params,
-            'replication': {'username': _NO_VALUE_MSG, 'password': _NO_VALUE_MSG}
+            'replication': {'username': NO_VALUE_MSG, 'password': NO_VALUE_MSG}
         }
 
     def _set_conf_files(self) -> None:
