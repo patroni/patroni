@@ -3,6 +3,28 @@
 Release notes
 =============
 
+Version 3.1.2
+-------------
+
+**Bugfixes**
+
+- Fixed bug with ``wal_keep_size`` checks (Alexander Kukushkin)
+
+  The ``wal_keep_size`` is a GUC that normally has a unit and Patroni was failing to cast its value to ``int``. As a result the value of ``bootstrap.dcs`` was not written to the ``/config`` key afterwards.
+
+- Detect and resolve inconsistencies between ``/sync`` key and ``synchronous_standby_names`` (Alexander Kukushkin)
+
+  Normally, Patroni updates ``/sync`` and ``synchronous_standby_names`` in a very specific order, but in case of a bug or when someone manually reset ``synchronous_standby_names``, Patroni was getting into an inconsistent state. As a result it was possible that the failover happens to an asynchronous node.
+
+- Read GUC's values when joining running Postgres (Alexander Kukushkin)
+
+  When restarted in ``pause``, Patroni was discarding the ``synchronous_standby_names`` GUC from the ``postgresql.conf``. To solve it and avoid similar issues, Patroni will read GUC's value if it is joining an already running Postgres.
+
+- Silenced annoying warnings when checking for node uniqueness (Alexander Kukushkin)
+
+  ``WARNING`` messages are produced by ``urllib3`` if Patroni is quickly restarted.
+
+
 Version 3.1.1
 -------------
 
