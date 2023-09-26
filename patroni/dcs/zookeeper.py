@@ -381,10 +381,11 @@ class ZooKeeper(AbstractDCS):
         member_data = self.__last_member_data or member and member.data
         if member and member_data:
             is_leader = data.get('role') in ('master', 'primary', 'standby_leader')
-            state_running_changed = member_data.get('state') != data.get('state') \
-                and 'running' in (member_data.get('state'), data.get('state'))
             checkpoint_after_promote_changed = member_data.get('checkpoint_after_promote') \
                 != data.get('checkpoint_after_promote')
+            state_running_changed = member_data.get('state') != data.get('state') \
+                and 'running' in (member_data.get('state'), data.get('state'))
+            tags_changed = not deep_compare(member_data.get('tags', {}), data.get('tags', {}))
 
             # We want delete the member ZNode if:
             # - our session doesn't match with session id on our member key; or
@@ -392,7 +393,7 @@ class ZooKeeper(AbstractDCS):
             # - if we are the leader and want to notify replicas about checkpoint_after_promote;
             if self._client.client_id is not None and member.session != self._client.client_id[0] \
                     or is_leader and checkpoint_after_promote_changed \
-                    or not is_leader and state_running_changed:
+                    or not is_leader and (state_running_changed or tags_changed):
                 try:
                     self._client.delete_async(self.member_path).get(timeout=1)
                 except NoNodeError:
