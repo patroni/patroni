@@ -118,11 +118,31 @@ class MockCursor(object):
                                '"state":"streaming","sync_state":"async","sync_priority":0}]'
             now = datetime.datetime.now(tzutc)
             self.results = [(now, 0, '', 0, '', False, now, 'streaming', None, replication_info)]
+        elif sql.startswith('SELECT name, pg_catalog.current_setting(name) FROM pg_catalog.pg_settings'):
+            self.results = [('data_directory', 'data'),
+                            ('hba_file', os.path.join('data', 'pg_hba.conf')),
+                            ('ident_file', os.path.join('data', 'pg_ident.conf')),
+                            ('max_connections', 42),
+                            ('max_locks_per_transaction', 73),
+                            ('max_prepared_transactions', 0),
+                            ('max_replication_slots', 21),
+                            ('max_wal_senders', 37),
+                            ('track_commit_timestamp', 'off'),
+                            ('wal_level', 'replica'),
+                            ('listen_addresses', '6.6.6.6'),
+                            ('port', 1984),
+                            ('archive_command', 'my archive command'),
+                            ('cluster_name', 'my_cluster')]
         elif sql.startswith('SELECT name, setting'):
             self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
                             ('wal_block_size', '8192', None, 'integer', 'internal'),
                             ('shared_buffers', '16384', '8kB', 'integer', 'postmaster'),
                             ('wal_buffers', '-1', '8kB', 'integer', 'postmaster'),
+                            ('max_connections', '100', None, 'integer', 'postmaster'),
+                            ('max_prepared_transactions', '0', None, 'integer', 'postmaster'),
+                            ('max_worker_processes', '8', None, 'integer', 'postmaster'),
+                            ('max_locks_per_transaction', '64', None, 'integer', 'postmaster'),
+                            ('max_wal_senders', '5', None, 'integer', 'postmaster'),
                             ('search_path', 'public', None, 'string', 'user'),
                             ('port', '5433', None, 'integer', 'postmaster'),
                             ('listen_addresses', '*', None, 'string', 'postmaster'),
@@ -222,6 +242,7 @@ class PostgresInit(unittest.TestCase):
 
 class BaseTestPostgresql(PostgresInit):
 
+    @patch('time.sleep', Mock())
     def setUp(self):
         super(BaseTestPostgresql, self).setUp()
 

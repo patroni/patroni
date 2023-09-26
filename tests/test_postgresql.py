@@ -715,6 +715,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertEqual(self.p.get_primary_timeline(), 1)
 
     @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='replica'))
+    @patch.object(Postgresql, 'is_running', Mock(return_value=False))
     @patch.object(Bootstrap, 'running_custom_bootstrap', PropertyMock(return_value=True))
     @patch.object(Postgresql, 'controldata', Mock(return_value={'max_connections setting': '200',
                                                                 'max_worker_processes setting': '20',
@@ -958,6 +959,7 @@ class TestPostgresql2(BaseTestPostgresql):
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
+    @patch.object(Postgresql, 'is_leader', Mock(return_value=False))
     def setUp(self):
         super(TestPostgresql2, self).setUp()
 

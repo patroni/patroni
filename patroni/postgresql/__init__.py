@@ -118,17 +118,28 @@ class Postgresql(object):
         # Last known running process
         self._postmaster_proc = None
 
-        if self.is_running():  # we are "joining" already running postgres
-            self.set_state('running')
+        if self.is_running():
+            # If we found postmaster process we need to figure out whether postgres is accepting connections
+            self.set_state('starting')
+            self.check_startup_state_changed()
+
+        if self.state == 'running':  # we are "joining" already running postgres
+            # we know that PostgreSQL is accepting connections and can read some GUC's from pg_settings
+            self.config.load_current_server_parameters()
+
             self.set_role('master' if self.is_leader() else 'replica')
-            # postpone writing postgresql.conf for 12+ because recovery parameters are not yet known
-            if self.major_version < 120000 or self.is_leader():
-                self.config.write_postgresql_conf()
+
             hba_saved = self.config.replace_pg_hba()
             ident_saved = self.config.replace_pg_ident()
-            if hba_saved or ident_saved:
+
+            if self.major_version < 120000 or self.role in ('master', 'primary'):
+                # If PostgreSQL is running as a primary or we run PostgreSQL that is older than 12 we can
+                # call reload_config() once again (the first call happened in the ConfigHandler constructor),
+                # so that it can figure out if config files should be updated and pg_ctl reload executed.
+                self.config.reload_config(config, sighup=bool(hba_saved or ident_saved))
+            elif hba_saved or ident_saved:
                 self.reload()
-        elif self.role in ('master', 'primary'):
+        elif not self.is_running() and self.role in ('master', 'primary'):
             self.set_role('demoted')
 
     @property
