@@ -287,7 +287,7 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
 
         :param cur: connection cursor to use.
         """
-        cur.execute("SELECT name, current_setting(name) FROM pg_settings "
+        cur.execute("SELECT name, pg_catalog.current_setting(name) FROM pg_catalog.pg_settings "
                     "WHERE context <> 'internal' "
                     "AND source IN ('configuration file', 'command line', 'environment variable') "
                     "AND category <> 'Write-Ahead Log / Recovery Target' "

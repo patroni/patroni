@@ -155,6 +155,7 @@ class TestConfig(unittest.TestCase):
         expected_params = {
             'f.oo': 'bar',  # not in ConfigHandler.CMDLINE_OPTIONS
             'max_connections': 100,  # IntValidator
+            'wal_keep_size': '128MB',  # IntValidator
             'wal_level': 'hot_standby',  # EnumValidator
         }
         input_params = deepcopy(expected_params)

@@ -326,13 +326,21 @@ class ConfigHandler(object):
                                         .format(self._pgpass))
         self._passfile = None
         self._passfile_mtime = None
-        self._synchronous_standby_names = None
         self._postmaster_ctime = None
         self._current_recovery_params: Optional[CaseInsensitiveDict] = None
         self._config = {}
         self._recovery_params = CaseInsensitiveDict()
-        self._server_parameters: CaseInsensitiveDict
+        self._server_parameters: CaseInsensitiveDict = CaseInsensitiveDict()
         self.reload_config(config)
+
+    def load_current_server_parameters(self) -> None:
+        """Read GUC's values from ``pg_settings`` when Patroni is joining the the postgres that is already running."""
+        exclude = [name.lower() for name, value in self.CMDLINE_OPTIONS.items() if value[1] == _false_validator] \
+            + [name.lower() for name in self._RECOVERY_PARAMETERS]
+        self._server_parameters = CaseInsensitiveDict({r[0]: r[1] for r in self._postgresql.query(
+            "SELECT name, pg_catalog.current_setting(name) FROM pg_catalog.pg_settings"
+            " WHERE (source IN ('command line', 'environment variable') OR sourcefile = %s)"
+            " AND pg_catalog.lower(name) != ALL(%s)", self._postgresql_conf, exclude)})
 
     def setup_server_parameters(self) -> None:
         self._server_parameters = self.get_server_parameters(self._config)
@@ -922,14 +930,15 @@ class ConfigHandler(object):
         listen_addresses, port = split_host_port(config['listen'], 5432)
         parameters.update(cluster_name=self._postgresql.scope, listen_addresses=listen_addresses, port=str(port))
         if not self._postgresql.global_config or self._postgresql.global_config.is_synchronous_mode:
-            if self._synchronous_standby_names is None:
+            synchronous_standby_names = self._server_parameters.get('synchronous_standby_names')
+            if synchronous_standby_names is None:
                 if self._postgresql.global_config and self._postgresql.global_config.is_synchronous_mode_strict\
                         and self._postgresql.role in ('master', 'primary', 'promoted'):
                     parameters['synchronous_standby_names'] = '*'
                 else:
                     parameters.pop('synchronous_standby_names', None)
             else:
-                parameters['synchronous_standby_names'] = self._synchronous_standby_names
+                parameters['synchronous_standby_names'] = synchronous_standby_names
 
         # Handle hot_standby <-> replica rename
         if parameters.get('wal_level') == ('hot_standby' if self._postgresql.major_version >= 90600 else 'replica'):
@@ -1150,12 +1159,11 @@ class ConfigHandler(object):
     def set_synchronous_standby_names(self, value: Optional[str]) -> Optional[bool]:
         """Updates synchronous_standby_names and reloads if necessary.
         :returns: True if value was updated."""
-        if value != self._synchronous_standby_names:
+        if value != self._server_parameters.get('synchronous_standby_names'):
             if value is None:
                 self._server_parameters.pop('synchronous_standby_names', None)
             else:
                 self._server_parameters['synchronous_standby_names'] = value
-            self._synchronous_standby_names = value
             if self._postgresql.state == 'running':
                 self.write_postgresql_conf()
                 self._postgresql.reload()

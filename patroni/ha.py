@@ -789,6 +789,14 @@ class Ha(object):
         allow_promote = current_state.sync
         voters = CaseInsensitiveSet(sync.voters)
 
+        if picked == voters and voters != allow_promote:
+            logger.warning('Inconsistent state between synchronous_standby_names = %s and /sync = %s key '
+                           'detected, updating synchronous replication key...', list(allow_promote), list(voters))
+            sync = self.dcs.write_sync_state(self.state_handler.name, allow_promote, 0, version=sync.version)
+            if not sync:
+                return logger.warning("Updating sync state failed")
+            voters = CaseInsensitiveSet(sync.voters)
+
         if picked == voters:
             return
 
