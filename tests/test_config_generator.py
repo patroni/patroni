@@ -1,6 +1,5 @@
 import os
 import psutil
-import socket
 import unittest
 
 from . import MockConnect, MockCursor, MockConnectionInfo
@@ -9,24 +8,22 @@ from mock import MagicMock, Mock, PropertyMock, mock_open, patch
 
 from patroni.__main__ import main as _main
 from patroni.config import Config
-from patroni.config_generator import AbstractConfigGenerator, get_address
-
+from patroni.config_generator import AbstractConfigGenerator, get_address, NO_VALUE_MSG
 from patroni.utils import patch_config
 
 from . import psycopg_connect
 
 
 @patch('patroni.psycopg.connect', psycopg_connect)
-@patch('socket.getaddrinfo', Mock(return_value=[(0, 0, 0, 0, ('1.9.8.4', 1984))]))
 @patch('builtins.open', MagicMock())
 @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 16.2"))
 @patch('psutil.Process.exe', Mock(return_value='/bin/dir/from/running/postgres'))
 @patch('psutil.Process.__init__', Mock(return_value=None))
 class TestGenerateConfig(unittest.TestCase):
-
-    no_value_msg = '#FIXME'
-    _HOSTNAME = socket.gethostname()
-    _IP = sorted(socket.getaddrinfo(_HOSTNAME, 0, socket.AF_UNSPEC, socket.SOCK_STREAM, 0), key=lambda x: x[0])[0][4][0]
+    _HOSTNAME = 'tests_hostname'
+    _IP = '1.9.8.4'
+    setattr(AbstractConfigGenerator, '_HOSTNAME', _HOSTNAME)
+    setattr(AbstractConfigGenerator, '_IP', _IP)
 
     def setUp(self):
         self.maxDiff = None
@@ -59,9 +56,9 @@ class TestGenerateConfig(unittest.TestCase):
                 'dcs': dynamic_config
             },
             'postgresql': {
-                'connect_address': self.no_value_msg + ':5432',
-                'data_dir': self.no_value_msg,
-                'listen': self.no_value_msg + ':5432',
+                'connect_address': NO_VALUE_MSG + ':5432',
+                'data_dir': NO_VALUE_MSG,
+                'listen': NO_VALUE_MSG + ':5432',
                 'pg_hba': ['host all all all md5',
                            f'host replication {self.environ["PATRONI_REPLICATION_USERNAME"]} all md5'],
                 'authentication': {'superuser': {'username': self.environ['PATRONI_SUPERUSER_USERNAME'],
@@ -118,8 +115,8 @@ class TestGenerateConfig(unittest.TestCase):
                         'sslmode': 'prefer'
                     },
                     'replication': {
-                        'username': self.no_value_msg,
-                        'password': self.no_value_msg
+                        'username': NO_VALUE_MSG,
+                        'password': NO_VALUE_MSG
                     },
                     'rewind': None
                 },
@@ -179,7 +176,7 @@ class TestGenerateConfig(unittest.TestCase):
                 'authentication': {
                     'rewind': {
                         'username': self.environ['PATRONI_REWIND_USERNAME'],
-                        'password': self.no_value_msg}
+                        'password': NO_VALUE_MSG}
                 },
             }
         }
@@ -330,5 +327,5 @@ class TestGenerateConfig(unittest.TestCase):
     def test_get_address(self):
         with patch('socket.getaddrinfo', Mock(side_effect=Exception)), \
              patch('logging.warning') as mock_warning:
-            self.assertEqual(get_address(), (self.no_value_msg, self.no_value_msg))
+            self.assertEqual(get_address(), (NO_VALUE_MSG, NO_VALUE_MSG))
             self.assertIn('Failed to obtain address: %r', mock_warning.call_args_list[0][0])
