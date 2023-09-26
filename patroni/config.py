@@ -490,7 +490,8 @@ class Config(object):
             elif not is_local:
                 validator = ConfigHandler.CMDLINE_OPTIONS[name][1]
                 if validator(value):
-                    pg_params[name] = int(value) if isinstance(validator, IntValidator) else value
+                    int_val = parse_int(value) if isinstance(validator, IntValidator) else None
+                    pg_params[name] = int_val if isinstance(int_val, int) else value
                 else:
                     logger.warning("postgresql parameter %s=%s failed validation, defaulting to %s",
                                    name, value, ConfigHandler.CMDLINE_OPTIONS[name][0])
