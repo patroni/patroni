@@ -393,21 +393,28 @@ class ZooKeeper(AbstractDCS):
         cluster = self.cluster
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         member_data = self.__last_member_data or member and member.data
-        #  We want to notify leader if some important fields in the member key changed by removing ZNode
-        if member and (self._client.client_id is not None and member.session != self._client.client_id[0]
-                       or not (member_data and deep_compare(member_data.get('tags', {}), data.get('tags', {}))
-                               and (member_data.get('state') == data.get('state')
-                                    or 'running' not in (member_data.get('state'), data.get('state')))
-                               and member_data.get('version') == data.get('version')
-                               and member_data.get('checkpoint_after_promote')
-                               == data.get('checkpoint_after_promote'))):
-            try:
-                self._client.delete_async(self.member_path).get(timeout=1)
-            except NoNodeError:
-                pass
-            except Exception:
-                return False
-            member = None
+        if member and member_data:
+            is_leader = data.get('role') in ('master', 'primary', 'standby_leader')
+            checkpoint_after_promote_changed = member_data.get('checkpoint_after_promote') \
+                != data.get('checkpoint_after_promote')
+            state_running_changed = member_data.get('state') != data.get('state') \
+                and 'running' in (member_data.get('state'), data.get('state'))
+            tags_changed = not deep_compare(member_data.get('tags', {}), data.get('tags', {}))
+
+            # We want delete the member ZNode if:
+            # - our session doesn't match with session id on our member key; or
+            # - we want to notify leader if some important fields in the member key changed; or
+            # - if we are the leader and want to notify replicas about checkpoint_after_promote;
+            if self._client.client_id is not None and member.session != self._client.client_id[0] \
+                    or is_leader and checkpoint_after_promote_changed \
+                    or not is_leader and (state_running_changed or tags_changed):
+                try:
+                    self._client.delete_async(self.member_path).get(timeout=1)
+                except NoNodeError:
+                    pass
+                except Exception:
+                    return False
+                member = None
 
         encoded_data = json.dumps(data, separators=(',', ':')).encode('utf-8')
         if member and member_data:
