@@ -13,17 +13,18 @@ from patroni.utils import patch_config
 
 from . import psycopg_connect
 
+HOSTNAME = 'test_hostname'
+IP = '1.9.8.4'
+
 
 @patch('patroni.psycopg.connect', psycopg_connect)
 @patch('builtins.open', MagicMock())
 @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 16.2"))
 @patch('psutil.Process.exe', Mock(return_value='/bin/dir/from/running/postgres'))
 @patch('psutil.Process.__init__', Mock(return_value=None))
+@patch.object(AbstractConfigGenerator, '_HOSTNAME', HOSTNAME)
+@patch.object(AbstractConfigGenerator, '_IP', IP)
 class TestGenerateConfig(unittest.TestCase):
-    _HOSTNAME = 'tests_hostname'
-    _IP = '1.9.8.4'
-    setattr(AbstractConfigGenerator, '_HOSTNAME', _HOSTNAME)
-    setattr(AbstractConfigGenerator, '_IP', _IP)
 
     def setUp(self):
         self.maxDiff = None
@@ -51,7 +52,7 @@ class TestGenerateConfig(unittest.TestCase):
 
         self.config = {
             'scope': self.environ['PATRONI_SCOPE'],
-            'name': self._HOSTNAME,
+            'name': HOSTNAME,
             'bootstrap': {
                 'dcs': dynamic_config
             },
@@ -96,7 +97,7 @@ class TestGenerateConfig(unittest.TestCase):
                 }
             },
             'postgresql': {
-                'connect_address': f'{self._IP}:bar',
+                'connect_address': f'{IP}:bar',
                 'listen': '6.6.6.6:1984',
                 'data_dir': 'data',
                 'bin_dir': '/bin/dir/from/running',
@@ -227,7 +228,7 @@ class TestGenerateConfig(unittest.TestCase):
                 }
             },
             'postgresql': {
-                'connect_address': f'{self._IP}:1984',
+                'connect_address': f'{IP}:1984',
                 'authentication': {
                     'superuser': {
                         'username': self.environ['PGUSER'],
