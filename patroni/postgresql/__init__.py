@@ -122,7 +122,7 @@ class Postgresql(object):
         if self.is_running():
             # If we found postmaster process we need to figure out whether postgres is accepting connections
             self.set_state('starting')
-            self.check_for_startup()
+            self.check_startup_state_changed()
 
         if self.state == 'running':  # we are "joining" already running postgres
             # we know that PostgreSQL is accepting connections and can read some GUC's from pg_settings
