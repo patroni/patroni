@@ -27,8 +27,6 @@ IP = '1.9.8.4'
 class TestGenerateConfig(unittest.TestCase):
 
     def setUp(self):
-        self.maxDiff = None
-
         os.environ['PATRONI_SCOPE'] = 'scope_from_env'
         os.environ['PATRONI_POSTGRESQL_BIN_DIR'] = '/bin/from/env'
         os.environ['PATRONI_SUPERUSER_USERNAME'] = 'su_user_from_env'
