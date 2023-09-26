@@ -40,7 +40,7 @@ class MockFrozenImporter(object):
 @patch('time.sleep', Mock())
 @patch('subprocess.call', Mock(return_value=0))
 @patch('patroni.psycopg.connect', psycopg_connect)
-@patch('urllib3.PoolManager.request', Mock(side_effect=Exception))
+@patch('urllib3.connection.HTTPConnection.connect', Mock(side_effect=Exception))
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())
@@ -64,7 +64,7 @@ class TestPatroni(unittest.TestCase):
             self.assertRaises(SystemExit, _main)
 
     @patch('pkgutil.iter_importers', Mock(return_value=[MockFrozenImporter()]))
-    @patch('urllib3.PoolManager.request', Mock(side_effect=Exception))
+    @patch('urllib3.connection.HTTPConnection.connect', Mock(side_effect=Exception))
     @patch('sys.frozen', Mock(return_value=True), create=True)
     @patch.object(HTTPServer, '__init__', Mock())
     @patch.object(etcd.Client, 'read', etcd_read)
@@ -108,6 +108,7 @@ class TestPatroni(unittest.TestCase):
     @patch('os.getpid')
     @patch('multiprocessing.Process')
     @patch('patroni.__main__.patroni_main', Mock())
+    @patch('sys.argv', ['patroni.py', 'postgres0.yml'])
     def test_patroni_main(self, mock_process, mock_getpid):
         mock_getpid.return_value = 2
         _main()
@@ -233,8 +234,8 @@ class TestPatroni(unittest.TestCase):
         )
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=bad_cluster)):
             # If the api of the running node cannot be reached, this implies unique name
-            with patch.object(self.p, 'request', Mock(side_effect=ConnectionError)):
+            with patch('urllib3.connection.HTTPConnection.connect', Mock(side_effect=ConnectionError)):
                 self.assertIsNone(self.p.ensure_unique_name())
             # Only if the api of the running node is reachable do we throw an error
-            with patch.object(self.p, 'request', Mock()):
+            with patch('urllib3.connection.HTTPConnection.connect', Mock()):
                 self.assertRaises(SystemExit, self.p.ensure_unique_name)
