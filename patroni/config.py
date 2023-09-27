@@ -400,8 +400,8 @@ class Config(object):
                     except Exception:
                         logger.error('Can not remove temporary file %s', tmpfile)
 
-    def __get_and_maybe_adjust_value(self, config: Dict[str, Any], param: str, min_value: int) -> int:
-        """Get, validated and maybe adjust a *param* value from the *config* :class:`dict`.
+    def __get_and_maybe_adjust_int_value(self, config: Dict[str, Any], param: str, min_value: int) -> int:
+        """Get, validate and maybe adjust a *param* integer value from the *config* :class:`dict`.
 
         .. note:
             If the value is smaller than provided *min_value* we update the *config*.
@@ -445,9 +445,9 @@ class Config(object):
         """
 
         min_loop_wait = 1
-        loop_wait = self.__get_and_maybe_adjust_value(config, 'loop_wait', min_loop_wait)
-        retry_timeout = self.__get_and_maybe_adjust_value(config, 'retry_timeout', 3)
-        ttl = self.__get_and_maybe_adjust_value(config, 'ttl', 20)
+        loop_wait = self. __get_and_maybe_adjust_int_value(config, 'loop_wait', min_loop_wait)
+        retry_timeout = self. __get_and_maybe_adjust_int_value(config, 'retry_timeout', 3)
+        ttl = self. __get_and_maybe_adjust_int_value(config, 'ttl', 20)
 
         if min_loop_wait + 2 * retry_timeout > ttl:
             config['loop_wait'] = min_loop_wait
