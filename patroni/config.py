@@ -475,10 +475,9 @@ class Config(object):
             self._modify_version = configuration.modify_version
             configuration = configuration.data
 
-        self._validate_and_adjust_timeouts(configuration)
-
         if not deep_compare(self._dynamic_configuration, configuration):
             try:
+                self._validate_and_adjust_timeouts(configuration)
                 self.__effective_configuration = self._build_effective_configuration(configuration,
                                                                                      self._local_configuration)
                 self._dynamic_configuration = configuration
