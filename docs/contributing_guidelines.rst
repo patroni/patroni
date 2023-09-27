@@ -3,21 +3,25 @@
 Contributing guidelines
 =======================
 
-Wanna contribute to Patroni? Yay - here is how!
-
 Chatting
 --------
 
-Just want to chat with other Patroni users?  Looking for interactive troubleshooting help? Join us on channel `#patroni <https://postgresteam.slack.com/archives/C9XPYG92A>`__ in the `PostgreSQL Slack <https://pgtreats.info/slack-invite>`__.
+If you have a question, looking for an interactive troubleshooting help or want to chat with other Patroni users, join us on channel `#patroni <https://postgresteam.slack.com/archives/C9XPYG92A>`__ in the `PostgreSQL Slack <https://pgtreats.info/slack-invite>`__.
+
+Reporting bugs
+--------------
+
+Before reporting a bug please make sure to **reproduce it with the latest Patroni version**!
+Also please double check if the issue already exists in our `Issues Tracker <https://github.com/zalando/patroni/issues>`__.
 
 Running tests
 -------------
 
 Requirements for running behave tests:
 
-1. PostgreSQL packages need to be installed.
-2. PostgreSQL binaries must be available in your `PATH`. You may need to add them to the path with something like `PATH=/usr/lib/postgresql/11/bin:$PATH python -m behave`.
-3. If you'd like to test with external DCSs (e.g., Etcd, Consul, and Zookeeper) you'll need the packages installed and respective services running and accepting unencrypted/unprotected connections on localhost and default port. In the case of Etcd or Consul, the behave test suite could start them up if binaries are available in the `PATH`.
+#. PostgreSQL packages including `contrib <https://www.postgresql.org/docs/current/contrib.html>`__ modules need to be installed.
+#. PostgreSQL binaries must be available in your `PATH`. You may need to add them to the path with something like `PATH=/usr/lib/postgresql/11/bin:$PATH python -m behave`.
+#. If you'd like to test with external DCSs (e.g., Etcd, Consul, and Zookeeper) you'll need the packages installed and respective services running and accepting unencrypted/unprotected connections on localhost and default port. In the case of Etcd or Consul, the behave test suite could start them up if binaries are available in the `PATH`.
 
 Install dependencies:
 
@@ -163,19 +167,12 @@ the watchdog behave feature test scenario with all versions of Postgres.
 
 Of course you can combine the two.
 
-Reporting issues
-----------------
-
-If you have a question about patroni or have a problem using it, please read the :ref:`README <readme>` before filing an issue.
-Also double check with the current issues on our `Issues Tracker <https://github.com/zalando/patroni/issues>`__.
-
 Contributing a pull request
 ---------------------------
 
-1) Submit a comment to the relevant issue or create a new issue describing your proposed change.
-2) Do a fork, develop and test your code changes.
-3) Include documentation
-4) Submit a pull request.
+#. Fork the repository, develop and test your code changes.
+#. Reflect changes in the user documentation.
+#. Submit a pull request with a clear description of the changes objective. Link an existing issue if necessary.
 
 You'll get feedback about your pull request as soon as possible.
 
