@@ -244,9 +244,10 @@ class ConfigWriter(object):
             self._fd.write(line)
             self._fd.write('\n')
 
-    def writelines(self, lines: List[str]) -> None:
+    def writelines(self, lines: List[Optional[str]]) -> None:
         for line in lines:
-            self.writeline(line)
+            if isinstance(line, str):
+                self.writeline(line)
 
     @staticmethod
     def escape(value: Any) -> str:  # Escape (by doubling) any single quotes or backslashes in given string
