@@ -4,8 +4,8 @@ Feature: dcs failsafe mode
   Scenario: check failsafe mode can be successfully enabled
     Given I start postgres0
     And postgres0 is a leader after 10 seconds
-    And I sleep for 3 seconds
-    When I issue a PATCH request to http://127.0.0.1:8008/config with {"loop_wait": 2, "ttl": 20, "retry_timeout": 5, "failsafe_mode": true}
+    Then "config" key in DCS has ttl=30 after 10 seconds
+    When I issue a PATCH request to http://127.0.0.1:8008/config with {"loop_wait": 2, "ttl": 20, "retry_timeout": 3, "failsafe_mode": true}
     Then I receive a response code 200
     And Response on GET http://127.0.0.1:8008/failsafe contains postgres0 after 10 seconds
     When I issue a GET request to http://127.0.0.1:8008/failsafe
@@ -28,7 +28,6 @@ Feature: dcs failsafe mode
     When I do a backup of postgres0
     And I shut down postgres0
     When I start postgres1 in a cluster batman from backup with no_leader
-    And I sleep for 2 seconds
     Then postgres1 role is the replica after 12 seconds
 
   Scenario: check leader and replica are both in /failsafe key after leader is back
@@ -59,12 +58,12 @@ Feature: dcs failsafe mode
     Given DCS is down
     And I kill postgres1
     And I kill postmaster on postgres1
-    And I sleep for 2 seconds
     Then postgres0 role is the replica after 12 seconds
 
   @dcs-failsafe
   Scenario: check known replica is promoted when leader is down and DCS is up
-    Given I shut down postgres0
+    Given I kill postgres0
+    And I shut down postmaster on postgres0
     And DCS is up
     When I start postgres1
     Then "members/postgres1" key in DCS has state=running after 10 seconds
