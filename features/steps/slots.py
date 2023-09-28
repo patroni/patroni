@@ -1,3 +1,4 @@
+import json
 import time
 
 from behave import step, then
@@ -36,8 +37,9 @@ def has_logical_replication_slot(context, pg_name, slot_name, plugin, time_limit
     assert False, f"Error looking for slot {slot_name} on {pg_name} with plugin {plugin}"
 
 
-@then('{pg_name:w} does not have a logical replication slot named {slot_name}')
-def does_not_have_logical_replication_slot(context, pg_name, slot_name):
+@step('{pg_name:w} does not have a replication slot named {slot_name:w}')
+@then('{pg_name:w} does not have a replication slot named {slot_name:w}')
+def does_not_have_replication_slot(context, pg_name, slot_name):
     try:
         row = context.pctl.query(pg_name, ("SELECT 1 FROM pg_replication_slots"
                                            " WHERE slot_name = '{0}'").format(slot_name)).fetchone()
@@ -89,3 +91,15 @@ def has_physical_replication_slot(context, pg_name, slot_name, time_limit):
             pass
         time.sleep(1)
     assert False, f"Physical slot {slot_name} doesn't exist after {time_limit} seconds"
+
+
+@step('"{name}" key in DCS has {subkey:w} in {key:w}')
+def dcs_key_contains(context, name, subkey, key):
+    response = json.loads(context.dcs_ctl.query(name))
+    assert key in response and subkey in response[key], f"{name} key in DCS doesn't have {subkey} in {key}"
+
+
+@step('"{name}" key in DCS does not have {subkey:w} in {key:w}')
+def dcs_key_does_not_contain(context, name, subkey, key):
+    response = json.loads(context.dcs_ctl.query(name))
+    assert key not in response or subkey not in response[key], f"{name} key in DCS has {subkey} in {key}"

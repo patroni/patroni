@@ -978,12 +978,15 @@ class Cluster(NamedTuple('Cluster',
         """
         return not value or isinstance(value, dict) and value.get('type', 'physical') == 'physical'
 
+    @staticmethod
+    def is_logical_slot(value: Union[Any, Dict[str, Any]]) -> bool:
+        return isinstance(value, dict) \
+            and value.get('type', 'logical') == 'logical' \
+            and bool(value.get('database') and value.get('plugin'))
+
     @property
     def __permanent_slots(self) -> Dict[str, Union[Dict[str, Any], Any]]:
         """Dictionary of permanent replication slots with their known LSN."""
-        leader = self.leader and self.leader.member
-        leader_name = slot_name_from_member_name(leader.name) if leader and leader.lsn else None
-
         slots = self.slots or {}
         ret: Dict[str, Union[Dict[str, Any], Any]] = deepcopy(self.config.permanent_slots if self.config else {})
 
@@ -994,9 +997,6 @@ class Cluster(NamedTuple('Cluster',
                 if name in slots:
                     # If primary reported flush LSN for permanent slots we want to enrich our structure with it
                     value['lsn'] = slots[name]
-                elif self.is_physical_slot(value) and name == leader_name and leader and leader.lsn:
-                    # there is no slot on the leader for itself, use `lsn` from the member key.
-                    value['lsn'] = leader.lsn
                 else:
                     # Don't let anyone set 'lsn' in the global configuration :)
                     value.pop('lsn', None)
@@ -1010,8 +1010,7 @@ class Cluster(NamedTuple('Cluster',
     @property
     def __permanent_logical_slots(self) -> Dict[str, Any]:
         """Dictionary of permanent ``logical`` replication slots."""
-        return {name: value for name, value in self.__permanent_slots.items() if isinstance(value, dict)
-                and value.get('type', 'logical') == 'logical' and value.get('database') and value.get('plugin')}
+        return {name: value for name, value in self.__permanent_slots.items() if self.is_logical_slot(value)}
 
     @property
     def use_slots(self) -> bool:
@@ -1037,7 +1036,9 @@ class Cluster(NamedTuple('Cluster',
         :returns: final dictionary of slot names, after merging with permanent slots and performing sanity checks.
         """
         slots: Dict[str, Dict[str, str]] = self._get_members_slots(my_name, role)
-        permanent_slots: Dict[str, Any] = self._get_permanent_slots(is_standby_cluster, role, nofailover, major_version)
+        permanent_slots: Dict[str, Any] = self._get_permanent_slots(is_standby_cluster=is_standby_cluster,
+                                                                    role=role, nofailover=nofailover,
+                                                                    major_version=major_version)
 
         disabled_permanent_logical_slots: List[str] = self._merge_permanent_slots(
             slots, permanent_slots, my_name, major_version)
@@ -1048,8 +1049,7 @@ class Cluster(NamedTuple('Cluster',
 
         return slots
 
-    @staticmethod
-    def _merge_permanent_slots(slots: Dict[str, Dict[str, str]], permanent_slots: Dict[str, Any], my_name: str,
+    def _merge_permanent_slots(self, slots: Dict[str, Dict[str, str]], permanent_slots: Dict[str, Any], my_name: str,
                                major_version: int) -> List[str]:
         """Merge replication *slots* for members with *permanent_slots*.
 
@@ -1084,7 +1084,7 @@ class Cluster(NamedTuple('Cluster',
                         slots[name] = value
                     continue
 
-                if value['type'] == 'logical' and value.get('database') and value.get('plugin'):
+                if self.is_logical_slot(value):
                     if major_version < SLOT_ADVANCE_AVAILABLE_VERSION:
                         disabled_permanent_logical_slots.append(name)
                     elif name in slots:
@@ -1097,7 +1097,7 @@ class Cluster(NamedTuple('Cluster',
             logger.error("Bad value for slot '%s' in permanent_slots: %s", name, permanent_slots[name])
         return disabled_permanent_logical_slots
 
-    def _get_permanent_slots(self, is_standby_cluster: bool, role: str,
+    def _get_permanent_slots(self, *, is_standby_cluster: bool, role: str,
                              nofailover: bool, major_version: int) -> Dict[str, Any]:
         """Get configured permanent replication slots.
 
@@ -1171,20 +1171,46 @@ class Cluster(NamedTuple('Cluster',
                                    for k, v in slot_conflicts.items() if len(v) > 1))
         return slots
 
-    def has_permanent_slots(self, my_name: str, nofailover: bool = False) -> bool:
+    def has_permanent_slots(self, my_name: str, *, is_standby_cluster: bool = False, nofailover: bool = False,
+                            major_version: int = SLOT_ADVANCE_AVAILABLE_VERSION) -> bool:
         """Check if the given member node has permanent replication slots configured.
 
         :param my_name: name of the member node to check.
+        :param is_standby_cluster: ``True`` if it is known that this is a standby cluster. We pass the value from
+                                   the outside because we want to protect from the ``/config`` key removal.
         :param nofailover: ``True`` if this node is tagged to not be a failover candidate.
+        :param major_version: postgresql major version.
 
         :returns: ``True`` if there are permanent replication slots configured, otherwise ``False``.
         """
-        members_slots: Dict[str, Dict[str, str]] = self._get_members_slots(my_name, 'replica')
-        permanent_slots: Dict[str, Any] = self._get_permanent_slots(nofailover, 'replica', False,
-                                                                    SLOT_ADVANCE_AVAILABLE_VERSION)
+        role = 'replica'
+        members_slots: Dict[str, Dict[str, str]] = self._get_members_slots(my_name, role)
+        permanent_slots: Dict[str, Any] = self._get_permanent_slots(is_standby_cluster=is_standby_cluster,
+                                                                    role=role, nofailover=nofailover,
+                                                                    major_version=major_version)
         slots = deepcopy(members_slots)
-        self._merge_permanent_slots(slots, permanent_slots, my_name, SLOT_ADVANCE_AVAILABLE_VERSION)
-        return len(slots) > len(members_slots)
+        self._merge_permanent_slots(slots, permanent_slots, my_name, major_version)
+        return len(slots) > len(members_slots) or any(self.is_physical_slot(v) for v in permanent_slots)
+
+    def filter_permanent_slots(self, slots: Dict[str, int], is_standby_cluster: bool, major_version: int):
+        """Filter out all non-permanent slots from provided *slots* dict.
+
+        :param slots: slot names with LSN values
+        :param is_standby_cluster: ``True`` if it is known that this is a standby cluster. We pass the value from
+                                   the outside because we want to protect from the ``/config`` key removal.
+        :param major_version: postgresql major version.
+
+        :returns: a :class:`dict` object that contains only slots that are known to be permanent.
+        """
+        permanent_slots: Dict[str, Any] = self._get_permanent_slots(is_standby_cluster=is_standby_cluster,
+                                                                    role='replica',
+                                                                    nofailover=False,
+                                                                    major_version=major_version)
+        members_slots = {slot_name_from_member_name(m.name) for m in self.members}
+
+        return {name: value for name, value in slots.items() if name in permanent_slots
+                and (self.is_physical_slot(permanent_slots[name])
+                     or self.is_logical_slot(permanent_slots[name]) and name not in members_slots)}
 
     def _has_permanent_logical_slots(self, my_name: str, nofailover: bool) -> bool:
         """Check if the given member node has permanent ``logical`` replication slots configured.

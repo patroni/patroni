@@ -14,7 +14,7 @@ from . import psycopg
 from .__main__ import Patroni
 from .async_executor import AsyncExecutor, CriticalTask
 from .collections import CaseInsensitiveSet
-from .dcs import AbstractDCS, Cluster, Leader, Member, RemoteMember, Status
+from .dcs import AbstractDCS, Cluster, Leader, Member, RemoteMember, Status, slot_name_from_member_name
 from .exceptions import DCSError, PostgresConnectionException, PatroniFatalException
 from .postgresql.callback_executor import CallbackAction
 from .postgresql.misc import postgres_version_to_int
@@ -277,7 +277,10 @@ class Ha(object):
         if write_leader_optime:
             try:
                 last_lsn = self.state_handler.last_operation()
-                slots = self.state_handler.slots()
+                slots = self.cluster.filter_permanent_slots(
+                    {**self.state_handler.slots(), slot_name_from_member_name(self.state_handler.name): last_lsn},
+                    self.is_standby_cluster(),
+                    self.state_handler.major_version)
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
         if TYPE_CHECKING:  # pragma: no cover
@@ -907,7 +910,10 @@ class Ha(object):
             'api_url': self.patroni.api.connection_string,
         }
         try:
-            data['slots'] = self.state_handler.slots()
+            data['slots'] = {
+                **self.state_handler.slots(),
+                slot_name_from_member_name(self.state_handler.name): self.state_handler.last_operation()
+            }
         except Exception:
             logger.exception('Exception when called state_handler.slots()')
         members = [RemoteMember(name, {'api_url': url})

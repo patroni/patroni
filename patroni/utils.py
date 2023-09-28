@@ -819,7 +819,7 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
         member.update({n: m.data[n] for n in optional_attributes if n in m.data})
 
         if m.name != leader_name:
-            lsn = m.data.get('xlog_location')
+            lsn = m.lsn
             if lsn is None:
                 member['lag'] = 'unknown'
             elif cluster_lsn >= lsn:
