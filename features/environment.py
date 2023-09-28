@@ -162,9 +162,10 @@ class PatroniController(AbstractController):
 
     def stop(self, kill=False, timeout=15, postgres=False):
         if postgres:
-            return subprocess.call(['pg_ctl', '-D', self._data_dir, 'stop', '-mi', '-w'])
+            mode = 'i' if kill else 'f'
+            return subprocess.call(['pg_ctl', '-D', self._data_dir, 'stop', '-m' + mode, '-w'])
         super(PatroniController, self).stop(kill, timeout)
-        if isinstance(self._context.dcs_ctl, KubernetesController):
+        if isinstance(self._context.dcs_ctl, KubernetesController) and not kill:
             self._context.dcs_ctl.delete_pod(self._name[8:])
         if self.watchdog:
             self.watchdog.stop()
