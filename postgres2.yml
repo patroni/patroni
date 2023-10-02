@@ -84,13 +84,6 @@ bootstrap:
   - encoding: UTF8
   - data-checksums
 
-  # Some additional users which needs to be created after initializing new cluster
-  users:
-    admin:
-      password: admin%
-      options:
-        - createrole
-        - createdb
 
 postgresql:
   listen: 127.0.0.1:5434
