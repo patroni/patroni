@@ -980,6 +980,10 @@ class Cluster(NamedTuple('Cluster',
 
     @staticmethod
     def is_logical_slot(value: Union[Any, Dict[str, Any]]) -> bool:
+        """Check whether provided configuration is for permanent logical replication slot.
+
+        :returns: ``True`` if this is a logical replication slot, otherwise ``False``.
+        """
         return isinstance(value, dict) \
             and value.get('type', 'logical') == 'logical' \
             and bool(value.get('database') and value.get('plugin'))
@@ -1192,7 +1196,8 @@ class Cluster(NamedTuple('Cluster',
         self._merge_permanent_slots(slots, permanent_slots, my_name, major_version)
         return len(slots) > len(members_slots) or any(self.is_physical_slot(v) for v in permanent_slots)
 
-    def filter_permanent_slots(self, slots: Dict[str, int], is_standby_cluster: bool, major_version: int):
+    def filter_permanent_slots(self, slots: Dict[str, int], is_standby_cluster: bool,
+                               major_version: int) -> Dict[str, int]:
         """Filter out all non-permanent slots from provided *slots* dict.
 
         :param slots: slot names with LSN values
@@ -1202,6 +1207,9 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: a :class:`dict` object that contains only slots that are known to be permanent.
         """
+        if major_version < SLOT_ADVANCE_AVAILABLE_VERSION:
+            return {}  # for legacy PostgreSQL we don't support permanent slots on standby nodes
+
         permanent_slots: Dict[str, Any] = self._get_permanent_slots(is_standby_cluster=is_standby_cluster,
                                                                     role='replica',
                                                                     nofailover=False,

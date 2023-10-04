@@ -1583,6 +1583,7 @@ class TestHa(PostgresInit):
 
     @patch('patroni.psycopg.connect', psycopg_connect)
     def test_permanent_logical_slots_after_promote(self):
+        self.p._major_version = 110000
         config = ClusterConfig(1, {'slots': {'l': {'database': 'postgres', 'plugin': 'test_decoding'}}}, 1)
         self.p.name = 'other'
         self.ha.cluster = get_cluster_initialized_without_leader(cluster_config=config)
