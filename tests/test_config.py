@@ -173,3 +173,27 @@ class TestConfig(unittest.TestCase):
         input_params['max_connections'] = 10
         expected_params.pop('max_connections')
         self.assertEqual(self.config._process_postgresql_parameters(input_params), expected_params)
+
+    def test__validate_and_adjust_timeouts(self):
+        with patch('patroni.config.logger.warning') as mock_logger:
+            self.config._validate_and_adjust_timeouts({'ttl': 15})
+            self.assertEqual(mock_logger.call_args_list[0][0],
+                             ("%s=%d can't be smaller than %d, adjusting...", 'ttl', 15, 20))
+        with patch('patroni.config.logger.warning') as mock_logger:
+            self.config._validate_and_adjust_timeouts({'loop_wait': 0})
+            self.assertEqual(mock_logger.call_args_list[0][0],
+                             ("%s=%d can't be smaller than %d, adjusting...", 'loop_wait', 0, 1))
+        with patch('patroni.config.logger.warning') as mock_logger:
+            self.config._validate_and_adjust_timeouts({'retry_timeout': 1})
+            self.assertEqual(mock_logger.call_args_list[0][0],
+                             ("%s=%d can't be smaller than %d, adjusting...", 'retry_timeout', 1, 3))
+        with patch('patroni.config.logger.warning') as mock_logger:
+            self.config._validate_and_adjust_timeouts({'ttl': 20, 'loop_wait': 11, 'retry_timeout': 5})
+            self.assertEqual(mock_logger.call_args_list[0][0],
+                             ('Violated the rule "loop_wait + 2*retry_timeout <= ttl", where ttl=%d '
+                              'and retry_timeout=%d. Adjusting loop_wait from %d to %d', 20, 5, 11, 10))
+        with patch('patroni.config.logger.warning') as mock_logger:
+            self.config._validate_and_adjust_timeouts({'ttl': 20, 'loop_wait': 10, 'retry_timeout': 10})
+            self.assertEqual(mock_logger.call_args_list[0][0],
+                             ('Violated the rule "loop_wait + 2*retry_timeout <= ttl", where ttl=%d. Adjusting'
+                              ' loop_wait from %d to %d and retry_timeout from %d to %d', 20, 10, 1, 10, 9))
