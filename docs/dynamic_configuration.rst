@@ -6,7 +6,7 @@ Dynamic Configuration Settings
 
 Dynamic configuration is stored in the DCS (Distributed Configuration Store) and applied on all cluster nodes.
 
-In order to change the dynamic configuration you can use either ``patronictl edit-config`` tool or Patroni :ref:`REST API <rest_api>`.
+In order to change the dynamic configuration you can use either :ref:`patronictl_edit_config` tool or Patroni :ref:`REST API <rest_api>`.
 
 -  **loop\_wait**: the number of seconds the loop will sleep. Default value: 10
 -  **ttl**: the TTL to acquire the leader lock (in seconds). Think of it as the length of time before initiation of the automatic failover process. Default value: 30
