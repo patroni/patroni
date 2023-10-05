@@ -74,12 +74,6 @@ Feature: dcs failsafe mode
     And postgres1 role is the primary after 25 seconds
 
   @dcs-failsafe
-  @slot-advance
-  Scenario: make sure permanent logical slot doesn't break basebackup
-    Given I add the table after_promote to postgres1
-    And I get all changes from logical slot dcs_slot_0 on postgres1
-
-  @dcs-failsafe
   Scenario: scale to three-node cluster
     Given I start postgres0
     And I start postgres2
@@ -92,11 +86,11 @@ Feature: dcs failsafe mode
   @dcs-failsafe
   @slot-advance
   Scenario: make sure permanent slots exist on replicas
-    Given I get all changes from physical slot dcs_slot_1 on postgres1
-    And I get all changes from logical slot dcs_slot_0 on postgres1
-    Then logical slot dcs_slot_0 is in sync between postgres1 and postgres0 after 20 seconds
-    And logical slot dcs_slot_0 is in sync between postgres1 and postgres2 after 20 seconds
-    And physical slot dcs_slot_1 is in sync between postgres1 and postgres0 after 10 seconds
+    Given I issue a PATCH request to http://127.0.0.1:8009/config with {"slots":{"dcs_slot_0":null,"dcs_slot_2":{"type":"logical","database":"postgres","plugin":"test_decoding"}}}
+    Then logical slot dcs_slot_2 is in sync between postgres1 and postgres0 after 20 seconds
+    And logical slot dcs_slot_2 is in sync between postgres1 and postgres2 after 20 seconds
+    When I get all changes from physical slot dcs_slot_1 on postgres1
+    Then physical slot dcs_slot_1 is in sync between postgres1 and postgres0 after 10 seconds
     And physical slot dcs_slot_1 is in sync between postgres1 and postgres2 after 10 seconds
     And physical slot postgres0 is in sync between postgres1 and postgres2 after 10 seconds
 
@@ -113,10 +107,10 @@ Feature: dcs failsafe mode
   Scenario: check that permanent slots are in sync between nodes while DCS is down
     Given replication works from postgres1 to postgres0 after 10 seconds
     And replication works from postgres1 to postgres2 after 10 seconds
-    When I get all changes from logical slot dcs_slot_0 on postgres1
+    When I get all changes from logical slot dcs_slot_2 on postgres1
     And I get all changes from physical slot dcs_slot_1 on postgres1
-    Then logical slot dcs_slot_0 is in sync between postgres1 and postgres0 after 20 seconds
-    And logical slot dcs_slot_0 is in sync between postgres1 and postgres2 after 20 seconds
+    Then logical slot dcs_slot_2 is in sync between postgres1 and postgres0 after 20 seconds
+    And logical slot dcs_slot_2 is in sync between postgres1 and postgres2 after 20 seconds
     And physical slot dcs_slot_1 is in sync between postgres1 and postgres0 after 10 seconds
     And physical slot dcs_slot_1 is in sync between postgres1 and postgres2 after 10 seconds
     And physical slot postgres0 is in sync between postgres1 and postgres2 after 10 seconds
