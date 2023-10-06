@@ -5,7 +5,7 @@ import io
 
 from copy import deepcopy
 from mock import MagicMock, Mock, patch
-from patroni.config import Config, ConfigParseError
+from patroni.config import Config, ConfigParseError, GlobalConfig
 
 
 class TestConfig(unittest.TestCase):
@@ -197,3 +197,8 @@ class TestConfig(unittest.TestCase):
             self.assertEqual(mock_logger.call_args_list[0][0],
                              ('Violated the rule "loop_wait + 2*retry_timeout <= ttl", where ttl=%d. Adjusting'
                               ' loop_wait from %d to %d and retry_timeout from %d to %d', 20, 10, 1, 10, 9))
+
+    def test_global_config_is_synchronous_mode(self):
+        # we should ignore synchronous_mode setting in a standby cluster
+        config = {'standby_cluster': {'host': 'some_host'}, 'synchronous_mode': True}
+        self.assertFalse(GlobalConfig(config).is_synchronous_mode)
