@@ -59,6 +59,7 @@ Feature: standby cluster
     Then I receive a response code 200
     And I receive a response role standby_leader
     And postgres1 is replicating from postgres2 after 32 seconds
+    And there is a postgres2_cb.log with "on_start replica batman1\non_role_change standby_leader batman1" in postgres2 data directory
 
   Scenario: check failover
     When I kill postgres2
@@ -71,4 +72,4 @@ Feature: standby cluster
     Then I receive a response code 200
     And I receive a response role standby_leader
     And replication works from postgres0 to postgres1 after 15 seconds
-    And there is a postgres1_cb.log with "on_start replica batman1\non_role_change standby_leader batman1" in postgres1 data directory
+    And there is a postgres1_cb.log with "on_role_change replica batman1\non_role_change standby_leader batman1" in postgres1 data directory
