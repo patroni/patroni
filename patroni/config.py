@@ -96,8 +96,8 @@ class GlobalConfig(object):
 
     @property
     def is_synchronous_mode(self) -> bool:
-        """``True`` if synchronous replication is requested."""
-        return self.check_mode('synchronous_mode')
+        """``True`` if synchronous replication is requested and it is not a standby cluster config."""
+        return self.check_mode('synchronous_mode') and not self.is_standby_cluster
 
     @property
     def is_synchronous_mode_strict(self) -> bool:
