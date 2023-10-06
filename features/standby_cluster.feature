@@ -58,6 +58,7 @@ Feature: standby cluster
     And I issue a GET request to http://127.0.0.1:8010/standby_leader
     Then I receive a response code 200
     And I receive a response role standby_leader
+    And postgres1 is replicating from postgres2 after 32 seconds
 
   Scenario: check failover
     When I kill postgres2
