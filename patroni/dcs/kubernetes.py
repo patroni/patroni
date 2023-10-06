@@ -771,7 +771,7 @@ class Kubernetes(AbstractDCS):
         except k8s_config.ConfigException:
             k8s_config.load_kube_config(context=config.get('context', 'kind-kind'))
 
-        self.__ips: List[str] = [] if config.get('patronictl') else [config.get('pod_ip', '')]
+        self.__ips: List[str] = [] if self._ctl else [config.get('pod_ip', '')]
         self.__ports: List[K8sObject] = []
         ports: List[Dict[str, Any]] = config.get('ports', [{}])
         for p in ports:
