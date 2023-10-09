@@ -974,7 +974,9 @@ class Cluster(NamedTuple('Cluster',
     def is_physical_slot(value: Union[Any, Dict[str, Any]]) -> bool:
         """Check whether provided configuration is for permanent physical replication slot.
 
-        :returns: ``True`` if this is a physical replication slot, otherwise ``False``.
+        :param value: configuration of the permanent replication slot.
+
+        :returns: ``True`` if *value* is a physical replication slot, otherwise ``False``.
         """
         return not value or isinstance(value, dict) and value.get('type', 'physical') == 'physical'
 
@@ -982,7 +984,9 @@ class Cluster(NamedTuple('Cluster',
     def is_logical_slot(value: Union[Any, Dict[str, Any]]) -> bool:
         """Check whether provided configuration is for permanent logical replication slot.
 
-        :returns: ``True`` if this is a logical replication slot, otherwise ``False``.
+        :param value: configuration of the permanent replication slot.
+
+        :returns: ``True`` if *value* is a logical replication slot, otherwise ``False``.
         """
         return isinstance(value, dict) \
             and value.get('type', 'logical') == 'logical' \
@@ -1194,7 +1198,7 @@ class Cluster(NamedTuple('Cluster',
                                                                     major_version=major_version)
         slots = deepcopy(members_slots)
         self._merge_permanent_slots(slots, permanent_slots, my_name, major_version)
-        return len(slots) > len(members_slots) or any(self.is_physical_slot(v) for v in permanent_slots)
+        return len(slots) > len(members_slots) or any(self.is_physical_slot(v) for v in permanent_slots.values())
 
     def filter_permanent_slots(self, slots: Dict[str, int], is_standby_cluster: bool,
                                major_version: int) -> Dict[str, int]:

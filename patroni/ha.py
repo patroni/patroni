@@ -272,9 +272,26 @@ class Ha(object):
                 ret[self.state_handler.name] = self.patroni.api.connection_string
             return ret
 
-    def update_lock(self, write_leader_optime: bool = False) -> bool:
+    def update_lock(self, update_status: bool = False) -> bool:
+        """Update the leader lock in DCS.
+
+        .. note::
+            After successful update of the leader key the :meth:`AbstractDCS.update_leader` method could also
+            optionally update the ``/status`` and ``/failsafe`` keys.
+
+            The ``/status`` key contains the last known LSN on the leader node and the last known state
+            of permanent replication slots including permanent physical replication slot for the leader.
+
+            Last, but not least, this method calls a :meth:`Watchdog.keepalive` method after the leader key
+            was successfully updated.
+
+        :param update_status: ``True`` if we also need to update the ``/status`` key in DCS, otherwise ``False``.
+
+        :returns: ``True`` if the leader key was successfully updated and we can continue to run postgres
+                  as a ``primary`` or as a ``standby_leader``, otherwise ``False``.
+        """
         last_lsn = slots = None
-        if write_leader_optime:
+        if update_status:
             try:
                 last_lsn = self.state_handler.last_operation()
                 slots = self.cluster.filter_permanent_slots(
@@ -901,6 +918,26 @@ class Ha(object):
         return False
 
     def check_failsafe_topology(self) -> bool:
+        """Check whether we could continue to run as a primary by calling all members from the failsafe topology.
+
+        .. note::
+            If the ``/failsafe`` key contains invalid data or if the ``name`` of our node is missing in
+            the ``/failsafe`` key, we immediately give up and return ``False``.
+
+            We send the JSON document in the POST request with the following fields:
+
+            * ``name`` - the name of our node;
+            * ``conn_url`` - connection URL to the postgres, which is reachable from other nodes;
+            * ``api_url`` - connection URL to Patroni REST API on this node reachable from other nodes;
+            * ``slots`` - a :class:`dict` with replication slots that exist on the leader node, including the primary
+              itself with the last known LSN, because there could be a permanent physical slot on standby nodes.
+
+            Standby nodes are using information from the ``slots`` dict to advance position of permanent
+            replication slots while DCS is not accessible in order to avoid indefinite growth of ``pg_wal``.
+
+        :returns: ``True`` if all members from the ``/failsafe`` topology agree that this node could continue to
+                  run as a ``primary``, or ``False`` if some of standby nodes are not accessible of don't agree.
+        """
         failsafe = self.dcs.failsafe
         if not isinstance(failsafe, dict) or self.state_handler.name not in failsafe:
             return False
