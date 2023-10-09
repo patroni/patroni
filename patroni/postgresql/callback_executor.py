@@ -1,4 +1,5 @@
 import logging
+import sys
 
 from enum import Enum
 from threading import Condition, Thread
@@ -51,6 +52,8 @@ class CallbackExecutor(CancellableExecutor, Thread):
         If it couldn't be killed we wait until it finishes.
 
         :param cmd: command to be executed"""
+        kwargs = {'stacklevel': 3} if sys.version_info >= (3, 8) else {}
+        logger.debug('CallbackExecutor.call(%s)', cmd, **kwargs)
 
         if cmd[-3] == CallbackAction.ON_RELOAD:
             return self._on_reload_executor.call_nowait(cmd)

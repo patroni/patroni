@@ -245,6 +245,10 @@ class PatroniController(AbstractController):
             self.recursive_update(config, custom_config)
 
         self.recursive_update(config, {
+            'log': {
+                'format': '%(asctime)s %(levelname)s [%(pathname)s:%(lineno)d - %(funcName)s]: %(message)s',
+                'loggers': {'patroni.postgresql.callback_executor': 'DEBUG'}
+            },
             'bootstrap': {
                 'dcs': {
                     'loop_wait': 2,
