@@ -3,7 +3,7 @@ import sys
 
 from enum import Enum
 from threading import Condition, Thread
-from typing import List
+from typing import Any, Dict, List
 
 from .cancellable import CancellableExecutor, CancellableSubprocess
 
@@ -52,7 +52,7 @@ class CallbackExecutor(CancellableExecutor, Thread):
         If it couldn't be killed we wait until it finishes.
 
         :param cmd: command to be executed"""
-        kwargs = {'stacklevel': 3} if sys.version_info >= (3, 8) else {}
+        kwargs: Dict[str, Any] = {'stacklevel': 3} if sys.version_info >= (3, 8) else {}
         logger.debug('CallbackExecutor.call(%s)', cmd, **kwargs)
 
         if cmd[-3] == CallbackAction.ON_RELOAD:
