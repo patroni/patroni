@@ -63,7 +63,7 @@ def mock_list_namespaced_pod(*args, **kwargs):
     metadata = k8s_client.V1ObjectMeta(resource_version='1', labels={'f': 'b', Kubernetes._CITUS_LABEL: '1'},
                                        name='p-0', annotations={'status': '{}'},
                                        uid='964dfeae-e79b-4476-8a5a-1920b5c2a69d')
-    status = k8s_client.V1PodStatus(pod_ip='10.0.0.0')
+    status = k8s_client.V1PodStatus(pod_ip='10.0.0.1')
     spec = k8s_client.V1PodSpec(hostname='p-0', node_name='kind-control-plane', containers=[])
     items = [k8s_client.V1Pod(metadata=metadata, status=status, spec=spec)]
     return k8s_client.V1PodList(items=items, kind='PodList')
@@ -356,6 +356,20 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
         mock_warning.assert_called_once()
 
 
+class TestKubernetesEndpointsNoPodIP(BaseTestKubernetes):
+    @patch.object(k8s_client.CoreV1Api, 'list_namespaced_endpoints', mock_list_namespaced_endpoints, create=True)
+    def setUp(self, config=None):
+        super(TestKubernetesEndpointsNoPodIP, self).setUp({'use_endpoints': True})
+
+    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', create=True)
+    def test_update_leader(self, mock_patch_namespaced_endpoints):
+        leader = self.k.get_cluster().leader
+        self.assertIsNotNone(self.k.update_leader(leader, '123', failsafe={'foo': 'bar'}))
+        args = mock_patch_namespaced_endpoints.call_args[0]
+        self.assertEqual(args[2].subsets[0].addresses[0].target_ref.resource_version, '1')
+        self.assertEqual(args[2].subsets[0].addresses[0].ip, '10.0.0.1')
+
+
 class TestKubernetesEndpoints(BaseTestKubernetes):
 
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_endpoints', mock_list_namespaced_endpoints, create=True)
@@ -368,6 +382,7 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         self.assertIsNotNone(self.k.update_leader(leader, '123', failsafe={'foo': 'bar'}))
         args = mock_patch_namespaced_endpoints.call_args[0]
         self.assertEqual(args[2].subsets[0].addresses[0].target_ref.resource_version, '10')
+        self.assertEqual(args[2].subsets[0].addresses[0].ip, '10.0.0.0')
         self.k._kinds._object_cache['test'].subsets[:] = []
         self.assertIsNotNone(self.k.update_leader(leader, '123'))
         self.k._kinds._object_cache['test'].metadata.annotations['leader'] = 'p-1'

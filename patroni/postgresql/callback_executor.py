@@ -30,7 +30,9 @@ class OnReloadExecutor(CancellableSubprocess):
         self.cancel(kill=True)
         self._kill_children()
         with self._lock:
-            self._start_process(cmd, close_fds=True)
+            started = self._start_process(cmd, close_fds=True)
+        if started and self._process is not None:
+            Thread(target=self._process.wait).start()
 
 
 class CallbackExecutor(CancellableExecutor, Thread):
