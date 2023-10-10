@@ -256,7 +256,7 @@ class TestBootstrap(BaseTestPostgresql):
         mock_cancellable_subprocess_call.assert_called()
         args, kwargs = mock_cancellable_subprocess_call.call_args
         self.assertTrue('PGPASSFILE' in kwargs['env'])
-        self.assertEqual(args[0], ['/bin/false', 'dbname=postgres host=127.0.0.2 port=5432'])
+        self.assertEqual(args[0], ['/bin/false', 'dbname=postgres host=/tmp port=5432'])
 
         mock_cancellable_subprocess_call.reset_mock()
         self.p.connection_pool._conn_kwargs.pop('host')
