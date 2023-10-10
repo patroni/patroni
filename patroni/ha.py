@@ -586,7 +586,7 @@ class Ha(object):
         # the remote member, except when there is no standby leader in pause.
         if self.is_standby_cluster() \
                 and (cluster.leader and cluster.leader.name and cluster.leader.name == self.state_handler.name
-                     or self.cluster.is_unlocked() and not self.is_paused()):
+                     or cluster.is_unlocked() and not self.is_paused()):
             node_to_follow = self.get_remote_member()
         # If replicatefrom tag is set, try to follow the node mentioned there, otherwise, follow the leader.
         elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
