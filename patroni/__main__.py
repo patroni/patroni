@@ -299,9 +299,9 @@ def main() -> None:
     """
     from patroni import check_psycopg
 
-    args = process_arguments()
-
     check_psycopg()
+
+    args = process_arguments()
 
     if os.getpid() != 1:
         return patroni_main(args.configfile)
