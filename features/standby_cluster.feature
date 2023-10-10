@@ -54,21 +54,18 @@ Feature: standby cluster
     And postgres1 does not have a logical replication slot named test_logical
 
   Scenario: check switchover
-    When I run patronictl.py switchover batman1 --force
-    And I issue a GET request to http://127.0.0.1:8010/standby_leader
-    Then I receive a response code 200
-    And I receive a response role standby_leader
+    Given I run patronictl.py switchover batman1 --force
+    Then Status code on GET http://127.0.0.1:8010/standby_leader is 200 after 10 seconds
     And postgres1 is replicating from postgres2 after 32 seconds
+    And there is a postgres2_cb.log with "on_start replica batman1\non_role_change standby_leader batman1" in postgres2 data directory
 
   Scenario: check failover
     When I kill postgres2
     And I kill postmaster on postgres2
     Then postgres1 is replicating from postgres0 after 32 seconds
+    And Status code on GET http://127.0.0.1:8009/standby_leader is 200 after 10 seconds
     When I issue a GET request to http://127.0.0.1:8009/primary
     Then I receive a response code 503
-    And I sleep for 3 seconds
-    When I issue a GET request to http://127.0.0.1:8009/standby_leader
-    Then I receive a response code 200
     And I receive a response role standby_leader
     And replication works from postgres0 to postgres1 after 15 seconds
-    And there is a postgres1_cb.log with "on_start replica batman1\non_role_change standby_leader batman1" in postgres1 data directory
+    And there is a postgres1_cb.log with "on_role_change replica batman1\non_role_change standby_leader batman1" in postgres1 data directory
