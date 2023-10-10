@@ -6,11 +6,20 @@ Dynamic Configuration Settings
 
 Dynamic configuration is stored in the DCS (Distributed Configuration Store) and applied on all cluster nodes.
 
-In order to change the dynamic configuration you can use either ``patronictl edit-config`` tool or Patroni :ref:`REST API <rest_api>`.
+In order to change the dynamic configuration you can use either :ref:`patronictl_edit_config` tool or Patroni :ref:`REST API <rest_api>`.
 
--  **loop\_wait**: the number of seconds the loop will sleep. Default value: 10
--  **ttl**: the TTL to acquire the leader lock (in seconds). Think of it as the length of time before initiation of the automatic failover process. Default value: 30
--  **retry\_timeout**: timeout for DCS and PostgreSQL operation retries (in seconds). DCS or network issues shorter than this will not cause Patroni to demote the leader. Default value: 10
+-  **loop\_wait**: the number of seconds the loop will sleep. Default value: 10, minimum possible value: 1
+-  **ttl**: the TTL to acquire the leader lock (in seconds). Think of it as the length of time before initiation of the automatic failover process. Default value: 30, minimum possible value: 20
+-  **retry\_timeout**: timeout for DCS and PostgreSQL operation retries (in seconds). DCS or network issues shorter than this will not cause Patroni to demote the leader. Default value: 10, minimum possible value: 3
+
+.. warning::
+    when changing values of **loop_wait**, **retry_timeout**, or **ttl** you have to follow the rule:
+
+    .. code-block:: python
+
+        loop_wait + 2 * retry_timeout <= ttl
+
+
 -  **maximum\_lag\_on\_failover**: the maximum bytes a follower may lag to be able to participate in leader election.
 -  **maximum\_lag\_on\_syncnode**: the maximum bytes a synchronous follower may lag before it is considered as an unhealthy candidate and swapped by healthy asynchronous follower. Patroni utilize the max replica lsn if there is more than one follower, otherwise it will use leader's current wal lsn. Default is -1, Patroni will not take action to swap synchronous unhealthy follower when the value is set to 0 or below. Please set the value high enough so Patroni won't swap synchrounous follower fequently during high transaction volume.
 -  **max\_timelines\_history**: maximum number of timeline history items kept in DCS.  Default value: 0. When set to 0, it keeps the full history in DCS.

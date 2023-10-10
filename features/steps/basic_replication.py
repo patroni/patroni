@@ -35,9 +35,14 @@ def kill_patroni(context, name):
     return context.pctl.stop(name, kill=True)
 
 
-@step('I kill postmaster on {name:w}')
+@step('I shut down postmaster on {name:w}')
 def stop_postgres(context, name):
     return context.pctl.stop(name, postgres=True)
+
+
+@step('I kill postmaster on {name:w}')
+def kill_postgres(context, name):
+    return context.pctl.stop(name, kill=True, postgres=True)
 
 
 @step('I add the table {table_name:w} to {pg_name:w}')

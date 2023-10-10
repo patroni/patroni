@@ -15,7 +15,7 @@ There are 3 types of Patroni configuration:
 
 - Global :ref:`dynamic configuration <dynamic_configuration>`.
 	These options are stored in the DCS (Distributed Configuration Store) and applied on all cluster nodes.
-	Dynamic configuration can be set at any time using ``patronictl edit-config`` tool or Patroni :ref:`REST API <rest_api>`.
+	Dynamic configuration can be set at any time using :ref:`patronictl_edit_config` tool or Patroni :ref:`REST API <rest_api>`.
 	If the options changed are not part of the startup configuration, they are applied asynchronously (upon the next wake up cycle)
 	to every node, which gets subsequently reloaded.
 	If the node requires a restart to apply the configuration (for `PostgreSQL parameters <https://www.postgresql.org/docs/current/view-pg-settings.html>`__ with context postmaster, if their values
@@ -24,7 +24,7 @@ There are 3 types of Patroni configuration:
 
 - Local :ref:`configuration file <yaml_configuration>` (patroni.yml).
 	These options are defined in the configuration file and take precedence over dynamic configuration.
-	``patroni.yml`` can be changed and reloaded at runtime (without restart of Patroni) by sending SIGHUP to the Patroni process, performing ``POST /reload`` REST-API request or executing ``patronictl reload``. Local configuration can be either a single YAML file or a directory. When it is a directory, all YAML files in that directory are loaded one by one in sorted order. In case a key is defined in multiple files, the occurrence in the last file takes precedence.
+	``patroni.yml`` can be changed and reloaded at runtime (without restart of Patroni) by sending SIGHUP to the Patroni process, performing ``POST /reload`` REST-API request or executing :ref:`patronictl_reload`. Local configuration can be either a single YAML file or a directory. When it is a directory, all YAML files in that directory are loaded one by one in sorted order. In case a key is defined in multiple files, the occurrence in the last file takes precedence.
 
 - :ref:`Environment configuration <environment>`.
 	It is possible to set/override some of the "Local" configuration parameters with environment variables.
@@ -105,10 +105,10 @@ Changing these parameters require a PostgreSQL restart to take effect, and their
 
 As explained before, Patroni restrict changing their values through :ref:`dynamic configuration <dynamic_configuration>`, which usually consists of:
 
-1. Applying changes through ``patronictl edit-config`` (or via REST API ``/config`` endpoint)
-2. Restarting nodes through ``patronictl restart`` (or via REST API ``/restart`` endpoint)
+1. Applying changes through :ref:`patronictl_edit_config` (or via REST API ``/config`` endpoint)
+2. Restarting nodes through :ref:`patronictl_restart` (or via REST API ``/restart`` endpoint)
 
-**Note:** please keep in mind that you should perform a restart of the PostgreSQL nodes through ``patronictl restart`` command, or via REST API ``/restart`` endpoint. An attempt to restart PostgreSQL by restarting the Patroni daemon, e.g. by executing ``systemctl restart patroni``, can cause a failover to occur in the cluster, if you are restarting the primary node.
+**Note:** please keep in mind that you should perform a restart of the PostgreSQL nodes through :ref:`patronictl_restart` command, or via REST API ``/restart`` endpoint. An attempt to restart PostgreSQL by restarting the Patroni daemon, e.g. by executing ``systemctl restart patroni``, can cause a failover to occur in the cluster, if you are restarting the primary node.
 
 However, as those settings manage shared memory, some extra care should be taken when restarting the nodes:
 
