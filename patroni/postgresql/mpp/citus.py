@@ -6,12 +6,16 @@ from threading import Condition, Event, Thread
 from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
-from ..dcs import CITUS_COORDINATOR_GROUP_ID, Cluster
-from ..psycopg import connect, quote_ident
+from ...dcs import Cluster
+from ...psycopg import connect, quote_ident
+from ...utils import parse_int
+
+from . import AbstractMPP, AbstractMPPHandler
 
 if TYPE_CHECKING:  # pragma: no cover
-    from . import Postgresql
+    from .. import Postgresql
 
+CITUS_COORDINATOR_GROUP_ID = 0
 CITUS_SLOT_NAME_RE = re.compile(r'^citus_shard_(move|split)_slot(_[1-9][0-9]*){2,3}$')
 logger = logging.getLogger(__name__)
 
@@ -63,13 +67,35 @@ class PgDistNode(object):
         return str(self)
 
 
-class CitusHandler(Thread):
+class Citus(AbstractMPP):
 
-    def __init__(self, postgresql: 'Postgresql', config: Optional[Dict[str, Union[str, int]]]) -> None:
-        super(CitusHandler, self).__init__()
+    group_re = re.compile('^(0|[1-9][0-9]*)$')
+
+    @staticmethod
+    def validate_config(config: Union[Any, Dict[str, Union[str, int]]]) -> bool:
+        return isinstance(config, dict) \
+            and isinstance(config.get('database'), str) \
+            and parse_int(config.get('group')) is not None
+
+    @property
+    def group(self) -> int:
+        return int(self._config['group'])
+
+    @property
+    def coordinator_group_id(self) -> int:
+        return CITUS_COORDINATOR_GROUP_ID
+
+    @property
+    def mpp_type(self) -> str:
+        return "citus"
+
+
+class CitusHandler(Citus, AbstractMPPHandler, Thread):
+
+    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
+        Thread.__init__(self)
+        AbstractMPPHandler.__init__(self, postgresql, config)
         self.daemon = True
-        self._postgresql = postgresql
-        self._config = config
         if config:
             self._connection = postgresql.connection_pool.get(
                 'citus', {'dbname': config['database'],
@@ -81,17 +107,38 @@ class CitusHandler(Thread):
         self._condition = Condition()  # protects _pg_dist_node, _tasks, _in_flight, and _schedule_load_pg_dist_node
         self.schedule_cache_rebuild()
 
-    def is_enabled(self) -> bool:
-        return isinstance(self._config, dict)
+    def bootstrap(self) -> None:
 
-    def group(self) -> Optional[int]:
-        return int(self._config['group']) if isinstance(self._config, dict) else None
+        conn_kwargs = {**self._postgresql.connection_pool.conn_kwargs,
+                       'options': '-c synchronous_commit=local -c statement_timeout=0'}
+        if self._config['database'] != self._postgresql.database:
+            conn = connect(**conn_kwargs)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute('CREATE DATABASE {0}'.format(
+                        quote_ident(self._config['database'], conn)).encode('utf-8'))
+            finally:
+                conn.close()
 
-    def is_coordinator(self) -> bool:
-        return self.is_enabled() and self.group() == CITUS_COORDINATOR_GROUP_ID
+        conn_kwargs['dbname'] = self._config['database']
+        conn = connect(**conn_kwargs)
+        try:
+            with conn.cursor() as cur:
+                cur.execute('CREATE EXTENSION citus')
 
-    def is_worker(self) -> bool:
-        return self.is_enabled() and not self.is_coordinator()
+                superuser = self._postgresql.config.superuser
+                params = {k: superuser[k] for k in ('password', 'sslcert', 'sslkey') if k in superuser}
+                if params:
+                    cur.execute("INSERT INTO pg_catalog.pg_dist_authinfo VALUES"
+                                "(0, pg_catalog.current_user(), %s)",
+                                (self._postgresql.config.format_dsn(params),))
+
+                if self.is_coordinator():
+                    r = urlparse(self._postgresql.connection_string)
+                    cur.execute("SELECT pg_catalog.citus_set_coordinator_host(%s, %s, 'primary', 'default')",
+                                (r.hostname, r.port or 5432))
+        finally:
+            conn.close()
 
     def schedule_cache_rebuild(self) -> None:
         with self._condition:
@@ -156,6 +203,9 @@ class CitusHandler(Thread):
             if leader and leader.conn_url\
                     and leader.data.get('role') in ('master', 'primary') and leader.data.get('state') == 'running':
                 self.add_task('after_promote', group, leader.conn_url)
+
+    def sync_coordinator_meta(self, cluster: Cluster) -> None:
+        self.sync_pg_dist_node(cluster)
 
     def find_task_by_group(self, group: int) -> Optional[int]:
         for i, task in enumerate(self._tasks):
@@ -351,44 +401,7 @@ class CitusHandler(Thread):
         if task and event['type'] == 'before_demote':
             task.wait()
 
-    def bootstrap(self) -> None:
-        if not isinstance(self._config, dict):  # self.is_enabled()
-            return
-
-        conn_kwargs = {**self._postgresql.connection_pool.conn_kwargs,
-                       'options': '-c synchronous_commit=local -c statement_timeout=0'}
-        if self._config['database'] != self._postgresql.database:
-            conn = connect(**conn_kwargs)
-            try:
-                with conn.cursor() as cur:
-                    cur.execute('CREATE DATABASE {0}'.format(
-                        quote_ident(self._config['database'], conn)).encode('utf-8'))
-            finally:
-                conn.close()
-
-        conn_kwargs['dbname'] = self._config['database']
-        conn = connect(**conn_kwargs)
-        try:
-            with conn.cursor() as cur:
-                cur.execute('CREATE EXTENSION citus')
-
-                superuser = self._postgresql.config.superuser
-                params = {k: superuser[k] for k in ('password', 'sslcert', 'sslkey') if k in superuser}
-                if params:
-                    cur.execute("INSERT INTO pg_catalog.pg_dist_authinfo VALUES"
-                                "(0, pg_catalog.current_user(), %s)",
-                                (self._postgresql.config.format_dsn(params),))
-
-                if self.is_coordinator():
-                    r = urlparse(self._postgresql.connection_string)
-                    cur.execute("SELECT pg_catalog.citus_set_coordinator_host(%s, %s, 'primary', 'default')",
-                                (r.hostname, r.port or 5432))
-        finally:
-            conn.close()
-
     def adjust_postgres_gucs(self, parameters: Dict[str, Any]) -> None:
-        if not self.is_enabled():
-            return
 
         # citus extension must be on the first place in shared_preload_libraries
         shared_preload_libraries = list(filter(
@@ -407,8 +420,7 @@ class CitusHandler(Thread):
         parameters['citus.local_hostname'] = self._postgresql.connection_pool.conn_kwargs.get('host', 'localhost')
 
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
-        if isinstance(self._config, dict) and self._postgresql.is_primary() and\
-                slot['type'] == 'logical' and slot['database'] == self._config['database']:
+        if self._postgresql.is_primary() and slot['type'] == 'logical' and slot['database'] == self._config['database']:
             m = CITUS_SLOT_NAME_RE.match(slot['name'])
             return bool(m and {'move': 'pgoutput', 'split': 'citus'}.get(m.group(1)) == slot['plugin'])
         return False

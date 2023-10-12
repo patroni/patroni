@@ -1154,7 +1154,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_POST_citus(self) -> None:
         """Handle a ``POST`` request to ``/citus`` path.
 
-        Call :func:`~patroni.postgresql.CitusHandler.handle_event` to handle the request, then write a response with
+        Deprecate, dispatch to do_POST_formation
+        """
+        self.do_POST_formation()
+
+    @check_access
+    def do_POST_formation(self) -> None:
+        """Handle a ``POST`` request to ``/formation`` path.
+        Call :func:`~patroni.postgresql.AbstractHandler.handle_event` to handle the request, then write a response with
         HTTP status code ``200``.
 
         .. note::
@@ -1165,9 +1172,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
             return
 
         patroni = self.server.patroni
-        if patroni.postgresql.citus_handler.is_coordinator() and patroni.ha.is_leader():
+        if patroni.postgresql.mpp_handler.is_coordinator() and patroni.ha.is_leader():
             cluster = patroni.dcs.get_cluster()
-            patroni.postgresql.citus_handler.handle_event(cluster, request)
+            patroni.postgresql.mpp_handler.handle_event(cluster, request)
         self.write_response(200, 'OK')
 
     def parse_request(self) -> bool:
