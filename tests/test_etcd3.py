@@ -7,7 +7,8 @@ from mock import Mock, PropertyMock, patch
 from patroni.dcs.etcd import DnsCachingResolver
 from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3, Etcd3Client, \
     Etcd3Error, Etcd3ClientError, RetryFailedError, InvalidAuthToken, Unavailable, \
-    Unknown, UnsupportedEtcdVersion, UserEmpty, AuthFailed, base64_encode
+    Unknown, UnsupportedEtcdVersion, UserEmpty, AuthFailed, \
+    RevisionOfAuthStoreIsOld, base64_encode
 from threading import Thread
 
 from . import SleepException, MockResponse
@@ -164,6 +165,27 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
             self.assertRaises(InvalidAuthToken, self.client.deleteprefix, 'foo')
             self.client.username = None
             self.assertRaises(InvalidAuthToken, self.client.deleteprefix, 'foo')
+
+    @patch.object(urllib3.PoolManager, 'urlopen')
+    def test__handle_revision_of_auth_store_is_old(self, mock_urlopen):
+        mock_auth_error_response = MockResponse()
+        mock_auth_error_response.content = '{"code":3,"error":"etcdserver: revision of auth store is old"}'
+        mock_auth_error_response.status_code = 400
+
+        mock_put_response = MockResponse()
+        mock_put_response.content = '{"header":{"revision":"1"},"deleted":1}'
+
+        expected_result = {'header': {'revision': '1'}, 'deleted': 1}
+
+        with patch.object(PatroniEtcd3Client, 'authenticate', Mock(return_value=True)):
+            # With the authenticate call mocked out, the first call to put will fail.
+            # But it will retry successfully.
+            mock_urlopen.side_effect = [mock_auth_error_response, mock_put_response]
+
+            result = self.client.deleteprefix('foo')
+
+            self.assertEquals(result, expected_result)
+
 
     def test__handle_server_response(self):
         response = MockResponse()

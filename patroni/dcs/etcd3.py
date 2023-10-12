@@ -138,6 +138,10 @@ class InvalidAuthToken(Etcd3ClientError):
     error = "etcdserver: invalid auth token"
 
 
+class RevisionOfAuthStoreIsOld(InvalidArgument):
+    error = "etcdserver: revision of auth store is old"
+
+
 errStringToClientError = {getattr(s, 'error'): s for s in Etcd3ClientError.get_subclasses() if hasattr(s, 'error')}
 errCodeToClientError = {getattr(s, 'code'): s for s in Etcd3ClientError.__subclasses__()}
 
@@ -320,6 +324,9 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
                 raise UnsupportedEtcdVersion('Authentication is required by Etcd cluster but not '
                                              'supported on version lower than 3.3.0. Cluster version: '
                                              '{0}'.format('.'.join(map(str, self._cluster_version))))
+            return retry(e)
+        except RevisionOfAuthStoreIsOld as e:
+            logger.error('Auth token is for old revision of auth store')
             return retry(e)
         except InvalidAuthToken as e:
             logger.error('Invalid auth token: %s', self._token)
