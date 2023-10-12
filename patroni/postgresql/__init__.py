@@ -20,6 +20,7 @@ from .cancellable import CancellableSubprocess
 from .config import ConfigHandler, mtime
 from .connection import ConnectionPool, get_connection_cursor
 from .citus import CitusHandler
+from .handler import AbstractHandler
 from .misc import parse_history, parse_lsn, postgres_major_version_to_int
 from .postmaster import PostmasterProcess
 from .slots import SlotsHandler
@@ -49,6 +50,13 @@ STOP_POLLING_INTERVAL = 1
 @contextmanager
 def null_context():
     yield
+
+
+def get_formation_handler(postgresql: 'Postgresql', config: Dict[str, Any]) -> AbstractHandler | None:
+    if config.get('citus') is not None:
+        return CitusHandler(postgresql, config.get('citus'))
+    else:
+        return None
 
 
 class Postgresql(object):
@@ -81,7 +89,7 @@ class Postgresql(object):
         self._pending_restart = False
         self.connection_pool = ConnectionPool()
         self._connection = self.connection_pool.get('heartbeat')
-        self.citus_handler = CitusHandler(self, config.get('citus'))
+        self.formation_handler = get_formation_handler(self, config)
         self.config = ConfigHandler(self, config)
         self.config.check_directories()
 
@@ -1192,7 +1200,8 @@ class Postgresql(object):
             before_promote()
 
         self.slots_handler.on_promote()
-        self.citus_handler.schedule_cache_rebuild()
+        if self.formation_handler is not None:
+            self.formation_handler.schedule_cache_rebuild()
 
         ret = self.pg_ctl('promote', '-W')
         if ret:
@@ -1339,7 +1348,8 @@ class Postgresql(object):
         """
         self.ensure_major_version_is_known()
         self.slots_handler.schedule()
-        self.citus_handler.schedule_cache_rebuild()
+        if self.formation_handler is not None:
+            self.formation_handler.schedule_cache_rebuild()
         self._sysid = ''
 
     def _get_gucs(self) -> CaseInsensitiveSet:

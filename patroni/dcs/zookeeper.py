@@ -13,7 +13,7 @@ from kazoo.security import ACL, make_acl
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
 from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, \
-    TimelineHistory, citus_group_re
+    TimelineHistory, group_re
 from ..exceptions import DCSError
 from ..utils import deep_compare
 if TYPE_CHECKING:  # pragma: no cover
@@ -213,7 +213,7 @@ class ZooKeeper(AbstractDCS):
                 members.append(self.member(member, *data))
         return members
 
-    def _cluster_loader(self, path: str) -> Cluster:
+    def _postgresql_cluster_loader(self, path: str) -> Cluster:
         nodes = set(self.get_children(path))
 
         # get initialize flag
@@ -257,11 +257,11 @@ class ZooKeeper(AbstractDCS):
 
         return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
-    def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+    def _formation_cluster_loader(self, path: str) -> Dict[int, Cluster]:
         ret: Dict[int, Cluster] = {}
         for node in self.get_children(path):
-            if citus_group_re.match(node):
-                ret[int(node)] = self._cluster_loader(path + node + '/')
+            if group_re.match(node):
+                ret[int(node)] = self._postgresql_cluster_loader(path + node + '/')
         return ret
 
     def _load_cluster(

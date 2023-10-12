@@ -130,7 +130,8 @@ class TestConsul(unittest.TestCase):
         self.assertIsInstance(self.c.get_cluster(), Cluster)
 
     def test__get_citus_cluster(self):
-        self.c._citus_group = '0'
+        self.c._formation_group = '0'
+        self.c._cluster_type = 'citus'
         cluster = self.c.get_cluster()
         self.assertIsInstance(cluster, Cluster)
         self.assertIsInstance(cluster.workers[1], Cluster)

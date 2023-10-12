@@ -229,7 +229,8 @@ class TestEtcd3(BaseTestEtcd3):
             self.assertRaises(Etcd3Error, self.etcd3.get_cluster)
 
     def test__get_citus_cluster(self):
-        self.etcd3._citus_group = '0'
+        self.etcd3._formation_group = '0'
+        self.etcd3._cluster_type = 'citus'
         cluster = self.etcd3.get_cluster()
         self.assertIsInstance(cluster, Cluster)
         self.assertIsInstance(cluster.workers[1], Cluster)

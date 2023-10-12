@@ -27,6 +27,8 @@ DEFAULT_CONFIG = {
     'ctl': {'certfile': 'a'},
     'etcd': {'host': 'localhost:2379'},
     'citus': {'database': 'citus', 'group': 0},
+    'group': 0,
+    'cluster_type': 'citus',
     'postgresql': {'data_dir': '.', 'pgpass': './pgpass', 'parameters': {}, 'retry_timeout': 5}
 }
 

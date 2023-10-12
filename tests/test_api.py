@@ -60,7 +60,7 @@ class MockPostgresql:
     wal_flush = '_flush'
     POSTMASTER_START_TIME = 'pg_catalog.pg_postmaster_start_time()'
     TL_LSN = 'CASE WHEN pg_catalog.pg_is_in_recovery()'
-    citus_handler = Mock()
+    formation_handler = Mock()
 
     @staticmethod
     def postmaster_start_time():

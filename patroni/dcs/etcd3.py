@@ -16,7 +16,7 @@ from threading import Condition, Lock, Thread
 from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
 from . import ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, \
-    TimelineHistory, catch_return_false_exception, citus_group_re
+    TimelineHistory, catch_return_false_exception, group_re
 from .etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors, DnsCachingResolver, Retry
 from ..exceptions import DCSError, PatroniException
 from ..utils import deep_compare, enable_keepalive, iter_response_objects, RetryFailedError, USER_AGENT
@@ -703,7 +703,7 @@ class Etcd3(AbstractEtcd):
 
     @property
     def cluster_prefix(self) -> str:
-        return self._base_path + '/' if self.is_citus_coordinator() else self.client_path('')
+        return self._base_path + '/' if self.is_formation_coordinator() else self.client_path('')
 
     @staticmethod
     def member(node: Dict[str, str]) -> Member:
@@ -757,18 +757,18 @@ class Etcd3(AbstractEtcd):
 
         return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
-    def _cluster_loader(self, path: str) -> Cluster:
+    def _postgresql_cluster_loader(self, path: str) -> Cluster:
         nodes = {node['key'][len(path):]: node
                  for node in self._client.get_cluster(path)
                  if node['key'].startswith(path)}
         return self._cluster_from_nodes(nodes)
 
-    def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+    def _formation_cluster_loader(self, path: str) -> Dict[int, Cluster]:
         clusters: Dict[int, Dict[str, Dict[str, Any]]] = defaultdict(dict)
         path = self._base_path + '/'
         for node in self._client.get_cluster(path):
             key = node['key'][len(path):].split('/', 1)
-            if len(key) == 2 and citus_group_re.match(key[0]):
+            if len(key) == 2 and group_re.match(key[0]):
                 clusters[int(key[0])][key[1]] = node
         return {group: self._cluster_from_nodes(nodes) for group, nodes in clusters.items()}
 

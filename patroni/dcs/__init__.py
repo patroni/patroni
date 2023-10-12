@@ -29,9 +29,10 @@ from ..utils import parse_int
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
 
-SLOT_ADVANCE_AVAILABLE_VERSION = 110000
 CITUS_COORDINATOR_GROUP_ID = 0
-citus_group_re = re.compile('^(0|[1-9][0-9]*)$')
+
+SLOT_ADVANCE_AVAILABLE_VERSION = 110000
+group_re = re.compile('^(0|[1-9][0-9]*)$')
 slot_name_re = re.compile('^[a-z0-9_]{1,63}$')
 logger = logging.getLogger(__name__)
 
@@ -176,13 +177,12 @@ def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
     """
     for name, dcs_class in iter_dcs_classes(config):
         # Propagate some parameters from top level of config if defined to the DCS specific config section.
+        # *cluster_type* and *group* should be set to top level of config for formation cluster.
         config[name].update({
             p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
-                                   'patronictl', 'ttl', 'retry_timeout')
+                                   'patronictl', 'ttl', 'retry_timeout',
+                                   'cluster_type', 'group')
             if p in config})
-        # From citus section we only need "group" parameter, but will propagate everything just in case.
-        if isinstance(config.get('citus'), dict):
-            config[name].update(config['citus'])
         return dcs_class(config[name])
 
     raise PatroniFatalException(
@@ -361,7 +361,7 @@ class Member(Tags, NamedTuple('Member',
 class RemoteMember(Member):
     """Represents a remote member (typically a primary) for a standby cluster.
 
-    :cvar ALLOWED_KEYS: Controls access to relevant key names that could be in stored :attr:`~RemoteMember.data`.
+    :cvar ALLOWED_KEYS: Controls access to relevant key names that could be stored in :attr:`~RemoteMember.data`.
     """
 
     ALLOWED_KEYS: Tuple[str, ...] = (
@@ -460,7 +460,7 @@ class Leader(NamedTuple):
 class Failover(NamedTuple):
     """Immutable object (namedtuple) representing configuration information required for failover/switchover capability.
 
-    :ivar version: version of the object.
+    :ivar version: version of the object
     :ivar leader: name of the leader. If value isn't empty we treat it as a switchover from the specified node.
     :ivar candidate: the name of the member node to be considered as a failover candidate.
     :ivar scheduled_at: in the case of a switchover the :class:`~datetime.datetime` object to perform the scheduled
@@ -626,7 +626,7 @@ class SyncState(NamedTuple):
         """Factory method to parse *value* as synchronisation state information.
 
         :param version: optional *version* number for the object.
-        :param value: (optionally JSON serialised) sychronisation state information
+        :param value: (optionally JSON serialised) synchronisation state information
 
         :returns: constructed :class:`SyncState` object.
 
@@ -852,7 +852,7 @@ class Cluster(NamedTuple('Cluster',
                           ('history', Optional[TimelineHistory]),
                           ('failsafe', Optional[Dict[str, str]]),
                           ('workers', Dict[int, 'Cluster'])])):
-    """Immutable object (namedtuple) which represents PostgreSQL or Citus cluster.
+    """Immutable object (namedtuple) which represents PostgreSQL cluster or Formation cluster(only Citus for now).
 
     .. note::
         We are using an old-style attribute declaration here because otherwise it is not possible to override `__new__`
@@ -869,8 +869,8 @@ class Cluster(NamedTuple('Cluster',
     :ivar sync: reference to :class:`SyncState` object, last observed synchronous replication state.
     :ivar history: reference to `TimelineHistory` object.
     :ivar failsafe: failsafe topology. Node is allowed to become the leader only if its name is found in this list.
-    :ivar workers: dictionary of workers of the Citus cluster, optional. Each key is an :class:`int` representing
-                   the group, and the corresponding value is a :class:`Cluster` instance.
+    :ivar workers: dictionary of workers of Formation cluster, optional. Each key is an :class:`int` representing
+                   the formation group, and the corresponding value is a :class:`Cluster` instance.
     """
 
     def __new__(cls, *args: Any, **kwargs: Any):
@@ -1351,11 +1351,11 @@ class AbstractDCS(abc.ABC):
     Functional methods that are critical in their timing, required to complete within ``retry_timeout`` period in order
     to prevent the DCS considered inaccessible, each perform construction of complex data objects:
 
-        * :meth:`~AbstractDCS._cluster_loader`:
+        * :meth:`~AbstractDCS._postgresql_cluster_loader`:
             method which processes the structure of data stored in the DCS used to build the :class:`Cluster` object
             with all relevant associated data.
-        * :meth:`~AbstractDCS._citus_cluster_loader`:
-            Similar to above but specifically representing Citus group and workers information.
+        * :meth:`~AbstractDCS._formation_cluster_loader`:
+            Similar to above but specifically representing Formation cluster information.
         * :meth:`~AbstractDCS._load_cluster`:
             main method for calling specific ``loader`` method to build the :class:`Cluster` object representing the
             state and topology of the cluster.
@@ -1425,14 +1425,16 @@ class AbstractDCS(abc.ABC):
     _FAILSAFE = 'failsafe'
 
     def __init__(self, config: Dict[str, Any]) -> None:
-        """Prepare DCS paths, Citus group ID, initial values for state information and processing dependencies.
+        """Prepare DCS paths, cluster type, formation group, initial values for state information and
+        processing dependencies.
 
         :ivar config: :class:`dict`, reference to config section of selected DCS.
                       i.e.: ``zookeeper`` for zookeeper, ``etcd`` for etcd, etc...
         """
         self._name = config['name']
         self._base_path = re.sub('/+', '/', '/'.join(['', config.get('namespace', 'service'), config['scope']]))
-        self._citus_group = str(config['group']) if isinstance(config.get('group'), int) else None
+        self._cluster_type = config.get('cluster_type', 'postgresql')
+        self._formation_group = str(config['group']) if isinstance(config.get('group'), int) else None
         self._set_loop_wait(config.get('loop_wait', 10))
 
         self._ctl = bool(config.get('patronictl', False))
@@ -1453,8 +1455,8 @@ class AbstractDCS(abc.ABC):
         :returns: absolute key name for the current Patroni cluster.
         """
         components = [self._base_path]
-        if self._citus_group:
-            components.append(self._citus_group)
+        if self._formation_group:
+            components.append(self._formation_group)
         components.append(path.lstrip('/'))
         return '/'.join(components)
 
@@ -1513,6 +1515,17 @@ class AbstractDCS(abc.ABC):
         """Get the client path for ``failsafe``."""
         return self.client_path(self._FAILSAFE)
 
+    @property
+    def coordinator_group_id(self) -> Optional[int]:
+        """Get the formation group of formation coordinator."""
+        if self._cluster_type == 'postgresql':
+            return None
+        elif self._cluster_type == 'citus':
+            return CITUS_COORDINATOR_GROUP_ID
+        else:
+            logger.error('Get coordinator group id not supported for cluster type: %s', self._cluster_type)
+            return None
+
     @abc.abstractmethod
     def set_ttl(self, ttl: int) -> Optional[bool]:
         """Set the new *ttl* value for DCS keys."""
@@ -1555,8 +1568,8 @@ class AbstractDCS(abc.ABC):
         return self._last_seen
 
     @abc.abstractmethod
-    def _cluster_loader(self, path: Any) -> Cluster:
-        """Load and build the :class:`Cluster` object from DCS, which represents a single Patroni or Citus cluster.
+    def _postgresql_cluster_loader(self, path: Any) -> Cluster:
+        """Load and build the :class:`Cluster` object from DCS, which represents a PostgreSQL cluster.
 
         :param path: the path in DCS where to load Cluster(s) from.
 
@@ -1564,13 +1577,14 @@ class AbstractDCS(abc.ABC):
         """
 
     @abc.abstractmethod
-    def _citus_cluster_loader(self, path: Any) -> Union[Cluster, Dict[int, Cluster]]:
-        """Load and build all Patroni clusters from a single Citus cluster.
+    def _formation_cluster_loader(self, path: Any) -> Union[Cluster, Dict[int, Cluster]]:
+        """Load and build all clusters of a formation cluster.
 
         :param path: the path in DCS where to load Cluster(s) from.
 
-        :returns: all Citus groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values or a
-                  :class:`Cluster` object representing the coordinator with filled `Cluster.workers` attribute.
+        :returns: all formation cluster groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as
+                  values or a :class:`Cluster` object representing the coordinator with filled `Cluster.workers`
+                  attribute.
         """
 
     @abc.abstractmethod
@@ -1585,13 +1599,14 @@ class AbstractDCS(abc.ABC):
             the :meth:`~AbstractDCS.get_cluster` method.
 
         :param path: the path in DCS where to load Cluster(s) from.
-        :param loader: one of :meth:`~AbstractDCS._cluster_loader` or :meth:`~AbstractDCS._citus_cluster_loader`.
+        :param loader: one of :meth:`~AbstractDCS._postgresql_cluster_loader` or
+                       :meth:`~AbstractDCS._formation_cluster_loader`.
 
         :raise: :exc:`~DCSError` in case of communication problems with DCS. If the current node was running as a
                 primary and exception raised, instance would be demoted.
         """
 
-    def __get_patroni_cluster(self, path: Optional[str] = None) -> Cluster:
+    def _get_postgresql_cluster(self, path: Optional[str] = None) -> Cluster:
         """Low level method to load a :class:`Cluster` object from DCS.
 
         :param path: optional client path in DCS backend to load from.
@@ -1600,42 +1615,42 @@ class AbstractDCS(abc.ABC):
         """
         if path is None:
             path = self.client_path('')
-        cluster = self._load_cluster(path, self._cluster_loader)
+        cluster = self._load_cluster(path, self._postgresql_cluster_loader)
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(cluster, Cluster)
         return cluster
 
-    def is_citus_coordinator(self) -> bool:
-        """:class:`Cluster` instance has a Citus Coordinator group ID.
+    def is_formation_coordinator(self) -> bool:
+        """:class:`Cluster` instance has a Coordinator group ID.
 
-        :returns: ``True`` if the given node is running as Citus Coordinator (``group=0``).
+        :returns: ``True`` if the given node is running as Coordinator.
         """
-        return self._citus_group == str(CITUS_COORDINATOR_GROUP_ID)
+        return self._formation_group is not None and self._formation_group == str(self.coordinator_group_id)
 
-    def get_citus_coordinator(self) -> Optional[Cluster]:
-        """Load the Patroni cluster for the Citus Coordinator.
+    def get_formation_coordinator_cluster(self) -> Optional[Cluster]:
+        """Load the Coordinator cluster of the formation.
 
           .. note::
-              This method is only executed on the worker nodes (``group!=0``) to find the coordinator.
+              This method is only executed on the worker nodes to find the coordinator.
 
-        :returns: Select :class:`Cluster` instance associated with the Citus Coordinator group ID.
+        :returns: Select :class:`Cluster` instance associated with the Coordinator group ID.
         """
         try:
-            return self.__get_patroni_cluster(f'{self._base_path}/{CITUS_COORDINATOR_GROUP_ID}/')
+            return self._get_postgresql_cluster(f'{self._base_path}/{self.coordinator_group_id}/')
         except Exception as e:
-            logger.error('Failed to load Citus coordinator cluster from %s: %r', self.__class__.__name__, e)
+            logger.error('Failed to load coordinator cluster from %s: %r', self.__class__.__name__, e)
         return None
 
-    def _get_citus_cluster(self) -> Cluster:
-        """Load Citus cluster from DCS.
+    def _get_formation_cluster(self) -> Cluster:
+        """Load formation cluster from DCS.
 
-        :returns: A Citus :class:`Cluster` instance for the coordinator with workers clusters in the `Cluster.workers`
+        :returns: A multi :class:`Cluster` instance for the coordinator with workers clusters in the `Cluster.workers`
                   dict.
         """
-        groups = self._load_cluster(self._base_path + '/', self._citus_cluster_loader)
+        groups = self._load_cluster(self._base_path + '/', self._formation_cluster_loader)
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(groups, dict)
-        cluster = groups.pop(CITUS_COORDINATOR_GROUP_ID, Cluster.empty())
+        cluster = groups.pop(self.coordinator_group_id, Cluster.empty())
         cluster.workers.update(groups)
         return cluster
 
@@ -1646,12 +1661,13 @@ class AbstractDCS(abc.ABC):
             Stores copy of time, status and failsafe values for comparison in DCS update decisions.
             Caching is required to avoid overhead placed upon the REST API.
 
-            Returns either a Citus or Patroni implementation of :class:`Cluster` depending on availability.
+            Returns either a single :class:`Cluster` or formation cluster depending on availability.
 
         :returns:
         """
         try:
-            cluster = self._get_citus_cluster() if self.is_citus_coordinator() else self.__get_patroni_cluster()
+            cluster = self._get_formation_cluster() if self.is_formation_coordinator() \
+                else self._get_postgresql_cluster()
         except Exception:
             self.reset_cluster()
             raise

@@ -2,12 +2,13 @@ import logging
 import re
 import time
 
-from threading import Condition, Event, Thread
+from threading import Condition, Event
 from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
-from ..dcs import CITUS_COORDINATOR_GROUP_ID, Cluster
+from ..dcs import Cluster, CITUS_COORDINATOR_GROUP_ID
 from ..psycopg import connect, quote_ident
+from .handler import AbstractHandler
 
 if TYPE_CHECKING:  # pragma: no cover
     from . import Postgresql
@@ -63,13 +64,10 @@ class PgDistNode(object):
         return str(self)
 
 
-class CitusHandler(Thread):
+class CitusHandler(AbstractHandler):
 
     def __init__(self, postgresql: 'Postgresql', config: Optional[Dict[str, Union[str, int]]]) -> None:
-        super(CitusHandler, self).__init__()
-        self.daemon = True
-        self._postgresql = postgresql
-        self._config = config
+        super(CitusHandler, self).__init__(postgresql, config)
         if config:
             self._connection = postgresql.connection_pool.get(
                 'citus', {'dbname': config['database'],
@@ -81,17 +79,8 @@ class CitusHandler(Thread):
         self._condition = Condition()  # protects _pg_dist_node, _tasks, _in_flight, and _schedule_load_pg_dist_node
         self.schedule_cache_rebuild()
 
-    def is_enabled(self) -> bool:
-        return isinstance(self._config, dict)
-
-    def group(self) -> Optional[int]:
-        return int(self._config['group']) if isinstance(self._config, dict) else None
-
     def is_coordinator(self) -> bool:
         return self.is_enabled() and self.group() == CITUS_COORDINATOR_GROUP_ID
-
-    def is_worker(self) -> bool:
-        return self.is_enabled() and not self.is_coordinator()
 
     def schedule_cache_rebuild(self) -> None:
         with self._condition:
@@ -156,6 +145,9 @@ class CitusHandler(Thread):
             if leader and leader.conn_url\
                     and leader.data.get('role') in ('master', 'primary') and leader.data.get('state') == 'running':
                 self.add_task('after_promote', group, leader.conn_url)
+
+    def sync_coordinator_meta(self, cluster: Cluster) -> None:
+        self.sync_pg_dist_node(cluster)
 
     def find_task_by_group(self, group: int) -> Optional[int]:
         for i, task in enumerate(self._tasks):

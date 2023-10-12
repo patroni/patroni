@@ -13,7 +13,7 @@ from pysyncobj.utility import TcpUtility
 from typing import Any, Callable, Collection, Dict, List, Optional, Set, Union, TYPE_CHECKING
 
 from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, \
-    TimelineHistory, citus_group_re
+    TimelineHistory, group_re
 from ..exceptions import DCSError
 from ..utils import validate_directory
 if TYPE_CHECKING:  # pragma: no cover
@@ -375,19 +375,19 @@ class Raft(AbstractDCS):
 
         return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
-    def _cluster_loader(self, path: str) -> Cluster:
+    def _postgresql_cluster_loader(self, path: str) -> Cluster:
         response = self._sync_obj.get(path, recursive=True)
         if not response:
             return Cluster.empty()
         nodes = {key[len(path):]: value for key, value in response.items()}
         return self._cluster_from_nodes(nodes)
 
-    def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+    def _formation_cluster_loader(self, path: str) -> Dict[int, Cluster]:
         clusters: Dict[int, Dict[str, Any]] = defaultdict(dict)
         response = self._sync_obj.get(path, recursive=True)
         for key, value in (response or {}).items():
             key = key[len(path):].split('/', 1)
-            if len(key) == 2 and citus_group_re.match(key[0]):
+            if len(key) == 2 and group_re.match(key[0]):
                 clusters[int(key[0])][key[1]] = value
         return {group: self._cluster_from_nodes(nodes) for group, nodes in clusters.items()}
 

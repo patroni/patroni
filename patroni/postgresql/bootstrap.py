@@ -433,8 +433,9 @@ END;$$""".format(f, quote_ident(rewind['username'], postgresql.connection()))
                             time.sleep(1)  # give a time to postgres to "reload" configuration files
                             postgresql.connection().close()  # close connection to reconnect with a new password
                 else:  # initdb
-                    # We may want create database and extension for citus
-                    self._postgresql.citus_handler.bootstrap()
+                    # We may want create database and extension for formation clusters
+                    if self._postgresql.formation_handler is not None:
+                        self._postgresql.formation_handler.bootstrap()
         except Exception:
             logger.exception('post_bootstrap')
             task.complete(False)

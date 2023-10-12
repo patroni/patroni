@@ -6,13 +6,13 @@ from . import BaseTestPostgresql, MockCursor, psycopg_connect, SleepException
 from .test_ha import get_cluster_initialized_with_leader
 
 
-@patch('patroni.postgresql.citus.Thread', Mock())
+@patch('patroni.postgresql.handler.Thread', Mock())
 @patch('patroni.psycopg.connect', psycopg_connect)
 class TestCitus(BaseTestPostgresql):
 
     def setUp(self):
         super(TestCitus, self).setUp()
-        self.c = self.p.citus_handler
+        self.c = self.p.formation_handler
         self.cluster = get_cluster_initialized_with_leader()
         self.cluster.workers[1] = self.cluster
 

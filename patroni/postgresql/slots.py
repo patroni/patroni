@@ -289,7 +289,7 @@ class SlotsHandler:
         :param name: name of the slot to ignore
 
         :returns: ``True`` if slot *name* matches any slot specified in ``ignore_slots`` configuration,
-                 otherwise will pass through and return result of :meth:`CitusHandler.ignore_replication_slot`.
+                 otherwise will pass through and return result of :meth:`AbstractHandler.ignore_replication_slot`.
         """
         slot = self._replication_slots[name]
         if cluster.config:
@@ -300,7 +300,9 @@ class SlotsHandler:
                                 for a in ('database', 'plugin', 'type'))
                 ):
                     return True
-        return self._postgresql.citus_handler.ignore_replication_slot(slot)
+        if self._postgresql.formation_handler is not None:
+            return self._postgresql.formation_handler.ignore_replication_slot(slot)
+        return False
 
     def drop_replication_slot(self, name: str) -> Tuple[bool, bool]:
         """Drop a named slot from Postgres.

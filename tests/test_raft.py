@@ -130,7 +130,7 @@ class TestRaft(unittest.TestCase):
     def test_raft(self):
         raft = Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'self_addr': '127.0.0.1:1234',
                      'retry_timeout': 10, 'data_dir': self._TMP,
-                     'database': 'citus', 'group': 0})
+                     'database': 'citus', 'group': 0, 'cluster_type': 'citus'})
         raft.reload_config({'retry_timeout': 20, 'ttl': 60, 'loop_wait': 10})
         self.assertTrue(raft._sync_obj.set(raft.members_path + 'legacy', '{"version":"2.0.0"}'))
         self.assertTrue(raft.touch_member(''))
@@ -139,9 +139,9 @@ class TestRaft(unittest.TestCase):
         self.assertTrue(raft.set_config_value('{}'))
         self.assertTrue(raft.write_sync_state('foo', 'bar'))
         self.assertFalse(raft.write_sync_state('foo', 'bar', 1))
-        raft._citus_group = '1'
+        raft._formation_group = '1'
         self.assertTrue(raft.manual_failover('foo', 'bar'))
-        raft._citus_group = '0'
+        raft._formation_group = '0'
         self.assertTrue(raft.take_leader())
         cluster = raft.get_cluster()
         self.assertIsInstance(cluster, Cluster)
@@ -153,13 +153,13 @@ class TestRaft(unittest.TestCase):
         self.assertTrue(raft.update_leader(leader, '1', failsafe={'foo': 'bat'}))
         self.assertTrue(raft._sync_obj.set(raft.failsafe_path, '{"foo"}'))
         self.assertTrue(raft._sync_obj.set(raft.status_path, '{'))
-        raft.get_citus_coordinator()
+        raft._get_formation_cluster()
         self.assertTrue(raft.delete_sync_state())
         self.assertTrue(raft.set_history_value(''))
         self.assertTrue(raft.delete_cluster())
-        raft._citus_group = '1'
+        raft._group = '1'
         self.assertTrue(raft.delete_cluster())
-        raft._citus_group = None
+        raft._group = None
         raft.get_cluster()
         raft.watch(None, 0.001)
         raft._sync_obj.destroy()

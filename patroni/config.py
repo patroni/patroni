@@ -892,6 +892,13 @@ class Config(object):
             bootstrap = config.setdefault('bootstrap', {})
             dcs = bootstrap.setdefault('dcs', {})
             dcs.setdefault('synchronous_mode', True)
+            # propagate group id and cluster type
+            config['group'] = config['citus']['group']
+            config['cluster_type'] = 'citus'
+        elif 'greenplum' in config:
+            config['cluster_type'] = 'greenplum'
+        else:
+            config['cluster_type'] = 'postgresql'
 
         updated_fields = (
             'name',
