@@ -1548,9 +1548,6 @@ class AbstractDCS(abc.ABC):
                 primary and exception raised, instance would be demoted.
         """
 
-    def _bypass_caches(self) -> None:
-        """Used only in Zookeeper."""
-
     def __get_patroni_cluster(self, path: Optional[str] = None) -> Cluster:
         """Low level method to load a :class:`Cluster` object from DCS.
 
@@ -1593,14 +1590,13 @@ class AbstractDCS(abc.ABC):
                   dict.
         """
         groups = self._load_cluster(self._base_path + '/', self._citus_cluster_loader)
-        if isinstance(groups, Cluster):  # Zookeeper could return a cached version
-            cluster = groups
-        else:
-            cluster = groups.pop(CITUS_COORDINATOR_GROUP_ID, Cluster.empty())
-            cluster.workers.update(groups)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(groups, dict)
+        cluster = groups.pop(CITUS_COORDINATOR_GROUP_ID, Cluster.empty())
+        cluster.workers.update(groups)
         return cluster
 
-    def get_cluster(self, force: bool = False) -> Cluster:
+    def get_cluster(self) -> Cluster:
         """Retrieve an appropriate cached or fresh view of DCS.
 
         .. note::
@@ -1609,12 +1605,8 @@ class AbstractDCS(abc.ABC):
 
             Returns either a Citus or Patroni implementation of :class:`Cluster` depending on availability.
 
-        :param force: a value of ``True`` will override Zookeeper caching features.
-
         :returns:
         """
-        if force:
-            self._bypass_caches()
         try:
             cluster = self._get_citus_cluster() if self.is_citus_coordinator() else self.__get_patroni_cluster()
         except Exception:

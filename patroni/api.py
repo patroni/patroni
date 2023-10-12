@@ -451,7 +451,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Write an HTTP response with JSON content based on the output of :func:`~patroni.utils.cluster_as_json`, with
         HTTP status ``200`` and the JSON representation of the cluster topology.
         """
-        cluster = self.server.patroni.dcs.get_cluster(True)
+        cluster = self.server.patroni.dcs.get_cluster()
         global_config = self.server.patroni.config.get_global_config(cluster)
 
         response = cluster_as_json(cluster, global_config)
@@ -690,7 +690,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         request = self._read_json_content()
         if request:
-            cluster = self.server.patroni.dcs.get_cluster(True)
+            cluster = self.server.patroni.dcs.get_cluster()
             if not (cluster.config and cluster.config.modify_version):
                 return self.send_error(503)
             data = cluster.config.data.copy()
@@ -1166,7 +1166,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         patroni = self.server.patroni
         if patroni.postgresql.citus_handler.is_coordinator() and patroni.ha.is_leader():
-            cluster = patroni.dcs.get_cluster(True)
+            cluster = patroni.dcs.get_cluster()
             patroni.postgresql.citus_handler.handle_event(cluster, request)
         self.write_response(200, 'OK')
 
