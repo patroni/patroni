@@ -327,23 +327,24 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
 
     @_handle_auth_errors
     def range(self, key: str, range_end: Union[bytes, str, None] = None, serializable: bool = True,
-              retry: Optional[Retry] = None) -> Dict[str, Any]:
+              *, retry: Optional[Retry] = None) -> Dict[str, Any]:
         params = build_range_request(key, range_end)
         params['serializable'] = serializable  # For better performance. We can tolerate stale reads
         return self.call_rpc('/kv/range', params, retry)
 
-    def prefix(self, key: str, serializable: bool = True, retry: Optional[Retry] = None) -> Dict[str, Any]:
-        return self.range(key, prefix_range_end(key), serializable, retry)
+    def prefix(self, key: str, serializable: bool = True, *, retry: Optional[Retry] = None) -> Dict[str, Any]:
+        return self.range(key, prefix_range_end(key), serializable, retry=retry)
 
     @_handle_auth_errors
-    def lease_grant(self, ttl: int, retry: Optional[Retry] = None) -> str:
+    def lease_grant(self, ttl: int, *, retry: Optional[Retry] = None) -> str:
         return self.call_rpc('/lease/grant', {'TTL': ttl}, retry)['ID']
 
-    def lease_keepalive(self, ID: str, retry: Optional[Retry] = None) -> Optional[str]:
+    def lease_keepalive(self, ID: str, *, retry: Optional[Retry] = None) -> Optional[str]:
         return self.call_rpc('/lease/keepalive', {'ID': ID}, retry).get('result', {}).get('TTL')
 
+    @_handle_auth_errors
     def txn(self, compare: Dict[str, Any], success: Dict[str, Any],
-            failure: Optional[Dict[str, Any]] = None, retry: Optional[Retry] = None) -> Dict[str, Any]:
+            failure: Optional[Dict[str, Any]] = None, *, retry: Optional[Retry] = None) -> Dict[str, Any]:
         fields = {'compare': [compare], 'success': [success]}
         if failure:
             fields['failure'] = [failure]
@@ -352,7 +353,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
 
     @_handle_auth_errors
     def put(self, key: str, value: str, lease: Optional[str] = None, create_revision: Optional[str] = None,
-            mod_revision: Optional[str] = None, retry: Optional[Retry] = None) -> Dict[str, Any]:
+            mod_revision: Optional[str] = None, *, retry: Optional[Retry] = None) -> Dict[str, Any]:
         fields = {'key': base64_encode(key), 'value': base64_encode(value)}
         if lease:
             fields['lease'] = lease
@@ -367,14 +368,14 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
 
     @_handle_auth_errors
     def deleterange(self, key: str, range_end: Union[bytes, str, None] = None,
-                    mod_revision: Optional[str] = None, retry: Optional[Retry] = None) -> Dict[str, Any]:
+                    mod_revision: Optional[str] = None, *, retry: Optional[Retry] = None) -> Dict[str, Any]:
         fields = build_range_request(key, range_end)
         if mod_revision is None:
             return self.call_rpc('/kv/deleterange', fields, retry)
         compare = {'target': 'MOD', 'mod_revision': mod_revision, 'key': fields['key']}
         return self.txn(compare, {'request_delete_range': fields}, retry=retry)
 
-    def deleteprefix(self, key: str, retry: Optional[Retry] = None) -> Dict[str, Any]:
+    def deleteprefix(self, key: str, *, retry: Optional[Retry] = None) -> Dict[str, Any]:
         return self.deleterange(key, prefix_range_end(key), retry=retry)
 
     def watchrange(self, key: str, range_end: Union[bytes, str, None] = None,
@@ -631,8 +632,8 @@ class PatroniEtcd3Client(Etcd3Client):
         return ret
 
     def txn(self, compare: Dict[str, Any], success: Dict[str, Any],
-            failure: Optional[Dict[str, Any]] = None, retry: Optional[Retry] = None) -> Dict[str, Any]:
-        ret = super(PatroniEtcd3Client, self).txn(compare, success, failure, retry)
+            failure: Optional[Dict[str, Any]] = None, *, retry: Optional[Retry] = None) -> Dict[str, Any]:
+        ret = super(PatroniEtcd3Client, self).txn(compare, success, failure, retry=retry)
         # Here we abuse the fact that the `failure` is only set in the call from update_leader().
         # In all other cases the txn() call failure may be an indicator of a stale cache,
         # and therefore we want to restart watcher.
@@ -676,12 +677,12 @@ class Etcd3(AbstractEtcd):
         if not force and self._lease and self._last_lease_refresh + self._loop_wait > time.time():
             return False
 
-        if self._lease and not self._client.lease_keepalive(self._lease, retry):
+        if self._lease and not self._client.lease_keepalive(self._lease, retry=retry):
             self._lease = None
 
         ret = not self._lease
         if ret:
-            self._lease = self._client.lease_grant(self._ttl, retry)
+            self._lease = self._client.lease_grant(self._ttl, retry=retry)
 
         self._last_lease_refresh = time.time()
         return ret
