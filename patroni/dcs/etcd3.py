@@ -199,7 +199,7 @@ def build_range_request(key: str, range_end: Union[bytes, str, None] = None) -> 
 
 def _handle_auth_errors(func: Callable[..., Any]) -> Any:
     def wrapper(self: 'Etcd3Client', *args: Any, **kwargs: Any) -> Any:
-        return self.handle_auth_errors(func, *args, **kwargs)
+        return self.create_auth_retry()(lambda: self.handle_auth_errors(func, *args, **kwargs))
     return wrapper
 
 
@@ -306,8 +306,11 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             self._token = response.get('token')
         return old_token != self._token
 
+    def create_auth_retry(self) -> Retry:
+        return Retry(max_tries=-1, retry_exceptions=(RevisionOfAuthStoreIsOld,))
+
     def handle_auth_errors(self: 'Etcd3Client', func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        def retry(ex: Exception) -> Any:
+        def authenticate_and_retry_once(ex: Exception) -> Any:
             if self.username and self.password:
                 self.authenticate()
                 return func(self, *args, **kwargs)
@@ -324,13 +327,15 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
                 raise UnsupportedEtcdVersion('Authentication is required by Etcd cluster but not '
                                              'supported on version lower than 3.3.0. Cluster version: '
                                              '{0}'.format('.'.join(map(str, self._cluster_version))))
-            return retry(e)
+            return authenticate_and_retry_once(e)
         except RevisionOfAuthStoreIsOld as e:
             logger.error('Auth token is for old revision of auth store')
-            return retry(e)
+            # We raise the exception so that it can be retried by the auth retry-er more than once.
+            self.authenticate()
+            raise e
         except InvalidAuthToken as e:
             logger.error('Invalid auth token: %s', self._token)
-            return retry(e)
+            return authenticate_and_retry_once(e)
 
     @_handle_auth_errors
     def range(self, key: str, range_end: Union[bytes, str, None] = None, serializable: bool = True,

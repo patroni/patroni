@@ -167,6 +167,7 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
             self.assertRaises(InvalidAuthToken, self.client.deleteprefix, 'foo')
 
     @patch.object(urllib3.PoolManager, 'urlopen')
+    @patch('time.sleep', Mock(return_value=None))
     def test__handle_revision_of_auth_store_is_old(self, mock_urlopen):
         mock_auth_error_response = MockResponse()
         mock_auth_error_response.content = '{"code":3,"error":"etcdserver: revision of auth store is old"}'
@@ -178,9 +179,13 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         expected_result = {'header': {'revision': '1'}, 'deleted': 1}
 
         with patch.object(PatroniEtcd3Client, 'authenticate', Mock(return_value=True)):
-            # With the authenticate call mocked out, the first call to put will fail.
-            # But it will retry successfully.
-            mock_urlopen.side_effect = [mock_auth_error_response, mock_put_response]
+            # The auth store could change after we re-authenticate, so we may need to re-authenticate multiple times.
+            mock_urlopen.side_effect = [
+                mock_auth_error_response,
+                mock_auth_error_response,
+                mock_auth_error_response,
+                mock_put_response,
+            ]
 
             result = self.client.deleteprefix('foo')
 
