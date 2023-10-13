@@ -124,6 +124,10 @@ class AuthFailed(InvalidArgument):
     error = "etcdserver: authentication failed, invalid user ID or password"
 
 
+class AuthOldRevision(InvalidArgument):
+    error = "etcdserver: revision of auth store is old"
+
+
 class PermissionDenied(Etcd3ClientError):
     code = GRPCCode.PermissionDenied
     error = "etcdserver: permission denied"
@@ -193,6 +197,12 @@ def build_range_request(key: str, range_end: Union[bytes, str, None] = None) -> 
     return fields
 
 
+class ReAuthenticateReason(IntEnum):
+    NOT_REQUIRED = 0
+    REQUIRED = 1
+    WITHOUT_WATCHER_RESTART = 2
+
+
 def _handle_auth_errors(func: Callable[..., Any]) -> Any:
     def wrapper(self: 'Etcd3Client', *args: Any, **kwargs: Any) -> Any:
         return self.handle_auth_errors(func, *args, **kwargs)
@@ -204,6 +214,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     ERROR_CLS = Etcd3Error
 
     def __init__(self, config: Dict[str, Any], dns_resolver: DnsCachingResolver, cache_ttl: int = 300) -> None:
+        self._reauthenticate_reason = ReAuthenticateReason.NOT_REQUIRED
         self._token = None
         self._cluster_version: Tuple[int, ...] = tuple()
         super(Etcd3Client, self).__init__({**config, 'version_prefix': '/v3beta'}, dns_resolver, cache_ttl)
@@ -282,7 +293,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         fields['retry'] = retry
         return self.api_execute(self.version_prefix + method, self._MPOST, fields)
 
-    def authenticate(self) -> bool:
+    def authenticate(self, *, restart_watcher: bool = True, retry: Optional[Retry] = None) -> bool:
         if self._use_proxies and not self._cluster_version:
             kwargs = self._prepare_common_parameters(1)
             self._ensure_version_prefix(self._base_uri, **kwargs)
@@ -291,7 +302,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         logger.info('Trying to authenticate on Etcd...')
         old_token, self._token = self._token, None
         try:
-            response = self.call_rpc('/auth/authenticate', {'name': self.username, 'password': self.password})
+            response = self.call_rpc('/auth/authenticate', {'name': self.username, 'password': self.password}, retry)
         except AuthNotEnabled:
             logger.info('Etcd authentication is not enabled')
             self._token = None
@@ -302,28 +313,44 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             self._token = response.get('token')
         return old_token != self._token
 
-    def handle_auth_errors(self: 'Etcd3Client', func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        def retry(ex: Exception) -> Any:
-            if self.username and self.password:
-                self.authenticate()
-                return func(self, *args, **kwargs)
-            else:
-                logger.fatal('Username or password not set, authentication is not possible')
-                raise ex
+    def handle_auth_errors(self: 'Etcd3Client', func: Callable[..., Any], *args: Any,
+                           retry: Optional[Retry] = None, **kwargs: Any) -> Any:
+        exc = None
+        while True:
+            if self._reauthenticate_reason:
+                if self.username and self.password:
+                    self.authenticate(
+                        restart_watcher=self._reauthenticate_reason != ReAuthenticateReason.WITHOUT_WATCHER_RESTART,
+                        retry=retry)
+                    self._reauthenticate_reason = ReAuthenticateReason.NOT_REQUIRED
+                    if retry:
+                        retry.ensure_deadline(0)
+                else:
+                    msg = 'Username or password not set, authentication is not possible'
+                    logger.fatal(msg)
+                    raise exc or Etcd3Exception(msg)
 
-        try:
-            return func(self, *args, **kwargs)
-        except (UserEmpty, PermissionDenied) as e:  # no token provided
-            # PermissionDenied is raised on 3.0 and 3.1
-            if self._cluster_version < (3, 3) and (not isinstance(e, PermissionDenied)
-                                                   or self._cluster_version < (3, 2)):
-                raise UnsupportedEtcdVersion('Authentication is required by Etcd cluster but not '
-                                             'supported on version lower than 3.3.0. Cluster version: '
-                                             '{0}'.format('.'.join(map(str, self._cluster_version))))
-            return retry(e)
-        except InvalidAuthToken as e:
-            logger.error('Invalid auth token: %s', self._token)
-            return retry(e)
+            try:
+                return func(self, *args, retry=retry, **kwargs)
+            except (UserEmpty, PermissionDenied) as e:  # no token provided
+                # PermissionDenied is raised on 3.0 and 3.1
+                if self._cluster_version < (3, 3) and (not isinstance(e, PermissionDenied)
+                                                       or self._cluster_version < (3, 2)):
+                    raise UnsupportedEtcdVersion('Authentication is required by Etcd cluster but not '
+                                                 'supported on version lower than 3.3.0. Cluster version: '
+                                                 '{0}'.format('.'.join(map(str, self._cluster_version))))
+                exc = e
+            except InvalidAuthToken as e:
+                logger.error('Invalid auth token: %s', self._token)
+                exc = e
+            except AuthOldRevision as e:
+                logger.error('Auth token is for old revision of auth store')
+                exc = e
+            self._reauthenticate_reason = ReAuthenticateReason.WITHOUT_WATCHER_RESTART \
+                if isinstance(exc, AuthOldRevision) else ReAuthenticateReason.REQUIRED
+            if not retry:
+                raise exc
+            retry.ensure_deadline(0.5, exc)
 
     @_handle_auth_errors
     def range(self, key: str, range_end: Union[bytes, str, None] = None, serializable: bool = True,
@@ -575,9 +602,9 @@ class PatroniEtcd3Client(Etcd3Client):
         super(PatroniEtcd3Client, self).set_base_uri(value)
         self._restart_watcher()
 
-    def authenticate(self) -> bool:
-        ret = super(PatroniEtcd3Client, self).authenticate()
-        if ret:
+    def authenticate(self, *, restart_watcher: bool = True, retry: Optional[Retry] = None) -> bool:
+        ret = super(PatroniEtcd3Client, self).authenticate(restart_watcher=restart_watcher, retry=retry)
+        if ret and restart_watcher:
             self._restart_watcher()
         return ret
 
