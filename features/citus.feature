@@ -68,6 +68,6 @@ Feature: citus
     And I receive a response output "+ttl: 20"
     Then postgres4 is registered in the postgres2 as the primary in group 2 after 5 seconds
     When I shut down postgres4
-    Then There is a transaction in progress on postgres0 changing pg_dist_node
+    Then there is a transaction in progress on postgres0 changing pg_dist_node after 5 seconds
     When I run patronictl.py restart batman postgres2 --group 1 --force
     Then a transaction finishes in 20 seconds
