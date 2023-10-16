@@ -400,7 +400,7 @@ BEGIN
 END;$$""".format(f, quote_ident(rewind['username'], postgresql.connection()))
                         postgresql.query(sql)
 
-                if len((config.get('users') or {}).items()) > 0:
+                if config.get('users'):
                     logger.error('user creation is not be supported after v4.0.0')
                     raise Exception('user creation is not be supported after v4.0.0')
 
