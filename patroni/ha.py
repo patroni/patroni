@@ -936,7 +936,7 @@ class Ha(object):
             replication slots while DCS is not accessible in order to avoid indefinite growth of ``pg_wal``.
 
         :returns: ``True`` if all members from the ``/failsafe`` topology agree that this node could continue to
-                  run as a ``primary``, or ``False`` if some of standby nodes are not accessible of don't agree.
+                  run as a ``primary``, or ``False`` if some of standby nodes are not accessible or don't agree.
         """
         failsafe = self.dcs.failsafe
         if not isinstance(failsafe, dict) or self.state_handler.name not in failsafe:
