@@ -403,6 +403,9 @@ class CitusHandler(Thread):
         # Resharding in Citus implemented using logical replication
         parameters['wal_level'] = 'logical'
 
+        # Sometimes Citus needs to connect to the local postgres. We will do it the same way as Patroni does.
+        parameters['citus.local_hostname'] = self._postgresql.connection_pool.conn_kwargs.get('host', 'localhost')
+
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
         if isinstance(self._config, dict) and self._postgresql.is_primary() and\
                 slot['type'] == 'logical' and slot['database'] == self._config['database']:

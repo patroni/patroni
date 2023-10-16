@@ -191,7 +191,7 @@ There is no further relationship between the standby cluster and the primary
 cluster it replicates from, in particular, they must not share the same DCS
 scope if they use the same DCS. They do not know anything else from each other
 apart from replication information. Also, the standby cluster is not being
-displayed in ``patronictl list`` or ``patronictl topology`` output on the
+displayed in :ref:`patronictl_list` or :ref:`patronictl_topology` output on the
 primary cluster.
 
 For the sake of flexibility, you can specify methods of creating a replica and

@@ -42,12 +42,12 @@ You can find below an overview of steps for converting an existing Postgres clus
 
    #. Start Patroni using the ``patroni`` systemd service unit. It automatically detects that Postgres is already running and starts monitoring the instance.
 
-#. Hand over Postgres "start up procedure" to Patroni. In order to do that you need to restart the cluster members through ``patronictl restart cluster-name member-name`` command. For minimal downtime you might want to split this step into:
+#. Hand over Postgres "start up procedure" to Patroni. In order to do that you need to restart the cluster members through :ref:`patronictl restart cluster-name member-name <patronictl_restart_parameters>` command. For minimal downtime you might want to split this step into:
 
    #. Immediate restart of the standby nodes.
    #. Scheduled restart of the primary node within a maintenance window.
 
-#. If you configured permanent slots in step ``1.2.``, then you should remove them from ``slots`` configuration through ``patronictl edit-config cluster-name member-name`` command once the ``restart_lsn`` of the slots created by Patroni is able to catch up with the ``restart_lsn`` of the original slots for the corresponding members. By removing the slots from ``slots`` configuration you will allow Patroni to drop the original slots from your cluster once they are not needed anymore. You can find below an example query to check the ``restart_lsn`` of a couple slots, so you can compare them:
+#. If you configured permanent slots in step ``1.2.``, then you should remove them from ``slots`` configuration through :ref:`patronictl edit-config cluster-name member-name <patronictl_edit_config_parameters>` command once the ``restart_lsn`` of the slots created by Patroni is able to catch up with the ``restart_lsn`` of the original slots for the corresponding members. By removing the slots from ``slots`` configuration you will allow Patroni to drop the original slots from your cluster once they are not needed anymore. You can find below an example query to check the ``restart_lsn`` of a couple slots, so you can compare them:
 
    .. code-block:: sql
 
@@ -73,7 +73,7 @@ The only possible way to do a major upgrade currently is:
 #. Stop Patroni
 #. Upgrade PostgreSQL binaries and perform `pg_upgrade <https://www.postgresql.org/docs/current/pgupgrade.html>`_ on the primary node
 #. Update patroni.yml
-#. Remove the initialize key from DCS or wipe complete cluster state from DCS. The second one could be achieved by running ``patronictl remove <cluster-name>``. It is necessary because pg_upgrade runs initdb which actually creates a new database with a new PostgreSQL system identifier.
+#. Remove the initialize key from DCS or wipe complete cluster state from DCS. The second one could be achieved by running :ref:`patronictl remove cluster-name <patronictl_remove_parameters>` . It is necessary because pg_upgrade runs initdb which actually creates a new database with a new PostgreSQL system identifier.
 #. If you wiped the cluster state in the previous step, you may wish to copy patroni.dynamic.json from old data dir to the new one.  It will help you to retain some PostgreSQL parameters you had set before.
 #. Start Patroni on the primary node.
 #. Upgrade PostgreSQL binaries, update patroni.yml and wipe the data_dir on standby nodes.

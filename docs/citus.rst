@@ -38,14 +38,18 @@ After that you just need to start Patroni and it will handle the rest:
 2. If ``max_prepared_transactions`` isn't explicitly set in the global
    :ref:`dynamic configuration <dynamic_configuration>` Patroni will
    automatically set it to ``2*max_connections``.
-3. The ``citus.database`` will be automatically created followed by ``CREATE EXTENSION citus``.
-4. Current superuser :ref:`credentials <postgresql_settings>` will be added to the ``pg_dist_authinfo``
+3. The ``citus.local_hostname`` GUC value will be adjusted from ``localhost`` to the
+   value that Patroni is using in order to connect to the local PostgreSQL
+   instance. The value sometimes should be different from the ``localhost``
+   because PostgreSQL might be not listening on it.
+4. The ``citus.database`` will be automatically created followed by ``CREATE EXTENSION citus``.
+5. Current superuser :ref:`credentials <postgresql_settings>` will be added to the ``pg_dist_authinfo``
    table to allow cross-node communication. Don't forget to update them if
    later you decide to change superuser username/password/sslcert/sslkey!
-5. The coordinator primary node will automatically discover worker primary
+6. The coordinator primary node will automatically discover worker primary
    nodes and add them to the ``pg_dist_node`` table using the
    ``citus_add_node()`` function.
-6. Patroni will also maintain ``pg_dist_node`` in case failover/switchover
+7. Patroni will also maintain ``pg_dist_node`` in case failover/switchover
    on the coordinator or worker clusters occurs.
 
 patronictl
@@ -57,7 +61,7 @@ clusters that are just logically groupped together using the
 PostgreSQL. Therefore in most cases it is not possible to manage them as a
 single entity.
 
-It results in two major differences in ``patronictl`` behaviour when
+It results in two major differences in :ref:`patronictl` behaviour when
 ``patroni.yaml`` has the ``citus`` section comparing with the usual:
 
 1. The ``list`` and the ``topology`` by default output all members of the Citus
@@ -65,12 +69,12 @@ It results in two major differences in ``patronictl`` behaviour when
    which Citus group they belong to.
 2. For all ``patronictl`` commands the new option is introduced, named
    ``--group``. For some commands the default value for the group might be
-   taken from the ``patroni.yaml``. For example, ``patronictl pause`` will
+   taken from the ``patroni.yaml``. For example, :ref:`patronictl_pause` will
    enable the maintenance mode by default for the ``group`` that is set in the
-   ``citus`` section, but for example for ``patronictl  switchover`` or
-   ``patronictl remove`` the group must be explicitly specified.
+   ``citus`` section, but for example for :ref:`patronictl_switchover` or
+   :ref:`patronictl_remove` the group must be explicitly specified.
 
-An example of ``patronictl list`` output for the Citus cluster::
+An example of :ref:`patronictl_list` output for the Citus cluster::
 
     postgres@coord1:~$ patronictl list demo
     + Citus cluster: demo ----------+--------------+---------+----+-----------+
@@ -115,7 +119,7 @@ the coordinator for the shards hosted on a worker node. The switchover then
 happens while the traffic is kept on the coordinator, and resumes as soon as a
 new primary worker node is ready to accept read-write queries.
 
-An example of ``patronictl switchover`` on the worker cluster::
+An example of :ref:`patronictl_switchover` on the worker cluster::
 
     postgres@coord1:~$ patronictl switchover demo
     + Citus cluster: demo ----------+--------------+---------+----+-----------+
@@ -343,7 +347,7 @@ Citus upgrades and PostgreSQL major upgrades
 
 First, please read about upgrading Citus version in the `documentation`__.
 There is one minor change in the process. When executing upgrade, you have to
-use ``patronictl restart`` instead of ``systemctl restart`` to restart
+use :ref:`patronictl_restart` instead of ``systemctl restart`` to restart
 PostgreSQL.
 
 __ https://docs.citusdata.com/en/latest/admin_guide/upgrading_citus.html

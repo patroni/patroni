@@ -34,6 +34,7 @@ def start_patroni_standby_cluster(context, name, cluster_name, name2):
                 "ttl": 20,
                 "loop_wait": 2,
                 "retry_timeout": 5,
+                "synchronous_mode": True,  # should be completely ignored
                 "standby_cluster": {
                     "host": "localhost",
                     "port": port,
