@@ -13,7 +13,6 @@ class TestCitus(BaseTestPostgresql):
     def setUp(self):
         super(TestCitus, self).setUp()
         self.c = self.p.citus_handler
-        self.p.connection_pool.conn_kwargs = {'host': 'localhost', 'dbname': 'postgres'}
         self.cluster = get_cluster_initialized_with_leader()
         self.cluster.workers[1] = self.cluster
 
@@ -139,6 +138,7 @@ class TestCitus(BaseTestPostgresql):
         self.assertEqual(parameters['max_prepared_transactions'], 202)
         self.assertEqual(parameters['shared_preload_libraries'], 'citus,foo,bar')
         self.assertEqual(parameters['wal_level'], 'logical')
+        self.assertEqual(parameters['citus.local_hostname'], '/tmp')
 
     def test_bootstrap(self):
         self.c._config = None

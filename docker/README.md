@@ -78,7 +78,7 @@ Example session:
     |   demo  | patroni3 | 172.22.0.4 |        | running |  1 |         0 |
     +---------+----------+------------+--------+---------+----+-----------+
 
-    postgres@patroni1:~$ etcdctl ls --recursive --sort -p /service/demo
+    postgres@patroni1:~$ etcdctl get --keys-only --prefix /service/demo
     /service/demo/config
     /service/demo/initialize
     /service/demo/leader

@@ -34,7 +34,7 @@ Bootstrap configuration
 .. note::
     Once Patroni has initialized the cluster for the first time and settings have been stored in the DCS, all future
     changes to the ``bootstrap.dcs`` section of the YAML configuration will not take any effect! If you want to change
-    them please use either ``patronictl edit-config`` or the Patroni :ref:`REST API <rest_api>`.
+    them please use either :ref:`patronictl_edit_config` or the Patroni :ref:`REST API <rest_api>`.
 
 -  **bootstrap**:
 
@@ -366,10 +366,10 @@ CTL
 
    -  **authentication**:
 
-      -  **username**: Basic-auth username for accessing protected REST API endpoints. If not provided patronictl will use the value provided for REST API "username" parameter.
-      -  **password**: Basic-auth password for accessing protected REST API endpoints. If not provided patronictl will use the value provided for REST API "password" parameter.
+      -  **username**: Basic-auth username for accessing protected REST API endpoints. If not provided :ref:`patronictl` will use the value provided for REST API "username" parameter.
+      -  **password**: Basic-auth password for accessing protected REST API endpoints. If not provided :ref:`patronictl` will use the value provided for REST API "password" parameter.
    -  **insecure**: Allow connections to REST API without verifying SSL certs.
-   -  **cacert**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "cafile" parameter.
+   -  **cacert**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided :ref:`patronictl` will use the value provided for REST API "cafile" parameter.
    -  **certfile**: Specifies the file with the client certificate in the PEM format.
    -  **keyfile**: Specifies the file with the client secret key in the PEM format.
    -  **keyfile\_password**: Specifies a password for decrypting the client keyfile.
@@ -397,4 +397,4 @@ In addition to these predefined tags, you can also add your own ones:
 -  **key3**: ``1.4``
 -  **key4**: ``"RandomString"``
 
-Tags are visible in the :ref:`REST API <rest_api>` and ``patronictl list`` You can also check for an instance health using these tags. If the tag isn't defined for an instance, or if the respective value doesn't match the querying value, it will return HTTP Status Code 503.
+Tags are visible in the :ref:`REST API <rest_api>` and :ref:`patronictl_list` You can also check for an instance health using these tags. If the tag isn't defined for an instance, or if the respective value doesn't match the querying value, it will return HTTP Status Code 503.

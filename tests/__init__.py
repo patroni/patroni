@@ -241,7 +241,7 @@ class PostgresInit(unittest.TestCase):
                                                 'replication': {'username': '', 'password': 'rep-pass'},
                                                 'rewind': {'username': 'rewind', 'password': 'test'}},
                              'remove_data_directory_on_rewind_failure': True,
-                             'use_pg_rewind': True, 'pg_ctl_timeout': 'bla',
+                             'use_pg_rewind': True, 'pg_ctl_timeout': 'bla', 'use_unix_socket': True,
                              'parameters': self._PARAMETERS,
                              'recovery_conf': {'foo': 'bar'},
                              'pg_hba': ['host all all 0.0.0.0/0 md5'],

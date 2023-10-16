@@ -35,5 +35,6 @@ class TestCallbackExecutor(unittest.TestCase):
         ce._invoke_excepthook = Mock()
         self.assertIsNone(ce.call(callback))
 
+        mock_popen.side_effect = [Mock()]
         self.assertIsNone(ce.call(['test.sh', 'on_reload', 'replica', 'foo']))
         ce.join()
