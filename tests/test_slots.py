@@ -128,6 +128,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.cluster.slots['ls'] = 'a'
         self.assertEqual(self.s.sync_replication_slots(self.cluster, False), [])
         self.cluster.config.data['slots']['ls']['database'] = 'b'
+        self.cluster.slots['ls'] = '500'
         with patch.object(MockCursor, 'rowcount', PropertyMock(return_value=1), create=True):
             self.assertEqual(self.s.sync_replication_slots(self.cluster, False), ['ls'])
 
