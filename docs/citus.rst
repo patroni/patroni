@@ -38,7 +38,7 @@ After that you just need to start Patroni and it will handle the rest:
 2. If ``max_prepared_transactions`` isn't explicitly set in the global
    :ref:`dynamic configuration <dynamic_configuration>` Patroni will
    automatically set it to ``2*max_connections``.
-3. Will adjust ``citus.local_hostname`` GUC value from ``localhost`` to the
+3. The ``citus.local_hostname`` GUC value will be adjusted from ``localhost`` to the
    value that Patroni is using in order to connect to the local PostgreSQL
    instance. The value sometimes should be different from the ``localhost``
    because PostgreSQL might be not listening on it.
