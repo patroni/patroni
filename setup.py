@@ -148,7 +148,7 @@ def main():
         if not extra:
             install_requires.append(r)
 
-    # Just for convinience, if someone wants to install dependencies for all extras
+    # Just for convenience, if someone wants to install dependencies for all extras
     EXTRAS_REQUIRE['all'] = list({e for extras in EXTRAS_REQUIRE.values() for e in extras})
 
     patroni_version, min_psycopg2, min_psycopg3 = get_versions()

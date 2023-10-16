@@ -107,7 +107,7 @@ aws
 all
     all of the above (except psycopg family)
 psycopg3
-    `psycopg>=3.0.0` module
+    `psycopg[binary]>=3.0.0` module
 psycopg2
     `psycopg2>=2.5.4` module
 psycopg2-binary
