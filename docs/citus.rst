@@ -38,14 +38,18 @@ After that you just need to start Patroni and it will handle the rest:
 2. If ``max_prepared_transactions`` isn't explicitly set in the global
    :ref:`dynamic configuration <dynamic_configuration>` Patroni will
    automatically set it to ``2*max_connections``.
-3. The ``citus.database`` will be automatically created followed by ``CREATE EXTENSION citus``.
-4. Current superuser :ref:`credentials <postgresql_settings>` will be added to the ``pg_dist_authinfo``
+3. The ``citus.local_hostname`` GUC value will be adjusted from ``localhost`` to the
+   value that Patroni is using in order to connect to the local PostgreSQL
+   instance. The value sometimes should be different from the ``localhost``
+   because PostgreSQL might be not listening on it.
+4. The ``citus.database`` will be automatically created followed by ``CREATE EXTENSION citus``.
+5. Current superuser :ref:`credentials <postgresql_settings>` will be added to the ``pg_dist_authinfo``
    table to allow cross-node communication. Don't forget to update them if
    later you decide to change superuser username/password/sslcert/sslkey!
-5. The coordinator primary node will automatically discover worker primary
+6. The coordinator primary node will automatically discover worker primary
    nodes and add them to the ``pg_dist_node`` table using the
    ``citus_add_node()`` function.
-6. Patroni will also maintain ``pg_dist_node`` in case failover/switchover
+7. Patroni will also maintain ``pg_dist_node`` in case failover/switchover
    on the coordinator or worker clusters occurs.
 
 patronictl
