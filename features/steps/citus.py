@@ -115,12 +115,18 @@ def count_rows(context, name):
     assert rows == context.insert_counter, "Distributed table doesn't have expected amount of rows"
 
 
-@step("There is a transaction in progress on {name:w} changing pg_dist_node")
-def check_transaction(context, name):
-    cur = context.pctl.query(name, "SELECT xact_start FROM pg_stat_activity WHERE pid <> pg_backend_pid()"
-                                   " AND state = 'idle in transaction' AND query ~ 'citus_update_node'")
-    assert cur.rowcount == 1, "There is no idle in transaction updating pg_dist_node"
-    context.xact_start = cur.fetchone()[0]
+@step("there is a transaction in progress on {name:w} changing pg_dist_node after {time_limit:d} seconds")
+def check_transaction(context, name, time_limit):
+    time_limit *= context.timeout_multiplier
+    max_time = time.time() + int(time_limit)
+    while time.time() < max_time:
+        cur = context.pctl.query(name, "SELECT xact_start FROM pg_stat_activity WHERE pid <> pg_backend_pid()"
+                                       " AND state = 'idle in transaction' AND query ~ 'citus_update_node'")
+        if cur.rowcount == 1:
+            context.xact_start = cur.fetchone()[0]
+            return
+        time.sleep(1)
+    assert False, f"There is no idle in transaction on {name} updating pg_dist_node after {time_limit} seconds"
 
 
 @step("a transaction finishes in {timeout:d} seconds")
