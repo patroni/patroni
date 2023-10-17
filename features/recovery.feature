@@ -14,6 +14,8 @@ Feature: recovery
     Then I receive a response code 200
     And I receive a response role master
     And I receive a response timeline 1
+    And "members/postgres0" key in DCS has state=running after 12 seconds
+    And replication works from postgres0 to postgres1 after 15 seconds
 
   Scenario: check immediate failover when master_start_timeout=0
     Given I issue a PATCH request to http://127.0.0.1:8008/config with {"master_start_timeout": 0}
