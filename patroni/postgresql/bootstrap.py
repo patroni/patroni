@@ -400,6 +400,9 @@ BEGIN
 END;$$""".format(f, quote_ident(rewind['username'], postgresql.connection()))
                         postgresql.query(sql)
 
+                if config.get('users'):
+                    logger.warning('User creation via "bootstrap.users" will be removed in v4.0.0')
+
                 for name, value in (config.get('users') or {}).items():
                     if all(name != a.get('username') for a in (superuser, replication, rewind)):
                         self.create_or_update_role(name, value.get('password'), value.get('options', []))
