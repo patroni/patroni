@@ -417,8 +417,8 @@ class OneOf(object):
             .. code-block:: python
 
                 OneOf("nofailover", "failover_priority"): Case({
-                    "nofailover": bool,
-                    "failover_priority": IntValidator(min=0, raise_assert=True),
+                    Optional("nofailover"): bool,
+                    Optional("failover_priority"): IntValidator(min=0, raise_assert=True),
                 })
 
         The :class`OneOf` object is used to define that at most one of ``nofailover`` and
