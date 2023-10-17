@@ -134,6 +134,23 @@ def connect_side_effect(host_port):
         raise socket.gaierror()
 
 
+def mock_getaddrinfo(host, port, *args):
+    if port is None or port == "":
+        port = 0
+    port = int(port)
+    if port not in range(0, 65536):
+        raise socket.gaierror()
+
+    if host == "127.0.0.1" or host == "" or host is None:
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, '', ('127.0.0.1', port))]
+    elif host == "127.0.0.2":
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, '', ('127.0.0.2', port))]
+    elif host == "::1":
+        return [(socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, '', ('::1', port, 0, 0))]
+    else:
+        raise socket.gaierror()
+
+
 def parse_output(output):
     result = []
     for s in output.split("\n"):
@@ -145,6 +162,7 @@ def parse_output(output):
 
 
 @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
+@patch('socket.getaddrinfo', Mock(side_effect=mock_getaddrinfo))
 @patch('os.path.exists', Mock(side_effect=exists_side_effect))
 @patch('os.path.isdir', Mock(side_effect=isdir_side_effect))
 @patch('os.path.isfile', Mock(side_effect=isfile_side_effect))
