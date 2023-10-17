@@ -175,11 +175,12 @@ class TestValidator(unittest.TestCase):
         c = copy.deepcopy(config)
         c["restapi"]["connect_address"] = 'False:blabla'
         c["postgresql"]["listen"] = '*:543'
-        c["etcd"]["hosts"] = ["127.0.0.1:2379", "1244.0.0.1:2379", "127.0.0.1:invalidport"]
+        c["etcd"]["hosts"] = ["127.0.0.1:2379", "1244.0.0.1:2379", "127.0.0.1:invalidport",
+                              "[2001:0db8:85a3:::8a2e:0370:7334]:8080", "example.com:2379"]
         c["kubernetes"]["pod_ip"] = "127.0.0.1111"
         errors = schema(c)
         output = "\n".join(errors)
-        self.assertEqual(['etcd.hosts.1', 'etcd.hosts.2', 'kubernetes.pod_ip', 'postgresql.bin_dir',
+        self.assertEqual(['etcd.hosts.1', 'etcd.hosts.2', 'etcd.hosts.3', 'kubernetes.pod_ip', 'postgresql.bin_dir',
                           'postgresql.data_dir', 'raft.bind_addr', 'raft.self_addr',
                           'restapi.connect_address'], parse_output(output))
 

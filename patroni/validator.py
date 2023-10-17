@@ -51,6 +51,31 @@ def validate_connect_address(address: str) -> bool:
     return True
 
 
+def is_valid_host(host: str):
+    # Check if the host is a valid IPv4 address
+    try:
+        socket.inet_aton(host)
+        return True
+    except socket.error:
+        pass
+
+    # Check if the host is a valid IPv6 address
+    try:
+        socket.inet_pton(socket.AF_INET6, host)
+        return True
+    except socket.error:
+        pass
+
+    # Check if the host is a valid domain name
+    try:
+        socket.gethostbyname(host)
+        return True
+    except socket.error:
+        pass
+
+    return False
+
+
 def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: bool = False) -> bool:
     """Check if host(s) and port are valid and available for usage.
 
@@ -91,6 +116,8 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
         for host in hosts:
             # Check if "socket.IF_INET" or "socket.IF_INET6" is being used and instantiate a socket with the identified
             # protocol
+            if not is_valid_host(host):
+                raise ConfigParseError("{} is not a valid host address".format(host))
             proto = socket.getaddrinfo(host, "", 0, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
             s = socket.socket(proto[0][0], socket.SOCK_STREAM)
             try:
