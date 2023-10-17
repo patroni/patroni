@@ -71,4 +71,5 @@ Feature: permanent slots
     And I shut down postgres2
     And I shut down postgres0
     Then postgres1 has a physical replication slot named test_physical after 10 seconds
-    Then postgres1 has a physical replication slot named postgres0 after 10 seconds
+    And postgres1 has a physical replication slot named postgres0 after 10 seconds
+    And postgres1 has a physical replication slot named postgres3 after 10 seconds
