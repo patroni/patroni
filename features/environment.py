@@ -692,7 +692,7 @@ class ZooKeeperController(AbstractExternalDcsController):
         self._client = kazoo.client.KazooClient()
 
     def process_name(self):
-        return "zookeeper"
+        return "java .*zookeeper"
 
     def query(self, key, scope='batman', group=None):
         import kazoo.exceptions
