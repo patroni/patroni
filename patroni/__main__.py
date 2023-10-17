@@ -10,8 +10,9 @@ import sys
 import time
 
 from argparse import Namespace
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+from patroni import MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
 from patroni.daemon import AbstractPatroniDaemon, abstract_main, get_base_arg_parser
 from patroni.tags import Tags
 
@@ -286,6 +287,45 @@ def process_arguments() -> Namespace:
     return args
 
 
+def check_psycopg() -> None:
+    """Ensure at least one among :mod:`psycopg2` or :mod:`psycopg` libraries are available in the environment.
+
+    .. note::
+        Patroni chooses :mod:`psycopg2` over :mod:`psycopg`, if possible.
+
+        If nothing meeting the requirements is found, then exit with a fatal message.
+    """
+    min_psycopg2_str = '.'.join(map(str, MIN_PSYCOPG2))
+    min_psycopg3_str = '.'.join(map(str, MIN_PSYCOPG3))
+
+    available_versions: List[str] = []
+
+    # try psycopg2
+    try:
+        from psycopg2 import __version__
+        if parse_version(__version__) >= MIN_PSYCOPG2:
+            return
+        available_versions.append('psycopg2=={0}'.format(__version__.split(' ')[0]))
+    except ImportError:
+        logger.debug('psycopg2 module is not available')
+
+    # try psycopg3
+    try:
+        from psycopg import __version__
+        if parse_version(__version__) >= MIN_PSYCOPG3:
+            return
+        available_versions.append('psycopg=={0}'.format(__version__.split(' ')[0]))
+    except ImportError:
+        logger.debug('psycopg module is not available')
+
+    error = f'FATAL: Patroni requires psycopg2>={min_psycopg2_str}, psycopg2-binary, or psycopg>={min_psycopg3_str}'
+    if available_versions:
+        error += ', but only {0} {1} available'.format(
+            ' and '.join(available_versions),
+            'is' if len(available_versions) == 1 else 'are')
+    sys.exit(error)
+
+
 def main() -> None:
     """Main entrypoint of :mod:`patroni.__main__`.
 
@@ -297,11 +337,9 @@ def main() -> None:
         ``patroni`` daemon as another process. In that case relevant signals received by the main process and forwarded
         to ``patroni`` daemon process.
     """
-    from patroni import check_psycopg
+    check_psycopg()
 
     args = process_arguments()
-
-    check_psycopg()
 
     if os.getpid() != 1:
         return patroni_main(args.configfile)
