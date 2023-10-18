@@ -116,11 +116,6 @@ class MockPatroni(object):
 restapi:
   listen: 0.0.0.0:8008
 bootstrap:
-  users:
-    replicator:
-      password: rep-pass
-      options:
-        - replication
 postgresql:
   name: foo
   data_dir: data/postgresql0

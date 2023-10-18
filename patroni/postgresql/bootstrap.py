@@ -401,8 +401,8 @@ END;$$""".format(f, quote_ident(rewind['username'], postgresql.connection()))
                         postgresql.query(sql)
 
                 if config.get('users'):
-                    logger.error('user creation is not be supported after v4.0.0')
-                    raise Exception('user creation is not be supported after v4.0.0')
+                    logger.error('User creation is not be supported after v4.0.0. Please use "boostrap.post_bootstrap" script to create users.')
+                    raise Exception('User creation is not be supported after v4.0.0')                       
 
                 # We were doing a custom bootstrap instead of running initdb, therefore we opened trust
                 # access from certain addresses to be able to reach cluster and change password
