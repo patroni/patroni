@@ -24,15 +24,6 @@ Log
 -  **PATRONI\_LOG\_FILE\_SIZE**: Size of patroni.log file (in bytes) that triggers a log rolling.
 -  **PATRONI\_LOG\_LOGGERS**: Redefine logging level per python module. Example ``PATRONI_LOG_LOGGERS="{patroni.postmaster: WARNING, urllib3: DEBUG}"``
 
-Bootstrap configuration
------------------------
-It is possible to create new database users right after the successful initialization of a new cluster. This process is defined by the following variables:
-
--  **PATRONI\_<username>\_PASSWORD='<password>'**
--  **PATRONI\_<username>\_OPTIONS='list,of,options'**
-
-Example: defining ``PATRONI_admin_PASSWORD=strongpasswd`` and ``PATRONI_admin_OPTIONS='createrole,createdb'`` will cause creation of the user **admin** with the password **strongpasswd** that is allowed to create other users and databases.
-
 Citus
 -----
 Enables integration Patroni with `Citus <https://docs.citusdata.com>`__. If configured, Patroni will take care of registering Citus worker nodes on the coordinator. You can find more information about Citus support :ref:`here <citus>`.
