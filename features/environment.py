@@ -906,7 +906,8 @@ class PatroniPoolController(object):
                         'restore_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode restore '
                                             + '--dirname {} --filename %f --pathname %p').format(
                             os.path.join(self.patroni_path, 'data', 'wal_archive_clone').replace('\\', '/'))
-                    }
+                    },
+                    'test-argument': 'test-value',
                 }
             },
             'postgresql': {
