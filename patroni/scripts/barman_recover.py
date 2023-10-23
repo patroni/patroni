@@ -50,7 +50,13 @@ class ExitCode(IntEnum):
 
 
 class BarmanRecover:
-    """_summary_.
+    """Facilities for performing a remote ``barman recover`` operation.
+
+    You should instantiate this class, which will take care of configuring the
+    operation accordingly. When you want to start the operation, you should
+    call :meth:`restore_backup`. At any point of interaction with this class,
+    you may face a :func:`sys.exit` call. Refer to :class:`ExitCode` for a view
+    on the possible exit codes.
 
     :ivar api_url: base URL to reach the ``pg-backup-api``.
     :ivar cert_file: certificate to authenticate against the
