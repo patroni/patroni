@@ -389,7 +389,7 @@ Tags
 -  **replicatefrom**: The IP address/hostname of another replica. Used to support cascading replication.
 -  **nosync**: ``true`` or ``false``. If set to ``true`` the node will never be selected as a synchronous replica.
 -  **nofailover**: ``true`` or ``false``, controls whether this node is allowed to participate in the leader race and become a leader. Defaults to ``false``, meaning this node _can_ participate in leader races. 
--  **failover_priority**: integer, controls the priority that this node should have during failover. Nodes with higher priority will be preferred over lower priority nodes. However, it's important to be aware that during failover, Patroni will select the best promotion candidates based on how up-to-date they are with the current primary node, and that this setting is only used to break ties between replicas that are considered the best candidates by Patroni, if 2 or more happen to be selected.
+-  **failover_priority**: integer, controls the priority that this node should have during failover. Nodes with higher priority will be preferred over lower priority nodes if they received/replayed the same amount of WAL. However, nodes with higher values of receive/replay LSN are preferred regardless of their priority. If the ``failover_priority`` is 0 or negative - such node is not allowed to participate in the leader race and to become a leader (similar to ``nofailover: true``).
 
 .. warning::
    Provide only one of ``nofailover`` or ``failover_priority``. Providing ``nofailover: true`` is the same as ``failover_priority: 0``, and providing ``nofailover: false`` will give the node priority 1. 
