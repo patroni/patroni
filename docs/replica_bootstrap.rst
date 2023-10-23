@@ -87,6 +87,7 @@ As an example, you are able to bootstrap a fresh Patroni cluster from a Barman b
 .. note::
     The above Barman method is based on the sample script `barman_recover.py <https://github.com/zalando/patroni/blob/master/patroni/scripts/barman_recover.py>`_.
     That script requires that you have both Barman and ``pg-backup-api`` configure in the Barman host, so it can execute a remote ``barman recover`` through the backup API.
+    The above example used a subset of the available parameters. After downloading the script you can execute you can execute it with ``--help`` to get the full list of parameters.
 
 .. _custom_replica_creation:
 
@@ -160,6 +161,7 @@ example: Barman
 .. note::
     The above Barman method is based on the sample script `barman_recover.py <https://github.com/zalando/patroni/blob/master/patroni/scripts/barman_recover.py>`_.
     That script requires that you have both Barman and ``pg-backup-api`` configure in the Barman host, so it can execute a remote ``barman recover`` through the backup API.
+    The above example used a subset of the available parameters. After downloading the script you can execute you can execute it with ``--help`` to get the full list of parameters.
 
 The ``create_replica_methods`` defines available replica creation methods and the order of executing them. Patroni will
 stop on the first one that returns 0. Each method should define a separate section in the configuration file, listing the command
