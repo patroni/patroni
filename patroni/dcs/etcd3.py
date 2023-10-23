@@ -197,7 +197,7 @@ def build_range_request(key: str, range_end: Union[bytes, str, None] = None) -> 
     return fields
 
 
-class ReAuthenticateReason(IntEnum):
+class ReAuthenticateMode(IntEnum):
     NOT_REQUIRED = 0
     REQUIRED = 1
     WITHOUT_WATCHER_RESTART = 2
@@ -214,7 +214,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     ERROR_CLS = Etcd3Error
 
     def __init__(self, config: Dict[str, Any], dns_resolver: DnsCachingResolver, cache_ttl: int = 300) -> None:
-        self._reauthenticate_reason = ReAuthenticateReason.NOT_REQUIRED
+        self._reauthenticate_reason = ReAuthenticateMode.NOT_REQUIRED
         self._token = None
         self._cluster_version: Tuple[int, ...] = tuple()
         super(Etcd3Client, self).__init__({**config, 'version_prefix': '/v3beta'}, dns_resolver, cache_ttl)
@@ -320,9 +320,9 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             if self._reauthenticate_reason:
                 if self.username and self.password:
                     self.authenticate(
-                        restart_watcher=self._reauthenticate_reason != ReAuthenticateReason.WITHOUT_WATCHER_RESTART,
+                        restart_watcher=self._reauthenticate_reason != ReAuthenticateMode.WITHOUT_WATCHER_RESTART,
                         retry=retry)
-                    self._reauthenticate_reason = ReAuthenticateReason.NOT_REQUIRED
+                    self._reauthenticate_reason = ReAuthenticateMode.NOT_REQUIRED
                     if retry:
                         retry.ensure_deadline(0)
                 else:
@@ -346,8 +346,8 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             except AuthOldRevision as e:
                 logger.error('Auth token is for old revision of auth store')
                 exc = e
-            self._reauthenticate_reason = ReAuthenticateReason.WITHOUT_WATCHER_RESTART \
-                if isinstance(exc, AuthOldRevision) else ReAuthenticateReason.REQUIRED
+            self._reauthenticate_reason = ReAuthenticateMode.WITHOUT_WATCHER_RESTART \
+                if isinstance(exc, AuthOldRevision) else ReAuthenticateMode.REQUIRED
             if not retry:
                 raise exc
             retry.ensure_deadline(0.5, exc)
