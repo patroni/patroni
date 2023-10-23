@@ -50,7 +50,7 @@ Feature: ignored slots
     And postgres1 has a logical replication slot named unmanaged_slot_1 with the test_decoding plugin after 2 seconds
     And postgres1 has a logical replication slot named unmanaged_slot_2 with the test_decoding plugin after 2 seconds
     And postgres1 has a logical replication slot named unmanaged_slot_3 with the test_decoding plugin after 2 seconds
-    And postgres1 does not have a logical replication slot named dummy_slot
+    And postgres1 does not have a replication slot named dummy_slot
 
     # 3. After a failover the server (now a primary) still has the slot.
     When I shut down postgres0

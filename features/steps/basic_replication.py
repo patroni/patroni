@@ -110,7 +110,7 @@ def replication_works(context, primary, replica, time_limit):
     context.execute_steps(u"""
         When I add the table test_{0} to {1}
         Then table test_{0} is present on {2} after {3} seconds
-    """.format(int(time()), primary, replica, time_limit))
+    """.format(str(time()).replace('.', '_').replace(',', '_'), primary, replica, time_limit))
 
 
 @then('there is a "{message}" {level:w} in the {node} patroni log')

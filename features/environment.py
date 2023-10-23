@@ -654,9 +654,10 @@ class KubernetesController(AbstractExternalDcsController):
             try:
                 if group is not None:
                     scope = '{0}-{1}'.format(scope, group)
-                ep = scope + {'leader': '', 'history': '-config', 'initialize': '-config'}.get(key, '-' + key)
+                rkey = 'leader' if key in ('status', 'failsafe') else key
+                ep = scope + {'leader': '', 'history': '-config', 'initialize': '-config'}.get(rkey, '-' + rkey)
                 e = self._api.read_namespaced_endpoints(ep, self._namespace)
-                if key != 'sync':
+                if key not in ('sync', 'status', 'failsafe'):
                     return e.metadata.annotations[key]
                 else:
                     return json.dumps(e.metadata.annotations)
