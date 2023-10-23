@@ -168,6 +168,7 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, 'is_primary', Mock(return_value=True))
 @patch.object(Postgresql, 'timeline_wal_position', Mock(return_value=(1, 10, 1)))
 @patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=10))
+@patch.object(Postgresql, 'slots', Mock(return_value={'l': 100}))
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
 @patch.object(Postgresql, 'controldata', Mock(return_value={
     'Database system identifier': SYSID,
@@ -1591,6 +1592,7 @@ class TestHa(PostgresInit):
 
     @patch('patroni.psycopg.connect', psycopg_connect)
     def test_permanent_logical_slots_after_promote(self):
+        self.p._major_version = 110000
         config = ClusterConfig(1, {'slots': {'l': {'database': 'postgres', 'plugin': 'test_decoding'}}}, 1)
         self.p.name = 'other'
         self.ha.cluster = get_cluster_initialized_without_leader(cluster_config=config)

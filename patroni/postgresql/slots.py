@@ -16,7 +16,6 @@ from .misc import format_lsn, fsync_dir
 from ..dcs import Cluster, Leader
 from ..file_perm import pg_perm
 from ..psycopg import OperationalError
-from ..utils import parse_int
 
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
@@ -378,10 +377,9 @@ class SlotsHandler:
                 except Exception:
                     logger.exception("Failed to create physical replication slot '%s'", name)
                 self._schedule_load_slots = True
-            elif not self._postgresql.is_primary() and self._postgresql.can_advance_slots \
-                    and self._replication_slots[name]['type'] == 'physical':
+            elif self._postgresql.can_advance_slots and self._replication_slots[name]['type'] == 'physical':
                 value['restart_lsn'] = self._replication_slots[name]['restart_lsn']
-                lsn = parse_int(value.get('lsn'))
+                lsn = value.get('lsn')
                 if lsn and lsn > value['restart_lsn']:  # The slot has feedback in DCS and needs to be advanced
                     try:
                         lsn = format_lsn(lsn)
@@ -477,12 +475,9 @@ class SlotsHandler:
             # If the logical already exists, copy some information about it into the original structure
             if name in self._replication_slots and compare_slots(value, self._replication_slots[name]):
                 self._copy_items(self._replication_slots[name], value)
-                if 'lsn' in value:  # The slot has feedback in DCS
-                    try:  # Skip slots that don't need to be advanced
-                        if value['confirmed_flush_lsn'] < int(value['lsn']):
-                            advance_slots[value['database']][name] = int(value['lsn'])
-                    except Exception as e:
-                        logger.error('Failed to parse "%s": %r', value['lsn'], e)
+                if 'lsn' in value and value['confirmed_flush_lsn'] < value['lsn']:  # The slot has feedback in DCS
+                    # Skip slots that don't need to be advanced
+                    advance_slots[value['database']][name] = value['lsn']
             elif name not in self._replication_slots and 'lsn' in value:
                 # We want to copy only slots with feedback in a DCS
                 create_slots.append(name)

@@ -245,6 +245,10 @@ class PatroniController(AbstractController):
             self.recursive_update(config, custom_config)
 
         self.recursive_update(config, {
+            'log': {
+                'format': '%(asctime)s %(levelname)s [%(pathname)s:%(lineno)d - %(funcName)s]: %(message)s',
+                'loggers': {'patroni.postgresql.callback_executor': 'DEBUG'}
+            },
             'bootstrap': {
                 'dcs': {
                     'loop_wait': 2,
@@ -650,9 +654,10 @@ class KubernetesController(AbstractExternalDcsController):
             try:
                 if group is not None:
                     scope = '{0}-{1}'.format(scope, group)
-                ep = scope + {'leader': '', 'history': '-config', 'initialize': '-config'}.get(key, '-' + key)
+                rkey = 'leader' if key in ('status', 'failsafe') else key
+                ep = scope + {'leader': '', 'history': '-config', 'initialize': '-config'}.get(rkey, '-' + rkey)
                 e = self._api.read_namespaced_endpoints(ep, self._namespace)
-                if key != 'sync':
+                if key not in ('sync', 'status', 'failsafe'):
                     return e.metadata.annotations[key]
                 else:
                     return json.dumps(e.metadata.annotations)
@@ -688,7 +693,7 @@ class ZooKeeperController(AbstractExternalDcsController):
         self._client = kazoo.client.KazooClient()
 
     def process_name(self):
-        return "zookeeper"
+        return "java .*zookeeper"
 
     def query(self, key, scope='batman', group=None):
         import kazoo.exceptions

@@ -15,8 +15,7 @@ from patroni.dcs.etcd import AbstractEtcdClientWithFailover
 from patroni.exceptions import DCSError
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
-from patroni import check_psycopg
-from patroni.__main__ import Patroni, main as _main
+from patroni.__main__ import check_psycopg, Patroni, main as _main
 from threading import Thread
 
 from . import psycopg_connect, SleepException
@@ -25,10 +24,16 @@ from .test_postgresql import MockPostmaster
 
 
 def mock_import(*args, **kwargs):
-    if args[0] == 'psycopg':
+    ret = Mock()
+    ret.__version__ = '2.5.3.dev1 a b c' if args[0] == 'psycopg2' else '3.1.0'
+    return ret
+
+
+def mock_import2(*args, **kwargs):
+    if args[0] == 'psycopg2':
         raise ImportError
     ret = Mock()
-    ret.__version__ = '2.5.3.dev1 a b c'
+    ret.__version__ = '0.1.2'
     return ret
 
 
@@ -205,6 +210,8 @@ class TestPatroni(unittest.TestCase):
         with patch('builtins.__import__', Mock(side_effect=ImportError)):
             self.assertRaises(SystemExit, check_psycopg)
         with patch('builtins.__import__', mock_import):
+            self.assertIsNone(check_psycopg())
+        with patch('builtins.__import__', mock_import2):
             self.assertRaises(SystemExit, check_psycopg)
 
     def test_ensure_unique_name(self):
