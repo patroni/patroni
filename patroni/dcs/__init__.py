@@ -1640,7 +1640,7 @@ class AbstractDCS(abc.ABC):
         return cluster
 
     def get_cluster(self) -> Cluster:
-        """Retrieve an appropriate cached or fresh view of DCS.
+        """Retrieve a fresh view of DCS.
 
         .. note::
             Stores copy of time, status and failsafe values for comparison in DCS update decisions.
