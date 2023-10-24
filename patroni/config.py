@@ -96,7 +96,7 @@ class GlobalConfig(object):
 
     @property
     def is_quorum_commit_mode(self) -> bool:
-        """:returns: `True` if quorum commit replication is requested"""
+        """:returns: ``True`` if quorum commit replication is requested"""
         return str(self.get('synchronous_mode')).lower() == 'quorum'
 
     @property

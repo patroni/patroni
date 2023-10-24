@@ -615,8 +615,9 @@ class SyncState(NamedTuple):
     :ivar version: modification version of a synchronization key in a Configuration Store.
     :ivar leader: reference to member that was leader.
     :ivar sync_standby: synchronous standby list (comma delimited) which are last synchronized to leader.
-    :ivar quorum: if the node from sync_standby list is doing a leader race it should
-                  see at least quorum other nodes from the sync_standby + leader list.
+    :ivar quorum: if the node from :attr:`~SyncState.sync_standby` list is doing a leader race it should
+                  see at least :attr:`~SyncState.quorum` other nodes from the
+                  :attr:`~SyncState.sync_standby` + :attr:`~SyncState.leader` list.
     """
 
     version: Optional[_Version]
@@ -1949,8 +1950,9 @@ class AbstractDCS(abc.ABC):
 
         :param leader: name of the leader node that manages ``/sync`` key.
         :param sync_standby: collection of currently known synchronous standby node names.
-        :param quorum: if the node from sync_standby list is doing a leader race it should
-                       see at least quorum other nodes from the sync_standby + leader list
+        :param quorum: if the node from :attr:`~SyncState.sync_standby` list is doing a leader race it should
+                       see at least :attr:`~SyncState.quorum` other nodes from the
+                       :attr:`~SyncState.sync_standby` + :attr:`~SyncState.leader` list
 
         :returns: dictionary that later could be serialized to JSON or saved directly to DCS.
         """
@@ -1967,8 +1969,9 @@ class AbstractDCS(abc.ABC):
         :param leader: name of the leader node that manages ``/sync`` key.
         :param sync_standby: collection of currently known synchronous standby node names.
         :param version: for conditional update of the key/object.
-        :param quorum: if the node from sync_standby list is doing a leader race it should
-                       see at least quorum other nodes from the sync_standby + leader list
+        :param quorum: if the node from :attr:`~SyncState.sync_standby` list is doing a leader race it should
+                       see at least :attr:`~SyncState.quorum` other nodes from the
+                       :attr:`~SyncState.sync_standby` + :attr:`~SyncState.leader` list
 
         :returns: the new :class:`SyncState` object or ``None``.
         """

@@ -354,7 +354,9 @@ END;$$""")
         for replica in sorted(replica_list, key=lambda x: x.nofailover):
             if sync_node_maxlag <= 0 or replica_list.max_lsn - replica.lsn <= sync_node_maxlag:
                 if self._postgresql.global_config.is_quorum_commit_mode:
-                    # add nodes with nofailover tag only to get enough "active" nodes
+                    # We do not add nodes with `nofailover` enabled because that reduces availability.
+                    # We need to check LSN quorum only among nodes that are promotable because
+                    # there is a chance that a non-promotable node is ahead of a promotable one.
                     if not replica.nofailover or len(active) < sync_node_count:
                         if replica.application_name in self._ready_replicas:
                             numsync_confirmed += 1
@@ -379,6 +381,9 @@ END;$$""")
 
     def set_synchronous_standby_names(self, sync: Collection[str], num: Optional[int] = None) -> None:
         """Constructs and sets ``synchronous_standby_names`` GUC value.
+        
+        .. note::
+            standbys in ``synchronous_standby_names`` will be sorted by name.
 
         :param sync: set of nodes to sync to
         :param num: specifies number of nodes to sync to. The *num* is set only in case if quorum commit is enabled
