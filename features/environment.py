@@ -932,7 +932,8 @@ class PatroniPoolController(object):
                 'no_leader_bootstrap': {
                     'command': (self.BACKUP_RESTORE_SCRIPT + ' --sourcedir='
                                 + os.path.join(self.patroni_path, 'data', 'basebackup').replace('\\', '/')),
-                    'no_leader': '1'
+                    'no_leader': '1',
+                    'test-argument': 'test-value',
                 }
             }
         }
