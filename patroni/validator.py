@@ -319,23 +319,6 @@ class Result(object):
         return str(self.path) + (" " + str(self.data) + " " + str(self._error) if self.error else "")
 
 
-class Optional(object):
-    """Mark a configuration option as optional.
-
-    :ivar name: name of the configuration option.
-    :ivar default: value to set if the configuration option is not explicitly provided
-    """
-
-    def __init__(self, name: str, default: OptionalType[Any] = None) -> None:
-        """Create an :class:`Optional` object.
-
-        :param name: name of the configuration option.
-        :param default: value to set if the configuration option is not explicitly provided
-        """
-        self.name = name
-        self.default = default
-
-
 class Case(object):
     """Map how a dict of available configuration options should be validated.
 
@@ -346,7 +329,7 @@ class Case(object):
         them, if they are set.
     """
 
-    def __init__(self, schema: Dict[Union[str, Optional], Any]) -> None:
+    def __init__(self, schema: Dict[str, Any]) -> None:
         """Create a :class:`Case` object.
 
         :param schema: the schema for validating a set of attributes that may be available in the configuration.
@@ -365,7 +348,7 @@ class Case(object):
         That will check that ``host`` configuration, if given, is valid based on :func:`validate_host_port`, and will
         also check that ``url`` configuration, if given, is a ``str`` instance.
         """
-        self._schema = {(k if isinstance(k, str) else k.name): v for (k, v) in schema.items()}
+        self._schema = schema
 
 
 class Or(object):
@@ -396,8 +379,8 @@ class Or(object):
         self.args = args
 
 
-class OneOf(object):
-    """Mark that at most one option from a :class:`Case` can be suplied
+class AtMostOne(object):
+    """Mark that at most one option from a :class:`Case` can be suplied.
 
     Represents a list of possible configuration options in a given scope, where at most one can actually
     be provided.
@@ -408,7 +391,7 @@ class OneOf(object):
     """
 
     def __init__(self, *args: str) -> None:
-        """Create a :class`OneOf` object.
+        """Create a :class`AtMostOne` object.
 
         :param `*args`: any arguments that the caller wants to be stored in this :class:`Or` object.
 
@@ -416,17 +399,32 @@ class OneOf(object):
 
             .. code-block:: python
 
-                OneOf("nofailover", "failover_priority"): Case({
-                    Optional("nofailover"): bool,
-                    Optional("failover_priority"): IntValidator(min=0, raise_assert=True),
+                AtMostOne("nofailover", "failover_priority"): Case({
+                    "nofailover": bool,
+                    "failover_priority": IntValidator(min=0, raise_assert=True),
                 })
 
-        The :class`OneOf` object is used to define that at most one of ``nofailover`` and
+        The :class`AtMostOne` object is used to define that at most one of ``nofailover`` and
         ``failover_priority`` can be provided.
-        These fields must be marked as optional, and providing less than one of them is also
-        considered a valid configuration.
         """
         self.args = args
+
+
+class Optional(object):
+    """Mark a configuration option as optional.
+
+    :ivar name: name of the configuration option.
+    :ivar default: value to set if the configuration option is not explicitly provided
+    """
+
+    def __init__(self, name: str, default: OptionalType[Any] = None) -> None:
+        """Create an :class:`Optional` object.
+
+        :param name: name of the configuration option.
+        :param default: value to set if the configuration option is not explicitly provided
+        """
+        self.name = name
+        self.default = default
 
 
 class Directory(object):
@@ -704,7 +702,7 @@ class Schema(object):
         # One key in `validator` attribute (`key` variable) can be mapped to one or more keys in `data` attribute (`d`
         # variable), depending on the `key` type.
         for key in self.validator.keys():
-            if isinstance(key, OneOf) and len(list(self._data_key(key))) > 1:
+            if isinstance(key, AtMostOne) and len(list(self._data_key(key))) > 1:
                 yield Result(False, f"Multiple of {key.args} provided")
                 continue
             for d in self._data_key(key):
@@ -716,7 +714,7 @@ class Schema(object):
                     if d not in self.data and isinstance(key, Optional):
                         self.data[d] = key.default
                     validator = self.validator[key]
-                    if isinstance(key, (Or, OneOf)) and isinstance(self.validator[key], Case):
+                    if isinstance(key, (Or, AtMostOne)) and isinstance(self.validator[key], Case):
                         validator = self.validator[key]._schema[d]
                     # In this loop we may be calling a new `Schema` either over an intermediate node in the tree, or
                     # over a leaf node. In the latter case the recursive calls in the given path will finish.
@@ -751,7 +749,7 @@ class Schema(object):
                 max_level = v.level
                 yield Result(v.status, v.error, path=v.path, level=v.level, data=v.data)
 
-    def _data_key(self, key: Union[str, Optional, Or, OneOf]) -> Iterator[str]:
+    def _data_key(self, key: Union[str, Optional, Or, AtMostOne]) -> Iterator[str]:
         """Map a key from the ``validator`` dictionary to the corresponding key(s) in the ``data`` dictionary.
 
         :param key: key from the ``validator`` attribute.
@@ -780,9 +778,9 @@ class Schema(object):
             else:
                 for item in key.args:
                     yield item
-        # If the key was defined as a `OneOf` object in `validator` attribute, then each of its values are the keys to
-        # access the `data` dictionary
-        elif isinstance(key, OneOf):
+        # If the key was defined as a `AtMostOne` object in `validator` attribute, then each of its values
+        # are the keys to access the `data` dictionary.
+        elif isinstance(key, AtMostOne):
             # Yield back all of the entries from the `data` dictionary, each will be validated and then counted
             # to inform us if we've provided too many
             for item in key.args:
@@ -1100,9 +1098,9 @@ schema = Schema({
         Optional("safety_margin"): int
     },
     Optional("tags"): {
-        OneOf("nofailover", "failover_priority"): Case({
-            Optional("nofailover"): bool,
-            Optional("failover_priority"): IntValidator(min=0, raise_assert=True),
+        AtMostOne("nofailover", "failover_priority"): Case({
+            "nofailover": bool,
+            "failover_priority": IntValidator(min=0, raise_assert=True),
         }),
         Optional("clonefrom"): bool,
         Optional("noloadbalance"): bool,
