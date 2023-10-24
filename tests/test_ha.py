@@ -1035,17 +1035,14 @@ class TestHa(PostgresInit):
         self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.ha.fetch_node_status = get_node_status()  # accessible, in_recovery
         self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
-        # accessible, not in_recovery
-        self.ha.fetch_node_status = get_node_status(in_recovery=False)
+        self.ha.fetch_node_status = get_node_status(in_recovery=False)  # accessible, not in_recovery
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
-        # accessible, in_recovery, higher priority
-        self.ha.fetch_node_status = get_node_status(failover_priority=2)
+        self.ha.fetch_node_status = get_node_status(failover_priority=2)  # accessible, in_recovery, higher priority
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         # if there is a higher-priority node but it has a lower WAL position then this node should race
         self.ha.fetch_node_status = get_node_status(failover_priority=6, wal_position=9)
-        self.assertTrue(self.ha._is_healthiest_node)
-        # accessible, in_recovery, wal position ahead
-        self.ha.fetch_node_status = get_node_status(wal_position=11)
+        self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+        self.ha.fetch_node_status = get_node_status(wal_position=11)  # accessible, in_recovery, wal position ahead
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         # in synchronous_mode consider itself healthy if the former leader is accessible in read-only and ahead of us
         with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=True)):
