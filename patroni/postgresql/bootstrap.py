@@ -188,7 +188,7 @@ class Bootstrap(object):
         params = [] if config.get('no_params') else ['--scope=' + self._postgresql.scope,
                                                      '--datadir=' + self._postgresql.data_dir]
         # Add custom parameters specified by the user
-        reserved_args = {'no_params', 'keep_existing_recovery_conf', 'recovery_conf'}
+        reserved_args = {'no_params', 'keep_existing_recovery_conf', 'recovery_conf', 'scope', 'datadir'}
         for arg, val in config.items():
             if arg not in reserved_args:
                 params.append(f"--{arg}={val}")
