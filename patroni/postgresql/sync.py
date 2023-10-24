@@ -381,7 +381,7 @@ END;$$""")
 
     def set_synchronous_standby_names(self, sync: Collection[str], num: Optional[int] = None) -> None:
         """Constructs and sets ``synchronous_standby_names`` GUC value.
-        
+
         .. note::
             standbys in ``synchronous_standby_names`` will be sorted by name.
 
