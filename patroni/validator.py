@@ -320,7 +320,7 @@ class Result(object):
 
 
 class Case(object):
-    """Map how a dict of available configuration options should be validated.
+    """Map how a list of available configuration options should be validated.
 
     .. note::
 
