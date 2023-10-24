@@ -9,7 +9,7 @@ import yaml
 
 from getpass import getuser, getpass
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Dict, Iterator, List, Optional, TextIO, Tuple, TYPE_CHECKING, Union
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
     from psycopg2 import cursor
@@ -95,8 +95,8 @@ class AbstractConfigGenerator(abc.ABC):
             'name': cls._HOSTNAME,
             'postgresql': {
                 'data_dir': NO_VALUE_MSG,
-                'connect_address': NO_VALUE_MSG + ':5432',
-                'listen': NO_VALUE_MSG + ':5432',
+                'connect_address': cls._IP + ':5432',
+                'listen': cls._IP + ':5432',
                 'bin_dir': '',
                 'authentication': {
                     'superuser': {
@@ -112,6 +112,12 @@ class AbstractConfigGenerator(abc.ABC):
             'restapi': {
                 'connect_address': cls._IP + ':8008',
                 'listen': cls._IP + ':8008'
+            },
+            'tags': {
+                'failover_priority': 1,
+                'noloadbalance': False,
+                'clonefrom': True,
+                'nosync': False,
             }
         }
 
@@ -130,6 +136,72 @@ class AbstractConfigGenerator(abc.ABC):
     def generate(self) -> None:
         """Generate config and store in :attr:`~AbstractConfigGenerator.config`."""
 
+    @staticmethod
+    def _format_block(block: Any, line_prefix: str = '') -> str:
+        """Format a single YAML block.
+
+        .. note::
+            Optionally the formatted block could be indented with the *line_prefix*
+
+        :param block: the object that should be formatted to YAML.
+        :param line_prefix: is used for indentation.
+
+        :returns: a formatted and indented *block*.
+        """
+        return line_prefix + yaml.safe_dump(block, default_flow_style=False, line_break='\n',
+                                            allow_unicode=True, indent=2).strip().replace('\n', '\n' + line_prefix)
+
+    def _format_config_section(self, section_name: str) -> Iterator[str]:
+        """Format and yield as single section of the current :attr:`~AbstractConfigGenerator.config`.
+
+        .. note::
+            If the section is a :class:`dict` object we put an empty line before it.
+
+        :param section_name: a section name in the :attr:`~AbstractConfigGenerator.config`.
+
+        :yields: a formatted section in case if it exists in the :attr:`~AbstractConfigGenerator.config`.
+        """
+        if section_name in self.config:
+            if isinstance(self.config[section_name], dict):
+                yield ''
+            yield self._format_block({section_name: self.config[section_name]})
+
+    def _format_config(self) -> Iterator[str]:
+        """Format current :attr:`~AbstractConfigGenerator.config` and enrich it with some comments.
+
+        :yields: formatted lines or blocks that represent a text output of the YAML document.
+        """
+        for name in ('scope', 'namespace', 'name', 'restapi', 'ctl' 'citus',
+                     'consul', 'etcd', 'etcd3', 'exhibitor', 'kubernetes', 'raft', 'zookeeper'):
+            yield from self._format_config_section(name)
+
+        if 'bootstrap' in self.config:
+            yield '\n# The bootstrap configuration. Works only when the cluster is not yet initialized.'
+            yield '# If the cluster is already initialized, all changes in the `bootstrap` section are ignored!'
+            yield 'bootstrap:'
+            if 'dcs' in self.config['bootstrap']:
+                yield '  # This section will be written into Etcd:/<namespace>/<scope>/config after initializing'
+                yield '  # new cluster and all other cluster members will use it as a `global configuration`.'
+                yield '  # WARNING! If you want to change any of the parameters that were set up'
+                yield '  # via `bootstrap.dcs` section, please use `patronictl edit-config`!'
+                yield '  dcs:'
+                for name in ('loop_wait', 'retry_timeout', 'ttl'):
+                    if name in self.config['bootstrap']['dcs']:
+                        yield self._format_block({name: self.config['bootstrap']['dcs'].pop(name)}, '    ')
+
+                for name, value in self.config['bootstrap']['dcs'].items():
+                    yield self._format_block({name: value}, '    ')
+
+        for name in ('postgresql', 'watchdog', 'tags'):
+            yield from self._format_config_section(name)
+
+    def _write_config_to_fd(self, fd: TextIO) -> None:
+        """Format and write current :attr:`~AbstractConfigGenerator.config` to provided file descriptor.
+
+        :param fd: where to write the config file. Could be ``sys.stdout`` or the real file.
+        """
+        fd.write('\n'.join(self._format_config()))
+
     def write_config(self) -> None:
         """Write current :attr:`~AbstractConfigGenerator.config` to the output file if provided, to stdout otherwise."""
         if self.output_file:
@@ -137,9 +209,9 @@ class AbstractConfigGenerator(abc.ABC):
             if dir_path and not os.path.isdir(dir_path):
                 os.makedirs(dir_path)
             with open(self.output_file, 'w', encoding='UTF-8') as output_file:
-                yaml.safe_dump(self.config, output_file, default_flow_style=False, allow_unicode=True)
+                self._write_config_to_fd(output_file)
         else:
-            yaml.safe_dump(self.config, sys.stdout, default_flow_style=False, allow_unicode=True)
+            self._write_config_to_fd(sys.stdout)
 
 
 class SampleConfigGenerator(AbstractConfigGenerator):
@@ -181,6 +253,9 @@ class SampleConfigGenerator(AbstractConfigGenerator):
         wal_keep_param = 'wal_keep_segments' if self.pg_major < 130000 else 'wal_keep_size'
         self.config['bootstrap']['dcs']['postgresql']['parameters'][wal_keep_param] = \
             ConfigHandler.CMDLINE_OPTIONS[wal_keep_param][0]
+
+        wal_level = 'hot_standby' if self.pg_major < 90600 else 'replica'
+        self.config['bootstrap']['dcs']['postgresql']['parameters']['wal_level'] = wal_level
 
         self.config['bootstrap']['dcs']['postgresql']['use_pg_rewind'] = True
         if self.pg_major >= 110000:
