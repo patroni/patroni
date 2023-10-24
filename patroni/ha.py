@@ -1009,6 +1009,15 @@ class Ha(object):
                     if not self.sync_mode_is_active() or not self.cluster.sync.leader_matches(st.member.name):
                         return False
                     logger.info('Ignoring the former leader being ahead of us')
+                if my_wal_position == st.wal_position and self.patroni.failover_priority < st.failover_priority:
+                    # There's a higher priority non-lagging replica
+                    logger.info(
+                        '%s has equally tolerable WAL position and priority %s, while this node has priority %s',
+                        st.member.name,
+                        st.failover_priority,
+                        self.patroni.failover_priority,
+                    )
+                    return False
         return True
 
     def is_failover_possible(self, *, cluster_lsn: int = 0, exclude_failover_candidate: bool = False) -> bool:
