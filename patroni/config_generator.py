@@ -493,41 +493,6 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
 def generate_config(output_file: str, sample: bool, dsn: Optional[str]) -> None:
     """Generate Patroni configuration file.
 
-    Gather all the available non-internal GUC values having configuration file, postmaster command line or environment
-    variable as a source and store them in the appropriate part of Patroni configuration (``postgresql.parameters`` or
-    ``bootstrap.dcs.postgresql.parameters``). Either the provided DSN (takes precedence) or PG ENV vars will be used
-    for the connection. If password is not provided, it should be entered via prompt.
-
-    The created configuration contains:
-    * ``scope``: ``cluster_name`` GUC value or ``PATRONI_SCOPE ENV`` variable value if available.
-    * ``name``: ``PATRONI_NAME`` ENV variable value if set, otherwise hostname.
-
-    * ``bootstrap.dcs``: section with all the parameters (incl. the majority of PG GUCs) set to their default values
-      defined by Patroni and adjusted by the source instances's configuration values.
-
-    * ``postgresql.parameters``: the source instance's ``archive_command``, ``restore_command``,
-      ``archive_cleanup_command``, ``recovery_end_command``, ``ssl_passphrase_command``, ``hba_file``, ``ident_file``,
-      ``config_file`` GUC values.
-
-    * ``postgresql.bin_dir``: path to Postgres binaries gathered from the running instance or, if not available,
-      the value of ``PATRONI_POSTGRESQL_BIN_DIR`` ENV variable. Otherwise, an empty string.
-
-    * ``postgresql.datadir``: the value gathered from the corresponding PG GUC.
-    * ``postgresql.listen``: source instance's ``listen_addresses`` and port GUC values.
-    * ``postgresql.connect_address``: if possible, generated from the connection params.
-    * ``postgresql.authentication``:
-
-        * superuser and replication users defined (if possible, usernames are set from the respective Patroni ENV vars,
-          otherwise the default ``postgres`` and ``replicator`` values are used).
-          If not a sample config, either DSN or PG ENV vars are used to define superuser authentication parameters.
-
-        * rewind user is defined only for sample config, if PG version can be defined and PG version is >=11
-          (if possible, username is set from the respective Patroni ENV var).
-
-    * ``bootstrap.dcs.postgresql.use_pg_rewind`` set to ``True`` for a sample config only.
-    * ``postgresql.pg_hba`` defaults or the lines gathered from the source instance's ``hba_file``.
-    * ``postgresql.pg_ident`` the lines gathered from the source instance's ``ident_file``.
-
     :param output_file: Full path to the configuration file to be used. If not provided, result is sent to ``stdout``.
     :param sample: Optional flag. If set, no source instance will be used - generate config with some sane defaults.
     :param dsn: Optional DSN string for the local instance to get GUC values from.
