@@ -43,16 +43,31 @@ in the configuration files, Patroni supplies two cluster-specific ones:
 
 Passing these two additional flags can be disabled by setting a special ``no_params`` parameter to ``True``.
 
-If the bootstrap script returns 0, Patroni tries to configure and start the PostgreSQL instance produced by it. If any
+If the bootstrap script returns ``0``, Patroni tries to configure and start the PostgreSQL instance produced by it. If any
 of the intermediate steps fail, or the script returns a non-zero value, Patroni assumes that the bootstrap has failed,
 cleans up after itself and releases the initialize lock to give another node the opportunity to bootstrap.
 
 If a ``recovery_conf`` block is defined in the same section as the custom bootstrap method, Patroni will generate a
-``recovery.conf`` before starting the newly bootstrapped instance. Typically, such recovery.conf should contain at least
-one of the ``recovery_target_*`` parameters, together with the ``recovery_target_timeline`` set to ``promote``.
+``recovery.conf`` before starting the newly bootstrapped instance (or set the recovery settings on Postgres configuration if
+running PostgreSQL >= 12).
+Typically, such recovery configuration should contain at least one of the ``recovery_target_*`` parameters, together with the ``recovery_target_timeline`` set to ``promote``.
 
-If ``keep_existing_recovery_conf`` is defined and set to ``True``, Patroni will not remove the existing ``recovery.conf`` file if it exists.
-This is useful when bootstrapping from a backup with tools like pgBackRest that generate the appropriate ``recovery.conf`` for you.
+If ``keep_existing_recovery_conf`` is defined and set to ``True``, Patroni will not remove the existing ``recovery.conf`` file if it exists (PostgreSQL <= 11).
+Similarly, in that case Patroni will not remove the existing ``recovery.signal`` or ``standby.signal`` if either exists, nor will it override the configured recovery settings (PostgreSQL >= 12).
+This is useful when bootstrapping from a backup with tools like pgBackRest that generate the appropriate recovery configuration for you.
+
+Besides that, any additional key/value pairs informed in the custom bootstrap method configuration will be passed as arguments to ``command`` in the format ``--name=value``. For example:
+
+.. code:: YAML
+
+    bootstrap:
+        method: <custom_bootstrap_method_name>
+        <custom_bootstrap_method_name>:
+            command: <path_to_custom_bootstrap_script>
+            arg1: value1
+            arg2: value2
+
+Makes the configured ``command`` to be called additionally with ``--arg1=value1 --arg2=value2`` command-line arguments.
 
  .. note:: Bootstrap methods are neither chained, nor fallen-back to the default one in case the primary one fails
 
