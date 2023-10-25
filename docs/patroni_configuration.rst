@@ -168,15 +168,15 @@ Description
 """""""""""
 
 Generate a sample Patroni configuration file in ``yaml`` format.
-Parameter values are defined using the :ref:`Environment configuration <environment>`, otherwise, if not set, the defaults used in Patroni or to the '#FIXME' string for the values that should be later defined by the user.
+Parameter values are defined using the :ref:`Environment configuration <environment>`, otherwise, if not set, the defaults used in Patroni or the ``#FIXME`` string for the values that should be later defined by the user.
 
 Some default values are defined based on the local setup:
 
-   -  **postgresql.listen**: the IP address returned by ``gethostname`` call for the current machine's hostname and the standart ``5432`` port.
-   -  **postgresql.connect_address**: the IP address returned by ``gethostname`` call for the current machine's hostname and the standart ``5432`` port.
+   -  **postgresql.listen**: the IP address returned by ``gethostname`` call for the current machine's hostname and the standard ``5432`` port.
+   -  **postgresql.connect_address**: the IP address returned by ``gethostname`` call for the current machine's hostname and the standard ``5432`` port.
    -  **postgresql.authentication.rewind**: is only defined if the PostgreSQL version can be defined from the binary and the version is 11 or later.
-   -  **restapi.listen**: IP address returned by ``gethostname`` call for the current machine's hostname and the standart ``8008`` port.
-   -  **restapi.connect_address**: IP address returned by ``gethostname`` call for the current machine's hostname and the standart ``8008`` port.
+   -  **restapi.listen**: IP address returned by ``gethostname`` call for the current machine's hostname and the standard ``8008`` port.
+   -  **restapi.connect_address**: IP address returned by ``gethostname`` call for the current machine's hostname and the standard ``8008`` port.
 
 Parameters
 """"""""""
@@ -194,10 +194,10 @@ Patroni configuration for a running instance
 Description
 """""""""""
 
-Generate Patroni local configuration in ``yaml`` format for the locally running PostgreSQL instance. 
-Either the provided DSN (takes precedence) or PostgreSQL `environment variables <https://www.postgresql.org/docs/current/libpq-envars.html>`__ will be used for the PostgreSQL connection. If password is not provided, it should be entered via prompt.
+Generate a Patroni configuration in ``yaml`` format for the locally running PostgreSQL instance. 
+Either the provided DSN (takes precedence) or PostgreSQL `environment variables <https://www.postgresql.org/docs/current/libpq-envars.html>`__ will be used for the PostgreSQL connection. If the password is not provided, it should be entered via prompt.
 
-All the non-internal GUCs having configuration file, postmaster command line or environment variable as a source defined on the running instance will be used for the following Patroni configuration parameters:
+All the non-internal GUCs defined in the source Postgres instance, independently if they were set through a configuration file, through the postmaster command-line, or through environment variables, will be used as the source for the following Patroni configuration parameters:
 
    -  **scope**: ``cluster_name`` GUC value;
    -  **postgresql.listen**: ``listen_addresses`` and ``port`` GUC values;
@@ -205,7 +205,7 @@ All the non-internal GUCs having configuration file, postmaster command line or 
    -  **postgresql.parameters**: ``archive_command``, ``restore_command``, ``archive_cleanup_command``, ``recovery_end_command``, ``ssl_passphrase_command``, ``hba_file``, ``ident_file``, ``config_file`` GUC values;
    -  **bootstrap.dcs**: all other gathered PostgreSQL GUCs.
 
-If ``scope``, ``postgresql.listen`` or ``postgresql.datadir`` is not set form the GUCs, the respective :ref:`Environment configuration <environment>` value is used.
+If ``scope``, ``postgresql.listen`` or ``postgresql.datadir`` is not set from the Postgres GUCs, the respective :ref:`Environment configuration <environment>` value is used.
 
 Other rules applied for the values definition:
 
@@ -215,10 +215,10 @@ Other rules applied for the values definition:
    -  **postgresql.authentication.superuser**: the configuration used for the instance connection;
    -  **postgresql.pg_hba**: the lines gathered from the source instance's ``hba_file``.
    -  **postgresql.pg_ident**: the lines gathered from the source instance's ``ident_file``.
-   -  **restapi.listen**: IP address returned by ``gethostname`` call for the current machine's hostname and the standart ``8008`` port.
-   -  **restapi.connect_address**: IP address returned by ``gethostname`` call for the current machine's hostname and the standart ``8008`` port.
+   -  **restapi.listen**: IP address returned by ``gethostname`` call for the current machine's hostname and the standard ``8008`` port.
+   -  **restapi.connect_address**: IP address returned by ``gethostname`` call for the current machine's hostname and the standard ``8008`` port.
 
-Other parameters defined using :ref:`Environment configuration <environment>` are also included into the configurtion.
+Other parameters defined using :ref:`Environment configuration <environment>` are also included into the configuration.
 
 Parameters
 """"""""""
@@ -240,7 +240,7 @@ Validate Patroni configuration
 Description
 """""""""""
 
-Validate the given Patroni local configuration and print the information about the failed checks.
+Validate the given Patroni configuration and print the information about the failed checks.
 
 Parameters
 """"""""""
