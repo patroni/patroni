@@ -892,14 +892,19 @@ class PatroniPoolController(object):
         }
         self.start(to_name, custom_config=custom_config)
 
+    def backup_restore_config(self, params={}):
+        return {
+            'command': (self.BACKUP_RESTORE_SCRIPT + ' --sourcedir=' + os.path.join(self.patroni_path, 'data', 'basebackup')).replace('\\', '/'),
+            'test-argument': 'test-value', # only used for testing config mapping approach on custom bootstrap/replica creation
+            **params,
+        }
+
     def bootstrap_from_backup(self, name, cluster_name):
         custom_config = {
             'scope': cluster_name,
             'bootstrap': {
                 'method': 'backup_restore',
-                'backup_restore': {
-                    'command': (self.BACKUP_RESTORE_SCRIPT + ' --sourcedir='
-                                + os.path.join(self.patroni_path, 'data', 'basebackup').replace('\\', '/')),
+                'backup_restore': self.backup_restore_config({
                     'recovery_conf': {
                         'recovery_target_action': 'promote',
                         'recovery_target_timeline': 'latest',
@@ -907,8 +912,7 @@ class PatroniPoolController(object):
                                             + '--dirname {} --filename %f --pathname %p').format(
                             os.path.join(self.patroni_path, 'data', 'wal_archive_clone').replace('\\', '/'))
                     },
-                    'test-argument': 'test-value',
-                }
+                })
             },
             'postgresql': {
                 'authentication': {
@@ -929,12 +933,7 @@ class PatroniPoolController(object):
                     .format(os.path.join(self.patroni_path, 'data', 'wal_archive').replace('\\', '/'))
                 },
                 'create_replica_methods': ['no_leader_bootstrap'],
-                'no_leader_bootstrap': {
-                    'command': (self.BACKUP_RESTORE_SCRIPT + ' --sourcedir='
-                                + os.path.join(self.patroni_path, 'data', 'basebackup').replace('\\', '/')),
-                    'no_leader': '1',
-                    'test-argument': 'test-value',
-                }
+                'no_leader_bootstrap': self.backup_restore_config({'no_leader': '1'})
             }
         }
         self.start(name, custom_config=custom_config)
