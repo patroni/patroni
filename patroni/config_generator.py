@@ -9,7 +9,7 @@ import yaml
 
 from getpass import getuser, getpass
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Dict, Iterator, List, Optional, TextIO, Tuple, TYPE_CHECKING, Union
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
     from psycopg2 import cursor
@@ -17,6 +17,7 @@ if TYPE_CHECKING:  # pragma: no cover
 from . import psycopg
 from .config import Config
 from .exceptions import PatroniException
+from .log import PatroniLogger
 from .postgresql.config import ConfigHandler, parse_dsn
 from .postgresql.misc import postgres_major_version_to_int
 from .utils import get_major_version, parse_bool, patch_config, read_stripped
@@ -93,10 +94,20 @@ class AbstractConfigGenerator(abc.ABC):
         template_config: Dict[str, Any] = {
             'scope': NO_VALUE_MSG,
             'name': cls._HOSTNAME,
+            'restapi': {
+                'connect_address': cls._IP + ':8008',
+                'listen': cls._IP + ':8008'
+            },
+            'log': {
+                'level': PatroniLogger.DEFAULT_LEVEL,
+                'traceback_level': PatroniLogger.DEFAULT_TRACEBACK_LEVEL,
+                'format': PatroniLogger.DEFAULT_FORMAT,
+                'max_queue_size': PatroniLogger.DEFAULT_MAX_QUEUE_SIZE
+            },
             'postgresql': {
                 'data_dir': NO_VALUE_MSG,
-                'connect_address': NO_VALUE_MSG + ':5432',
-                'listen': NO_VALUE_MSG + ':5432',
+                'connect_address': cls._IP + ':5432',
+                'listen': cls._IP + ':5432',
                 'bin_dir': '',
                 'authentication': {
                     'superuser': {
@@ -109,9 +120,11 @@ class AbstractConfigGenerator(abc.ABC):
                     }
                 }
             },
-            'restapi': {
-                'connect_address': cls._IP + ':8008',
-                'listen': cls._IP + ':8008'
+            'tags': {
+                'failover_priority': 1,
+                'noloadbalance': False,
+                'clonefrom': True,
+                'nosync': False,
             }
         }
 
@@ -130,6 +143,72 @@ class AbstractConfigGenerator(abc.ABC):
     def generate(self) -> None:
         """Generate config and store in :attr:`~AbstractConfigGenerator.config`."""
 
+    @staticmethod
+    def _format_block(block: Any, line_prefix: str = '') -> str:
+        """Format a single YAML block.
+
+        .. note::
+            Optionally the formatted block could be indented with the *line_prefix*
+
+        :param block: the object that should be formatted to YAML.
+        :param line_prefix: is used for indentation.
+
+        :returns: a formatted and indented *block*.
+        """
+        return line_prefix + yaml.safe_dump(block, default_flow_style=False, line_break='\n',
+                                            allow_unicode=True, indent=2).strip().replace('\n', '\n' + line_prefix)
+
+    def _format_config_section(self, section_name: str) -> Iterator[str]:
+        """Format and yield as single section of the current :attr:`~AbstractConfigGenerator.config`.
+
+        .. note::
+            If the section is a :class:`dict` object we put an empty line before it.
+
+        :param section_name: a section name in the :attr:`~AbstractConfigGenerator.config`.
+
+        :yields: a formatted section in case if it exists in the :attr:`~AbstractConfigGenerator.config`.
+        """
+        if section_name in self.config:
+            if isinstance(self.config[section_name], dict):
+                yield ''
+            yield self._format_block({section_name: self.config[section_name]})
+
+    def _format_config(self) -> Iterator[str]:
+        """Format current :attr:`~AbstractConfigGenerator.config` and enrich it with some comments.
+
+        :yields: formatted lines or blocks that represent a text output of the YAML document.
+        """
+        for name in ('scope', 'namespace', 'name', 'log', 'restapi', 'ctl' 'citus',
+                     'consul', 'etcd', 'etcd3', 'exhibitor', 'kubernetes', 'raft', 'zookeeper'):
+            yield from self._format_config_section(name)
+
+        if 'bootstrap' in self.config:
+            yield '\n# The bootstrap configuration. Works only when the cluster is not yet initialized.'
+            yield '# If the cluster is already initialized, all changes in the `bootstrap` section are ignored!'
+            yield 'bootstrap:'
+            if 'dcs' in self.config['bootstrap']:
+                yield '  # This section will be written into <dcs>:/<namespace>/<scope>/config after initializing'
+                yield '  # new cluster and all other cluster members will use it as a `global configuration`.'
+                yield '  # WARNING! If you want to change any of the parameters that were set up'
+                yield '  # via `bootstrap.dcs` section, please use `patronictl edit-config`!'
+                yield '  dcs:'
+                for name in ('loop_wait', 'retry_timeout', 'ttl'):
+                    if name in self.config['bootstrap']['dcs']:
+                        yield self._format_block({name: self.config['bootstrap']['dcs'].pop(name)}, '    ')
+
+                for name, value in self.config['bootstrap']['dcs'].items():
+                    yield self._format_block({name: value}, '    ')
+
+        for name in ('postgresql', 'watchdog', 'tags'):
+            yield from self._format_config_section(name)
+
+    def _write_config_to_fd(self, fd: TextIO) -> None:
+        """Format and write current :attr:`~AbstractConfigGenerator.config` to provided file descriptor.
+
+        :param fd: where to write the config file. Could be ``sys.stdout`` or the real file.
+        """
+        fd.write('\n'.join(self._format_config()))
+
     def write_config(self) -> None:
         """Write current :attr:`~AbstractConfigGenerator.config` to the output file if provided, to stdout otherwise."""
         if self.output_file:
@@ -137,9 +216,9 @@ class AbstractConfigGenerator(abc.ABC):
             if dir_path and not os.path.isdir(dir_path):
                 os.makedirs(dir_path)
             with open(self.output_file, 'w', encoding='UTF-8') as output_file:
-                yaml.safe_dump(self.config, output_file, default_flow_style=False, allow_unicode=True)
+                self._write_config_to_fd(output_file)
         else:
-            yaml.safe_dump(self.config, sys.stdout, default_flow_style=False, allow_unicode=True)
+            self._write_config_to_fd(sys.stdout)
 
 
 class SampleConfigGenerator(AbstractConfigGenerator):
@@ -181,6 +260,9 @@ class SampleConfigGenerator(AbstractConfigGenerator):
         wal_keep_param = 'wal_keep_segments' if self.pg_major < 130000 else 'wal_keep_size'
         self.config['bootstrap']['dcs']['postgresql']['parameters'][wal_keep_param] = \
             ConfigHandler.CMDLINE_OPTIONS[wal_keep_param][0]
+
+        wal_level = 'hot_standby' if self.pg_major < 90600 else 'replica'
+        self.config['bootstrap']['dcs']['postgresql']['parameters']['wal_level'] = wal_level
 
         self.config['bootstrap']['dcs']['postgresql']['use_pg_rewind'] = True
         if self.pg_major >= 110000:
@@ -410,41 +492,6 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
 
 def generate_config(output_file: str, sample: bool, dsn: Optional[str]) -> None:
     """Generate Patroni configuration file.
-
-    Gather all the available non-internal GUC values having configuration file, postmaster command line or environment
-    variable as a source and store them in the appropriate part of Patroni configuration (``postgresql.parameters`` or
-    ``bootstrap.dcs.postgresql.parameters``). Either the provided DSN (takes precedence) or PG ENV vars will be used
-    for the connection. If password is not provided, it should be entered via prompt.
-
-    The created configuration contains:
-    * ``scope``: ``cluster_name`` GUC value or ``PATRONI_SCOPE ENV`` variable value if available.
-    * ``name``: ``PATRONI_NAME`` ENV variable value if set, otherwise hostname.
-
-    * ``bootstrap.dcs``: section with all the parameters (incl. the majority of PG GUCs) set to their default values
-      defined by Patroni and adjusted by the source instances's configuration values.
-
-    * ``postgresql.parameters``: the source instance's ``archive_command``, ``restore_command``,
-      ``archive_cleanup_command``, ``recovery_end_command``, ``ssl_passphrase_command``, ``hba_file``, ``ident_file``,
-      ``config_file`` GUC values.
-
-    * ``postgresql.bin_dir``: path to Postgres binaries gathered from the running instance or, if not available,
-      the value of ``PATRONI_POSTGRESQL_BIN_DIR`` ENV variable. Otherwise, an empty string.
-
-    * ``postgresql.datadir``: the value gathered from the corresponding PG GUC.
-    * ``postgresql.listen``: source instance's ``listen_addresses`` and port GUC values.
-    * ``postgresql.connect_address``: if possible, generated from the connection params.
-    * ``postgresql.authentication``:
-
-        * superuser and replication users defined (if possible, usernames are set from the respective Patroni ENV vars,
-          otherwise the default ``postgres`` and ``replicator`` values are used).
-          If not a sample config, either DSN or PG ENV vars are used to define superuser authentication parameters.
-
-        * rewind user is defined only for sample config, if PG version can be defined and PG version is >=11
-          (if possible, username is set from the respective Patroni ENV var).
-
-    * ``bootstrap.dcs.postgresql.use_pg_rewind`` set to ``True`` for a sample config only.
-    * ``postgresql.pg_hba`` defaults or the lines gathered from the source instance's ``hba_file``.
-    * ``postgresql.pg_ident`` the lines gathered from the source instance's ``ident_file``.
 
     :param output_file: Full path to the configuration file to be used. If not provided, result is sent to ``stdout``.
     :param sample: Optional flag. If set, no source instance will be used - generate config with some sane defaults.

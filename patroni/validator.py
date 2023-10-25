@@ -814,27 +814,28 @@ def assert_(condition: bool, message: str = "Wrong value") -> None:
 class IntValidator(object):
     """Validate an integer setting.
 
-    :cvar expected_type: the expected Python type for an integer setting (:class:`int`).
     :ivar min: minimum allowed value for the setting, if any.
     :ivar max: maximum allowed value for the setting, if any.
     :ivar base_unit: the base unit to convert the value to before checking if it's within *min* and *max* range.
+    :ivar expected_type: the expected Python type.
     :ivar raise_assert: if an ``assert`` test should be performed regarding expected type and valid range.
     """
 
-    expected_type = int
-
     def __init__(self, min: OptionalType[int] = None, max: OptionalType[int] = None,
-                 base_unit: OptionalType[str] = None, raise_assert: bool = False) -> None:
+                 base_unit: OptionalType[str] = None, expected_type: Any = None, raise_assert: bool = False) -> None:
         """Create an :class:`IntValidator` object with the given rules.
 
         :param min: minimum allowed value for the setting, if any.
         :param max: maximum allowed value for the setting, if any.
         :param base_unit: the base unit to convert the value to before checking if it's within *min* and *max* range.
+        :param expected_type: the expected Python type.
         :param raise_assert: if an ``assert`` test should be performed regarding expected type and valid range.
         """
         self.min = min
         self.max = max
         self.base_unit = base_unit
+        if expected_type:
+            self.expected_type = expected_type
         self.raise_assert = raise_assert
 
     def __call__(self, value: Any) -> bool:
@@ -953,36 +954,36 @@ schema = Schema({
         Optional("allowlist_include_members"): bool,
         Optional("http_extra_headers"): dict,
         Optional("https_extra_headers"): dict,
-        Optional("request_queue_size"): IntValidator(min=0, max=4096, raise_assert=True)
+        Optional("request_queue_size"): IntValidator(min=0, max=4096, expected_type=int, raise_assert=True)
     },
     Optional("bootstrap"): {
         "dcs": {
-            Optional("ttl"): int,
-            Optional("loop_wait"): int,
-            Optional("retry_timeout"): int,
-            Optional("maximum_lag_on_failover"): int,
-            Optional("maximum_lag_on_syncnode"): int,
+            Optional("ttl"): IntValidator(min=20, raise_assert=True),
+            Optional("loop_wait"): IntValidator(min=1, raise_assert=True),
+            Optional("retry_timeout"): IntValidator(min=3, raise_assert=True),
+            Optional("maximum_lag_on_failover"): IntValidator(min=0, raise_assert=True),
+            Optional("maximum_lag_on_syncnode"): IntValidator(min=-1, raise_assert=True),
             Optional("postgresql"): {
                 Optional("parameters"): {
-                    Optional("max_connections"): int,
-                    Optional("max_locks_per_transaction"): int,
-                    Optional("max_prepared_transactions"): int,
-                    Optional("max_replication_slots"): int,
-                    Optional("max_wal_senders"): int,
-                    Optional("max_worker_processes"): int
+                    Optional("max_connections"): IntValidator(1, 262143, raise_assert=True),
+                    Optional("max_locks_per_transaction"): IntValidator(10, 2147483647, raise_assert=True),
+                    Optional("max_prepared_transactions"): IntValidator(0, 262143, raise_assert=True),
+                    Optional("max_replication_slots"): IntValidator(0, 262143, raise_assert=True),
+                    Optional("max_wal_senders"): IntValidator(0, 262143, raise_assert=True),
+                    Optional("max_worker_processes"): IntValidator(0, 262143, raise_assert=True),
                 },
                 Optional("use_pg_rewind"): bool,
                 Optional("pg_hba"): [str],
                 Optional("pg_ident"): [str],
-                Optional("pg_ctl_timeout"): int,
+                Optional("pg_ctl_timeout"): IntValidator(min=0, raise_assert=True),
                 Optional("use_slots"): bool,
             },
-            Optional("primary_start_timeout"): int,
-            Optional("primary_stop_timeout"): int,
+            Optional("primary_start_timeout"): IntValidator(min=0, raise_assert=True),
+            Optional("primary_stop_timeout"): IntValidator(min=0, raise_assert=True),
             Optional("standby_cluster"): {
                 Or("host", "port", "restore_command"): Case({
                     "host": str,
-                    "port": int,
+                    "port": IntValidator(max=65535, expected_type=int, raise_assert=True),
                     "restore_command": str
                 }),
                 Optional("primary_slot_name"): str,
@@ -992,7 +993,7 @@ schema = Schema({
             },
             Optional("synchronous_mode"): bool,
             Optional("synchronous_mode_strict"): bool,
-            Optional("synchronous_node_count"): int
+            Optional("synchronous_node_count"): IntValidator(min=1, raise_assert=True),
         },
         Optional("initdb"): [Or(str, dict)],
         Optional("method"): str
@@ -1003,7 +1004,7 @@ schema = Schema({
                 "host": validate_host_port,
                 "url": str
             }),
-            Optional("port"): int,
+            Optional("port"): IntValidator(max=65535, expected_type=int, raise_assert=True),
             Optional("scheme"): str,
             Optional("token"): str,
             Optional("verify"): bool,
@@ -1023,8 +1024,8 @@ schema = Schema({
         "etcd3": validate_etcd,
         "exhibitor": {
             "hosts": [str],
-            "port": IntValidator(max=65535, raise_assert=True),
-            Optional("pool_interval"): int
+            "port": IntValidator(max=65535, expected_type=int, raise_assert=True),
+            Optional("poll_interval"): IntValidator(min=1, expected_type=int, raise_assert=True),
         },
         "raft": {
             "self_addr": validate_connect_address,
@@ -1055,14 +1056,14 @@ schema = Schema({
             Optional("tmp_role_label"): str,
             Optional("use_endpoints"): bool,
             Optional("pod_ip"): Or(is_ipv4_address, is_ipv6_address),
-            Optional("ports"): [{"name": str, "port": int}],
+            Optional("ports"): [{"name": str, "port": IntValidator(max=65535, expected_type=int, raise_assert=True)}],
             Optional("cacert"): str,
             Optional("retriable_http_codes"): Or(int, [int]),
         },
     }),
     Optional("citus"): {
         "database": str,
-        "group": int
+        "group": IntValidator(min=0, expected_type=int, raise_assert=True),
     },
     "postgresql": {
         "listen": validate_host_port_listen_multiple_hosts,
@@ -1089,18 +1090,18 @@ schema = Schema({
         },
         Optional("pg_hba"): [str],
         Optional("pg_ident"): [str],
-        Optional("pg_ctl_timeout"): int,
+        Optional("pg_ctl_timeout"): IntValidator(min=0, raise_assert=True),
         Optional("use_pg_rewind"): bool
     },
     Optional("watchdog"): {
         Optional("mode"): validate_watchdog_mode,
         Optional("device"): str,
-        Optional("safety_margin"): int
+        Optional("safety_margin"): IntValidator(min=-1, expected_type=int, raise_assert=True),
     },
     Optional("tags"): {
         AtMostOne("nofailover", "failover_priority"): Case({
             "nofailover": bool,
-            "failover_priority": IntValidator(min=0, raise_assert=True),
+            "failover_priority": IntValidator(min=0, expected_type=int, raise_assert=True),
         }),
         Optional("clonefrom"): bool,
         Optional("noloadbalance"): bool,
