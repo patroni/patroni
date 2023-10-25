@@ -103,7 +103,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(server, RestApiServer)
         super(RestApiHandler, self).__init__(request, client_address, server)
-        self.server: 'RestApiServer' = server
+        self.server: 'RestApiServer' = server  # pyright: ignore [reportIncompatibleVariableOverride]
         self.__start_time: float = 0.0
         self.path_query: Dict[str, List[str]] = {}
 
