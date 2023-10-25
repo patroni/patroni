@@ -892,12 +892,12 @@ class PatroniPoolController(object):
         }
         self.start(to_name, custom_config=custom_config)
 
-    def backup_restore_config(self, params={}):
+    def backup_restore_config(self, params=None):
         return {
             'command': (self.BACKUP_RESTORE_SCRIPT
                         + ' --sourcedir=' + os.path.join(self.patroni_path, 'data', 'basebackup')).replace('\\', '/'),
             'test-argument': 'test-value',  # test config mapping approach on custom bootstrap/replica creation
-            **params,
+            **(params or {}),
         }
 
     def bootstrap_from_backup(self, name, cluster_name):
