@@ -156,6 +156,7 @@ Patroni provides command-line interfaces for a Patroni :ref:`local configuration
 - Create a Patroni configuration file for the locally running PostgreSQL instance (e.g. as a preparation step for the :ref:`Patroni integration <existing_data>`);
 - Validate a given Patroni configuration file.
 
+.. _generate_sample_config:
 
 Sample Patroni configuration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -183,6 +184,7 @@ Parameters
 
 ``configfile`` - full path to the configuration file used to store the result. If not provided, the result is sent to ``stdout``.
 
+.. _generate_config:
 
 Patroni configuration for a running instance
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
