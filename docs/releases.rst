@@ -8,21 +8,21 @@ Version 3.2.0
 
 **Deprecation notice**
 
-- The ``bootstrap.users`` support will be removed in the version 4.0. If you need to create users after deploying a new cluster please use the ``bootstrap.post_bootstrap`` hook for that.
+- The ``bootstrap.users`` support will be removed in version 4.0. If you need to create users after deploying a new cluster please use the ``bootstrap.post_bootstrap`` hook for that.
 
 
 **Breaking changes**
 
 - Enforce ``loop_wait + 2*retry_timeout <= ttl`` rule and hard-code minimal possible values (Alexander Kukushkin)
 
-  Minimal values: ``loop_wait=2``, ``retry_timeout=3``, ``ttl=20``. In case if values are smaller or violate the rule they are adjusted and warning is written to Patroni logs.
+  Minimal values: ``loop_wait=2``, ``retry_timeout=3``, ``ttl=20``. In case values are smaller or violate the rule they are adjusted and a warning is written to Patroni logs.
 
 
 **New features**
 
 - Failover priority (Mark Pekala)
 
-  With the help of ``tags.failover_priority`` its now possible to make some node more prefered during the leader race. More details in the documentation (ref tags).
+  With the help of ``tags.failover_priority`` it's now possible to make a node more preferred during the leader race. More details in the documentation (ref tags).
 
 - Implemented ``patroni --generate-config [--dsn DSN]`` and ``patroni --generate-sample-config`` (Polina Bungina)
 
@@ -30,7 +30,7 @@ Version 3.2.0
 
 - Use a dedicated connection to Postgres for Patroni REST API (Alexander Kukushkin)
 
-  It helps to avoid blocking the main heart beat loop if the system is under stress.
+  It helps to avoid blocking the main heartbeat loop if the system is under stress.
 
 - Enreach some endpoints with the ``name`` of the node (sskserk)
 
@@ -38,11 +38,11 @@ Version 3.2.0
 
 - Ensure strict failover/switchover difference (Polina Bungina)
 
-  Be more precise in log messages and allow failing over to asynchronous node in a healthy synchronous cluster.
+  Be more precise in log messages and allow failing over to an asynchronous node in a healthy synchronous cluster.
 
-- Make permanent physical replication slots behave similar to permanent logical slots (Alexander Kukushkin)
+- Make permanent physical replication slots behave similarly to permanent logical slots (Alexander Kukushkin)
 
-  Create permanent physical replication slots on all nodes that are allowed to become the leader and use ``pg_replication_slot_advance()`` function to advance ``restart_lsn`` for slots on standby nodes..
+  Create permanent physical replication slots on all nodes that are allowed to become the leader and use ``pg_replication_slot_advance()`` function to advance ``restart_lsn`` for slots on standby nodes.
 
 - Add capability of specifying namespace through ``--dcs`` argument in ``patronictl`` (Israel Barth Rubio)
 
