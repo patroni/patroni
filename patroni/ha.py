@@ -1187,10 +1187,21 @@ class Ha(object):
                     if not self.sync_mode_is_active() or not self.cluster.sync.leader_matches(st.member.name):
                         return False
                     logger.info('Ignoring the former leader being ahead of us')
-                # we want to count votes only from nodes with postgres up and running!
-                elif st.member.name in voting_set and st.wal_position > 0:
-                    logger.info('Got quorum vote from %s', st.member.name)
-                    quorum_votes += 1
+                elif st.wal_position > 0:  # we want to count votes only from nodes with postgres up and running!
+                    quorum_vote = st.member.name in voting_set
+                    low_priority = my_wal_position == st.wal_position \
+                        and self.patroni.failover_priority < st.failover_priority
+
+                    if low_priority and (not self.sync_mode_is_active() or quorum_vote):
+                        # There's a higher priority non-lagging replica
+                        logger.info(
+                            '%s has equally tolerable WAL position and priority %s, while this node has priority %s',
+                            st.member.name, st.failover_priority, self.patroni.failover_priority)
+                        return False
+
+                    if quorum_vote:
+                        logger.info('Got quorum vote from %s', st.member.name)
+                        quorum_votes += 1
 
         # When not in quorum commit we just want to return `True`.
         # In quorum commit the former leader is special and counted healthy even when there are no other nodes.

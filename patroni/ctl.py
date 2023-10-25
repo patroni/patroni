@@ -165,7 +165,7 @@ class PatronictlPrettyTable(PrettyTable):
 def parse_dcs(dcs: Optional[str]) -> Optional[Dict[str, Any]]:
     """Parse a DCS URL.
 
-    :param dcs: the DCS URL in the format ``DCS://HOST:PORT``. ``DCS`` can be one among:
+    :param dcs: the DCS URL in the format ``DCS://HOST:PORT/NAMESPACE``. ``DCS`` can be one among:
 
         * ``consul``
         * ``etcd``
@@ -174,10 +174,12 @@ def parse_dcs(dcs: Optional[str]) -> Optional[Dict[str, Any]]:
         * ``zookeeper``
 
         If ``DCS`` is not specified, assume ``etcd`` by default. If ``HOST`` is not specified, assume ``localhost`` by
-        default. If ``PORT`` is not specified, assume the default port of the given ``DCS``.
+        default. If ``PORT`` is not specified, assume the default port of the given ``DCS``. If ``NAMESPACE`` is not
+        specified, use whatever is in config.
 
     :returns: ``None`` if *dcs* is ``None``, otherwise a dictionary. The dictionary represents *dcs* as if it were
-        parsed from the Patroni configuration file.
+        parsed from the Patroni configuration file. Additionally, if a namespace is specified in *dcs*, return a
+        ``namespace`` key with the parsed value.
 
     :raises:
         :class:`PatroniCtlException`: if the DCS name in *dcs* is not valid.
@@ -195,6 +197,9 @@ def parse_dcs(dcs: Optional[str]) -> Optional[Dict[str, Any]]:
 
         >>> parse_dcs('etcd3://random.com:2399')
         {'etcd3': {'host': 'random.com:2399'}}
+
+        >>> parse_dcs('etcd3://random.com:2399/customnamespace')
+        {'etcd3': {'host': 'random.com:2399'}, 'namespace': '/customnamespace'}
     """
     if dcs is None:
         return None
@@ -211,15 +216,21 @@ def parse_dcs(dcs: Optional[str]) -> Optional[Dict[str, Any]]:
         raise PatroniCtlException('Unknown dcs scheme: {}'.format(scheme))
 
     default = DCS_DEFAULTS[scheme]
-    return yaml.safe_load(default['template'].format(host=parsed.hostname or 'localhost', port=port or default['port']))
+    ret = yaml.safe_load(default['template'].format(host=parsed.hostname or 'localhost', port=port or default['port']))
+
+    if parsed.path and parsed.path.strip() != '/':
+        ret['namespace'] = parsed.path.strip()
+
+    return ret
 
 
 def load_config(path: str, dcs_url: Optional[str]) -> Dict[str, Any]:
     """Load configuration file from *path* and optionally override its DCS configuration with *dcs_url*.
 
     :param path: path to the configuration file.
-    :param dcs_url: the DCS URL in the format ``DCS://HOST:PORT``, e.g. ``etcd3://random.com:2399``. If given override
-        whatever DCS is set in the configuration file.
+    :param dcs_url: the DCS URL in the format ``DCS://HOST:PORT/NAMESPACE``, e.g. ``etcd3://random.com:2399/service``.
+        If given, override whatever DCS and ``namespace`` that are set in the configuration file. See :func:`parse_dcs`
+        for more information.
 
     :returns: a dictionary representing the configuration.
 

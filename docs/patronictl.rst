@@ -52,9 +52,9 @@ Before jumping into each of the sub-commands of ``patronictl``, be aware that ``
 ``-d`` / ``--dcs-url`` / ``--dcs``
     Provide a connection string to the DCS used by Patroni.
 
-    This argument can be used either to override the DCS settings from the ``patronictl`` configuration, or to define it if it's missing in the configuration.
+    This argument can be used either to override the DCS and ``namespace`` settings from the ``patronictl`` configuration, or to define it if it's missing in the configuration.
 
-    The value should be in the format ``DCS://HOST:PORT``, e.g. ``etcd3://localhost:2379`` to connect to etcd v3 running on ``localhost``.
+    The value should be in the format ``DCS://HOST:PORT/NAMESPACE``, e.g. ``etcd3://localhost:2379/service`` to connect to etcd v3 running on ``localhost`` with Patroni cluster stored under ``service`` namespace. Any part that is missing in the argument value will be replaced with the value present in the configuration or with its default.
 
 ``-k`` / ``--insecure``
     Flag to bypass validation of REST API server SSL certificate.

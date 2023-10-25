@@ -1,3 +1,4 @@
+import json
 import patroni.psycopg as pg
 
 from behave import step, then
@@ -113,8 +114,15 @@ def replication_works(context, primary, replica, time_limit):
     """.format(str(time()).replace('.', '_').replace(',', '_'), primary, replica, time_limit))
 
 
-@then('there is a "{message}" {level:w} in the {node} patroni log')
-def check_patroni_log(context, message, level, node):
-    messsages_of_level = context.pctl.read_patroni_log(node, level)
-    assert any(message in line for line in messsages_of_level), \
-        "There was no {0} {1} in the {2} patroni log".format(message, level, node)
+@then('there is one of {message_list} {level:w} in the {node} patroni log after {timeout:d} seconds')
+def check_patroni_log(context, message_list, level, node, timeout):
+    timeout *= context.timeout_multiplier
+    message_list = json.loads(message_list)
+
+    for _ in range(int(timeout)):
+        messsages_of_level = context.pctl.read_patroni_log(node, level)
+        if any(any(message in line for line in messsages_of_level) for message in message_list):
+            break
+        time.sleep(1)
+    else:
+        assert False, f"There were none of {message_list} {level} in the {node} patroni log after {timeout} seconds"

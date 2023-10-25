@@ -95,11 +95,12 @@ def get_cluster_initialized_with_leader_and_failsafe():
 
 def get_node_status(reachable=True, in_recovery=True, dcs_last_seen=0,
                     timeline=2, wal_position=10, nofailover=False,
-                    watchdog_failed=False):
+                    watchdog_failed=False, failover_priority=1):
     def fetch_node_status(e):
         tags = {}
         if nofailover:
             tags['nofailover'] = True
+        tags['failover_priority'] = failover_priority
         return _MemberStatus(e, reachable, in_recovery, wal_position,
                              {'tags': tags, 'watchdog_failed': watchdog_failed,
                               'dcs_last_seen': dcs_last_seen, 'timeline': timeline})
@@ -154,6 +155,7 @@ zookeeper:
                                   'postmaster_start_time': str(postmaster_start_time)}
         self.watchdog = Watchdog(self.config)
         self.request = lambda *args, **kwargs: requests_get(args[0].api_url, *args[1:], **kwargs)
+        self.failover_priority = 1
 
 
 def run_async(self, func, args=()):
@@ -1038,6 +1040,11 @@ class TestHa(PostgresInit):
         self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.ha.fetch_node_status = get_node_status(in_recovery=False)  # accessible, not in_recovery
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+        self.ha.fetch_node_status = get_node_status(failover_priority=2)  # accessible, in_recovery, higher priority
+        self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+        # if there is a higher-priority node but it has a lower WAL position then this node should race
+        self.ha.fetch_node_status = get_node_status(failover_priority=6, wal_position=9)
+        self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.ha.fetch_node_status = get_node_status(wal_position=11)  # accessible, in_recovery, wal position ahead
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         # in synchronous_mode consider itself healthy if the former leader is accessible in read-only and ahead of us
@@ -1053,7 +1060,9 @@ class TestHa(PostgresInit):
             self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
         self.ha.patroni.nofailover = True
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
-        self.ha.patroni.nofailover = False
+        self.ha.patroni.nofailover = None
+        self.ha.patroni.failover_priority = 0
+        self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
 
     def test_fetch_node_status(self):
         member = Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni'})
