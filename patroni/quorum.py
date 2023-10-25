@@ -253,7 +253,7 @@ class QuorumStateResolver:
                 break
 
     def __handle_non_steady_cases(self) -> Iterator[Transition]:
-        """Handle cases when set of transitions produces on previous run was interrupted.
+        """Handle cases when set of transitions produced on previous run was interrupted.
 
         :yields: transitions as :class:`Transition` objects.
         """
