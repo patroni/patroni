@@ -894,8 +894,9 @@ class PatroniPoolController(object):
 
     def backup_restore_config(self, params={}):
         return {
-            'command': (self.BACKUP_RESTORE_SCRIPT + ' --sourcedir=' + os.path.join(self.patroni_path, 'data', 'basebackup')).replace('\\', '/'),
-            'test-argument': 'test-value', # only used for testing config mapping approach on custom bootstrap/replica creation
+            'command': (self.BACKUP_RESTORE_SCRIPT
+                        + ' --sourcedir=' + os.path.join(self.patroni_path, 'data', 'basebackup')).replace('\\', '/'),
+            'test-argument': 'test-value',  # test config mapping approach on custom bootstrap/replica creation
             **params,
         }
 
