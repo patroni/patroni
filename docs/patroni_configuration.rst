@@ -153,8 +153,8 @@ Configuration generation and validation
 Patroni provides command-line interfaces for a Patroni :ref:`local configuration <yaml_configuration>` generation and validation. Using the ``patroni`` executable you can:
 
 - Create a sample local Patroni configuration;
-- Create a local Patroni configuration for the locally running PostgreSQL instance (e.g. as a preparation step for the :ref:`Patroni integration <existing_data>`);
-- Validate a given local Patroni configuration.
+- Create a Patroni configuration file for the locally running PostgreSQL instance (e.g. as a preparation step for the :ref:`Patroni integration <existing_data>`);
+- Validate a given Patroni configuration file.
 
 
 Sample Patroni configuration
@@ -167,7 +167,7 @@ Sample Patroni configuration
 Description
 """""""""""
 
-Generate a sample Patroni local configuration in ``yaml`` format.
+Generate a sample Patroni configuration file in ``yaml`` format.
 Parameter values are defined using the :ref:`Environment configuration <environment>`, otherwise, if not set, the defaults used in Patroni or to the '#FIXME' string for the values that should be later defined by the user.
 
 Some default values are defined based on the local setup:
@@ -195,7 +195,7 @@ Description
 """""""""""
 
 Generate Patroni local configuration in ``yaml`` format for the locally running PostgreSQL instance. 
-Either the provided DSN (takes precedence) or PostgreSQL environment variables will be used for the PostgreSQL connection. If password is not provided, it should be entered via prompt.
+Either the provided DSN (takes precedence) or PostgreSQL `environment variables <https://www.postgresql.org/docs/current/libpq-envars.html>`__ will be used for the PostgreSQL connection. If password is not provided, it should be entered via prompt.
 
 All the non-internal GUCs having configuration file, postmaster command line or environment variable as a source defined on the running instance will be used for the following Patroni configuration parameters:
 
