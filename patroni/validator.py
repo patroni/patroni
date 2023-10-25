@@ -1101,7 +1101,7 @@ schema = Schema({
     Optional("tags"): {
         AtMostOne("nofailover", "failover_priority"): Case({
             "nofailover": bool,
-            "failover_priority": IntValidator(min=0, raise_assert=True),
+            "failover_priority": IntValidator(min=0, expected_type=int, raise_assert=True),
         }),
         Optional("clonefrom"): bool,
         Optional("noloadbalance"): bool,
