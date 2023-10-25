@@ -179,10 +179,42 @@ class TestPatroni(unittest.TestCase):
         self.assertTrue(self.p.noloadbalance)
 
     def test_nofailover(self):
-        self.p.tags['nofailover'] = True
-        self.assertTrue(self.p.nofailover)
-        self.p.tags['nofailover'] = None
-        self.assertFalse(self.p.nofailover)
+        for (nofailover, failover_priority, expected) in [
+            # Without any tags, default is False
+            (None, None, False),
+            # Setting `nofailover: True` has precedence
+            (True, 0, True),
+            (True, 1, True),
+            # Similarly, setting `nofailover: False` has precedence
+            (False, 0, False),
+            (False, 1, False),
+            # Only when we have `nofailover: None` should we got based on priority
+            (None, 0, True),
+            (None, 1, False),
+        ]:
+            with self.subTest(nofailover=nofailover, failover_priority=failover_priority, expected=expected):
+                self.p.tags['nofailover'] = nofailover
+                self.p.tags['failover_priority'] = failover_priority
+                self.assertEqual(self.p.nofailover, expected)
+
+    def test_failover_priority(self):
+        for (nofailover, failover_priority, expected) in [
+            # Without any tags, default is 1
+            (None, None, 1),
+            # Setting `nofailover: True` has precedence (value 0)
+            (True, 0, 0),
+            (True, 1, 0),
+            # Setting `nofailover: False` and `failover_priority: None` gives 1
+            (False, None, 1),
+            # Normal function of failover_priority
+            (None, 0, 0),
+            (None, 1, 1),
+            (None, 2, 2),
+        ]:
+            with self.subTest(nofailover=nofailover, failover_priority=failover_priority, expected=expected):
+                self.p.tags['nofailover'] = nofailover
+                self.p.tags['failover_priority'] = failover_priority
+                self.assertEqual(self.p.failover_priority, expected)
 
     def test_replicatefrom(self):
         self.assertIsNone(self.p.replicatefrom)

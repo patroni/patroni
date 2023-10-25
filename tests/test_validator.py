@@ -325,3 +325,35 @@ class TestValidator(unittest.TestCase):
         output = "\n".join(errors)
         self.assertEqual(['postgresql.bin_dir', 'postgresql.bin_name.postgres', 'raft.bind_addr', 'raft.self_addr'],
                          parse_output(output))
+
+    def test_one_of(self, _, __):
+        c = copy.deepcopy(config)
+        # Providing neither is fine
+        del c["tags"]["nofailover"]
+        errors = schema(c)
+        self.assertNotIn("tags  Multiple of ('nofailover', 'failover_priority') provided", errors)
+        # Just nofailover is fine
+        c["tags"]["nofailover"] = False
+        errors = schema(c)
+        self.assertNotIn("tags  Multiple of ('nofailover', 'failover_priority') provided", errors)
+        # Just failover_priority is fine
+        del c["tags"]["nofailover"]
+        c["tags"]["failover_priority"] = 1
+        errors = schema(c)
+        self.assertNotIn("tags  Multiple of ('nofailover', 'failover_priority') provided", errors)
+        # Providing both is not fine
+        c["tags"]["nofailover"] = False
+        errors = schema(c)
+        self.assertIn("tags  Multiple of ('nofailover', 'failover_priority') provided", errors)
+
+    def test_failover_priority_int(self, *args):
+        c = copy.deepcopy(config)
+        del c["tags"]["nofailover"]
+        c["tags"]["failover_priority"] = 'a string'
+        errors = schema(c)
+        self.assertIn('tags.failover_priority a string is not an integer', errors)
+        c = copy.deepcopy(config)
+        del c["tags"]["nofailover"]
+        c["tags"]["failover_priority"] = -6
+        errors = schema(c)
+        self.assertIn('tags.failover_priority -6 didn\'t pass validation: Wrong value', errors)
