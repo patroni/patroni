@@ -772,27 +772,28 @@ def assert_(condition: bool, message: str = "Wrong value") -> None:
 class IntValidator(object):
     """Validate an integer setting.
 
-    :cvar expected_type: the expected Python type for an integer setting (:class:`int`).
     :ivar min: minimum allowed value for the setting, if any.
     :ivar max: maximum allowed value for the setting, if any.
     :ivar base_unit: the base unit to convert the value to before checking if it's within *min* and *max* range.
+    :ivar expected_type: the expected Python type.
     :ivar raise_assert: if an ``assert`` test should be performed regarding expected type and valid range.
     """
 
-    expected_type = int
-
     def __init__(self, min: OptionalType[int] = None, max: OptionalType[int] = None,
-                 base_unit: OptionalType[str] = None, raise_assert: bool = False) -> None:
+                 base_unit: OptionalType[str] = None, expected_type: Any = None, raise_assert: bool = False) -> None:
         """Create an :class:`IntValidator` object with the given rules.
 
         :param min: minimum allowed value for the setting, if any.
         :param max: maximum allowed value for the setting, if any.
         :param base_unit: the base unit to convert the value to before checking if it's within *min* and *max* range.
+        :param expected_type: the expected Python type.
         :param raise_assert: if an ``assert`` test should be performed regarding expected type and valid range.
         """
         self.min = min
         self.max = max
         self.base_unit = base_unit
+        if expected_type:
+            self.expected_type = expected_type
         self.raise_assert = raise_assert
 
     def __call__(self, value: Any) -> bool:
@@ -911,7 +912,7 @@ schema = Schema({
         Optional("allowlist_include_members"): bool,
         Optional("http_extra_headers"): dict,
         Optional("https_extra_headers"): dict,
-        Optional("request_queue_size"): IntValidator(min=0, max=4096, raise_assert=True)
+        Optional("request_queue_size"): IntValidator(min=0, max=4096, expected_type=int, raise_assert=True)
     },
     Optional("bootstrap"): {
         "dcs": {
@@ -922,12 +923,12 @@ schema = Schema({
             Optional("maximum_lag_on_syncnode"): int,
             Optional("postgresql"): {
                 Optional("parameters"): {
-                    Optional("max_connections"): int,
-                    Optional("max_locks_per_transaction"): int,
-                    Optional("max_prepared_transactions"): int,
-                    Optional("max_replication_slots"): int,
-                    Optional("max_wal_senders"): int,
-                    Optional("max_worker_processes"): int
+                    Optional("max_connections"): IntValidator(1, 262143, raise_assert=True),
+                    Optional("max_locks_per_transaction"): IntValidator(10, 2147483647, raise_assert=True),
+                    Optional("max_prepared_transactions"): IntValidator(0, 262143, raise_assert=True),
+                    Optional("max_replication_slots"): IntValidator(0, 262143, raise_assert=True),
+                    Optional("max_wal_senders"): IntValidator(0, 262143, raise_assert=True),
+                    Optional("max_worker_processes"): IntValidator(0, 262143, raise_assert=True),
                 },
                 Optional("use_pg_rewind"): bool,
                 Optional("pg_hba"): [str],
@@ -981,7 +982,7 @@ schema = Schema({
         "etcd3": validate_etcd,
         "exhibitor": {
             "hosts": [str],
-            "port": IntValidator(max=65535, raise_assert=True),
+            "port": IntValidator(max=65535, expected_type=int, raise_assert=True),
             Optional("pool_interval"): int
         },
         "raft": {
