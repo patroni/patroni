@@ -10,6 +10,7 @@ from mock import MagicMock, Mock, PropertyMock, mock_open as _mock_open, patch
 from patroni.__main__ import main as _main
 from patroni.config import Config
 from patroni.config_generator import AbstractConfigGenerator, get_address, NO_VALUE_MSG
+from patroni.log import PatroniLogger
 from patroni.utils import patch_config
 
 from . import psycopg_connect
@@ -60,6 +61,16 @@ class TestGenerateConfig(unittest.TestCase):
         self.config = {
             'scope': self.environ['PATRONI_SCOPE'],
             'name': HOSTNAME,
+            'log': {
+                'level': PatroniLogger.DEFAULT_LEVEL,
+                'traceback_level': PatroniLogger.DEFAULT_TRACEBACK_LEVEL,
+                'format': PatroniLogger.DEFAULT_FORMAT,
+                'max_queue_size': PatroniLogger.DEFAULT_MAX_QUEUE_SIZE
+            },
+            'restapi': {
+                'connect_address': self.environ['PATRONI_RESTAPI_CONNECT_ADDRESS'],
+                'listen': self.environ['PATRONI_RESTAPI_LISTEN']
+            },
             'bootstrap': {
                 'dcs': dynamic_config
             },
@@ -77,10 +88,6 @@ class TestGenerateConfig(unittest.TestCase):
                 'bin_dir': self.environ['PATRONI_POSTGRESQL_BIN_DIR'],
                 'bin_name': {'postgres': self.environ['PATRONI_POSTGRESQL_BIN_POSTGRES']},
                 'parameters': {'password_encryption': 'md5'}
-            },
-            'restapi': {
-                'connect_address': self.environ['PATRONI_RESTAPI_CONNECT_ADDRESS'],
-                'listen': self.environ['PATRONI_RESTAPI_LISTEN']
             }
         }
 

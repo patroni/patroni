@@ -17,6 +17,7 @@ if TYPE_CHECKING:  # pragma: no cover
 from . import psycopg
 from .config import Config
 from .exceptions import PatroniException
+from .log import PatroniLogger
 from .postgresql.config import ConfigHandler, parse_dsn
 from .postgresql.misc import postgres_major_version_to_int
 from .utils import get_major_version, parse_bool, patch_config, read_stripped
@@ -93,6 +94,16 @@ class AbstractConfigGenerator(abc.ABC):
         template_config: Dict[str, Any] = {
             'scope': NO_VALUE_MSG,
             'name': cls._HOSTNAME,
+            'restapi': {
+                'connect_address': cls._IP + ':8008',
+                'listen': cls._IP + ':8008'
+            },
+            'log': {
+                'level': PatroniLogger.DEFAULT_LEVEL,
+                'traceback_level': PatroniLogger.DEFAULT_TRACEBACK_LEVEL,
+                'format': PatroniLogger.DEFAULT_FORMAT,
+                'max_queue_size': PatroniLogger.DEFAULT_MAX_QUEUE_SIZE
+            },
             'postgresql': {
                 'data_dir': NO_VALUE_MSG,
                 'connect_address': cls._IP + ':5432',
@@ -108,10 +119,6 @@ class AbstractConfigGenerator(abc.ABC):
                         'password': NO_VALUE_MSG
                     }
                 }
-            },
-            'restapi': {
-                'connect_address': cls._IP + ':8008',
-                'listen': cls._IP + ':8008'
             },
             'tags': {
                 'failover_priority': 1,
@@ -171,7 +178,7 @@ class AbstractConfigGenerator(abc.ABC):
 
         :yields: formatted lines or blocks that represent a text output of the YAML document.
         """
-        for name in ('scope', 'namespace', 'name', 'restapi', 'ctl' 'citus',
+        for name in ('scope', 'namespace', 'name', 'log', 'restapi', 'ctl' 'citus',
                      'consul', 'etcd', 'etcd3', 'exhibitor', 'kubernetes', 'raft', 'zookeeper'):
             yield from self._format_config_section(name)
 
@@ -180,7 +187,7 @@ class AbstractConfigGenerator(abc.ABC):
             yield '# If the cluster is already initialized, all changes in the `bootstrap` section are ignored!'
             yield 'bootstrap:'
             if 'dcs' in self.config['bootstrap']:
-                yield '  # This section will be written into Etcd:/<namespace>/<scope>/config after initializing'
+                yield '  # This section will be written into <dcs>:/<namespace>/<scope>/config after initializing'
                 yield '  # new cluster and all other cluster members will use it as a `global configuration`.'
                 yield '  # WARNING! If you want to change any of the parameters that were set up'
                 yield '  # via `bootstrap.dcs` section, please use `patronictl edit-config`!'
