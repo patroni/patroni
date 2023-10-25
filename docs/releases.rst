@@ -8,7 +8,7 @@ Version 3.2.0
 
 **Deprecation notice**
 
-- The ``bootstrap.users`` support will be removed in version 4.0. If you need to create users after deploying a new cluster please use the ``bootstrap.post_bootstrap`` hook for that.
+- The ``bootstrap.users`` support will be removed in version 4.0.0. If you need to create users after deploying a new cluster please use the ``bootstrap.post_bootstrap`` hook for that.
 
 
 **Breaking changes**
@@ -32,7 +32,7 @@ Version 3.2.0
 
   It helps to avoid blocking the main heartbeat loop if the system is under stress.
 
-- Enreach some endpoints with the ``name`` of the node (sskserk)
+- Enrich some endpoints with the ``name`` of the node (sskserk)
 
   For the monitoring endpoint ``name`` is added next to the ``scope`` and for metrics endpoint the ``name`` is added to tags.
 
