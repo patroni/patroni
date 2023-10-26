@@ -234,7 +234,7 @@ class BarmanRecover:
             response = self._post_request(
                 f"servers/{self.barman_server}/operations",
                 {
-                    "operation_type": "recovery",
+                    "type": "recovery",
                     "backup_id": self.backup_id,
                     "remote_ssh_command": self.ssh_command,
                     "destination_directory": self.data_directory,
