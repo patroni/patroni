@@ -71,10 +71,13 @@ class BarmanRecover:
         local host.
     :ivar data_directory: path to the Postgres data directory where to
         restore the backup at.
+    :ivar loop_wait: how long to wait before checking again the status of the
+        recovery process. Higher values are useful for backups that are
+        expected to take long to restore.
     """
 
     def __init__(self, api_url: str, barman_server: str, backup_id: str,
-                 ssh_command: str, data_directory: str,
+                 ssh_command: str, data_directory: str, loop_wait: int,
                  cert_file: Optional[str] = None,
                  key_file: Optional[str] = None) -> None:
         """Create a new instance of :class:`BarmanRecover`.
@@ -89,6 +92,9 @@ class BarmanRecover:
             local host.
         :param data_directory: path to the Postgres data directory where to
             restore the backup at.
+        :param loop_wait: how long to wait before checking again the status of
+            the recovery process. Higher values are useful for backups that are
+            expected to take long to restore.
         :param cert_file: certificate to authenticate against the
             ``pg-backup-api``, if required.
         :param key_file: certificate key to authenticate against the
@@ -101,6 +107,7 @@ class BarmanRecover:
         self.backup_id = backup_id
         self.ssh_command = ssh_command
         self.data_directory = data_directory
+        self.loop_wait = loop_wait
         self._ensure_api_ok()
 
     def _build_full_url(self, url_path: str) -> str:
@@ -260,7 +267,7 @@ class BarmanRecover:
                 break
 
             logging.info(f"Recovery operation still in progress")
-            time.sleep(10)
+            time.sleep(self.loop_wait)
 
         return status == "DONE"
 
@@ -350,14 +357,24 @@ def main() -> None:
         help="File where to log messages produced by this script, if any.",
         dest="log_file",
     )
+    parser.add_argument(
+        "--loop-wait",
+        type=int,
+        required=False,
+        default=10,
+        help="How long to wait before checking again the status of the "
+             "recovery process, in seconds. Use higher values if your "
+             "recovery is expected to take long (default: ``%(default)s``)",
+        dest="loop_wait",
+    )
     args, _ = parser.parse_known_args()
 
     set_up_logging(args.log_file)
 
     barman_recover = BarmanRecover(args.api_url, args.barman_server,
                                    args.backup_id, args.ssh_command,
-                                   args.data_directory, args.cert_file,
-                                   args.key_file)
+                                   args.data_directory, args.loop_wait,
+                                   args.cert_file, args.key_file)
 
     successful = barman_recover.restore_backup()
 
