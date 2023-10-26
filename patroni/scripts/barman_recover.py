@@ -21,6 +21,7 @@ import sys
 import time
 from typing import Any, Optional, TYPE_CHECKING
 from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 
@@ -109,7 +110,7 @@ class BarmanRecover:
 
         :returns: the full URL after concatenating.
         """
-        return f"{self.api_url}/{url_path}"
+        return urljoin(self.api_url, url_path)
 
     def _create_ssl_context(self) -> Optional[ssl.SSLContext]:
         """Create an SSL context, if required.
@@ -214,7 +215,7 @@ class BarmanRecover:
         """Restore the configured Barman backup through ``pg-backup-api``.
 
         .. note::
-            If recover API request returns a malformed response, then exit with
+            If recovery API request returns a malformed response, then exit with
             :attr:`ExitCode.HTTP_RESPONSE_MALFORMED`.
 
         :returns: ``True`` if it was successfully recovered, ``False``
@@ -226,7 +227,7 @@ class BarmanRecover:
             response = self._post_request(
                 f"servers/{self.barman_server}/operations",
                 {
-                    "operation_type": "recover",
+                    "operation_type": "recovery",
                     "backup_id": self.backup_id,
                     "remote_ssh_command": self.ssh_command,
                     "destination_directory": self.data_directory,
