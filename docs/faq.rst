@@ -4,25 +4,25 @@ FAQ
 ===
 
 In this section you will find answers for the most frequently asked questions about Patroni.
-Each sub-section attempts to focus on a different kind of questions.
+Each sub-section attempts to focus on different kinds of questions.
 
-We hope that you help you to clarify most of your questions.
-If you still have further concerns or found yourself facing an unexpected issue, please refer to :ref:`chatting` and :ref:`reporting_bugs` for instructions on how to get help or report issues.
+We hope that this helps you to clarify most of your questions.
+If you still have further concerns or find yourself facing an unexpected issue, please refer to :ref:`chatting` and :ref:`reporting_bugs` for instructions on how to get help or report issues.
 
 Comparison with other HA solutions
 ----------------------------------
 
-Why Patroni requires a separate cluster of DCS nodes while other solutions like ``repmgr`` does not?
+Why does Patroni require a separate cluster of DCS nodes while other solutions like ``repmgr`` do not?
     There are different ways of implementing HA solutions, each of them with their pros and cons.
 
-    Software like ``repmgr`` performs communication among the nodes to decide when to take actions.
+    Software like ``repmgr`` performs communication among the nodes to decide when actions should be taken.
 
     Patroni on the other hand relies on the state stored in the DCS. The DCS acts as a source of true for Patroni to decide what it should do.
 
-    While having a separate DCS cluster can make you bloat your architecture, this approach also makes it less likely that you will face a split-brain in your cluster for example.
+    While having a separate DCS cluster can make you bloat your architecture, this approach also makes it less likely for split-brain scenarios to happen in your cluster.
 
 What is the difference between Patroni and other HA solutions in regards to Postgres management?
-    Patroni works not only to manage HA in the Postgres cluster, but also to manage Postgres itself.
+    Patroni does not just manage the high availability of the Postgres cluster but also manages Postgres itself.
 
     It takes care of bootstrapping the primary and the standby nodes, and also manages Postgres configuration of the nodes.
 
@@ -31,12 +31,12 @@ What is the difference between Patroni and other HA solutions in regards to Post
 DCS
 ---
 
-Can I use the same ``etcd`` cluster to store data about 2 or more Patroni clusters?
+Can I use the same ``etcd`` cluster to store data from two or more Patroni clusters?
     Yes, you can!
 
     Information about a Patroni cluster is stored in the DCS under a path prefixed with the ``namespace`` and ``scope`` Patroni settings.
 
-    As long as you do not have a conflict of both settings across different Patroni clusters, you should be able to use the same DCS cluster to store information about multiple Patroni clusters.
+    As long as you do not have conflicting namespace and scope across different Patroni clusters, you should be able to use the same DCS cluster to store information from multiple Patroni clusters.
 
 What occurs if I attempt to use the same combination of ``namespace`` and ``scope`` for different Patroni clusters that point to the same DCS cluster?
     Patroni will refuse to manage the Postgres nodes because their Postgres system identifier will mismatch what is stored in the DCS for that ``namespace`` and ``scope``.
@@ -44,10 +44,10 @@ What occurs if I attempt to use the same combination of ``namespace`` and ``scop
     Make sure to use different ``namespace`` / ``scope`` when dealing with different Patroni clusters that share the same DCS cluster.
 
 What occurs if I lose my DCS cluster?
-    The DCS is used to store basically some status and the dynamic configuration of the Patroni cluster.
+    The DCS is used to store basically status and the dynamic configuration of the Patroni cluster.
 
-    If you lose your DCS cluster you are able to change the local configuration of all Patroni members to point to a new DCS cluster.
-    When you do that, Patroni will take care of creating the status information again based on the current status of the cluster, and to recreate the dynamic configuration on the DCS based on a backup file named ``patroni.dynamic.json`` which is stored inside the Postgres data directory of each member of the Patroni cluster.
+    If you lose your DCS cluster you should change the local configuration of all Patroni members to point to a new DCS cluster.
+    When you do that, Patroni will take care of creating the status information again based on the current status of the cluster, and recreate the dynamic configuration on the DCS based on a backup file named ``patroni.dynamic.json`` which is stored inside the Postgres data directory of each member of the Patroni cluster.
 
 What occurs if I lose majority in my DCS cluster?
     The DCS will become unresponsive, which will cause Patroni to demote the current read/write Postgres node.
@@ -62,21 +62,21 @@ patronictl
 Do I need to run :ref:`patronictl` in the Patroni host?
     No, you do not need to do that.
 
-    Running :ref:`patronictl` in the Patroni host is handy if you have access to the Patroni host because you can use the very same configuration file from ``patroni`` agent for the :ref:`patronictl` application.
+    Running :ref:`patronictl` in the Patroni host is handy if you have access to the Patroni host because you can use the very same configuration file from the ``patroni`` agent for the :ref:`patronictl` application.
 
     However, :ref:`patronictl` is basically a client and it can be executed from remote machines. You just need to provide it with enough configuration so it can reach the DCS and the REST API of the Patroni member(s).
 
-Why the information about my Patroni member disappeared from the output of :ref:`patronictl_list` command?
+Why did the information from one of my Patroni members disappear from the output of :ref:`patronictl_list` command?
     Information shown by :ref:`patronictl_list` is based on the contents of the DCS.
 
     If information about a member disappeared from the DCS it is very likely that the Patroni agent on that node is not running anymore, or it is not able to communicate with the DCS.
 
     As the member is not able to update the information, the information eventually expires from the DCS, and consequently the member is not shown anymore in the output of :ref:`patronictl_list`.
 
-Why the information about my Patroni member is not up-to-date in the output of :ref:`patronictl_list` command?
+Why is the information about one of my Patroni members not up-to-date in the output of :ref:`patronictl_list` command?
     Information shown by :ref:`patronictl_list` is based on the contents of the DCS.
 
-    That information is updated by Patroni by default roughly every ``loop_wait`` seconds.
+    By default, that information is updated by Patroni roughly every ``loop_wait`` seconds.
     In other words, even if everything is normally functional you may still see a "delay" of up to ``loop_wait`` seconds in the information stored in the DCS.
 
     Be aware that that is not a rule, though. Some operations performed by Patroni cause it to immediately update the DCS information.
@@ -88,7 +88,7 @@ What is the difference between dynamic configuration and local configuration?
     Dynamic configuration (or global configuration) is the configuration stored in the DCS, and which is applied to all members of the Patroni cluster.
     This is primarily where you should store your configuration.
 
-    Settings that are specific to a node, or settings that you would like to override the global configuration, you should have set only on the desired Patroni member.
+    Settings that are specific to a node, or settings that you would like the global configuration overwritten, you should set only on the desired Patroni member as a local configuration.
     That local configuration can be specified either through the configuration file or through environment variables.
 
     See more in :ref:`patroni_configuration`.
@@ -102,7 +102,7 @@ What are the types of configuration in Patroni, and what is the precedence?
 
     See more in :ref:`patroni_configuration`.
 
-Is there any facility to help me creating my Patroni configuration file?
+Is there any facility to help me create my Patroni configuration file?
     Yes, there is.
 
     You can use ``patroni --generate-sample-config`` or ``patroni --generate-config`` commands to generate a sample Patroni configuration or a Patroni configuration based on an existing Postgres instance, respectively.
@@ -112,7 +112,7 @@ Is there any facility to help me creating my Patroni configuration file?
 I changed my parameters under ``bootstrap.dcs`` configuration but Patroni is not applying the changes to the cluster members. What is wrong?
     The values configured under ``bootstrap.dcs`` are only used when bootstrapping a fresh cluster. Those values will be written to the DCS during the bootstrap.
 
-    After the bootstrap phase you will only be able to change the dynamic configuration through the DCS.
+    After the bootstrap phase finishes, you will only be able to change the dynamic configuration through the DCS.
 
     Refer to the next question for more details.
 
@@ -128,7 +128,7 @@ How can I change my local configuration?
 
     If you started Patroni through systemd, you can use the command ``systemctl reload PATRONI_UNIT.service``, ``PATRONI_UNIT`` being the name of the Patroni service.
 
-    If you started Patroni through other means, you will need to identify the ``patroni`` process and run ``kill -s HUP PID``, ``PID`` being the ID of the ``patroni`` process.
+    If you started Patroni through other means, you will need to identify the ``patroni`` process and run ``kill -s HUP PID``, ``PID`` being the process ID of the ``patroni`` process.
 
 How can I change my environment configuration?
     The environment configuration is only read by Patroni during startup.
@@ -138,12 +138,12 @@ How can I change my environment configuration?
     Take care to not cause a failover in the cluster!
 
 What occurs if I change a Postgres GUC that requires a reload?
-    When you change the dynamic or the local configuration as explained in the previous questions, Patroni will take care of reloading the Postgres configuration.
+    When you change the dynamic or the local configuration as explained in the previous questions, Patroni will take care of reloading the Postgres configuration for you.
 
 What occurs if I change a Postgres GUC that requires a restart?
     Patroni will mark the affected members with a flag of ``pending restart``.
 
-    It is your task then to restart the members. That can be accomplished either through:
+    It is up to you to determine when and how to restart the members. That can be accomplished either through:
 
     * :ref:`patronictl_restart`; or
     * A ``POST`` request to :ref:`restart_endpoint`.
@@ -153,7 +153,7 @@ What is the difference between ``etcd`` and ``etcd3`` in Patroni configuration?
 
     Be aware that information stored by the API version 2 is not manageable by API version 3 and vice-versa.
 
-    The recommended one is ``etcd3`` taking into consideration that ``etcd`` deprecated the API version 2.
+    The recommended one is ``etcd3`` taking into consideration that ``etcd`` API version 2 end of life was in 2017.
 
 I have ``use_slots`` enabled in my Patroni configuration, but when a cluster member goes offline for some time, the replication slot used by that member is dropped on the upstream node. What can I do to avoid that issue?
     You can configure a permanent physical replication slot for the members.
@@ -182,7 +182,7 @@ Can I restart Postgres nodes directly?
     If you need to manage the Postgres server, do that through the ways exposed by Patroni.
 
 Is Patroni able to take over management of an already existing Postgres cluster?
-    Yes, it is!
+    Yes, it can!
 
     Please refer to :ref:`existing_data` for detailed instructions.
 
@@ -196,9 +196,9 @@ Which are the applications that make part of Patroni?
     * ``patronictl``: This is a command-line utility used to interact with a Patroni cluster (perform switchovers, restarts, changes in the configuration, etc.). Please find more information in :ref:`patronictl`.
 
 What is a ``standby cluster`` in Patroni?
-    It is a cluster that does not have any Postgres node running as a primary, i.e., there is no read/write member in the cluster.
+    It is a cluster that does not have any primary Postgres node running, i.e., there is no read/write member in the cluster.
 
-    This kind of cluster exists for configuring replication from another cluster, and is usually useful when you want to replicate data across data centers.
+    These kinds of clusters exist to replicate data from another cluster and are usually useful when you want to replicate data across data centers.
 
     There will be a leader in the cluster which will be a standby in charge of replicating changes from a remote Postgres node.
     Then, there will be a set of standbys configured with cascading replication from such leader member.
@@ -210,7 +210,7 @@ What is a ``leader`` in Patroni?
 
     In a regular Patroni cluster, the ``leader`` will be the read/write node.
 
-    In a standby Patroni cluster, the ``leader`` (AKA ``standby leader``) will be in charge of replicating from a remote Postgres node.
+    In a standby Patroni cluster, the ``leader`` (AKA ``standby leader``) will be in charge of replicating from a remote Postgres node, and cascading those changes to the other members of the standby cluster.
 
 Does Patroni require a minimum number of Postgres nodes in the cluster?
     No, you can run Patroni with any number of Postgres nodes.
@@ -223,11 +223,11 @@ Automatic failover
 How does the automatic failover mechanism of Patroni work?
     Patroni automatic failover is based on what we call ``leader race``.
 
-    Patroni stores status about the cluster on the DCS, among them a ``leader`` lock which holds the name of the Patroni member which is the current ``leader`` of the cluster.
+    Patroni stores the cluster's status in the DCS, among them a ``leader`` lock which holds the name of the Patroni member which is the current ``leader`` of the cluster.
 
-    That ``leader`` lock has a time-to-live associated with it. If the leader node fails to update the lease of the ``leader`` lock, the key will eventually expire from the DCS.
+    That ``leader`` lock has a time-to-live associated with it. If the leader node fails to update the lease of the ``leader`` lock in time, the key will eventually expire from the DCS.
 
-    When the ``leader`` lock expires, that triggers what Patroni calls a ``leader race``: all nodes start performing checks to determine if they are the best candidates for taking over the ``leader`` role.
+    When the ``leader`` lock expires, it triggers what Patroni calls a ``leader race``: all nodes start performing checks to determine if they are the best candidates for taking over the ``leader`` role.
     Some of these checks include calls to the REST API of all other Patroni members.
 
     All Patroni members that find themselves as the best candidate for taking over the ``leader`` lock will attempt to do so.
@@ -239,9 +239,9 @@ Can I temporarily disable automatic failover in the Patroni cluster?
     You can achieve that by temporarily pausing the cluster.
     This is tipically useful for performing maintenance.
 
-    When you want to resume the automatic failover in the cluster you will need to unpause it.
+    When you want to resume the automatic failover of the cluster, you just need to unpause it.
 
-    You can have more information about that in :ref:`pause`.
+    You can find more information about that in :ref:`pause`.
 
 Bootstrapping and standbys creation
 -----------------------------------
@@ -251,7 +251,7 @@ How does Patroni create a primary Postgres node? What about a standby Postgres n
 
     You can customize that behavior by writing your custom bootstrap methods, and your custom replica creation methods.
 
-    Custom methods are usually useful when you want to restore backups created by a solution like pgBackRest or Barman, for example.
+    Custom methods are usually useful when you want to restore backups created by backup tools like pgBackRest or Barman, for example.
 
     For detailed information please refer to :ref:`custom_bootstrap` and :ref:`custom_replica_creation`.
 
@@ -262,6 +262,6 @@ How can I monitor my Patroni cluster?
     Patroni exposes a couple handy endpoints in its :ref:`rest_api`:
 
     * ``/metrics``: exposes monitoring metrics in a format that can be consumed by Prometheus;
-    * ``/patroni``: exposes status of the cluster in a JSON format. The information shown here is very similar to what is showed by ``/metrics`` endpoint.
+    * ``/patroni``: exposes the status of the cluster in a JSON format. The information shown here is very similar to what is shown by the ``/metrics`` endpoint.
 
-    You can use those endpoints to implement monitoring checks on your monitoring system.
+    You can use those endpoints to implement monitoring checks.
