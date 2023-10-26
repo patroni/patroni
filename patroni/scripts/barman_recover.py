@@ -19,13 +19,13 @@ import logging
 import ssl
 import sys
 import time
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, Callable, Optional, Tuple, Type, Union, TYPE_CHECKING
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from http.client import HTTPResponse
 
 
@@ -48,6 +48,53 @@ class ExitCode(IntEnum):
     BARMAN_SERVER_DOES_NOT_EXIST = 3
     HTTP_REQUEST_ERROR = 4
     HTTP_RESPONSE_MALFORMED = 5
+
+
+class RetriesExceeded(Exception):
+    """Maximum number of retries exceeded."""
+    pass
+
+
+def retry(times_attr: str, retry_wait_attr: str,
+          exceptions: Union[Type[Exception], Tuple[Type[Exception], ...]]) \
+        -> Any:
+    """Retry an operation n times if expected *exceptions* are faced.
+
+    .. note::
+        Should be used as a decorator of a class' method as it expects the
+        first argument to be a class instance.
+
+    :param times_attr: name of the instance attribute which contains the
+        maximum number of retries upon exceptions.
+    :param retry_wait_attr: name of the instance attribute which contains how
+        long to wait before retrying a failed request to the ``pg-backup-api`.
+    :param exceptions: exceptions that could trigger a retry attempt.
+
+    :raises:
+        :exc:`RetriesExceeded`: if the maximum number of attempts has been
+            exhausted.
+    """
+    def decorator(func: Callable[..., Any]) -> Any:
+        def inner_func(instance: object, *args: Any, **kwargs: Any) -> Any:
+            times: int = getattr(instance, times_attr)
+            retry_wait: int = getattr(instance, retry_wait_attr)
+
+            attempt = 1
+
+            while attempt <= times:
+                try:
+                    return func(instance, *args, **kwargs)
+                except exceptions as exc:
+                    logging.warning(f"Attempt {attempt} of {times} on func "
+                                    f"{func} failed with {repr(exc)}.")
+                    attempt += 1
+
+                time.sleep(retry_wait)
+
+            raise RetriesExceeded("Maximum number of retries exceeded for "
+                                  f"function {func}.")
+        return inner_func
+    return decorator
 
 
 class BarmanRecover:
@@ -74,10 +121,15 @@ class BarmanRecover:
     :ivar loop_wait: how long to wait before checking again the status of the
         recovery process. Higher values are useful for backups that are
         expected to take long to restore.
+    :ivar retry_wait: how long to wait before retrying a failed request to the
+        ``pg-backup-api``.
+    :param max_retries: maximum number of retries when ``pg-backup-api``
+        returns malformed responses.
     """
 
     def __init__(self, api_url: str, barman_server: str, backup_id: str,
                  ssh_command: str, data_directory: str, loop_wait: int,
+                 retry_wait: int, max_retries: int,
                  cert_file: Optional[str] = None,
                  key_file: Optional[str] = None) -> None:
         """Create a new instance of :class:`BarmanRecover`.
@@ -95,6 +147,10 @@ class BarmanRecover:
         :param loop_wait: how long to wait before checking again the status of
             the recovery process. Higher values are useful for backups that are
             expected to take long to restore.
+        :param retry_wait: how long to wait before retrying a failed request to
+            the ``pg-backup-api``.
+        :param max_retries: maximum number of retries when ``pg-backup-api``
+            returns malformed responses.
         :param cert_file: certificate to authenticate against the
             ``pg-backup-api``, if required.
         :param key_file: certificate key to authenticate against the
@@ -108,6 +164,8 @@ class BarmanRecover:
         self.ssh_command = ssh_command
         self.data_directory = data_directory
         self.loop_wait = loop_wait
+        self.retry_wait = retry_wait
+        self.max_retries = max_retries
         self._ensure_api_ok()
 
     def _build_full_url(self, url_path: str) -> str:
@@ -128,7 +186,7 @@ class BarmanRecover:
         if self.cert_file is None:
             return None
 
-        ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
         ctx.load_cert_chain(self.cert_file, self.key_file)
 
         return ctx
@@ -171,7 +229,7 @@ class BarmanRecover:
                                context=self._create_ssl_context())
         except (HTTPError, URLError) as exc:
             logging.critical("An error ocurred while performing an HTTP GET "
-                             f"request: {str(exc)}")
+                             f"request: {repr(exc)}")
             sys.exit(ExitCode.HTTP_REQUEST_ERROR)
 
         return self._deserialize_response(response)
@@ -200,7 +258,7 @@ class BarmanRecover:
                                context=self._create_ssl_context())
         except (HTTPError, URLError) as exc:
             logging.critical("An error occurred while performing an HTTP POST "
-                             f"request: {str(exc)}")
+                             f"request: {repr(exc)}")
             sys.exit(ExitCode.HTTP_REQUEST_ERROR)
 
         return self._deserialize_response(response)
@@ -218,6 +276,38 @@ class BarmanRecover:
             logging.critical(f"pg-backup-api is not working: {response}")
             sys.exit(ExitCode.API_NOT_OK)
 
+    @retry("max_retries", "retry_wait", KeyError)
+    def _create_recovery_operation(self) -> str:
+        """Create a recovery operation on the ``pg-backup-api``.
+
+        :returns: the ID of the recovery operation that has been created.
+        """
+        response = self._post_request(
+            f"servers/{self.barman_server}/operations",
+            {
+                "type": "recovery",
+                "backup_id": self.backup_id,
+                "remote_ssh_command": self.ssh_command,
+                "destination_directory": self.data_directory,
+            },
+        )
+
+        return response["operation_id"]
+
+    @retry("max_retries", "retry_wait", KeyError)
+    def _get_recovery_operation_status(self, operation_id: str) -> str:
+        """Get status of the recovery operation *operation_id*.
+
+        :param operation_id: ID of the recovery operation to be checked.
+
+        :returns: the status of the recovery operation.
+        """
+        response = self._get_request(
+            f"servers/{self.barman_server}/operations/{operation_id}",
+        )
+
+        return response["status"]
+
     def restore_backup(self) -> bool:
         """Restore the configured Barman backup through ``pg-backup-api``.
 
@@ -228,23 +318,12 @@ class BarmanRecover:
         :returns: ``True`` if it was successfully recovered, ``False``
             otherwise.
         """
-        response = None
+        operation_id = None
 
         try:
-            response = self._post_request(
-                f"servers/{self.barman_server}/operations",
-                {
-                    "type": "recovery",
-                    "backup_id": self.backup_id,
-                    "remote_ssh_command": self.ssh_command,
-                    "destination_directory": self.data_directory,
-                },
-            )
-            
-            operation_id = response["operation_id"]
-        except KeyError:
-            logging.critical("Recived a malformed response from the API: "
-                             f"{response}")
+            operation_id = self._create_recovery_operation()
+        except RetriesExceeded:
+            logging.critical("Maximum number of retries exceeded, exiting.")
             sys.exit(ExitCode.HTTP_RESPONSE_MALFORMED)
 
         logging.info(f"Created the recovery operation with ID {operation_id}")
@@ -253,20 +332,17 @@ class BarmanRecover:
 
         while True:
             try:
-                response = self._get_request(
-                    f"servers/{self.barman_server}/operations/{operation_id}",
-                )
-                
-                status = response["status"]
-            except KeyError:
-                logging.critical("Recived a malformed response from the API: "
-                                 f"{response}")
+                status = self._get_recovery_operation_status(operation_id)
+            except RetriesExceeded:
+                logging.critical("Maximum number of retries exceeded, "
+                                 "exiting.")
                 sys.exit(ExitCode.HTTP_RESPONSE_MALFORMED)
 
             if status != "IN_PROGRESS":
                 break
 
-            logging.info(f"Recovery operation still in progress")
+            logging.info(f"Recovery operation {operation_id} is still in "
+                         "progress")
             time.sleep(self.loop_wait)
 
         return status == "DONE"
@@ -367,6 +443,24 @@ def main() -> None:
              "recovery is expected to take long (default: ``%(default)s``)",
         dest="loop_wait",
     )
+    parser.add_argument(
+        "--retry-wait",
+        type=int,
+        required=False,
+        default=2,
+        help="How long to wait before retrying a failed ``pg-backup-api`` "
+             "request (default: ``%(default)s``)",
+        dest="retry_wait",
+    )
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        required=False,
+        default=5,
+        help="Maximum number of retries when receiving malformed responses "
+             "from the ``pg-backup-api`` (default: ``%(default)s``)",
+        dest="max_retries",
+    )
     args, _ = parser.parse_known_args()
 
     set_up_logging(args.log_file)
@@ -374,6 +468,7 @@ def main() -> None:
     barman_recover = BarmanRecover(args.api_url, args.barman_server,
                                    args.backup_id, args.ssh_command,
                                    args.data_directory, args.loop_wait,
+                                   args.retry_wait, args.max_retries,
                                    args.cert_file, args.key_file)
 
     successful = barman_recover.restore_backup()
