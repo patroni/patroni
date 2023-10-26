@@ -41,7 +41,8 @@ Can I use the same ``etcd`` cluster to store data from two or more Patroni clust
     As long as you do not have conflicting namespace and scope across different Patroni clusters, you should be able to use the same DCS cluster to store information from multiple Patroni clusters.
 
 What occurs if I attempt to use the same combination of ``namespace`` and ``scope`` for different Patroni clusters that point to the same DCS cluster?
-    Patroni will refuse to manage the Postgres nodes because their Postgres system identifier will mismatch what is stored in the DCS for that ``namespace`` and ``scope``.
+    The second Patroni cluster that attempts to use the same ``namespace`` and ``scope`` will not be able to manage Postgres because it will find information related with that same combination in the DCS, but with an incompatible Postgres system identifier.
+    The mismatch on the system identifier causes Patroni to abort the management of the second cluster, as it assumes that refers to a different cluster and that the user has misconfigured Patroni.
 
     Make sure to use different ``namespace`` / ``scope`` when dealing with different Patroni clusters that share the same DCS cluster.
 
