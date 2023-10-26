@@ -103,6 +103,8 @@ What are the types of configuration in Patroni, and what is the precedence?
     * Local configuration: applied to the local member, overrides dynamic configuration;
     * Environment configuration: applied to the local member, overrides both dynamic and local configuration.
 
+    **Note:** some Postgres GUCs can only be set globally, i.e., through dynamic configuration. Besides that, there are GUCs which Patroni enforces a hard-coded value.
+
     See more in :ref:`patroni_configuration`.
 
 Is there any facility to help me create my Patroni configuration file?
