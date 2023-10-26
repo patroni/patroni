@@ -237,7 +237,7 @@ Can I temporarily disable automatic failover in the Patroni cluster?
     Yes, you can!
 
     You can achieve that by temporarily pausing the cluster.
-    This is tipically useful for performing maintenance.
+    This is typically useful for performing maintenance.
 
     When you want to resume the automatic failover of the cluster, you just need to unpause it.
 
