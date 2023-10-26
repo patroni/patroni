@@ -122,8 +122,7 @@ I changed my parameters under ``bootstrap.dcs`` configuration but Patroni is not
     Refer to the next question for more details.
 
 How can I change my dynamic configuration?
-    You need to change the configuration in the DCS.
-    That is accomplished either through:
+    You need to change the configuration in the DCS. That is accomplished either through:
 
     * :ref:`patronictl_edit_config`; or
     * A ``PATCH`` request to :ref:`config_endpoint`.
