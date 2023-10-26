@@ -139,7 +139,7 @@ How can I change my environment configuration?
 
     With that in mind, if you change the environment configuration you will need to restart the corresponding Patroni agent.
 
-    Take care to not cause a failover in the cluster!
+    Take care to not cause a failover in the cluster! You might be interested in checking :ref:`patronictl_pause`.
 
 What occurs if I change a Postgres GUC that requires a reload?
     When you change the dynamic or the local configuration as explained in the previous questions, Patroni will take care of reloading the Postgres configuration for you.
@@ -220,6 +220,13 @@ Does Patroni require a minimum number of Postgres nodes in the cluster?
     No, you can run Patroni with any number of Postgres nodes.
 
     Remember: Patroni is decoupled from the DCS.
+
+What does ``pause`` mean in Patroni?
+    Pause is an operation exposed by Patroni so the user can ask Patroni to step back in regards to Postgres management.
+
+    That is mainly useful when you want to perform maintenance on the cluster, and would like to avoid that Patroni takes decisions related with HA, like failing over to a standby when you stop the primary.
+
+    You can find more information about that in :ref:`pause`.
 
 Automatic failover
 ------------------
