@@ -67,7 +67,7 @@ def retry(times_attr: str, retry_wait_attr: str,
     :param times_attr: name of the instance attribute which contains the
         maximum number of retries upon exceptions.
     :param retry_wait_attr: name of the instance attribute which contains how
-        long to wait before retrying a failed request to the ``pg-backup-api`.
+        long to wait before retrying a failed request to the ``pg-backup-api``.
     :param exceptions: exceptions that could trigger a retry attempt.
 
     :raises:
