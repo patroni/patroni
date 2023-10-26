@@ -168,6 +168,15 @@ I have ``use_slots`` enabled in my Patroni configuration, but when a cluster mem
 
     Later, if you decide to remove the corresponding member, it's **your responsability** to adjust the permanent slots configuration, otherwise Patroni will keep the slots around forever.
 
+What is the difference between ``loop_wait``, ``retry_timeout`` and ``ttl``?
+    Patroni performs what we call a HA cycle from time to time. On each HA cycle it takes care of performing a series of checks on the cluster to determine its healthiness, and depending on the status it may take actions, like failing over to a standby.
+
+    ``loop_wait`` determines for long, in seconds, Patroni should sleep before performing a new cycle of HA checks.
+
+    ``retry_timeout`` sets the timeout for retry operations on the DCS and on Postgres. For example: if the DCS is unresponsive for more than ``retry_timeout`` seconds, Patroni might demote the primary node as a security action.
+
+    ``ttl`` sets the lease time on the ``leader`` lock in the DCS. If the current leader of the cluster is not able to renew the lease during its HA cycles for longer than ``ttl``, then the lease will expire and that will trigger a ``leader race`` in the cluster.
+
 Postgres management
 -------------------
 
