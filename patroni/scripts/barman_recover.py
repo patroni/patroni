@@ -16,17 +16,16 @@ from argparse import ArgumentParser
 from enum import IntEnum
 import json
 import logging
-import ssl
 import sys
 import time
 from typing import Any, Callable, Optional, Tuple, Type, Union, TYPE_CHECKING
-from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
-from urllib.request import Request, urlopen
+from urllib3 import PoolManager
+from urllib3.exceptions import MaxRetryError
 
 
 if TYPE_CHECKING:  # pragma: no cover
-    from http.client import HTTPResponse
+    from urllib3.response import HTTPResponse
 
 
 class ExitCode(IntEnum):
@@ -125,8 +124,9 @@ class BarmanRecover:
         expected to take long to restore.
     :ivar retry_wait: how long to wait before retrying a failed request to the
         ``pg-backup-api``.
-    :param max_retries: maximum number of retries when ``pg-backup-api``
-        returns malformed responses.
+    :ivar max_retries: maximum number of retries when ``pg-backup-api`` returns
+        malformed responses.
+    :ivar http: a HTTP pool manager for performing web requests.
     """
 
     def __init__(self, api_url: str, barman_server: str, backup_id: str,
@@ -168,6 +168,7 @@ class BarmanRecover:
         self.loop_wait = loop_wait
         self.retry_wait = retry_wait
         self.max_retries = max_retries
+        self.http = PoolManager(cert_file=cert_file, key_file=key_file)
         self._ensure_api_ok()
 
     def _build_full_url(self, url_path: str) -> str:
@@ -188,20 +189,6 @@ class BarmanRecover:
 
         return full_url
 
-    def _create_ssl_context(self) -> Optional[ssl.SSLContext]:
-        """Create an SSL context, if required.
-
-        :returns: the SSL context, if we have a client certificate file,
-            otherwise ``None``.
-        """
-        if self.cert_file is None:
-            return None
-
-        ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-        ctx.load_cert_chain(self.cert_file, self.key_file)
-
-        return ctx
-
     @staticmethod
     def _deserialize_response(response: 'HTTPResponse') -> Any:
         """Retrieve body from *response* as a deserialized JSON object.
@@ -210,7 +197,7 @@ class BarmanRecover:
 
         :returns: the deserialized JSON body.
         """
-        return json.loads(response.read().decode("utf-8"))
+        return json.loads(response.data.decode("utf-8"))
 
     @staticmethod
     def _serialize_request(body: Any) -> Any:
@@ -226,8 +213,8 @@ class BarmanRecover:
         """Perform a ``GET`` request to *url_path*.
 
         .. note::
-            If a :exc:`HTTPError` or :exc:`URLError` is faced while performing
-            the request, then exit with :attr:`ExitCode.HTTP_REQUEST_ERROR`
+            If a :exc:`MaxRetryError` is faced while performing the request,
+            then exit with :attr:`ExitCode.HTTP_REQUEST_ERROR`
 
         :param url_path: URL to perform the ``GET`` request against.
 
@@ -236,9 +223,8 @@ class BarmanRecover:
         response = None
 
         try:
-            response = urlopen(self._build_full_url(url_path),
-                               context=self._create_ssl_context())
-        except (HTTPError, URLError) as exc:
+            response = self.http.request("GET", self._build_full_url(url_path))
+        except MaxRetryError as exc:
             logging.critical("An error occurred while performing an HTTP GET "
                              "request: %r", exc)
             sys.exit(ExitCode.HTTP_REQUEST_ERROR)
@@ -249,8 +235,8 @@ class BarmanRecover:
         """Perform a ``POST`` request to *url_path* serializing *body* as JSON.
 
         .. note::
-            If a :exc:`HTTPError` or :exc:`URLError` is faced while performing
-            the request, then exit with :attr:`ExitCode.HTTP_REQUEST_ERROR`
+            If a :exc:`MaxRetryError` is faced while performing the request,
+            then exit with :attr:`ExitCode.HTTP_REQUEST_ERROR`
 
         :param url_path: URL to perform the ``POST`` request against.
         :param body: the body to be serialized as JSON and sent in the request.
@@ -258,16 +244,17 @@ class BarmanRecover:
         :returns: the deserialized response body.
         """
         body = self._serialize_request(body)
-        request = Request(self._build_full_url(url_path))
-        request.add_header("Content-Type", "application/json")
-        request.add_header("Content-Length", str(len(body)))
 
         response = None
 
         try:
-            response = urlopen(request, body,
-                               context=self._create_ssl_context())
-        except (HTTPError, URLError) as exc:
+            response = self.http.request("POST",
+                                         self._build_full_url(url_path),
+                                         body=body,
+                                         headers={
+                                             "Content-Type": "application/json"
+                                         })
+        except MaxRetryError as exc:
             logging.critical("An error occurred while performing an HTTP POST "
                              "request: %r", exc)
             sys.exit(ExitCode.HTTP_REQUEST_ERROR)
