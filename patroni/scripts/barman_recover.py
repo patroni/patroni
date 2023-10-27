@@ -78,6 +78,7 @@ def retry(times_attr: str, retry_wait_attr: str,
         def inner_func(instance: object, *args: Any, **kwargs: Any) -> Any:
             times: int = getattr(instance, times_attr)
             retry_wait: int = getattr(instance, retry_wait_attr)
+            method_name = f"{instance.__class__.__name__}.{func.__name__}"
 
             attempt = 1
 
@@ -85,14 +86,14 @@ def retry(times_attr: str, retry_wait_attr: str,
                 try:
                     return func(instance, *args, **kwargs)
                 except exceptions as exc:
-                    logging.warning(f"Attempt {attempt} of {times} on func "
-                                    f"{func} failed with {repr(exc)}.")
+                    logging.warning(f"Attempt {attempt} of {times} on method "
+                                    f"{method_name} failed with {repr(exc)}.")
                     attempt += 1
 
                 time.sleep(retry_wait)
 
             raise RetriesExceeded("Maximum number of retries exceeded for "
-                                  f"function {func}.")
+                                  f"method {method_name}.")
         return inner_func
     return decorator
 
@@ -228,7 +229,7 @@ class BarmanRecover:
             response = urlopen(self._build_full_url(url_path),
                                context=self._create_ssl_context())
         except (HTTPError, URLError) as exc:
-            logging.critical("An error ocurred while performing an HTTP GET "
+            logging.critical("An error occurred while performing an HTTP GET "
                              f"request: {repr(exc)}")
             sys.exit(ExitCode.HTTP_REQUEST_ERROR)
 
@@ -263,7 +264,7 @@ class BarmanRecover:
 
         return self._deserialize_response(response)
 
-    def _ensure_api_ok(self):
+    def _ensure_api_ok(self) -> None:
         """Ensure ``pg-backup-api`` is reachable and ``OK``.
 
         .. note::
