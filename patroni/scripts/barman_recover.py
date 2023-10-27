@@ -76,8 +76,8 @@ def retry(exceptions: Union[Type[Exception], Tuple[Type[Exception], ...]]) \
     """
     def decorator(func: Callable[..., Any]) -> Any:
         def inner_func(instance: object, *args: Any, **kwargs: Any) -> Any:
-            times: int = instance.max_retries
-            retry_wait: int = instance.retry_wait
+            times: int = getattr(instance, "max_retries")
+            retry_wait: int = getattr(instance, "retry_wait")
             method_name = f"{instance.__class__.__name__}.{func.__name__}"
 
             attempt = 1
