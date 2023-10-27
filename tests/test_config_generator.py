@@ -1,36 +1,42 @@
 import os
 import psutil
-import socket
 import unittest
+import yaml
 
 from . import MockConnect, MockCursor, MockConnectionInfo
 from copy import deepcopy
-from mock import MagicMock, Mock, PropertyMock, mock_open, patch
+from mock import MagicMock, Mock, PropertyMock, mock_open as _mock_open, patch
 
 from patroni.__main__ import main as _main
 from patroni.config import Config
-from patroni.config_generator import AbstractConfigGenerator, get_address
-
+from patroni.config_generator import AbstractConfigGenerator, get_address, NO_VALUE_MSG
+from patroni.log import PatroniLogger
 from patroni.utils import patch_config
 
 from . import psycopg_connect
 
+HOSTNAME = 'test_hostname'
+IP = '1.9.8.4'
+
+
+def mock_open(*args, **kwargs):
+    ret = _mock_open(*args, **kwargs)
+    ret.return_value.__iter__ = lambda o: iter(o.readline, '')
+    if not kwargs.get('read_data'):
+        ret.return_value.readline = Mock(return_value=None)
+    return ret
+
 
 @patch('patroni.psycopg.connect', psycopg_connect)
-@patch('socket.getaddrinfo', Mock(return_value=[(0, 0, 0, 0, ('1.9.8.4', 1984))]))
 @patch('builtins.open', MagicMock())
 @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 16.2"))
 @patch('psutil.Process.exe', Mock(return_value='/bin/dir/from/running/postgres'))
 @patch('psutil.Process.__init__', Mock(return_value=None))
+@patch.object(AbstractConfigGenerator, '_HOSTNAME', HOSTNAME)
+@patch.object(AbstractConfigGenerator, '_IP', IP)
 class TestGenerateConfig(unittest.TestCase):
 
-    no_value_msg = '#FIXME'
-    _HOSTNAME = socket.gethostname()
-    _IP = sorted(socket.getaddrinfo(_HOSTNAME, 0, socket.AF_UNSPEC, socket.SOCK_STREAM, 0), key=lambda x: x[0])[0][4][0]
-
     def setUp(self):
-        self.maxDiff = None
-
         os.environ['PATRONI_SCOPE'] = 'scope_from_env'
         os.environ['PATRONI_POSTGRESQL_BIN_DIR'] = '/bin/from/env'
         os.environ['PATRONI_SUPERUSER_USERNAME'] = 'su_user_from_env'
@@ -54,14 +60,24 @@ class TestGenerateConfig(unittest.TestCase):
 
         self.config = {
             'scope': self.environ['PATRONI_SCOPE'],
-            'name': self._HOSTNAME,
+            'name': HOSTNAME,
+            'log': {
+                'level': PatroniLogger.DEFAULT_LEVEL,
+                'traceback_level': PatroniLogger.DEFAULT_TRACEBACK_LEVEL,
+                'format': PatroniLogger.DEFAULT_FORMAT,
+                'max_queue_size': PatroniLogger.DEFAULT_MAX_QUEUE_SIZE
+            },
+            'restapi': {
+                'connect_address': self.environ['PATRONI_RESTAPI_CONNECT_ADDRESS'],
+                'listen': self.environ['PATRONI_RESTAPI_LISTEN']
+            },
             'bootstrap': {
                 'dcs': dynamic_config
             },
             'postgresql': {
-                'connect_address': self.no_value_msg + ':5432',
-                'data_dir': self.no_value_msg,
-                'listen': self.no_value_msg + ':5432',
+                'connect_address': IP + ':5432',
+                'data_dir': NO_VALUE_MSG,
+                'listen': IP + ':5432',
                 'pg_hba': ['host all all all md5',
                            f'host replication {self.environ["PATRONI_REPLICATION_USERNAME"]} all md5'],
                 'authentication': {'superuser': {'username': self.environ['PATRONI_SUPERUSER_USERNAME'],
@@ -72,10 +88,6 @@ class TestGenerateConfig(unittest.TestCase):
                 'bin_dir': self.environ['PATRONI_POSTGRESQL_BIN_DIR'],
                 'bin_name': {'postgres': self.environ['PATRONI_POSTGRESQL_BIN_POSTGRES']},
                 'parameters': {'password_encryption': 'md5'}
-            },
-            'restapi': {
-                'connect_address': self.environ['PATRONI_RESTAPI_CONNECT_ADDRESS'],
-                'listen': self.environ['PATRONI_RESTAPI_LISTEN']
             }
         }
 
@@ -99,7 +111,7 @@ class TestGenerateConfig(unittest.TestCase):
                 }
             },
             'postgresql': {
-                'connect_address': f'{self._IP}:bar',
+                'connect_address': f'{IP}:bar',
                 'listen': '6.6.6.6:1984',
                 'data_dir': 'data',
                 'bin_dir': '/bin/dir/from/running',
@@ -118,11 +130,17 @@ class TestGenerateConfig(unittest.TestCase):
                         'sslmode': 'prefer'
                     },
                     'replication': {
-                        'username': self.no_value_msg,
-                        'password': self.no_value_msg
+                        'username': NO_VALUE_MSG,
+                        'password': NO_VALUE_MSG
                     },
                     'rewind': None
                 },
+            },
+            'tags': {
+                'failover_priority': 1,
+                'noloadbalance': False,
+                'clonefrom': True,
+                'nosync': False,
             }
         }
         patch_config(self.config, conf)
@@ -143,22 +161,21 @@ class TestGenerateConfig(unittest.TestCase):
         ]
 
     @patch('os.makedirs')
-    @patch('yaml.safe_dump')
-    def test_generate_sample_config_pre_13_dir_creation(self, mock_config_dump, mock_makedir):
+    def test_generate_sample_config_pre_13_dir_creation(self, mock_makedir):
         with patch('sys.argv', ['patroni.py', '--generate-sample-config', '/foo/bar.yml']), \
              patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 9.4.3")) as pg_bin_mock, \
+             patch('builtins.open', _mock_open()) as mocked_file, \
              self.assertRaises(SystemExit) as e:
             _main()
+            self.assertEqual(self.config, yaml.safe_load(mocked_file().write.call_args_list[0][0][0]))
         self.assertEqual(e.exception.code, 0)
-        self.assertEqual(self.config, mock_config_dump.call_args[0][0])
         mock_makedir.assert_called_once()
         pg_bin_mock.assert_called_once_with([os.path.join(self.environ['PATRONI_POSTGRESQL_BIN_DIR'],
                                                           self.environ['PATRONI_POSTGRESQL_BIN_POSTGRES']),
                                              '--version'])
 
     @patch('os.makedirs', Mock())
-    @patch('yaml.safe_dump')
-    def test_generate_sample_config_16(self, mock_config_dump):
+    def test_generate_sample_config_16(self):
         conf = {
             'bootstrap': {
                 'dcs': {
@@ -179,21 +196,22 @@ class TestGenerateConfig(unittest.TestCase):
                 'authentication': {
                     'rewind': {
                         'username': self.environ['PATRONI_REWIND_USERNAME'],
-                        'password': self.no_value_msg}
+                        'password': NO_VALUE_MSG}
                 },
             }
         }
         patch_config(self.config, conf)
 
         with patch('sys.argv', ['patroni.py', '--generate-sample-config', '/foo/bar.yml']), \
+             patch('builtins.open', _mock_open()) as mocked_file, \
              self.assertRaises(SystemExit) as e:
             _main()
+            self.assertEqual(self.config, yaml.safe_load(mocked_file().write.call_args_list[0][0][0]))
         self.assertEqual(e.exception.code, 0)
-        self.assertEqual(self.config, mock_config_dump.call_args[0][0])
 
     @patch('os.makedirs', Mock())
-    @patch('yaml.safe_dump')
-    def test_generate_config_running_instance_16(self, mock_config_dump):
+    @patch('sys.stdout')
+    def test_generate_config_running_instance_16(self, mock_sys_stdout):
         self._set_running_instance_config_vals()
 
         with patch('builtins.open', Mock(side_effect=self._get_running_instance_open_res())), \
@@ -202,11 +220,11 @@ class TestGenerateConfig(unittest.TestCase):
                 self.assertRaises(SystemExit) as e:
             _main()
         self.assertEqual(e.exception.code, 0)
-        self.assertEqual(self.config, mock_config_dump.call_args[0][0])
+        self.assertEqual(self.config, yaml.safe_load(mock_sys_stdout.write.call_args_list[0][0][0]))
 
     @patch('os.makedirs', Mock())
-    @patch('yaml.safe_dump')
-    def test_generate_config_running_instance_16_connect_from_env(self, mock_config_dump):
+    @patch('sys.stdout')
+    def test_generate_config_running_instance_16_connect_from_env(self, mock_sys_stdout):
         self._set_running_instance_config_vals()
         # su auth params and connect host from env
         os.environ['PGCHANNELBINDING'] = \
@@ -230,7 +248,7 @@ class TestGenerateConfig(unittest.TestCase):
                 }
             },
             'postgresql': {
-                'connect_address': f'{self._IP}:1984',
+                'connect_address': f'{IP}:1984',
                 'authentication': {
                     'superuser': {
                         'username': self.environ['PGUSER'],
@@ -249,7 +267,7 @@ class TestGenerateConfig(unittest.TestCase):
              self.assertRaises(SystemExit) as e:
             _main()
         self.assertEqual(e.exception.code, 0)
-        self.assertEqual(self.config, mock_config_dump.call_args[0][0])
+        self.assertEqual(self.config, yaml.safe_load(mock_sys_stdout.write.call_args_list[0][0][0]))
 
     def test_generate_config_running_instance_errors(self):
         # 1. Wrong DSN format
@@ -330,5 +348,5 @@ class TestGenerateConfig(unittest.TestCase):
     def test_get_address(self):
         with patch('socket.getaddrinfo', Mock(side_effect=Exception)), \
              patch('logging.warning') as mock_warning:
-            self.assertEqual(get_address(), (self.no_value_msg, self.no_value_msg))
+            self.assertEqual(get_address(), (NO_VALUE_MSG, NO_VALUE_MSG))
             self.assertIn('Failed to obtain address: %r', mock_warning.call_args_list[0][0])

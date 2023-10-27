@@ -25,6 +25,7 @@ Currently supported PostgreSQL versions: 9.3 to 16.
    installation
    patroni_configuration
    rest_api
+   patronictl
    replica_bootstrap
    replication_modes
    watchdog

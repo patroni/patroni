@@ -30,23 +30,10 @@ There are a few options available:
     sudo apt-get install python3-psycopg2  # install psycopg2 module on Debian/Ubuntu
     sudo yum install python3-psycopg2      # install psycopg2 on RedHat/Fedora/CentOS
 
-2. Install psycopg2 from the binary package
+2. Specify one of `psycopg`, `psycopg2`, or `psycopg2-binary` in the :ref:`list of dependencies <extras>` when installing Patroni with pip.
 
-.. code-block:: shell
 
-    pip install psycopg2-binary
-
-3. Install psycopg2 from source
-
-.. code-block:: shell
-
-    pip install psycopg2>=2.5.4
-
-4. Use psycopg 3.0 instead of psycopg2
-
-.. code-block:: shell
-
-    pip install psycopg[binary]>=3.0.0
+.. _extras:
 
 General installation for pip
 ----------------------------
@@ -73,12 +60,20 @@ raft
     `pysyncobj` module in order to use python Raft implementation as DCS
 aws
     `boto3` in order to use AWS callbacks
+all
+    all of the above (except psycopg family)
+psycopg
+    `psycopg[binary]>=3.0.0` module
+psycopg2
+    `psycopg2>=2.5.4` module
+psycopg2-binary
+    `psycopg2-binary` module
 
-For example, the command in order to install Patroni together with dependencies for Etcd as a DCS and AWS callbacks is:
+For example, the command in order to install Patroni together with psycopg3, dependencies for Etcd as a DCS, and AWS callbacks is:
 
 .. code-block:: shell
 
-    pip install patroni[etcd,aws]
+    pip install patroni[psycopg3,etcd3,aws]
 
 Note that external tools to call in the replica creation or custom bootstrap scripts (i.e. WAL-E) should be installed
 independently of Patroni.

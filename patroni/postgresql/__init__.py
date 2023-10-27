@@ -451,15 +451,21 @@ class Postgresql(object):
             return
 
         if self._global_config.is_standby_cluster:
-            self._has_permanent_slots = False
             # Standby cluster can't have logical replication slots, and we don't need to enforce hot_standby_feedback
             self.set_enforce_hot_standby_feedback(False)
-        elif cluster and cluster.config and cluster.config.modify_version:
-            self._has_permanent_slots = cluster.has_permanent_slots(self.name, nofailover)
+
+        if cluster and cluster.config and cluster.config.modify_version:
             # We want to enable hot_standby_feedback if the replica is supposed
             # to have a logical slot or in case if it is the cascading replica.
-            self.set_enforce_hot_standby_feedback(
-                self.can_advance_slots and cluster.should_enforce_hot_standby_feedback(self.name, nofailover))
+            self.set_enforce_hot_standby_feedback(not self._global_config.is_standby_cluster and self.can_advance_slots
+                                                  and cluster.should_enforce_hot_standby_feedback(self.name,
+                                                                                                  nofailover))
+
+            self._has_permanent_slots = cluster.has_permanent_slots(
+                my_name=self.name,
+                is_standby_cluster=self._global_config.is_standby_cluster,
+                nofailover=nofailover,
+                major_version=self.major_version)
 
     def _cluster_info_state_get(self, name: str) -> Optional[Any]:
         if not self._cluster_info_state:

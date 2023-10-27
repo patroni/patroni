@@ -32,6 +32,6 @@ When Patroni runs in a paused mode, it does not change the state of PostgreSQL, 
 User guide
 ----------
 
-``patronictl`` supports ``pause`` and ``resume`` commands.
+``patronictl`` supports :ref:`pause <patronictl_pause>` and :ref:`resume <patronictl_resume>` commands.
 
 One can also issue a ``PATCH`` request to the ``{namespace}/{cluster}/config`` key with ``{"pause": true/false/null}``

@@ -34,7 +34,7 @@ Bootstrap configuration
 .. note::
     Once Patroni has initialized the cluster for the first time and settings have been stored in the DCS, all future
     changes to the ``bootstrap.dcs`` section of the YAML configuration will not take any effect! If you want to change
-    them please use either ``patronictl edit-config`` or the Patroni :ref:`REST API <rest_api>`.
+    them please use either :ref:`patronictl_edit_config` or the Patroni :ref:`REST API <rest_api>`.
 
 -  **bootstrap**:
 
@@ -49,23 +49,7 @@ Bootstrap configuration
       -  **- data-checksums**: Must be enabled when pg_rewind is needed on 9.3.
       -  **- encoding: UTF8**: default encoding for new databases.
       -  **- locale: UTF8**: default locale for new databases.
-   -  **users**: Some additional users which need to be created after initializing new cluster, see :ref:`Bootstrap users configuration <bootstrap_users_configuration>` below.
    -  **post\_bootstrap** or **post\_init**: An additional script that will be executed after initializing the cluster. The script receives a connection string URL (with the cluster superuser as a user name). The PGPASSFILE variable is set to the location of pgpass file.
-
-.. _bootstrap_users_configuration:
-
-Bootstrap users configuration
-=============================
-
-Users which need to be created after initializing the cluster:
-
--  **admin**: the name of user
-
-  -  **password**: (optional) password for the user
-  -  **options**: list of options for CREATE USER statement
-
-    -  **- createrole**
-    -  **- createdb**
 
 .. _citus_settings:
 
@@ -366,10 +350,10 @@ CTL
 
    -  **authentication**:
 
-      -  **username**: Basic-auth username for accessing protected REST API endpoints. If not provided patronictl will use the value provided for REST API "username" parameter.
-      -  **password**: Basic-auth password for accessing protected REST API endpoints. If not provided patronictl will use the value provided for REST API "password" parameter.
+      -  **username**: Basic-auth username for accessing protected REST API endpoints. If not provided :ref:`patronictl` will use the value provided for REST API "username" parameter.
+      -  **password**: Basic-auth password for accessing protected REST API endpoints. If not provided :ref:`patronictl` will use the value provided for REST API "password" parameter.
    -  **insecure**: Allow connections to REST API without verifying SSL certs.
-   -  **cacert**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "cafile" parameter.
+   -  **cacert**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided :ref:`patronictl` will use the value provided for REST API "cafile" parameter.
    -  **certfile**: Specifies the file with the client certificate in the PEM format.
    -  **keyfile**: Specifies the file with the client secret key in the PEM format.
    -  **keyfile\_password**: Specifies a password for decrypting the client keyfile.
@@ -384,11 +368,15 @@ Watchdog
 
 Tags
 ----
--  **nofailover**: ``true`` or ``false``, controls whether this node is allowed to participate in the leader race and become a leader. Defaults to ``false``
 -  **clonefrom**: ``true`` or ``false``. If set to ``true`` other nodes might prefer to use this node for bootstrap (take ``pg_basebackup`` from). If there are several nodes with ``clonefrom`` tag set to ``true`` the node to bootstrap from will be chosen randomly. The default value is ``false``.
 -  **noloadbalance**: ``true`` or ``false``. If set to ``true`` the node will return HTTP Status Code 503 for the ``GET /replica`` REST API health-check and therefore will be excluded from the load-balancing. Defaults to ``false``.
 -  **replicatefrom**: The IP address/hostname of another replica. Used to support cascading replication.
 -  **nosync**: ``true`` or ``false``. If set to ``true`` the node will never be selected as a synchronous replica.
+-  **nofailover**: ``true`` or ``false``, controls whether this node is allowed to participate in the leader race and become a leader. Defaults to ``false``, meaning this node _can_ participate in leader races. 
+-  **failover_priority**: integer, controls the priority that this node should have during failover. Nodes with higher priority will be preferred over lower priority nodes if they received/replayed the same amount of WAL. However, nodes with higher values of receive/replay LSN are preferred regardless of their priority. If the ``failover_priority`` is 0 or negative - such node is not allowed to participate in the leader race and to become a leader (similar to ``nofailover: true``).
+
+.. warning::
+   Provide only one of ``nofailover`` or ``failover_priority``. Providing ``nofailover: true`` is the same as ``failover_priority: 0``, and providing ``nofailover: false`` will give the node priority 1. 
 
 In addition to these predefined tags, you can also add your own ones:
 
@@ -397,4 +385,4 @@ In addition to these predefined tags, you can also add your own ones:
 -  **key3**: ``1.4``
 -  **key4**: ``"RandomString"``
 
-Tags are visible in the :ref:`REST API <rest_api>` and ``patronictl list`` You can also check for an instance health using these tags. If the tag isn't defined for an instance, or if the respective value doesn't match the querying value, it will return HTTP Status Code 503.
+Tags are visible in the :ref:`REST API <rest_api>` and :ref:`patronictl_list` You can also check for an instance health using these tags. If the tag isn't defined for an instance, or if the respective value doesn't match the querying value, it will return HTTP Status Code 503.

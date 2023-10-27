@@ -96,8 +96,8 @@ class GlobalConfig(object):
 
     @property
     def is_synchronous_mode(self) -> bool:
-        """``True`` if synchronous replication is requested."""
-        return self.check_mode('synchronous_mode')
+        """``True`` if synchronous replication is requested and it is not a standby cluster config."""
+        return self.check_mode('synchronous_mode') and not self.is_standby_cluster
 
     @property
     def is_synchronous_mode_strict(self) -> bool:
@@ -293,6 +293,7 @@ class Config(object):
         if validator:  # patronictl uses validator=None and we don't want to load anything from local cache in this case
             self._load_cache()
         self._cache_needs_saving = False
+        self._validate_failover_tags()
 
     @property
     def config_file(self) -> Optional[str]:
@@ -400,6 +401,66 @@ class Config(object):
                     except Exception:
                         logger.error('Can not remove temporary file %s', tmpfile)
 
+    def __get_and_maybe_adjust_int_value(self, config: Dict[str, Any], param: str, min_value: int) -> int:
+        """Get, validate and maybe adjust a *param* integer value from the *config* :class:`dict`.
+
+        .. note:
+            If the value is smaller than provided *min_value* we update the *config*.
+
+            This method may raise an exception if value isn't :class:`int` or cannot be casted to :class:`int`.
+
+        :param config: :class:`dict` object with new global configuration.
+        :param param: name of the configuration parameter we want to read/validate/adjust.
+        :param min_value: the minimum possible value that a given *param* could have.
+
+        :returns: an integer value which corresponds to a provided *param*.
+        """
+        value = int(config.get(param, self.__DEFAULT_CONFIG[param]))
+        if value < min_value:
+            logger.warning("%s=%d can't be smaller than %d, adjusting...", param, value, min_value)
+            value = config[param] = min_value
+        return value
+
+    def _validate_and_adjust_timeouts(self, config: Dict[str, Any]) -> None:
+        """Validate and adjust ``loop_wait``, ``retry_timeout``, and ``ttl`` values if necessary.
+
+        Minimum values:
+
+            * ``loop_wait``: 1 second;
+            * ``retry_timeout``: 3 seconds.
+            * ``ttl``: 20 seconds;
+
+        Maximum values:
+        In case if values don't fulfill the following rule, ``retry_timeout`` and ``loop_wait``
+        are reduced so that the rule is fulfilled:
+
+            .. code-block:: python
+
+                loop_wait + 2 * retry_timeout <= ttl
+
+        .. note:
+            We prefer to reduce ``loop_wait`` and will reduce ``retry_timeout`` only if ``loop_wait``
+            is already set to a minimal possible value.
+
+        :param config: :class:`dict` object with new global configuration.
+        """
+
+        min_loop_wait = 1
+        loop_wait = self. __get_and_maybe_adjust_int_value(config, 'loop_wait', min_loop_wait)
+        retry_timeout = self. __get_and_maybe_adjust_int_value(config, 'retry_timeout', 3)
+        ttl = self. __get_and_maybe_adjust_int_value(config, 'ttl', 20)
+
+        if min_loop_wait + 2 * retry_timeout > ttl:
+            config['loop_wait'] = min_loop_wait
+            config['retry_timeout'] = (ttl - min_loop_wait) // 2
+            logger.warning('Violated the rule "loop_wait + 2*retry_timeout <= ttl", where ttl=%d. '
+                           'Adjusting loop_wait from %d to %d and retry_timeout from %d to %d',
+                           ttl, loop_wait, min_loop_wait, retry_timeout, config['retry_timeout'])
+        elif loop_wait + 2 * retry_timeout > ttl:
+            config['loop_wait'] = ttl - 2 * retry_timeout
+            logger.warning('Violated the rule "loop_wait + 2*retry_timeout <= ttl", where ttl=%d and retry_timeout=%d.'
+                           ' Adjusting loop_wait from %d to %d', ttl, retry_timeout, loop_wait, config['loop_wait'])
+
     # configuration could be either ClusterConfig or dict
     def set_dynamic_configuration(self, configuration: Union[ClusterConfig, Dict[str, Any]]) -> bool:
         """Set dynamic configuration values with given *configuration*.
@@ -417,6 +478,7 @@ class Config(object):
 
         if not deep_compare(self._dynamic_configuration, configuration):
             try:
+                self._validate_and_adjust_timeouts(configuration)
                 self.__effective_configuration = self._build_effective_configuration(configuration,
                                                                                      self._local_configuration)
                 self._dynamic_configuration = configuration
@@ -898,3 +960,24 @@ class Config(object):
         :returns: :class:`GlobalConfig` object.
         """
         return get_global_config(cluster, self._dynamic_configuration)
+
+    def _validate_failover_tags(self) -> None:
+        """Check ``nofailover``/``failover_priority`` config and warn user if it's contradictory.
+
+        .. note::
+          To preserve sanity (and backwards compatibility) the ``nofailover`` tag will still exist. A contradictory
+          configuration is one where ``nofailover`` is ``True`` but ``failover_priority > 0``, or where
+          ``nofailover`` is ``False``, but ``failover_priority <= 0``. Essentially, ``nofailover`` and
+          ``failover_priority`` are communicating different things.
+          This checks for this edge case (which is a misconfiguration on the part of the user) and warns them.
+          The behaviour is as if ``failover_priority`` were not provided (i.e ``nofailover`` is the
+          bedrock source of truth)
+        """
+        tags = self.get('tags', {})
+        nofailover_tag = tags.get('nofailover')
+        failover_priority_tag = parse_int(tags.get('failover_priority'))
+        if failover_priority_tag is not None \
+                and (nofailover_tag is True and failover_priority_tag > 0
+                     or nofailover_tag is False and failover_priority_tag <= 0):
+            logger.warning('Conflicting configuration between nofailover: %s and failover_priority: %s. '
+                           'Defaulting to nofailover: %s', nofailover_tag, failover_priority_tag, nofailover_tag)

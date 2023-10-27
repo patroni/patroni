@@ -60,4 +60,4 @@ F.A.Q.
 
 - How to enable the Failsafe Mode?
 
-  Before enabling the ``failsafe_mode`` please make sure that Patroni version on all members is up-to-date. After that, you can use either the ``PATCH /config`` :ref:`REST API <rest_api>` or ``patronictl edit-config -s failsafe_mode=true``
+  Before enabling the ``failsafe_mode`` please make sure that Patroni version on all members is up-to-date. After that, you can use either the ``PATCH /config`` :ref:`REST API <rest_api>` or :ref:`patronictl edit-config -s failsafe_mode=true <patronictl_edit_config_parameters>`

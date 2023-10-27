@@ -134,6 +134,23 @@ def connect_side_effect(host_port):
         raise socket.gaierror()
 
 
+def mock_getaddrinfo(host, port, *args):
+    if port is None or port == "":
+        port = 0
+    port = int(port)
+    if port not in range(0, 65536):
+        raise socket.gaierror()
+
+    if host == "127.0.0.1" or host == "" or host is None:
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, '', ('127.0.0.1', port))]
+    elif host == "127.0.0.2":
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, '', ('127.0.0.2', port))]
+    elif host == "::1":
+        return [(socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, '', ('::1', port, 0, 0))]
+    else:
+        raise socket.gaierror()
+
+
 def parse_output(output):
     result = []
     for s in output.split("\n"):
@@ -145,6 +162,7 @@ def parse_output(output):
 
 
 @patch('socket.socket.connect_ex', Mock(side_effect=connect_side_effect))
+@patch('socket.getaddrinfo', Mock(side_effect=mock_getaddrinfo))
 @patch('os.path.exists', Mock(side_effect=exists_side_effect))
 @patch('os.path.isdir', Mock(side_effect=isdir_side_effect))
 @patch('os.path.isfile', Mock(side_effect=isfile_side_effect))
@@ -307,3 +325,35 @@ class TestValidator(unittest.TestCase):
         output = "\n".join(errors)
         self.assertEqual(['postgresql.bin_dir', 'postgresql.bin_name.postgres', 'raft.bind_addr', 'raft.self_addr'],
                          parse_output(output))
+
+    def test_one_of(self, _, __):
+        c = copy.deepcopy(config)
+        # Providing neither is fine
+        del c["tags"]["nofailover"]
+        errors = schema(c)
+        self.assertNotIn("tags  Multiple of ('nofailover', 'failover_priority') provided", errors)
+        # Just nofailover is fine
+        c["tags"]["nofailover"] = False
+        errors = schema(c)
+        self.assertNotIn("tags  Multiple of ('nofailover', 'failover_priority') provided", errors)
+        # Just failover_priority is fine
+        del c["tags"]["nofailover"]
+        c["tags"]["failover_priority"] = 1
+        errors = schema(c)
+        self.assertNotIn("tags  Multiple of ('nofailover', 'failover_priority') provided", errors)
+        # Providing both is not fine
+        c["tags"]["nofailover"] = False
+        errors = schema(c)
+        self.assertIn("tags  Multiple of ('nofailover', 'failover_priority') provided", errors)
+
+    def test_failover_priority_int(self, *args):
+        c = copy.deepcopy(config)
+        del c["tags"]["nofailover"]
+        c["tags"]["failover_priority"] = 'a string'
+        errors = schema(c)
+        self.assertIn('tags.failover_priority a string is not an integer', errors)
+        c = copy.deepcopy(config)
+        del c["tags"]["nofailover"]
+        c["tags"]["failover_priority"] = -6
+        errors = schema(c)
+        self.assertIn('tags.failover_priority -6 didn\'t pass validation: Wrong value', errors)

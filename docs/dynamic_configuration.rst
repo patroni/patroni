@@ -6,11 +6,20 @@ Dynamic Configuration Settings
 
 Dynamic configuration is stored in the DCS (Distributed Configuration Store) and applied on all cluster nodes.
 
-In order to change the dynamic configuration you can use either ``patronictl edit-config`` tool or Patroni :ref:`REST API <rest_api>`.
+In order to change the dynamic configuration you can use either :ref:`patronictl_edit_config` tool or Patroni :ref:`REST API <rest_api>`.
 
--  **loop\_wait**: the number of seconds the loop will sleep. Default value: 10
--  **ttl**: the TTL to acquire the leader lock (in seconds). Think of it as the length of time before initiation of the automatic failover process. Default value: 30
--  **retry\_timeout**: timeout for DCS and PostgreSQL operation retries (in seconds). DCS or network issues shorter than this will not cause Patroni to demote the leader. Default value: 10
+-  **loop\_wait**: the number of seconds the loop will sleep. Default value: 10, minimum possible value: 1
+-  **ttl**: the TTL to acquire the leader lock (in seconds). Think of it as the length of time before initiation of the automatic failover process. Default value: 30, minimum possible value: 20
+-  **retry\_timeout**: timeout for DCS and PostgreSQL operation retries (in seconds). DCS or network issues shorter than this will not cause Patroni to demote the leader. Default value: 10, minimum possible value: 3
+
+.. warning::
+    when changing values of **loop_wait**, **retry_timeout**, or **ttl** you have to follow the rule:
+
+    .. code-block:: python
+
+        loop_wait + 2 * retry_timeout <= ttl
+
+
 -  **maximum\_lag\_on\_failover**: the maximum bytes a follower may lag to be able to participate in leader election.
 -  **maximum\_lag\_on\_syncnode**: the maximum bytes a synchronous follower may lag before it is considered as an unhealthy candidate and swapped by healthy asynchronous follower. Patroni utilize the max replica lsn if there is more than one follower, otherwise it will use leader's current wal lsn. Default is -1, Patroni will not take action to swap synchronous unhealthy follower when the value is set to 0 or below. Please set the value high enough so Patroni won't swap synchrounous follower fequently during high transaction volume.
 -  **max\_timelines\_history**: maximum number of timeline history items kept in DCS.  Default value: 0. When set to 0, it keeps the full history in DCS.
@@ -48,7 +57,7 @@ In order to change the dynamic configuration you can use either ``patronictl edi
 
 -  **slots**: define permanent replication slots. These slots will be preserved during switchover/failover. Permanent slots that don't exist will be created by Patroni. With PostgreSQL 11 onwards permanent physical slots are created on all nodes and their position is advanced every **loop_wait** seconds. For PostgreSQL versions older than 11 permanent physical replication slots are maintained only on the current primary. The logical slots are copied from the primary to a standby with restart, and after that their position advanced every **loop_wait** seconds (if necessary). Copying logical slot files performed via ``libpq`` connection and using either rewind or superuser credentials (see **postgresql.authentication** section). There is always a chance that the logical slot position on the replica is a bit behind the former primary, therefore application should be prepared that some messages could be received the second time after the failover. The easiest way of doing so - tracking ``confirmed_flush_lsn``. Enabling permanent replication slots requires **postgresql.use_slots** to be set to ``true``. If there are permanent logical replication slots defined Patroni will automatically enable the ``hot_standby_feedback``. Since the failover of logical replication slots is unsafe on PostgreSQL 9.6 and older and PostgreSQL version 10 is missing some important functions, the feature only works with PostgreSQL 11+.
 
-   -  **my\_slot\_name**: the name of the permanent replication slot. If the permanent slot name matches with the name of the current leader it will not be created. Please note that Patroni does not make checks for permanent slot names added to this configuration matching those that Patroni creates automatically for members. If those names are added, Patroni will ensure that any slots that were created are not removed even if the member becomes unresponsive, situation which would normally result in the slot's removal by Patroni. Although this can be useful in some situations, such as when importing existing members to a new Patroni cluster (see :ref:`Convert a Standalone to a Patroni Cluster <existing_data>` for details), caution should be exercised by the operator that these clashes in names are not persisted in the DCS due to its effect on normal functioning of Patroni.
+   -  **my\_slot\_name**: the name of the permanent replication slot. If the permanent slot name matches with the name of the current node it will not be created on this node. If you add a permanent physical replication slot which name matches the name of a Patroni member, Patroni will ensure that the slot that was created is not removed even if the corresponding member becomes unresponsive, situation which would normally result in the slot's removal by Patroni. Although this can be useful in some situations, such as when you want replication slots used by members to persist during temporary failures or when importing existing members to a new Patroni cluster (see :ref:`Convert a Standalone to a Patroni Cluster <existing_data>` for details), caution should be exercised by the operator that these clashes in names are not persisted in the DCS, when the slot is no longer required, due to its effect on normal functioning of Patroni.
 
       -  **type**: slot type. Could be ``physical`` or ``logical``. If the slot is logical, you have to additionally define ``database`` and ``plugin``.
       -  **database**: the database name where logical slots should be created.
@@ -94,3 +103,8 @@ Note: if cluster topology is static (fixed number of nodes that never change the
           node_name3:
             type: physical
           ...
+
+
+.. warning::
+   Permanent replication slots are synchronized only from the ``primary``/``standby_leader`` to replica nodes. That means, applications are supposed to be using them only from the leader node. Using them on replica nodes will cause indefinite growth of ``pg_wal`` on all other nodes in the cluster.
+   An exception to that rule are permanent physical slots that match the Patroni member names, if you happen to configure any. Those will be synchronized among all nodes as they are used for replication among them.

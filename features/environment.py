@@ -162,9 +162,10 @@ class PatroniController(AbstractController):
 
     def stop(self, kill=False, timeout=15, postgres=False):
         if postgres:
-            return subprocess.call(['pg_ctl', '-D', self._data_dir, 'stop', '-mi', '-w'])
+            mode = 'i' if kill else 'f'
+            return subprocess.call(['pg_ctl', '-D', self._data_dir, 'stop', '-m' + mode, '-w'])
         super(PatroniController, self).stop(kill, timeout)
-        if isinstance(self._context.dcs_ctl, KubernetesController):
+        if isinstance(self._context.dcs_ctl, KubernetesController) and not kill:
             self._context.dcs_ctl.delete_pod(self._name[8:])
         if self.watchdog:
             self.watchdog.stop()
@@ -244,6 +245,10 @@ class PatroniController(AbstractController):
             self.recursive_update(config, custom_config)
 
         self.recursive_update(config, {
+            'log': {
+                'format': '%(asctime)s %(levelname)s [%(pathname)s:%(lineno)d - %(funcName)s]: %(message)s',
+                'loggers': {'patroni.postgresql.callback_executor': 'DEBUG'}
+            },
             'bootstrap': {
                 'dcs': {
                     'loop_wait': 2,
@@ -649,9 +654,10 @@ class KubernetesController(AbstractExternalDcsController):
             try:
                 if group is not None:
                     scope = '{0}-{1}'.format(scope, group)
-                ep = scope + {'leader': '', 'history': '-config', 'initialize': '-config'}.get(key, '-' + key)
+                rkey = 'leader' if key in ('status', 'failsafe') else key
+                ep = scope + {'leader': '', 'history': '-config', 'initialize': '-config'}.get(rkey, '-' + rkey)
                 e = self._api.read_namespaced_endpoints(ep, self._namespace)
-                if key != 'sync':
+                if key not in ('sync', 'status', 'failsafe'):
                     return e.metadata.annotations[key]
                 else:
                     return json.dumps(e.metadata.annotations)
@@ -687,7 +693,7 @@ class ZooKeeperController(AbstractExternalDcsController):
         self._client = kazoo.client.KazooClient()
 
     def process_name(self):
-        return "zookeeper"
+        return "java .*zookeeper"
 
     def query(self, key, scope='batman', group=None):
         import kazoo.exceptions
@@ -886,22 +892,28 @@ class PatroniPoolController(object):
         }
         self.start(to_name, custom_config=custom_config)
 
+    def backup_restore_config(self, params=None):
+        return {
+            'command': (self.BACKUP_RESTORE_SCRIPT
+                        + ' --sourcedir=' + os.path.join(self.patroni_path, 'data', 'basebackup')).replace('\\', '/'),
+            'test-argument': 'test-value',  # test config mapping approach on custom bootstrap/replica creation
+            **(params or {}),
+        }
+
     def bootstrap_from_backup(self, name, cluster_name):
         custom_config = {
             'scope': cluster_name,
             'bootstrap': {
                 'method': 'backup_restore',
-                'backup_restore': {
-                    'command': (self.BACKUP_RESTORE_SCRIPT + ' --sourcedir='
-                                + os.path.join(self.patroni_path, 'data', 'basebackup').replace('\\', '/')),
+                'backup_restore': self.backup_restore_config({
                     'recovery_conf': {
                         'recovery_target_action': 'promote',
                         'recovery_target_timeline': 'latest',
                         'restore_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode restore '
                                             + '--dirname {} --filename %f --pathname %p').format(
                             os.path.join(self.patroni_path, 'data', 'wal_archive_clone').replace('\\', '/'))
-                    }
-                }
+                    },
+                })
             },
             'postgresql': {
                 'authentication': {
@@ -922,11 +934,7 @@ class PatroniPoolController(object):
                     .format(os.path.join(self.patroni_path, 'data', 'wal_archive').replace('\\', '/'))
                 },
                 'create_replica_methods': ['no_leader_bootstrap'],
-                'no_leader_bootstrap': {
-                    'command': (self.BACKUP_RESTORE_SCRIPT + ' --sourcedir='
-                                + os.path.join(self.patroni_path, 'data', 'basebackup').replace('\\', '/')),
-                    'no_leader': '1'
-                }
+                'no_leader_bootstrap': self.backup_restore_config({'no_leader': '1'})
             }
         }
         self.start(name, custom_config=custom_config)
