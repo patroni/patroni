@@ -170,6 +170,8 @@ I have ``use_slots`` enabled in my Patroni configuration, but when a cluster mem
 
     **Note:** on Patroni older than ``3.2.0`` you could still have member slots configured as permanent physical slots, however they would be managed only on the current leader. That is, in case of failover/switchover these slots would be created on the new leader, but that wouldn't guarantee that it had all WAL segments for the absent node.
 
+    **Note:** even with Patroni ``3.2.0`` there might be a small race condition. In the very beginning, when the slot is created on the replica it could be ahead of the same slot on the leader and in case if nobody is consuming the slot there is still a chance that some files could be missing after failover. With that in mind, it is recommended that you configure continuous archiving, which makes it possible to restore required WALs or perform PITR.
+
 What is the difference between ``loop_wait``, ``retry_timeout`` and ``ttl``?
     Patroni performs what we call a HA cycle from time to time. On each HA cycle it takes care of performing a series of checks on the cluster to determine its healthiness, and depending on the status it may take actions, like failing over to a standby.
 
