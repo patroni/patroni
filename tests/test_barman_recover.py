@@ -25,7 +25,16 @@ class TestBarmanRecover(unittest.TestCase):
                                     RETRY_WAIT, MAX_RETRIES)
 
     def test__build_full_url(self):
+        # valid scheme
         self.assertEqual(self.br._build_full_url("/some/path"), f"{API_URL}/some/path")
+
+        # invalid scheme
+        self.br.api_url = "file://base"
+
+        with self.assertRaises(ValueError) as exc:
+            self.assertIsNone(self.br._build_full_url("/some/path"))
+
+        self.assertEqual(str(exc.exception), "URL is not using HTTP nor HTTPS scheme: file://base/some/path")
 
     @patch.object(ssl, "create_default_context")
     def test__create_ssl_context(self, mock_create_ctx):

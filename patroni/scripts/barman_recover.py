@@ -52,7 +52,6 @@ class ExitCode(IntEnum):
 
 class RetriesExceeded(Exception):
     """Maximum number of retries exceeded."""
-    pass
 
 
 def retry(times_attr: str, retry_wait_attr: str,
@@ -175,8 +174,17 @@ class BarmanRecover:
         :param url_path: path to be accessed in the ``pg-backup-api``.
 
         :returns: the full URL after concatenating.
+
+        :raises:
+            :exc:`ValueError`: if the URL is not using HTTP nor HTTPS scheme.
         """
-        return urljoin(self.api_url, url_path)
+        full_url = urljoin(self.api_url, url_path)
+
+        if not full_url.startswith(("http://", "https://")):
+            raise ValueError("URL is not using HTTP nor HTTPS scheme: "
+                             f"{full_url}")
+
+        return full_url
 
     def _create_ssl_context(self) -> Optional[ssl.SSLContext]:
         """Create an SSL context, if required.
