@@ -85,8 +85,9 @@ def retry(times_attr: str, retry_wait_attr: str,
                 try:
                     return func(instance, *args, **kwargs)
                 except exceptions as exc:
-                    logging.warning(f"Attempt {attempt} of {times} on method "
-                                    f"{method_name} failed with {repr(exc)}.")
+                    logging.warning("Attempt %d of %d on method %s failed "
+                                    "with %r.",
+                                    attempt, times, method_name, exc)
                     attempt += 1
 
                 time.sleep(retry_wait)
@@ -238,7 +239,7 @@ class BarmanRecover:
                                context=self._create_ssl_context())
         except (HTTPError, URLError) as exc:
             logging.critical("An error occurred while performing an HTTP GET "
-                             f"request: {repr(exc)}")
+                             "request: %r", exc)
             sys.exit(ExitCode.HTTP_REQUEST_ERROR)
 
         return self._deserialize_response(response)
@@ -267,7 +268,7 @@ class BarmanRecover:
                                context=self._create_ssl_context())
         except (HTTPError, URLError) as exc:
             logging.critical("An error occurred while performing an HTTP POST "
-                             f"request: {repr(exc)}")
+                             "request: %r", exc)
             sys.exit(ExitCode.HTTP_REQUEST_ERROR)
 
         return self._deserialize_response(response)
@@ -282,7 +283,7 @@ class BarmanRecover:
         response = self._get_request("status")
 
         if response != "OK":
-            logging.critical(f"pg-backup-api is not working: {response}")
+            logging.critical("pg-backup-api is not working: %s", response)
             sys.exit(ExitCode.API_NOT_OK)
 
     @retry("max_retries", "retry_wait", KeyError)
@@ -335,7 +336,7 @@ class BarmanRecover:
             logging.critical("Maximum number of retries exceeded, exiting.")
             sys.exit(ExitCode.HTTP_RESPONSE_MALFORMED)
 
-        logging.info(f"Created the recovery operation with ID {operation_id}")
+        logging.info("Created the recovery operation with ID %s", operation_id)
 
         status = None
 
@@ -350,8 +351,8 @@ class BarmanRecover:
             if status != "IN_PROGRESS":
                 break
 
-            logging.info(f"Recovery operation {operation_id} is still in "
-                         "progress")
+            logging.info("Recovery operation %s is still in progress",
+                         operation_id)
             time.sleep(self.loop_wait)
 
         return status == "DONE"

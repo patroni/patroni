@@ -84,8 +84,7 @@ class TestBarmanRecover(unittest.TestCase):
         with self.assertRaises(SystemExit) as exc:
             self.assertIsNone(self.br._get_request("/some/path"))
 
-        mock_logging.assert_called_once_with("An error occurred while performing an HTTP GET request: "
-                                             f"{repr(http_error)}")
+        mock_logging.assert_called_once_with("An error occurred while performing an HTTP GET request: %r", http_error)
         self.assertEqual(exc.exception.code, 4)
 
         # with URLError
@@ -96,8 +95,7 @@ class TestBarmanRecover(unittest.TestCase):
         with self.assertRaises(SystemExit) as exc:
             self.assertIsNone(self.br._get_request("/some/path"))
 
-        mock_logging.assert_called_once_with("An error occurred while performing an HTTP GET request: "
-                                             f"{repr(url_error)}")
+        mock_logging.assert_called_once_with("An error occurred while performing an HTTP GET request: %r", url_error)
         self.assertEqual(exc.exception.code, 4)
 
         # with Exception
@@ -133,8 +131,7 @@ class TestBarmanRecover(unittest.TestCase):
         with self.assertRaises(SystemExit) as exc:
             self.assertIsNone(self.br._post_request("/some/path", "some body"))
 
-        mock_logging.assert_called_once_with("An error occurred while performing an HTTP POST request: "
-                                             f"{repr(http_error)}")
+        mock_logging.assert_called_once_with("An error occurred while performing an HTTP POST request: %r", http_error)
         self.assertEqual(exc.exception.code, 4)
 
         # with URLError
@@ -145,8 +142,7 @@ class TestBarmanRecover(unittest.TestCase):
         with self.assertRaises(SystemExit) as exc:
             self.assertIsNone(self.br._post_request("/some/path", "some body"))
 
-        mock_logging.assert_called_once_with("An error occurred while performing an HTTP POST request: "
-                                             f"{repr(url_error)}")
+        mock_logging.assert_called_once_with("An error occurred while performing an HTTP POST request: %r", url_error)
         self.assertEqual(exc.exception.code, 4)
 
         # with Exception
@@ -177,7 +173,7 @@ class TestBarmanRecover(unittest.TestCase):
         with self.assertRaises(SystemExit) as exc:
             self.assertIsNone(self.br._ensure_api_ok())
 
-        mock_logging.assert_called_once_with("pg-backup-api is not working: random")
+        mock_logging.assert_called_once_with("pg-backup-api is not working: %s", "random")
         self.assertEqual(exc.exception.code, 2)
 
     @patch("logging.warning")
@@ -212,9 +208,16 @@ class TestBarmanRecover(unittest.TestCase):
         mock_sleep.assert_has_calls([call(self.br.retry_wait)] * self.br.max_retries)
 
         self.assertEqual(mock_logging.call_count, self.br.max_retries)
-        mock_logging.assert_has_calls([call(f"Attempt {i+1} of {self.br.max_retries} on method BarmanRecover."
-                                            "_create_recovery_operation failed with KeyError('operation_id').")
-                                       for i in range(self.br.max_retries)])
+        self.assertEqual(mock_logging.call_count, self.br.max_retries)
+        for i in range(mock_logging.call_count):
+            call_args = mock_logging.mock_calls[i].args
+            self.assertEqual(len(call_args), 5)
+            self.assertEqual(call_args[0], "Attempt %d of %d on method %s failed with %r.")
+            self.assertEqual(call_args[1], i + 1)
+            self.assertEqual(call_args[2], self.br.max_retries)
+            self.assertEqual(call_args[3], "BarmanRecover._create_recovery_operation")
+            self.assertIsInstance(call_args[4], KeyError)
+            self.assertEqual(repr(call_args[4]), "KeyError('operation_id')")
 
     @patch("logging.warning")
     @patch("time.sleep")
@@ -240,9 +243,15 @@ class TestBarmanRecover(unittest.TestCase):
         mock_sleep.assert_has_calls([call(self.br.retry_wait)] * self.br.max_retries)
 
         self.assertEqual(mock_logging.call_count, self.br.max_retries)
-        mock_logging.assert_has_calls([call(f"Attempt {i+1} of {self.br.max_retries} on method BarmanRecover."
-                                            "_get_recovery_operation_status failed with KeyError('status').")
-                                       for i in range(self.br.max_retries)])
+        for i in range(mock_logging.call_count):
+            call_args = mock_logging.mock_calls[i].args
+            self.assertEqual(len(call_args), 5)
+            self.assertEqual(call_args[0], "Attempt %d of %d on method %s failed with %r.")
+            self.assertEqual(call_args[1], i + 1)
+            self.assertEqual(call_args[2], self.br.max_retries)
+            self.assertEqual(call_args[3], "BarmanRecover._get_recovery_operation_status")
+            self.assertIsInstance(call_args[4], KeyError)
+            self.assertEqual(repr(call_args[4]), "KeyError('status')")
 
     @patch.object(BarmanRecover, "_get_recovery_operation_status")
     @patch("time.sleep")
@@ -258,7 +267,7 @@ class TestBarmanRecover(unittest.TestCase):
 
         mock_create_op.assert_called_once()
         mock_get_status.assert_called_once_with("some_id")
-        mock_log_info.assert_called_once_with("Created the recovery operation with ID some_id")
+        mock_log_info.assert_called_once_with("Created the recovery operation with ID %s", "some_id")
         mock_log_critical.assert_not_called()
         mock_sleep.assert_not_called()
 
@@ -276,8 +285,8 @@ class TestBarmanRecover(unittest.TestCase):
         mock_get_status.assert_has_calls([call("some_id")] * 21)
 
         self.assertEqual(mock_log_info.call_count, 21)
-        mock_log_info.assert_has_calls([call("Created the recovery operation with ID some_id")]
-                                       + [call("Recovery operation some_id is still in progress")] * 20)
+        mock_log_info.assert_has_calls([call("Created the recovery operation with ID %s", "some_id")]
+                                       + [call("Recovery operation %s is still in progress", "some_id")] * 20)
 
         mock_log_critical.assert_not_called()
 
@@ -296,7 +305,7 @@ class TestBarmanRecover(unittest.TestCase):
 
         mock_create_op.assert_called_once()
         mock_get_status.assert_called_once_with("some_id")
-        mock_log_info.assert_called_once_with("Created the recovery operation with ID some_id")
+        mock_log_info.assert_called_once_with("Created the recovery operation with ID %s", "some_id")
         mock_log_critical.assert_not_called()
         mock_sleep.assert_not_called()
 
@@ -315,8 +324,8 @@ class TestBarmanRecover(unittest.TestCase):
         mock_get_status.assert_has_calls([call("some_id")] * 21)
 
         self.assertEqual(mock_log_info.call_count, 21)
-        mock_log_info.assert_has_calls([call("Created the recovery operation with ID some_id")]
-                                       + [call("Recovery operation some_id is still in progress")] * 20)
+        mock_log_info.assert_has_calls([call("Created the recovery operation with ID %s", "some_id")]
+                                       + [call("Recovery operation %s is still in progress", "some_id")] * 20)
 
         mock_log_critical.assert_not_called()
 
@@ -348,7 +357,7 @@ class TestBarmanRecover(unittest.TestCase):
             self.assertIsNone(self.br.restore_backup())
 
         self.assertEqual(exc.exception.code, 5)
-        mock_log_info.assert_called_once_with("Created the recovery operation with ID some_id")
+        mock_log_info.assert_called_once_with("Created the recovery operation with ID %s", "some_id")
         mock_log_critical.assert_called_once_with("Maximum number of retries exceeded, exiting.")
         mock_sleep.assert_not_called()
 
