@@ -999,7 +999,8 @@ schema = Schema({
             Optional("key"): str,
             Optional("key_password"): str,
             Optional("verify"): bool,
-            Optional("set_acls"): dict
+            Optional("set_acls"): dict,
+            Optional("auth_data"): dict,
         },
         "kubernetes": {
             "labels": {},

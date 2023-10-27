@@ -115,7 +115,8 @@ class ZooKeeper(AbstractDCS):
         self._client = PatroniKazooClient(hosts, handler=PatroniSequentialThreadingHandler(config['retry_timeout']),
                                           timeout=config['ttl'], connection_retry=KazooRetry(max_delay=1, max_tries=-1,
                                           sleep_func=time.sleep), command_retry=KazooRetry(max_delay=1, max_tries=-1,
-                                          deadline=config['retry_timeout'], sleep_func=time.sleep), **kwargs)
+                                          deadline=config['retry_timeout'], sleep_func=time.sleep),
+                                          auth_data=list(config.get('auth_data', {}).items()), **kwargs)
         self._client.add_listener(self.session_listener)
 
         self._fetch_cluster: bool = True
