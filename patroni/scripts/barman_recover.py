@@ -54,8 +54,7 @@ class RetriesExceeded(Exception):
     """Maximum number of retries exceeded."""
 
 
-def retry(times_attr: str, retry_wait_attr: str,
-          exceptions: Union[Type[Exception], Tuple[Type[Exception], ...]]) \
+def retry(exceptions: Union[Type[Exception], Tuple[Type[Exception], ...]]) \
         -> Any:
     """Retry an operation n times if expected *exceptions* are faced.
 
@@ -63,10 +62,12 @@ def retry(times_attr: str, retry_wait_attr: str,
         Should be used as a decorator of a class' method as it expects the
         first argument to be a class instance.
 
-    :param times_attr: name of the instance attribute which contains the
-        maximum number of retries upon exceptions.
-    :param retry_wait_attr: name of the instance attribute which contains how
-        long to wait before retrying a failed request to the ``pg-backup-api``.
+        The class which method is going to decorated should contain a couple
+        attributes:
+
+        * ``max_retries``: maximum retry attempts before failing;
+        * ``retry_wait``: how long to wait before retrying.
+
     :param exceptions: exceptions that could trigger a retry attempt.
 
     :raises:
@@ -75,8 +76,8 @@ def retry(times_attr: str, retry_wait_attr: str,
     """
     def decorator(func: Callable[..., Any]) -> Any:
         def inner_func(instance: object, *args: Any, **kwargs: Any) -> Any:
-            times: int = getattr(instance, times_attr)
-            retry_wait: int = getattr(instance, retry_wait_attr)
+            times: int = instance.max_retries
+            retry_wait: int = instance.retry_wait
             method_name = f"{instance.__class__.__name__}.{func.__name__}"
 
             attempt = 1
@@ -286,7 +287,7 @@ class BarmanRecover:
             logging.critical("pg-backup-api is not working: %s", response)
             sys.exit(ExitCode.API_NOT_OK)
 
-    @retry("max_retries", "retry_wait", KeyError)
+    @retry(KeyError)
     def _create_recovery_operation(self) -> str:
         """Create a recovery operation on the ``pg-backup-api``.
 
@@ -304,7 +305,7 @@ class BarmanRecover:
 
         return response["operation_id"]
 
-    @retry("max_retries", "retry_wait", KeyError)
+    @retry(KeyError)
     def _get_recovery_operation_status(self, operation_id: str) -> str:
         """Get status of the recovery operation *operation_id*.
 
