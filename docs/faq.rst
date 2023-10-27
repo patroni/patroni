@@ -251,7 +251,7 @@ How does the automatic failover mechanism of Patroni work?
     Some of these checks include calls to the REST API of all other Patroni members.
 
     All Patroni members that find themselves as the best candidate for taking over the ``leader`` lock will attempt to do so.
-    The first Patroni member that is able to take the ``leader`` lock will promote itself to a read/write node, and the others will be configured to follow it.
+    The first Patroni member that is able to take the ``leader`` lock will promote itself to a read/write node (or ``standby leader``), and the others will be configured to follow it.
 
 Can I temporarily disable automatic failover in the Patroni cluster?
     Yes, you can!
