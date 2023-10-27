@@ -1,8 +1,7 @@
 import logging
 from mock import MagicMock, Mock, call, patch
-import ssl
 import unittest
-from urllib.error import HTTPError, URLError
+from urllib3.exceptions import MaxRetryError
 
 from patroni.scripts.barman_recover import BarmanRecover, RetriesExceeded, main, set_up_logging
 
@@ -19,10 +18,14 @@ MAX_RETRIES = 5
 
 class TestBarmanRecover(unittest.TestCase):
 
+    @patch.object(BarmanRecover, "_ensure_api_ok", Mock())
+    @patch("patroni.scripts.barman_recover.PoolManager", MagicMock())
     def setUp(self):
-        with patch.object(BarmanRecover, "_ensure_api_ok") as _:
-            self.br = BarmanRecover(API_URL, BARMAN_SERVER, BACKUP_ID, SSH_COMMAND, DATA_DIRECTORY, LOOP_WAIT,
-                                    RETRY_WAIT, MAX_RETRIES)
+        self.br = BarmanRecover(API_URL, BARMAN_SERVER, BACKUP_ID, SSH_COMMAND, DATA_DIRECTORY, LOOP_WAIT, RETRY_WAIT,
+                                MAX_RETRIES)
+        # Reset the mock as the same instance is used across tests
+        self.br.http.request.reset_mock()
+        self.br.http.request.side_effect = None
 
     def test__build_full_url(self):
         # valid scheme
@@ -36,27 +39,11 @@ class TestBarmanRecover(unittest.TestCase):
 
         self.assertEqual(str(exc.exception), "URL is not using HTTP nor HTTPS scheme: file://base/some/path")
 
-    @patch.object(ssl, "create_default_context")
-    def test__create_ssl_context(self, mock_create_ctx):
-        # without certs
-        self.assertIsNone(self.br._create_ssl_context())
-        mock_create_ctx.assert_not_called()
-
-        # with certs
-        self.br.cert_file = "/path/to/certificate.crt"
-        self.br.key_file = "/path/to/certificate.key"
-        ret = self.br._create_ssl_context()
-        self.assertIsNotNone(ret)
-        mock_create_ctx.assert_called_once_with(ssl.Purpose.SERVER_AUTH)
-        ret.load_cert_chain.assert_called_once_with(self.br.cert_file, self.br.key_file)
-
     @patch("json.loads")
     def test__deserialize_response(self, mock_json_loads):
         mock_response = MagicMock()
         self.assertIsNotNone(self.br._deserialize_response(mock_response))
-        mock_response.read.assert_called_once()
-        mock_response.read.return_value.decode.assert_called_once_with("utf-8")
-        mock_json_loads.assert_called_once_with(mock_response.read.return_value.decode.return_value)
+        mock_json_loads.assert_called_once_with(mock_response.data.decode("utf-8"))
 
     @patch("json.dumps")
     def test__serialize_request(self, mock_json_dumps):
@@ -68,18 +55,16 @@ class TestBarmanRecover(unittest.TestCase):
 
     @patch.object(BarmanRecover, "_deserialize_response", Mock(return_value="test"))
     @patch("logging.critical")
-    @patch.object(BarmanRecover, "_create_ssl_context")
-    @patch("patroni.scripts.barman_recover.urlopen")
-    def test__get_request(self, mock_urlopen, mock_create_ctx, mock_logging):
-        # with no error
-        mock_create_ctx.return_value = None
-        self.assertEqual(self.br._get_request("/some/path"), "test")
-        mock_urlopen.assert_called_once_with(f"{API_URL}/some/path", context=None)
-        mock_create_ctx.assert_called_once()
+    def test__get_request(self, mock_logging):
+        mock_request = self.br.http.request
 
-        # with HTTPError
-        http_error = HTTPError("url", 403, "Some error.", [], None)
-        mock_urlopen.side_effect = http_error
+        # with no error
+        self.assertEqual(self.br._get_request("/some/path"), "test")
+        mock_request.assert_called_once_with("GET", f"{API_URL}/some/path")
+
+        # with MaxRetryError
+        http_error = MaxRetryError(self.br.http, f"{API_URL}/some/path")
+        mock_request.side_effect = http_error
 
         with self.assertRaises(SystemExit) as exc:
             self.assertIsNone(self.br._get_request("/some/path"))
@@ -87,20 +72,9 @@ class TestBarmanRecover(unittest.TestCase):
         mock_logging.assert_called_once_with("An error occurred while performing an HTTP GET request: %r", http_error)
         self.assertEqual(exc.exception.code, 4)
 
-        # with URLError
-        mock_logging.reset_mock()
-        url_error = URLError("Some error.")
-        mock_urlopen.side_effect = url_error
-
-        with self.assertRaises(SystemExit) as exc:
-            self.assertIsNone(self.br._get_request("/some/path"))
-
-        mock_logging.assert_called_once_with("An error occurred while performing an HTTP GET request: %r", url_error)
-        self.assertEqual(exc.exception.code, 4)
-
         # with Exception
         mock_logging.reset_mock()
-        mock_urlopen.side_effect = Exception("Some error.")
+        mock_request.side_effect = Exception("Some error.")
 
         with patch("sys.exit") as mock_sys:
             with self.assertRaises(Exception):
@@ -111,22 +85,19 @@ class TestBarmanRecover(unittest.TestCase):
 
     @patch.object(BarmanRecover, "_deserialize_response", Mock(return_value="test"))
     @patch("logging.critical")
-    @patch.object(BarmanRecover, "_create_ssl_context")
-    @patch("patroni.scripts.barman_recover.urlopen")
-    @patch("patroni.scripts.barman_recover.Request")
     @patch.object(BarmanRecover, "_serialize_request")
-    def test__post_request(self, mock_serialize, mock_request, mock_urlopen, mock_create_ctx, mock_logging):
+    def test__post_request(self, mock_serialize, mock_logging):
+        mock_request = self.br.http.request
+
         # with no error
-        mock_create_ctx.return_value = None
         self.assertEqual(self.br._post_request("/some/path", "some body"), "test")
         mock_serialize.assert_called_once_with("some body")
-        mock_request.assert_called_once_with(f"{API_URL}/some/path")
-        mock_urlopen.assert_called_once_with(mock_request.return_value, mock_serialize.return_value,
-                                             context=mock_create_ctx.return_value)
+        mock_request.assert_called_once_with("POST", f"{API_URL}/some/path", body=mock_serialize.return_value,
+                                             headers={"Content-Type": "application/json"})
 
         # with HTTPError
-        http_error = HTTPError("url", 403, "Some error.", [], None)
-        mock_urlopen.side_effect = http_error
+        http_error = MaxRetryError(self.br.http, f"{API_URL}/some/path")
+        mock_request.side_effect = http_error
 
         with self.assertRaises(SystemExit) as exc:
             self.assertIsNone(self.br._post_request("/some/path", "some body"))
@@ -134,20 +105,9 @@ class TestBarmanRecover(unittest.TestCase):
         mock_logging.assert_called_once_with("An error occurred while performing an HTTP POST request: %r", http_error)
         self.assertEqual(exc.exception.code, 4)
 
-        # with URLError
-        mock_logging.reset_mock()
-        url_error = URLError("Some error.")
-        mock_urlopen.side_effect = url_error
-
-        with self.assertRaises(SystemExit) as exc:
-            self.assertIsNone(self.br._post_request("/some/path", "some body"))
-
-        mock_logging.assert_called_once_with("An error occurred while performing an HTTP POST request: %r", url_error)
-        self.assertEqual(exc.exception.code, 4)
-
         # with Exception
         mock_logging.reset_mock()
-        mock_urlopen.side_effect = Exception("Some error.")
+        mock_request.side_effect = Exception("Some error.")
 
         with patch("sys.exit") as mock_sys:
             with self.assertRaises(Exception):
