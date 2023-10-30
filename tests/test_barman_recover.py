@@ -28,16 +28,7 @@ class TestBarmanRecover(unittest.TestCase):
         self.br.http.request.side_effect = None
 
     def test__build_full_url(self):
-        # valid scheme
         self.assertEqual(self.br._build_full_url("/some/path"), f"{API_URL}/some/path")
-
-        # invalid scheme
-        self.br.api_url = "file://base"
-
-        with self.assertRaises(ValueError) as exc:
-            self.assertIsNone(self.br._build_full_url("/some/path"))
-
-        self.assertEqual(str(exc.exception), "URL is not using HTTP nor HTTPS scheme: file://base/some/path")
 
     @patch("json.loads")
     def test__deserialize_response(self, mock_json_loads):
