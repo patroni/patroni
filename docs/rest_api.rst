@@ -684,6 +684,7 @@ Restart endpoint
 
 ``POST /restart`` and ``DELETE /restart`` endpoints are used by :ref:`patronictl_restart` and :ref:`patronictl flush cluster-name restart <patronictl_flush_parameters>` respectively.
 
+.. _reload_endpoint:
 
 Reload endpoint
 ---------------

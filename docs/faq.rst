@@ -136,11 +136,18 @@ How can I change my dynamic configuration?
     * A ``PATCH`` request to :ref:`config_endpoint`.
 
 How can I change my local configuration?
-    You need to change the configuration file of the corresponding Patroni member and signal the Patroni agent with ``SIHGUP``.
+    You need to change the configuration file of the corresponding Patroni member and signal the Patroni agent with ``SIHGUP``. You can do that using either of these approaches:
 
-    If you started Patroni through systemd, you can use the command ``systemctl reload PATRONI_UNIT.service``, ``PATRONI_UNIT`` being the name of the Patroni service.
+    * Send a ``POST`` request to the REST API :ref:`reload_endpoint`; or
+    * Run :ref:`patronictl_reload`; or
+    * Locally signal the Patroni process with ``SIGHUP``:
+        * If you started Patroni through systemd, you can use the command ``systemctl reload PATRONI_UNIT.service``, ``PATRONI_UNIT`` being the name of the Patroni service; or
+        * If you started Patroni through other means, you will need to identify the ``patroni`` process and run ``kill -s HUP PID``, ``PID`` being the process ID of the ``patroni`` process.
 
-    If you started Patroni through other means, you will need to identify the ``patroni`` process and run ``kill -s HUP PID``, ``PID`` being the process ID of the ``patroni`` process.
+    **Note:** there are cases where a reload through the :ref:`patronictl_reload` may not work:
+
+    * Expired REST API certificates: you can mitigate that by using the ``-k`` option of the :ref:`patronictl`;
+    * Wrong credentials: for example when changing ``restapi`` or ``ctl`` credentials in the configuration file, and using that same configuration file for Patroni and :ref:`patronictl`.
 
 How can I change my environment configuration?
     The environment configuration is only read by Patroni during startup.
