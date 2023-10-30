@@ -30,6 +30,7 @@ There are 3 types of Patroni configuration:
 	It is possible to set/override some of the "Local" configuration parameters with environment variables.
 	Environment configuration is very useful when you are running in a dynamic environment and you don't know some of the parameters in advance (for example it's not possible to know your external IP address when you are running inside ``docker``).
 
+.. _important_configuration_rules:
 
 Important rules
 ---------------

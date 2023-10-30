@@ -208,11 +208,19 @@ Postgres management
 -------------------
 
 Can I change Postgres GUCs directly in Postgres configuration?
-    You should **not** do that!
+    You can, but you should avoid that.
 
-    Postgres configuration is managed by Patroni, and attempts to edit the configuration files will end up being frustrated by Patroni as it will eventually overwrite them.
+    Postgres configuration is managed by Patroni, and attempts to edit the configuration files may end up being frustrated by Patroni as it may eventually overwrite them.
 
-    You need to manage all the Postgres configuration through Patroni!
+    There are a few options available to overcome the management performed by Patroni:
+
+    * Change Postgres GUCs through ``$PGDATA/postgresql.base.conf``; or
+    * Define a ``postgresql.custom_conf`` which will be used instead of ``postgresql.base.conf`` so you can manage that externally; or
+    * Change GUCs using ``ALTER SYSTEM`` / ``ALTER DATABASE`` / ``ALTER USER``.
+
+    You can find more information about that in the section :ref:`important_configuration_rules`.
+
+    In any case we recommend that you manage all the Postgres configuration through Patroni. That will centralize the management and make it easier to debug Patroni when needed.
 
 Can I restart Postgres nodes directly?
     No, you should **not** attempt to manage Postgres directly!
