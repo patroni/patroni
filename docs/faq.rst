@@ -256,6 +256,8 @@ What is a ``standby cluster`` in Patroni?
     There will be a leader in the cluster which will be a standby in charge of replicating changes from a remote Postgres node.
     Then, there will be a set of standbys configured with cascading replication from such leader member.
 
+    **Note:** the standby cluster doesn't know anything about the source cluster which it is replicating from -- it can even use ``restore_command`` instead of WAL streaming, and may use an absolutely independent DCS cluster.
+
     Refer to :ref:`standby_cluster` for more details.
 
 What is a ``leader`` in Patroni?
