@@ -202,6 +202,8 @@ What is the difference between ``loop_wait``, ``retry_timeout`` and ``ttl``?
 
     ``ttl`` sets the lease time on the ``leader`` lock in the DCS. If the current leader of the cluster is not able to renew the lease during its HA cycles for longer than ``ttl``, then the lease will expire and that will trigger a ``leader race`` in the cluster.
 
+    **Note:** when modifying these settings, please keep in mind that Patroni enforces the rule and minimal values described in :ref:`dynamic_configuration` section of the docs.
+
 Postgres management
 -------------------
 
