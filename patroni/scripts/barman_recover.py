@@ -18,14 +18,11 @@ import json
 import logging
 import sys
 import time
-from typing import Any, Callable, Optional, Tuple, Type, Union, TYPE_CHECKING
+from typing import Any, Callable, Optional, Tuple, Type, Union
 from urllib.parse import urljoin
 from urllib3 import PoolManager
 from urllib3.exceptions import MaxRetryError
-
-
-if TYPE_CHECKING:  # pragma: no cover
-    from urllib3.response import HTTPResponse
+from urllib3.response import HTTPResponse
 
 
 class ExitCode(IntEnum):
@@ -181,16 +178,10 @@ class BarmanRecover:
         :raises:
             :exc:`ValueError`: if the URL is not using HTTP nor HTTPS scheme.
         """
-        full_url = urljoin(self.api_url, url_path)
-
-        if not full_url.startswith(("http://", "https://")):
-            raise ValueError("URL is not using HTTP nor HTTPS scheme: "
-                             f"{full_url}")
-
-        return full_url
+        return urljoin(self.api_url, url_path)
 
     @staticmethod
-    def _deserialize_response(response: 'HTTPResponse') -> Any:
+    def _deserialize_response(response: HTTPResponse) -> Any:
         """Retrieve body from *response* as a deserialized JSON object.
 
         :param response: response from which JSON body will be deserialized.
