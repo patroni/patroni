@@ -17,9 +17,9 @@ Why does Patroni require a separate cluster of DCS nodes while other solutions l
 
     Software like ``repmgr`` performs communication among the nodes to decide when actions should be taken.
 
-    Patroni on the other hand relies on the state stored in the DCS. The DCS acts as a source of true for Patroni to decide what it should do.
+    Patroni on the other hand relies on the state stored in the DCS. The DCS acts as a source of truth for Patroni to decide what it should do.
 
-    While having a separate DCS cluster can make you bloat your architecture, this approach also makes it less likely for split-brain scenarios to happen in your cluster.
+    While having a separate DCS cluster can make you bloat your architecture, this approach also makes it less likely for split-brain scenarios to happen in your Postgres cluster.
 
 What is the difference between Patroni and other HA solutions in regards to Postgres management?
     Patroni does not just manage the high availability of the Postgres cluster but also manages Postgres itself.
@@ -91,7 +91,7 @@ What is the difference between dynamic configuration and local configuration?
     Dynamic configuration (or global configuration) is the configuration stored in the DCS, and which is applied to all members of the Patroni cluster.
     This is primarily where you should store your configuration.
 
-    Settings that are specific to a node, or settings that you would like the global configuration overwritten, you should set only on the desired Patroni member as a local configuration.
+    Settings that are specific to a node, or settings that you would like to overwrite the global configuration with, you should set only on the desired Patroni member as a local configuration.
     That local configuration can be specified either through the configuration file or through environment variables.
 
     See more in :ref:`patroni_configuration`.
@@ -175,7 +175,7 @@ I have ``use_slots`` enabled in my Patroni configuration, but when a cluster mem
 What is the difference between ``loop_wait``, ``retry_timeout`` and ``ttl``?
     Patroni performs what we call a HA cycle from time to time. On each HA cycle it takes care of performing a series of checks on the cluster to determine its healthiness, and depending on the status it may take actions, like failing over to a standby.
 
-    ``loop_wait`` determines for long, in seconds, Patroni should sleep before performing a new cycle of HA checks.
+    ``loop_wait`` determines for how long, in seconds, Patroni should sleep before performing a new cycle of HA checks.
 
     ``retry_timeout`` sets the timeout for retry operations on the DCS and on Postgres. For example: if the DCS is unresponsive for more than ``retry_timeout`` seconds, Patroni might demote the primary node as a security action.
 
