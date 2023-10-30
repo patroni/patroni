@@ -174,9 +174,6 @@ class BarmanRecover:
         :param url_path: path to be accessed in the ``pg-backup-api``.
 
         :returns: the full URL after concatenating.
-
-        :raises:
-            :exc:`ValueError`: if the URL is not using HTTP nor HTTPS scheme.
         """
         return urljoin(self.api_url, url_path)
 
