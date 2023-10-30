@@ -141,6 +141,7 @@ How can I change my local configuration?
     * Send a ``POST`` request to the REST API :ref:`reload_endpoint`; or
     * Run :ref:`patronictl_reload`; or
     * Locally signal the Patroni process with ``SIGHUP``:
+
         * If you started Patroni through systemd, you can use the command ``systemctl reload PATRONI_UNIT.service``, ``PATRONI_UNIT`` being the name of the Patroni service; or
         * If you started Patroni through other means, you will need to identify the ``patroni`` process and run ``kill -s HUP PID``, ``PID`` being the process ID of the ``patroni`` process.
 
