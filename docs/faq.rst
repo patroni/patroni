@@ -234,6 +234,11 @@ Is Patroni able to take over management of an already existing Postgres cluster?
 
     Please refer to :ref:`existing_data` for detailed instructions.
 
+How does Patroni manage Postgres?
+    Patroni takes care of bringing Postgres up and down by running the Postgres binaries, like ``pg_ctl`` and ``postgres``.
+
+    With that in mind you **MUST** disable any other sources that could manage the Postgres clusters, like the systemd units, e.g. ``postgresql.service``. Only Patroni should be able to start, stop and promote Postgres instances in the cluster. Not doing so may result in split-brain scenarios. For example: if the node running as a primary failed and the unit ``postgresql.service`` is enabled, it may bring Postgres back up and cause a split-brain.
+
 Concepts and requirements
 -------------------------
 
