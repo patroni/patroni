@@ -49,8 +49,16 @@ What occurs if I attempt to use the same combination of ``namespace`` and ``scop
 What occurs if I lose my DCS cluster?
     The DCS is used to store basically status and the dynamic configuration of the Patroni cluster.
 
-    If you lose your DCS cluster you should change the local configuration of all Patroni members to point to a new DCS cluster.
-    When you do that, Patroni will take care of creating the status information again based on the current status of the cluster, and recreate the dynamic configuration on the DCS based on a backup file named ``patroni.dynamic.json`` which is stored inside the Postgres data directory of each member of the Patroni cluster.
+    They very first consequence is that all the Patroni clusters that rely on that DCS will go to read-only mode -- unless :ref:`dcs_failsafe_mode` is enabled.
+
+What should I do if I lose my DCS cluster?
+    There are three possible outcomes upon losing your DCS cluster:
+
+    1. The DCS cluster is fully recovered: this requires no action from the Patroni side. Once the DCS cluster is recovered, Patroni should be able to recover too;
+    2. The DCS cluster is re-created in place, and the endpoints remain the same. No changes are required on the Patroni side;
+    3. A new DCS cluster is created with different endpoints. You will need to update the DCS endpoints in the Patroni configuration of each Patroni node.
+
+    If you face scenario ``2.`` or ``3.`` Patroni will take care of creating the status information again based on the current status of the cluster, and recreate the dynamic configuration on the DCS based on a backup file named ``patroni.dynamic.json`` which is stored inside the Postgres data directory of each member of the Patroni cluster.
 
 What occurs if I lose majority in my DCS cluster?
     The DCS will become unresponsive, which will cause Patroni to demote the current read/write Postgres node.
