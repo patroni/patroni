@@ -26,7 +26,7 @@ What is the difference between Patroni and other HA solutions in regards to Post
 
     If Postgres nodes do not exist yet, it takes care of bootstrapping the primary and the standby nodes, and also manages Postgres configuration of the nodes. If the Postgres nodes already exist, Patroni will take over management of the cluster.
 
-    Besides the above, Patroni also has self-healing capabilities. In other words, if a primary node fails, Patroni will not only fail over to a replica, but also attempt to rebuild the former primary as a replica of the new primary. Similarly, if a replica fails, Patroni will attempt to rebuild that replica.
+    Besides the above, Patroni also has self-healing capabilities. In other words, if a primary node fails, Patroni will not only fail over to a replica, but also attempt to rejoin the former primary as a replica of the new primary. Similarly, if a replica fails, Patroni will attempt to rejoin that replica.
 
     That is way we call Patroni as a "template for HA solutions". It goes further than just managing physical replication: it manages Postgres as a whole.
 
