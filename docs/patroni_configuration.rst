@@ -90,6 +90,7 @@ The parameters would be applied in the following order (run-time are given the h
 
 This allows configuration for all the nodes (2), configuration for a specific node using ``ALTER SYSTEM`` (3) and ensures that parameters essential to the running of Patroni are enforced (4), as well as leaves room for configuration tools that manage `postgresql.conf` directly without involving Patroni (1).
 
+.. _shared_memory_gucs:
 
 PostgreSQL parameters that touch shared memory
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

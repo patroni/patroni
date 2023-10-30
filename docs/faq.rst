@@ -167,6 +167,8 @@ What occurs if I change a Postgres GUC that requires a restart?
     * :ref:`patronictl_restart`; or
     * A ``POST`` request to :ref:`restart_endpoint`.
 
+    **Note:** some Postgres GUCs require a special management in terms of the order for restarting the Postgres nodes. Refer to :ref:`shared_memory_gucs` for more details.
+
 What is the difference between ``etcd`` and ``etcd3`` in Patroni configuration?
     ``etcd`` uses the API version 2 of ``etcd``, while ``etcd3`` uses the API version 3 of ``etcd``.
 
