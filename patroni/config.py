@@ -791,7 +791,7 @@ class Config(object):
                               'SERVICE_TAGS', 'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL',
                               'POD_IP', 'PORTS', 'LABELS', 'BYPASS_API_SERVICE', 'RETRIABLE_HTTP_CODES', 'KEY_PASSWORD',
                               'USE_SSL', 'SET_ACLS', 'GROUP', 'DATABASE', 'LEADER_LABEL_VALUE', 'FOLLOWER_LABEL_VALUE',
-                              'STANDBY_LEADER_LABEL_VALUE', 'TMP_ROLE_LABEL') and name:
+                              'STANDBY_LEADER_LABEL_VALUE', 'TMP_ROLE_LABEL', 'AUTH_DATA') and name:
                     value = os.environ.pop(param)
                     if name == 'CITUS':
                         if suffix == 'GROUP':
@@ -802,7 +802,7 @@ class Config(object):
                         value = value and parse_int(value)
                     elif suffix in ('HOSTS', 'PORTS', 'CHECKS', 'SERVICE_TAGS', 'RETRIABLE_HTTP_CODES'):
                         value = value and _parse_list(value)
-                    elif suffix in ('LABELS', 'SET_ACLS'):
+                    elif suffix in ('LABELS', 'SET_ACLS', 'AUTH_DATA'):
                         value = _parse_dict(value)
                     elif suffix in ('USE_PROXIES', 'REGISTER_SERVICE', 'USE_ENDPOINTS', 'BYPASS_API_SERVICE', 'VERIFY'):
                         value = parse_bool(value)
