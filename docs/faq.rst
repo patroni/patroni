@@ -175,7 +175,10 @@ What is the difference between ``etcd`` and ``etcd3`` in Patroni configuration?
 
     Be aware that information stored by the API version 2 is not manageable by API version 3 and vice-versa.
 
-    The recommended one is ``etcd3`` taking into consideration that ``etcd`` API version 2 end of life was in 2017.
+    We recommend that you configure ``etcd3`` instead of ``etcd`` because:
+
+    * API version 2 is disabled by default from Etcd v3.4 onward;
+    * API version 2 will be completely removed on Etcd v3.6.
 
 I have ``use_slots`` enabled in my Patroni configuration, but when a cluster member goes offline for some time, the replication slot used by that member is dropped on the upstream node. What can I do to avoid that issue?
     You can configure a permanent physical replication slot for the members.
