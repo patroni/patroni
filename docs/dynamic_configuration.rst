@@ -8,7 +8,7 @@ Dynamic configuration is stored in the DCS (Distributed Configuration Store) and
 
 In order to change the dynamic configuration you can use either :ref:`patronictl_edit_config` tool or Patroni :ref:`REST API <rest_api>`.
 
--  **loop\_wait**: the number of seconds the loop will sleep. Default value: 10, minimum possible value: 2
+-  **loop\_wait**: the number of seconds the loop will sleep. Default value: 10, minimum possible value: 1
 -  **ttl**: the TTL to acquire the leader lock (in seconds). Think of it as the length of time before initiation of the automatic failover process. Default value: 30, minimum possible value: 20
 -  **retry\_timeout**: timeout for DCS and PostgreSQL operation retries (in seconds). DCS or network issues shorter than this will not cause Patroni to demote the leader. Default value: 10, minimum possible value: 3
 
