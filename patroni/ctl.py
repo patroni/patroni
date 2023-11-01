@@ -2262,7 +2262,7 @@ def cluster_health(obj: Dict[str, Any], cluster_name: str, group: Optional[int])
         try:
             r = request_patroni(member, 'get', 'cluster-health')
         except Exception as e:
-            click.echo("{0}: failed to get API response: {1}".format(m.name, e))
+            click.echo("Failed: No API response: {0}".format(e))
             sys.exit(1)
         if r.status == 200:
             click.echo('cluster is healthy')
