@@ -46,7 +46,8 @@ try:
 except ImportError:  # pragma: no cover
     from cdiff import markup_to_pager, PatchStream  # pyright: ignore [reportMissingModuleSource]
 
-from .config import Config, get_global_config
+from . import global_config
+from .config import Config
 from .dcs import get_dcs as _get_dcs, AbstractDCS, Cluster, Member
 from .exceptions import PatroniException
 from .postgresql.misc import postgres_version_to_int
@@ -1026,7 +1027,7 @@ def reload(obj: Dict[str, Any], cluster_name: str, member_names: List[str],
         if r.status == 200:
             click.echo('No changes to apply on member {0}'.format(member.name))
         elif r.status == 202:
-            config = get_global_config(cluster)
+            config = global_config.from_cluster(cluster)
             click.echo('Reload request received for member {0} and will be processed within {1} seconds'.format(
                 member.name, config.get('loop_wait') or dcs.loop_wait)
             )
@@ -1107,7 +1108,7 @@ def restart(obj: Dict[str, Any], cluster_name: str, group: Optional[int], member
         content['postgres_version'] = version
 
     if scheduled_at:
-        if get_global_config(cluster).is_paused:
+        if global_config.from_cluster(cluster).is_paused:
             raise PatroniCtlException("Can't schedule restart in the paused state")
         content['schedule'] = scheduled_at.isoformat()
 
@@ -1234,7 +1235,7 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
             dcs = get_dcs(obj, cluster_name, group)
             cluster = dcs.get_cluster()
 
-    global_config = get_global_config(cluster)
+    config = global_config.from_cluster(cluster)
 
     # leader has to be be defined for switchover only
     if action == 'switchover':
@@ -1245,7 +1246,7 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
             if force:
                 leader = cluster.leader.name
             else:
-                prompt = 'Standby Leader' if global_config.is_standby_cluster else 'Primary'
+                prompt = 'Standby Leader' if config.is_standby_cluster else 'Primary'
                 leader = click.prompt(prompt, type=str, default=(cluster.leader and cluster.leader.name))
 
         if cluster.leader.name != leader:
@@ -1274,7 +1275,7 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
 
     if all((not force,
             action == 'failover',
-            global_config.is_synchronous_mode,
+            config.is_synchronous_mode,
             not cluster.sync.is_empty,
             not cluster.sync.matches(candidate, True))):
         if click.confirm(f'Are you sure you want to failover to the asynchronous node {candidate}'):
@@ -1291,7 +1292,7 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
 
         scheduled_at = parse_scheduled(scheduled)
         if scheduled_at:
-            if global_config.is_paused:
+            if config.is_paused:
                 raise PatroniCtlException("Can't schedule switchover in the paused state")
             scheduled_at_str = scheduled_at.isoformat()
 
@@ -1752,7 +1753,7 @@ def wait_until_pause_is_applied(dcs: AbstractDCS, paused: bool, old_cluster: Clu
     :param old_cluster: original cluster information before pause or unpause has been requested. Used to report which
         nodes are still pending to have ``pause`` equal *paused* at a given point in time.
     """
-    config = get_global_config(old_cluster)
+    config = global_config.from_cluster(old_cluster)
 
     click.echo("'{0}' request sent, waiting until it is recognized by all nodes".format(paused and 'pause' or 'resume'))
     old = {m.name: m.version for m in old_cluster.members if m.api_url}
@@ -1791,7 +1792,7 @@ def toggle_pause(config: Dict[str, Any], cluster_name: str, group: Optional[int]
     """
     dcs = get_dcs(config, cluster_name, group)
     cluster = dcs.get_cluster()
-    if get_global_config(cluster).is_paused == paused:
+    if global_config.from_cluster(cluster).is_paused == paused:
         raise PatroniCtlException('Cluster is {0} paused'.format(paused and 'already' or 'not'))
 
     for member in get_all_members_leader_first(cluster):

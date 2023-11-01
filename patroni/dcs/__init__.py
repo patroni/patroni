@@ -598,16 +598,6 @@ class ClusterConfig(NamedTuple):
                 or self.data.get('slots')
                 or {})
 
-    @property
-    def ignore_slots_matchers(self) -> List[Dict[str, Any]]:
-        """The value for ``ignore_slots`` from :attr:`~ClusterConfig.data` if defined or an empty list."""
-        return self.data.get('ignore_slots') or []
-
-    @property
-    def max_timelines_history(self) -> int:
-        """The value for ``max_timelines_history`` from :attr:`~ClusterConfig.data` if defined or ``0``."""
-        return self.data.get('max_timelines_history', 0)
-
 
 class SyncState(NamedTuple):
     """Immutable object (namedtuple) which represents last observed synchronous replication state.

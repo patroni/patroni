@@ -12,6 +12,7 @@ from types import TracebackType
 from typing import Any, Collection, Dict, Iterator, List, Optional, Union, Tuple, Type, TYPE_CHECKING
 
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
+from .. import global_config
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException, PostgresConnectionException
@@ -930,10 +931,10 @@ class ConfigHandler(object):
         parameters = config['parameters'].copy()
         listen_addresses, port = split_host_port(config['listen'], 5432)
         parameters.update(cluster_name=self._postgresql.scope, listen_addresses=listen_addresses, port=str(port))
-        if not self._postgresql.global_config or self._postgresql.global_config.is_synchronous_mode:
+        if global_config.is_synchronous_mode:
             synchronous_standby_names = self._server_parameters.get('synchronous_standby_names')
             if synchronous_standby_names is None:
-                if self._postgresql.global_config and self._postgresql.global_config.is_synchronous_mode_strict\
+                if global_config.is_synchronous_mode_strict\
                         and self._postgresql.role in ('master', 'primary', 'promoted'):
                     parameters['synchronous_standby_names'] = '*'
                 else:
