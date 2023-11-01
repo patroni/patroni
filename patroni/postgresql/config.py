@@ -6,28 +6,29 @@ import socket
 import stat
 import time
 
-from six.moves.urllib_parse import urlparse, parse_qsl, unquote
+from contextlib import contextmanager
+from urllib.parse import urlparse, parse_qsl, unquote
+from types import TracebackType
+from typing import Any, Collection, Dict, Iterator, List, Optional, Union, Tuple, Type, TYPE_CHECKING
 
-from .validator import CaseInsensitiveDict, recovery_parameters,\
-        transform_postgresql_parameter_value, transform_recovery_parameter_value
-from ..dcs import slot_name_from_member_name, RemoteMember
-from ..exceptions import PatroniFatalException
-from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, \
-        validate_directory, is_subpath
+from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
+from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
+from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
+from ..exceptions import PatroniFatalException, PostgresConnectionException
+from ..file_perm import pg_perm
+from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, validate_directory, is_subpath
+from ..validator import IntValidator, EnumValidator
+
+if TYPE_CHECKING:  # pragma: no cover
+    from . import Postgresql
 
 logger = logging.getLogger(__name__)
 
-SYNC_STANDBY_NAME_RE = re.compile(r'^[A-Za-z_][A-Za-z_0-9\$]*$')
 PARAMETER_RE = re.compile(r'([a-z_]+)\s*=\s*')
 
 
-def quote_ident(value):
-    """Very simplified version of quote_ident"""
-    return value if SYNC_STANDBY_NAME_RE.match(value) else '"' + value + '"'
-
-
-def conninfo_uri_parse(dsn):
-    ret = {}
+def conninfo_uri_parse(dsn: str) -> Dict[str, str]:
+    ret: Dict[str, str] = {}
     r = urlparse(dsn)
     if r.username:
         ret['user'] = r.username
@@ -35,21 +36,19 @@ def conninfo_uri_parse(dsn):
         ret['password'] = r.password
     if r.path[1:]:
         ret['dbname'] = r.path[1:]
-    hosts = []
-    ports = []
+    hosts: List[str] = []
+    ports: List[str] = []
     for netloc in r.netloc.split('@')[-1].split(','):
-        host = port = None
+        host = None
         if '[' in netloc and ']' in netloc:
-            host = netloc.split(']')[0][1:]
-        tmp = netloc.split(':', 1)
+            tmp = netloc.split(']') + ['']
+            host = tmp[0][1:]
+            netloc = ':'.join(tmp[:2])
+        tmp = netloc.rsplit(':', 1)
         if host is None:
             host = tmp[0]
-        if len(tmp) == 2:
-            host, port = tmp
-        if host is not None:
-            hosts.append(host)
-        if port is not None:
-            ports.append(port)
+        hosts.append(host)
+        ports.append(tmp[1] if len(tmp) == 2 else '')
     if hosts:
         ret['host'] = ','.join(hosts)
     if ports:
@@ -62,7 +61,7 @@ def conninfo_uri_parse(dsn):
     return ret
 
 
-def read_param_value(value):
+def read_param_value(value: str) -> Union[Tuple[None, None], Tuple[str, int]]:
     length = len(value)
     ret = ''
     is_quoted = value[0] == "'"
@@ -82,8 +81,8 @@ def read_param_value(value):
     return (None, None) if is_quoted else (ret, i)
 
 
-def conninfo_parse(dsn):
-    ret = {}
+def conninfo_parse(dsn: str) -> Optional[Dict[str, str]]:
+    ret: Dict[str, str] = {}
     length = len(dsn)
     i = 0
     while i < length:
@@ -102,14 +101,14 @@ def conninfo_parse(dsn):
             return
 
         value, end = read_param_value(dsn[i:])
-        if value is None:
+        if value is None or end is None:
             return
         i += end
         ret[param] = value
     return ret
 
 
-def parse_dsn(value):
+def parse_dsn(value: str) -> Optional[Dict[str, str]]:
     """
     Very simple equivalent of `psycopg2.extensions.parse_dsn` introduced in 2.7.0.
     We are not using psycopg2 function in order to remain compatible with 2.5.4+.
@@ -117,9 +116,9 @@ def parse_dsn(value):
     and sets the `sslmode`, 'gssencmode', and `channel_binding` to `prefer` if it is not present in
     the connection string. This is necessary to simplify comparison of the old and the new values.
 
-    >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,[%2Fhost2]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
-    >>> r == {'application_name': 'mya/pp', 'host': ',/host2', 'sslmode': 'require',\
-              'password': 'pass', 'port': '/123', 'user': 'u/se', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
+    >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,[::1]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
+    >>> r == {'application_name': 'mya/pp', 'host': ',::1', 'sslmode': 'require',\
+              'password': 'pass', 'port': '/123,', 'user': 'u/se', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
     True
     >>> r = parse_dsn(" host = 'host' dbname = db\\\\ name requiressl=1 ")
     >>> r == {'host': 'host', 'sslmode': 'require', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
@@ -153,14 +152,14 @@ def parse_dsn(value):
     return ret
 
 
-def strip_comment(value):
+def strip_comment(value: str) -> str:
     i = value.find('#')
     if i > -1:
         value = value[:i].strip()
     return value
 
 
-def read_recovery_param_value(value):
+def read_recovery_param_value(value: str) -> Optional[str]:
     """
     >>> read_recovery_param_value('') is None
     True
@@ -217,7 +216,7 @@ def read_recovery_param_value(value):
     return value
 
 
-def mtime(filename):
+def mtime(filename: str) -> Optional[float]:
     try:
         return os.stat(filename).st_mtime
     except OSError:
@@ -226,33 +225,48 @@ def mtime(filename):
 
 class ConfigWriter(object):
 
-    def __init__(self, filename):
+    def __init__(self, filename: str) -> None:
         self._filename = filename
         self._fd = None
 
-    def __enter__(self):
+    def __enter__(self) -> 'ConfigWriter':
         self._fd = open(self._filename, 'w')
         self.writeline('# Do not edit this file manually!\n# It will be overwritten by Patroni!')
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Optional[Type[BaseException]],
+                 exc_val: Optional[BaseException], exc_tb: Optional[TracebackType]) -> None:
         if self._fd:
             self._fd.close()
 
-    def writeline(self, line):
-        self._fd.write(line)
-        self._fd.write('\n')
+    def writeline(self, line: str) -> None:
+        if self._fd:
+            self._fd.write(line)
+            self._fd.write('\n')
 
-    def writelines(self, lines):
+    def writelines(self, lines: List[Optional[str]]) -> None:
         for line in lines:
-            self.writeline(line)
+            if isinstance(line, str):
+                self.writeline(line)
 
     @staticmethod
-    def escape(value):  # Escape (by doubling) any single quotes or backslashes in given string
+    def escape(value: Any) -> str:  # Escape (by doubling) any single quotes or backslashes in given string
         return re.sub(r'([\'\\])', r'\1\1', str(value))
 
-    def write_param(self, param, value):
+    def write_param(self, param: str, value: Any) -> None:
         self.writeline("{0} = '{1}'".format(param, self.escape(value)))
+
+
+def _false_validator(value: Any) -> bool:
+    return False
+
+
+def _bool_validator(value: Any) -> bool:
+    return parse_bool(value) is not None
+
+
+def _bool_is_true_validator(value: Any) -> bool:
+    return parse_bool(value) is True
 
 
 class ConfigHandler(object):
@@ -272,28 +286,28 @@ class ConfigHandler(object):
     #    check_function -- if the new value is not correct must return `!False`
     #    min_version -- major version of PostgreSQL when parameter was introduced
     CMDLINE_OPTIONS = CaseInsensitiveDict({
-        'listen_addresses': (None, lambda _: False, 90100),
-        'port': (None, lambda _: False, 90100),
-        'cluster_name': (None, lambda _: False, 90500),
-        'wal_level': ('hot_standby', lambda v: v.lower() in ('hot_standby', 'replica', 'logical'), 90100),
-        'hot_standby': ('on', lambda _: False, 90100),
-        'max_connections': (100, lambda v: int(v) >= 25, 90100),
-        'max_wal_senders': (10, lambda v: int(v) >= 3, 90100),
-        'wal_keep_segments': (8, lambda v: int(v) >= 1, 90100),
-        'wal_keep_size': ('128MB', lambda v: parse_int(v, 'MB') >= 16, 130000),
-        'max_prepared_transactions': (0, lambda v: int(v) >= 0, 90100),
-        'max_locks_per_transaction': (64, lambda v: int(v) >= 32, 90100),
-        'track_commit_timestamp': ('off', lambda v: parse_bool(v) is not None, 90500),
-        'max_replication_slots': (10, lambda v: int(v) >= 4, 90400),
-        'max_worker_processes': (8, lambda v: int(v) >= 2, 90400),
-        'wal_log_hints': ('on', lambda _: False, 90400)
+        'listen_addresses': (None, _false_validator, 90100),
+        'port': (None, _false_validator, 90100),
+        'cluster_name': (None, _false_validator, 90500),
+        'wal_level': ('hot_standby', EnumValidator(('hot_standby', 'replica', 'logical')), 90100),
+        'hot_standby': ('on', _bool_is_true_validator, 90100),
+        'max_connections': (100, IntValidator(min=25), 90100),
+        'max_wal_senders': (10, IntValidator(min=3), 90100),
+        'wal_keep_segments': (8, IntValidator(min=1), 90100),
+        'wal_keep_size': ('128MB', IntValidator(min=16, base_unit='MB'), 130000),
+        'max_prepared_transactions': (0, IntValidator(min=0), 90100),
+        'max_locks_per_transaction': (64, IntValidator(min=32), 90100),
+        'track_commit_timestamp': ('off', _bool_validator, 90500),
+        'max_replication_slots': (10, IntValidator(min=4), 90400),
+        'max_worker_processes': (8, IntValidator(min=2), 90400),
+        'wal_log_hints': ('on', _bool_is_true_validator, 90400)
     })
 
-    _RECOVERY_PARAMETERS = set(recovery_parameters.keys())
+    _RECOVERY_PARAMETERS = CaseInsensitiveSet(recovery_parameters.keys())
 
-    def __init__(self, postgresql, config):
+    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Any]) -> None:
         self._postgresql = postgresql
-        self._config_dir = os.path.abspath(config.get('config_dir') or postgresql.data_dir)
+        self._config_dir = os.path.abspath(config.get('config_dir', '') or postgresql.data_dir)
         config_base_name = config.get('config_base_name', 'postgresql')
         self._postgresql_conf = os.path.join(self._config_dir, config_base_name + '.conf')
         self._postgresql_conf_mtime = None
@@ -313,23 +327,32 @@ class ConfigHandler(object):
                                         .format(self._pgpass))
         self._passfile = None
         self._passfile_mtime = None
-        self._synchronous_standby_names = None
         self._postmaster_ctime = None
-        self._current_recovery_params = None
+        self._current_recovery_params: Optional[CaseInsensitiveDict] = None
         self._config = {}
-        self._recovery_params = {}
+        self._recovery_params = CaseInsensitiveDict()
+        self._server_parameters: CaseInsensitiveDict = CaseInsensitiveDict()
         self.reload_config(config)
 
-    def setup_server_parameters(self):
+    def load_current_server_parameters(self) -> None:
+        """Read GUC's values from ``pg_settings`` when Patroni is joining the the postgres that is already running."""
+        exclude = [name.lower() for name, value in self.CMDLINE_OPTIONS.items() if value[1] == _false_validator] \
+            + [name.lower() for name in self._RECOVERY_PARAMETERS]
+        self._server_parameters = CaseInsensitiveDict({r[0]: r[1] for r in self._postgresql.query(
+            "SELECT name, pg_catalog.current_setting(name) FROM pg_catalog.pg_settings"
+            " WHERE (source IN ('command line', 'environment variable') OR sourcefile = %s)"
+            " AND pg_catalog.lower(name) != ALL(%s)", self._postgresql_conf, exclude)})
+
+    def setup_server_parameters(self) -> None:
         self._server_parameters = self.get_server_parameters(self._config)
         self._adjust_recovery_parameters()
 
-    def try_to_create_dir(self, d, msg):
-        d = os.path.join(self._postgresql._data_dir, d)
-        if (not is_subpath(self._postgresql._data_dir, d) or not self._postgresql.data_directory_empty()):
+    def try_to_create_dir(self, d: str, msg: str) -> None:
+        d = os.path.join(self._postgresql.data_dir, d)
+        if (not is_subpath(self._postgresql.data_dir, d) or not self._postgresql.data_directory_empty()):
             validate_directory(d, msg)
 
-    def check_directories(self):
+    def check_directories(self) -> None:
         if "unix_socket_directories" in self._server_parameters:
             for d in self._server_parameters["unix_socket_directories"].split(","):
                 self.try_to_create_dir(d.strip(), "'{}' is defined in unix_socket_directories, {}")
@@ -341,7 +364,11 @@ class ConfigHandler(object):
                                    "'{}' is defined in `postgresql.pgpass`, {}")
 
     @property
-    def _configuration_to_save(self):
+    def config_dir(self) -> str:
+        return self._config_dir
+
+    @property
+    def _configuration_to_save(self) -> List[str]:
         configuration = [os.path.basename(self._postgresql_conf)]
         if 'custom_conf' not in self._config:
             configuration.append(os.path.basename(self._postgresql_base_conf_name))
@@ -351,7 +378,31 @@ class ConfigHandler(object):
             configuration.append('pg_ident.conf')
         return configuration
 
-    def save_configuration_files(self, check_custom_bootstrap=False):
+    def set_file_permissions(self, filename: str) -> None:
+        """Set permissions of file *filename* according to the expected permissions if it resides under PGDATA.
+
+        .. note::
+            Do nothing if the file is not under PGDATA.
+
+        :param filename: path to a file which permissions might need to be adjusted.
+        """
+        if is_subpath(self._postgresql.data_dir, filename):
+            pg_perm.set_permissions_from_data_directory(self._postgresql.data_dir)
+            os.chmod(filename, pg_perm.file_create_mode)
+
+    @contextmanager
+    def config_writer(self, filename: str) -> Iterator[ConfigWriter]:
+        """Create :class:`ConfigWriter` object and set permissions on a *filename*.
+
+        :param filename: path to a config file.
+
+        :yields: :class:`ConfigWriter` object.
+        """
+        with ConfigWriter(filename) as writer:
+            yield writer
+        self.set_file_permissions(filename)
+
+    def save_configuration_files(self, check_custom_bootstrap: bool = False) -> bool:
         """
             copy postgresql.conf to postgresql.conf.backup to be able to retrieve configuration files
             - originally stored as symlinks, those are normally skipped by pg_basebackup
@@ -364,11 +415,12 @@ class ConfigHandler(object):
                     backup_file = os.path.join(self._postgresql.data_dir, f + '.backup')
                     if os.path.isfile(config_file):
                         shutil.copy(config_file, backup_file)
+                        self.set_file_permissions(backup_file)
             except IOError:
                 logger.exception('unable to create backup copies of configuration files')
         return True
 
-    def restore_configuration_files(self):
+    def restore_configuration_files(self) -> None:
         """ restore a previously saved postgresql.conf """
         try:
             for f in self._configuration_to_save:
@@ -377,13 +429,15 @@ class ConfigHandler(object):
                 if not os.path.isfile(config_file):
                     if os.path.isfile(backup_file):
                         shutil.copy(backup_file, config_file)
+                        self.set_file_permissions(config_file)
                     # Previously we didn't backup pg_ident.conf, if file is missing just create empty
                     elif f == 'pg_ident.conf':
                         open(config_file, 'w').close()
+                        self.set_file_permissions(config_file)
         except IOError:
             logger.exception('unable to restore configuration files from backup')
 
-    def write_postgresql_conf(self, configuration=None):
+    def write_postgresql_conf(self, configuration: Optional[CaseInsensitiveDict] = None) -> None:
         # rename the original configuration if it is necessary
         if 'custom_conf' not in self._config and not os.path.exists(self._postgresql_base_conf):
             os.rename(self._postgresql_conf, self._postgresql_base_conf)
@@ -393,11 +447,12 @@ class ConfigHandler(object):
         if self._postgresql.enforce_hot_standby_feedback:
             configuration['hot_standby_feedback'] = 'on'
 
-        with ConfigWriter(self._postgresql_conf) as f:
+        with self.config_writer(self._postgresql_conf) as f:
             include = self._config.get('custom_conf') or self._postgresql_base_conf_name
             f.writeline("include '{0}'\n".format(ConfigWriter.escape(include)))
             for name, value in sorted((configuration).items()):
-                value = transform_postgresql_parameter_value(self._postgresql.major_version, name, value)
+                value = transform_postgresql_parameter_value(self._postgresql.major_version, name, value,
+                                                             self._postgresql.available_gucs)
                 if value is not None and\
                         (name != 'hba_file' or not self._postgresql.bootstrap.running_custom_bootstrap):
                     f.write_param(name, value)
@@ -418,13 +473,14 @@ class ConfigHandler(object):
                 if not self._postgresql.bootstrap.keep_existing_recovery_conf:
                     self._sanitize_auto_conf()
 
-    def append_pg_hba(self, config):
+    def append_pg_hba(self, config: List[str]) -> bool:
         if not self.hba_file and not self._config.get('pg_hba'):
             with open(self._pg_hba_conf, 'a') as f:
                 f.write('\n{}\n'.format('\n'.join(config)))
+            self.set_file_permissions(self._pg_hba_conf)
         return True
 
-    def replace_pg_hba(self):
+    def replace_pg_hba(self) -> Optional[bool]:
         """
         Replace pg_hba.conf content in the PGDATA if hba_file is not defined in the
         `postgresql.parameters` and pg_hba is defined in `postgresql` configuration section.
@@ -441,18 +497,18 @@ class ConfigHandler(object):
                                   self.local_replication_address['host'], self.local_replication_address['port'],
                                   0, socket.SOCK_STREAM, socket.IPPROTO_TCP)})
 
-            with ConfigWriter(self._pg_hba_conf) as f:
+            with self.config_writer(self._pg_hba_conf) as f:
                 for address, t in addresses.items():
                     f.writeline((
                         '{0}\treplication\t{1}\t{3}\ttrust\n'
                         '{0}\tall\t{2}\t{3}\ttrust'
                     ).format(t, self.replication['username'], self._superuser.get('username') or 'all', address))
         elif not self.hba_file and self._config.get('pg_hba'):
-            with ConfigWriter(self._pg_hba_conf) as f:
+            with self.config_writer(self._pg_hba_conf) as f:
                 f.writelines(self._config['pg_hba'])
             return True
 
-    def replace_pg_ident(self):
+    def replace_pg_ident(self) -> Optional[bool]:
         """
         Replace pg_ident.conf content in the PGDATA if ident_file is not defined in the
         `postgresql.parameters` and pg_ident is defined in the `postgresql` section.
@@ -461,12 +517,12 @@ class ConfigHandler(object):
         """
 
         if not self.ident_file and self._config.get('pg_ident'):
-            with ConfigWriter(self._pg_ident_conf) as f:
+            with self.config_writer(self._pg_ident_conf) as f:
                 f.writelines(self._config['pg_ident'])
             return True
 
-    def primary_conninfo_params(self, member):
-        if not (member and member.conn_url) or member.name == self._postgresql.name:
+    def primary_conninfo_params(self, member: Union[Leader, Member, None]) -> Optional[Dict[str, Any]]:
+        if not member or not member.conn_url or member.name == self._postgresql.name:
             return None
         ret = member.conn_kwargs(self.replication)
         ret['application_name'] = self._postgresql.name
@@ -477,31 +533,33 @@ class ConfigHandler(object):
             ret.setdefault('channel_binding', 'prefer')
         if self._krbsrvname:
             ret['krbsrvname'] = self._krbsrvname
-        if 'database' in ret:
-            del ret['database']
+        if 'dbname' in ret:
+            del ret['dbname']
         return ret
 
-    def format_dsn(self, params, include_dbname=False):
+    def format_dsn(self, params: Dict[str, Any], include_dbname: bool = False) -> str:
         # A list of keywords that can be found in a conninfo string. Follows what is acceptable by libpq
         keywords = ('dbname', 'user', 'passfile' if params.get('passfile') else 'password', 'host', 'port',
                     'sslmode', 'sslcompression', 'sslcert', 'sslkey', 'sslpassword', 'sslrootcert', 'sslcrl',
-                    'sslcrldir', 'application_name', 'krbsrvname', 'gssencmode', 'channel_binding')
+                    'sslcrldir', 'application_name', 'krbsrvname', 'gssencmode', 'channel_binding',
+                    'target_session_attrs')
         if include_dbname:
             params = params.copy()
-            params['dbname'] = params.get('database') or self._postgresql.database
+            if 'dbname' not in params:
+                params['dbname'] = self._postgresql.database
             # we are abusing information about the necessity of dbname
             # dsn should contain passfile or password only if there is no dbname in it (it is used in recovery.conf)
             skip = {'passfile', 'password'}
         else:
             skip = {'dbname'}
 
-        def escape(value):
+        def escape(value: Any) -> str:
             return re.sub(r'([\'\\ ])', r'\\\1', str(value))
 
         return ' '.join('{0}={1}'.format(kw, escape(params[kw])) for kw in keywords
                         if kw not in skip and params.get(kw) is not None)
 
-    def _write_recovery_params(self, fd, recovery_params):
+    def _write_recovery_params(self, fd: ConfigWriter, recovery_params: CaseInsensitiveDict) -> None:
         if self._postgresql.major_version >= 90500:
             pause_at_recovery_target = parse_bool(recovery_params.pop('pause_at_recovery_target', None))
             if pause_at_recovery_target is not None:
@@ -517,15 +575,16 @@ class ConfigHandler(object):
                     self._passfile_mtime = mtime(self._pgpass)
                 value = self.format_dsn(value)
             else:
-                value = transform_recovery_parameter_value(self._postgresql.major_version, name, value)
+                value = transform_recovery_parameter_value(self._postgresql.major_version, name, value,
+                                                           self._postgresql.available_gucs)
                 if value is None:
                     continue
             fd.write_param(name, value)
 
-    def build_recovery_params(self, member):
-        recovery_params = CaseInsensitiveDict({p: v for p, v in self.get('recovery_conf', {}).items()
-                                               if not p.lower().startswith('recovery_target') and
-                                               p.lower() not in ('primary_conninfo', 'primary_slot_name')})
+    def build_recovery_params(self, member: Union[Leader, Member, None]) -> CaseInsensitiveDict:
+        recovery_params = CaseInsensitiveDict({p: v for p, v in (self.get('recovery_conf') or {}).items()
+                                               if not p.lower().startswith('recovery_target')
+                                               and p.lower() not in ('primary_conninfo', 'primary_slot_name')})
         recovery_params.update({'standby_mode': 'on', 'recovery_target_timeline': 'latest'})
         if self._postgresql.major_version >= 120000:
             # on pg12 we want to protect from following params being set in one of included files
@@ -533,41 +592,67 @@ class ConfigHandler(object):
             recovery_params.update({'recovery_target': '', 'recovery_target_name': '', 'recovery_target_time': '',
                                     'recovery_target_xid': '', 'recovery_target_lsn': ''})
 
-        is_remote_master = isinstance(member, RemoteMember)
+        is_remote_member = isinstance(member, RemoteMember)
         primary_conninfo = self.primary_conninfo_params(member)
         if primary_conninfo:
             use_slots = self.get('use_slots', True) and self._postgresql.major_version >= 90400
-            if use_slots and not (is_remote_master and member.no_replication_slot):
-                primary_slot_name = member.primary_slot_name if is_remote_master else self._postgresql.name
+            if use_slots and not (is_remote_member and member.no_replication_slot):
+                primary_slot_name = member.primary_slot_name if is_remote_member else self._postgresql.name
                 recovery_params['primary_slot_name'] = slot_name_from_member_name(primary_slot_name)
+                # We are a standby leader and are using a replication slot. Make sure we connect to
+                # the leader of the main cluster (in case more than one host is specified in the
+                # connstr) by adding 'target_session_attrs=read-write' to primary_conninfo.
+                if is_remote_member and 'target_sesions_attrs' not in primary_conninfo and\
+                        self._postgresql.major_version >= 100000:
+                    primary_conninfo['target_session_attrs'] = 'read-write'
             recovery_params['primary_conninfo'] = primary_conninfo
 
         # standby_cluster config might have different parameters, we want to override them
         standby_cluster_params = ['restore_command', 'archive_cleanup_command']\
-            + (['recovery_min_apply_delay'] if is_remote_master else [])
+            + (['recovery_min_apply_delay'] if is_remote_member else [])
         recovery_params.update({p: member.data.get(p) for p in standby_cluster_params if member and member.data.get(p)})
         return recovery_params
 
-    def recovery_conf_exists(self):
+    def recovery_conf_exists(self) -> bool:
         if self._postgresql.major_version >= 120000:
             return os.path.exists(self._standby_signal) or os.path.exists(self._recovery_signal)
         return os.path.exists(self._recovery_conf)
 
     @property
-    def triggerfile_good_name(self):
+    def triggerfile_good_name(self) -> str:
         return 'trigger_file' if self._postgresql.major_version < 120000 else 'promote_trigger_file'
 
     @property
-    def _triggerfile_wrong_name(self):
+    def _triggerfile_wrong_name(self) -> str:
         return 'trigger_file' if self._postgresql.major_version >= 120000 else 'promote_trigger_file'
 
     @property
-    def _recovery_parameters_to_compare(self):
-        skip_params = {'pause_at_recovery_target', 'recovery_target_inclusive',
-                       'recovery_target_action', 'standby_mode', self._triggerfile_wrong_name}
-        return self._RECOVERY_PARAMETERS - skip_params
+    def _recovery_parameters_to_compare(self) -> CaseInsensitiveSet:
+        skip_params = CaseInsensitiveSet({'pause_at_recovery_target', 'recovery_target_inclusive',
+                                          'recovery_target_action', 'standby_mode', self._triggerfile_wrong_name})
+        return CaseInsensitiveSet(self._RECOVERY_PARAMETERS - skip_params)
 
-    def _read_recovery_params(self):
+    def _read_recovery_params(self) -> Tuple[Optional[CaseInsensitiveDict], bool]:
+        """Read current recovery parameters values.
+
+        .. note::
+            We query Postgres only if we detected that Postgresql was restarted
+            or when at least one of the following files was updated:
+
+                * ``postgresql.conf``;
+                * ``postgresql.auto.conf``;
+                * ``passfile`` that is used in the ``primary_conninfo``.
+
+        :returns: a tuple with two elements:
+
+            * :class:`CaseInsensitiveDict` object with current values of recovery parameters,
+              or ``None`` if no configuration files were updated;
+
+            * ``True`` if new values of recovery parameters were queried, ``False`` otherwise.
+        """
+        if self._postgresql.is_starting():
+            return None, False
+
         pg_conf_mtime = mtime(self._postgresql_conf)
         auto_conf_mtime = mtime(self._auto_conf)
         passfile_mtime = mtime(self._passfile) if self._passfile else False
@@ -581,21 +666,30 @@ class ConfigHandler(object):
 
         try:
             values = self._get_pg_settings(self._recovery_parameters_to_compare).values()
-            values = {p[0]: [p[1], p[4] == 'postmaster', p[5]] for p in values}
+            values = CaseInsensitiveDict({p[0]: [p[1], p[4] == 'postmaster', p[5]] for p in values})
             self._postgresql_conf_mtime = pg_conf_mtime
             self._auto_conf_mtime = auto_conf_mtime
             self._postmaster_ctime = postmaster_ctime
-        except Exception:
+        except Exception as exc:
+            if all((isinstance(exc, PostgresConnectionException),
+                    self._postgresql_conf_mtime == pg_conf_mtime,
+                    self._auto_conf_mtime == auto_conf_mtime,
+                    self._passfile_mtime == passfile_mtime,
+                    self._postmaster_ctime != postmaster_ctime)):
+                # We detected that the connection to postgres fails, but the process creation time of the postmaster
+                # doesn't match the old value. It is an indicator that Postgres crashed and either doing crash
+                # recovery or down. In this case we return values like nothing changed in the config.
+                return None, False
             values = None
         return values, True
 
-    def _read_recovery_params_pre_v12(self):
+    def _read_recovery_params_pre_v12(self) -> Tuple[Optional[CaseInsensitiveDict], bool]:
         recovery_conf_mtime = mtime(self._recovery_conf)
         passfile_mtime = mtime(self._passfile) if self._passfile else False
         if recovery_conf_mtime == self._recovery_conf_mtime and passfile_mtime == self._passfile_mtime:
             return None, False
 
-        values = {}
+        values = CaseInsensitiveDict()
         with open(self._recovery_conf, 'r') as f:
             for line in f:
                 line = line.strip()
@@ -605,7 +699,7 @@ class ConfigHandler(object):
                 match = PARAMETER_RE.match(line)
                 if match:
                     value = read_recovery_param_value(line[match.end():])
-                if value is None:
+                if match is None or value is None:
                     return None, True
                 values[match.group(1)] = [value, True]
             self._recovery_conf_mtime = recovery_conf_mtime
@@ -614,26 +708,27 @@ class ConfigHandler(object):
         values.update({param: ['', True] for param in self._recovery_parameters_to_compare if param not in values})
         return values, True
 
-    def _check_passfile(self, passfile, wanted_primary_conninfo):
+    def _check_passfile(self, passfile: str, wanted_primary_conninfo: Dict[str, Any]) -> bool:
         # If there is a passfile in the primary_conninfo try to figure out that
-        # the passfile contains the line allowing connection to the given node.
+        # the passfile contains the line(s) allowing connection to the given node.
         # We assume that the passfile was created by Patroni and therefore doing
         # the full match and not covering cases when host, port or user are set to '*'
         passfile_mtime = mtime(passfile)
         if passfile_mtime:
             try:
                 with open(passfile) as f:
-                    wanted_line = self._pgpass_line(wanted_primary_conninfo).strip()
-                    for raw_line in f:
-                        if raw_line.strip() == wanted_line:
-                            self._passfile = passfile
-                            self._passfile_mtime = passfile_mtime
-                            return True
+                    wanted_lines = (self._pgpass_line(wanted_primary_conninfo) or '').splitlines()
+                    file_lines = f.read().splitlines()
+                    if set(wanted_lines) == set(file_lines):
+                        self._passfile = passfile
+                        self._passfile_mtime = passfile_mtime
+                        return True
             except Exception:
                 logger.info('Failed to read %s', passfile)
         return False
 
-    def _check_primary_conninfo(self, primary_conninfo, wanted_primary_conninfo):
+    def _check_primary_conninfo(self, primary_conninfo: Dict[str, Any],
+                                wanted_primary_conninfo: Dict[str, Any]) -> bool:
         # first we will cover corner cases, when we are replicating from somewhere while shouldn't
         # or there is no primary_conninfo but we should replicate from some specific node.
         if not wanted_primary_conninfo:
@@ -641,16 +736,17 @@ class ConfigHandler(object):
         elif not primary_conninfo:
             return False
 
-        wal_receiver_primary_conninfo = self._postgresql.primary_conninfo()
-        if wal_receiver_primary_conninfo:
-            wal_receiver_primary_conninfo = parse_dsn(wal_receiver_primary_conninfo)
-            # when wal receiver is alive use primary_conninfo from pg_stat_wal_receiver for comparison
+        if not self._postgresql.is_starting():
+            wal_receiver_primary_conninfo = self._postgresql.primary_conninfo()
             if wal_receiver_primary_conninfo:
-                primary_conninfo = wal_receiver_primary_conninfo
-                # There could be no password in the primary_conninfo or it is masked.
-                # Just copy the "desired" value in order to make comparison succeed.
-                if 'password' in wanted_primary_conninfo:
-                    primary_conninfo['password'] = wanted_primary_conninfo['password']
+                wal_receiver_primary_conninfo = parse_dsn(wal_receiver_primary_conninfo)
+                # when wal receiver is alive use primary_conninfo from pg_stat_wal_receiver for comparison
+                if wal_receiver_primary_conninfo:
+                    primary_conninfo = wal_receiver_primary_conninfo
+                    # There could be no password in the primary_conninfo or it is masked.
+                    # Just copy the "desired" value in order to make comparison succeed.
+                    if 'password' in wanted_primary_conninfo:
+                        primary_conninfo['password'] = wanted_primary_conninfo['password']
 
         if 'passfile' in primary_conninfo and 'password' not in primary_conninfo \
                 and 'password' in wanted_primary_conninfo:
@@ -659,9 +755,9 @@ class ConfigHandler(object):
             else:
                 return False
 
-        return all(primary_conninfo.get(p) == str(v) for p, v in wanted_primary_conninfo.items() if v is not None)
+        return all(str(primary_conninfo.get(p)) == str(v) for p, v in wanted_primary_conninfo.items() if v is not None)
 
-    def check_recovery_conf(self, member):
+    def check_recovery_conf(self, member: Union[Leader, Member, None]) -> Tuple[bool, bool]:
         """Returns a tuple. The first boolean element indicates that recovery params don't match
            and the second is set to `True` if the restart is required in order to apply new values"""
 
@@ -695,22 +791,25 @@ class ConfigHandler(object):
             else:  # empty string, primary_conninfo is not in the config
                 primary_conninfo[0] = {}
 
-        # when wal receiver is alive take primary_slot_name from pg_stat_wal_receiver
-        wal_receiver_primary_slot_name = self._postgresql.primary_slot_name()
-        if not wal_receiver_primary_slot_name and self._postgresql.primary_conninfo():
-            wal_receiver_primary_slot_name = ''
-        if wal_receiver_primary_slot_name is not None:
-            self._current_recovery_params['primary_slot_name'][0] = wal_receiver_primary_slot_name
+        if not self._postgresql.is_starting() and self._current_recovery_params:
+            # when wal receiver is alive take primary_slot_name from pg_stat_wal_receiver
+            wal_receiver_primary_slot_name = self._postgresql.primary_slot_name()
+            if not wal_receiver_primary_slot_name and self._postgresql.primary_conninfo():
+                wal_receiver_primary_slot_name = ''
+            if wal_receiver_primary_slot_name is not None:
+                self._current_recovery_params['primary_slot_name'][0] = wal_receiver_primary_slot_name
 
         # Increment the 'reload' to enforce write of postgresql.conf when joining the running postgres
         required = {'restart': 0,
-                    'reload': int(not self._postgresql.cb_called and self._postgresql.major_version >= 120000)}
+                    'reload': int(self._postgresql.major_version >= 120000
+                                  and not self._postgresql.cb_called
+                                  and not self._postgresql.is_starting())}
 
-        def record_missmatch(mtype):
+        def record_missmatch(mtype: bool) -> None:
             required['restart' if mtype else 'reload'] += 1
 
         wanted_recovery_params = self.build_recovery_params(member)
-        for param, value in self._current_recovery_params.items():
+        for param, value in (self._current_recovery_params or {}).items():
             # Skip certain parameters defined in the included postgres config files
             # if we know that they are not specified in the patroni configuration.
             if len(value) > 2 and value[2] not in (self._postgresql_conf, self._auto_conf) and \
@@ -732,20 +831,25 @@ class ConfigHandler(object):
         return required['restart'] + required['reload'] > 0, required['restart'] > 0
 
     @staticmethod
-    def _remove_file_if_exists(name):
+    def _remove_file_if_exists(name: str) -> None:
         if os.path.isfile(name) or os.path.islink(name):
             os.unlink(name)
 
     @staticmethod
-    def _pgpass_line(record):
+    def _pgpass_line(record: Dict[str, Any]) -> Optional[str]:
         if 'password' in record:
-            def escape(value):
+            def escape(value: Any) -> str:
                 return re.sub(r'([:\\])', r'\\\1', str(value))
 
             record = {n: escape(record.get(n) or '*') for n in ('host', 'port', 'user', 'password')}
-            return '{host}:{port}:*:{user}:{password}'.format(**record)
+            # 'host' could be several comma-separated hostnames, in this case
+            # we need to write on pgpass line per host
+            line = ''
+            for hostname in record['host'].split(','):
+                line += hostname + ':{port}:*:{user}:{password}'.format(**record) + '\n'
+            return line.rstrip()
 
-    def write_pgpass(self, record):
+    def write_pgpass(self, record: Dict[str, Any]) -> Dict[str, str]:
         line = self._pgpass_line(record)
         if not line:
             return os.environ.copy()
@@ -754,31 +858,40 @@ class ConfigHandler(object):
             os.chmod(self._pgpass, stat.S_IWRITE | stat.S_IREAD)
             f.write(line)
 
-        env = os.environ.copy()
-        env['PGPASSFILE'] = self._pgpass
-        return env
+        return {**os.environ, 'PGPASSFILE': self._pgpass}
 
-    def write_recovery_conf(self, recovery_params):
+    def write_recovery_conf(self, recovery_params: CaseInsensitiveDict) -> None:
         self._recovery_params = recovery_params
         if self._postgresql.major_version >= 120000:
             if parse_bool(recovery_params.pop('standby_mode', None)):
                 open(self._standby_signal, 'w').close()
+                self.set_file_permissions(self._standby_signal)
             else:
                 self._remove_file_if_exists(self._standby_signal)
                 open(self._recovery_signal, 'w').close()
+                self.set_file_permissions(self._recovery_signal)
+
+            def restart_required(name: str) -> bool:
+                if self._postgresql.major_version >= 140000:
+                    return False
+                return name == 'restore_command' or (self._postgresql.major_version < 130000
+                                                     and name in ('primary_conninfo', 'primary_slot_name'))
+
+            self._current_recovery_params = CaseInsensitiveDict({n: [v, restart_required(n), self._postgresql_conf]
+                                                                 for n, v in recovery_params.items()})
         else:
-            with ConfigWriter(self._recovery_conf) as f:
-                os.chmod(self._recovery_conf, stat.S_IWRITE | stat.S_IREAD)
+            with self.config_writer(self._recovery_conf) as f:
                 self._write_recovery_params(f, recovery_params)
 
-    def remove_recovery_conf(self):
+    def remove_recovery_conf(self) -> None:
         for name in (self._recovery_conf, self._standby_signal, self._recovery_signal):
             self._remove_file_if_exists(name)
-        self._recovery_params = {}
+        self._recovery_params = CaseInsensitiveDict()
+        self._current_recovery_params = None
 
-    def _sanitize_auto_conf(self):
+    def _sanitize_auto_conf(self) -> None:
         overwrite = False
-        lines = []
+        lines: List[str] = []
 
         if os.path.exists(self._auto_conf):
             try:
@@ -796,12 +909,13 @@ class ConfigHandler(object):
         if overwrite:
             try:
                 with open(self._auto_conf, 'w') as f:
+                    self.set_file_permissions(self._auto_conf)
                     for raw_line in lines:
                         f.write(raw_line)
             except Exception:
                 logger.exception('Failed to remove some unwanted parameters from %s', self._auto_conf)
 
-    def _adjust_recovery_parameters(self):
+    def _adjust_recovery_parameters(self) -> None:
         # It is not strictly necessary, but we can make patroni configs crossi-compatible with all postgres versions.
         recovery_conf = {n: v for n, v in self._server_parameters.items() if n.lower() in self._RECOVERY_PARAMETERS}
         if recovery_conf:
@@ -812,18 +926,20 @@ class ConfigHandler(object):
             if self.triggerfile_good_name not in self._config['recovery_conf'] and value:
                 self._config['recovery_conf'][self.triggerfile_good_name] = value
 
-    def get_server_parameters(self, config):
+    def get_server_parameters(self, config: Dict[str, Any]) -> CaseInsensitiveDict:
         parameters = config['parameters'].copy()
         listen_addresses, port = split_host_port(config['listen'], 5432)
         parameters.update(cluster_name=self._postgresql.scope, listen_addresses=listen_addresses, port=str(port))
-        if config.get('synchronous_mode', False):
-            if self._synchronous_standby_names is None:
-                if config.get('synchronous_mode_strict', False):
+        if not self._postgresql.global_config or self._postgresql.global_config.is_synchronous_mode:
+            synchronous_standby_names = self._server_parameters.get('synchronous_standby_names')
+            if synchronous_standby_names is None:
+                if self._postgresql.global_config and self._postgresql.global_config.is_synchronous_mode_strict\
+                        and self._postgresql.role in ('master', 'primary', 'promoted'):
                     parameters['synchronous_standby_names'] = '*'
                 else:
                     parameters.pop('synchronous_standby_names', None)
             else:
-                parameters['synchronous_standby_names'] = self._synchronous_standby_names
+                parameters['synchronous_standby_names'] = synchronous_standby_names
 
         # Handle hot_standby <-> replica rename
         if parameters.get('wal_level') == ('hot_standby' if self._postgresql.major_version >= 90600 else 'replica'):
@@ -837,21 +953,24 @@ class ConfigHandler(object):
             parameters.setdefault('wal_keep_size', str(int(wal_keep_segments) * 16) + 'MB')
         elif self._postgresql.major_version:
             wal_keep_size = parse_int(parameters.pop('wal_keep_size', self.CMDLINE_OPTIONS['wal_keep_size'][0]), 'MB')
-            parameters.setdefault('wal_keep_segments', int((wal_keep_size + 8) / 16))
-        ret = CaseInsensitiveDict({k: v for k, v in parameters.items() if not self._postgresql.major_version or
-                                   self._postgresql.major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 90100))[2]})
+            parameters.setdefault('wal_keep_segments', int(((wal_keep_size or 0) + 8) / 16))
+
+        self._postgresql.citus_handler.adjust_postgres_gucs(parameters)
+
+        ret = CaseInsensitiveDict({k: v for k, v in parameters.items() if not self._postgresql.major_version
+                                   or self._postgresql.major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 90100))[2]})
         ret.update({k: os.path.join(self._config_dir, ret[k]) for k in ('hba_file', 'ident_file') if k in ret})
         return ret
 
     @staticmethod
-    def _get_unix_local_address(unix_socket_directories):
+    def _get_unix_local_address(unix_socket_directories: str) -> str:
         for d in unix_socket_directories.split(','):
             d = d.strip()
             if d.startswith('/'):  # Only absolute path can be used to connect via unix-socket
                 return d
         return ''
 
-    def _get_tcp_local_address(self):
+    def _get_tcp_local_address(self) -> str:
         listen_addresses = self._server_parameters['listen_addresses'].split(',')
 
         for la in listen_addresses:
@@ -859,24 +978,32 @@ class ConfigHandler(object):
                 return 'localhost'  # connection via localhost is preferred
         return listen_addresses[0].strip()  # can't use localhost, take first address from listen_addresses
 
-    @property
-    def local_connect_kwargs(self):
-        ret = self._local_address.copy()
-        # add all of the other connection settings that are available
-        ret.update(self._superuser)
-        # if the "username" parameter is present, it actually needs to be "user"
-        # for connecting to PostgreSQL
-        if 'username' in self._superuser:
-            ret['user'] = self._superuser['username']
-            del ret['username']
-        # ensure certain Patroni configurations are available
-        ret.update({'database': self._postgresql.database,
-                    'fallback_application_name': 'Patroni',
-                    'connect_timeout': 3,
-                    'options': '-c statement_timeout=2000'})
-        return ret
+    def resolve_connection_addresses(self) -> None:
+        """Calculates and sets local and remote connection urls and options.
 
-    def resolve_connection_addresses(self):
+        This method sets:
+            * :attr:`Postgresql.connection_string <patroni.postgresql.Postgresql.connection_string>` attribute, which
+              is later written to the member key in DCS as ``conn_url``.
+            * :attr:`ConfigHandler.local_replication_address` attribute, which is used for replication connections to
+              local postgres.
+            * :attr:`ConnectionPool.conn_kwargs <patroni.postgresql.connection.ConnectionPool.conn_kwargs>` attribute,
+              which is used for superuser connections to local postgres.
+
+        .. note::
+            If there is a valid directory in ``postgresql.parameters.unix_socket_directories`` in the Patroni
+            configuration and ``postgresql.use_unix_socket`` and/or ``postgresql.use_unix_socket_repl``
+            are set to ``True``, we respectively use unix sockets for superuser and replication connections
+            to local postgres.
+
+            If there is a requirement to use unix sockets, but nothing is set in the
+            ``postgresql.parameters.unix_socket_directories``, we omit a ``host`` in connection parameters relying
+            on the ability of ``libpq`` to connect via some default unix socket directory.
+
+            If unix sockets are not requested we "switch" to TCP, prefering to use ``localhost`` if it is possible
+            to deduce that Postgres is listening on a local interface address.
+
+            Otherwise we just used the first address specified in the ``listen_addresses`` GUC.
+        """
         port = self._server_parameters['port']
         tcp_local_address = self._get_tcp_local_address()
         netloc = self._config.get('connect_address') or tcp_local_address + ':' + port
@@ -889,26 +1016,41 @@ class ConfigHandler(object):
 
         tcp_local_address = {'host': tcp_local_address, 'port': port}
 
-        self._local_address = unix_local_address if self._config.get('use_unix_socket') else tcp_local_address
         self.local_replication_address = unix_local_address\
             if self._config.get('use_unix_socket_repl') else tcp_local_address
 
         self._postgresql.connection_string = uri('postgres', netloc, self._postgresql.database)
-        self._postgresql.set_connection_kwargs(self.local_connect_kwargs)
 
-    def _get_pg_settings(self, names):
+        local_address = unix_local_address if self._config.get('use_unix_socket') else tcp_local_address
+        local_conn_kwargs = {
+            **local_address,
+            **self._superuser,
+            'dbname': self._postgresql.database,
+            'fallback_application_name': 'Patroni',
+            'connect_timeout': 3,
+            'options': '-c statement_timeout=2000'
+        }
+        # if the "username" parameter is present, it actually needs to be "user" for connecting to PostgreSQL
+        if 'username' in local_conn_kwargs:
+            local_conn_kwargs['user'] = local_conn_kwargs.pop('username')
+        # "notify" connection_pool about the "new" local connection address
+        self._postgresql.connection_pool.conn_kwargs = local_conn_kwargs
+
+    def _get_pg_settings(self, names: Collection[str]) -> Dict[Any, Tuple[Any, ...]]:
         return {r[0]: r for r in self._postgresql.query(('SELECT name, setting, unit, vartype, context, sourcefile'
-                                                         + ' FROM pg_catalog.pg_settings ' +
-                                                         ' WHERE pg_catalog.lower(name) = ANY(%s)'),
+                                                         + ' FROM pg_catalog.pg_settings '
+                                                         + ' WHERE pg_catalog.lower(name) = ANY(%s)'),
                                                         [n.lower() for n in names])}
 
     @staticmethod
-    def _handle_wal_buffers(old_values, changes):
-        wal_block_size = parse_int(old_values['wal_block_size'][1])
+    def _handle_wal_buffers(old_values: Dict[Any, Tuple[Any, ...]], changes: CaseInsensitiveDict) -> None:
+        wal_block_size = parse_int(old_values['wal_block_size'][1]) or 8192
         wal_segment_size = old_values['wal_segment_size']
-        wal_segment_unit = parse_int(wal_segment_size[2], 'B') if wal_segment_size[2][0].isdigit() else 1
-        wal_segment_size = parse_int(wal_segment_size[1]) * wal_segment_unit / wal_block_size
-        default_wal_buffers = min(max(parse_int(old_values['shared_buffers'][1]) / 32, 8), wal_segment_size)
+        wal_segment_unit = parse_int(wal_segment_size[2], 'B') or 8192 \
+            if wal_segment_size[2] is not None and wal_segment_size[2][0].isdigit() else 1
+        wal_segment_size = parse_int(wal_segment_size[1]) or (16777216 if wal_segment_size[2] is None else 2048)
+        wal_segment_size *= wal_segment_unit / wal_block_size
+        default_wal_buffers = min(max((parse_int(old_values['shared_buffers'][1]) or 16384) / 32, 8), wal_segment_size)
 
         wal_buffers = old_values['wal_buffers']
         new_value = str(changes['wal_buffers'] or -1)
@@ -919,7 +1061,7 @@ class ConfigHandler(object):
         if new_value == old_value:
             del changes['wal_buffers']
 
-    def reload_config(self, config, sighup=False):
+    def reload_config(self, config: Dict[str, Any], sighup: bool = False) -> None:
         self._superuser = config['authentication'].get('superuser', {})
         server_parameters = self.get_server_parameters(config)
 
@@ -930,6 +1072,7 @@ class ConfigHandler(object):
             changes.update({p: None for p in self._server_parameters.keys()
                             if not (p in changes or p.lower() in self._RECOVERY_PARAMETERS)})
             if changes:
+                undef = []
                 if 'wal_buffers' in changes:  # we need to calculate the default value of wal_buffers
                     undef = [p for p in ('shared_buffers', 'wal_segment_size', 'wal_block_size') if p not in changes]
                     changes.update({p: None for p in undef})
@@ -986,6 +1129,9 @@ class ConfigHandler(object):
         if not local_connection_address_changed:
             self.resolve_connection_addresses()
 
+        proxy_addr = config.get('proxy_address')
+        self._postgresql.proxy_url = uri('postgres', proxy_addr, self._postgresql.database) if proxy_addr else None
+
         if conf_changed:
             self.write_postgresql_conf()
 
@@ -1002,34 +1148,30 @@ class ConfigHandler(object):
                 time.sleep(1)
                 try:
                     pending_restart = self._postgresql.query(
-                        'SELECT COUNT(*) FROM pg_catalog.pg_settings WHERE pg_catalog.lower(name) != ALL(%s)'
-                        ' AND pending_restart', [n.lower() for n in self._RECOVERY_PARAMETERS]).fetchone()[0] > 0
+                        'SELECT COUNT(*) FROM pg_catalog.pg_settings'
+                        ' WHERE pg_catalog.lower(name) != ALL(%s) AND pending_restart',
+                        [n.lower() for n in self._RECOVERY_PARAMETERS])[0][0] > 0
                     self._postgresql.set_pending_restart(pending_restart)
                 except Exception as e:
                     logger.warning('Exception %r when running query', e)
         else:
             logger.info('No PostgreSQL configuration items changed, nothing to reload.')
 
-    def set_synchronous_standby(self, sync_members):
-        """Sets a node to be synchronous standby and if changed does a reload for PostgreSQL."""
-        if sync_members and sync_members != ['*']:
-            sync_members = [quote_ident(x) for x in sync_members]
-        if self._postgresql.major_version >= 90600 and len(sync_members) > 1:
-            sync_param = '{0} ({1})'.format(len(sync_members), ','.join(sync_members))
-        else:
-            sync_param = next(iter(sync_members), None)
-        if sync_param != self._synchronous_standby_names:
-            if sync_param is None:
+    def set_synchronous_standby_names(self, value: Optional[str]) -> Optional[bool]:
+        """Updates synchronous_standby_names and reloads if necessary.
+        :returns: True if value was updated."""
+        if value != self._server_parameters.get('synchronous_standby_names'):
+            if value is None:
                 self._server_parameters.pop('synchronous_standby_names', None)
             else:
-                self._server_parameters['synchronous_standby_names'] = sync_param
-            self._synchronous_standby_names = sync_param
+                self._server_parameters['synchronous_standby_names'] = value
             if self._postgresql.state == 'running':
                 self.write_postgresql_conf()
                 self._postgresql.reload()
+            return True
 
     @property
-    def effective_configuration(self):
+    def effective_configuration(self) -> CaseInsensitiveDict:
         """It might happen that the current value of one (or more) below parameters stored in
         the controldata is higher than the value stored in the global cluster configuration.
 
@@ -1039,7 +1181,7 @@ class ConfigHandler(object):
         As a workaround we will start it with the values from controldata and set `pending_restart`
         to true as an indicator that current values of parameters are not matching expectations."""
 
-        if self._postgresql.role == 'master':
+        if self._postgresql.role in ('master', 'primary'):
             return self._server_parameters
 
         options_mapping = {
@@ -1064,49 +1206,62 @@ class ConfigHandler(object):
                 continue
 
             cvalue = parse_int(data[cname])
-            if cvalue > value:
+            if cvalue is not None and value is not None and cvalue > value:
                 effective_configuration[name] = cvalue
                 self._postgresql.set_pending_restart(True)
 
-        # If we are using custom bootstrap with PITR it could fail when values
-        # like max_connections are increased, therefore we disable hot_standby.
-        if self._postgresql.bootstrap.running_custom_bootstrap and \
-                (self._postgresql.bootstrap.keep_existing_recovery_conf or self._recovery_conf):
-            effective_configuration['hot_standby'] = 'off'
-            self._postgresql.set_pending_restart(True)
+        # If we are using custom bootstrap with PITR it could fail when values like max_connections
+        # are increased, therefore we disable hot_standby if recovery_target_action == 'promote'.
+        if self._postgresql.bootstrap.running_custom_bootstrap:
+            disable_hot_standby = False
+            if self._postgresql.bootstrap.keep_existing_recovery_conf:
+                disable_hot_standby = True  # trust that pgBackRest does the right thing
+            # `pause_at_recovery_target` has no effect if hot_standby is not enabled, therefore we consider only 9.5+
+            elif self._postgresql.major_version >= 90500 and self._recovery_params:
+                pause_at_recovery_target = parse_bool(self._recovery_params.get('pause_at_recovery_target'))
+                recovery_target_action = self._recovery_params.get(
+                    'recovery_target_action', 'promote' if pause_at_recovery_target is False else 'pause')
+                disable_hot_standby = recovery_target_action == 'promote'
+
+            if disable_hot_standby:
+                effective_configuration['hot_standby'] = 'off'
+                self._postgresql.set_pending_restart(True)
 
         return effective_configuration
 
     @property
-    def replication(self):
+    def replication(self) -> Dict[str, Any]:
         return self._config['authentication']['replication']
 
     @property
-    def superuser(self):
+    def superuser(self) -> Dict[str, Any]:
         return self._superuser
 
     @property
-    def rewind_credentials(self):
+    def rewind_credentials(self) -> Dict[str, Any]:
         return self._config['authentication'].get('rewind', self._superuser) \
-                if self._postgresql.major_version >= 110000 else self._superuser
+            if self._postgresql.major_version >= 110000 else self._superuser
 
     @property
-    def ident_file(self):
+    def ident_file(self) -> Optional[str]:
         ident_file = self._server_parameters.get('ident_file')
         return None if ident_file == self._pg_ident_conf else ident_file
 
     @property
-    def hba_file(self):
+    def hba_file(self) -> Optional[str]:
         hba_file = self._server_parameters.get('hba_file')
         return None if hba_file == self._pg_hba_conf else hba_file
 
     @property
-    def pg_hba_conf(self):
+    def pg_hba_conf(self) -> str:
         return self._pg_hba_conf
 
     @property
-    def postgresql_conf(self):
+    def postgresql_conf(self) -> str:
         return self._postgresql_conf
 
-    def get(self, key, default=None):
+    def get(self, key: str, default: Optional[Any] = None) -> Optional[Any]:
         return self._config.get(key, default)
+
+    def restore_command(self) -> Optional[str]:
+        return (self.get('recovery_conf') or {}).get('restore_command')

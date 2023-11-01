@@ -14,7 +14,7 @@ Group=postgres
 # Read in configuration file if it exists, otherwise proceed
 EnvironmentFile=-/etc/patroni_env.conf
 
-# the default is the user's home directory, and if you want to change it, you must provide an absolute path.
+# The default is the user's home directory, and if you want to change it, you must provide an absolute path.
 # WorkingDirectory=/home/sameuser
 
 # Where to send early-startup messages from the server
@@ -32,14 +32,14 @@ ExecStart=/bin/patroni /etc/patroni.yml
 # Send HUP to reload from patroni.yml
 ExecReload=/bin/kill -s HUP $MAINPID
 
-# only kill the patroni process, not it's children, so it will gracefully stop postgres
+# Only kill the patroni process, not it's children, so it will gracefully stop postgres
 KillMode=process
 
 # Give a reasonable amount of time for the server to start up/shut down
 TimeoutSec=30
 
-# Do not restart the service if it crashes, we want to manually inspect database on failure
-Restart=no
+# Restart the service if it crashed
+Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target

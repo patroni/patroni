@@ -1,8 +1,9 @@
 import unittest
 
 from mock import Mock, patch
+
 from patroni.exceptions import PatroniException
-from patroni.utils import Retry, RetryFailedError, enable_keepalive, find_executable, polling_loop, validate_directory
+from patroni.utils import Retry, RetryFailedError, enable_keepalive, polling_loop, validate_directory, unquote
 
 
 class TestUtils(unittest.TestCase):
@@ -35,20 +36,36 @@ class TestUtils(unittest.TestCase):
 
     def test_enable_keepalive(self):
         with patch('socket.SIO_KEEPALIVE_VALS', 1, create=True):
-            self.assertIsNotNone(enable_keepalive(Mock(), 10, 5))
+            self.assertIsNone(enable_keepalive(Mock(), 10, 5))
         with patch('socket.SIO_KEEPALIVE_VALS', None, create=True):
             for platform in ('linux2', 'darwin', 'other'):
                 with patch('sys.platform', platform):
                     self.assertIsNone(enable_keepalive(Mock(), 10, 5))
 
-    @patch('sys.platform', 'win32')
-    def test_find_executable(self):
-        with patch('os.path.isfile', Mock(return_value=True)):
-            self.assertEqual(find_executable('vim'), 'vim.exe')
-        with patch('os.path.isfile', Mock(return_value=False)):
-            self.assertIsNone(find_executable('vim'))
-        with patch('os.path.isfile', Mock(side_effect=[False, True])):
-            self.assertEqual(find_executable('vim', '/'), '/vim.exe')
+    def test_unquote(self):
+        self.assertEqual(unquote('value'), 'value')
+        self.assertEqual(unquote('value with spaces'), "value with spaces")
+        self.assertEqual(unquote(
+            '"double quoted value"'),
+            'double quoted value')
+        self.assertEqual(unquote(
+            '\'single quoted value\''),
+            'single quoted value')
+        self.assertEqual(unquote(
+            'value "with" double quotes'),
+            'value "with" double quotes')
+        self.assertEqual(unquote(
+            '"value starting with" double quotes'),
+            '"value starting with" double quotes')
+        self.assertEqual(unquote(
+            '\'value starting with\' single quotes'),
+            '\'value starting with\' single quotes')
+        self.assertEqual(unquote(
+            'value with a \' single quote'),
+            'value with a \' single quote')
+        self.assertEqual(unquote(
+            '\'value with a \'"\'"\' single quote\''),
+            'value with a \' single quote')
 
 
 @patch('time.sleep', Mock())

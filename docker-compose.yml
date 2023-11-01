@@ -1,5 +1,12 @@
 # docker compose file for running a 3-node PostgreSQL cluster
 # with 3-node etcd cluster as the DCS and one haproxy node
+#
+# requires a patroni image build from the Dockerfile:
+# $ docker build -t patroni .
+# The cluster could be started as:
+# $ docker-compose up -d
+# You can read more about it in the:
+# https://github.com/zalando/patroni/blob/master/docker/README.md
 version: "2"
 
 networks:
@@ -7,7 +14,7 @@ networks:
 
 services:
     etcd1: &etcd
-        image: patroni
+        image: ${PATRONI_TEST_IMAGE:-patroni}
         networks: [ demo ]
         environment:
             ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
@@ -15,6 +22,7 @@ services:
             ETCD_INITIAL_CLUSTER: etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
             ETCD_INITIAL_CLUSTER_STATE: new
             ETCD_INITIAL_CLUSTER_TOKEN: tutorial
+            ETCD_UNSUPPORTED_ARCH: arm64
         container_name: demo-etcd1
         hostname: etcd1
         command: etcd -name etcd1 -initial-advertise-peer-urls http://etcd1:2380
@@ -32,7 +40,7 @@ services:
         command: etcd -name etcd3 -initial-advertise-peer-urls http://etcd3:2380
 
     haproxy:
-        image: patroni
+        image: ${PATRONI_TEST_IMAGE:-patroni}
         networks: [ demo ]
         env_file: docker/patroni.env
         hostname: haproxy
@@ -47,7 +55,7 @@ services:
             PATRONI_SCOPE: demo
 
     patroni1:
-        image: patroni
+        image: ${PATRONI_TEST_IMAGE:-patroni}
         networks: [ demo ]
         env_file: docker/patroni.env
         hostname: patroni1
@@ -57,7 +65,7 @@ services:
             PATRONI_NAME: patroni1
 
     patroni2:
-        image: patroni
+        image: ${PATRONI_TEST_IMAGE:-patroni}
         networks: [ demo ]
         env_file: docker/patroni.env
         hostname: patroni2
@@ -67,7 +75,7 @@ services:
             PATRONI_NAME: patroni2
 
     patroni3:
-        image: patroni
+        image: ${PATRONI_TEST_IMAGE:-patroni}
         networks: [ demo ]
         env_file: docker/patroni.env
         hostname: patroni3

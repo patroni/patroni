@@ -24,14 +24,12 @@ Log
 -  **PATRONI\_LOG\_FILE\_SIZE**: Size of patroni.log file (in bytes) that triggers a log rolling.
 -  **PATRONI\_LOG\_LOGGERS**: Redefine logging level per python module. Example ``PATRONI_LOG_LOGGERS="{patroni.postmaster: WARNING, urllib3: DEBUG}"``
 
-Bootstrap configuration
------------------------
-It is possible to create new database users right after the successful initialization of a new cluster. This process is defined by the following variables:
+Citus
+-----
+Enables integration Patroni with `Citus <https://docs.citusdata.com>`__. If configured, Patroni will take care of registering Citus worker nodes on the coordinator. You can find more information about Citus support :ref:`here <citus>`.
 
--  **PATRONI\_<username>\_PASSWORD='<password>'**
--  **PATRONI\_<username>\_OPTIONS='list,of,options'**
-
-Example: defining ``PATRONI_admin_PASSWORD=strongpasswd`` and ``PATRONI_admin_OPTIONS='createrole,createdb'`` will cause creation of the user **admin** with the password **strongpasswd** that is allowed to create other users and databases.
+-  **PATRONI\_CITUS\_GROUP**: the Citus group id, integer. Use ``0`` for coordinator and ``1``, ``2``, etc... for workers
+-  **PATRONI\_CITUS\_DATABASE**: the database where ``citus`` extension should be created. Must be the same on the coordinator and all workers. Currently only one database is supported.
 
 Consul
 ------
@@ -47,8 +45,10 @@ Consul
 -  **PATRONI\_CONSUL\_DC**: (optional) Datacenter to communicate with. By default the datacenter of the host is used.
 -  **PATRONI\_CONSUL\_CONSISTENCY**: (optional) Select consul consistency mode. Possible values are ``default``, ``consistent``, or ``stale`` (more details in `consul API reference <https://www.consul.io/api/features/consistency.html/>`__)
 -  **PATRONI\_CONSUL\_CHECKS**: (optional) list of Consul health checks used for the session. By default an empty list is used.
--  **PATRONI\_CONSUL\_REGISTER\_SERVICE**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, replica or standby-leader depending on the node's role. Defaults to **false**
+-  **PATRONI\_CONSUL\_REGISTER\_SERVICE**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, primary, replica, or standby-leader depending on the node's role. Defaults to **false**
+-  **PATRONI\_CONSUL\_SERVICE\_TAGS**: (optional) additional static tags to add to the Consul service apart from the role (``master``/``primary``/``replica``/``standby-leader``). By default an empty list is used.
 -  **PATRONI\_CONSUL\_SERVICE\_CHECK\_INTERVAL**: (optional) how often to perform health check against registered url
+-  **PATRONI\_CONSUL\_SERVICE\_CHECK\_TLS\_SERVER\_NAME**: (optional) overide SNI host when connecting via TLS, see also `consul agent check API reference <https://www.consul.io/api-docs/agent/check#tlsservername>`__.
 
 Etcd
 ----
@@ -84,6 +84,8 @@ ZooKeeper
 -  **PATRONI\_ZOOKEEPER\_KEY**: (optional) File with the client key.
 -  **PATRONI\_ZOOKEEPER\_KEY\_PASSWORD**: (optional) The client key password.
 -  **PATRONI\_ZOOKEEPER\_VERIFY**: (optional) Whether to verify certificate or not. Defaults to ``true``.
+-  **PATRONI\_ZOOKEEPER\_SET\_ACLS**: (optional) If set, configure Kazoo to apply a default ACL to each ZNode that it creates. ACLs will assume 'x509' schema and should be specified as a dictionary with the principal as the key and one or more permissions as a list in the value.  Permissions may be one of ``CREATE``, ``READ``, ``WRITE``, ``DELETE`` or ``ADMIN``.  For example, ``set_acls: {CN=principal1: [CREATE, READ], CN=principal2: [ALL]}``.
+-  **PATRONI\_ZOOKEEPER\_AUTH\_DATA**: (optional) Authentication credentials to use for the connection. Should be a dictionary in the form that `scheme` is the key and `credential` is the value. Defaults to empty dictionary.
 
 .. note::
     It is required to install ``kazoo>=2.6.0`` to support SSL.
@@ -102,14 +104,19 @@ Kubernetes
 -  **PATRONI\_KUBERNETES\_NAMESPACE**: (optional) Kubernetes namespace where the Patroni pod is running. Default value is `default`.
 -  **PATRONI\_KUBERNETES\_LABELS**: Labels in format ``{label1: value1, label2: value2}``. These labels will be used to find existing objects (Pods and either Endpoints or ConfigMaps) associated with the current cluster. Also Patroni will set them on every object (Endpoint or ConfigMap) it creates.
 -  **PATRONI\_KUBERNETES\_SCOPE\_LABEL**: (optional) name of the label containing cluster name. Default value is `cluster-name`.
--  **PATRONI\_KUBERNETES\_ROLE\_LABEL**: (optional) name of the label containing Postgres role (`master` or `replica`). Patroni will set this label on the pod it is running in. Default value is `role`.
+-  **PATRONI\_KUBERNETES\_ROLE\_LABEL**: (optional) name of the label containing role (master or replica or other custom value). Patroni will set this label on the pod it runs in. Default value is ``role``.
+-  **PATRONI\_KUBERNETES\_LEADER\_LABEL\_VALUE**: (optional) value of the pod label when Postgres role is `master`. Default value is `master`.
+-  **PATRONI\_KUBERNETES\_FOLLOWER\_LABEL\_VALUE**: (optional) value of the pod label when Postgres role is `replica`. Default value is `replica`.
+-  **PATRONI\_KUBERNETES\_STANDBY\_LEADER\_LABEL\_VALUE**: (optional) value of the pod label when Postgres role is ``standby_leader``. Default value is ``master``.
+-  **PATRONI\_KUBERNETES\_TMP\_ROLE\_LABEL**: (optional) name of the temporary label containing role (master or replica). Value of this label will always use the default of corresponding role. Set only when necessary.
 -  **PATRONI\_KUBERNETES\_USE\_ENDPOINTS**: (optional) if set to true, Patroni will use Endpoints instead of ConfigMaps to run leader elections and keep cluster state.
 -  **PATRONI\_KUBERNETES\_POD\_IP**: (optional) IP address of the pod Patroni is running in. This value is required when `PATRONI_KUBERNETES_USE_ENDPOINTS` is enabled and is used to populate the leader endpoint subsets when the pod's PostgreSQL is promoted.
 -  **PATRONI\_KUBERNETES\_PORTS**: (optional) if the Service object has the name for the port, the same name must appear in the Endpoint object, otherwise service won't work. For example, if your service is defined as ``{Kind: Service, spec: {ports: [{name: postgresql, port: 5432, targetPort: 5432}]}}``, then you have to set ``PATRONI_KUBERNETES_PORTS='[{"name": "postgresql", "port": 5432}]'`` and Patroni will use it for updating subsets of the leader Endpoint. This parameter is used only if `PATRONI_KUBERNETES_USE_ENDPOINTS` is set.
 -  **PATRONI\_KUBERNETES\_CACERT**: (optional) Specifies the file with the CA_BUNDLE file with certificates of trusted CAs to use while verifying Kubernetes API SSL certs. If not provided, patroni will use the value provided by the ServiceAccount secret.
+-  **PATRONI\_RETRIABLE\_HTTP\_CODES**: (optional) list of HTTP status codes from K8s API to retry on. By default Patroni is retrying on ``500``, ``503``, and ``504``, or if K8s API response has ``retry-after`` HTTP header.
 
-Raft
-----
+Raft (deprecated)
+-----------------
 
 -  **PATRONI\_RAFT\_SELF\_ADDR**: ``ip:port`` to listen on for Raft connections. The ``self_addr`` must be accessible from other nodes of the cluster. If not set, the node will not participate in consensus.
 -  **PATRONI\_RAFT\_BIND\_ADDR**: (optional) ``ip:port`` to listen on for Raft connections. If not specified the ``self_addr`` will be used.
@@ -121,11 +128,19 @@ PostgreSQL
 ----------
 -  **PATRONI\_POSTGRESQL\_LISTEN**: IP address + port that Postgres listens to. Multiple comma-separated addresses are permitted, as long as the port component is appended after to the last one with a colon, i.e. ``listen: 127.0.0.1,127.0.0.2:5432``. Patroni will use the first address from this list to establish local connections to the PostgreSQL node.
 -  **PATRONI\_POSTGRESQL\_CONNECT\_ADDRESS**: IP address + port through which Postgres is accessible from other nodes and applications.
+-  **PATRONI\_POSTGRESQL\_PROXY\_ADDRESS**: IP address + port through which a connection pool (e.g. pgbouncer) running next to Postgres is accessible. The value is written to the member key in DCS as ``proxy_url`` and could be used/useful for service discovery.
 -  **PATRONI\_POSTGRESQL\_DATA\_DIR**: The location of the Postgres data directory, either existing or to be initialized by Patroni.
 -  **PATRONI\_POSTGRESQL\_CONFIG\_DIR**: The location of the Postgres configuration directory, defaults to the data directory. Must be writable by Patroni.
--  **PATRONI\_POSTGRESQL\_BIN_DIR**: Path to PostgreSQL binaries. (pg_ctl, pg_rewind, pg_basebackup, postgres) The  default value is an empty string meaning that PATH environment variable will be used to find the executables.
+-  **PATRONI\_POSTGRESQL\_BIN_DIR**: Path to PostgreSQL binaries. (pg_ctl, initdb, pg_controldata, pg_basebackup, postgres, pg_isready, pg_rewind) The  default value is an empty string meaning that PATH environment variable will be used to find the executables.
+-  **PATRONI\_POSTGRESQL\_BIN\_PG\_CTL**: (optional) Custom name for ``pg_ctl`` binary.
+-  **PATRONI\_POSTGRESQL\_BIN\_INITDB**: (optional) Custom name for ``initdb`` binary.
+-  **PATRONI\_POSTGRESQL\_BIN\_PG\_CONTROLDATA**: (optional) Custom name for ``pg_controldata`` binary.
+-  **PATRONI\_POSTGRESQL\_BIN\_PG\_BASEBACKUP**: (optional) Custom name for ``pg_basebackup`` binary.
+-  **PATRONI\_POSTGRESQL\_BIN\_POSTGRES**: (optional) Custom name for ``postgres`` binary.
+-  **PATRONI\_POSTGRESQL\_BIN\_IS\_READY**: (optional) Custom name for ``pg_isready`` binary.
+-  **PATRONI\_POSTGRESQL\_BIN\_PG\_REWIND**: (optional) Custom name for ``pg_rewind`` binary.
 -  **PATRONI\_POSTGRESQL\_PGPASS**: path to the `.pgpass <https://www.postgresql.org/docs/current/static/libpq-pgpass.html>`__ password file. Patroni creates this file before executing pg\_basebackup and under some other circumstances. The location must be writable by Patroni.
--  **PATRONI\_REPLICATION\_USERNAME**: replication username; the user will be created during initialization. Replicas will use this user to access master via streaming replication
+-  **PATRONI\_REPLICATION\_USERNAME**: replication username; the user will be created during initialization. Replicas will use this user to access the replication source via streaming replication
 -  **PATRONI\_REPLICATION\_PASSWORD**: replication password; the user will be created during initialization.
 -  **PATRONI\_REPLICATION\_SSLMODE**: (optional) maps to the `sslmode <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-SSLMODE>`__ connection parameter, which allows a client to specify the type of TLS negotiation mode with the server. For more information on how each mode works, please visit the `PostgreSQL documentation <https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-SSLMODE-STATEMENTS>`__. The default mode is ``prefer``.
 -  **PATRONI\_REPLICATION\_SSLKEY**: (optional) maps to the `sslkey <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-SSLKEY>`__ connection parameter, which specifies the location of the secret key used with the client's certificate.
@@ -147,8 +162,8 @@ PostgreSQL
 -  **PATRONI\_SUPERUSER\_SSLCRLDIR**: (optional) maps to the `sslcrldir <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-SSLCRLDIR>`__ connection parameter, which specifies the location of a directory with files containing a certificate revocation list. A client will reject connecting to any server that has a certificate present in this list.
 -  **PATRONI\_SUPERUSER\_GSSENCMODE**: (optional) maps to the `gssencmode <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-GSSENCMODE>`__ connection parameter, which determines whether or with what priority a secure GSS TCP/IP connection will be negotiated with the server
 -  **PATRONI\_SUPERUSER\_CHANNEL\_BINDING**: (optional) maps to the `channel_binding <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-CHANNEL-BINDING>`__ connection parameter, which controls the client's use of channel binding.
--  **PATRONI\_REWIND\_USERNAME**: name for the user for ``pg_rewind``; the user will be created during initialization of postgres 11+ and all necessary `permissions <https://www.postgresql.org/docs/11/app-pgrewind.html#id-1.9.5.8.8>`__ will be granted.
--  **PATRONI\_REWIND\_PASSWORD**: password for the user for ``pg_rewind``; the user will be created during initialization.
+-  **PATRONI\_REWIND\_USERNAME**: (optional) name for the user for ``pg_rewind``; the user will be created during initialization of postgres 11+ and all necessary `permissions <https://www.postgresql.org/docs/11/app-pgrewind.html#id-1.9.5.8.8>`__ will be granted.
+-  **PATRONI\_REWIND\_PASSWORD**: (optional) password for the user for ``pg_rewind``; the user will be created during initialization.
 -  **PATRONI\_REWIND\_SSLMODE**: (optional) maps to the `sslmode <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-SSLMODE>`__ connection parameter, which allows a client to specify the type of TLS negotiation mode with the server. For more information on how each mode works, please visit the `PostgreSQL documentation <https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-SSLMODE-STATEMENTS>`__. The default mode is ``prefer``.
 -  **PATRONI\_REWIND\_SSLKEY**: (optional) maps to the `sslkey <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-SSLKEY>`__ connection parameter, which specifies the location of the secret key used with the client's certificate.
 -  **PATRONI\_REWIND\_SSLPASSWORD**: (optional) maps to the `sslpassword <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-SSLPASSWORD>`__ connection parameter, which specifies the password for the secret key specified in ``PATRONI_REWIND_SSLKEY``.
@@ -175,11 +190,21 @@ REST API
 -  **PATRONI\_RESTAPI\_ALLOWLIST\_INCLUDE\_MEMBERS**: (optional): If set to ``true`` it allows accessing unsafe REST API endpoints from other cluster members registered in DCS (IP address or hostname is taken from the members ``api_url``). Be careful, it might happen that OS will use a different IP for outgoing connections.
 -  **PATRONI\_RESTAPI\_HTTP\_EXTRA\_HEADERS**: (optional) HTTP headers let the REST API server pass additional information with an HTTP response.
 -  **PATRONI\_RESTAPI\_HTTPS\_EXTRA\_HEADERS**: (optional) HTTPS headers let the REST API server pass additional information with an HTTP response when TLS is enabled. This will also pass additional information set in ``http_extra_headers``.
+-  **PATRONI\_RESTAPI\_REQUEST\_QUEUE\_SIZE**: (optional): Sets request queue size for TCP socket used by Patroni REST API.  Once the queue is full, further requests get a "Connection denied" error. The default value is 5.
+
+.. warning::
+
+    - The ``PATRONI_RESTAPI_CONNECT_ADDRESS`` must be accessible from all nodes of a given Patroni cluster. Internally Patroni is using it during the leader race to find nodes with minimal replication lag.
+    - If you enabled client certificates validation (``PATRONI_RESTAPI_VERIFY_CLIENT`` is set to ``required``), you also **must** provide **valid client certificates** in the ``PATRONI_CTL_CERTFILE``, ``PATRONI_CTL_KEYFILE``, ``PATRONI_CTL_KEYFILE_PASSWORD``. If not provided, Patroni will not work correctly.
+
 
 CTL
 ---
--  **PATRONICTL\_CONFIG\_FILE**: location of the configuration file.
--  **PATRONI\_CTL\_INSECURE**: Allow connections to REST API without verifying SSL certs.
--  **PATRONI\_CTL\_CACERT**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "cafile" parameter.
--  **PATRONI\_CTL\_CERTFILE**: Specifies the file with the client certificate in the PEM format. If not provided patronictl will use the value provided for REST API "certfile" parameter.
--  **PATRONI\_CTL\_KEYFILE**: Specifies the file with the client secret key in the PEM format. If not provided patronictl will use the value provided for REST API "keyfile" parameter.
+-  **PATRONICTL\_CONFIG\_FILE**: (optional) location of the configuration file.
+-  **PATRONI\_CTL\_USERNAME**: (optional) Basic-auth username for accessing protected REST API endpoints. If not provided :ref:`patronictl` will use the value provided for REST API "username" parameter.
+-  **PATRONI\_CTL\_PASSWORD**: (optional) Basic-auth password for accessing protected REST API endpoints. If not provided :ref:`patronictl` will use the value provided for REST API "password" parameter.
+-  **PATRONI\_CTL\_INSECURE**: (optional) Allow connections to REST API without verifying SSL certs.
+-  **PATRONI\_CTL\_CACERT**: (optional) Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided :ref:`patronictl` will use the value provided for REST API "cafile" parameter.
+-  **PATRONI\_CTL\_CERTFILE**: (optional) Specifies the file with the client certificate in the PEM format.
+-  **PATRONI\_CTL\_KEYFILE**: (optional) Specifies the file with the client secret key in the PEM format.
+-  **PATRONI\_CTL\_KEYFILE\_PASSWORD**: (optional) Specifies a password for decrypting the client keyfile.

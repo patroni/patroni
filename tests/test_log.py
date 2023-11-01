@@ -7,7 +7,7 @@ import yaml
 from mock import Mock, patch
 from patroni.config import Config
 from patroni.log import PatroniLogger
-from six.moves.queue import Queue, Full
+from queue import Queue, Full
 
 _LOG = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class TestPatroniLogger(unittest.TestCase):
         _LOG.exception('test')
         logger.start()
 
-        with patch.object(logging.Handler, 'format', Mock(side_effect=Exception)),\
+        with patch.object(logging.Handler, 'format', Mock(side_effect=Exception)), \
                 patch('_pytest.logging.LogCaptureHandler.emit', Mock()):
             logging.error('test')
 

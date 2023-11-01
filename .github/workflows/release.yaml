@@ -1,0 +1,44 @@
+name: Publish Patroni distributions to PyPI and TestPyPI
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  release:
+    types:
+      - published
+jobs:
+  build-n-publish:
+    name: Build and publish Patroni distributions to PyPI and TestPyPI
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.9
+
+    - name: Install dependencies
+      run: python .github/workflows/install_deps.py
+
+    - name: Run tests and flake8
+      run: python .github/workflows/run_tests.py
+
+    - name: Install Python packaging build frontend
+      run: python -m pip install build
+
+    - name: Build a binary wheel and a source tarball
+      run: python -m build
+
+    - name: Publish distribution to Test PyPI
+      if: github.event_name == 'push'
+      uses: pypa/gh-action-pypi-publish@v1.5.1
+      with:
+        password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        repository_url: https://test.pypi.org/legacy/
+
+    - name: Publish distribution to PyPI
+      if: github.event_name == 'release'
+      uses: pypa/gh-action-pypi-publish@v1.5.1
+      with:
+        password: ${{ secrets.PYPI_API_TOKEN }}

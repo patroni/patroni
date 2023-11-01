@@ -1,18 +1,19 @@
 import select
-import six
 import unittest
 
-from kazoo.client import KazooClient, KazooState
+from kazoo.client import KazooClient
 from kazoo.exceptions import NoNodeError, NodeExistsError
 from kazoo.handlers.threading import SequentialThreadingHandler
-from kazoo.protocol.states import KeeperState, ZnodeStat
-from mock import Mock, patch
-from patroni.dcs.zookeeper import Leader, PatroniKazooClient,\
-        PatroniSequentialThreadingHandler, ZooKeeper, ZooKeeperError
+from kazoo.protocol.states import KeeperState, WatchedEvent, ZnodeStat
+from kazoo.retry import RetryFailedError
+from mock import Mock, PropertyMock, patch
+from patroni.dcs.zookeeper import Cluster, PatroniKazooClient, \
+    PatroniSequentialThreadingHandler, ZooKeeper, ZooKeeperError
 
 
 class MockKazooClient(Mock):
 
+    handler = PatroniSequentialThreadingHandler(10)
     leader = False
     exists = True
 
@@ -29,7 +30,7 @@ class MockKazooClient(Mock):
         return func(*args, **kwargs)
 
     def get(self, path, watch=None):
-        if not isinstance(path, six.string_types):
+        if not isinstance(path, str):
             raise TypeError("Invalid type for 'path' (string expected)")
         if path == '/broken/status':
             return (b'{', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
@@ -50,22 +51,24 @@ class MockKazooClient(Mock):
             return (b'foo', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
         elif path.endswith('/status'):
             return (b'{"optime":500,"slots":{"ls":1234567}}', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
+        elif path.endswith('/failsafe'):
+            return (b'{a}', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
         return (b'', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 
     @staticmethod
     def get_children(path, watch=None, include_data=False):
-        if not isinstance(path, six.string_types):
+        if not isinstance(path, str):
             raise TypeError("Invalid type for 'path' (string expected)")
         if path.startswith('/no_node'):
             raise NoNodeError
         elif path in ['/service/bla/', '/service/test/']:
-            return ['initialize', 'leader', 'members', 'optime', 'failover', 'sync']
+            return ['initialize', 'leader', 'members', 'optime', 'failover', 'sync', 'failsafe', '0', '1']
         return ['foo', 'bar', 'buzz']
 
     def create(self, path, value=b"", acl=None, ephemeral=False, sequence=False, makepath=False):
-        if not isinstance(path, six.string_types):
+        if not isinstance(path, str):
             raise TypeError("Invalid type for 'path' (string expected)")
-        if not isinstance(value, (six.binary_type,)):
+        if not isinstance(value, bytes):
             raise TypeError("Invalid type for 'value' (must be a byte string)")
         if b'Exception' in value:
             raise Exception
@@ -79,9 +82,9 @@ class MockKazooClient(Mock):
 
     @staticmethod
     def set(path, value, version=-1):
-        if not isinstance(path, six.string_types):
+        if not isinstance(path, str):
             raise TypeError("Invalid type for 'path' (string expected)")
-        if not isinstance(value, (six.binary_type,)):
+        if not isinstance(value, bytes):
             raise TypeError("Invalid type for 'value' (must be a byte string)")
         if path == '/service/bla/optime/leader':
             raise Exception
@@ -98,7 +101,7 @@ class MockKazooClient(Mock):
         return self.set(path, value, version) or Mock()
 
     def delete(self, path, version=-1, recursive=False):
-        if not isinstance(path, six.string_types):
+        if not isinstance(path, str):
             raise TypeError("Invalid type for 'path' (string expected)")
         self.exists = False
         if path == '/service/test/leader':
@@ -124,9 +127,11 @@ class TestPatroniSequentialThreadingHandler(unittest.TestCase):
         self.assertIsNotNone(self.handler.create_connection((), 40))
         self.assertIsNotNone(self.handler.create_connection(timeout=40))
 
-    @patch.object(SequentialThreadingHandler, 'select', Mock(side_effect=ValueError))
     def test_select(self):
-        self.assertRaises(select.error, self.handler.select)
+        with patch.object(SequentialThreadingHandler, 'select', Mock(side_effect=ValueError)):
+            self.assertRaises(select.error, self.handler.select)
+        with patch.object(SequentialThreadingHandler, 'select', Mock(side_effect=IOError)):
+            self.assertRaises(Exception, self.handler.select)
 
 
 class TestPatroniKazooClient(unittest.TestCase):
@@ -144,10 +149,8 @@ class TestZooKeeper(unittest.TestCase):
     @patch('patroni.dcs.zookeeper.PatroniKazooClient', MockKazooClient)
     def setUp(self):
         self.zk = ZooKeeper({'hosts': ['localhost:2181'], 'scope': 'test',
-                             'name': 'foo', 'ttl': 30, 'retry_timeout': 10, 'loop_wait': 10})
-
-    def test_session_listener(self):
-        self.zk.session_listener(KazooState.SUSPENDED)
+                             'name': 'foo', 'ttl': 30, 'retry_timeout': 10, 'loop_wait': 10,
+                             'set_acls': {'CN=principal2': ['ALL']}})
 
     def test_reload_config(self):
         self.zk.reload_config({'ttl': 20, 'retry_timeout': 10, 'loop_wait': 10})
@@ -159,30 +162,35 @@ class TestZooKeeper(unittest.TestCase):
     def test_get_children(self):
         self.assertListEqual(self.zk.get_children('/no_node'), [])
 
-    def test__inner_load_cluster(self):
+    def test__cluster_loader(self):
         self.zk._base_path = self.zk._base_path.replace('test', 'bla')
-        self.zk._inner_load_cluster()
+        self.zk._cluster_loader(self.zk.client_path(''))
         self.zk._base_path = self.zk._base_path = '/broken'
-        self.zk._inner_load_cluster()
+        self.zk._cluster_loader(self.zk.client_path(''))
         self.zk._base_path = self.zk._base_path = '/legacy'
-        self.zk._inner_load_cluster()
+        self.zk._cluster_loader(self.zk.client_path(''))
         self.zk._base_path = self.zk._base_path = '/no_node'
-        self.zk._inner_load_cluster()
+        self.zk._cluster_loader(self.zk.client_path(''))
 
     def test_get_cluster(self):
-        self.assertRaises(ZooKeeperError, self.zk.get_cluster)
-        cluster = self.zk.get_cluster(True)
-        self.assertIsInstance(cluster.leader, Leader)
-        self.zk.touch_member({'foo': 'foo'})
-        self.zk._name = 'bar'
-        self.zk.status_watcher(None)
-        with patch.object(ZooKeeper, 'get_node', Mock(side_effect=Exception)):
-            self.zk.get_cluster()
         cluster = self.zk.get_cluster()
         self.assertEqual(cluster.last_lsn, 500)
 
+    def test__get_citus_cluster(self):
+        self.zk._citus_group = '0'
+        for _ in range(0, 2):
+            cluster = self.zk.get_cluster()
+            self.assertIsInstance(cluster, Cluster)
+            self.assertIsInstance(cluster.workers[1], Cluster)
+
+    @patch('patroni.dcs.zookeeper.logger.error')
+    @patch.object(ZooKeeper, '_cluster_loader', Mock(side_effect=Exception))
+    def test_get_citus_coordinator(self, mock_logger):
+        self.assertIsNone(self.zk.get_citus_coordinator())
+        mock_logger.assert_called_once()
+
     def test_delete_leader(self):
-        self.assertTrue(self.zk.delete_leader())
+        self.assertTrue(self.zk.delete_leader(self.zk.get_cluster().leader))
 
     def test_set_failover_value(self):
         self.zk.set_failover_value('')
@@ -199,6 +207,8 @@ class TestZooKeeper(unittest.TestCase):
 
     def test_cancel_initialization(self):
         self.zk.cancel_initialization()
+        with patch.object(MockKazooClient, 'delete', Mock()):
+            self.zk.cancel_initialization()
 
     def test_touch_member(self):
         self.zk._name = 'buzz'
@@ -213,8 +223,14 @@ class TestZooKeeper(unittest.TestCase):
         self.zk.touch_member({'retry': 'retry'})
         self.zk._fetch_cluster = True
         self.zk.get_cluster()
+        self.zk.touch_member({'retry': 'retry'})
         self.zk.touch_member({'conn_url': 'postgres://repuser:rep-pass@localhost:5434/postgres',
                               'api_url': 'http://127.0.0.1:8009/patroni'})
+
+    @patch.object(MockKazooClient, 'create', Mock(side_effect=[RetryFailedError, Exception]))
+    def test_attempt_to_acquire_leader(self):
+        self.assertRaises(ZooKeeperError, self.zk.attempt_to_acquire_leader)
+        self.assertFalse(self.zk.attempt_to_acquire_leader())
 
     def test_take_leader(self):
         self.zk.take_leader()
@@ -222,8 +238,17 @@ class TestZooKeeper(unittest.TestCase):
             self.zk.take_leader()
 
     def test_update_leader(self):
-        self.assertTrue(self.zk.update_leader(12345))
+        leader = self.zk.get_cluster().leader
+        self.assertFalse(self.zk.update_leader(leader, 12345))
+        with patch.object(MockKazooClient, 'delete', Mock(side_effect=RetryFailedError)):
+            self.assertRaises(ZooKeeperError, self.zk.update_leader, leader, 12345)
+        with patch.object(MockKazooClient, 'delete', Mock(side_effect=NoNodeError)):
+            self.assertTrue(self.zk.update_leader(leader, 12345, failsafe={'foo': 'bar'}))
+            with patch.object(MockKazooClient, 'create', Mock(side_effect=[RetryFailedError, Exception])):
+                self.assertRaises(ZooKeeperError, self.zk.update_leader, leader, 12345)
+                self.assertFalse(self.zk.update_leader(leader, 12345))
 
+    @patch.object(Cluster, 'min_version', PropertyMock(return_value=(2, 0)))
     def test_write_leader_optime(self):
         self.zk.last_lsn = '0'
         self.zk.write_leader_optime('1')
@@ -232,14 +257,16 @@ class TestZooKeeper(unittest.TestCase):
         with patch.object(MockKazooClient, 'set_async', Mock()):
             self.zk.write_leader_optime('2')
         self.zk._base_path = self.zk._base_path.replace('test', 'bla')
+        self.zk.get_cluster()
         self.zk.write_leader_optime('3')
 
     def test_delete_cluster(self):
         self.assertTrue(self.zk.delete_cluster())
 
     def test_watch(self):
+        self.zk.event.wait = Mock()
         self.zk.watch(None, 0)
-        self.zk.event.isSet = Mock(return_value=True)
+        self.zk.event.is_set = Mock(return_value=True)
         self.zk._fetch_status = False
         self.zk.watch(None, 0)
 
@@ -256,3 +283,7 @@ class TestZooKeeper(unittest.TestCase):
 
     def test_set_history_value(self):
         self.zk.set_history_value('{}')
+
+    def test_watcher(self):
+        self.zk._watcher(WatchedEvent('', '', ''))
+        self.assertTrue(self.zk.watch(1, 1))

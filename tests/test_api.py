@@ -1,17 +1,22 @@
 import datetime
 import json
-import psycopg2
 import unittest
 import socket
 
+from http.server import HTTPServer
+from io import BytesIO as IO
 from mock import Mock, PropertyMock, patch
+from socketserver import ThreadingMixIn
+
 from patroni.api import RestApiHandler, RestApiServer
+from patroni.config import GlobalConfig
 from patroni.dcs import ClusterConfig, Member
+from patroni.exceptions import PostgresConnectionException
 from patroni.ha import _MemberStatus
-from patroni.utils import tzutc
-from six import BytesIO as IO
-from six.moves import BaseHTTPServer
-from . import psycopg2_connect, MockCursor
+from patroni.psycopg import OperationalError
+from patroni.utils import RetryFailedError, tzutc
+
+from . import MockConnect, psycopg_connect
 from .test_ha import get_cluster_initialized_without_leader
 
 
@@ -19,23 +24,43 @@ future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)
 postmaster_start_time = datetime.datetime.now(tzutc)
 
 
-class MockPostgresql(object):
+class MockConnection:
 
+    @staticmethod
+    def get(*args):
+        return psycopg_connect()
+
+    @staticmethod
+    def query(sql, *params):
+        return [(postmaster_start_time, 0, '', 0, '', False, postmaster_start_time, 'streaming', None,
+                 '[{"application_name":"walreceiver","client_addr":"1.2.3.4",'
+                 + '"state":"streaming","sync_state":"async","sync_priority":0}]')]
+
+
+class MockConnectionPool:
+
+    @staticmethod
+    def get(*args):
+        return MockConnection()
+
+
+class MockPostgresql:
+
+    connection_pool = MockConnectionPool()
     name = 'test'
     state = 'running'
-    role = 'master'
-    server_version = '999999'
+    role = 'primary'
+    server_version = 90625
+    major_version = 90600
     sysid = 'dummysysid'
     scope = 'dummy'
     pending_restart = True
     wal_name = 'wal'
     lsn_name = 'lsn'
+    wal_flush = '_flush'
     POSTMASTER_START_TIME = 'pg_catalog.pg_postmaster_start_time()'
     TL_LSN = 'CASE WHEN pg_catalog.pg_is_in_recovery()'
-
-    @staticmethod
-    def connection():
-        return psycopg2_connect()
+    citus_handler = Mock()
 
     @staticmethod
     def postmaster_start_time():
@@ -44,6 +69,14 @@ class MockPostgresql(object):
     @staticmethod
     def replica_cached_timeline(_):
         return 2
+
+    @staticmethod
+    def is_running():
+        return True
+
+    @staticmethod
+    def replication_state_from_parameters(*args):
+        return 'streaming'
 
 
 class MockWatchdog(object):
@@ -54,7 +87,14 @@ class MockHa(object):
 
     state_handler = MockPostgresql()
     watchdog = MockWatchdog()
-    dcs_last_seen = 0
+
+    @staticmethod
+    def update_failsafe(*args):
+        return 'foo'
+
+    @staticmethod
+    def failsafe_is_active(*args):
+        return True
 
     @staticmethod
     def is_leader():
@@ -78,7 +118,7 @@ class MockHa(object):
 
     @staticmethod
     def fetch_nodes_statuses(members):
-        return [_MemberStatus(None, True, None, 0, 0, None, {}, False)]
+        return [_MemberStatus(None, True, None, 0, {})]
 
     @staticmethod
     def schedule_future_restart(data):
@@ -100,10 +140,6 @@ class MockHa(object):
     def is_paused():
         return True
 
-    @staticmethod
-    def is_standby_cluster():
-        return False
-
 
 class MockLogger(object):
 
@@ -112,10 +148,16 @@ class MockLogger(object):
     records_lost = 1
 
 
+class MockConfig(object):
+
+    def get_global_config(self, _):
+        return GlobalConfig({})
+
+
 class MockPatroni(object):
 
     ha = MockHa()
-    config = Mock()
+    config = MockConfig()
     postgresql = ha.state_handler
     dcs = Mock()
     logger = MockLogger()
@@ -127,6 +169,10 @@ class MockPatroni(object):
 
     @staticmethod
     def sighup_handler():
+        pass
+
+    @staticmethod
+    def api_sigterm():
         pass
 
 
@@ -157,73 +203,77 @@ class MockRestApiServer(RestApiServer):
 
 @patch('ssl.SSLContext.load_cert_chain', Mock())
 @patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
-@patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
+@patch.object(HTTPServer, '__init__', Mock())
 class TestRestApiHandler(unittest.TestCase):
 
     _authorization = '\nAuthorization: Basic dGVzdDp0ZXN0'
 
     def test_do_GET(self):
         MockPatroni.dcs.cluster.last_lsn = 20
-        MockRestApiServer(RestApiHandler, 'GET /replica')
+        MockPatroni.dcs.cluster.sync.members = [MockPostgresql.name]
+        with patch.object(GlobalConfig, 'is_synchronous_mode', PropertyMock(return_value=True)):
+            MockRestApiServer(RestApiHandler, 'GET /replica')
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M')
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=10MB')
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=10485760')
         MockRestApiServer(RestApiHandler, 'GET /read-only')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={})):
             MockRestApiServer(RestApiHandler, 'GET /replica')
-        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'primary'})):
             MockRestApiServer(RestApiHandler, 'GET /replica')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'state': 'running'})):
             MockRestApiServer(RestApiHandler, 'GET /health')
         MockRestApiServer(RestApiHandler, 'GET /leader')
-        MockPatroni.dcs.cluster.sync.members = [MockPostgresql.name]
-        MockPatroni.dcs.cluster.is_synchronous_mode = Mock(return_value=True)
-        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
+        with patch.object(RestApiHandler, 'get_postgresql_status',
+                          Mock(return_value={'role': 'replica', 'sync_standby': True})):
             MockRestApiServer(RestApiHandler, 'GET /synchronous')
+            MockRestApiServer(RestApiHandler, 'GET /read-only-sync')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
             MockPatroni.dcs.cluster.sync.members = []
             MockRestApiServer(RestApiHandler, 'GET /asynchronous')
         with patch.object(MockHa, 'is_leader', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /replica')
-            with patch.object(MockHa, 'is_standby_cluster', Mock(return_value=True)):
+            MockRestApiServer(RestApiHandler, 'GET /read-only-sync')
+            with patch.object(GlobalConfig, 'is_standby_cluster', Mock(return_value=True)):
                 MockRestApiServer(RestApiHandler, 'GET /standby_leader')
         MockPatroni.dcs.cluster = None
-        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
-            MockRestApiServer(RestApiHandler, 'GET /master')
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'primary'})):
+            MockRestApiServer(RestApiHandler, 'GET /primary')
         with patch.object(MockHa, 'restart_scheduled', Mock(return_value=True)):
-            MockRestApiServer(RestApiHandler, 'GET /master')
-        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /master'))
-        with patch.object(RestApiServer, 'query', Mock(return_value=[('', 1, '', '', '', '', False, '')])):
+            MockRestApiServer(RestApiHandler, 'GET /primary')
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /primary'))
+        with patch.object(RestApiServer, 'query', Mock(return_value=[('', 1, '', '', '', '', False, None, None, '')])):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
-        with patch.object(MockHa, 'is_standby_cluster', Mock(return_value=True)):
+        with patch.object(GlobalConfig, 'is_standby_cluster', Mock(return_value=True)), \
+                patch.object(GlobalConfig, 'is_paused', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /standby_leader')
 
         # test tags
         #
-        MockRestApiServer(RestApiHandler, 'GET /master?lag=1M&'
+        MockRestApiServer(RestApiHandler, 'GET /primary?lag=1M&'
                                           'tag_key1=true&tag_key2=false&'
                                           'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
-        MockRestApiServer(RestApiHandler, 'GET /master?lag=1M&'
+        MockRestApiServer(RestApiHandler, 'GET /primary?lag=1M&'
                                           'tag_key1=true&tag_key2=False&'
                                           'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
-        MockRestApiServer(RestApiHandler, 'GET /master?lag=1M&'
+        MockRestApiServer(RestApiHandler, 'GET /primary?lag=1M&'
                                           'tag_key1=true&tag_key2=false&'
                                           'tag_key3=1.0&tag_key4=1.4&tag_key5=RandomTag')
-        MockRestApiServer(RestApiHandler, 'GET /master?lag=1M&'
+        MockRestApiServer(RestApiHandler, 'GET /primary?lag=1M&'
                                           'tag_key1=true&tag_key2=false&'
                                           'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag&tag_key6=RandomTag2')
         #
-        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
-            MockRestApiServer(RestApiHandler, 'GET /master?lag=1M&'
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'primary'})):
+            MockRestApiServer(RestApiHandler, 'GET /primary?lag=1M&'
                                               'tag_key1=true&tag_key2=false&'
                                               'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
-            MockRestApiServer(RestApiHandler, 'GET /master?lag=1M&'
+            MockRestApiServer(RestApiHandler, 'GET /primary?lag=1M&'
                                               'tag_key1=true&tag_key2=False&'
                                               'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
-            MockRestApiServer(RestApiHandler, 'GET /master?lag=1M&'
+            MockRestApiServer(RestApiHandler, 'GET /primary?lag=1M&'
                                               'tag_key1=true&tag_key2=false&'
                                               'tag_key3=1.0&tag_key4=1.4&tag_key5=RandomTag')
-            MockRestApiServer(RestApiHandler, 'GET /master?lag=1M&'
+            MockRestApiServer(RestApiHandler, 'GET /primary?lag=1M&'
                                               'tag_key1=true&tag_key2=false&'
                                               'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag&tag_key6=RandomTag2')
         #
@@ -254,7 +304,7 @@ class TestRestApiHandler(unittest.TestCase):
                                           'tag_key1=true&tag_key2=false&'
                                           'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag&tag_key6=RandomTag2')
         #
-        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'master'})):
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'primary'})):
             MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M&'
                                               'tag_key1=true&tag_key2=false&'
                                               'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
@@ -284,7 +334,12 @@ class TestRestApiHandler(unittest.TestCase):
     def test_do_OPTIONS(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0'))
 
-    def test_do_GET_liveness(self):
+    def test_do_HEAD(self):
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'HEAD / HTTP/1.0'))
+
+    @patch.object(MockPatroni, 'dcs')
+    def test_do_GET_liveness(self, mock_dcs):
+        mock_dcs.ttl.return_value = PropertyMock(30)
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /liveness HTTP/1.0'))
 
     def test_do_GET_readiness(self):
@@ -355,13 +410,30 @@ class TestRestApiHandler(unittest.TestCase):
         mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, config)
         MockRestApiServer(RestApiHandler, request)
 
+    @patch.object(MockPatroni, 'dcs')
+    def test_do_GET_failsafe(self, mock_dcs):
+        type(mock_dcs).failsafe = PropertyMock(return_value={'node1': 'http://foo:8080/patroni'})
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /failsafe'))
+        type(mock_dcs).failsafe = PropertyMock(return_value=None)
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /failsafe'))
+
+    def test_do_POST_failsafe(self):
+        with patch.object(MockHa, 'is_failsafe_mode', Mock(return_value=False), create=True):
+            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /failsafe HTTP/1.0' + self._authorization))
+        with patch.object(MockHa, 'is_failsafe_mode', Mock(return_value=True), create=True):
+            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /failsafe HTTP/1.0' + self._authorization
+                                                   + '\nContent-Length: 9\n\n{"a":"b"}'))
+
     @patch.object(MockPatroni, 'sighup_handler', Mock())
     def test_do_POST_reload(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /reload HTTP/1.0' + self._authorization))
 
-    @patch.object(MockPatroni, 'dcs')
-    def test_do_POST_restart(self, mock_dcs):
-        mock_dcs.get_cluster.return_value.is_paused.return_value = False
+    @patch('os.environ', {'BEHAVE_DEBUG': 'true'})
+    @patch('os.name', 'nt')
+    def test_do_POST_sigterm(self):
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'POST /sigterm HTTP/1.0' + self._authorization))
+
+    def test_do_POST_restart(self):
         request = 'POST /restart HTTP/1.0' + self._authorization
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
 
@@ -384,31 +456,31 @@ class TestRestApiHandler(unittest.TestCase):
         request = make_request(schedule=future_restart_time.isoformat(), role='unknown', postgres_version='9.5.3')
         MockRestApiServer(RestApiHandler, request)
         # wrong version
-        request = make_request(schedule=future_restart_time.isoformat(), role='master', postgres_version='9.5.3.1')
+        request = make_request(schedule=future_restart_time.isoformat(), role='primary', postgres_version='9.5.3.1')
         MockRestApiServer(RestApiHandler, request)
         # unknown filter
         request = make_request(schedule=future_restart_time.isoformat(), batman='lives')
         MockRestApiServer(RestApiHandler, request)
         # incorrect schedule
-        request = make_request(schedule='2016-08-42 12:45TZ+1', role='master')
+        request = make_request(schedule='2016-08-42 12:45TZ+1', role='primary')
         MockRestApiServer(RestApiHandler, request)
         # everything fine, but the schedule is missing
-        request = make_request(role='master', postgres_version='9.5.2')
+        request = make_request(role='primary', postgres_version='9.5.2')
         MockRestApiServer(RestApiHandler, request)
         for retval in (True, False):
             with patch.object(MockHa, 'schedule_future_restart', Mock(return_value=retval)):
                 request = make_request(schedule=future_restart_time.isoformat())
                 MockRestApiServer(RestApiHandler, request)
             with patch.object(MockHa, 'restart', Mock(return_value=(retval, "foo"))):
-                request = make_request(role='master', postgres_version='9.5.2')
+                request = make_request(role='primary', postgres_version='9.5.2')
                 MockRestApiServer(RestApiHandler, request)
 
-        mock_dcs.get_cluster.return_value.is_paused.return_value = True
-        MockRestApiServer(RestApiHandler, make_request(schedule='2016-08-42 12:45TZ+1', role='master'))
-        # Valid timeout
-        MockRestApiServer(RestApiHandler, make_request(timeout='60s'))
-        # Invalid timeout
-        MockRestApiServer(RestApiHandler, make_request(timeout='42towels'))
+        with patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)):
+            MockRestApiServer(RestApiHandler, make_request(schedule='2016-08-42 12:45TZ+1', role='primary'))
+            # Valid timeout
+            MockRestApiServer(RestApiHandler, make_request(timeout='60s'))
+            # Invalid timeout
+            MockRestApiServer(RestApiHandler, make_request(timeout='42towels'))
 
     def test_do_DELETE_restart(self):
         for retval in (True, False):
@@ -425,10 +497,7 @@ class TestRestApiHandler(unittest.TestCase):
         mock_dcs.get_cluster.return_value.failover = None
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
 
-    @patch.object(MockPatroni, 'dcs')
-    def test_do_POST_reinitialize(self, mock_dcs):
-        cluster = mock_dcs.get_cluster.return_value
-        cluster.is_paused.return_value = False
+    def test_do_POST_reinitialize(self):
         request = 'POST /reinitialize HTTP/1.0' + self._authorization + '\nContent-Length: 15\n\n{"force": true}'
         MockRestApiServer(RestApiHandler, request)
         with patch.object(MockHa, 'reinitialize', Mock(return_value=None)):
@@ -436,9 +505,7 @@ class TestRestApiHandler(unittest.TestCase):
 
     @patch('time.sleep', Mock())
     def test_RestApiServer_query(self):
-        with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg2.OperationalError)):
-            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
-        with patch.object(MockPostgresql, 'connection', Mock(side_effect=psycopg2.OperationalError)):
+        with patch.object(MockConnection, 'query', Mock(side_effect=RetryFailedError('bla'))):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
 
     @patch('time.sleep', Mock())
@@ -446,89 +513,170 @@ class TestRestApiHandler(unittest.TestCase):
     def test_do_POST_switchover(self, dcs):
         dcs.loop_wait = 10
         cluster = dcs.get_cluster.return_value
-        cluster.is_synchronous_mode.return_value = False
-        cluster.is_paused.return_value = False
 
         post = 'POST /switchover HTTP/1.0' + self._authorization + '\nContent-Length: '
 
-        MockRestApiServer(RestApiHandler, post + '7\n\n{"1":2}')
+        # Invalid content
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, post + '7\n\n{"1":2}')
+            response_mock.assert_called_with(400, 'Switchover could be performed only from a specific leader')
 
+        # Empty content
         request = post + '0\n\n'
         MockRestApiServer(RestApiHandler, request)
 
-        cluster.leader.name = 'postgresql1'
-        MockRestApiServer(RestApiHandler, request)
+        # [Switchover without a candidate]
 
-        request = post + '25\n\n{"leader": "postgresql1"}'
-
-        cluster.is_paused.return_value = True
-        MockRestApiServer(RestApiHandler, request)
-
-        cluster.is_paused.return_value = False
-        for cluster.is_synchronous_mode.return_value in (True, False):
+        # Cluster with only a leader
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            cluster.leader.name = 'postgresql1'
+            request = post + '25\n\n{"leader": "postgresql1"}'
             MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(
+                412, 'switchover is not possible: cluster does not have members except leader')
 
-        cluster.leader.name = 'postgresql2'
-        request = post + '53\n\n{"leader": "postgresql1", "candidate": "postgresql2"}'
-        MockRestApiServer(RestApiHandler, request)
-
-        cluster.leader.name = 'postgresql1'
-        for cluster.is_synchronous_mode.return_value in (True, False):
+        # Switchover in pause mode
+        with patch.object(RestApiHandler, 'write_response') as response_mock, \
+             patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)):
             MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(
+                400, 'Switchover is possible only to a specific candidate in a paused state')
+
+        # No healthy nodes to promote in both sync and async mode
+        for is_synchronous_mode, response in (
+                (True, 'switchover is not possible: can not find sync_standby'),
+                (False, 'switchover is not possible: cluster does not have members except leader')):
+            with patch.object(GlobalConfig, 'is_synchronous_mode', PropertyMock(return_value=is_synchronous_mode)), \
+                 patch.object(RestApiHandler, 'write_response') as response_mock:
+                MockRestApiServer(RestApiHandler, request)
+                response_mock.assert_called_with(412, response)
+
+        # [Switchover to the candidate specified]
+
+        # Candidate to promote is the same as the leader specified
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            request = post + '53\n\n{"leader": "postgresql2", "candidate": "postgresql2"}'
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(400, 'Switchover target and source are the same')
+
+        # Current leader is different from the one specified
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            cluster.leader.name = 'postgresql2'
+            request = post + '53\n\n{"leader": "postgresql1", "candidate": "postgresql2"}'
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(412, 'leader name does not match')
+
+        # Candidate to promote is not a member of the cluster
+        cluster.leader.name = 'postgresql1'
+        cluster.sync.matches.return_value = False
+        for is_synchronous_mode, response in (
+                (True, 'candidate name does not match with sync_standby'), (False, 'candidate does not exists')):
+            with patch.object(GlobalConfig, 'is_synchronous_mode', PropertyMock(return_value=is_synchronous_mode)), \
+                 patch.object(RestApiHandler, 'write_response') as response_mock:
+                MockRestApiServer(RestApiHandler, request)
+                response_mock.assert_called_with(412, response)
 
         cluster.members = [Member(0, 'postgresql0', 30, {'api_url': 'http'}),
                            Member(0, 'postgresql2', 30, {'api_url': 'http'})]
-        MockRestApiServer(RestApiHandler, request)
 
-        cluster.failover = None
-        MockRestApiServer(RestApiHandler, request)
+        # Failover key is empty in DCS
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            cluster.failover = None
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(503, 'Switchover failed')
 
-        dcs.get_cluster.side_effect = [cluster]
-        MockRestApiServer(RestApiHandler, request)
+        # Result polling failed
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            dcs.get_cluster.side_effect = [cluster]
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(503, 'Switchover status unknown')
 
-        cluster2 = cluster.copy()
-        cluster2.leader.name = 'postgresql0'
-        cluster2.is_unlocked.return_value = False
-        dcs.get_cluster.side_effect = [cluster, cluster2]
-        MockRestApiServer(RestApiHandler, request)
+        # Switchover to a node different from the candidate specified
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            cluster2 = cluster.copy()
+            cluster2.leader.name = 'postgresql0'
+            cluster2.is_unlocked.return_value = False
+            dcs.get_cluster.side_effect = [cluster, cluster2]
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(200, 'Switched over to "postgresql0" instead of "postgresql2"')
 
-        cluster2.leader.name = 'postgresql2'
-        dcs.get_cluster.side_effect = [cluster, cluster2]
-        MockRestApiServer(RestApiHandler, request)
+        # Successful switchover to the candidate
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            cluster2.leader.name = 'postgresql2'
+            dcs.get_cluster.side_effect = [cluster, cluster2]
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(200, 'Successfully switched over to "postgresql2"')
 
-        dcs.get_cluster.side_effect = None
-        dcs.manual_failover.return_value = False
-        MockRestApiServer(RestApiHandler, request)
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            dcs.manual_failover.return_value = False
+            dcs.get_cluster.side_effect = None
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(503, 'failed to write failover key into DCS')
+
         dcs.manual_failover.return_value = True
 
-        with patch.object(MockHa, 'fetch_nodes_statuses', Mock(return_value=[])):
+        # Candidate is not healthy to be promoted
+        with patch.object(MockHa, 'fetch_nodes_statuses', Mock(return_value=[])), \
+             patch.object(RestApiHandler, 'write_response') as response_mock:
             MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(412, 'switchover is not possible: no good candidates have been found')
+
+        # [Scheduled switchover]
 
         # Valid future date
-        request = post + '103\n\n{"leader": "postgresql1", "member": "postgresql2",' +\
-                         ' "scheduled_at": "6016-02-15T18:13:30.568224+01:00"}'
-        MockRestApiServer(RestApiHandler, request)
-        with patch.object(MockPatroni, 'dcs') as d:
-            d.manual_failover.return_value = False
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            request = post + '103\n\n{"leader": "postgresql1", "member": "postgresql2",' + \
+                             ' "scheduled_at": "6016-02-15T18:13:30.568224+01:00"}'
             MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(202, 'Switchover scheduled')
 
-        # Exception: No timezone specified
-        request = post + '97\n\n{"leader": "postgresql1", "member": "postgresql2",' +\
-                         ' "scheduled_at": "6016-02-15T18:13:30.568224"}'
-        MockRestApiServer(RestApiHandler, request)
+        # Schedule in paused mode
+        with patch.object(RestApiHandler, 'write_response') as response_mock, \
+             patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)):
+            dcs.manual_failover.return_value = False
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(400, "Can't schedule switchover in the paused state")
 
-        # Exception: Scheduled in the past
+        # No timezone specified
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            request = post + '97\n\n{"leader": "postgresql1", "member": "postgresql2",' + \
+                             ' "scheduled_at": "6016-02-15T18:13:30.568224"}'
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(400, 'Timezone information is mandatory for the scheduled switchover')
+
         request = post + '103\n\n{"leader": "postgresql1", "member": "postgresql2", "scheduled_at": "'
-        MockRestApiServer(RestApiHandler, request + '1016-02-15T18:13:30.568224+01:00"}')
+
+        # Scheduled in the past
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, request + '1016-02-15T18:13:30.568224+01:00"}')
+            response_mock.assert_called_with(422, 'Cannot schedule switchover in the past')
 
         # Invalid date
-        self.assertIsNotNone(MockRestApiServer(RestApiHandler, request + '2010-02-29T18:13:30.568224+01:00"}'))
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, request + '2010-02-29T18:13:30.568224+01:00"}')
+            response_mock.assert_called_with(
+                422, 'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601')
 
-    @patch.object(MockPatroni, 'dcs', Mock())
     def test_do_POST_failover(self):
         post = 'POST /failover HTTP/1.0' + self._authorization + '\nContent-Length: '
+
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
+            response_mock.assert_called_once_with(400, 'Failover could be performed only to a specific candidate')
+
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, post + '37\n\n{"candidate":"2","scheduled_at": "1"}')
+            response_mock.assert_called_once_with(400, "Failover can't be scheduled")
+
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, post + '30\n\n{"leader":"1","candidate":"2"}')
+            response_mock.assert_called_once_with(412, 'leader name does not match')
+
+    @patch.object(MockHa, 'is_leader', Mock(return_value=True))
+    def test_do_POST_citus(self):
+        post = 'POST /citus HTTP/1.0' + self._authorization + '\nContent-Length: '
+        MockRestApiServer(RestApiHandler, post + '0\n\n')
         MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
-        MockRestApiServer(RestApiHandler, post + '37\n\n{"candidate":"2","scheduled_at": "1"}')
 
 
 class TestRestApiServer(unittest.TestCase):
@@ -536,20 +684,21 @@ class TestRestApiServer(unittest.TestCase):
     @patch('ssl.SSLContext.load_cert_chain', Mock())
     @patch('ssl.SSLContext.set_ciphers', Mock())
     @patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
-    @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
+    @patch.object(HTTPServer, '__init__', Mock())
     def setUp(self):
         self.srv = MockRestApiServer(Mock(), '', {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required',
                                                   'ciphers': '!SSLv1:!SSLv2:!SSLv3:!TLSv1:!TLSv1.1',
                                                   'allowlist': ['127.0.0.1', '::1/128', '::1/zxc'],
                                                   'allowlist_include_members': True})
 
-    @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock())
+    @patch.object(HTTPServer, '__init__', Mock())
     def test_reload_config(self):
         bad_config = {'listen': 'foo'}
         self.assertRaises(ValueError, MockRestApiServer, None, '', bad_config)
         self.assertRaises(ValueError, self.srv.reload_config, bad_config)
         self.assertRaises(ValueError, self.srv.reload_config, {})
-        with patch.object(socket.socket, 'setsockopt', Mock(side_effect=socket.error)):
+        with patch.object(socket.socket, 'setsockopt', Mock(side_effect=socket.error)), \
+                patch.object(MockRestApiServer, 'server_close', Mock()):
             self.srv.reload_config({'listen': ':8008'})
 
     @patch.object(MockPatroni, 'dcs')
@@ -568,39 +717,46 @@ class TestRestApiServer(unittest.TestCase):
         try:
             raise Exception()
         except Exception:
-            self.assertIsNone(MockRestApiServer.handle_error(None, ('127.0.0.1', 55555)))
+            self.assertIsNone(self.srv.handle_error(None, ('127.0.0.1', 55555)))
 
-    @patch.object(BaseHTTPServer.HTTPServer, '__init__', Mock(side_effect=socket.error))
+    @patch.object(HTTPServer, '__init__', Mock(side_effect=socket.error))
     def test_socket_error(self):
         self.assertRaises(socket.error, MockRestApiServer, Mock(), '', {'listen': '*:8008'})
 
-    @patch.object(MockRestApiServer, 'finish_request', Mock())
-    def test_process_request_thread(self):
-        mock_socket = Mock()
-        self.srv.process_request_thread((mock_socket, 1), '2')
-        mock_socket.context.wrap_socket.side_effect = socket.error
-        self.srv.process_request_thread((mock_socket, 1), '2')
+    def __create_socket(self):
+        sock = socket.socket()
+        try:
+            import ssl
+            ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+            ctx.check_hostname = False
+            sock = ctx.wrap_socket(sock=sock)
+            sock.do_handshake = Mock()
+            sock.unwrap = Mock(side_effect=Exception)
+        except Exception:
+            pass
+        return sock
 
-    @patch.object(socket.socket, 'accept')
-    def test_get_request(self, mock_accept):
-        newsock = Mock()
-        mock_accept.return_value = (newsock, '2')
-        self.srv.socket = Mock()
-        self.assertEqual(self.srv.get_request(), ((self.srv.socket, newsock), '2'))
+    @patch.object(ThreadingMixIn, 'process_request_thread', Mock())
+    def test_process_request_thread(self):
+        self.srv.process_request_thread(self.__create_socket(), ('2', 54321))
 
     @patch.object(MockRestApiServer, 'process_request', Mock(side_effect=RuntimeError))
-    def test_process_request_error(self):
-        mock_address = ('127.0.0.1', 55555)
-        mock_socket = Mock()
-        mock_ssl_socket = (Mock(), Mock())
-        for mock_request in (mock_socket, mock_ssl_socket):
-            with patch.object(
-                MockRestApiServer,
-                'get_request',
-                Mock(return_value=(mock_request, mock_address))
-            ):
-                self.srv._handle_request_noblock()
+    @patch.object(MockRestApiServer, 'get_request')
+    def test_process_request_error(self, mock_get_request):
+        mock_get_request.return_value = (self.__create_socket(), ('127.0.0.1', 55555))
+        self.srv._handle_request_noblock()
 
     @patch('ssl._ssl._test_decode_cert', Mock())
     def test_reload_local_certificate(self):
         self.assertTrue(self.srv.reload_local_certificate())
+
+    def test_get_certificate_serial_number(self):
+        self.assertIsNone(self.srv.get_certificate_serial_number())
+
+    def test_query(self):
+        with patch.object(MockConnection, 'get', Mock(side_effect=OperationalError)):
+            self.assertRaises(PostgresConnectionException, self.srv.query, 'SELECT 1')
+        with patch.object(MockConnection, 'get', Mock(side_effect=[MockConnect(), OperationalError])), \
+                patch.object(MockConnection, 'query') as mock_query:
+            self.srv.query('SELECT 1')
+            mock_query.assert_called_once_with('SELECT 1')

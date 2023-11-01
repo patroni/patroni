@@ -8,7 +8,7 @@ def hiddenimports():
     sys.path.insert(0, '.')
     try:
         import patroni.dcs
-        return patroni.dcs.dcs_modules()
+        return patroni.dcs.dcs_modules() + ['http.server']
     finally:
         sys.path.pop(0)
 
@@ -16,7 +16,10 @@ def hiddenimports():
 a = Analysis(['patroni/__main__.py'],
              pathex=[],
              binaries=None,
-             datas=None,
+             datas=[
+                ('patroni/postgresql/available_parameters/*.yml', 'patroni/postgresql/available_parameters'),
+                ('patroni/postgresql/available_parameters/*.yaml', 'patroni/postgresql/available_parameters'),
+            ],
              hiddenimports=hiddenimports(),
              hookspath=[],
              runtime_hooks=[],

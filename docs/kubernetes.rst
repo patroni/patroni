@@ -23,10 +23,7 @@ Use ConfigMaps
 In this mode, Patroni will create ConfigMaps instead of Endpoints and store keys inside meta-data of those ConfigMaps.
 Changing the leader takes at least two updates, one to the leader ConfigMap and another to the respective Endpoint.
 
-There are two ways to direct the traffic to the Postgres master:
-
-- use the `callback script <https://github.com/zalando/patroni/blob/master/kubernetes/callback.py>`_ provided by Patroni
-- configure the Kubernetes Postgres service to use the label selector with the `role_label` (configured in patroni configuration).
+To direct the traffic to the Postgres leader you need to configure the Kubernetes Postgres service to use the label selector with the `role_label` (configured in patroni configuration).
 
 Note that in some cases, for instance, when running on OpenShift, there is no alternative to using ConfigMaps.
 
@@ -35,11 +32,63 @@ Configuration
 
 Patroni Kubernetes :ref:`settings <kubernetes_settings>` and :ref:`environment variables <kubernetes_environment>` are described in the general chapters of the documentation.
 
+.. _kubernetes_role_values:
+
+Customize role label
+^^^^^^^^^^^^^^^^^^^^
+
+By default, Patroni will set corresponding labels on the pod it runs in based on node's role, such as ``role=master``.
+The key and value of label can be customized by `kubernetes.role_label`, `kubernetes.leader_label_value`, `kubernetes.follower_label_value` and `kubernetes.standby_leader_label_value`.
+
+Note that if you migrate from default role labels to custom ones, you can reduce downtime by following migration steps:
+
+1. Add a temporary label using original role value for the pod with `kubernetes.tmp_role_label` (like ``tmp_role``). Once pods are restarted they will get following labels set by Patroni:
+
+  .. code:: YAML
+
+    labels:
+      cluster-name: foo
+      role: master
+      tmp_role: master
+
+2. After all pods have been updated, modify the service selector to select the temporary label.
+
+  .. code:: YAML
+
+    selector:
+      cluster-name: foo
+      tmp_role: master
+
+3. Add your custom role label (e.g., set `kubernetes.leader_label_value=primary`). Once pods are restarted they will get following new labels set by Patroni:
+
+  .. code:: YAML
+
+    labels:
+      cluster-name: foo
+      role: primary
+      tmp_role: master
+
+4. After all pods have been updated again, modify the service selector to use new role value.
+
+  .. code:: YAML
+
+    selector:
+      cluster-name: foo
+      role: primary
+
+5. Finally, remove the temporary label from your configuration and update all pods.
+
+  .. code:: YAML
+
+    labels:
+      cluster-name: foo
+      role: primary
+
 Examples
 --------
 
 - The `kubernetes <https://github.com/zalando/patroni/tree/master/kubernetes>`__ folder of the Patroni repository contains
-  examples of the Docker image, the Kubernetes manifest and the callback script in order to test Patroni Kubernetes setup.
+  examples of the Docker image, and the Kubernetes manifest to test Patroni Kubernetes setup.
   Note that in the current state it will not be able to use PersistentVolumes because of permission issues.
 
 - You can find the full-featured Docker image that can use Persistent Volumes in the

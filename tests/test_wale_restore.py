@@ -1,14 +1,14 @@
-import psycopg2
 import subprocess
 import unittest
+
+import patroni.psycopg as psycopg
 
 from mock import Mock, PropertyMock, patch, mock_open
 from patroni.scripts import wale_restore
 from patroni.scripts.wale_restore import WALERestore, main as _main, get_major_version
-from six.moves import builtins
 from threading import current_thread
 
-from . import MockConnect, psycopg2_connect
+from . import MockConnect, psycopg_connect
 
 wale_output_header = (
     b'name\tlast_modified\t'
@@ -34,7 +34,7 @@ WALE_TEST_RETRIES = 2
 @patch('os.makedirs', Mock(return_value=True))
 @patch('os.path.exists', Mock(return_value=True))
 @patch('os.path.isdir', Mock(return_value=True))
-@patch('psycopg2.connect', psycopg2_connect)
+@patch('patroni.psycopg.connect', psycopg_connect)
 @patch('subprocess.check_output', Mock(return_value=wale_output))
 class TestWALERestore(unittest.TestCase):
 
@@ -57,23 +57,23 @@ class TestWALERestore(unittest.TestCase):
         with patch('subprocess.check_output', Mock(return_value=wale_output.replace(b'167772160', b'1'))):
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
 
-        with patch('psycopg2.connect', Mock(side_effect=psycopg2.Error("foo"))):
-            save_no_master = self.wale_restore.no_master
-            save_master_connection = self.wale_restore.master_connection
+        with patch('patroni.psycopg.connect', Mock(side_effect=psycopg.Error("foo"))):
+            save_no_leader = self.wale_restore.no_leader
+            save_leader_connection = self.wale_restore.leader_connection
 
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
 
             with patch('time.sleep', mock_sleep):
-                self.wale_restore.no_master = 1
+                self.wale_restore.no_leader = 1
                 self.assertTrue(self.wale_restore.should_use_s3_to_create_replica())
                 # verify retries
                 self.assertEqual(sleeps[0], WALE_TEST_RETRIES)
 
-            self.wale_restore.master_connection = ''
+            self.wale_restore.leader_connection = ''
             self.assertTrue(self.wale_restore.should_use_s3_to_create_replica())
 
-            self.wale_restore.no_master = save_no_master
-            self.wale_restore.master_connection = save_master_connection
+            self.wale_restore.no_leader = save_no_leader
+            self.wale_restore.leader_connection = save_leader_connection
 
         with patch('subprocess.check_output', Mock(side_effect=subprocess.CalledProcessError(1, "cmd", "foo"))):
             self.assertFalse(self.wale_restore.should_use_s3_to_create_replica())
@@ -123,13 +123,13 @@ class TestWALERestore(unittest.TestCase):
         with patch.object(WALERestore, 'run', Mock(return_value=1)), \
                 patch('time.sleep', mock_sleep):
             self.assertEqual(_main(), 1)
-            self.assertTrue(sleeps[0], WALE_TEST_RETRIES)
+            self.assertEqual(sleeps[0], WALE_TEST_RETRIES)
 
     @patch('os.path.isfile', Mock(return_value=True))
     def test_get_major_version(self):
-        with patch.object(builtins, 'open', mock_open(read_data='9.4')):
+        with patch('builtins.open', mock_open(read_data='9.4')):
             self.assertEqual(get_major_version("data"), 9.4)
-        with patch.object(builtins, 'open', side_effect=OSError):
+        with patch('builtins.open', side_effect=OSError):
             self.assertEqual(get_major_version("data"), 0.0)
 
     @patch('os.path.islink', Mock(return_value=True))

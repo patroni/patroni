@@ -43,16 +43,31 @@ in the configuration files, Patroni supplies two cluster-specific ones:
 
 Passing these two additional flags can be disabled by setting a special ``no_params`` parameter to ``True``.
 
-If the bootstrap script returns 0, Patroni tries to configure and start the PostgreSQL instance produced by it. If any
+If the bootstrap script returns ``0``, Patroni tries to configure and start the PostgreSQL instance produced by it. If any
 of the intermediate steps fail, or the script returns a non-zero value, Patroni assumes that the bootstrap has failed,
 cleans up after itself and releases the initialize lock to give another node the opportunity to bootstrap.
 
 If a ``recovery_conf`` block is defined in the same section as the custom bootstrap method, Patroni will generate a
-``recovery.conf`` before starting the newly bootstrapped instance. Typically, such recovery.conf should contain at least
-one of the ``recovery_target_*`` parameters, together with the ``recovery_target_timeline`` set to ``promote``.
+``recovery.conf`` before starting the newly bootstrapped instance (or set the recovery settings on Postgres configuration if
+running PostgreSQL >= 12).
+Typically, such recovery configuration should contain at least one of the ``recovery_target_*`` parameters, together with the ``recovery_target_timeline`` set to ``promote``.
 
-If ``keep_existing_recovery_conf`` is defined and set to ``True``, Patroni will not remove the existing ``recovery.conf`` file if it exists.
-This is useful when bootstrapping from a backup with tools like pgBackRest that generate the appropriate ``recovery.conf`` for you.
+If ``keep_existing_recovery_conf`` is defined and set to ``True``, Patroni will not remove the existing ``recovery.conf`` file if it exists (PostgreSQL <= 11).
+Similarly, in that case Patroni will not remove the existing ``recovery.signal`` or ``standby.signal`` if either exists, nor will it override the configured recovery settings (PostgreSQL >= 12).
+This is useful when bootstrapping from a backup with tools like pgBackRest that generate the appropriate recovery configuration for you.
+
+Besides that, any additional key/value pairs informed in the custom bootstrap method configuration will be passed as arguments to ``command`` in the format ``--name=value``. For example:
+
+.. code:: YAML
+
+    bootstrap:
+        method: <custom_bootstrap_method_name>
+        <custom_bootstrap_method_name>:
+            command: <path_to_custom_bootstrap_script>
+            arg1: value1
+            arg2: value2
+
+Makes the configured ``command`` to be called additionally with ``--arg1=value1 --arg2=value2`` command-line arguments.
 
  .. note:: Bootstrap methods are neither chained, nor fallen-back to the default one in case the primary one fails
 
@@ -63,7 +78,7 @@ Building replicas
 -----------------
 
 Patroni uses tried and proven ``pg_basebackup`` in order to create new replicas. One downside of it is that it requires
-a running master node. Another one is the lack of 'on-the-fly' compression for the backup data and no built-in cleanup
+a running leader node. Another one is the lack of 'on-the-fly' compression for the backup data and no built-in cleanup
 for outdated backup files. Some people prefer other backup solutions, such as ``WAL-E``, ``pgBackRest``, ``Barman`` and
 others, or simply roll their own scripts. In order to accommodate all those use-cases Patroni supports running custom
 scripts to clone a new replica. Those are configured in the ``postgresql`` configuration block:
@@ -77,7 +92,7 @@ scripts to clone a new replica. Those are configured in the ``postgresql`` confi
             command: <command name>
             keep_data: True
             no_params: True
-            no_master: 1
+            no_leader: 1
 
 example: wal_e
 
@@ -89,7 +104,7 @@ example: wal_e
             - basebackup
         wal_e:
             command: patroni_wale_restore
-            no_master: 1
+            no_leader: 1
             envdir: {{WALE_ENV_DIR}}
             use_iam: 1
         basebackup:
@@ -123,11 +138,11 @@ to execute and any custom parameters that should be passed to that command. All 
 --role
     Always 'replica'
 --connstring
-    Connection string to connect to the cluster member to clone from (master or other replica). The user in the
+    Connection string to connect to the cluster member to clone from (primary or other replica). The user in the
     connection string can execute SQL and replication protocol commands.
 
-A special ``no_master`` parameter, if defined, allows Patroni to call the replica creation method even if there is no
-running master or replicas. In that case, an empty string will be passed in a connection string. This is useful for
+A special ``no_leader`` parameter, if defined, allows Patroni to call the replica creation method even if there is no
+running leader or replicas. In that case, an empty string will be passed in a connection string. This is useful for
 restoring the formerly running cluster from the binary backup.
 
 A special ``keep_data`` parameter, if defined, will instruct Patroni to  not clean PGDATA folder before calling restore.
@@ -137,7 +152,7 @@ A special ``no_params`` parameter, if defined, restricts passing parameters to c
 A ``basebackup`` method is a special case: it will be used if
 ``create_replica_methods`` is empty, although it is possible
 to list it explicitly among the ``create_replica_methods`` methods. This method initializes a new replica with the
-``pg_basebackup``, the base backup is taken from the master unless there are replicas with ``clonefrom`` tag, in which case one
+``pg_basebackup``, the base backup is taken from the leader unless there are replicas with ``clonefrom`` tag, in which case one
 of such replicas will be used as the origin for pg_basebackup. It works without any configuration; however, it is
 possible to specify a ``basebackup`` configuration section. Same rules as with the other method configuration apply,
 namely, only long (with --) options should be specified there. Not all parameters make sense, if you override a connection
@@ -176,16 +191,23 @@ Standby cluster
 ---------------
 
 Another available option is to run a "standby cluster", that contains only of
-standby nodes replicating from some remote master. This type of clusters has:
+standby nodes replicating from some remote node. This type of clusters has:
 
 * "standby leader", that behaves pretty much like a regular cluster leader,
-  except it replicates from a remote master.
+  except it replicates from a remote node.
 
 * cascade replicas, that are replicating from standby leader.
 
 Standby leader holds and updates a leader lock in DCS. If the leader lock
 expires, cascade replicas will perform an election to choose another leader
 from the standbys.
+
+There is no further relationship between the standby cluster and the primary
+cluster it replicates from, in particular, they must not share the same DCS
+scope if they use the same DCS. They do not know anything else from each other
+apart from replication information. Also, the standby cluster is not being
+displayed in :ref:`patronictl_list` or :ref:`patronictl_topology` output on the
+primary cluster.
 
 For the sake of flexibility, you can specify methods of creating a replica and
 recovery WAL records when a cluster is in the "standby mode" by providing
@@ -211,5 +233,10 @@ in a patroni configuration:
 
 Note, that these options will be applied only once during cluster bootstrap,
 and the only way to change them afterwards is through DCS.
+
+Patroni expects to find `postgresql.conf` or `postgresql.conf.backup` in PGDATA
+of the remote primary and will not start if it does not find it after a
+basebackup. If the remote primary keeps its `postgresql.conf` elsewhere, it is
+your responsibility to copy it to PGDATA.
 
 If you use replication slots on the standby cluster, you must also create the corresponding replication slot on the primary cluster.  It will not be done automatically by the standby cluster implementation.  You can use Patroni's permanent replication slots feature on the primary cluster to maintain a replication slot with the same name as ``primary_slot_name``, or its default value if ``primary_slot_name`` is not provided.
