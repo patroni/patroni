@@ -1118,8 +1118,11 @@ def is_cluster_healthy(patroni, cluster):
             logger.warning('cluster is not healthy: replication lag in member %s', m.name)
             return 500
         follower_roles = ("replica", "sync_standby")
-        if m.data.get('role', '') not in follower_roles or m.data.get('state', '') != 'running':
-            logger.warning('cluster is not healthy: member %s does not have follower role or is not in state running', m.name)
+        # replication_state 'in archive recovery' is considered ok as we
+        # checked the lag earlier
+        follower_replication_states = ("streaming", "in archive recovery")
+        if m.data.get('role', '') not in follower_roles or m.data.get('replication_state', '') not in follower_replication_states:
+            logger.warning('cluster is not healthy: member %s does not have follower role or is not replicating', m.name)
             return 500
     logger.debug('cluster is healthy')
     return 200
