@@ -2241,9 +2241,22 @@ def history(obj: Dict[str, Any], cluster_name: str, group: Optional[int], fmt: s
 
 @ctl.command('cluster-health', help="Show the overall health of the cluster")
 @arg_cluster_name
+@option_default_citus_group
 @click.pass_obj
-def cluster_health(obj, cluster_name):
-    cluster = get_dcs(obj, cluster_name).get_cluster()
+def cluster_health(obj: Dict[str, Any], cluster_name: str, group: Optional[int]):
+    """Process ``cluster-health`` command of ``patronictl`` utility.
+
+    Assess the overall health of the cluster.
+
+    A cluster is considered healthy if all standbys are in state streaming
+    and have a smaller lag than ``maximum_lag_on_failover``. If this is not
+    the case, the exit status is other than 0.
+
+    :param obj: Patroni configuration.
+    :param cluster_name: name of the Patroni cluster.
+    :param group: filter which Citus group we should get events from. Refer to the module note for more details.
+    """
+    cluster = get_dcs(obj, cluster_name, group).get_cluster()
     if cluster.leader:
         member = cluster.leader.member
         try:
