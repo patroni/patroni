@@ -426,6 +426,7 @@ Cluster status endpoints
       ]
     ]
 
+.. _config_endpoint:
 
 Config endpoint
 ---------------
@@ -666,6 +667,7 @@ There are a couple of checks that a member of a cluster should pass to be able t
 	- its lag exceeds the maximum replication lag allowed;
 	- it has the timeline number smaller than the last known cluster timeline.
 
+.. _restart_endpoint:
 
 Restart endpoint
 ----------------
@@ -682,6 +684,7 @@ Restart endpoint
 
 ``POST /restart`` and ``DELETE /restart`` endpoints are used by :ref:`patronictl_restart` and :ref:`patronictl flush cluster-name restart <patronictl_flush_parameters>` respectively.
 
+.. _reload_endpoint:
 
 Reload endpoint
 ---------------
