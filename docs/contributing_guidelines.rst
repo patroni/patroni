@@ -3,10 +3,14 @@
 Contributing guidelines
 =======================
 
+.. _chatting:
+
 Chatting
 --------
 
 If you have a question, looking for an interactive troubleshooting help or want to chat with other Patroni users, join us on channel `#patroni <https://postgresteam.slack.com/archives/C9XPYG92A>`__ in the `PostgreSQL Slack <https://pgtreats.info/slack-invite>`__.
+
+.. _reporting_bugs:
 
 Reporting bugs
 --------------

@@ -30,6 +30,7 @@ There are 3 types of Patroni configuration:
 	It is possible to set/override some of the "Local" configuration parameters with environment variables.
 	Environment configuration is very useful when you are running in a dynamic environment and you don't know some of the parameters in advance (for example it's not possible to know your external IP address when you are running inside ``docker``).
 
+.. _important_configuration_rules:
 
 Important rules
 ---------------
@@ -90,6 +91,7 @@ The parameters would be applied in the following order (run-time are given the h
 
 This allows configuration for all the nodes (2), configuration for a specific node using ``ALTER SYSTEM`` (3) and ensures that parameters essential to the running of Patroni are enforced (4), as well as leaves room for configuration tools that manage `postgresql.conf` directly without involving Patroni (1).
 
+.. _shared_memory_gucs:
 
 PostgreSQL parameters that touch shared memory
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -156,6 +158,7 @@ Patroni provides command-line interfaces for a Patroni :ref:`local configuration
 - Create a Patroni configuration file for the locally running PostgreSQL instance (e.g. as a preparation step for the :ref:`Patroni integration <existing_data>`);
 - Validate a given Patroni configuration file.
 
+.. _generate_sample_config:
 
 Sample Patroni configuration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -183,6 +186,7 @@ Parameters
 
 ``configfile`` - full path to the configuration file used to store the result. If not provided, the result is sent to ``stdout``.
 
+.. _generate_config:
 
 Patroni configuration for a running instance
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
