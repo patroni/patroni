@@ -10,7 +10,6 @@
 :var WHITESPACE_RE: regular expression to match whitespace characters
 """
 import errno
-import json.decoder as json_decoder
 import json
 import logging
 import os
@@ -1093,7 +1092,7 @@ def is_cluster_healthy(patroni, cluster):
                    and m.data.get('tags', {}).get('replicatefrom') != leader_name):
                     cascading_replication_members += 1
             replication_members = len(cluster.members) - cascading_replication_members
-            if not 'replication' in data or len(data['replication']) + 1 != replication_members:
+            if 'replication' not in data or len(data['replication']) + 1 != replication_members:
                 logger.warning('cluster is not healthy: not all members take part in replication')
                 return 500
     if cluster.config:
@@ -1104,7 +1103,7 @@ def is_cluster_healthy(patroni, cluster):
         if m.data.get('timeline', '') != leader_tl:
             logger.warning('cluster is not healthy: timeline mismatch in member %s', m.name)
             return 500
-        if 'tags' in m.data and 'nofailover' in m.data.get('tags'):#, {}).items():
+        if 'tags' in m.data and 'nofailover' in m.data.get('tags'):
             nofailover = True
         lsn = m.data.get('xlog_location')
         if lsn is None:
@@ -1121,8 +1120,10 @@ def is_cluster_healthy(patroni, cluster):
         # replication_state 'in archive recovery' is considered ok as we
         # checked the lag earlier
         follower_replication_states = ("streaming", "in archive recovery")
-        if m.data.get('role', '') not in follower_roles or m.data.get('replication_state', '') not in follower_replication_states:
-            logger.warning('cluster is not healthy: member %s does not have follower role or is not replicating', m.name)
+        if (m.data.get('role', '') not in follower_roles
+                or m.data.get('replication_state', '') not in follower_replication_states):
+            logger.warning('cluster is not healthy: member %s does not have follower role or is not replicating',
+                           m.name)
             return 500
     logger.debug('cluster is healthy')
     return 200
