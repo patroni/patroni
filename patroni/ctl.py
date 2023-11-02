@@ -2144,7 +2144,7 @@ def edit_config(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
         return
 
     if force or click.confirm('Apply these changes?'):
-        if not dcs.set_config_value(json.dumps(changed_data), cluster.config.version):
+        if not dcs.set_config_value(json.dumps(changed_data, separators=(',', ':')), cluster.config.version):
             raise PatroniCtlException("Config modification aborted due to concurrent changes")
         click.echo("Configuration changed")
 
