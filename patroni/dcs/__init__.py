@@ -21,6 +21,7 @@ from urllib.parse import urlparse, urlunparse, parse_qsl
 
 import dateutil.parser
 
+from .. import global_config
 from ..exceptions import PatroniFatalException
 from ..utils import deep_compare, uri
 from ..tags import Tags
@@ -590,14 +591,6 @@ class ClusterConfig(NamedTuple):
             modify_version = 0
         return ClusterConfig(version, data, version if modify_version is None else modify_version)
 
-    @property
-    def permanent_slots(self) -> Dict[str, Any]:
-        """Dictionary of permanent slots information looked up from :attr:`~ClusterConfig.data`."""
-        return (self.data.get('permanent_replication_slots')
-                or self.data.get('permanent_slots')
-                or self.data.get('slots')
-                or {})
-
 
 class SyncState(NamedTuple):
     """Immutable object (namedtuple) which represents last observed synchronous replication state.
@@ -986,7 +979,7 @@ class Cluster(NamedTuple('Cluster',
     @property
     def __permanent_slots(self) -> Dict[str, Union[Dict[str, Any], Any]]:
         """Dictionary of permanent replication slots with their known LSN."""
-        ret: Dict[str, Union[Dict[str, Any], Any]] = deepcopy(self.config.permanent_slots if self.config else {})
+        ret: Dict[str, Union[Dict[str, Any], Any]] = deepcopy(global_config.permanent_slots)
 
         members: Dict[str, int] = {slot_name_from_member_name(m.name): m.lsn or 0 for m in self.members}
         slots: Dict[str, int] = {k: parse_int(v) or 0 for k, v in (self.slots or {}).items()}
@@ -1014,11 +1007,6 @@ class Cluster(NamedTuple('Cluster',
     def __permanent_logical_slots(self) -> Dict[str, Any]:
         """Dictionary of permanent ``logical`` replication slots."""
         return {name: value for name, value in self.__permanent_slots.items() if self.is_logical_slot(value)}
-
-    @property
-    def use_slots(self) -> bool:
-        """``True`` if cluster is configured to use replication slots."""
-        return bool(self.config and (self.config.data.get('postgresql') or {}).get('use_slots', True))
 
     def get_replication_slots(self, my_name: str, role: str, nofailover: bool, major_version: int, *,
                               is_standby_cluster: bool = False, show_error: bool = False) -> Dict[str, Dict[str, Any]]:
@@ -1121,7 +1109,7 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: dictionary of permanent slot names mapped to attributes.
         """
-        if not self.use_slots or nofailover:
+        if not global_config.use_slots or nofailover:
             return {}
 
         if is_standby_cluster:
@@ -1150,7 +1138,7 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: dictionary of physical replication slots that should exist on a given node.
         """
-        if not self.use_slots:
+        if not global_config.use_slots:
             return {}
 
         # we always want to exclude the member with our name from the list
@@ -1245,7 +1233,7 @@ class Cluster(NamedTuple('Cluster',
         if self._has_permanent_logical_slots(my_name, nofailover):
             return True
 
-        if self.use_slots:
+        if global_config.use_slots:
             members = [m for m in self.members if m.replicatefrom == my_name and m.name != self.leader_name]
             return any(self.should_enforce_hot_standby_feedback(m.name, m.nofailover) for m in members)
         return False

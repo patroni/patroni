@@ -596,7 +596,7 @@ class ConfigHandler(object):
         is_remote_member = isinstance(member, RemoteMember)
         primary_conninfo = self.primary_conninfo_params(member)
         if primary_conninfo:
-            use_slots = self.get('use_slots', True) and self._postgresql.major_version >= 90400
+            use_slots = global_config.use_slots and self._postgresql.major_version >= 90400
             if use_slots and not (is_remote_member and member.no_replication_slot):
                 primary_slot_name = member.primary_slot_name if is_remote_member else self._postgresql.name
                 recovery_params['primary_slot_name'] = slot_name_from_member_name(primary_slot_name)

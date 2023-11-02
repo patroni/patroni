@@ -8,10 +8,12 @@ import sys
 import types
 
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
-from .dcs import Cluster
 from .utils import parse_bool, parse_int
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .dcs import Cluster
 
 
 def __getattr__(mod: types.ModuleType, name: str) -> Any:
@@ -33,7 +35,7 @@ class GlobalConfig(types.ModuleType):
         self.__config = {}
 
     @staticmethod
-    def _cluster_has_valid_config(cluster: Optional[Cluster]) -> bool:
+    def _cluster_has_valid_config(cluster: Optional['Cluster']) -> bool:
         """Check if provided *cluster* object has a valid global configuration.
 
         :param cluster: the currently known cluster state from DCS.
@@ -42,7 +44,7 @@ class GlobalConfig(types.ModuleType):
         """
         return bool(cluster and cluster.config and cluster.config.modify_version)
 
-    def update(self, cluster: Optional[Cluster]) -> None:
+    def update(self, cluster: Optional['Cluster']) -> None:
         """Update with the new global configuration from the :class:`Cluster` object view.
 
         .. note::
@@ -56,7 +58,7 @@ class GlobalConfig(types.ModuleType):
         if self._cluster_has_valid_config(cluster):
             self.__config = cluster.config.data  # pyright: ignore [reportOptionalMemberAccess]
 
-    def from_cluster(self, cluster: Optional[Cluster]) -> 'GlobalConfig':
+    def from_cluster(self, cluster: Optional['Cluster']) -> 'GlobalConfig':
         """Return :class:`GlobalConfig` instance from the provided :class:`Cluster` object view.
 
         .. note::
@@ -207,6 +209,16 @@ class GlobalConfig(types.ModuleType):
         Assume ``0`` if not set or invalid.
         """
         return self.get_int('max_timelines_history', 0)
+
+    @property
+    def use_slots(self) -> bool:
+        """``True`` if cluster is configured to use replication slots."""
+        return bool(parse_bool((self.get('postgresql') or {}).get('use_slots', True)))
+
+    @property
+    def permanent_slots(self) -> Dict[str, Any]:
+        """Dictionary of permanent slots information from the global configuration."""
+        return (self.get('permanent_replication_slots') or self.get('permanent_slots') or self.get('slots') or {})
 
 
 sys.modules[__name__] = GlobalConfig()

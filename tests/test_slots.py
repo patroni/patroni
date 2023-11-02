@@ -33,6 +33,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}, 'ls2': None}}, 1)
         self.cluster = Cluster(True, config, self.leader, Status(0, {'ls': 12345, 'ls2': 12345}),
                                [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
+        global_config.update(self.cluster)
 
     def test_sync_replication_slots(self):
         config = ClusterConfig(1, {'slots': {'test_3': {'database': 'a', 'plugin': 'b'},
@@ -93,6 +94,7 @@ class TestSlotsHandler(BaseTestPostgresql):
                                    'ignore_slots': [{'name': 'blabla'}]}, 1)
         cluster = Cluster(True, config, self.leader, Status.empty(), [self.me, self.other, self.leadermem],
                           None, SyncState.empty(), None, None)
+        global_config.update(cluster)
 
         self.s.sync_replication_slots(cluster, False)
         with patch.object(Postgresql, '_query') as mock_query:
@@ -188,6 +190,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         config = ClusterConfig(1, {'slots': {'blabla': {'type': 'physical'}, 'leader': None}}, 1)
         cluster = Cluster(True, config, self.leader, Status(0, {'blabla': 12346}),
                           [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
+        global_config.update(cluster)
         self.s.sync_replication_slots(cluster, False)
         with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('blabla', 'physical', 12345, None, None, None,
                                                                       None, None)], Exception])) as mock_query, \
