@@ -255,7 +255,8 @@ def load_config(path: str, dcs_url: Optional[str]) -> Dict[str, Any]:
     return config
 
 
-option_format = click.option('--format', '-f', 'fmt', help='Output format (pretty, tsv, json, yaml)', default='pretty')
+option_format = click.option('--format', '-f', 'fmt', help='Output format', default='pretty',
+                             type=click.Choice(['pretty', 'tsv', 'json', 'yaml', 'yml']))
 option_watchrefresh = click.option('-w', '--watch', type=float, help='Auto update the screen every X seconds')
 option_watch = click.option('-W', is_flag=True, help='Auto update the screen every 2 seconds')
 option_force = click.option('--force', is_flag=True, help='Do not ask for confirmation at any point')
