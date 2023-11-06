@@ -596,7 +596,7 @@ class Postgresql(object):
 
         :param data: :class:`dict` object with values returned by `pg_controldata` tool.
 
-        :returns: a tuple of checkpoint LSN for the cleanly shut down primary, and and LSN of prev wal record (SWITCH)
+        :returns: a tuple of checkpoint LSN for the cleanly shut down primary, and LSN of prev wal record (SWITCH)
                   if we know that the checkpoint was written to the new WAL file due to the archive_mode=on.
         """
         timeline = data.get("Latest checkpoint's TimeLineID")
