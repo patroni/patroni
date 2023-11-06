@@ -71,6 +71,22 @@ Makes the configured ``command`` to be called additionally with ``--arg1=value1 
 
  .. note:: Bootstrap methods are neither chained, nor fallen-back to the default one in case the primary one fails
 
+As an example, you are able to bootstrap a fresh Patroni cluster from a Barman backup with a configuration like this:
+
+.. code:: YAML
+
+    bootstrap:
+        method: barman
+        barman:
+            keep_existing_recovery_conf: true
+            command: patroni_barman_recover
+            api-url: https://barman-host:7480
+            barman-server: my_server
+            ssh-command: ssh postgres@patroni-host
+
+.. note::
+    ``patroni_barman_recover`` requires that you have both Barman and ``pg-backup-api`` configured in the Barman host, so it can execute a remote ``barman recover`` through the backup API.
+    The above example uses a subset of the available parameters. You can get more information running ``patroni_barman_recover --help``.
 
 .. _custom_replica_creation:
 
@@ -125,6 +141,25 @@ example: pgbackrest
         basebackup:
             max-rate: '100M'
 
+example: Barman
+
+.. code:: YAML
+
+    postgresql:
+        create_replica_methods:
+            - barman
+            - basebackup
+        barman:
+            command: patroni_barman_recover
+            api-url: https://barman-host:7480
+            barman-server: my_server
+            ssh-command: ssh postgres@patroni-host
+        basebackup:
+            max-rate: '100M'
+
+.. note::
+    ``patroni_barman_recover`` requires that you have both Barman and ``pg-backup-api`` configured in the Barman host, so it can execute a remote ``barman recover`` through the backup API.
+    The above example uses a subset of the available parameters. You can get more information running ``patroni_barman_recover --help``.
 
 The ``create_replica_methods`` defines available replica creation methods and the order of executing them. Patroni will
 stop on the first one that returns 0. Each method should define a separate section in the configuration file, listing the command
