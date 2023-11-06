@@ -3,7 +3,7 @@ from mock import MagicMock, Mock, call, patch
 import unittest
 from urllib3.exceptions import MaxRetryError
 
-from patroni.scripts.barman_recover import BarmanRecover, RetriesExceeded, main, set_up_logging
+from patroni.scripts.barman_recover import BarmanRecover, ExitCode, RetriesExceeded, main, set_up_logging
 
 
 API_URL = "http://localhost:7480"
@@ -61,7 +61,7 @@ class TestBarmanRecover(unittest.TestCase):
             self.assertIsNone(self.br._get_request("/some/path"))
 
         mock_logging.assert_called_once_with("An error occurred while performing an HTTP GET request: %r", http_error)
-        self.assertEqual(exc.exception.code, 4)
+        self.assertEqual(exc.exception.code, ExitCode.HTTP_REQUEST_ERROR)
 
         # with Exception
         mock_logging.reset_mock()
@@ -94,7 +94,7 @@ class TestBarmanRecover(unittest.TestCase):
             self.assertIsNone(self.br._post_request("/some/path", "some body"))
 
         mock_logging.assert_called_once_with("An error occurred while performing an HTTP POST request: %r", http_error)
-        self.assertEqual(exc.exception.code, 4)
+        self.assertEqual(exc.exception.code, ExitCode.HTTP_REQUEST_ERROR)
 
         # with Exception
         mock_logging.reset_mock()
@@ -125,7 +125,7 @@ class TestBarmanRecover(unittest.TestCase):
             self.assertIsNone(self.br._ensure_api_ok())
 
         mock_logging.assert_called_once_with("pg-backup-api is not working: %s", "random")
-        self.assertEqual(exc.exception.code, 2)
+        self.assertEqual(exc.exception.code, ExitCode.API_NOT_OK)
 
     @patch("logging.warning")
     @patch("time.sleep")
@@ -291,7 +291,7 @@ class TestBarmanRecover(unittest.TestCase):
         with self.assertRaises(SystemExit) as exc:
             self.assertIsNone(self.br.restore_backup())
 
-        self.assertEqual(exc.exception.code, 5)
+        self.assertEqual(exc.exception.code, ExitCode.HTTP_RESPONSE_MALFORMED)
         mock_log_info.assert_not_called()
         mock_log_critical.assert_called_once_with("Maximum number of retries exceeded, exiting.")
         mock_sleep.assert_not_called()
@@ -306,7 +306,7 @@ class TestBarmanRecover(unittest.TestCase):
         with self.assertRaises(SystemExit) as exc:
             self.assertIsNone(self.br.restore_backup())
 
-        self.assertEqual(exc.exception.code, 5)
+        self.assertEqual(exc.exception.code, ExitCode.HTTP_RESPONSE_MALFORMED)
         mock_log_info.assert_called_once_with("Created the recovery operation with ID %s", "some_id")
         mock_log_critical.assert_called_once_with("Maximum number of retries exceeded, exiting.")
         mock_sleep.assert_not_called()
@@ -342,7 +342,7 @@ class TestMain(unittest.TestCase):
                                         args.cert_file, args.key_file)
         mock_log_info.assert_called_once_with("Recovery operation finished successfully.")
         mock_log_critical.assert_not_called()
-        self.assertEqual(exc.exception.code, 0)
+        self.assertEqual(exc.exception.code, ExitCode.RECOVERY_DONE)
 
         # failed restore
         mock_arg_parse.reset_mock()
@@ -361,4 +361,4 @@ class TestMain(unittest.TestCase):
                                         args.cert_file, args.key_file)
         mock_log_info.assert_not_called()
         mock_log_critical.assert_called_once_with("Recovery operation failed.")
-        self.assertEqual(exc.exception.code, 1)
+        self.assertEqual(exc.exception.code, ExitCode.RECOVERY_FAILED)
