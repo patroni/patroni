@@ -31,8 +31,6 @@ class ExitCode(IntEnum):
     :cvar RECOVERY_DONE: backup was successfully restored.
     :cvar RECOVERY_FAILED: recovery of the backup faced an issue.
     :cvar API_NOT_OK: ``pg-backup-api`` status is not ``OK``.
-    :cvar BARMAN_SERVER_DOES_NOT_EXIST: there is no such Barman server
-        configured in the Barman host.
     :cvar HTTP_REQUEST_ERROR: an error has occurred during a request to the
         ``pg-backup-api``.
     :cvar HTTP_RESPONSE_MALFORMED: ``pg-backup-api`` returned a bogus response.
@@ -41,9 +39,8 @@ class ExitCode(IntEnum):
     RECOVERY_DONE = 0
     RECOVERY_FAILED = 1
     API_NOT_OK = 2
-    BARMAN_SERVER_DOES_NOT_EXIST = 3
-    HTTP_REQUEST_ERROR = 4
-    HTTP_RESPONSE_MALFORMED = 5
+    HTTP_REQUEST_ERROR = 3
+    HTTP_RESPONSE_MALFORMED = 4
 
 
 class RetriesExceeded(Exception):
