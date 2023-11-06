@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python
 
 """Restore a Barman backup to the local node through ``pg-backup-api``.
 
@@ -58,7 +58,7 @@ def retry(exceptions: Union[Type[Exception], Tuple[Type[Exception], ...]]) \
         Should be used as a decorator of a class' method as it expects the
         first argument to be a class instance.
 
-        The class which method is going to decorated should contain a couple
+        The class which method is going to be decorated should contain a couple
         attributes:
 
         * ``max_retries``: maximum retry attempts before failing;

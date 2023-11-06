@@ -159,7 +159,6 @@ class TestBarmanRecover(unittest.TestCase):
         mock_sleep.assert_has_calls([call(self.br.retry_wait)] * self.br.max_retries)
 
         self.assertEqual(mock_logging.call_count, self.br.max_retries)
-        self.assertEqual(mock_logging.call_count, self.br.max_retries)
         for i in range(mock_logging.call_count):
             call_args = mock_logging.mock_calls[i].args
             self.assertEqual(len(call_args), 5)
