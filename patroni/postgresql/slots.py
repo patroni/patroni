@@ -515,9 +515,8 @@ class SlotsHandler:
             try:
                 self.load_replication_slots()
 
-                slots = cluster.get_replication_slots(
-                    self._postgresql.name, self._postgresql.role, nofailover, self._postgresql.major_version,
-                    is_standby_cluster=global_config.is_standby_cluster, show_error=True)
+                slots = cluster.get_replication_slots(self._postgresql.name, self._postgresql.role,
+                                                      nofailover, self._postgresql.major_version, show_error=True)
 
                 self._drop_incorrect_slots(cluster, slots, paused)
 

@@ -295,7 +295,6 @@ class Ha(object):
                 last_lsn = self.state_handler.last_operation()
                 slots = self.cluster.filter_permanent_slots(
                     {**self.state_handler.slots(), slot_name_from_member_name(self.state_handler.name): last_lsn},
-                    self.is_standby_cluster(),
                     self.state_handler.major_version)
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')

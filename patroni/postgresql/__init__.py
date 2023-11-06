@@ -449,7 +449,6 @@ class Postgresql(object):
 
             self._has_permanent_slots = cluster.has_permanent_slots(
                 my_name=self.name,
-                is_standby_cluster=global_config.is_standby_cluster,
                 nofailover=nofailover,
                 major_version=self.major_version)
 
