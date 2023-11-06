@@ -50,7 +50,7 @@ class GlobalConfig(types.ModuleType):
         .. note::
             Global configuration is updated only when configuration in the *cluster* view is valid.
 
-            Update happens in-pleace and executed only from the main heartbeat Thread.
+            Update happens in-place and executed only from the main heartbeat Thread.
 
         :param cluster: the currently known cluster state from DCS.
         """
