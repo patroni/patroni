@@ -1532,7 +1532,7 @@ class TestHa(PostgresInit):
         self.ha.is_leader = true
 
         def stop(*args, **kwargs):
-            kwargs['on_shutdown'](123)
+            kwargs['on_shutdown'](123, 120)
 
         self.p.stop = stop
         self.ha.shutdown()

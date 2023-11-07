@@ -1227,15 +1227,16 @@ class Ha(object):
 
         status = {'released': False}
 
-        def on_shutdown(checkpoint_location: int) -> None:
+        def on_shutdown(checkpoint_location: int, prev_location: int) -> None:
             # Postmaster is still running, but pg_control already reports clean "shut down".
             # It could happen if Postgres is still archiving the backlog of WAL files.
             # If we know that there are replicas that received the shutdown checkpoint
             # location, we can remove the leader key and allow them to start leader race.
+            time.sleep(1)  # give replicas some more time to catch up
             if self.is_failover_possible(cluster_lsn=checkpoint_location):
                 self.state_handler.set_role('demoted')
                 with self._async_executor:
-                    self.release_leader_key_voluntarily(checkpoint_location)
+                    self.release_leader_key_voluntarily(prev_location)
                     status['released'] = True
 
         def before_shutdown() -> None:
@@ -1990,18 +1991,18 @@ class Ha(object):
 
             status = {'deleted': False}
 
-            def _on_shutdown(checkpoint_location: int) -> None:
+            def _on_shutdown(checkpoint_location: int, prev_location: int) -> None:
                 if self.is_leader():
                     # Postmaster is still running, but pg_control already reports clean "shut down".
                     # It could happen if Postgres is still archiving the backlog of WAL files.
                     # If we know that there are replicas that received the shutdown checkpoint
                     # location, we can remove the leader key and allow them to start leader race.
-
+                    time.sleep(1)  # give replicas some more time to catch up
                     if self.is_failover_possible(cluster_lsn=checkpoint_location):
-                        self.dcs.delete_leader(self.cluster.leader, checkpoint_location)
+                        self.dcs.delete_leader(self.cluster.leader, prev_location)
                         status['deleted'] = True
                     else:
-                        self.dcs.write_leader_optime(checkpoint_location)
+                        self.dcs.write_leader_optime(prev_location)
 
             def _before_shutdown() -> None:
                 self.notify_citus_coordinator('before_demote')
