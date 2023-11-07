@@ -979,7 +979,7 @@ class Cluster(NamedTuple('Cluster',
     @property
     def __permanent_slots(self) -> Dict[str, Union[Dict[str, Any], Any]]:
         """Dictionary of permanent replication slots with their known LSN."""
-        ret: Dict[str, Union[Dict[str, Any], Any]] = deepcopy(global_config.permanent_slots)
+        ret: Dict[str, Union[Dict[str, Any], Any]] = global_config.permanent_slots
 
         members: Dict[str, int] = {slot_name_from_member_name(m.name): m.lsn or 0 for m in self.members}
         slots: Dict[str, int] = {k: parse_int(v) or 0 for k, v in (self.slots or {}).items()}

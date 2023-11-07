@@ -218,7 +218,10 @@ class GlobalConfig(types.ModuleType):
     @property
     def permanent_slots(self) -> Dict[str, Any]:
         """Dictionary of permanent slots information from the global configuration."""
-        return (self.get('permanent_replication_slots') or self.get('permanent_slots') or self.get('slots') or {})
+        return deepcopy(self.get('permanent_replication_slots')
+                        or self.get('permanent_slots')
+                        or self.get('slots')
+                        or {})
 
 
 sys.modules[__name__] = GlobalConfig()
