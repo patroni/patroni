@@ -1,8 +1,8 @@
 """Implements *global_config* facilities.
 
 The :class:`GlobalConfig` object is instantiated on import and replaces
-``patroni.global_config`` module in ```sys.modules``, what allows to use
-it's properties and methods like they are module variables and functions.
+``patroni.global_config`` module in :data:`sys.modules`, what allows to use
+its properties and methods like they were module variables and functions.
 """
 import sys
 import types
@@ -50,7 +50,7 @@ class GlobalConfig(types.ModuleType):
         .. note::
             Global configuration is updated only when configuration in the *cluster* view is valid.
 
-            Update happens in-place and executed only from the main heartbeat Thread.
+            Update happens in-place and is executed only from the main heartbeat thread.
 
         :param cluster: the currently known cluster state from DCS.
         """
@@ -141,7 +141,7 @@ class GlobalConfig(types.ModuleType):
 
     @property
     def min_synchronous_nodes(self) -> int:
-        """The minimal number of synchronous nodes based on whether ``synchronous_mode_strict`` is enabled or not."""
+        """The minimum number of synchronous nodes based on whether ``synchronous_mode_strict`` is enabled or not."""
         return 1 if self.is_synchronous_mode_strict else 0
 
     @property
