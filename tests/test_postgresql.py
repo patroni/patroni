@@ -237,7 +237,10 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, 'latest_checkpoint_location', Mock(return_value='7'))
     def test__do_stop(self):
         mock_callback = Mock()
-        with patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'shut down'})):
+        with patch.object(Postgresql, 'controldata',
+                          Mock(return_value={'Database cluster state': 'shut down',
+                                             "Latest checkpoint's TimeLineID": '1',
+                                             'Latest checkpoint location': '1/1'})):
             self.assertTrue(self.p.stop(on_shutdown=mock_callback, stop_timeout=3))
             mock_callback.assert_called()
         with patch.object(Postgresql, 'controldata',
