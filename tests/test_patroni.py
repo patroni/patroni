@@ -45,7 +45,7 @@ class MockFrozenImporter(object):
 @patch('time.sleep', Mock())
 @patch('subprocess.call', Mock(return_value=0))
 @patch('patroni.psycopg.connect', psycopg_connect)
-@patch('urllib3.connection.HTTPConnection.connect', Mock(side_effect=Exception))
+@patch('urllib3.PoolManager.request', Mock(side_effect=Exception))
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())
@@ -69,7 +69,7 @@ class TestPatroni(unittest.TestCase):
             self.assertRaises(SystemExit, _main)
 
     @patch('pkgutil.iter_importers', Mock(return_value=[MockFrozenImporter()]))
-    @patch('urllib3.connection.HTTPConnection.connect', Mock(side_effect=Exception))
+    @patch('urllib3.PoolManager.request', Mock(side_effect=Exception))
     @patch('sys.frozen', Mock(return_value=True), create=True)
     @patch.object(HTTPServer, '__init__', Mock())
     @patch.object(etcd.Client, 'read', etcd_read)
@@ -273,8 +273,8 @@ class TestPatroni(unittest.TestCase):
         )
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=bad_cluster)):
             # If the api of the running node cannot be reached, this implies unique name
-            with patch('urllib3.connection.HTTPConnection.connect', Mock(side_effect=ConnectionError)):
+            with patch('urllib3.PoolManager.request', Mock(side_effect=ConnectionError)):
                 self.assertIsNone(self.p.ensure_unique_name())
             # Only if the api of the running node is reachable do we throw an error
-            with patch('urllib3.connection.HTTPConnection.connect', Mock()):
+            with patch('urllib3.PoolManager.request', Mock()):
                 self.assertRaises(SystemExit, self.p.ensure_unique_name)
