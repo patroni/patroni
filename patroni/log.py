@@ -202,24 +202,37 @@ class PatroniLogger(Thread):
         self._proxy_handler = ProxyHandler(self)
         self._root_logger.addHandler(self._proxy_handler)
 
-    def update_loggers(self) -> None:
-        """Configure loggers' log level as defined in ``log.loggers`` section of Patroni configuration.
+    def update_loggers(self, config: Dict[str, Any]) -> None:
+        """Configure custom loggers' log levels.
 
         .. note::
             It creates logger objects that are not defined yet in the log manager.
+
+        :param config: :class:`dict` object with custom loggers configuration, is set either from:
+
+                       * ``log.loggers`` section of Patroni configuration; or
+
+                       * from the method that is trying to make sure that the node name
+                         isn't duplicated (to silence annoying ``urllib3`` WARNING's).
+
+        :Example:
+
+            .. code-block:: python
+
+                update_loggers({'urllib3.connectionpool': 'WARNING'})
         """
-        loggers = deepcopy((self._config or {}).get('loggers') or {})
+        loggers = deepcopy(config)
         for name, logger in self._root_logger.manager.loggerDict.items():
             # ``Placeholder`` is a node in the log manager for which no logger has been defined. We are interested only
             # in the ones that were defined
             if not isinstance(logger, logging.PlaceHolder):
-                # if this logger is present in ``log.loggers`` Patroni configuration, use the configured level,
-                # otherwise use ``logging.NOTSET``, which means it will inherit the level from any parent node up to
-                # the root for which log level is defined.
+                # if this logger is present in *config*, use the configured level, otherwise
+                # use ``logging.NOTSET``, which means it will inherit the level
+                # from any parent node up to the root for which log level is defined.
                 level = loggers.pop(name, logging.NOTSET)
                 logger.setLevel(level)
 
-        # define loggers that do not exist yet and set level as configured in ``log.loggers`` section of configuration.
+        # define loggers that do not exist yet and set level as configured in the *config*
         for name, level in loggers.items():
             logger = self._root_logger.manager.getLogger(name)
             logger.setLevel(level)
@@ -274,7 +287,7 @@ class PatroniLogger(Thread):
                     self.log_handler = new_handler
 
             self._config = config.copy()
-            self.update_loggers()
+            self.update_loggers(config.get('loggers') or {})
 
     def _close_old_handlers(self) -> None:
         """Close old log handlers.
