@@ -422,7 +422,7 @@ class Consul(AbstractDCS):
     def _cluster_loader(self, path: str) -> Cluster:
         _, results = self.retry(self._client.kv.get, path, recurse=True, consistency=self._consistency)
         if results is None:
-            raise NotFound
+            return Cluster.empty()
         nodes = {}
         for node in results:
             node['Value'] = (node['Value'] or b'').decode('utf-8')
@@ -445,8 +445,6 @@ class Consul(AbstractDCS):
     ) -> Union[Cluster, Dict[int, Cluster]]:
         try:
             return loader(path)
-        except NotFound:
-            return Cluster.empty()
         except Exception:
             logger.exception('get_cluster')
             raise ConsulError('Consul is not responding properly')

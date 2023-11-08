@@ -1564,7 +1564,7 @@ class AbstractDCS(abc.ABC):
         """
 
     @abc.abstractmethod
-    def _citus_cluster_loader(self, path: Any) -> Union[Cluster, Dict[int, Cluster]]:
+    def _citus_cluster_loader(self, path: Any) -> Dict[int, Cluster]:
         """Load and build all Patroni clusters from a single Citus cluster.
 
         :param path: the path in DCS where to load Cluster(s) from.
