@@ -710,13 +710,20 @@ class Etcd(AbstractEtcd):
         return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
     def _cluster_loader(self, path: str) -> Cluster:
-        result = self.retry(self._client.read, path, recursive=True, quorum=self._ctl)
+        try:
+            result = self.retry(self._client.read, path, recursive=True, quorum=self._ctl)
+        except etcd.EtcdKeyNotFound:
+            return Cluster.empty()
         nodes = {node.key[len(result.key):].lstrip('/'): node for node in result.leaves}
         return self._cluster_from_nodes(result.etcd_index, nodes)
 
     def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+        try:
+            result = self.retry(self._client.read, path, recursive=True, quorum=self._ctl)
+        except etcd.EtcdKeyNotFound:
+            return {}
+
         clusters: Dict[int, Dict[str, etcd.EtcdResult]] = defaultdict(dict)
-        result = self.retry(self._client.read, path, recursive=True, quorum=self._ctl)
         for node in result.leaves:
             key = node.key[len(result.key):].lstrip('/').split('/', 1)
             if len(key) == 2 and citus_group_re.match(key[0]):
@@ -729,8 +736,6 @@ class Etcd(AbstractEtcd):
         cluster = None
         try:
             cluster = loader(path)
-        except etcd.EtcdKeyNotFound:
-            cluster = Cluster.empty()
         except Exception as e:
             self._handle_exception(e, 'get_cluster', raise_ex=EtcdError('Etcd is not responding properly'))
         self._has_failed = False
