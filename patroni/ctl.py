@@ -825,7 +825,6 @@ def query(
     for _ in watching(w, watch, clear=False):
         if cluster is None:
             cluster = dcs.get_cluster()
-#            cursor = get_cursor(cluster, group, connect_parameters, role=role, member=member)
 
         output, header = query_member(cluster, group, cursor, member, role, sql, connect_parameters)
         print_output(header, output, fmt=fmt, delimiter=delimiter)
