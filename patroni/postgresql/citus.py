@@ -1,3 +1,4 @@
+import abc
 import logging
 import re
 import time
@@ -6,14 +7,150 @@ from threading import Condition, Event, Thread
 from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
-from ..dcs import CITUS_COORDINATOR_GROUP_ID, Cluster
+from ..dcs import Cluster
+from ..exceptions import PatroniException
 from ..psycopg import connect, quote_ident
+from ..utils import parse_int
 
 if TYPE_CHECKING:  # pragma: no cover
     from . import Postgresql
+    from ..config import Config
 
+CITUS_COORDINATOR_GROUP_ID = 0
 CITUS_SLOT_NAME_RE = re.compile(r'^citus_shard_(move|split)_slot(_[1-9][0-9]*){2,3}$')
 logger = logging.getLogger(__name__)
+
+
+class AbstractMPP(abc.ABC):
+
+    group_re: Any  # re.Pattern[str]
+
+    def __init__(self, config: Dict[str, Union[str, int]]) -> None:
+        self._config = config
+
+    def is_enabled(self) -> bool:
+        """Check if MPP is enabled for a given MPP.
+
+        .. note::
+            We just check that the `_config` object isn't empty and expect it do be empty only in case of :class:`Null`.
+
+        :returns: ``True`` if MPP is enabled, otherwise ``False``.
+        """
+        return bool(self._config)
+
+    @staticmethod
+    @abc.abstractmethod
+    def validate_config(config: Any) -> bool:
+        """Check whether provided config is good for a given MPP.
+
+        :returns: ``True`` is config passes validation, otherwise ``False``.
+        """
+
+    @property
+    @abc.abstractmethod
+    def group(self) -> Any:
+        """The group for a given MPP implementation."""
+
+    @property
+    @abc.abstractmethod
+    def coordinator_group_id(self) -> Any:
+        """The groupid of the coordinator PostgreSQL cluster."""
+
+    def is_coordinator(self) -> bool:
+        """Check whether this node is running in the coordinator PostgreSQL cluster.
+
+        :returns: ``True`` if MPP is enabled and the group id of this node
+                  matches with the coordinator_group_id, otherwise ``False``.
+        """
+        return self.is_enabled() and self.group == self.coordinator_group_id
+
+    def is_worker(self) -> bool:
+        """Check whether this node is running in the coordinator PostgreSQL cluster.
+
+        :returns: ``True`` if MPP is enabled this node is known to be not running
+                  in the coordinator PostgreSQL cluster, otherwise ``False``.
+        """
+        return self.is_enabled() and not self.is_coordinator()
+
+    def get_handler_impl(self, postgresql: 'Postgresql') -> 'AbstractMPPHandler':
+        for cls in self.__class__.__subclasses__():
+            if issubclass(cls, AbstractMPPHandler):
+                return cls(postgresql, self._config)
+        raise PatroniException(f'Failed to initialize {self.__class__.__name__}Handler object')
+
+
+class AbstractMPPHandler(AbstractMPP):
+
+    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
+        super().__init__(config)
+        self._postgresql = postgresql
+
+    @abc.abstractmethod
+    def handle_event(self, cluster: Cluster, event: Dict[str, Any]) -> None:
+        pass
+
+    @abc.abstractmethod
+    def sync_pg_dist_node(self, cluster: Cluster) -> None:
+        pass
+
+    @abc.abstractmethod
+    def on_demote(self) -> None:
+        pass
+
+    @abc.abstractmethod
+    def schedule_cache_rebuild(self) -> None:
+        pass
+
+    @abc.abstractmethod
+    def bootstrap(self) -> None:
+        pass
+
+    @abc.abstractmethod
+    def adjust_postgres_gucs(self, parameters: Dict[str, Any]) -> None:
+        pass
+
+    @abc.abstractmethod
+    def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
+        pass
+
+
+class Null(AbstractMPP):
+
+    @staticmethod
+    def validate_config(config: Any) -> bool:
+        return True
+
+    @property
+    def group(self) -> None:
+        return None
+
+    @property
+    def coordinator_group_id(self) -> None:
+        return None
+
+
+class NullHandler(Null, AbstractMPPHandler):
+
+    def handle_event(self, cluster: Cluster, event: Dict[str, Any]) -> None:
+        pass
+
+    def sync_pg_dist_node(self, cluster: Cluster) -> None:
+        pass
+
+    def on_demote(self) -> None:
+        pass
+
+    def schedule_cache_rebuild(self) -> None:
+        pass
+
+    def bootstrap(self) -> None:
+        pass
+
+    def adjust_postgres_gucs(self, parameters: Dict[str, Any]) -> None:
+        pass
+
+    def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
+        return False
 
 
 class PgDistNode(object):
@@ -63,13 +200,31 @@ class PgDistNode(object):
         return str(self)
 
 
-class CitusHandler(Thread):
+class Citus(AbstractMPP):
 
-    def __init__(self, postgresql: 'Postgresql', config: Optional[Dict[str, Union[str, int]]]) -> None:
-        super(CitusHandler, self).__init__()
+    group_re = re.compile('^(0|[1-9][0-9]*)$')
+
+    @staticmethod
+    def validate_config(config: Union[Any, Dict[str, Union[str, int]]]) -> bool:
+        return isinstance(config, dict) \
+            and isinstance(config.get('database'), str) \
+            and parse_int(config.get('group')) is not None
+
+    @property
+    def group(self) -> int:
+        return int(self._config['group'])
+
+    @property
+    def coordinator_group_id(self) -> int:
+        return CITUS_COORDINATOR_GROUP_ID
+
+
+class CitusHandler(Citus, AbstractMPPHandler, Thread):
+
+    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
+        Thread.__init__(self)
+        AbstractMPPHandler.__init__(self, postgresql, config)
         self.daemon = True
-        self._postgresql = postgresql
-        self._config = config
         if config:
             self._connection = postgresql.connection_pool.get(
                 'citus', {'dbname': config['database'],
@@ -80,18 +235,6 @@ class CitusHandler(Thread):
         self._schedule_load_pg_dist_node = True  # Flag that "pg_dist_node" should be queried from the database
         self._condition = Condition()  # protects _pg_dist_node, _tasks, _in_flight, and _schedule_load_pg_dist_node
         self.schedule_cache_rebuild()
-
-    def is_enabled(self) -> bool:
-        return isinstance(self._config, dict)
-
-    def group(self) -> Optional[int]:
-        return int(self._config['group']) if isinstance(self._config, dict) else None
-
-    def is_coordinator(self) -> bool:
-        return self.is_enabled() and self.group() == CITUS_COORDINATOR_GROUP_ID
-
-    def is_worker(self) -> bool:
-        return self.is_enabled() and not self.is_coordinator()
 
     def schedule_cache_rebuild(self) -> None:
         with self._condition:
@@ -352,9 +495,6 @@ class CitusHandler(Thread):
             task.wait()
 
     def bootstrap(self) -> None:
-        if not isinstance(self._config, dict):  # self.is_enabled()
-            return
-
         conn_kwargs = {**self._postgresql.connection_pool.conn_kwargs,
                        'options': '-c synchronous_commit=local -c statement_timeout=0'}
         if self._config['database'] != self._postgresql.database:
@@ -387,9 +527,6 @@ class CitusHandler(Thread):
             conn.close()
 
     def adjust_postgres_gucs(self, parameters: Dict[str, Any]) -> None:
-        if not self.is_enabled():
-            return
-
         # citus extension must be on the first place in shared_preload_libraries
         shared_preload_libraries = list(filter(
             lambda el: el and el != 'citus',
@@ -407,8 +544,13 @@ class CitusHandler(Thread):
         parameters['citus.local_hostname'] = self._postgresql.connection_pool.conn_kwargs.get('host', 'localhost')
 
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
-        if isinstance(self._config, dict) and self._postgresql.is_primary() and\
-                slot['type'] == 'logical' and slot['database'] == self._config['database']:
+        if self._postgresql.is_primary() and slot['type'] == 'logical' and slot['database'] == self._config['database']:
             m = CITUS_SLOT_NAME_RE.match(slot['name'])
             return bool(m and {'move': 'pgoutput', 'split': 'citus'}.get(m.group(1)) == slot['plugin'])
         return False
+
+
+def get_mpp(config: Union['Config', Dict[str, Any]]) -> AbstractMPP:
+    if 'citus' in config and Citus.validate_config(config['citus']):
+        return Citus(config['citus'])
+    return Null({})
