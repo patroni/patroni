@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 class AbstractMPP(abc.ABC):
 
-    group_re: re.Pattern[str]
+    group_re: Any  # re.Pattern[str]
 
     def __init__(self, config: Dict[str, Union[str, int]]) -> None:
         self._config = config
