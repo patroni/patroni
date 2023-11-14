@@ -140,10 +140,6 @@ class TestCitus(BaseTestPostgresql):
         self.assertEqual(parameters['wal_level'], 'logical')
         self.assertEqual(parameters['citus.local_hostname'], '/tmp')
 
-    def test_bootstrap(self):
-        self.c._config = None
-        self.c.bootstrap()
-
     def test_ignore_replication_slot(self):
         self.assertFalse(self.c.ignore_replication_slot({'name': 'foo', 'type': 'physical',
                                                          'database': 'bar', 'plugin': 'wal2json'}))

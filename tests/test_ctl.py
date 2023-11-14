@@ -11,6 +11,7 @@ from patroni.ctl import ctl, load_config, output_members, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, PatroniCtlException, apply_config_changes, \
     format_config_for_editing, show_diff, invoke_editor, format_pg_version, CONFIG_FILE_PATH, PatronictlPrettyTable
 from patroni.dcs import Cluster, Failover
+from patroni.postgresql.citus import get_mpp
 from patroni.psycopg import OperationalError
 from patroni.utils import tzutc
 from prettytable import PrettyTable, ALL
@@ -68,7 +69,7 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.psycopg.connect', psycopg_connect)
     def test_get_cursor(self):
         with click.Context(click.Command('query')) as ctx:
-            ctx.obj = {'__config': {}}
+            ctx.obj = {'__config': {}, '__mpp': get_mpp({})}
             for role in self.TEST_ROLES:
                 self.assertIsNone(get_cursor(get_cluster_initialized_without_leader(), None, {}, role=role))
                 self.assertIsNotNone(get_cursor(get_cluster_initialized_with_leader(), None, {}, role=role))
@@ -106,7 +107,7 @@ class TestCtl(unittest.TestCase):
 
     def test_output_members(self):
         with click.Context(click.Command('list')) as ctx:
-            ctx.obj = {'__config': {}}
+            ctx.obj = {'__config': {}, '__mpp': get_mpp({})}
             scheduled_at = datetime.now(tzutc) + timedelta(seconds=600)
             cluster = get_cluster_initialized_with_leader(Failover(1, 'foo', 'bar', scheduled_at))
             del cluster.members[1].data['conn_url']
@@ -241,7 +242,7 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.dummy', 'patroni.dcs.etcd']))
     def test_get_dcs(self):
         with click.Context(click.Command('list')) as ctx:
-            ctx.obj = {'__config': {'dummy': {}}}
+            ctx.obj = {'__config': {'dummy': {}}, '__mpp': get_mpp({})}
             self.assertRaises(PatroniCtlException, get_dcs, 'dummy', 0)
 
     @patch('patroni.psycopg.connect', psycopg_connect)
@@ -430,7 +431,7 @@ class TestCtl(unittest.TestCase):
 
     def test_get_any_member(self):
         with click.Context(click.Command('list')) as ctx:
-            ctx.obj = {'__config': {}}
+            ctx.obj = {'__config': {}, '__mpp': get_mpp({})}
             for role in self.TEST_ROLES:
                 self.assertIsNone(get_any_member(get_cluster_initialized_without_leader(), None, role=role))
 
@@ -439,7 +440,7 @@ class TestCtl(unittest.TestCase):
 
     def test_get_all_members(self):
         with click.Context(click.Command('list')) as ctx:
-            ctx.obj = {'__config': {}}
+            ctx.obj = {'__config': {}, '__mpp': get_mpp({})}
             for role in self.TEST_ROLES:
                 self.assertEqual(list(get_all_members(get_cluster_initialized_without_leader(), None, role=role)), [])
 
