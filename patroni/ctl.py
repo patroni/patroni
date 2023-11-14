@@ -255,15 +255,23 @@ def load_config(path: str, dcs_url: Optional[str]) -> Dict[str, Any]:
     return config
 
 
+def _get_configuration() -> Dict[str, Any]:
+    """Get configuration object.
+
+    :returns: configuration object from the current context.
+    """
+    return click.get_current_context().obj['__config']
+
+
 option_format = click.option('--format', '-f', 'fmt', help='Output format', default='pretty',
                              type=click.Choice(['pretty', 'tsv', 'json', 'yaml', 'yml']))
 option_watchrefresh = click.option('-w', '--watch', type=float, help='Auto update the screen every X seconds')
 option_watch = click.option('-W', is_flag=True, help='Auto update the screen every 2 seconds')
 option_force = click.option('--force', is_flag=True, help='Do not ask for confirmation at any point')
 arg_cluster_name = click.argument('cluster_name', required=False,
-                                  default=lambda: click.get_current_context().obj.get('scope'))
+                                  default=lambda: _get_configuration().get('scope'))
 option_default_citus_group = click.option('--group', required=False, type=int, help='Citus group',
-                                          default=lambda: click.get_current_context().obj.get('citus', {}).get('group'))
+                                          default=lambda: _get_configuration().get('citus', {}).get('group'))
 option_citus_group = click.option('--group', required=False, type=int, help='Citus group')
 role_choice = click.Choice(['leader', 'primary', 'standby-leader', 'replica', 'standby', 'any', 'master'])
 
@@ -301,9 +309,10 @@ def ctl(ctx: click.Context, config_file: str, dcs_url: Optional[str], insecure: 
         level = os.environ.get(name, level)
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=level)
     logging.captureWarnings(True)  # Capture eventual SSL warning
-    ctx.obj = load_config(config_file, dcs_url)
+    config = load_config(config_file, dcs_url)
     # backward compatibility for configuration file where ctl section is not defined
-    ctx.obj.setdefault('ctl', {})['insecure'] = ctx.obj.get('ctl', {}).get('insecure') or insecure
+    config.setdefault('ctl', {})['insecure'] = config.get('ctl', {}).get('insecure') or insecure
+    ctx.obj = {'__config': config}
 
 
 def is_citus_cluster() -> bool:
@@ -311,8 +320,7 @@ def is_citus_cluster() -> bool:
 
     :returns: ``True`` if configuration has ``citus`` section, otherwise ``False``.
     """
-    ctx = click.get_current_context()
-    return bool(ctx.obj.get('citus'))
+    return bool(_get_configuration().get('citus'))
 
 
 def get_dcs(scope: str, group: Optional[int]) -> AbstractDCS:
@@ -328,8 +336,7 @@ def get_dcs(scope: str, group: Optional[int]) -> AbstractDCS:
     :raises:
         :class:`PatroniCtlException`: if not suitable DCS configuration could be found.
     """
-    ctx = click.get_current_context()
-    config = ctx.obj
+    config = _get_configuration()
     config.update({'scope': scope, 'patronictl': True})
     if group is not None:
         config['citus'] = {'group': group}
@@ -357,7 +364,7 @@ def request_patroni(member: Member, method: str = 'GET',
     ctx = click.get_current_context()  # the current click context
     request_executor = ctx.obj.get('__request_patroni')
     if not request_executor:
-        request_executor = ctx.obj['__request_patroni'] = PatroniRequest(ctx.obj)
+        request_executor = ctx.obj['__request_patroni'] = PatroniRequest(_get_configuration())
     return request_executor(member, method, endpoint, data)
 
 
@@ -1577,10 +1584,12 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
 
             rows.append([member.get(n.lower().replace(' ', '_'), '') for n in columns])
 
-    title = 'Citus cluster' if is_citus_cluster() else 'Cluster'
-    title_details = f' ({initialize})'
     if is_citus_cluster():
+        title = 'Citus cluster'
         title_details = '' if group is None else f' (group: {group}, {initialize})'
+    else:
+        title = 'Cluster'
+        title_details = f' ({initialize})'
 
     title = f' {title}: {name}{title_details} '
     print_output(columns, rows, {'Group': 'r', 'Lag in MB': 'r', 'TL': 'r'}, fmt, title)
@@ -1604,16 +1613,14 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
 @option_format
 @option_watch
 @option_watchrefresh
-@click.pass_obj
-def members(obj: Dict[str, Any], cluster_names: List[str], group: Optional[int],
-            fmt: str, watch: Optional[int], w: bool, extended: bool, ts: bool) -> None:
+def members(cluster_names: List[str], group: Optional[int], fmt: str,
+            watch: Optional[int], w: bool, extended: bool, ts: bool) -> None:
     """Process ``list`` command of ``patronictl`` utility.
 
     Print information about the Patroni cluster through :func:`output_members`.
 
-    :param obj: Patroni configuration.
     :param cluster_names: name of clusters that should be printed. If ``None`` consider only the cluster present in
-        ``scope`` key of *obj*.
+        ``scope`` key of the configuration.
     :param group: filter which Citus group we should get members from. Refer to the module note for more details.
     :param fmt: the output table printing format. See :func:`print_output` for available options.
     :param watch: if given print output every *watch* seconds.
@@ -1622,9 +1629,10 @@ def members(obj: Dict[str, Any], cluster_names: List[str], group: Optional[int],
         more details.
     :param ts: if timestamp should be included in the output.
     """
+    config = _get_configuration()
     if not cluster_names:
-        if 'scope' in obj:
-            cluster_names = [obj['scope']]
+        if 'scope' in config:
+            cluster_names = [config['scope']]
         if not cluster_names:
             return logging.warning('Listing members: No cluster names were provided')
 
