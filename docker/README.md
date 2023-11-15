@@ -70,51 +70,52 @@ Example session:
 
     $ docker exec -ti demo-patroni1 bash
     postgres@patroni1:~$ patronictl list
-    +---------+----------+------------+--------+---------+----+-----------+
-    | Cluster |  Member  |    Host    |  Role  |  State  | TL | Lag in MB |
-    +---------+----------+------------+--------+---------+----+-----------+
-    |   demo  | patroni1 | 172.22.0.3 | Leader | running |  1 |         0 |
-    |   demo  | patroni2 | 172.22.0.7 |        | running |  1 |         0 |
-    |   demo  | patroni3 | 172.22.0.4 |        | running |  1 |         0 |
-    +---------+----------+------------+--------+---------+----+-----------+
+
+    + Cluster: demo (7301672182828453910) -+-----------+----+-----------+
+    | Member   | Host       | Role         | State     | TL | Lag in MB |
+    +----------+------------+--------------+-----------+----+-----------+
+    | patroni1 | 172.20.0.6 | Replica      | streaming |  1 |         0 |
+    | patroni2 | 172.20.0.7 | Leader       | running   |  1 |           |
+    | patroni3 | 172.20.0.3 | Replica      | streaming |  1 |         0 |
+    +----------+------------+--------------+-----------+----+-----------+
 
     postgres@patroni1:~$ etcdctl get --keys-only --prefix /service/demo
     /service/demo/config
     /service/demo/initialize
     /service/demo/leader
-    /service/demo/members/
     /service/demo/members/patroni1
     /service/demo/members/patroni2
     /service/demo/members/patroni3
-    /service/demo/optime/
-    /service/demo/optime/leader
+    /service/demo/status
+    /service/demo/sync
 
     postgres@patroni1:~$ etcdctl member list
-    1bab629f01fa9065: name=etcd3 peerURLs=http://etcd3:2380 clientURLs=http://etcd3:2379 isLeader=false
-    8ecb6af518d241cc: name=etcd2 peerURLs=http://etcd2:2380 clientURLs=http://etcd2:2379 isLeader=true
-    b2e169fcb8a34028: name=etcd1 peerURLs=http://etcd1:2380 clientURLs=http://etcd1:2379 isLeader=false
+    3fec169331e2aba2, started, etcd1, http://etcd1:2380, http://172.20.0.2:2379
+    510b15c2cdc06ae5, started, etcd3, http://etcd3:2380, http://172.20.0.8:2379
+    76fc503b6c4957f4, started, etcd2, http://etcd2:2380, http://172.20.0.4:2379
+
     postgres@patroni1:~$ exit
 
     $ docker exec -ti demo-haproxy bash
     postgres@haproxy:~$ psql -h localhost -p 5000 -U postgres -W
     Password: postgres
-    psql (11.2 (Ubuntu 11.2-1.pgdg18.04+1), server 10.7 (Debian 10.7-1.pgdg90+1))
+    psql (15.5 (Debian 15.5-1.pgdg120+1))
     Type "help" for help.
 
-    localhost/postgres=# select pg_is_in_recovery();
+    postgres=# SELECT pg_is_in_recovery();
      pg_is_in_recovery
     ───────────────────
      f
     (1 row)
 
-    localhost/postgres=# \q
+    postgres=# \q
 
-    $postgres@haproxy:~ psql -h localhost -p 5001 -U postgres -W
+    postgres@haproxy:~$ psql -h localhost -p 5001 -U postgres -W
     Password: postgres
-    psql (11.2 (Ubuntu 11.2-1.pgdg18.04+1), server 10.7 (Debian 10.7-1.pgdg90+1))
+    psql (15.5 (Debian 15.5-1.pgdg120+1))
     Type "help" for help.
 
-    localhost/postgres=# select pg_is_in_recovery();
+    postgres=# SELECT pg_is_in_recovery();
      pg_is_in_recovery
     ───────────────────
      t
