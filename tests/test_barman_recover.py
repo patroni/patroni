@@ -1,5 +1,6 @@
 import logging
-from mock import MagicMock, Mock, call, patch
+import mock
+from mock import MagicMock, Mock, patch
 import unittest
 from urllib3.exceptions import MaxRetryError
 
@@ -156,18 +157,19 @@ class TestBarmanRecover(unittest.TestCase):
                          "Maximum number of retries exceeded for method BarmanRecover._create_recovery_operation.")
 
         self.assertEqual(mock_sleep.call_count, self.br.max_retries)
-        mock_sleep.assert_has_calls([call(self.br.retry_wait)] * self.br.max_retries)
+
+        mock_sleep.assert_has_calls([mock.call(self.br.retry_wait)] * self.br.max_retries)
 
         self.assertEqual(mock_logging.call_count, self.br.max_retries)
         for i in range(mock_logging.call_count):
-            call_args = mock_logging.mock_calls[i].args
+            call_args = mock_logging.call_args_list[i][0]
             self.assertEqual(len(call_args), 5)
             self.assertEqual(call_args[0], "Attempt %d of %d on method %s failed with %r.")
             self.assertEqual(call_args[1], i + 1)
             self.assertEqual(call_args[2], self.br.max_retries)
             self.assertEqual(call_args[3], "BarmanRecover._create_recovery_operation")
             self.assertIsInstance(call_args[4], KeyError)
-            self.assertEqual(repr(call_args[4]), "KeyError('operation_id')")
+            self.assertEqual(call_args[4].args, ('operation_id',))
 
     @patch("logging.warning")
     @patch("time.sleep")
@@ -190,18 +192,18 @@ class TestBarmanRecover(unittest.TestCase):
                          "Maximum number of retries exceeded for method BarmanRecover._get_recovery_operation_status.")
 
         self.assertEqual(mock_sleep.call_count, self.br.max_retries)
-        mock_sleep.assert_has_calls([call(self.br.retry_wait)] * self.br.max_retries)
+        mock_sleep.assert_has_calls([mock.call(self.br.retry_wait)] * self.br.max_retries)
 
         self.assertEqual(mock_logging.call_count, self.br.max_retries)
         for i in range(mock_logging.call_count):
-            call_args = mock_logging.mock_calls[i].args
+            call_args = mock_logging.call_args_list[i][0]
             self.assertEqual(len(call_args), 5)
             self.assertEqual(call_args[0], "Attempt %d of %d on method %s failed with %r.")
             self.assertEqual(call_args[1], i + 1)
             self.assertEqual(call_args[2], self.br.max_retries)
             self.assertEqual(call_args[3], "BarmanRecover._get_recovery_operation_status")
             self.assertIsInstance(call_args[4], KeyError)
-            self.assertEqual(repr(call_args[4]), "KeyError('status')")
+            self.assertEqual(call_args[4].args, ('status',))
 
     @patch.object(BarmanRecover, "_get_recovery_operation_status")
     @patch("time.sleep")
@@ -232,16 +234,16 @@ class TestBarmanRecover(unittest.TestCase):
         mock_create_op.assert_called_once()
 
         self.assertEqual(mock_get_status.call_count, 21)
-        mock_get_status.assert_has_calls([call("some_id")] * 21)
+        mock_get_status.assert_has_calls([mock.call("some_id")] * 21)
 
         self.assertEqual(mock_log_info.call_count, 21)
-        mock_log_info.assert_has_calls([call("Created the recovery operation with ID %s", "some_id")]
-                                       + [call("Recovery operation %s is still in progress", "some_id")] * 20)
+        mock_log_info.assert_has_calls([mock.call("Created the recovery operation with ID %s", "some_id")]
+                                       + [mock.call("Recovery operation %s is still in progress", "some_id")] * 20)
 
         mock_log_critical.assert_not_called()
 
         self.assertEqual(mock_sleep.call_count, 20)
-        mock_sleep.assert_has_calls([call(LOOP_WAIT)] * 20)
+        mock_sleep.assert_has_calls([mock.call(LOOP_WAIT)] * 20)
 
         # failed fast restore
         mock_create_op.reset_mock()
@@ -271,16 +273,16 @@ class TestBarmanRecover(unittest.TestCase):
         mock_create_op.assert_called_once()
 
         self.assertEqual(mock_get_status.call_count, 21)
-        mock_get_status.assert_has_calls([call("some_id")] * 21)
+        mock_get_status.assert_has_calls([mock.call("some_id")] * 21)
 
         self.assertEqual(mock_log_info.call_count, 21)
-        mock_log_info.assert_has_calls([call("Created the recovery operation with ID %s", "some_id")]
-                                       + [call("Recovery operation %s is still in progress", "some_id")] * 20)
+        mock_log_info.assert_has_calls([mock.call("Created the recovery operation with ID %s", "some_id")]
+                                       + [mock.call("Recovery operation %s is still in progress", "some_id")] * 20)
 
         mock_log_critical.assert_not_called()
 
         self.assertEqual(mock_sleep.call_count, 20)
-        mock_sleep.assert_has_calls([call(LOOP_WAIT)] * 20)
+        mock_sleep.assert_has_calls([mock.call(LOOP_WAIT)] * 20)
 
         # create retries exceeded
         mock_log_info.reset_mock()
