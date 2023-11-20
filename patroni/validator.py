@@ -9,7 +9,7 @@ import os
 import shutil
 import socket
 
-from typing import Any, Dict, Union, Iterator, List, Optional as OptionalType, Tuple
+from typing import Any, Dict, Union, Iterator, List, Optional as OptionalType, Tuple, TYPE_CHECKING
 
 from .collections import CaseInsensitiveSet
 
@@ -200,6 +200,8 @@ def get_bin_name(bin_name: str) -> str:
 
     :returns: value of ``postgresql.bin_name[*bin_name*]``, if present, otherwise *bin_name*.
     """
+    if TYPE_CHECKING:  # pragma: no cover
+        assert isinstance(schema.data, dict)
     return (schema.data.get('postgresql', {}).get('bin_name', {}) or {}).get(bin_name, bin_name)
 
 
@@ -239,6 +241,8 @@ def validate_data_dir(data_dir: str) -> bool:
             if not os.path.isdir(os.path.join(data_dir, waldir)):
                 raise ConfigParseError("data dir for the cluster is not empty, but doesn't contain"
                                        " \"{}\" directory".format(waldir))
+            if TYPE_CHECKING:  # pragma: no cover
+                assert isinstance(schema.data, dict)
             bin_dir = schema.data.get("postgresql", {}).get("bin_dir", None)
             major_version = get_major_version(bin_dir, get_bin_name('postgres'))
             if pgversion != major_version:
@@ -274,6 +278,8 @@ def validate_binary_name(bin_name: str) -> bool:
     """
     if not bin_name:
         raise ConfigParseError("is an empty string")
+    if TYPE_CHECKING:  # pragma: no cover
+        assert isinstance(schema.data, dict)
     bin_dir = schema.data.get('postgresql', {}).get('bin_dir', None)
     if not shutil.which(bin_name, path=bin_dir):
         raise ConfigParseError(f"does not contain '{bin_name}' in '{bin_dir or '$PATH'}'")
@@ -523,7 +529,7 @@ class Schema(object):
         * :class:`dict`: dictionary representing the YAML configuration tree.
     """
 
-    def __init__(self, validator: Any) -> None:
+    def __init__(self, validator: Union[Dict[Any, Any], List[Any], Any]) -> None:
         """Create a :class:`Schema` object.
 
         .. note::
@@ -614,7 +620,7 @@ class Schema(object):
                 errors.append(str(i))
         return errors
 
-    def validate(self, data: Any) -> Iterator[Result]:
+    def validate(self, data: Union[Dict[Any, Any], Any]) -> Iterator[Result]:
         """Perform all validations from the schema against the given configuration.
 
         It first checks that *data* argument type is compliant with the type of ``validator`` attribute.
@@ -638,11 +644,8 @@ class Schema(object):
         # iterable objects in the structure, until we eventually reach a leaf node to validate its value.
         if isinstance(self.validator, str):
             yield Result(isinstance(self.data, str), "is not a string", level=1, data=self.data)
-        elif issubclass(type(self.validator), type):
-            validator = self.validator
-            if self.validator == str:
-                validator = str
-            yield Result(isinstance(self.data, validator),
+        elif isinstance(self.validator, type):
+            yield Result(isinstance(self.data, self.validator),
                          "is not {}".format(_get_type_name(self.validator)), level=1, data=self.data)
         elif callable(self.validator):
             if hasattr(self.validator, "expected_type"):
@@ -689,7 +692,7 @@ class Schema(object):
                     for v in Schema(self.validator[0]).validate(value):
                         yield Result(v.status, v.error,
                                      path=(str(key) + ("." + v.path if v.path else "")), level=v.level, data=value)
-        elif isinstance(self.validator, Directory):
+        elif isinstance(self.validator, Directory) and isinstance(self.data, str):
             yield from self.validator.validate(self.data)
         elif isinstance(self.validator, Or):
             yield from self.iter_or()
@@ -701,6 +704,9 @@ class Schema(object):
         """
         # One key in `validator` attribute (`key` variable) can be mapped to one or more keys in `data` attribute (`d`
         # variable), depending on the `key` type.
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(self.validator, dict)
+            assert isinstance(self.data, dict)
         for key in self.validator.keys():
             if isinstance(key, AtMostOne) and len(list(self._data_key(key))) > 1:
                 yield Result(False, f"Multiple of {key.args} provided")
@@ -730,6 +736,8 @@ class Schema(object):
 
         :yields: objects with the error message related to the failure, if any check fails.
         """
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(self.validator, Or)
         results: List[Result] = []
         for a in self.validator.args:
             r: List[Result] = []
@@ -766,7 +774,7 @@ class Schema(object):
             yield key.name
         # If the key was defined as an `Or` object in `validator` attribute, then each of its values are the keys to
         # access the `data` dictionary.
-        elif isinstance(key, Or):
+        elif isinstance(key, Or) and isinstance(self.data, dict):
             # At least one of the `Or` entries should be available in the `data` dictionary. If we find at least one of
             # them in `data`, then we return all found entries so the caller method can validate them all.
             if any([item in self.data for item in key.args]):
@@ -780,7 +788,7 @@ class Schema(object):
                     yield item
         # If the key was defined as a `AtMostOne` object in `validator` attribute, then each of its values
         # are the keys to access the `data` dictionary.
-        elif isinstance(key, AtMostOne):
+        elif isinstance(key, AtMostOne) and isinstance(self.data, dict):
             # Yield back all of the entries from the `data` dictionary, each will be validated and then counted
             # to inform us if we've provided too many
             for item in key.args:
