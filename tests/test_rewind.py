@@ -180,6 +180,16 @@ class TestRewind(BaseTestPostgresql):
             self.r.trigger_check_diverged_lsn()
             mock_get_local_timeline_lsn.return_value = (False, 2, 67197377)
             self.assertTrue(self.r.rewind_or_reinitialize_needed_and_possible(self.leader))
+
+            mock_popen.return_value.communicate.return_value = (
+                b'0, lsn: 0/040159C1, prev 0/\n',
+                b'pg_waldump: fatal: error in WAL record at 0/40159C1: invalid record '
+                b'length at 0/402DD98: expected at least 24, got 0\n'
+            )
+            self.r.reset_state()
+            self.r.trigger_check_diverged_lsn()
+            self.assertFalse(self.r.rewind_or_reinitialize_needed_and_possible(self.leader))
+
             self.r.reset_state()
             self.r.trigger_check_diverged_lsn()
             mock_popen.side_effect = Exception
