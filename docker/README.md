@@ -43,32 +43,7 @@ Example session:
     2023-11-21 09:04:33,547 INFO: Selected new etcd server http://172.29.0.3:2379
     2023-11-21 09:04:33,605 INFO: Lock owner: None; I am patroni1
     2023-11-21 09:04:33,693 INFO: trying to bootstrap a new cluster
-    The files belonging to this database system will be owned by user "postgres".
-    This user must also own the server process.
-
-    The database cluster will be initialized with locale "en_US.UTF-8".
-    The default text search configuration will be set to "english".
-
-    Data page checksums are enabled.
-
-    creating directory /home/postgres/data ... ok
-    creating subdirectories ... ok
-    selecting dynamic shared memory implementation ... posix
-    selecting default max_connections ... 100
-    selecting default shared_buffers ... 128MB
-    selecting default time zone ... Etc/UTC
-    creating configuration files ... ok
-    running bootstrap script ... ok
-    performing post-bootstrap initialization ... ok
-    initdb: warning: enabling "trust" authentication for local connections
-    initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
-    syncing data to disk ... ok
-
-
-    Success. You can now start the database server using:
-
-        pg_ctl -D /home/postgres/data -l logfile start
-
+...
     2023-11-21 09:04:34.920 UTC [43] LOG:  starting PostgreSQL 15.5 (Debian 15.5-1.pgdg120+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14) 12.2.0, 64-bit
     2023-11-21 09:04:34.921 UTC [43] LOG:  listening on IPv4 address "0.0.0.0", port 5432
     2023-11-21 09:04:34,922 INFO: postmaster pid=43
@@ -81,27 +56,12 @@ Example session:
     2023-11-21 09:04:34,992 INFO: running post_bootstrap
     2023-11-21 09:04:35,004 WARNING: User creation via "bootstrap.users" will be removed in v4.0.0
     2023-11-21 09:04:35,009 WARNING: Could not activate Linux watchdog device: Can't open watchdog device: [Errno 2] No such file or directory: '/dev/watchdog'
-    2023-11-21 09:04:35,010 INFO: Reaped pid=56, exit status=0
-    2023-11-21 09:04:35,011 INFO: Reaped pid=57, exit status=0
-    2023-11-21 09:04:35.164 UTC [45] LOG:  checkpoint starting: force wait
     2023-11-21 09:04:35,189 INFO: initialized a new cluster
     2023-11-21 09:04:35,328 INFO: no action. I am (patroni1), the leader with the lock
-    2023-11-21 09:04:35.587 UTC [45] LOG:  checkpoint complete: wrote 7 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.402 s, sync=0.002 s, total=0.423 s; sync files=6, longest=0.001 s, average=0.001 s; distance=8951 kB, estimate=8951 kB
-    2023-11-21 09:04:35.587 UTC [45] LOG:  checkpoint starting: force wait
-    2023-11-21 09:04:35.589 UTC [45] LOG:  checkpoint complete: wrote 0 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.003 s; sync files=0, longest=0.000 s, average=0.000 s; distance=0 kB, estimate=8056 kB
     2023-11-21 09:04:43,824 INFO: establishing a new patroni restapi connection to postgres
     2023-11-21 09:04:45,322 INFO: no action. I am (patroni1), the leader with the lock
     2023-11-21 09:04:55,320 INFO: no action. I am (patroni1), the leader with the lock
-    2023-11-21 09:05:05,233 INFO: no action. I am (patroni1), the leader with the lock
-    2023-11-21 09:05:15,232 INFO: no action. I am (patroni1), the leader with the lock
-    2023-11-21 09:05:25,233 INFO: no action. I am (patroni1), the leader with the lock
-    2023-11-21 09:05:35,233 INFO: no action. I am (patroni1), the leader with the lock
-    2023-11-21 09:05:45,233 INFO: no action. I am (patroni1), the leader with the lock
-    2023-11-21 09:05:55,234 INFO: no action. I am (patroni1), the leader with the lock
-    2023-11-21 09:06:05,320 INFO: no action. I am (patroni1), the leader with the lock
-    2023-11-21 09:06:15,232 INFO: no action. I am (patroni1), the leader with the lock
-    2023-11-21 09:06:25,324 INFO: no action. I am (patroni1), the leader with the lock
-
+...
 
     $ docker exec -ti demo-patroni1 bash
     postgres@patroni1:~$ patronictl list
@@ -193,38 +153,10 @@ Example session:
 
 
     $ docker logs demo-coord1
-    2023-11-21 09:36:14,244 ERROR: Failed to get list of machines from http://etcd3:2379/v3beta: ValueError("invalid literal for int() with base 10: 'not_decided'")
-    2023-11-21 09:36:14,251 ERROR: Failed to get list of machines from http://etcd1:2379/v3beta: ValueError("invalid literal for int() with base 10: 'not_decided'")
     2023-11-21 09:36:14,293 INFO: Selected new etcd server http://172.30.0.4:2379
-    2023-11-21 09:36:14,316 INFO: No PostgreSQL configuration items changed, nothing to reload.
     2023-11-21 09:36:14,390 INFO: Lock owner: None; I am coord1
     2023-11-21 09:36:14,478 INFO: trying to bootstrap a new cluster
-    The files belonging to this database system will be owned by user "postgres".
-    This user must also own the server process.
-
-    The database cluster will be initialized with locale "en_US.UTF-8".
-    The default text search configuration will be set to "english".
-
-    Data page checksums are enabled.
-
-    creating directory /home/postgres/data ... ok
-    creating subdirectories ... ok
-    selecting dynamic shared memory implementation ... posix
-    selecting default max_connections ... 100
-    selecting default shared_buffers ... 128MB
-    selecting default time zone ... Etc/UTC
-    creating configuration files ... ok
-    running bootstrap script ... ok
-    performing post-bootstrap initialization ... ok
-    syncing data to disk ... ok
-
-    initdb: warning: enabling "trust" authentication for local connections
-    initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
-
-    Success. You can now start the database server using:
-
-        pg_ctl -D /home/postgres/data -l logfile start
-
+...
     2023-11-21 09:36:16,475 INFO: postmaster pid=52
     localhost:5432 - no response
     2023-11-21 09:36:16.495 UTC [52] LOG:  starting PostgreSQL 15.5 (Debian 15.5-1.pgdg120+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14) 12.2.0, 64-bit
@@ -253,74 +185,6 @@ Example session:
     2023-11-21 09:36:18,323 DEBUG: query(SELECT pg_catalog.citus_add_node(%s, %s, %s, 'primary', 'default'), ('172.30.0.7', 5432, 1))
     2023-11-21 09:36:18,361 INFO: no action. I am (coord1), the leader with the lock
     2023-11-21 09:36:18,393 DEBUG: query(SELECT pg_catalog.citus_add_node(%s, %s, %s, 'primary', 'default'), ('172.30.0.8', 5432, 2))
-    2023-11-21 09:36:18.429 UTC [54] LOG:  checkpoint complete: wrote 1000 buffers (48.8%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.026 s, sync=0.241 s, total=0.270 s; sync files=402, longest=0.010 s, average=0.001 s; distance=8951 kB, estimate=8951 kB
-    2023-11-21 09:36:18.435 UTC [54] LOG:  checkpoint starting: immediate force wait
-    2023-11-21 09:36:18.484 UTC [54] LOG:  checkpoint complete: wrote 22 buffers (1.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.010 s, sync=0.024 s, total=0.049 s; sync files=20, longest=0.009 s, average=0.002 s; distance=70 kB, estimate=8063 kB
-    [root@Kube-Worker1 Patroni]# docker logs -f demo-coord1
-    [root@Kube-Worker1 Patroni]# docker logs -f demo-coord1
-    2023-11-21 09:36:14,244 ERROR: Failed to get list of machines from http://etcd3:2379/v3beta: ValueError("invalid literal for int() with base 10: 'not_decided'")
-    2023-11-21 09:36:14,251 ERROR: Failed to get list of machines from http://etcd1:2379/v3beta: ValueError("invalid literal for int() with base 10: 'not_decided'")
-    2023-11-21 09:36:14,293 INFO: Selected new etcd server http://172.30.0.4:2379
-    2023-11-21 09:36:14,316 INFO: No PostgreSQL configuration items changed, nothing to reload.
-    2023-11-21 09:36:14,390 INFO: Lock owner: None; I am coord1
-    2023-11-21 09:36:14,478 INFO: trying to bootstrap a new cluster
-    The files belonging to this database system will be owned by user "postgres".
-    This user must also own the server process.
-
-    The database cluster will be initialized with locale "en_US.UTF-8".
-    The default text search configuration will be set to "english".
-
-    Data page checksums are enabled.
-
-    creating directory /home/postgres/data ... ok
-    creating subdirectories ... ok
-    selecting dynamic shared memory implementation ... posix
-    selecting default max_connections ... 100
-    selecting default shared_buffers ... 128MB
-    selecting default time zone ... Etc/UTC
-    creating configuration files ... ok
-    running bootstrap script ... ok
-    performing post-bootstrap initialization ... ok
-    syncing data to disk ... ok
-
-    initdb: warning: enabling "trust" authentication for local connections
-    initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
-
-    Success. You can now start the database server using:
-
-        pg_ctl -D /home/postgres/data -l logfile start
-
-    2023-11-21 09:36:16,475 INFO: postmaster pid=52
-    localhost:5432 - no response
-    2023-11-21 09:36:16.495 UTC [52] LOG:  starting PostgreSQL 15.5 (Debian 15.5-1.pgdg120+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14) 12.2.0, 64-bit
-    2023-11-21 09:36:16.495 UTC [52] LOG:  listening on IPv4 address "0.0.0.0", port 5432
-    2023-11-21 09:36:16.496 UTC [52] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
-    2023-11-21 09:36:16.498 UTC [56] LOG:  database system was shut down at 2023-11-21 09:36:15 UTC
-    2023-11-21 09:36:16.501 UTC [52] LOG:  database system is ready to accept connections
-    localhost:5432 - accepting connections
-    localhost:5432 - accepting connections
-    2023-11-21 09:36:17,509 INFO: establishing a new patroni heartbeat connection to postgres
-    2023-11-21 09:36:17,569 INFO: running post_bootstrap
-    2023-11-21 09:36:17,593 WARNING: User creation via "bootstrap.users" will be removed in v4.0.0
-    2023-11-21 09:36:17,783 INFO: establishing a new patroni restapi connection to postgres
-    2023-11-21 09:36:17,969 WARNING: Could not activate Linux watchdog device: Can't open watchdog device: [Errno 2] No such file or directory: '/dev/watchdog'
-    2023-11-21 09:36:17.969 UTC [70] LOG:  starting maintenance daemon on database 16386 user 10
-    2023-11-21 09:36:17.969 UTC [70] CONTEXT:  Citus maintenance daemon for database 16386 user 10
-    2023-11-21 09:36:18.159 UTC [54] LOG:  checkpoint starting: immediate force wait
-    2023-11-21 09:36:18,162 INFO: initialized a new cluster
-    2023-11-21 09:36:18,164 INFO: Lock owner: coord1; I am coord1
-    2023-11-21 09:36:18,297 INFO: Enabled synchronous replication
-    2023-11-21 09:36:18,298 DEBUG: Adding the new task: PgDistNode(nodeid=None,group=0,host=172.30.0.3,port=5432,event=after_promote)
-    2023-11-21 09:36:18,298 DEBUG: Adding the new task: PgDistNode(nodeid=None,group=1,host=172.30.0.7,port=5432,event=after_promote)
-    2023-11-21 09:36:18,298 DEBUG: Adding the new task: PgDistNode(nodeid=None,group=2,host=172.30.0.8,port=5432,event=after_promote)
-    2023-11-21 09:36:18,299 DEBUG: query(SELECT nodeid, groupid, nodename, nodeport, noderole FROM pg_catalog.pg_dist_node WHERE noderole = 'primary', ())
-    2023-11-21 09:36:18,299 INFO: establishing a new patroni citus connection to postgres
-    2023-11-21 09:36:18,323 DEBUG: query(SELECT pg_catalog.citus_add_node(%s, %s, %s, 'primary', 'default'), ('172.30.0.7', 5432, 1))
-    2023-11-21 09:36:18,361 INFO: no action. I am (coord1), the leader with the lock
-    2023-11-21 09:36:18,393 DEBUG: query(SELECT pg_catalog.citus_add_node(%s, %s, %s, 'primary', 'default'), ('172.30.0.8', 5432, 2))
-    2023-11-21 09:36:18.429 UTC [54] LOG:  checkpoint complete: wrote 1000 buffers (48.8%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.026 s, sync=0.241 s, total=0.270 s; sync files=402, longest=0.010 s, average=0.001 s; distance=8951 kB, estimate=8951 kB
-    2023-11-21 09:36:18.435 UTC [54] LOG:  checkpoint starting: immediate force wait
-    2023-11-21 09:36:18.484 UTC [54] LOG:  checkpoint complete: wrote 22 buffers (1.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.010 s, sync=0.024 s, total=0.049 s; sync files=20, longest=0.009 s, average=0.002 s; distance=70 kB, estimate=8063 kB
     2023-11-21 09:36:28,164 INFO: Lock owner: coord1; I am coord1
     2023-11-21 09:36:28,251 INFO: Assigning synchronous standby status to ['coord3']
     server signaled
@@ -331,22 +195,13 @@ Example session:
     2023-11-21 09:36:30,582 INFO: Synchronous standby status assigned to ['coord3']
     2023-11-21 09:36:30,626 INFO: no action. I am (coord1), the leader with the lock
     2023-11-21 09:36:38,250 INFO: no action. I am (coord1), the leader with the lock
-    2023-11-21 09:37:08,292 INFO: no action. I am (coord1), the leader with the lock
-    2023-11-21 09:37:18,206 INFO: no action. I am (coord1), the leader with the lock
-    2023-11-21 09:37:28,294 INFO: no action. I am (coord1), the leader with the lock
-    2023-11-21 09:37:38,292 INFO: no action. I am (coord1), the leader with the lock
-    2023-11-21 09:37:48,292 INFO: no action. I am (coord1), the leader with the lock
-    2023-11-21 09:37:58,292 INFO: no action. I am (coord1), the leader with the lock
-
-
-
+...
 
     $ docker exec -ti demo-haproxy bash
     postgres@haproxy:~$ etcdctl member list
     2b28411e74c0c281, started, etcd3, http://etcd3:2380, http://172.30.0.4:2379
     6c70137d27cfa6c1, started, etcd2, http://etcd2:2380, http://172.30.0.5:2379
     a28f9a70ebf21304, started, etcd1, http://etcd1:2380, http://172.30.0.6:2379
-
 
     postgres@haproxy:~$ etcdctl get --keys-only --prefix /service/demo
     /service/demo/0/config
@@ -392,8 +247,6 @@ Example session:
         3 |       2 | 172.30.0.8 |     5432 | default  | t           | t        | primary  | default     | t              | t
     (3 rows)
 
-
-
     citus=# \q
 
     postgres@haproxy:~$ patronictl list
@@ -426,8 +279,6 @@ Example session:
     | work2-2 | 172.30.0.11 | Leader  | running |  1 |           |
     +---------+-------------+---------+---------+----+-----------+
 
-
-
     postgres@haproxy:~$ patronictl list
     + Citus cluster: demo ----------+--------------+-----------+----+-----------+
     | Group | Member  | Host        | Role         | State     | TL | Lag in MB |
@@ -441,12 +292,10 @@ Example session:
     |     2 | work2-2 | 172.30.0.11 | Leader       | running   |  2 |           |
     +-------+---------+-------------+--------------+-----------+----+-----------+
 
-
     postgres@haproxy:~$ psql -h localhost -p 5000 -U postgres -d citus
     psql (15.5 (Debian 15.5-1.pgdg120+1))
     SSL connection (protocol: TLSv1.3, cipher: TLS_AES_256_GCM_SHA384, compression: off)
     Type "help" for help.
-
 
     citus=# table pg_dist_node;
      nodeid | groupid |  nodename   | nodeport | noderack | hasmetadata | isactive | noderole | nodecluster | metadatasynced | shouldhaveshards 
