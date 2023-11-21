@@ -40,8 +40,6 @@ Example session:
     aef8bf3ee91f   patroni   "/bin/sh /entrypoint…"   15 minutes ago   Up 15 minutes                                                                   demo-etcd1
 
     $ docker logs demo-patroni1
-    2023-11-21 09:04:33,497 ERROR: Failed to get list of machines from http://etcd1:2379/v3beta: ValueError("invalid literal for int() with base 10: 'not_decided'")
-    2023-11-21 09:04:33,501 ERROR: Failed to get list of machines from http://etcd3:2379/v3beta: ValueError("invalid literal for int() with base 10: 'not_decided'")
     2023-11-21 09:04:33,547 INFO: Selected new etcd server http://172.29.0.3:2379
     2023-11-21 09:04:33,560 INFO: No PostgreSQL configuration items changed, nothing to reload.
     2023-11-21 09:04:33,605 INFO: Lock owner: None; I am patroni1
