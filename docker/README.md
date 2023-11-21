@@ -41,7 +41,6 @@ Example session:
 
     $ docker logs demo-patroni1
     2023-11-21 09:04:33,547 INFO: Selected new etcd server http://172.29.0.3:2379
-    2023-11-21 09:04:33,560 INFO: No PostgreSQL configuration items changed, nothing to reload.
     2023-11-21 09:04:33,605 INFO: Lock owner: None; I am patroni1
     2023-11-21 09:04:33,693 INFO: trying to bootstrap a new cluster
     The files belonging to this database system will be owned by user "postgres".
