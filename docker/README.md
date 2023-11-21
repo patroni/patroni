@@ -43,7 +43,7 @@ Example session:
     2023-11-21 09:04:33,547 INFO: Selected new etcd server http://172.29.0.3:2379
     2023-11-21 09:04:33,605 INFO: Lock owner: None; I am patroni1
     2023-11-21 09:04:33,693 INFO: trying to bootstrap a new cluster
-...
+    ...
     2023-11-21 09:04:34.920 UTC [43] LOG:  starting PostgreSQL 15.5 (Debian 15.5-1.pgdg120+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14) 12.2.0, 64-bit
     2023-11-21 09:04:34.921 UTC [43] LOG:  listening on IPv4 address "0.0.0.0", port 5432
     2023-11-21 09:04:34,922 INFO: postmaster pid=43
@@ -61,7 +61,7 @@ Example session:
     2023-11-21 09:04:43,824 INFO: establishing a new patroni restapi connection to postgres
     2023-11-21 09:04:45,322 INFO: no action. I am (patroni1), the leader with the lock
     2023-11-21 09:04:55,320 INFO: no action. I am (patroni1), the leader with the lock
-...
+    ...
 
     $ docker exec -ti demo-patroni1 bash
     postgres@patroni1:~$ patronictl list
@@ -156,7 +156,7 @@ Example session:
     2023-11-21 09:36:14,293 INFO: Selected new etcd server http://172.30.0.4:2379
     2023-11-21 09:36:14,390 INFO: Lock owner: None; I am coord1
     2023-11-21 09:36:14,478 INFO: trying to bootstrap a new cluster
-...
+    ...
     2023-11-21 09:36:16,475 INFO: postmaster pid=52
     localhost:5432 - no response
     2023-11-21 09:36:16.495 UTC [52] LOG:  starting PostgreSQL 15.5 (Debian 15.5-1.pgdg120+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14) 12.2.0, 64-bit
@@ -195,7 +195,7 @@ Example session:
     2023-11-21 09:36:30,582 INFO: Synchronous standby status assigned to ['coord3']
     2023-11-21 09:36:30,626 INFO: no action. I am (coord1), the leader with the lock
     2023-11-21 09:36:38,250 INFO: no action. I am (coord1), the leader with the lock
-...
+    ...
 
     $ docker exec -ti demo-haproxy bash
     postgres@haproxy:~$ etcdctl member list
