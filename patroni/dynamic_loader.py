@@ -21,7 +21,7 @@ def iter_modules(package: str) -> List[str]:
     .. note::
         If being packaged with PyInstaller, modules aren't discoverable dynamically by scanning source directory because
         :class:`importlib.machinery.FrozenImporter` doesn't implement :func:`iter_modules`. But it is still possible to
-        find all potential DCS modules by iterating through ``toc``, which contains list of all "frozen" resources.
+        find all potential modules by iterating through ``toc``, which contains list of all "frozen" resources.
 
     :param package: a package name to search modules in, e.g. ``patroni.dcs``.
 
@@ -41,7 +41,7 @@ def iter_modules(package: str) -> List[str]:
         dots = module_prefix.count('.')  # search for modules only on the same level
         return [module for module in toc if module.startswith(module_prefix) and module.count('.') == dots]
 
-    # hier we are making an assumption that package that calling this function is already imported
+    # here we are making an assumption that package that calling this function is already imported
     pkg_file = sys.modules[package].__file__
     if TYPE_CHECKING:  # pragma: no cover
         assert isinstance(pkg_file, str)
@@ -71,7 +71,7 @@ def iter_classes(
         package: str, cls_type: Type[ClassType],
         config: Optional[Union['Config', Dict[str, Any]]] = None
 ) -> Iterator[Tuple[str, Type[ClassType]]]:
-    """Attempt to import modules and find implements of *cls_type* that are present in the given configuration.
+    """Attempt to import modules and find implementations of *cls_type* that are present in the given configuration.
 
     .. note::
             If a module successfully imports we can assume that all its requirements are installed.
