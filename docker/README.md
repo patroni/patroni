@@ -242,9 +242,9 @@ Example session:
     citus=# table pg_dist_node;
      nodeid | groupid |  nodename  | nodeport | noderack | hasmetadata | isactive | noderole | nodecluster | metadatasynced | shouldhaveshards 
     --------+---------+------------+----------+----------+-------------+----------+----------+-------------+----------------+------------------
-        1 |       0 | 172.30.0.3 |     5432 | default  | t           | t        | primary  | default     | t              | f
-        2 |       1 | 172.30.0.7 |     5432 | default  | t           | t        | primary  | default     | t              | t
-        3 |       2 | 172.30.0.8 |     5432 | default  | t           | t        | primary  | default     | t              | t
+          1 |       0 | 172.30.0.3 |     5432 | default  | t           | t        | primary  | default     | t              | f
+          2 |       1 | 172.30.0.7 |     5432 | default  | t           | t        | primary  | default     | t              | t
+          3 |       2 | 172.30.0.8 |     5432 | default  | t           | t        | primary  | default     | t              | t
     (3 rows)
 
     citus=# \q
@@ -300,7 +300,7 @@ Example session:
     citus=# table pg_dist_node;
      nodeid | groupid |  nodename   | nodeport | noderack | hasmetadata | isactive | noderole | nodecluster | metadatasynced | shouldhaveshards 
     --------+---------+-------------+----------+----------+-------------+----------+----------+-------------+----------------+------------------
-        1 |       0 | 172.30.0.3  |     5432 | default  | t           | t        | primary  | default     | t              | f
-        3 |       2 | 172.30.0.11 |     5432 | default  | t           | t        | primary  | default     | t              | t
-        2 |       1 | 172.30.0.7  |     5432 | default  | t           | t        | primary  | default     | t              | t
+          1 |       0 | 172.30.0.3  |     5432 | default  | t           | t        | primary  | default     | t              | f
+          3 |       2 | 172.30.0.11 |     5432 | default  | t           | t        | primary  | default     | t              | t
+          2 |       1 | 172.30.0.7  |     5432 | default  | t           | t        | primary  | default     | t              | t
     (3 rows)
