@@ -1,26 +1,21 @@
 """Abstract classes for Distributed Configuration Store."""
 import abc
 import datetime
-import importlib
-import inspect
 import json
 import logging
-import os
-import pkgutil
 import re
-import sys
 import time
 from collections import defaultdict
 from copy import deepcopy
 from random import randint
 from threading import Event, Lock
-from types import ModuleType
-from typing import Any, Callable, Collection, Dict, List, NamedTuple, Optional, Set, Tuple, Union, TYPE_CHECKING, \
-    Type, Iterator
+from typing import Any, Callable, Collection, Dict, Iterator, List, \
+    NamedTuple, Optional, Tuple, Type, TYPE_CHECKING, Union
 from urllib.parse import urlparse, urlunparse, parse_qsl
 
 import dateutil.parser
 
+from ..dynamic_loader import iter_classes, iter_modules
 from ..exceptions import PatroniFatalException
 from ..utils import deep_compare, uri
 from ..tags import Tags
@@ -87,28 +82,9 @@ def parse_connection_string(value: str) -> Tuple[str, Union[str, None]]:
 def dcs_modules() -> List[str]:
     """Get names of DCS modules, depending on execution environment.
 
-    .. note::
-        If being packaged with PyInstaller, modules aren't discoverable dynamically by scanning source directory because
-        :class:`importlib.machinery.FrozenImporter` doesn't implement :func:`iter_modules`. But it is still possible to
-        find all potential DCS modules by iterating through ``toc``, which contains list of all "frozen" resources.
-
     :returns: list of known module names with absolute python module path namespace, e.g. ``patroni.dcs.etcd``.
     """
-    dcs_dirname = os.path.dirname(__file__)
-    module_prefix = __package__ + '.'
-
-    if getattr(sys, 'frozen', False):
-        toc: Set[str] = set()
-        # dcs_dirname may contain a dot, which causes pkgutil.iter_importers()
-        # to misinterpret the path as a package name. This can be avoided
-        # altogether by not passing a path at all, because PyInstaller's
-        # FrozenImporter is a singleton and registered as top-level finder.
-        for importer in pkgutil.iter_importers():
-            if hasattr(importer, 'toc'):
-                toc |= getattr(importer, 'toc')
-        return [module for module in toc if module.startswith(module_prefix) and module.count('.') == 2]
-
-    return [module_prefix + name for _, name, is_pkg in pkgutil.iter_modules([dcs_dirname]) if not is_pkg]
+    return iter_modules(__package__)
 
 
 def iter_dcs_classes(
@@ -122,44 +98,16 @@ def iter_dcs_classes(
     :param config: configuration information with possible DCS names as keys. If given, only attempt to import DCS
                    modules defined in the configuration. Else, if ``None``, attempt to import any supported DCS module.
 
-    :yields: a tuple containing the module ``name`` and the imported DCS class object.
+    :returns: an iterator of tuples, each containing the module ``name`` and the imported DCS class object.
     """
-    for mod_name in dcs_modules():
-        name = mod_name.rpartition('.')[2]
-        if config is None or name in config:
-
-            try:
-                module = importlib.import_module(mod_name)
-                dcs_module = find_dcs_class_in_module(module)
-                if dcs_module:
-                    yield name, dcs_module
-
-            except ImportError:
-                logger.log(logging.DEBUG if config is not None else logging.INFO,
-                           'Failed to import %s', mod_name)
-
-
-def find_dcs_class_in_module(module: ModuleType) -> Optional[Type['AbstractDCS']]:
-    """Try to find the implementation of :class:`AbstractDCS` interface in *module* matching the *module* name.
-
-    :param module: Imported DCS module.
-
-    :returns: class with a name matching the name of *module* that implements :class:`AbstractDCS` or ``None`` if not
-              found.
-    """
-    module_name = module.__name__.rpartition('.')[2]
-    return next(
-        (obj for obj_name, obj in module.__dict__.items()
-         if (obj_name.lower() == module_name
-             and inspect.isclass(obj) and issubclass(obj, AbstractDCS))),
-        None)
+    return iter_classes(__package__, AbstractDCS, config)
 
 
 def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
     """Attempt to load a Distributed Configuration Store from known available implementations.
 
     .. note::
-        Using the list of available DCS classes returned by :func:`iter_dcs_classes` attempt to dynamically
+        Using the list of available DCS classes returned by :func:`iter_classes` attempt to dynamically
         instantiate the class that implements a DCS using the abstract class :class:`AbstractDCS`.
 
         Basic top-level configuration parameters retrieved from *config* are propagated to the DCS specific config
@@ -185,9 +133,9 @@ def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
             config[name].update(config['citus'])
         return dcs_class(config[name])
 
-    raise PatroniFatalException(
-        f"Can not find suitable configuration of distributed configuration store\n"
-        f"Available implementations: {', '.join(sorted([n for n, _ in iter_dcs_classes()]))}")
+    available_implementations = ', '.join(sorted([n for n, _ in iter_dcs_classes()]))
+    raise PatroniFatalException("Can not find suitable configuration of distributed configuration store\n"
+                                f"Available implementations: {available_implementations}")
 
 
 _Version = Union[int, str]

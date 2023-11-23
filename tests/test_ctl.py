@@ -238,7 +238,7 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['failover', 'dummy', '--group', '0', '--candidate', 'async'], input='N')
         self.assertEqual(result.exit_code, 1)
 
-    @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.dummy', 'patroni.dcs.etcd']))
+    @patch('patroni.dynamic_loader.iter_modules', Mock(return_value=['patroni.dcs.dummy', 'patroni.dcs.etcd']))
     def test_get_dcs(self):
         with click.Context(click.Command('list')) as ctx:
             ctx.obj = {'__config': {'dummy': {}}}
