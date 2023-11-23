@@ -98,7 +98,7 @@ def iter_dcs_classes(
     :param config: configuration information with possible DCS names as keys. If given, only attempt to import DCS
                    modules defined in the configuration. Else, if ``None``, attempt to import any supported DCS module.
 
-    :yields: a tuple containing the module ``name`` and the imported DCS class object.
+    :returns: an iterator of tuples, each containing the module ``name`` and the imported DCS class object.
     """
     return iter_classes(__package__, AbstractDCS, config)
 

@@ -41,7 +41,7 @@ def iter_modules(package: str) -> List[str]:
         dots = module_prefix.count('.')  # search for modules only on the same level
         return [module for module in toc if module.startswith(module_prefix) and module.count('.') == dots]
 
-    # here we are making an assumption that package that calling this function is already imported
+    # here we are making an assumption that the package which is calling this function is already imported
     pkg_file = sys.modules[package].__file__
     if TYPE_CHECKING:  # pragma: no cover
         assert isinstance(pkg_file, str)
