@@ -7,7 +7,7 @@ from mock import Mock, PropertyMock, patch
 from patroni.dcs import get_dcs
 from patroni.dcs.raft import Cluster, DynMemberSyncObj, KVStoreTTL, \
     Raft, RaftError, SyncObjUtility, TCPTransport, _TCPTransport
-from patroni.postgresql.citus import get_mpp
+from patroni.postgresql.mpp import get_mpp
 from pysyncobj import SyncObjConf, FAIL_REASON
 
 

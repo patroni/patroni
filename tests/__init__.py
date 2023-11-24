@@ -12,7 +12,7 @@ import patroni.psycopg as psycopg
 from patroni.dcs import Leader, Member
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
-from patroni.postgresql.citus import get_mpp
+from patroni.postgresql.mpp import get_mpp
 from patroni.utils import RetryFailedError, tzutc
 
 

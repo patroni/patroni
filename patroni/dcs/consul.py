@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, List, Mapping, NamedTuple, Optional, Uni
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, \
     TimelineHistory, ReturnFalseException, catch_return_false_exception
 from ..exceptions import DCSError
-from ..postgresql.citus import AbstractMPP
+from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port, uri, USER_AGENT
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config

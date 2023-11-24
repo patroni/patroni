@@ -24,7 +24,7 @@ from urllib3.exceptions import HTTPError, ReadTimeoutError, ProtocolError
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, \
     TimelineHistory, ReturnFalseException, catch_return_false_exception
 from ..exceptions import DCSError
-from ..postgresql.citus import AbstractMPP
+from ..postgresql.mpp import AbstractMPP
 from ..request import get as requests_get
 from ..utils import Retry, RetryFailedError, split_host_port, uri, USER_AGENT
 if TYPE_CHECKING:  # pragma: no cover

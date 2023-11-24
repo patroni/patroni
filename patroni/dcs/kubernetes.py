@@ -21,7 +21,7 @@ from typing import Any, Callable, Collection, Dict, List, Optional, Tuple, Type,
 
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, TimelineHistory
 from ..exceptions import DCSError
-from ..postgresql.citus import AbstractMPP
+from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, iter_response_objects, keepalive_socket_options, \
     Retry, RetryFailedError, tzutc, uri, USER_AGENT
 if TYPE_CHECKING:  # pragma: no cover

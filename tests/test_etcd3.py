@@ -9,7 +9,7 @@ from patroni.dcs.etcd import DnsCachingResolver
 from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3, Etcd3Client, \
     Etcd3Error, Etcd3ClientError, ReAuthenticateMode, RetryFailedError, InvalidAuthToken, Unavailable, \
     Unknown, UnsupportedEtcdVersion, UserEmpty, AuthFailed, AuthOldRevision, base64_encode
-from patroni.postgresql.citus import get_mpp
+from patroni.postgresql.mpp import get_mpp
 from threading import Thread
 
 from . import SleepException, MockResponse

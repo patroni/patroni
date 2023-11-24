@@ -8,7 +8,7 @@ from mock import Mock, PropertyMock, patch
 from patroni.dcs import get_dcs
 from patroni.dcs.etcd import AbstractDCS, EtcdClient, Cluster, Etcd, EtcdError, DnsCachingResolver
 from patroni.exceptions import DCSError
-from patroni.postgresql.citus import get_mpp
+from patroni.postgresql.mpp import get_mpp
 from patroni.utils import Retry
 from urllib3.exceptions import ReadTimeoutError
 
