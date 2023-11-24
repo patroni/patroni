@@ -10,7 +10,7 @@ from mock import Mock, PropertyMock, patch
 from patroni.dcs import get_dcs
 from patroni.dcs.zookeeper import Cluster, PatroniKazooClient, \
     PatroniSequentialThreadingHandler, ZooKeeper, ZooKeeperError
-from patroni.postgresql.citus import get_mpp
+from patroni.postgresql.mpp import get_mpp
 
 
 class MockKazooClient(Mock):

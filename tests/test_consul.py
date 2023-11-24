@@ -6,7 +6,7 @@ from mock import Mock, PropertyMock, patch
 from patroni.dcs import get_dcs
 from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulInternalError, \
     ConsulError, ConsulClient, HTTPClient, InvalidSessionTTL, InvalidSession, RetryFailedError
-from patroni.postgresql.citus import get_mpp
+from patroni.postgresql.mpp import get_mpp
 from . import SleepException
 
 

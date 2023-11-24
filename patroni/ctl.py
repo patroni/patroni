@@ -50,8 +50,8 @@ from . import global_config
 from .config import Config
 from .dcs import get_dcs as _get_dcs, AbstractDCS, Cluster, Member
 from .exceptions import PatroniException
-from .postgresql.citus import get_mpp
 from .postgresql.misc import postgres_version_to_int
+from .postgresql.mpp import get_mpp
 from .utils import cluster_as_json, patch_config, polling_loop
 from .request import PatroniRequest
 from .version import __version__

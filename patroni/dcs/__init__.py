@@ -24,7 +24,7 @@ from ..utils import parse_int
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
-    from ..postgresql.citus import AbstractMPP
+    from ..postgresql.mpp import AbstractMPP
 
 SLOT_ADVANCE_AVAILABLE_VERSION = 110000
 slot_name_re = re.compile('^[a-z0-9_]{1,63}$')
@@ -129,7 +129,7 @@ def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
                                    'patronictl', 'ttl', 'retry_timeout')
             if p in config})
 
-        from patroni.postgresql.citus import get_mpp
+        from patroni.postgresql.mpp import get_mpp
         return dcs_class(config[name], get_mpp(config))
 
     available_implementations = ', '.join(sorted([n for n, _ in iter_dcs_classes()]))

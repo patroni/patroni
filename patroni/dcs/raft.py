@@ -14,7 +14,7 @@ from typing import Any, Callable, Collection, Dict, List, Optional, Set, Union, 
 
 from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, TimelineHistory
 from ..exceptions import DCSError
-from ..postgresql.citus import AbstractMPP
+from ..postgresql.mpp import AbstractMPP
 from ..utils import validate_directory
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
