@@ -7,6 +7,7 @@ import unittest
 from click.testing import CliRunner
 from datetime import datetime, timedelta
 from mock import patch, Mock, PropertyMock
+from patroni import global_config
 from patroni.ctl import ctl, load_config, output_members, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, PatroniCtlException, apply_config_changes, \
     format_config_for_editing, show_diff, invoke_editor, format_pg_version, CONFIG_FILE_PATH, PatronictlPrettyTable
@@ -147,7 +148,7 @@ class TestCtl(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
 
         # Scheduled in pause mode
-        with patch('patroni.config.GlobalConfig.is_paused', PropertyMock(return_value=True)):
+        with patch.object(global_config.__class__, 'is_paused', PropertyMock(return_value=True)):
             result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
                                               '--force', '--scheduled', '2015-01-01T12:00:00'])
             self.assertEqual(result.exit_code, 1)
@@ -369,7 +370,7 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force', '--scheduled', '2300-10-01T14:30'])
         assert 'Failed: flush scheduled restart' in result.output
 
-        with patch('patroni.config.GlobalConfig.is_paused', PropertyMock(return_value=True)):
+        with patch.object(global_config.__class__, 'is_paused', PropertyMock(return_value=True)):
             result = self.runner.invoke(ctl,
                                         ['restart', 'alpha', 'other', '--force', '--scheduled', '2300-10-01T14:30'])
             assert result.exit_code == 1
@@ -533,7 +534,7 @@ class TestCtl(unittest.TestCase):
             result = self.runner.invoke(ctl, ['pause', 'dummy'])
             assert 'Failed' in result.output
 
-        with patch('patroni.config.GlobalConfig.is_paused', PropertyMock(return_value=True)):
+        with patch.object(global_config.__class__, 'is_paused', PropertyMock(return_value=True)):
             result = self.runner.invoke(ctl, ['pause', 'dummy'])
             assert 'Cluster is already paused' in result.output
 
@@ -552,11 +553,11 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     def test_resume_cluster(self, mock_post):
         mock_post.return_value.status = 200
-        with patch('patroni.config.GlobalConfig.is_paused', PropertyMock(return_value=False)):
+        with patch.object(global_config.__class__, 'is_paused', PropertyMock(return_value=False)):
             result = self.runner.invoke(ctl, ['resume', 'dummy'])
             assert 'Cluster is not paused' in result.output
 
-        with patch('patroni.config.GlobalConfig.is_paused', PropertyMock(return_value=True)):
+        with patch.object(global_config.__class__, 'is_paused', PropertyMock(return_value=True)):
             result = self.runner.invoke(ctl, ['resume', 'dummy'])
             assert 'Success' in result.output
 

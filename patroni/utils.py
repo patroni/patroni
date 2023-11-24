@@ -33,7 +33,6 @@ from .version import __version__
 
 if TYPE_CHECKING:  # pragma: no cover
     from .dcs import Cluster
-    from .config import GlobalConfig
 
 tzutc = tz.tzutc()
 
@@ -759,12 +758,10 @@ def iter_response_objects(response: HTTPResponse) -> Iterator[Dict[str, Any]]:
         prev = chunk[idx:]
 
 
-def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] = None) -> Dict[str, Any]:
+def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
     """Get a JSON representation of *cluster*.
 
     :param cluster: the :class:`~patroni.dcs.Cluster` object to be parsed as JSON.
-    :param global_config: optional :class:`~patroni.config.GlobalConfig` object to check the cluster state.
-                          if not provided will be instantiated from the `Cluster.config`.
 
     :returns: JSON representation of *cluster*.
 
@@ -793,16 +790,16 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
             * ``from``: name of the member to be demoted;
             * ``to``: name of the member to be promoted.
     """
-    if not global_config:
-        from patroni.config import get_global_config
-        global_config = get_global_config(cluster)
+    from . import global_config
+
+    config = global_config.from_cluster(cluster)
     leader_name = cluster.leader.name if cluster.leader else None
     cluster_lsn = cluster.last_lsn or 0
 
     ret: Dict[str, Any] = {'members': []}
     for m in cluster.members:
         if m.name == leader_name:
-            role = 'standby_leader' if global_config.is_standby_cluster else 'leader'
+            role = 'standby_leader' if config.is_standby_cluster else 'leader'
         elif cluster.sync.matches(m.name):
             role = 'sync_standby'
         else:
@@ -832,7 +829,7 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
     # sort members by name for consistency
     cmp: Callable[[Dict[str, Any]], bool] = lambda m: m['name']
     ret['members'].sort(key=cmp)
-    if global_config.is_paused:
+    if config.is_paused:
         ret['pause'] = True
     if cluster.failover and cluster.failover.scheduled_at:
         ret['scheduled_switchover'] = {'at': cluster.failover.scheduled_at.isoformat()}
