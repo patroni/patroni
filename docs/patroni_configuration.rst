@@ -30,6 +30,7 @@ There are 3 types of Patroni configuration:
 	It is possible to set/override some of the "Local" configuration parameters with environment variables.
 	Environment configuration is very useful when you are running in a dynamic environment and you don't know some of the parameters in advance (for example it's not possible to know your external IP address when you are running inside ``docker``).
 
+.. _important_configuration_rules:
 
 Important rules
 ---------------
@@ -90,6 +91,7 @@ The parameters would be applied in the following order (run-time are given the h
 
 This allows configuration for all the nodes (2), configuration for a specific node using ``ALTER SYSTEM`` (3) and ensures that parameters essential to the running of Patroni are enforced (4), as well as leaves room for configuration tools that manage `postgresql.conf` directly without involving Patroni (1).
 
+.. _shared_memory_gucs:
 
 PostgreSQL parameters that touch shared memory
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -143,3 +145,109 @@ Also the following Patroni configuration options **can be changed only dynamical
 Upon changing these options, Patroni will read the relevant section of the configuration stored in DCS and change its run-time values.
 
 Patroni nodes are dumping the state of the DCS options to disk upon for every change of the configuration into the file ``patroni.dynamic.json`` located in the Postgres data directory. Only the leader is allowed to restore these options from the on-disk dump if these are completely absent from the DCS or if they are invalid.
+
+
+.. _validate_generate_config:
+
+Configuration generation and validation
+---------------------------------------
+
+Patroni provides command-line interfaces for a Patroni :ref:`local configuration <yaml_configuration>` generation and validation. Using the ``patroni`` executable you can:
+
+- Create a sample local Patroni configuration;
+- Create a Patroni configuration file for the locally running PostgreSQL instance (e.g. as a preparation step for the :ref:`Patroni integration <existing_data>`);
+- Validate a given Patroni configuration file.
+
+.. _generate_sample_config:
+
+Sample Patroni configuration
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code:: text
+
+   patroni --generate-sample-config [configfile]
+
+Description
+"""""""""""
+
+Generate a sample Patroni configuration file in ``yaml`` format.
+Parameter values are defined using the :ref:`Environment configuration <environment>`, otherwise, if not set, the defaults used in Patroni or the ``#FIXME`` string for the values that should be later defined by the user.
+
+Some default values are defined based on the local setup:
+
+   -  **postgresql.listen**: the IP address returned by ``gethostname`` call for the current machine's hostname and the standard ``5432`` port.
+   -  **postgresql.connect_address**: the IP address returned by ``gethostname`` call for the current machine's hostname and the standard ``5432`` port.
+   -  **postgresql.authentication.rewind**: is only defined if the PostgreSQL version can be defined from the binary and the version is 11 or later.
+   -  **restapi.listen**: IP address returned by ``gethostname`` call for the current machine's hostname and the standard ``8008`` port.
+   -  **restapi.connect_address**: IP address returned by ``gethostname`` call for the current machine's hostname and the standard ``8008`` port.
+
+Parameters
+""""""""""
+
+``configfile`` - full path to the configuration file used to store the result. If not provided, the result is sent to ``stdout``.
+
+.. _generate_config:
+
+Patroni configuration for a running instance
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code:: text
+
+   patroni --generate-config [--dsn DSN] [configfile]
+
+Description
+"""""""""""
+
+Generate a Patroni configuration in ``yaml`` format for the locally running PostgreSQL instance. 
+Either the provided DSN (takes precedence) or PostgreSQL `environment variables <https://www.postgresql.org/docs/current/libpq-envars.html>`__ will be used for the PostgreSQL connection. If the password is not provided, it should be entered via prompt.
+
+All the non-internal GUCs defined in the source Postgres instance, independently if they were set through a configuration file, through the postmaster command-line, or through environment variables, will be used as the source for the following Patroni configuration parameters:
+
+   -  **scope**: ``cluster_name`` GUC value;
+   -  **postgresql.listen**: ``listen_addresses`` and ``port`` GUC values;
+   -  **postgresql.datadir**: ``data_directory`` GUC value;
+   -  **postgresql.parameters**: ``archive_command``, ``restore_command``, ``archive_cleanup_command``, ``recovery_end_command``, ``ssl_passphrase_command``, ``hba_file``, ``ident_file``, ``config_file`` GUC values;
+   -  **bootstrap.dcs**: all other gathered PostgreSQL GUCs.
+
+If ``scope``, ``postgresql.listen`` or ``postgresql.datadir`` is not set from the Postgres GUCs, the respective :ref:`Environment configuration <environment>` value is used.
+
+Other rules applied for the values definition:
+
+   -  **name**: ``PATRONI_NAME`` environment variable value if set, otherwise the current machine's hostname.
+   -  **postgresql.bin_dir**: path to the Postgres binaries gathered from the running instance.
+   -  **postgresql.connect_address**: the IP address returned by ``gethostname`` call for the current machine's hostname and the port used for the instance connection or the ``port`` GUC value.
+   -  **postgresql.authentication.superuser**: the configuration used for the instance connection;
+   -  **postgresql.pg_hba**: the lines gathered from the source instance's ``hba_file``.
+   -  **postgresql.pg_ident**: the lines gathered from the source instance's ``ident_file``.
+   -  **restapi.listen**: IP address returned by ``gethostname`` call for the current machine's hostname and the standard ``8008`` port.
+   -  **restapi.connect_address**: IP address returned by ``gethostname`` call for the current machine's hostname and the standard ``8008`` port.
+
+Other parameters defined using :ref:`Environment configuration <environment>` are also included into the configuration.
+
+Parameters
+""""""""""
+
+``configfile``
+    Full path to the configuration file used to store the result. If not provided, result is sent to ``stdout``.
+
+``dsn``
+    Optional DSN string for the local PostgreSQL instance to get GUC values from.
+
+
+Validate Patroni configuration
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code:: text
+
+   patroni --validate-config [configfile]
+
+Description
+"""""""""""
+
+Validate the given Patroni configuration and print the information about the failed checks.
+
+Parameters
+""""""""""
+
+``configfile``
+    Full path to the configuration file to check. If not given or file does not exist, will try to read from the ``PATRONI_CONFIG_VARIABLE`` environment variable or, if not set, from the :ref:`Patroni environment variables <environment>`.

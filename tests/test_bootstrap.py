@@ -179,10 +179,17 @@ class TestBootstrap(BaseTestPostgresql):
     @patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'in production'}))
     def test_custom_bootstrap(self, mock_cancellable_subprocess_call):
         self.p.config._config.pop('pg_hba')
-        config = {'method': 'foo', 'foo': {'command': 'bar'}}
+        config = {'method': 'foo', 'foo': {'command': 'bar --arg1=val1'}}
 
         mock_cancellable_subprocess_call.return_value = 1
         self.assertFalse(self.b.bootstrap(config))
+        self.assertEqual(mock_cancellable_subprocess_call.call_args_list[0][0][0],
+                         ['bar', '--arg1=val1', '--scope=batman', '--datadir=' + os.path.join('data', 'test0')])
+
+        mock_cancellable_subprocess_call.reset_mock()
+        config['foo']['no_params'] = 1
+        self.assertFalse(self.b.bootstrap(config))
+        self.assertEqual(mock_cancellable_subprocess_call.call_args_list[0][0][0], ['bar', '--arg1=val1'])
 
         mock_cancellable_subprocess_call.return_value = 0
         with patch('multiprocessing.Process', Mock(side_effect=Exception("42"))), \

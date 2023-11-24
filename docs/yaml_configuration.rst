@@ -133,6 +133,7 @@ ZooKeeper
 -  **key_password**: (optional) The client key password.
 -  **verify**: (optional) Whether to verify certificate or not. Defaults to ``true``.
 -  **set_acls**: (optional) If set, configure Kazoo to apply a default ACL to each ZNode that it creates. ACLs will assume 'x509' schema and should be specified as a dictionary with the principal as the key and one or more permissions as a list in the value.  Permissions may be one of ``CREATE``, ``READ``, ``WRITE``, ``DELETE`` or ``ADMIN``.  For example, ``set_acls: {CN=principal1: [CREATE, READ], CN=principal2: [ALL]}``.
+-  **auth_data**: (optional) Authentication credentials to use for the connection. Should be a dictionary in the form that `scheme` is the key and `credential` is the value. Defaults to empty dictionary.
 
 .. note::
     It is required to install ``kazoo>=2.6.0`` to support SSL.

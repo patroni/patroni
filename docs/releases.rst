@@ -3,6 +3,78 @@
 Release notes
 =============
 
+Version 3.2.0
+-------------
+
+**Deprecation notice**
+
+- The ``bootstrap.users`` support will be removed in version 4.0.0. If you need to create users after deploying a new cluster please use the ``bootstrap.post_bootstrap`` hook for that.
+
+
+**Breaking changes**
+
+- Enforce ``loop_wait + 2*retry_timeout <= ttl`` rule and hard-code minimal possible values (Alexander Kukushkin)
+
+  Minimal values: ``loop_wait=2``, ``retry_timeout=3``, ``ttl=20``. In case values are smaller or violate the rule they are adjusted and a warning is written to Patroni logs.
+
+
+**New features**
+
+- Failover priority (Mark Pekala)
+
+  With the help of ``tags.failover_priority`` it's now possible to make a node more preferred during the leader race. More details in the documentation (ref tags).
+
+- Implemented ``patroni --generate-config [--dsn DSN]`` and ``patroni --generate-sample-config`` (Polina Bungina)
+
+  It allows to generate a config file for the running PostgreSQL cluster or a sample config file for the new Patroni cluster.
+
+- Use a dedicated connection to Postgres for Patroni REST API (Alexander Kukushkin)
+
+  It helps to avoid blocking the main heartbeat loop if the system is under stress.
+
+- Enrich some endpoints with the ``name`` of the node (sskserk)
+
+  For the monitoring endpoint ``name`` is added next to the ``scope`` and for metrics endpoint the ``name`` is added to tags.
+
+- Ensure strict failover/switchover difference (Polina Bungina)
+
+  Be more precise in log messages and allow failing over to an asynchronous node in a healthy synchronous cluster.
+
+- Make permanent physical replication slots behave similarly to permanent logical slots (Alexander Kukushkin)
+
+  Create permanent physical replication slots on all nodes that are allowed to become the leader and use ``pg_replication_slot_advance()`` function to advance ``restart_lsn`` for slots on standby nodes.
+
+- Add capability of specifying namespace through ``--dcs`` argument in ``patronictl`` (Israel Barth Rubio)
+
+  It could be handy if ``patronictl`` is used without a configuration file.
+
+- Add support for additional parameters in custom bootstrap configuration (Israel Barth Rubio)
+
+  Previously it was only possible to add custom arguments to the ``command`` and now one could list them as a mapping.
+
+
+**Improvements**
+
+- Set ``citus.local_hostname`` GUC to the same value which is used by Patroni to connect to the Postgres (Alexander Kukushkin)
+
+  There are cases when Citus wants to have a connection to the local Postgres. By default it uses ``localhost``, which is not always available.
+
+
+**Bugfixes**
+
+- Ignore ``synchronous_mode`` setting in a standby cluster (Polina Bungina)
+
+  Postgres doesn't support cascading synchronous replication and not ignoring ``synchronous_mode`` was breaking a switchover in a standby cluster.
+
+- Handle SIGCHLD for ``on_reload`` callback (Alexander Kukushkin)
+
+  Not doing so results in a zombie process, which is reaped only when the next ``on_reload`` is executed.
+
+- Handle ``AuthOldRevision`` error when working with Etcd v3 (Alexander Kukushkin, Kenny Do)
+
+  The error is raised if Etcd is configured to use JWT and when the user database in Etcd is updated.
+
+
 Version 3.1.2
 -------------
 

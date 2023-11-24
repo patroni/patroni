@@ -36,6 +36,7 @@ Currently supported PostgreSQL versions: 9.3 to 16.
    existing_data
    security
    ha_multi_dc
+   faq
    releases
    CONTRIBUTING
 

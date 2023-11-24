@@ -164,6 +164,7 @@ ARG PGBIN=/usr/lib/postgresql/$PG_MAJOR/bin
 
 ENV LC_ALL=$LC_ALL LANG=$LANG EDITOR=/usr/bin/editor
 ENV PGDATA=$PGDATA PATH=$PATH:$PGBIN
+ENV ETCDCTL_API=3
 
 COPY patroni /patroni/
 COPY extras/confd/conf.d/haproxy.toml /etc/confd/conf.d/

@@ -5,6 +5,7 @@ import time
 from copy import deepcopy
 from typing import Collection, List, NamedTuple, Optional, TYPE_CHECKING
 
+from .. import global_config
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Cluster
 from ..psycopg import quote_ident as _quote_ident
@@ -295,14 +296,12 @@ END;$$""")
         :param cluster: current cluster topology from DCS
         :param replica_list: collection of replicas that we want to evaluate.
         """
-        if TYPE_CHECKING:  # pragma: no cover
-            assert self._postgresql.global_config is not None
         for replica in replica_list:
             # if standby name is listed in the /sync key we can count it as synchronous, otherwise
             # it becomes really synchronous when sync_state = 'sync' and it is known that it managed to catch up
             if replica.application_name not in self._ready_replicas\
                     and replica.application_name in self._ssn_data.members:
-                if self._postgresql.global_config.is_quorum_commit_mode:
+                if global_config.is_quorum_commit_mode:
                     # When quorum commit is enabled we can't check against cluster.sync because nodes
                     # are written there when at least one of them caught up with _primary_flush_lsn.
                     if replica.lsn >= self._primary_flush_lsn\
@@ -344,16 +343,13 @@ END;$$""")
         sync_nodes = CaseInsensitiveSet()
         numsync_confirmed = 0
 
-        if TYPE_CHECKING:  # pragma: no cover
-            assert self._postgresql.global_config is not None
-        sync_node_count = self._postgresql.global_config.synchronous_node_count\
-            if self._postgresql.supports_multiple_sync else 1
-        sync_node_maxlag = self._postgresql.global_config.maximum_lag_on_syncnode
+        sync_node_count = global_config.synchronous_node_count if self._postgresql.supports_multiple_sync else 1
+        sync_node_maxlag = global_config.maximum_lag_on_syncnode
 
         # Prefer members without nofailover tag. We are relying on the fact that sorts are guaranteed to be stable.
         for replica in sorted(replica_list, key=lambda x: x.nofailover):
             if sync_node_maxlag <= 0 or replica_list.max_lsn - replica.lsn <= sync_node_maxlag:
-                if self._postgresql.global_config.is_quorum_commit_mode:
+                if global_config.is_quorum_commit_mode:
                     # We do not add nodes with `nofailover` enabled because that reduces availability.
                     # We need to check LSN quorum only among nodes that are promotable because
                     # there is a chance that a non-promotable node is ahead of a promotable one.
@@ -369,7 +365,7 @@ END;$$""")
                     if len(active) >= sync_node_count:
                         break
 
-        if self._postgresql.global_config.is_quorum_commit_mode:
+        if global_config.is_quorum_commit_mode:
             sync_nodes = CaseInsensitiveSet() if self._ssn_data.has_star else self._ssn_data.members
 
         return _SyncState(
@@ -403,13 +399,8 @@ END;$$""")
         else:
             sync_param = next(iter(sync), None)
 
-        if TYPE_CHECKING:  # pragma: no cover
-            assert self._postgresql.global_config is not None
-
-        if self._postgresql.global_config.is_quorum_commit_mode and sync or\
-                self._postgresql.supports_multiple_sync and len(sync) > 1:
-            prefix = 'ANY ' if self._postgresql.global_config.is_quorum_commit_mode\
-                and self._postgresql.supports_quorum_commit else ''
+        if global_config.is_quorum_commit_mode and sync or self._postgresql.supports_multiple_sync and len(sync) > 1:
+            prefix = 'ANY ' if global_config.is_quorum_commit_mode and self._postgresql.supports_quorum_commit else ''
             sync_param = f'{prefix}{num} ({sync_param})'
 
         if not (self._postgresql.config.set_synchronous_standby_names(sync_param)
