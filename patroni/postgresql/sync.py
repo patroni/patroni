@@ -5,6 +5,7 @@ import time
 from copy import deepcopy
 from typing import Collection, List, NamedTuple, Tuple, TYPE_CHECKING
 
+from .. import global_config
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Cluster
 from ..psycopg import quote_ident as _quote_ident
@@ -303,11 +304,8 @@ END;$$""")
         replica_list = _ReplicaList(self._postgresql, cluster)
         self._process_replica_readiness(cluster, replica_list)
 
-        if TYPE_CHECKING:  # pragma: no cover
-            assert self._postgresql.global_config is not None
-        sync_node_count = self._postgresql.global_config.synchronous_node_count\
-            if self._postgresql.supports_multiple_sync else 1
-        sync_node_maxlag = self._postgresql.global_config.maximum_lag_on_syncnode
+        sync_node_count = global_config.synchronous_node_count if self._postgresql.supports_multiple_sync else 1
+        sync_node_maxlag = global_config.maximum_lag_on_syncnode
 
         candidates = CaseInsensitiveSet()
         sync_nodes = CaseInsensitiveSet()

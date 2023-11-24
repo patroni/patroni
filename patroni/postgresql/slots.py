@@ -13,6 +13,7 @@ from typing import Any, Dict, Iterator, List, Optional, Union, Tuple, TYPE_CHECK
 
 from .connection import get_connection_cursor
 from .misc import format_lsn, fsync_dir
+from .. import global_config
 from ..dcs import Cluster, Leader
 from ..file_perm import pg_perm
 from ..psycopg import OperationalError
@@ -293,7 +294,7 @@ class SlotsHandler:
         """
         slot = self._replication_slots[name]
         if cluster.config:
-            for matcher in cluster.config.ignore_slots_matchers:
+            for matcher in global_config.ignore_slots_matchers:
                 if (
                         (matcher.get("name") is None or matcher["name"] == name)
                         and all(not matcher.get(a) or matcher[a] == slot.get(a)
@@ -510,13 +511,12 @@ class SlotsHandler:
         :returns: list of logical replication slots names that should be copied from the primary.
         """
         ret = []
-        if self._postgresql.major_version >= 90400 and self._postgresql.global_config and cluster.config:
+        if self._postgresql.major_version >= 90400 and cluster.config:
             try:
                 self.load_replication_slots()
 
-                slots = cluster.get_replication_slots(
-                    self._postgresql.name, self._postgresql.role, nofailover, self._postgresql.major_version,
-                    is_standby_cluster=self._postgresql.global_config.is_standby_cluster, show_error=True)
+                slots = cluster.get_replication_slots(self._postgresql.name, self._postgresql.role,
+                                                      nofailover, self._postgresql.major_version, show_error=True)
 
                 self._drop_incorrect_slots(cluster, slots, paused)
 

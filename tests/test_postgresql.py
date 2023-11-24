@@ -9,9 +9,9 @@ from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 
 import patroni.psycopg as psycopg
 
+from patroni import global_config
 from patroni.async_executor import CriticalTask
 from patroni.collections import CaseInsensitiveSet
-from patroni.config import GlobalConfig
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PostgresConnectionException, PatroniException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
@@ -692,12 +692,12 @@ class TestPostgresql(BaseTestPostgresql):
 
     def test_get_server_parameters(self):
         config = {'parameters': {'wal_level': 'hot_standby', 'max_prepared_transactions': 100}, 'listen': '0'}
-        self.p._global_config = GlobalConfig({'synchronous_mode': True})
-        self.p.config.get_server_parameters(config)
-        self.p._global_config = GlobalConfig({'synchronous_mode': True, 'synchronous_mode_strict': True})
-        self.p.config.get_server_parameters(config)
-        self.p.config.set_synchronous_standby_names('foo')
-        self.assertTrue(str(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
+        with patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True)):
+            self.p.config.get_server_parameters(config)
+            with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
+                self.p.config.get_server_parameters(config)
+                self.p.config.set_synchronous_standby_names('foo')
+                self.assertTrue(str(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
 
     @patch('time.sleep', Mock())
     def test__wait_for_connection_close(self):

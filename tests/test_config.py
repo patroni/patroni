@@ -5,7 +5,11 @@ import io
 
 from copy import deepcopy
 from mock import MagicMock, Mock, patch
-from patroni.config import Config, ConfigParseError, GlobalConfig
+
+from patroni import global_config
+from patroni.config import ClusterConfig, Config, ConfigParseError
+
+from .test_ha import get_cluster_initialized_with_only_leader
 
 
 class TestConfig(unittest.TestCase):
@@ -248,4 +252,6 @@ class TestConfig(unittest.TestCase):
     def test_global_config_is_synchronous_mode(self):
         # we should ignore synchronous_mode setting in a standby cluster
         config = {'standby_cluster': {'host': 'some_host'}, 'synchronous_mode': True}
-        self.assertFalse(GlobalConfig(config).is_synchronous_mode)
+        cluster = get_cluster_initialized_with_only_leader(cluster_config=ClusterConfig(1, config, 1))
+        test_config = global_config.from_cluster(cluster)
+        self.assertFalse(test_config.is_synchronous_mode)

@@ -24,7 +24,7 @@ from .mpp import AbstractMPP
 from .postmaster import PostmasterProcess
 from .slots import SlotsHandler
 from .sync import SyncHandler
-from .. import psycopg
+from .. import global_config, psycopg
 from ..async_executor import CriticalTask
 from ..collections import CaseInsensitiveSet
 from ..dcs import Cluster, Leader, Member, SLOT_ADVANCE_AVAILABLE_VERSION
@@ -34,7 +34,6 @@ from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_emp
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Connection as Connection3, Cursor
     from psycopg2 import connection as connection3, cursor
-    from ..config import GlobalConfig
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +72,6 @@ class Postgresql(object):
         self.connection_string: str
         self.proxy_url: Optional[str]
         self._major_version = self.get_major_version()
-        self._global_config = None
 
         self._state_lock = Lock()
         self.set_state('stopped')
@@ -217,7 +215,7 @@ class Postgresql(object):
                          "FROM pg_catalog.pg_stat_get_wal_senders() w,"
                          " pg_catalog.pg_stat_get_activity(w.pid)"
                          " WHERE w.state = 'streaming') r)").format(self.wal_name, self.lsn_name)
-                        if (not self.global_config or self.global_config.is_synchronous_mode)
+                        if global_config.is_synchronous_mode
                         and self.role in ('master', 'primary', 'promoted') else "'on', '', NULL")
 
         if self._major_version >= 90600:
@@ -426,12 +424,7 @@ class Postgresql(object):
                 self.config.write_postgresql_conf()
                 self.reload()
 
-    @property
-    def global_config(self) -> Optional['GlobalConfig']:
-        return self._global_config
-
-    def reset_cluster_info_state(self, cluster: Union[Cluster, None], nofailover: bool = False,
-                                 global_config: Optional['GlobalConfig'] = None) -> None:
+    def reset_cluster_info_state(self, cluster: Union[Cluster, None], nofailover: bool = False) -> None:
         """Reset monitoring query cache.
 
         It happens in the beginning of heart-beat loop and on change of `synchronous_standby_names`.
@@ -440,30 +433,22 @@ class Postgresql(object):
         :param nofailover: whether this node could become a new primary.
                            Important when there are logical permanent replication slots because "nofailover"
                            node could do cascading replication and should enable `hot_standby_feedback`
-        :param global_config: last known :class:`GlobalConfig` object
         """
         self._cluster_info_state = {}
 
-        if global_config:
-            self._global_config = global_config
-
-        if not self._global_config:
-            return
-
-        if self._global_config.is_standby_cluster:
+        if global_config.is_standby_cluster:
             # Standby cluster can't have logical replication slots, and we don't need to enforce hot_standby_feedback
             self.set_enforce_hot_standby_feedback(False)
 
         if cluster and cluster.config and cluster.config.modify_version:
             # We want to enable hot_standby_feedback if the replica is supposed
             # to have a logical slot or in case if it is the cascading replica.
-            self.set_enforce_hot_standby_feedback(not self._global_config.is_standby_cluster and self.can_advance_slots
+            self.set_enforce_hot_standby_feedback(not global_config.is_standby_cluster and self.can_advance_slots
                                                   and cluster.should_enforce_hot_standby_feedback(self.name,
                                                                                                   nofailover))
 
             self._has_permanent_slots = cluster.has_permanent_slots(
                 my_name=self.name,
-                is_standby_cluster=self._global_config.is_standby_cluster,
                 nofailover=nofailover,
                 major_version=self.major_version)
 
