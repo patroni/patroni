@@ -27,7 +27,7 @@ lib64
 pip-log.txt
 
 # Unit test / coverage reports
-.coverage
+.coverage*
 .tox
 nosetests.xml
 coverage.xml
@@ -35,6 +35,7 @@ htmlcov
 junit.xml
 features/output*
 dummy
+result.json
 
 # Translations
 *.mo
