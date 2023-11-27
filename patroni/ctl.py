@@ -432,9 +432,9 @@ def print_output(columns: Optional[List[str]], rows: List[List[Any]], alignment:
 
 
 def watching(w: bool, watch: Optional[int], max_count: Optional[int] = None, clear: bool = True) -> Iterator[int]:
-    """Yield a value every ``x`` seconds.
+    """Yield a value every ``watch`` seconds.
 
-    Used to run a command with a watch-based aproach.
+    Used to run a command with a watch-based approach.
 
     :param w: if ``True`` and *watch* is ``None``, then *watch* assumes the value ``2``.
     :param watch: amount of seconds to wait before yielding another value.
