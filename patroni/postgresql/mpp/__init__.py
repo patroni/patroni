@@ -93,75 +93,156 @@ class AbstractMPPHandler(AbstractMPP):
 
     @abc.abstractmethod
     def handle_event(self, cluster: Cluster, event: Dict[str, Any]) -> None:
-        pass
+        """Handle an event sent from a worker node.
+
+        :param cluster: the currently known cluster state from DCS.
+
+        :param config: the event to be handled.
+        """
 
     @abc.abstractmethod
-    def sync_pg_dist_node(self, cluster: Cluster) -> None:
-        pass
+    def sync_meta_data(self, cluster: Cluster) -> None:
+        """Sync meta data on the coordinator.
+
+        :param cluster: the currently known cluster state from DCS.
+        """
 
     @abc.abstractmethod
     def on_demote(self) -> None:
-        pass
+        """On demote handler.
+
+        Is called when the primary was demoted.
+        """
 
     @abc.abstractmethod
     def schedule_cache_rebuild(self) -> None:
-        pass
+        """Cache rebuild handler.
+
+        Is called to notify handler that it has to refresh its metadata cache from the database.
+        """
 
     @abc.abstractmethod
     def bootstrap(self) -> None:
-        pass
+        """Bootstrap handler.
+
+        Is called when the new cluster is initialized (through ``initdb`` or a custom bootstrap method).
+        """
 
     @abc.abstractmethod
     def adjust_postgres_gucs(self, parameters: Dict[str, Any]) -> None:
-        pass
+        """Adjust GUCs in the current PostgreSQL configuration.
+
+        :param parameters: dictionary of GUCs, with key as GUC name and the corresponding value as current GUC value.
+        """
 
     @abc.abstractmethod
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
-        pass
+        """Check whether provided replication *slot* existing in the database should not be removed.
+
+        .. note::
+            MPP database may create replication slots for its own use, for example to migrate data between workers
+            using logical replication, and we don't want to suddenly drop them.
+
+        :param slot: dictionary containing the replication slot settings, like ``name``, ``database``, ``type``, and
+                     ``plugin``.
+
+        :returns: ``True`` if the replication slots should not be removed, otherwise ``False``.
+        """
 
 
 class Null(AbstractMPP):
+    """Dummy implementation of :class:`AbstractMPP`."""
 
     def __init__(self) -> None:
         super().__init__({})
 
     @staticmethod
     def validate_config(config: Any) -> bool:
+        """Check whether provided config is good for :class:`Null`.
+
+        :returns: always ``True``.
+        """
         return True
 
     @property
     def group(self) -> None:
+        """The group for :class:`Null`.
+
+        :returns: always ``None``.
+        """
         return None
 
     @property
     def coordinator_group_id(self) -> None:
+        """The group id of the coordinator PostgreSQL cluster.
+
+        :returns: always ``None``.
+        """
         return None
 
 
 class NullHandler(Null, AbstractMPPHandler):
+    """Dummy implementation of :class:`AbstractMPPHandler`."""
 
     def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
         AbstractMPPHandler.__init__(self, postgresql, config)
 
     def handle_event(self, cluster: Cluster, event: Dict[str, Any]) -> None:
+        """Handle an event sent from a worker node.
+
+        :param cluster: the currently known cluster state from DCS.
+
+        :param config: the event to be handled.
+        """
         pass
 
-    def sync_pg_dist_node(self, cluster: Cluster) -> None:
+    def sync_meta_data(self, cluster: Cluster) -> None:
+        """Sync meta data on the coordinator.
+
+        :param cluster: the currently known cluster state from DCS.
+        """
         pass
 
     def on_demote(self) -> None:
+        """On demote handler.
+
+        Is called when the primary was demoted.
+        """
         pass
 
     def schedule_cache_rebuild(self) -> None:
+        """Cache rebuild handler.
+
+        Is called to notify handler that it has to refresh its metadata cache from the database.
+        """
         pass
 
     def bootstrap(self) -> None:
+        """Bootstrap handler.
+
+        Is called when the new cluster is initialized (through ``initdb`` or a custom bootstrap method).
+        """
         pass
 
     def adjust_postgres_gucs(self, parameters: Dict[str, Any]) -> None:
+        """Adjust GUCs in the current PostgreSQL configuration.
+
+        :param parameters: dictionary of GUCs, with key as GUC name and corresponding value as current GUC value.
+        """
         pass
 
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
+        """Check whether provided replication *slot* existing in the database should not be removed.
+
+        .. note::
+            MPP database may create replication slots for its own use, for example to migrate data between workers
+            using logical replication, and we don't want to suddenly drop them.
+
+        :param slot: dictionary containing the replication slot settings, like ``name``, ``database``, ``type``, and
+                     ``plugin``.
+
+        :returns: always ``False``.
+        """
         return False
 
 
@@ -179,6 +260,12 @@ def iter_mpp_classes(
 
 
 def get_mpp(config: Union['Config', Dict[str, Any]]) -> AbstractMPP:
+    """Attempt to load a MPP module from known available implementations.
+
+    :param config: object or dictionary with Patroni configuration.
+
+    :returns: The successfully loaded MPP or fallback to :class:`Null`.
+    """
     for name, mpp_class in iter_mpp_classes(config):
         if mpp_class.validate_config(config[name]):
             return mpp_class(config[name])
