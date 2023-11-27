@@ -1960,8 +1960,7 @@ class Ha(object):
         if cluster:
             slots = self.state_handler.slots_handler.sync_replication_slots(cluster,
                                                                             self.patroni.nofailover,
-                                                                            self.patroni.replicatefrom,
-                                                                            self.is_paused())
+                                                                            self.patroni.replicatefrom)
         # Don't copy replication slots if failsafe_mode is active
         return [] if self.failsafe_is_active() else slots
 

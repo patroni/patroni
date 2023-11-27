@@ -320,7 +320,7 @@ class SlotsHandler:
                             ' FULL OUTER JOIN dropped ON true'), name)
         return (rows[0][0], rows[0][1]) if rows else (False, False)
 
-    def _drop_incorrect_slots(self, cluster: Cluster, slots: Dict[str, Any], paused: bool) -> None:
+    def _drop_incorrect_slots(self, cluster: Cluster, slots: Dict[str, Any]) -> None:
         """Compare required slots and configured as permanent slots with those found, dropping extraneous ones.
 
         .. note::
@@ -331,11 +331,10 @@ class SlotsHandler:
 
         :param cluster: cluster state information object.
         :param slots: dictionary of desired slot names as keys with slot attributes as a dictionary value, if known.
-        :param paused: ``True`` if the patroni cluster is currently in a paused state.
         """
         # drop old replication slots which are not presented in desired slots.
         for name in set(self._replication_slots) - set(slots):
-            if not paused and not self.ignore_replication_slot(cluster, name):
+            if not global_config.is_paused and not self.ignore_replication_slot(cluster, name):
                 active, dropped = self.drop_replication_slot(name)
                 if dropped:
                     logger.info("Dropped unknown replication slot '%s'", name)
@@ -494,7 +493,7 @@ class SlotsHandler:
         return create_slots + copy_slots
 
     def sync_replication_slots(self, cluster: Cluster, nofailover: bool,
-                               replicatefrom: Optional[str] = None, paused: bool = False) -> List[str]:
+                               replicatefrom: Optional[str] = None) -> List[str]:
         """During the HA loop read, check and alter replication slots found in the cluster.
 
         Read physical and logical slots from ``pg_replication_slots``, then compare to those configured in the DCS.
@@ -506,7 +505,6 @@ class SlotsHandler:
         :param cluster: object containing stateful information for the cluster.
         :param nofailover: ``True`` if this node has been tagged to not be a failover candidate.
         :param replicatefrom: the tag containing the node to replicate from.
-        :param paused: ``True`` if the cluster is in maintenance mode.
 
         :returns: list of logical replication slots names that should be copied from the primary.
         """
@@ -518,7 +516,7 @@ class SlotsHandler:
                 slots = cluster.get_replication_slots(self._postgresql.name, self._postgresql.role,
                                                       nofailover, self._postgresql.major_version, show_error=True)
 
-                self._drop_incorrect_slots(cluster, slots, paused)
+                self._drop_incorrect_slots(cluster, slots)
 
                 self._ensure_physical_slots(slots)
 

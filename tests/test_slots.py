@@ -52,9 +52,10 @@ class TestSlotsHandler(BaseTestPostgresql):
             mock_debug.assert_called_once()
         self.p.set_role('replica')
         with patch.object(Postgresql, 'is_primary', Mock(return_value=False)), \
+                patch.object(global_config.__class__, 'is_paused', PropertyMock(return_value=True)), \
                 patch.object(SlotsHandler, 'drop_replication_slot') as mock_drop:
             config.data['slots'].pop('ls')
-            self.s.sync_replication_slots(cluster, False, paused=True)
+            self.s.sync_replication_slots(cluster, False)
             mock_drop.assert_not_called()
         self.p.set_role('primary')
         with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
