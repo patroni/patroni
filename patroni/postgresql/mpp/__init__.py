@@ -62,10 +62,26 @@ class AbstractMPP(abc.ABC):
         """
         return self.is_enabled() and not self.is_coordinator()
 
-    def get_handler_impl(self, postgresql: 'Postgresql') -> 'AbstractMPPHandler':
+    def _get_handler_cls(self) -> Iterator[Type['AbstractMPPHandler']]:
+        """Find Handler classes inherited from a class type of this object.
+
+        :yields: handler classs for this object.
+        """
         for cls in self.__class__.__subclasses__():
-            if issubclass(cls, AbstractMPPHandler):
-                return cls(postgresql, self._config)
+            if issubclass(cls, AbstractMPPHandler) and cls.__name__.startswith(self.__class__.__name__):
+                yield cls
+
+    def get_handler_impl(self, postgresql: 'Postgresql') -> 'AbstractMPPHandler':
+        """Find and instantiate Handler implementation of this object.
+
+        :param postgresql: a reference to `Postgresql` object.
+
+        :raises `PatroniException`: if the Handler class haven't been found.
+
+        :returns: an instantiated class that implements Handler for this object.
+        """
+        for cls in self._get_handler_cls():
+            return cls(postgresql, self._config)
         raise PatroniException(f'Failed to initialize {self.__class__.__name__}Handler object')
 
 
