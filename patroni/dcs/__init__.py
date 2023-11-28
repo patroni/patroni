@@ -965,7 +965,7 @@ class Cluster(NamedTuple('Cluster',
 
             * Any logical slots are disabled, due to version compatibility, and *show_error* is ``True``.
 
-        :param postgresql: reference no :class:`Postgresql` object.
+        :param postgresql: reference to :class:`Postgresql` object.
         :param member: reference to an object implementing :class:`Tags` interface.
         :param role: role of the node, if not set will be taken from *postgresql*.
         :param show_error: if ``True`` report error if any disabled logical slots or conflicting slot names are found.
@@ -1047,7 +1047,7 @@ class Cluster(NamedTuple('Cluster',
             The returned dictionary for a non-standby cluster always contains permanent logical replication slots in
             order to show a warning if they are not supported by PostgreSQL before v11.
 
-        :param postgresql: reference no :class:`Postgresql` object.
+        :param postgresql: reference to :class:`Postgresql` object.
         :param tags: reference to an object implementing :class:`Tags` interface.
         :param role: role of the node -- ``primary``, ``standby_leader`` or ``replica``.
 
@@ -1109,7 +1109,7 @@ class Cluster(NamedTuple('Cluster',
     def has_permanent_slots(self, postgresql: 'Postgresql', member: Tags) -> bool:
         """Check if our node has permanent replication slots configured.
 
-        :param postgresql: reference no :class:`Postgresql` object.
+        :param postgresql: reference to :class:`Postgresql` object.
         :param member: reference to an object implementing :class:`Tags` interface for
                        the node that we are checking permanent logical replication slots for.
 
@@ -1125,7 +1125,7 @@ class Cluster(NamedTuple('Cluster',
     def filter_permanent_slots(self, postgresql: 'Postgresql', slots: Dict[str, int]) -> Dict[str, int]:
         """Filter out all non-permanent slots from provided *slots* dict.
 
-        :param postgresql: reference no :class:`Postgresql` object.
+        :param postgresql: reference to :class:`Postgresql` object.
         :param slots: slot names with LSN values.
 
         :returns: a :class:`dict` object that contains only slots that are known to be permanent.
