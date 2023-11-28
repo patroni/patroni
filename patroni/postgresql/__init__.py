@@ -428,7 +428,8 @@ class Postgresql(object):
     def reset_cluster_info_state(self, cluster: Optional[Cluster], tags: Optional[Tags] = None) -> None:
         """Reset monitoring query cache.
 
-        It happens in the beginning of heart-beat loop and on change of `synchronous_standby_names`.
+        .. note::
+            It happens in the beginning of heart-beat loop and on change of `synchronous_standby_names`.
 
         :param cluster: currently known cluster state from DCS
         :param tags: reference to an object implementing :class:`Tags` interface.
