@@ -558,7 +558,7 @@ class SyncState(NamedTuple):
         """Factory method to parse *value* as synchronisation state information.
 
         :param version: optional *version* number for the object.
-        :param value: (optionally JSON serialised) sychronisation state information
+        :param value: (optionally JSON serialised) synchronisation state information
 
         :returns: constructed :class:`SyncState` object.
 
