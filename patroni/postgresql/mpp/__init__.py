@@ -190,8 +190,7 @@ class NullHandler(Null, AbstractMPPHandler):
         """Handle an event sent from a worker node.
 
         :param cluster: the currently known cluster state from DCS.
-
-        :param config: the event to be handled.
+        :param event: the event to be handled.
         """
         pass
 
