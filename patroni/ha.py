@@ -1939,7 +1939,7 @@ class Ha(object):
                 global_config.update(self.cluster)
                 self.state_handler.reset_cluster_info_state(self.cluster, self.patroni)
             except Exception:
-                self.state_handler.reset_cluster_info_state(None, self.patroni.nofailover)
+                self.state_handler.reset_cluster_info_state(None)
                 raise
 
             if self.is_paused():
