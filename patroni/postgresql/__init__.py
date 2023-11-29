@@ -30,6 +30,7 @@ from ..collections import CaseInsensitiveSet
 from ..dcs import Cluster, Leader, Member, SLOT_ADVANCE_AVAILABLE_VERSION
 from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
+from ..tags import Tags
 
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Connection as Connection3, Cursor
@@ -424,17 +425,19 @@ class Postgresql(object):
                 self.config.write_postgresql_conf()
                 self.reload()
 
-    def reset_cluster_info_state(self, cluster: Union[Cluster, None], nofailover: bool = False) -> None:
+    def reset_cluster_info_state(self, cluster: Optional[Cluster], tags: Optional[Tags] = None) -> None:
         """Reset monitoring query cache.
 
-        It happens in the beginning of heart-beat loop and on change of `synchronous_standby_names`.
+        .. note::
+            It happens in the beginning of heart-beat loop and on change of `synchronous_standby_names`.
 
         :param cluster: currently known cluster state from DCS
-        :param nofailover: whether this node could become a new primary.
-                           Important when there are logical permanent replication slots because "nofailover"
-                           node could do cascading replication and should enable `hot_standby_feedback`
+        :param tags: reference to an object implementing :class:`Tags` interface.
         """
         self._cluster_info_state = {}
+
+        if not tags:
+            return
 
         if global_config.is_standby_cluster:
             # Standby cluster can't have logical replication slots, and we don't need to enforce hot_standby_feedback
@@ -444,13 +447,8 @@ class Postgresql(object):
             # We want to enable hot_standby_feedback if the replica is supposed
             # to have a logical slot or in case if it is the cascading replica.
             self.set_enforce_hot_standby_feedback(not global_config.is_standby_cluster and self.can_advance_slots
-                                                  and cluster.should_enforce_hot_standby_feedback(self.name,
-                                                                                                  nofailover))
-
-            self._has_permanent_slots = cluster.has_permanent_slots(
-                my_name=self.name,
-                nofailover=nofailover,
-                major_version=self.major_version)
+                                                  and cluster.should_enforce_hot_standby_feedback(self, tags))
+            self._has_permanent_slots = cluster.has_permanent_slots(self, tags)
 
     def _cluster_info_state_get(self, name: str) -> Optional[Any]:
         if not self._cluster_info_state:
