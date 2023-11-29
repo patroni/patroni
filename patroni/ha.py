@@ -294,8 +294,8 @@ class Ha(object):
             try:
                 last_lsn = self.state_handler.last_operation()
                 slots = self.cluster.filter_permanent_slots(
-                    {**self.state_handler.slots(), slot_name_from_member_name(self.state_handler.name): last_lsn},
-                    self.state_handler.major_version)
+                    self.state_handler,
+                    {**self.state_handler.slots(), slot_name_from_member_name(self.state_handler.name): last_lsn})
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
         if TYPE_CHECKING:  # pragma: no cover
@@ -1745,7 +1745,7 @@ class Ha(object):
             try:
                 self.load_cluster_from_dcs()
                 global_config.update(self.cluster)
-                self.state_handler.reset_cluster_info_state(self.cluster, self.patroni.nofailover)
+                self.state_handler.reset_cluster_info_state(self.cluster, self.patroni)
             except Exception:
                 self.state_handler.reset_cluster_info_state(None)
                 raise
@@ -1902,7 +1902,7 @@ class Ha(object):
                 if not is_promoting and create_slots and self.cluster.leader:
                     err = self._async_executor.try_run_async('copy_logical_slots',
                                                              self.state_handler.slots_handler.copy_logical_slots,
-                                                             args=(self.cluster, create_slots))
+                                                             args=(self.cluster, self.patroni, create_slots))
                     if not err:
                         ret = 'Copying logical slots {0} from the primary'.format(create_slots)
             return ret
@@ -1958,9 +1958,7 @@ class Ha(object):
         cluster = self._failsafe.update_cluster(self.cluster)\
             if self.is_failsafe_mode() and not self.is_leader() else self.cluster
         if cluster:
-            slots = self.state_handler.slots_handler.sync_replication_slots(cluster,
-                                                                            self.patroni.nofailover,
-                                                                            self.patroni.replicatefrom)
+            slots = self.state_handler.slots_handler.sync_replication_slots(cluster, self.patroni)
         # Don't copy replication slots if failsafe_mode is active
         return [] if self.failsafe_is_active() else slots
 
