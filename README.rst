@@ -151,7 +151,7 @@ run:
 YAML Configuration
 ==================
 
-Go `here <https://github.com/zalando/patroni/blob/master/docs/SETTINGS.rst>`__ for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/zalando/patroni/blob/master/postgres0.yml>`__.
+Go `here <https://github.com/zalando/patroni/blob/master/docs/dynamic_configuration.rst>`__ for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/zalando/patroni/blob/master/postgres0.yml>`__.
 
 =========================
 Environment Configuration
