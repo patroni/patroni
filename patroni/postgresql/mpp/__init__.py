@@ -97,7 +97,7 @@ class AbstractMPP(abc.ABC):
 
 
 class AbstractMPPHandler(AbstractMPP):
-    """An abstract class who defines interfaces that should be implemented by real handlers."""
+    """An abstract class which defines interfaces that should be implemented by real handlers."""
 
     def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
         """Init method for :class:`AbstractMPPHandler`.
