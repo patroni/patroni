@@ -266,19 +266,17 @@ class MultisiteController(Thread, AbstractSiteController):
                 pass
 
     def _update_history(self, cluster):
-        if cluster.history and isinstance(cluster.history.lines, dict):
-            self.site_switches = cluster.history.lines.get('switches')
+        if cluster.history and cluster.history.lines and isinstance(cluster.history.lines[0], dict):
+            self.site_switches = cluster.history.lines[0].get('switches')
 
         if self._has_leader:
-            if cluster.history and isinstance(cluster.history.lines, dict):
+            if cluster.history and cluster.history.lines and isinstance(cluster.history.lines, dict):
                 history_state = cluster.history.lines
                 if history_state.get('last_leader') != self.name:
-                    new_state = {
-                        {'last_leader': self.name, 'switches': history_state.get('switches', 0) + 1}
-                    }
+                    new_state = [{'last_leader': self.name, 'switches': history_state.get('switches', 0) + 1}]
                     self.dcs.set_history_value(json.dumps(new_state))
             else:
-                self.dcs.set_history_value(json.dumps({'last_leader': self.name, 'switches': 0}))
+                self.dcs.set_history_value(json.dumps([{'last_leader': self.name, 'switches': 0}]))
 
     def _check_for_failover(self, cluster):
         if cluster.failover and cluster.failover.target_site:
