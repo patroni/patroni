@@ -100,7 +100,8 @@ class CitusHandler(Thread):
     def on_demote(self) -> None:
         with self._condition:
             self._pg_dist_node.clear()
-            self._tasks[:] = []
+            empty_tasks: List[PgDistNode] = []
+            self._tasks[:] = empty_tasks
             self._in_flight = None
 
     def query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
