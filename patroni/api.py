@@ -37,7 +37,7 @@ from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Ret
 logger = logging.getLogger(__name__)
 
 
-def check_access(func: Callable[['RestApiHandler'], None]) -> Callable[..., None]:
+def check_access(func: Callable[..., None]) -> Callable[..., None]:
     """Check the source ip, authorization header, or client certificates.
 
     .. note::

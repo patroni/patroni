@@ -812,7 +812,7 @@ def query(
             raise PatroniCtlException('You need to specify either --command or --file')
         sql = command
 
-    connect_parameters = {}
+    connect_parameters: Dict[str, str] = {}
     if username:
         connect_parameters['username'] = username
     if password:
@@ -1095,7 +1095,7 @@ def restart(obj: Dict[str, Any], cluster_name: str, group: Optional[int], member
         version = click.prompt('Restart if the PostgreSQL version is less than provided (e.g. 9.5.2) ',
                                type=str, default='')
 
-    content = {}
+    content: Dict[str, Any] = {}
     if pending:
         content['restart_pending'] = True
 
