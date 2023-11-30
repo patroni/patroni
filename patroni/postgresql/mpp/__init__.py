@@ -12,10 +12,21 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 class AbstractMPP(abc.ABC):
+    """An abstract class which should be passed to :class:`AbstractDCS`.
+
+    .. note::
+        We create :class:`AbstractMPP` and :class:`AbstractMPPHandler` to solve the chicken-egg initialization problem.
+        When initializing DCS, we dynamically create an object implementing :class:`AbstractMPP`, later this object is
+        used to instantiate an object implementing :class:`AbstractMPPHandler`.
+    """
 
     group_re: Any  # re.Pattern[str]
 
     def __init__(self, config: Dict[str, Union[str, int]]) -> None:
+        """Init method for :class:`AbstractMPP`.
+
+        :param config: configuration of MPP section.
+        """
         self._config = config
 
     def is_enabled(self) -> bool:
@@ -86,8 +97,14 @@ class AbstractMPP(abc.ABC):
 
 
 class AbstractMPPHandler(AbstractMPP):
+    """An abstract class who defines interfaces that should be implemented by real handlers."""
 
     def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
+        """Init method for :class:`AbstractMPPHandler`.
+
+        :param postgresql: a reference to :class:`Postgresql` object.
+        :param config: configuration of MPP section.
+        """
         super().__init__(config)
         self._postgresql = postgresql
 
@@ -153,6 +170,7 @@ class Null(AbstractMPP):
     """Dummy implementation of :class:`AbstractMPP`."""
 
     def __init__(self) -> None:
+        """Init method for :class:`Null`."""
         super().__init__({})
 
     @staticmethod
@@ -184,6 +202,11 @@ class NullHandler(Null, AbstractMPPHandler):
     """Dummy implementation of :class:`AbstractMPPHandler`."""
 
     def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
+        """Init method for :class:`NullHandler`.
+
+        :param postgresql: a reference to :class:`Postgresql` object.
+        :param config: configuration of MPP section.
+        """
         AbstractMPPHandler.__init__(self, postgresql, config)
 
     def handle_event(self, cluster: Cluster, event: Dict[str, Any]) -> None:
