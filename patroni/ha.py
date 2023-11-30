@@ -243,7 +243,7 @@ class Ha(object):
                 ret[self.state_handler.name] = self.patroni.api.connection_string
             return ret
 
-    def update_lock(self, write_leader_optime=False):
+    def update_lock(self, write_leader_optime=False, conditional=False):
         last_lsn = slots = None
         if write_leader_optime:
             try:
@@ -261,7 +261,9 @@ class Ha(object):
         self.set_is_leader(ret)
         if ret:
             self.watchdog.keepalive()
-            self.patroni.multisite.heartbeat()
+            if not conditional:
+                # TODO: check if the standby site is healthy and ignore the conditional flag when it is
+                self.patroni.multisite.heartbeat()
         return ret
 
     def has_lock(self, info=True):
@@ -1545,7 +1547,7 @@ class Ha(object):
 
         # state_handler.state == 'starting' here
         if self.has_lock():
-            if not self.update_lock():
+            if not self.update_lock(conditional=True):
                 logger.info("Lost lock while starting up. Demoting self.")
                 self.demote('immediate-nolock')
                 return 'stopped PostgreSQL while starting up because leader key was lost'
