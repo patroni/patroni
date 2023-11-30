@@ -118,6 +118,8 @@ class Postgresql(object):
         # Last known running process
         self._postmaster_proc = None
 
+        self._available_gucs = None
+
         if self.is_running():
             # If we found postmaster process we need to figure out whether postgres is accepting connections
             self.set_state('starting')
@@ -240,7 +242,9 @@ class Postgresql(object):
     @property
     def available_gucs(self) -> CaseInsensitiveSet:
         """GUCs available in this Postgres server."""
-        return self._get_gucs()
+        if not self._available_gucs:
+            self._available_gucs = self._get_gucs()
+        return self._available_gucs
 
     def _version_file_exists(self) -> bool:
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
