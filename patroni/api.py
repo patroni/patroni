@@ -328,6 +328,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("patroni_is_paused{0} {1}"
                        .format(scope_label, int(patroni.ha.is_paused())))
 
+        if patroni.multisite.is_active:
+            metrics.append("# HELP patroni_multisite_switches Number of times multisite leader has been switched")
+            metrics.append("# TYPE patroni_multisite_switches counter")
+            metrics.append("patroni_multisite_switches{0}, {1}"
+                           .format(scope_label, patroni.multisite.site_switches))
+
         self._write_response(200, '\n'.join(metrics)+'\n', content_type='text/plain')
 
     def do_GET_multisite(self):

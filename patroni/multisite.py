@@ -1,4 +1,5 @@
 import abc
+import json
 import logging
 from datetime import datetime
 from threading import Thread, Event
@@ -103,6 +104,8 @@ class MultisiteController(Thread, AbstractSiteController):
         self._failover_target = None
         self._failover_timeout = None
 
+        self.site_switches = None
+
         self._dcs_error = None
 
     def status(self):
@@ -121,7 +124,7 @@ class MultisiteController(Thread, AbstractSiteController):
         return self._dcs_error
 
     def heartbeat(self):
-        """"Notify multisite mechanism that this site has a properly operating cluster mechanism.
+        """Notify multisite mechanism that this site has a properly operating cluster mechanism.
 
         Need to send out an async lease update. If that fails to complete within safety margin of ttl running
         out then we need to
@@ -137,6 +140,8 @@ class MultisiteController(Thread, AbstractSiteController):
         return self._failover_target is not None and self._failover_target != self.name
 
     def on_shutdown(self, checkpoint_location):
+        """ Called when shutdown for multisite failover has completed.
+        """
         # TODO: check if we replicated everything to standby site
         self.release()
 
@@ -217,6 +222,7 @@ class MultisiteController(Thread, AbstractSiteController):
                         self.dcs.delete_leader()
                         self._release = False
                         self._disconnected_operation()
+                        self._check_transition(leader=False, note="Released multisite leader status on request")
                         return
                     if self.dcs.update_leader(None):
                         logger.info("Updated multisite leader lease")
@@ -254,9 +260,25 @@ class MultisiteController(Thread, AbstractSiteController):
                     self._state_updater.state_transition('Standby', 'Unable to access multisite DCS')
         else:
             try:
+                self._update_history(cluster)
                 self.touch_member()
             except DCSError as e:
                 pass
+
+    def _update_history(self, cluster):
+        if cluster.history and isinstance(cluster.history.lines, dict):
+            self.site_switches = cluster.history.lines.get('switches')
+
+        if self._has_leader:
+            if cluster.history and isinstance(cluster.history.lines, dict):
+                history_state = cluster.history.lines
+                if history_state.get('last_leader') != self.name:
+                    new_state = {
+                        {'last_leader': self.name, 'switches': history_state.get('switches', 0) + 1}
+                    }
+                    self.dcs.set_history_value(json.dumps(new_state))
+            else:
+                self.dcs.set_history_value(json.dumps({'last_leader': self.name, 'switches': 0}))
 
     def _check_for_failover(self, cluster):
         if cluster.failover and cluster.failover.target_site:
