@@ -33,7 +33,8 @@ class AbstractMPP(abc.ABC):
         """Check if MPP is enabled for a given MPP.
 
         .. note::
-            We just check that the :attr:`_config` object isn't empty and expect it to be empty only in case of :class:`Null`.
+            We just check that the :attr:`_config` object isn't empty and expect
+            it to be empty only in case of :class:`Null`.
 
         :returns: ``True`` if MPP is enabled, otherwise ``False``.
         """
