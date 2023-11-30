@@ -33,7 +33,7 @@ class AbstractMPP(abc.ABC):
         """Check if MPP is enabled for a given MPP.
 
         .. note::
-            We just check that the `_config` object isn't empty and expect it do be empty only in case of :class:`Null`.
+            We just check that the :attr:`_config` object isn't empty and expect it to be empty only in case of :class:`Null`.
 
         :returns: ``True`` if MPP is enabled, otherwise ``False``.
         """
@@ -55,13 +55,13 @@ class AbstractMPP(abc.ABC):
     @property
     @abc.abstractmethod
     def coordinator_group_id(self) -> Any:
-        """The groupid of the coordinator PostgreSQL cluster."""
+        """The group id of the coordinator PostgreSQL cluster."""
 
     def is_coordinator(self) -> bool:
         """Check whether this node is running in the coordinator PostgreSQL cluster.
 
         :returns: ``True`` if MPP is enabled and the group id of this node
-                  matches with the coordinator_group_id, otherwise ``False``.
+                  matches with the :attr:`coordinator_group_id`, otherwise ``False``.
         """
         return self.is_enabled() and self.group == self.coordinator_group_id
 
@@ -85,9 +85,10 @@ class AbstractMPP(abc.ABC):
     def get_handler_impl(self, postgresql: 'Postgresql') -> 'AbstractMPPHandler':
         """Find and instantiate Handler implementation of this object.
 
-        :param postgresql: a reference to `Postgresql` object.
+        :param postgresql: a reference to :class:`Postgresql` object.
 
-        :raises `PatroniException`: if the Handler class haven't been found.
+        :raises:
+            :exc:`PatroniException`: if the Handler class haven't been found.
 
         :returns: an instantiated class that implements Handler for this object.
         """
@@ -275,7 +276,7 @@ def iter_mpp_classes(
     :param config: configuration information with possible MPP names as keys. If given, only attempt to import MPP
                    modules defined in the configuration. Else, if ``None``, attempt to import any supported MPP module.
 
-    :returns: an iterator of tuples, each containing the module ``name`` and the imported MPP class object.
+    :yields: tuples, each containing the module ``name`` and the imported MPP class object.
     """
     yield from iter_classes(__package__, AbstractMPP, config)
 
