@@ -39,10 +39,10 @@ class TestCitus(BaseTestPostgresql):
 
     @patch.object(CitusHandler, 'is_alive', Mock(return_value=False))
     @patch.object(CitusHandler, 'start', Mock())
-    def test_sync_pg_dist_node(self):
+    def test_sync_meta_data(self):
         with patch.object(CitusHandler, 'is_enabled', Mock(return_value=False)):
-            self.c.sync_pg_dist_node(self.cluster)
-        self.c.sync_pg_dist_node(self.cluster)
+            self.c.sync_meta_data(self.cluster)
+        self.c.sync_meta_data(self.cluster)
 
     def test_handle_event(self):
         self.c.handle_event(self.cluster, {})
@@ -66,7 +66,7 @@ class TestCitus(BaseTestPostgresql):
             mock_logger.assert_called_once()
             self.assertTrue(mock_logger.call_args[0][0].startswith('Overriding existing task:'))
 
-        # add_task called from sync_pg_dist_node should not override already scheduled or in flight task until deadline
+        # add_task called from sync_meta_data should not override already scheduled or in flight task until deadline
         self.assertIsNotNone(self.c.add_task('after_promote', 1, 'postgres://host:5432/postgres', 30))
         self.assertIsNone(self.c.add_task('after_promote', 1, 'postgres://host:5432/postgres'))
         self.c._in_flight = self.c._tasks.pop()

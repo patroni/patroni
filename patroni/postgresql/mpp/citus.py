@@ -143,8 +143,8 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
             self._pg_dist_node = {r[1]: PgDistNode(r[1], r[2], r[3], 'after_promote', r[0]) for r in rows}
         return True
 
-    def sync_pg_dist_node(self, cluster: Cluster) -> None:
-        """Maintain the `pg_dist_node` from the coordinator leader every heartbeat loop.
+    def sync_meta_data(self, cluster: Cluster) -> None:
+        """Maintain the ``pg_dist_node`` from the coordinator leader every heartbeat loop.
 
         We can't always rely on REST API calls from worker nodes in order
         to maintain `pg_dist_node`, therefore at least once per heartbeat
@@ -305,16 +305,16 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
         with self._condition:
             i = self.find_task_by_group(task.group)
 
-            # The `PgDistNode.timeout` == None is an indicator that it was scheduled from the sync_pg_dist_node().
+            # The `PgDistNode.timeout` == None is an indicator that it was scheduled from the sync_meta_data().
             if task.timeout is None:
                 # We don't want to override the already existing task created from REST API.
                 if i is not None and self._tasks[i].timeout is not None:
                     return False
 
                 # There is a little race condition with tasks created from REST API - the call made "before" the member
-                # key is updated in DCS. Therefore it is possible that :func:`sync_pg_dist_node` will try to create a
-                # task based on the outdated values of "state"/"role". To solve it we introduce an artificial timeout.
-                # Only when the timeout is reached new tasks could be scheduled from sync_pg_dist_node()
+                # key is updated in DCS. Therefore it is possible that :func:`sync_meta_data` will try to create a task
+                # based on the outdated values of "state"/"role". To solve it we introduce an artificial timeout.
+                # Only when the timeout is reached new tasks could be scheduled from sync_meta_data()
                 if self._in_flight and self._in_flight.group == task.group and self._in_flight.timeout is not None\
                         and self._in_flight.deadline > time.time():
                     return False
