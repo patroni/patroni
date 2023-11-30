@@ -10,15 +10,15 @@ Version 3.2.1
 
 - Limit accepted values for ``--format`` argument in ``patronictl`` (Alexander Kukushkin)
 
-  It used to accept any arbitrary string, and produce no output if the value isn't recognized.
+  It used to accept any arbitrary string and produce no output if the value isn't recognized.
 
 - Verify that replica nodes received checkpoint LSN on shutdown before releasing the leader key (Alexander Kukushkin)
 
-  Previously in some cases we were using LSN of the SWITCH record that is followed by CHECKPOINT (if archiving mode is enabled). As a result the former primary sometimes had to do ``pg_rewind``, but there is no data loss involved.
+  Previously in some cases, we were using LSN of the SWITCH record that is followed by CHECKPOINT (if archiving mode is enabled). As a result the former primary sometimes had to do ``pg_rewind``, but there is no data loss involved.
 
 - Do a real HTTP request when performing node name uniqueness check (Alexander Kukushkin)
 
-  When running Patroni in containers it is possible that the traffic is routed using ``docker-proxy``, which listens on the port and accepting incoming connections. It was was causing false positives.
+  When running Patroni in containers it is possible that the traffic is routed using ``docker-proxy``, which listens on the port and accepts incoming connections. It was causing false positives.
 
 - Fixed Citus support with Etcd v2 (Alexander Kukushkin)
 
@@ -26,7 +26,7 @@ Version 3.2.1
 
 - Fixed ``pg_rewind`` behavior with Postgres v16+ (Alexander Kukushkin)
 
-  The error message format of ``pg_waldump`` changed in v16 what caused ``pg_rewind`` being called by Patroni even when it was not necessary.
+  The error message format of ``pg_waldump`` changed in v16 which caused ``pg_rewind`` being called by Patroni even when it was not necessary.
 
 - Fixed bug with custom bootstrap (Alexander Kukushkin)
 
@@ -34,7 +34,7 @@ Version 3.2.1
 
 - Fixed the issue with REST API health check endpoints (Sophia Ruan)
 
-  There were chances that after Postgres restart it was returning ``unknown`` state of Postgres because connections were not property closed.
+  There were chances that after Postgres restart it was returning ``unknown`` state of Postgres because connections were not properly closed.
 
 - Cache ``postgres --describe-config`` output results (Waynerv)
 
