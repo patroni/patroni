@@ -424,7 +424,7 @@ class Consul(AbstractDCS):
         _, results = self.retry(self._client.kv.get, path, recurse=True, consistency=self._consistency)
         if results is None:
             return Cluster.empty()
-        nodes = {}
+        nodes: Dict[str, Dict[str, Any]] = {}
         for node in results:
             node['Value'] = (node['Value'] or b'').decode('utf-8')
             nodes[node['Key'][len(path):]] = node

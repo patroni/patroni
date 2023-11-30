@@ -3,6 +3,44 @@
 Release notes
 =============
 
+Version 3.2.1
+-------------
+
+**Bugfixes**
+
+- Limit accepted values for ``--format`` argument in ``patronictl`` (Alexander Kukushkin)
+
+  It used to accept any arbitrary string and produce no output if the value wasn't recognized.
+
+- Verify that replica nodes received checkpoint LSN on shutdown before releasing the leader key (Alexander Kukushkin)
+
+  Previously in some cases, we were using LSN of the SWITCH record that is followed by CHECKPOINT (if archiving mode is enabled). As a result the former primary sometimes had to do ``pg_rewind``, but there would be no data loss involved.
+
+- Do a real HTTP request when performing node name uniqueness check (Alexander Kukushkin)
+
+  When running Patroni in containers it is possible that the traffic is routed using ``docker-proxy``, which listens on the port and accepts incoming connections. It was causing false positives.
+
+- Fixed Citus support with Etcd v2 (Alexander Kukushkin)
+
+  Patroni was failing to deploy a new Citus cluster with Etcd v2.
+
+- Fixed ``pg_rewind`` behavior with Postgres v16+ (Alexander Kukushkin)
+
+  The error message format of ``pg_waldump`` changed in v16 which caused ``pg_rewind`` to be called by Patroni even when it was not necessary.
+
+- Fixed bug with custom bootstrap (Alexander Kukushkin)
+
+  Patroni was falsely applying ``--command`` argument, which is a bootstrap command itself.
+
+- Fixed the issue with REST API health check endpoints (Sophia Ruan)
+
+  There were chances that after Postgres restart it could return ``unknown`` state for Postgres because connections were not properly closed.
+
+- Cache ``postgres --describe-config`` output results (Waynerv)
+
+  They are used to figure out which GUCs are available to validate PostgreSQL configuration and we don't expect this list to change while Patroni is running.
+
+
 Version 3.2.0
 -------------
 
