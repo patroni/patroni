@@ -26,7 +26,7 @@ from urllib.parse import urlparse, parse_qs
 
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
 
-from . import psycopg
+from . import global_config, psycopg
 from .__main__ import Patroni
 from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
@@ -37,7 +37,7 @@ from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Ret
 logger = logging.getLogger(__name__)
 
 
-def check_access(func: Callable[['RestApiHandler'], None]) -> Callable[..., None]:
+def check_access(func: Callable[..., None]) -> Callable[..., None]:
     """Check the source ip, authorization header, or client certificates.
 
     .. note::
@@ -103,7 +103,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(server, RestApiServer)
         super(RestApiHandler, self).__init__(request, client_address, server)
-        self.server: 'RestApiServer' = server
+        self.server: 'RestApiServer' = server  # pyright: ignore [reportIncompatibleVariableOverride]
         self.__start_time: float = 0.0
         self.path_query: Dict[str, List[str]] = {}
 
@@ -290,7 +290,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
-        global_config = patroni.config.get_global_config(cluster)
+        config = global_config.from_cluster(cluster)
 
         leader_optime = cluster and cluster.last_lsn or 0
         replayed_location = response.get('xlog', {}).get('replayed_location', 0)
@@ -308,7 +308,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             standby_leader_status_code = 200 if response.get('role') == 'standby_leader' else 503
         elif patroni.ha.is_leader():
             leader_status_code = 200
-            if global_config.is_standby_cluster:
+            if config.is_standby_cluster:
                 primary_status_code = replica_status_code = 503
                 standby_leader_status_code = 200 if response.get('role') in ('replica', 'standby_leader') else 503
             else:
@@ -451,10 +451,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Write an HTTP response with JSON content based on the output of :func:`~patroni.utils.cluster_as_json`, with
         HTTP status ``200`` and the JSON representation of the cluster topology.
         """
-        cluster = self.server.patroni.dcs.get_cluster(True)
-        global_config = self.server.patroni.config.get_global_config(cluster)
+        cluster = self.server.patroni.dcs.get_cluster()
 
-        response = cluster_as_json(cluster, global_config)
+        response = cluster_as_json(cluster)
         response['scope'] = self.server.patroni.postgresql.scope
         self._write_json_response(200, response)
 
@@ -690,7 +689,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         request = self._read_json_content()
         if request:
-            cluster = self.server.patroni.dcs.get_cluster(True)
+            cluster = self.server.patroni.dcs.get_cluster()
             if not (cluster.config and cluster.config.modify_version):
                 return self.send_error(503)
             data = cluster.config.data.copy()
@@ -864,7 +863,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if request:
             logger.debug("received restart request: {0}".format(request))
 
-        if self.server.patroni.config.get_global_config(cluster).is_paused and 'schedule' in request:
+        if global_config.from_cluster(cluster).is_paused and 'schedule' in request:
             self.write_response(status_code, "Can't schedule restart in the paused state")
             return
 
@@ -1033,7 +1032,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         :returns: a string with the error message or ``None`` if good nodes are found.
         """
-        is_synchronous_mode = self.server.patroni.config.get_global_config(cluster).is_synchronous_mode
+        is_synchronous_mode = global_config.from_cluster(cluster).is_synchronous_mode
         if leader and (not cluster.leader or cluster.leader.name != leader):
             return 'leader name does not match'
         if candidate:
@@ -1074,7 +1073,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``412``: if operation is not possible;
             * ``503``: if unable to register the operation to the DCS;
             * HTTP status returned by :func:`parse_schedule`, if any error was observed while parsing the schedule;
-            * HTTP status returned by :func:`poll_failover_result` if the operation has been processed immediately.
+            * HTTP status returned by :func:`poll_failover_result` if the operation has been processed immediately;
+            * ``400``: if none of the above applies.
 
         .. note::
             If unable to parse the request body, then the request is silently discarded.
@@ -1090,7 +1090,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         candidate = request.get('candidate') or request.get('member')
         scheduled_at = request.get('scheduled_at')
         cluster = self.server.patroni.dcs.get_cluster()
-        global_config = self.server.patroni.config.get_global_config(cluster)
+        config = global_config.from_cluster(cluster)
 
         logger.info("received %s request with leader=%s candidate=%s scheduled_at=%s",
                     action, leader, candidate, scheduled_at)
@@ -1101,15 +1101,22 @@ class RestApiHandler(BaseHTTPRequestHandler):
             data = 'Switchover could be performed only from a specific leader'
 
         if not data and scheduled_at:
-            if not leader:
-                data = 'Scheduled {0} is possible only from a specific leader'.format(action)
-            if not data and global_config.is_paused:
-                data = "Can't schedule {0} in the paused state".format(action)
-            if not data:
+            if action == 'failover':
+                data = "Failover can't be scheduled"
+            elif config.is_paused:
+                data = "Can't schedule switchover in the paused state"
+            else:
                 (status_code, data, scheduled_at) = self.parse_schedule(scheduled_at, action)
 
-        if not data and global_config.is_paused and not candidate:
-            data = action.title() + ' is possible only to a specific candidate in a paused state'
+        if not data and config.is_paused and not candidate:
+            data = 'Switchover is possible only to a specific candidate in a paused state'
+
+        if action == 'failover' and leader:
+            logger.warning('received failover request with leader specifed - performing switchover instead')
+            action = 'switchover'
+
+        if not data and leader == candidate:
+            data = 'Switchover target and source are the same'
 
         if not data and not scheduled_at:
             data = self.is_failover_possible(cluster, leader, candidate, action)
@@ -1126,7 +1133,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     status_code, data = self.poll_failover_result(cluster.leader and cluster.leader.name,
                                                                   candidate, action)
             else:
-                data = 'failed to write {0} key into DCS'.format(action)
+                data = 'failed to write failover key into DCS'
                 status_code = 503
         # pyright thinks ``status_code`` can be ``None`` because ``parse_schedule`` call may return ``None``. However,
         # if that's the case, ``status_code`` will be overwritten somewhere between ``parse_schedule`` and
@@ -1158,7 +1165,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         patroni = self.server.patroni
         if patroni.postgresql.citus_handler.is_coordinator() and patroni.ha.is_leader():
-            cluster = patroni.dcs.get_cluster(True)
+            cluster = patroni.dcs.get_cluster()
             patroni.postgresql.citus_handler.handle_event(cluster, request)
         self.write_response(200, 'OK')
 
@@ -1252,7 +1259,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         postgresql = self.server.patroni.postgresql
         cluster = self.server.patroni.dcs.cluster
-        global_config = self.server.patroni.config.get_global_config(cluster)
+        config = global_config.from_cluster(cluster)
         try:
 
             if postgresql.state not in ('running', 'restarting', 'starting'):
@@ -1283,10 +1290,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 })
             }
 
-            if result['role'] == 'replica' and global_config.is_standby_cluster:
+            if result['role'] == 'replica' and config.is_standby_cluster:
                 result['role'] = postgresql.role
 
-            if result['role'] == 'replica' and global_config.is_synchronous_mode\
+            if result['role'] == 'replica' and config.is_synchronous_mode\
                     and cluster and cluster.sync.matches(postgresql.name):
                 result['sync_standby'] = True
 
@@ -1311,7 +1318,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 state = 'unknown'
             result: Dict[str, Any] = {'state': state, 'role': postgresql.role}
 
-        if global_config.is_paused:
+        if config.is_paused:
             result['pause'] = True
         if not cluster or cluster.is_unlocked():
             result['cluster_unlocked'] = True

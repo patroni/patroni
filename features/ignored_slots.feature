@@ -25,10 +25,10 @@ Feature: ignored slots
     # but Patroni can actually end up dropping them almost immediately, so it's helpful
     # to verify they exist before we begin testing whether they persist through failover
     # cycles.
-    Then postgres1 has a logical replication slot named unmanaged_slot_0 with the test_decoding plugin
-    And postgres1 has a logical replication slot named unmanaged_slot_1 with the test_decoding plugin
-    And postgres1 has a logical replication slot named unmanaged_slot_2 with the test_decoding plugin
-    And postgres1 has a logical replication slot named unmanaged_slot_3 with the test_decoding plugin
+    Then postgres1 has a logical replication slot named unmanaged_slot_0 with the test_decoding plugin after 2 seconds
+    And postgres1 has a logical replication slot named unmanaged_slot_1 with the test_decoding plugin after 2 seconds
+    And postgres1 has a logical replication slot named unmanaged_slot_2 with the test_decoding plugin after 2 seconds
+    And postgres1 has a logical replication slot named unmanaged_slot_3 with the test_decoding plugin after 2 seconds
 
     When I start postgres0
     Then "members/postgres0" key in DCS has role=replica after 10 seconds
@@ -46,16 +46,16 @@ Feature: ignored slots
     And "members/postgres1" key in DCS has role=replica after 10 seconds
     # give Patroni time to sync replication slots
     And I sleep for 2 seconds
-    And postgres1 has a logical replication slot named unmanaged_slot_0 with the test_decoding plugin
-    And postgres1 has a logical replication slot named unmanaged_slot_1 with the test_decoding plugin
-    And postgres1 has a logical replication slot named unmanaged_slot_2 with the test_decoding plugin
-    And postgres1 has a logical replication slot named unmanaged_slot_3 with the test_decoding plugin
-    And postgres1 does not have a logical replication slot named dummy_slot
+    And postgres1 has a logical replication slot named unmanaged_slot_0 with the test_decoding plugin after 2 seconds
+    And postgres1 has a logical replication slot named unmanaged_slot_1 with the test_decoding plugin after 2 seconds
+    And postgres1 has a logical replication slot named unmanaged_slot_2 with the test_decoding plugin after 2 seconds
+    And postgres1 has a logical replication slot named unmanaged_slot_3 with the test_decoding plugin after 2 seconds
+    And postgres1 does not have a replication slot named dummy_slot
 
     # 3. After a failover the server (now a primary) still has the slot.
     When I shut down postgres0
     Then "members/postgres1" key in DCS has role=master after 10 seconds
-    And postgres1 has a logical replication slot named unmanaged_slot_0 with the test_decoding plugin
-    And postgres1 has a logical replication slot named unmanaged_slot_1 with the test_decoding plugin
-    And postgres1 has a logical replication slot named unmanaged_slot_2 with the test_decoding plugin
-    And postgres1 has a logical replication slot named unmanaged_slot_3 with the test_decoding plugin
+    And postgres1 has a logical replication slot named unmanaged_slot_0 with the test_decoding plugin after 2 seconds
+    And postgres1 has a logical replication slot named unmanaged_slot_1 with the test_decoding plugin after 2 seconds
+    And postgres1 has a logical replication slot named unmanaged_slot_2 with the test_decoding plugin after 2 seconds
+    And postgres1 has a logical replication slot named unmanaged_slot_3 with the test_decoding plugin after 2 seconds

@@ -104,18 +104,20 @@ class MockCursor(object):
         elif sql.startswith('SELECT slot_name, slot_type, datname, plugin, catalog_xmin'):
             self.results = [('ls', 'logical', 'a', 'b', 100, 500, b'123456')]
         elif sql.startswith('SELECT slot_name'):
-            self.results = [('blabla', 'physical'), ('foobar', 'physical'), ('ls', 'logical', 'b', 'a', 5, 100, 500)]
+            self.results = [('blabla', 'physical', 12345),
+                            ('foobar', 'physical', 12345),
+                            ('ls', 'logical', 499, 'b', 'a', 5, 100, 500)]
         elif sql.startswith('WITH slots AS (SELECT slot_name, active'):
             self.results = [(False, True)] if self.rowcount == 1 else []
         elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):
             self.results = [(1, 2, 1, 0, False, 1, 1, None, None, 'streaming', '',
-                             [{"slot_name": "ls", "confirmed_flush_lsn": 12345}],
+                             [{"slot_name": "ls", "confirmed_flush_lsn": 12345, "restart_lsn": 12344}],
                              'on', 'n1', None)]
         elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
             self.results = [(False, 2)]
         elif sql.startswith('SELECT pg_catalog.pg_postmaster_start_time'):
             self.results = [(datetime.datetime.now(tzutc),)]
-        elif sql.startswith('SELECT name, current_setting(name) FROM pg_settings'):
+        elif sql.startswith('SELECT name, pg_catalog.current_setting(name) FROM pg_catalog.pg_settings'):
             self.results = [('data_directory', 'data'),
                             ('hba_file', os.path.join('data', 'pg_hba.conf')),
                             ('ident_file', os.path.join('data', 'pg_ident.conf')),
@@ -135,6 +137,11 @@ class MockCursor(object):
                             ('wal_block_size', '8192', None, 'integer', 'internal'),
                             ('shared_buffers', '16384', '8kB', 'integer', 'postmaster'),
                             ('wal_buffers', '-1', '8kB', 'integer', 'postmaster'),
+                            ('max_connections', '100', None, 'integer', 'postmaster'),
+                            ('max_prepared_transactions', '0', None, 'integer', 'postmaster'),
+                            ('max_worker_processes', '8', None, 'integer', 'postmaster'),
+                            ('max_locks_per_transaction', '64', None, 'integer', 'postmaster'),
+                            ('max_wal_senders', '5', None, 'integer', 'postmaster'),
                             ('search_path', 'public', None, 'string', 'user'),
                             ('port', '5433', None, 'integer', 'postmaster'),
                             ('listen_addresses', '*', None, 'string', 'postmaster'),
@@ -238,7 +245,7 @@ class PostgresInit(unittest.TestCase):
                                                 'replication': {'username': '', 'password': 'rep-pass'},
                                                 'rewind': {'username': 'rewind', 'password': 'test'}},
                              'remove_data_directory_on_rewind_failure': True,
-                             'use_pg_rewind': True, 'pg_ctl_timeout': 'bla',
+                             'use_pg_rewind': True, 'pg_ctl_timeout': 'bla', 'use_unix_socket': True,
                              'parameters': self._PARAMETERS,
                              'recovery_conf': {'foo': 'bar'},
                              'pg_hba': ['host all all 0.0.0.0/0 md5'],
@@ -250,14 +257,15 @@ class PostgresInit(unittest.TestCase):
 
 class BaseTestPostgresql(PostgresInit):
 
+    @patch('time.sleep', Mock())
     def setUp(self):
         super(BaseTestPostgresql, self).setUp()
 
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
 
-        self.leadermem = Member(0, 'leader', 28, {
-            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
+        self.leadermem = Member(0, 'leader', 28, {'xlog_location': 100, 'state': 'running',
+                                                  'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
         self.leader = Leader(-1, 28, self.leadermem)
         self.other = Member(0, 'test-1', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
                                               'state': 'running', 'tags': {'replicatefrom': 'leader'}})

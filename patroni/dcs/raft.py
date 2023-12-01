@@ -12,7 +12,8 @@ from pysyncobj.transport import TCPTransport, CONNECTION_STATE
 from pysyncobj.utility import TcpUtility
 from typing import Any, Callable, Collection, Dict, List, Optional, Set, Union, TYPE_CHECKING
 
-from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, SyncState, TimelineHistory, citus_group_re
+from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, \
+    TimelineHistory, citus_group_re
 from ..exceptions import DCSError
 from ..utils import validate_directory
 if TYPE_CHECKING:  # pragma: no cover
@@ -343,23 +344,8 @@ class Raft(AbstractDCS):
         history = history and TimelineHistory.from_node(history['index'], history['value'])
 
         # get last know leader lsn and slots
-        status = nodes.get(self._STATUS)
-        if status:
-            try:
-                status = json.loads(status['value'])
-                last_lsn = status.get(self._OPTIME)
-                slots = status.get('slots')
-            except Exception:
-                slots = last_lsn = None
-        else:
-            last_lsn = nodes.get(self._LEADER_OPTIME)
-            last_lsn = last_lsn and last_lsn['value']
-            slots = None
-
-        try:
-            last_lsn = int(last_lsn or '')
-        except Exception:
-            last_lsn = 0
+        status = nodes.get(self._STATUS) or nodes.get(self._LEADER_OPTIME)
+        status = Status.from_node(status and status['value'])
 
         # get list of members
         members = [self.member(k, n) for k, n in nodes.items() if k.startswith(self._MEMBERS) and k.count('/') == 1]
@@ -387,7 +373,7 @@ class Raft(AbstractDCS):
         except Exception:
             failsafe = None
 
-        return Cluster(initialize, config, leader, last_lsn, members, failover, sync, history, slots, failsafe)
+        return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
     def _cluster_loader(self, path: str) -> Cluster:
         response = self._sync_obj.get(path, recursive=True)

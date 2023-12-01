@@ -24,15 +24,6 @@ Log
 -  **PATRONI\_LOG\_FILE\_SIZE**: Size of patroni.log file (in bytes) that triggers a log rolling.
 -  **PATRONI\_LOG\_LOGGERS**: Redefine logging level per python module. Example ``PATRONI_LOG_LOGGERS="{patroni.postmaster: WARNING, urllib3: DEBUG}"``
 
-Bootstrap configuration
------------------------
-It is possible to create new database users right after the successful initialization of a new cluster. This process is defined by the following variables:
-
--  **PATRONI\_<username>\_PASSWORD='<password>'**
--  **PATRONI\_<username>\_OPTIONS='list,of,options'**
-
-Example: defining ``PATRONI_admin_PASSWORD=strongpasswd`` and ``PATRONI_admin_OPTIONS='createrole,createdb'`` will cause creation of the user **admin** with the password **strongpasswd** that is allowed to create other users and databases.
-
 Citus
 -----
 Enables integration Patroni with `Citus <https://docs.citusdata.com>`__. If configured, Patroni will take care of registering Citus worker nodes on the coordinator. You can find more information about Citus support :ref:`here <citus>`.
@@ -94,6 +85,7 @@ ZooKeeper
 -  **PATRONI\_ZOOKEEPER\_KEY\_PASSWORD**: (optional) The client key password.
 -  **PATRONI\_ZOOKEEPER\_VERIFY**: (optional) Whether to verify certificate or not. Defaults to ``true``.
 -  **PATRONI\_ZOOKEEPER\_SET\_ACLS**: (optional) If set, configure Kazoo to apply a default ACL to each ZNode that it creates. ACLs will assume 'x509' schema and should be specified as a dictionary with the principal as the key and one or more permissions as a list in the value.  Permissions may be one of ``CREATE``, ``READ``, ``WRITE``, ``DELETE`` or ``ADMIN``.  For example, ``set_acls: {CN=principal1: [CREATE, READ], CN=principal2: [ALL]}``.
+-  **PATRONI\_ZOOKEEPER\_AUTH\_DATA**: (optional) Authentication credentials to use for the connection. Should be a dictionary in the form that `scheme` is the key and `credential` is the value. Defaults to empty dictionary.
 
 .. note::
     It is required to install ``kazoo>=2.6.0`` to support SSL.
@@ -209,10 +201,10 @@ REST API
 CTL
 ---
 -  **PATRONICTL\_CONFIG\_FILE**: (optional) location of the configuration file.
--  **PATRONI\_CTL\_USERNAME**: (optional) Basic-auth username for accessing protected REST API endpoints. If not provided patronictl will use the value provided for REST API "username" parameter.
--  **PATRONI\_CTL\_PASSWORD**: (optional) Basic-auth password for accessing protected REST API endpoints. If not provided patronictl will use the value provided for REST API "password" parameter.
+-  **PATRONI\_CTL\_USERNAME**: (optional) Basic-auth username for accessing protected REST API endpoints. If not provided :ref:`patronictl` will use the value provided for REST API "username" parameter.
+-  **PATRONI\_CTL\_PASSWORD**: (optional) Basic-auth password for accessing protected REST API endpoints. If not provided :ref:`patronictl` will use the value provided for REST API "password" parameter.
 -  **PATRONI\_CTL\_INSECURE**: (optional) Allow connections to REST API without verifying SSL certs.
--  **PATRONI\_CTL\_CACERT**: (optional) Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided patronictl will use the value provided for REST API "cafile" parameter.
+-  **PATRONI\_CTL\_CACERT**: (optional) Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided :ref:`patronictl` will use the value provided for REST API "cafile" parameter.
 -  **PATRONI\_CTL\_CERTFILE**: (optional) Specifies the file with the client certificate in the PEM format.
 -  **PATRONI\_CTL\_KEYFILE**: (optional) Specifies the file with the client secret key in the PEM format.
 -  **PATRONI\_CTL\_KEYFILE\_PASSWORD**: (optional) Specifies a password for decrypting the client keyfile.

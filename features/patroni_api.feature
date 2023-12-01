@@ -68,6 +68,7 @@ Scenario: check API requests for the primary-replica pair in the pause mode
 	When I kill postmaster on postgres1
 	And I issue a GET request to http://127.0.0.1:8009/replica
 	Then I receive a response code 503
+	And "members/postgres1" key in DCS has state=stopped after 10 seconds
 	When I run patronictl.py restart batman postgres1 --force
 	Then I receive a response returncode 0
 	Then replication works from postgres0 to postgres1 after 20 seconds
@@ -76,7 +77,7 @@ Scenario: check API requests for the primary-replica pair in the pause mode
 	Then I receive a response code 200
 	And I receive a response state running
 	And I receive a response role replica
-	When I run patronictl.py reinit batman postgres1 --force
+	When I run patronictl.py reinit batman postgres1 --force --wait
 	Then I receive a response returncode 0
 	And I receive a response output "Success: reinitialize for member postgres1"
 	And postgres1 role is the secondary after 30 seconds

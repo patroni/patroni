@@ -274,6 +274,8 @@ class TestEtcd(unittest.TestCase):
         cluster = self.etcd.get_cluster()
         self.assertIsInstance(cluster, Cluster)
         self.assertIsInstance(cluster.workers[1], Cluster)
+        self.etcd._base_path = '/service/nocluster'
+        self.assertTrue(self.etcd.get_cluster().is_empty())
 
     def test_touch_member(self):
         self.assertFalse(self.etcd.touch_member(''))

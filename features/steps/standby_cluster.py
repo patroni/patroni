@@ -15,9 +15,7 @@ def start_patroni(context, name, cluster_name):
         "scope": cluster_name,
         "postgresql": {
             "callbacks": callbacks(context, name),
-            "backup_restore": {
-                "command": (context.pctl.PYTHON + " features/backup_restore.py --sourcedir="
-                            + os.path.join(context.pctl.patroni_path, 'data', 'basebackup').replace('\\', '/'))}
+            "backup_restore": context.pctl.backup_restore_config()
         }
     })
 
@@ -34,6 +32,7 @@ def start_patroni_standby_cluster(context, name, cluster_name, name2):
                 "ttl": 20,
                 "loop_wait": 2,
                 "retry_timeout": 5,
+                "synchronous_mode": True,  # should be completely ignored
                 "standby_cluster": {
                     "host": "localhost",
                     "port": port,

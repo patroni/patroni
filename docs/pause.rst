@@ -19,7 +19,7 @@ When Patroni runs in a paused mode, it does not change the state of PostgreSQL, 
 
 - For the Postgres primary with the leader lock Patroni updates the lock. If the node with the leader lock stops being the primary (i.e. is demoted manually), Patroni will release the lock instead of promoting the node back.
 
-- Manual unscheduled restart, reinitialize and manual failover are allowed. Manual failover is only allowed if the node to failover to is specified. In the paused mode, manual failover does not require a running primary node.
+- Manual unscheduled restart, manual unscheduled failover/switchover and reinitialize are allowed. No scheduled action is allowed. Manual switchover is only allowed if the node to switch over to is specified.
 
 - If 'parallel' primaries are detected by Patroni, it emits a warning, but does not demote the primary without the leader lock.
 
@@ -32,6 +32,6 @@ When Patroni runs in a paused mode, it does not change the state of PostgreSQL, 
 User guide
 ----------
 
-``patronictl`` supports ``pause`` and ``resume`` commands.
+``patronictl`` supports :ref:`pause <patronictl_pause>` and :ref:`resume <patronictl_resume>` commands.
 
 One can also issue a ``PATCH`` request to the ``{namespace}/{cluster}/config`` key with ``{"pause": true/false/null}``

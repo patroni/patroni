@@ -12,7 +12,7 @@ Patroni is a template for high availability (HA) PostgreSQL solutions using Pyth
 
 We call Patroni a "template" because it is far from being a one-size-fits-all or plug-and-play replication system. It will have its own caveats. Use wisely.
 
-Currently supported PostgreSQL versions: 9.3 to 15.
+Currently supported PostgreSQL versions: 9.3 to 16.
 
 **Note to Citus users**: Starting from 3.0 Patroni nicely integrates with the `Citus <https://github.com/citusdata/citus>`__ database extension to Postgres. Please check the `Citus support page <https://github.com/zalando/patroni/blob/master/docs/citus.rst>`__ in the Patroni documentation for more info about how to use Patroni high availability together with a Citus distributed cluster.
 
@@ -77,23 +77,8 @@ There are a few options available:
     sudo apt-get install python3-psycopg2  # install psycopg2 module on Debian/Ubuntu
     sudo yum install python3-psycopg2      # install psycopg2 on RedHat/Fedora/CentOS
 
-2. Install psycopg2 from the binary package
+2. Specify one of `psycopg`, `psycopg2`, or `psycopg2-binary` in the list of dependencies when installing Patroni with pip (see below).
 
-::
-
-    pip install psycopg2-binary
-
-3. Install psycopg2 from source
-
-::
-
-    pip install psycopg2>=2.5.4
-
-4. Use psycopg 3.0 instead of psycopg2
-
-::
-
-    pip install psycopg[binary]>=3.0.0
 
 **General installation for pip**
 
@@ -119,12 +104,20 @@ raft
     `pysyncobj` module in order to use python Raft implementation as DCS
 aws
     `boto3` in order to use AWS callbacks
+all
+    all of the above (except psycopg family)
+psycopg3
+    `psycopg[binary]>=3.0.0` module
+psycopg2
+    `psycopg2>=2.5.4` module
+psycopg2-binary
+    `psycopg2-binary` module
 
-For example, the command in order to install Patroni together with dependencies for Etcd as a DCS and AWS callbacks is:
+For example, the command in order to install Patroni together with psycopg3, dependencies for Etcd as a DCS, and AWS callbacks is:
 
 ::
 
-    pip install patroni[etcd,aws]
+    pip install patroni[psycopg3,etcd3,aws]
 
 Note that external tools to call in the replica creation or custom bootstrap scripts (i.e. WAL-E) should be installed independently of Patroni.
 
@@ -158,7 +151,7 @@ run:
 YAML Configuration
 ==================
 
-Go `here <https://github.com/zalando/patroni/blob/master/docs/SETTINGS.rst>`__ for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/zalando/patroni/blob/master/postgres0.yml>`__.
+Go `here <https://github.com/zalando/patroni/blob/master/docs/dynamic_configuration.rst>`__ for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/zalando/patroni/blob/master/postgres0.yml>`__.
 
 =========================
 Environment Configuration

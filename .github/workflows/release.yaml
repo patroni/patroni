@@ -24,8 +24,11 @@ jobs:
     - name: Run tests and flake8
       run: python .github/workflows/run_tests.py
 
+    - name: Install Python packaging build frontend
+      run: python -m pip install build
+
     - name: Build a binary wheel and a source tarball
-      run: python setup.py sdist bdist_wheel
+      run: python -m build
 
     - name: Publish distribution to Test PyPI
       if: github.event_name == 'push'

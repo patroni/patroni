@@ -151,9 +151,46 @@ class Bootstrap(object):
             os.unlink(trigger_file)
 
     def _custom_bootstrap(self, config: Any) -> bool:
+        """Bootstrap a fresh Patroni cluster using a custom method provided by the user.
+
+        :param config: configuration used for running a custom bootstrap method. It comes from the Patroni YAML file,
+            so it is expected to be a :class:`dict`.
+
+        .. note::
+            *config* must contain a ``command`` key, which value is the command or script to perform the custom
+            bootstrap procedure. The exit code of the ``command`` dictates if the bootstrap succeeded or failed.
+
+            When calling ``command``, Patroni will pass the following arguments to the ``command`` call:
+
+                * ``--scope``: contains the value of ``scope`` configuration;
+                * ``--data_dir``: contains the value of the ``postgresql.data_dir`` configuration.
+
+            You can avoid that behavior by filling the optional key ``no_params`` with the value ``False`` in the
+            configuration file, which will instruct Patroni to not pass these parameters to the ``command`` call.
+
+            Besides that, a couple more keys are supported in *config*, but optional:
+
+                * ``keep_existing_recovery_conf``: if ``True``, instruct Patroni to not remove the existing
+                  ``recovery.conf`` (PostgreSQL <= 11), to not discard recovery parameters from the configuration
+                  (PostgreSQL >= 12), and to not remove the files ``recovery.signal`` or ``standby.signal``
+                  (PostgreSQL >= 12). This is specially useful when you are restoring backups through tools like
+                  pgBackRest and Barman, in which case they generated the appropriate recovery settings for you;
+                * ``recovery_conf``: a section containing a map, where each key is the name of a recovery related
+                  setting, and the value is the value of the corresponding setting.
+
+            Any key/value other than the ones that were described above will be interpreted as additional arguments for
+            the ``command`` call. They will all be added to the call in the format ``--key=value``.
+
+        :returns: ``True`` if the bootstrap was successful, i.e. the execution of the custom ``command`` from *config*
+            exited with code ``0``, ``False`` otherwise.
+        """
         self._postgresql.set_state('running custom bootstrap script')
         params = [] if config.get('no_params') else ['--scope=' + self._postgresql.scope,
                                                      '--datadir=' + self._postgresql.data_dir]
+        # Add custom parameters specified by the user
+        reserved_args = {'command', 'no_params', 'keep_existing_recovery_conf', 'recovery_conf', 'scope', 'datadir'}
+        params += [f"--{arg}={val}" for arg, val in config.items() if arg not in reserved_args]
+
         try:
             logger.info('Running custom bootstrap script: %s', config['command'])
             if self._postgresql.cancellable.call(shlex.split(config['command']) + params) != 0:
@@ -399,6 +436,9 @@ BEGIN
     GRANT EXECUTE ON function pg_catalog.{0} TO {1};
 END;$$""".format(f, quote_ident(rewind['username'], postgresql.connection()))
                         postgresql.query(sql)
+
+                if config.get('users'):
+                    logger.warning('User creation via "bootstrap.users" will be removed in v4.0.0')
 
                 for name, value in (config.get('users') or {}).items():
                     if all(name != a.get('username') for a in (superuser, replication, rewind)):

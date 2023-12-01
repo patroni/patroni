@@ -9,9 +9,9 @@ from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 
 import patroni.psycopg as psycopg
 
+from patroni import global_config
 from patroni.async_executor import CriticalTask
 from patroni.collections import CaseInsensitiveSet
-from patroni.config import GlobalConfig
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PostgresConnectionException, PatroniException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
@@ -237,7 +237,10 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, 'latest_checkpoint_location', Mock(return_value='7'))
     def test__do_stop(self):
         mock_callback = Mock()
-        with patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'shut down'})):
+        with patch.object(Postgresql, 'controldata',
+                          Mock(return_value={'Database cluster state': 'shut down',
+                                             "Latest checkpoint's TimeLineID": '1',
+                                             'Latest checkpoint location': '1/1'})):
             self.assertTrue(self.p.stop(on_shutdown=mock_callback, stop_timeout=3))
             mock_callback.assert_called()
         with patch.object(Postgresql, 'controldata',
@@ -688,13 +691,13 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertIsNone(self.p.wait_for_startup())
 
     def test_get_server_parameters(self):
-        config = {'parameters': {'wal_level': 'hot_standby'}, 'listen': '0'}
-        self.p._global_config = GlobalConfig({'synchronous_mode': True})
-        self.p.config.get_server_parameters(config)
-        self.p._global_config = GlobalConfig({'synchronous_mode': True, 'synchronous_mode_strict': True})
-        self.p.config.get_server_parameters(config)
-        self.p.config.set_synchronous_standby_names('foo')
-        self.assertTrue(str(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
+        config = {'parameters': {'wal_level': 'hot_standby', 'max_prepared_transactions': 100}, 'listen': '0'}
+        with patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True)):
+            self.p.config.get_server_parameters(config)
+            with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
+                self.p.config.get_server_parameters(config)
+                self.p.config.set_synchronous_standby_names('foo')
+                self.assertTrue(str(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
 
     @patch('time.sleep', Mock())
     def test__wait_for_connection_close(self):
@@ -721,6 +724,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertEqual(self.p.get_primary_timeline(), 1)
 
     @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='replica'))
+    @patch.object(Postgresql, 'is_running', Mock(return_value=False))
     @patch.object(Bootstrap, 'running_custom_bootstrap', PropertyMock(return_value=True))
     @patch.object(Postgresql, 'controldata', Mock(return_value={'max_connections setting': '200',
                                                                 'max_worker_processes setting': '20',
@@ -964,6 +968,7 @@ class TestPostgresql2(BaseTestPostgresql):
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
+    @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     def setUp(self):
         super(TestPostgresql2, self).setUp()
 

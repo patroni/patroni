@@ -94,9 +94,9 @@ RUN set -ex \
         /usr/share/locale/??_?? \
         /usr/share/postgresql/*/man \
         /usr/share/postgresql-common/pg_wrapper \
-        /usr/share/vim/vim80/doc \
-        /usr/share/vim/vim80/lang \
-        /usr/share/vim/vim80/tutor \
+        /usr/share/vim/vim*/doc \
+        /usr/share/vim/vim*/lang \
+        /usr/share/vim/vim*/tutor \
 #        /var/lib/dpkg/info/* \
     && find /usr/bin -xtype l -delete \
     && find /var/log -type f -exec truncate --size 0 {} \; \
@@ -143,6 +143,7 @@ ARG PGBIN=/usr/lib/postgresql/$PG_MAJOR/bin
 
 ENV LC_ALL=$LC_ALL LANG=$LANG EDITOR=/usr/bin/editor
 ENV PGDATA=$PGDATA PATH=$PATH:$PGBIN
+ENV ETCDCTL_API=3
 
 COPY patroni /patroni/
 COPY extras/confd/conf.d/haproxy.toml /etc/confd/conf.d/

@@ -387,8 +387,9 @@ class CitusHandler(Thread):
 
     def on_demote(self) -> None:
         with self._condition:
-            self._pg_dist_group.clear()
-            self._tasks[:] = []
+            self._pg_dist_node.clear()
+            empty_tasks: List[PgDistNode] = []
+            self._tasks[:] = empty_tasks
             self._in_flight = None
 
     def query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
@@ -711,11 +712,14 @@ class CitusHandler(Thread):
         parameters['shared_preload_libraries'] = ','.join(['citus'] + shared_preload_libraries)
 
         # if not explicitly set Citus overrides max_prepared_transactions to max_connections*2
-        if parameters.get('max_prepared_transactions') == 0:
+        if parameters['max_prepared_transactions'] == 0:
             parameters['max_prepared_transactions'] = parameters['max_connections'] * 2
 
         # Resharding in Citus implemented using logical replication
         parameters['wal_level'] = 'logical'
+
+        # Sometimes Citus needs to connect to the local postgres. We will do it the same way as Patroni does.
+        parameters['citus.local_hostname'] = self._postgresql.connection_pool.conn_kwargs.get('host', 'localhost')
 
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
         if isinstance(self._config, dict) and self._postgresql.is_primary() and\

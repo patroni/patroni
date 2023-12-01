@@ -3,6 +3,196 @@
 Release notes
 =============
 
+Version 3.2.1
+-------------
+
+**Bugfixes**
+
+- Limit accepted values for ``--format`` argument in ``patronictl`` (Alexander Kukushkin)
+
+  It used to accept any arbitrary string and produce no output if the value wasn't recognized.
+
+- Verify that replica nodes received checkpoint LSN on shutdown before releasing the leader key (Alexander Kukushkin)
+
+  Previously in some cases, we were using LSN of the SWITCH record that is followed by CHECKPOINT (if archiving mode is enabled). As a result the former primary sometimes had to do ``pg_rewind``, but there would be no data loss involved.
+
+- Do a real HTTP request when performing node name uniqueness check (Alexander Kukushkin)
+
+  When running Patroni in containers it is possible that the traffic is routed using ``docker-proxy``, which listens on the port and accepts incoming connections. It was causing false positives.
+
+- Fixed Citus support with Etcd v2 (Alexander Kukushkin)
+
+  Patroni was failing to deploy a new Citus cluster with Etcd v2.
+
+- Fixed ``pg_rewind`` behavior with Postgres v16+ (Alexander Kukushkin)
+
+  The error message format of ``pg_waldump`` changed in v16 which caused ``pg_rewind`` to be called by Patroni even when it was not necessary.
+
+- Fixed bug with custom bootstrap (Alexander Kukushkin)
+
+  Patroni was falsely applying ``--command`` argument, which is a bootstrap command itself.
+
+- Fixed the issue with REST API health check endpoints (Sophia Ruan)
+
+  There were chances that after Postgres restart it could return ``unknown`` state for Postgres because connections were not properly closed.
+
+- Cache ``postgres --describe-config`` output results (Waynerv)
+
+  They are used to figure out which GUCs are available to validate PostgreSQL configuration and we don't expect this list to change while Patroni is running.
+
+
+Version 3.2.0
+-------------
+
+**Deprecation notice**
+
+- The ``bootstrap.users`` support will be removed in version 4.0.0. If you need to create users after deploying a new cluster please use the ``bootstrap.post_bootstrap`` hook for that.
+
+
+**Breaking changes**
+
+- Enforce ``loop_wait + 2*retry_timeout <= ttl`` rule and hard-code minimal possible values (Alexander Kukushkin)
+
+  Minimal values: ``loop_wait=2``, ``retry_timeout=3``, ``ttl=20``. In case values are smaller or violate the rule they are adjusted and a warning is written to Patroni logs.
+
+
+**New features**
+
+- Failover priority (Mark Pekala)
+
+  With the help of ``tags.failover_priority`` it's now possible to make a node more preferred during the leader race. More details in the documentation (ref tags).
+
+- Implemented ``patroni --generate-config [--dsn DSN]`` and ``patroni --generate-sample-config`` (Polina Bungina)
+
+  It allows to generate a config file for the running PostgreSQL cluster or a sample config file for the new Patroni cluster.
+
+- Use a dedicated connection to Postgres for Patroni REST API (Alexander Kukushkin)
+
+  It helps to avoid blocking the main heartbeat loop if the system is under stress.
+
+- Enrich some endpoints with the ``name`` of the node (sskserk)
+
+  For the monitoring endpoint ``name`` is added next to the ``scope`` and for metrics endpoint the ``name`` is added to tags.
+
+- Ensure strict failover/switchover difference (Polina Bungina)
+
+  Be more precise in log messages and allow failing over to an asynchronous node in a healthy synchronous cluster.
+
+- Make permanent physical replication slots behave similarly to permanent logical slots (Alexander Kukushkin)
+
+  Create permanent physical replication slots on all nodes that are allowed to become the leader and use ``pg_replication_slot_advance()`` function to advance ``restart_lsn`` for slots on standby nodes.
+
+- Add capability of specifying namespace through ``--dcs`` argument in ``patronictl`` (Israel Barth Rubio)
+
+  It could be handy if ``patronictl`` is used without a configuration file.
+
+- Add support for additional parameters in custom bootstrap configuration (Israel Barth Rubio)
+
+  Previously it was only possible to add custom arguments to the ``command`` and now one could list them as a mapping.
+
+
+**Improvements**
+
+- Set ``citus.local_hostname`` GUC to the same value which is used by Patroni to connect to the Postgres (Alexander Kukushkin)
+
+  There are cases when Citus wants to have a connection to the local Postgres. By default it uses ``localhost``, which is not always available.
+
+
+**Bugfixes**
+
+- Ignore ``synchronous_mode`` setting in a standby cluster (Polina Bungina)
+
+  Postgres doesn't support cascading synchronous replication and not ignoring ``synchronous_mode`` was breaking a switchover in a standby cluster.
+
+- Handle SIGCHLD for ``on_reload`` callback (Alexander Kukushkin)
+
+  Not doing so results in a zombie process, which is reaped only when the next ``on_reload`` is executed.
+
+- Handle ``AuthOldRevision`` error when working with Etcd v3 (Alexander Kukushkin, Kenny Do)
+
+  The error is raised if Etcd is configured to use JWT and when the user database in Etcd is updated.
+
+
+Version 3.1.2
+-------------
+
+**Bugfixes**
+
+- Fixed bug with ``wal_keep_size`` checks (Alexander Kukushkin)
+
+  The ``wal_keep_size`` is a GUC that normally has a unit and Patroni was failing to cast its value to ``int``. As a result the value of ``bootstrap.dcs`` was not written to the ``/config`` key afterwards.
+
+- Detect and resolve inconsistencies between ``/sync`` key and ``synchronous_standby_names`` (Alexander Kukushkin)
+
+  Normally, Patroni updates ``/sync`` and ``synchronous_standby_names`` in a very specific order, but in case of a bug or when someone manually reset ``synchronous_standby_names``, Patroni was getting into an inconsistent state. As a result it was possible that the failover happens to an asynchronous node.
+
+- Read GUC's values when joining running Postgres (Alexander Kukushkin)
+
+  When restarted in ``pause``, Patroni was discarding the ``synchronous_standby_names`` GUC from the ``postgresql.conf``. To solve it and avoid similar issues, Patroni will read GUC's value if it is joining an already running Postgres.
+
+- Silenced annoying warnings when checking for node uniqueness (Alexander Kukushkin)
+
+  ``WARNING`` messages are produced by ``urllib3`` if Patroni is quickly restarted.
+
+
+Version 3.1.1
+-------------
+
+**Bugfixes**
+
+- Reset failsafe state on promote (ChenChangAo)
+
+  If switchover/failover happened shortly after failsafe mode had been activated, the newly promoted primary was demoting itself after failsafe becomes inactive.
+
+- Silence useless warnings in ``patronictl`` (Alexander Kukushkin)
+
+  If ``patronictl`` uses the same patroni.yaml file as Patroni and can access ``PGDATA`` directory it might have been showing annoying warnings about incorrect values in the global configuration.
+
+- Explicitly enable synchronous mode for a corner case (Alexander Kukushkin)
+
+  Synchronous mode effectively was never activated if there are no replicas streaming from the primary.
+
+- Fixed bug with ``0`` integer values validation (Israel Barth Rubio)
+
+  In most cases, it didn't cause any issues, just warnings.
+
+- Don't return logical slots for standby cluster (Alexander Kukushkin)
+
+  Patroni can't create logical replication slots in the standby cluster, thus they should be ignored if they are defined in the global configuration.
+
+- Avoid showing docstring in ``patronictl --help`` output (Israel Barth Rubio)
+
+  The ``click`` module needs to get a special hint for that.
+
+- Fixed bug with ``kubernetes.standby_leader_label_value`` (Alexander Kukushkin)
+
+  This feature effectively never worked.
+
+- Returned cluster system identifier to the ``patronictl list`` output (Polina Bungina)
+
+  The problem was introduced while implementing the support for Citus, where we need to hide the identifier because it is different for coordinator and all workers.
+
+- Override ``write_leader_optime`` method in Kubernetes implementation (Alexander Kukushkin)
+
+  The method is supposed to write shutdown LSN to the leader Endpoint/ConfigMap when there are no healthy replicas available to become the new primary.
+
+- Don't start stopped postgres in pause (Alexander Kukushkin)
+
+  Due to a race condition, Patroni was falsely assuming that the standby should be restarted because some recovery parameters (``primary_conninfo`` or similar) were changed.
+
+- Fixed bug in ``patronictl query`` command (Israel Barth Rubio)
+
+  It didn't work when only ``-m`` argument was provided or when none of ``-r`` or ``-m`` were provided.
+
+- Properly treat integer parameters that are used in the command line to start postgres (Polina Bungina)
+
+  If values are supplied as strings and not casted to integer it was resulting in an incorrect calculation of ``max_prepared_transactions`` based on ``max_connections`` for Citus clusters.
+
+- Don't rely on ``pg_stat_wal_receiver`` when deciding on ``pg_rewind`` (Alexander Kukushkin)
+
+  It could happen that ``received_tli`` reported by ``pg_stat_wal_recevier`` is ahead of the actual replayed timeline, while the timeline reported by ``DENTIFY_SYSTEM`` via replication connection is always correct.
+
+
 Version 3.1.0
 -------------
 
