@@ -387,8 +387,8 @@ class CitusHandler(Thread):
 
     def on_demote(self) -> None:
         with self._condition:
-            self._pg_dist_node.clear()
-            empty_tasks: List[PgDistNode] = []
+            self._pg_dist_group.clear()
+            empty_tasks: List[PgDistTask] = []
             self._tasks[:] = empty_tasks
             self._in_flight = None
 
