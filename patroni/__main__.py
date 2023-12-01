@@ -172,7 +172,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
         """
         self.next_run += self.dcs.loop_wait
         current_time = time.time()
-        nap_time = self.next_run - current_time
+        nap_time = min(self.next_run - current_time, self.dcs.loop_wait)
         if nap_time <= 0:
             self.next_run = current_time
             # Release the GIL so we don't starve anyone waiting on async_executor lock
