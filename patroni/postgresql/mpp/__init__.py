@@ -217,42 +217,36 @@ class NullHandler(Null, AbstractMPPHandler):
         :param cluster: the currently known cluster state from DCS.
         :param event: the event to be handled.
         """
-        pass
 
     def sync_meta_data(self, cluster: Cluster) -> None:
         """Sync meta data on the coordinator.
 
         :param cluster: the currently known cluster state from DCS.
         """
-        pass
 
     def on_demote(self) -> None:
         """On demote handler.
 
         Is called when the primary was demoted.
         """
-        pass
 
     def schedule_cache_rebuild(self) -> None:
         """Cache rebuild handler.
 
         Is called to notify handler that it has to refresh its metadata cache from the database.
         """
-        pass
 
     def bootstrap(self) -> None:
         """Bootstrap handler.
 
         Is called when the new cluster is initialized (through ``initdb`` or a custom bootstrap method).
         """
-        pass
 
     def adjust_postgres_gucs(self, parameters: Dict[str, Any]) -> None:
         """Adjust GUCs in the current PostgreSQL configuration.
 
         :param parameters: dictionary of GUCs, with key as GUC name and corresponding value as current GUC value.
         """
-        pass
 
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
         """Check whether provided replication *slot* existing in the database should not be removed.
@@ -283,7 +277,7 @@ def iter_mpp_classes(
 
 
 def get_mpp(config: Union['Config', Dict[str, Any]]) -> AbstractMPP:
-    """Attempt to load a MPP module from known available implementations.
+    """Attempt to load and instantiate a MPP module from known available implementations.
 
     :param config: object or dictionary with Patroni configuration.
 
