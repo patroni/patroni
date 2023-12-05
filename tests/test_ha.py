@@ -1581,6 +1581,11 @@ class TestHa(PostgresInit):
         self.p.is_primary = false
         self.ha.run_cycle()
         exit_mock.assert_called_once_with(1)
+        self.p.set_role('replica')
+        self.ha.dcs.initialize = Mock()
+        with patch.object(Postgresql, 'cb_called', PropertyMock(return_value=True)):
+            self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+        self.ha.dcs.initialize.assert_not_called()
 
     @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_after_pause(self):
