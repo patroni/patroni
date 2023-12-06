@@ -1,5 +1,4 @@
 import datetime
-import mock
 import os
 import psutil
 import re
@@ -596,7 +595,7 @@ class TestPostgresql(BaseTestPostgresql):
         # postmaster parameter change (pending_restart)
         init_max_worker_processes = config['parameters']['max_worker_processes']
         config['parameters']['max_worker_processes'] *= 2
-        with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[GET_PG_SETTINGS_RESULT, [(1,)]])):
+        with patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[GET_PG_SETTINGS_RESULT, [(1,)]])):
             self.p.reload_config(config)
             self.assertEqual(mock_info.call_args_list[0][0], ('Changed %s from %s to %s (restart might be required)',
                                                               'max_worker_processes', str(init_max_worker_processes),
@@ -626,7 +625,7 @@ class TestPostgresql(BaseTestPostgresql):
 
         mock_info.reset_mock()
 
-        # Non-internal and non-postmaster parameter change
+        # Non-postmaster parameter change
         config['parameters']['autovacuum'] = 'off'
         self.p.reload_config(config)
         self.assertEqual(mock_info.call_args_list[0][0], ("Changed %s from %s to %s", 'autovacuum', 'on', 'off'))
@@ -647,8 +646,8 @@ class TestPostgresql(BaseTestPostgresql):
         mock_info.reset_mock()
 
         # Non-empty result (outside changes) and exception while querying pending_restart parameters
-        with mock.patch('patroni.postgresql.Postgresql._query',
-                        Mock(side_effect=[GET_PG_SETTINGS_RESULT, [(1,)], GET_PG_SETTINGS_RESULT, Exception])):
+        with patch('patroni.postgresql.Postgresql._query',
+                   Mock(side_effect=[GET_PG_SETTINGS_RESULT, [(1,)], GET_PG_SETTINGS_RESULT, Exception])):
             self.p.reload_config(config, True)
             self.assertEqual(mock_info.call_args_list[0][0], ('Reloading PostgreSQL configuration.',))
             self.assertEqual(self.p.pending_restart, True)
