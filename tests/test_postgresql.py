@@ -592,7 +592,7 @@ class TestPostgresql(BaseTestPostgresql):
 
         mock_info.reset_mock()
 
-        # postmaster parameter change (pending_restart)
+        # Postmaster parameter change (pending_restart)
         init_max_worker_processes = config['parameters']['max_worker_processes']
         config['parameters']['max_worker_processes'] *= 2
         with patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[GET_PG_SETTINGS_RESULT, [(1,)]])):
@@ -652,6 +652,10 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertEqual(mock_info.call_args_list[0][0], ('Reloading PostgreSQL configuration.',))
             self.assertEqual(self.p.pending_restart, True)
 
+            # Invalid values, just to increase silly coverage in postgresql.validator.
+            # One day we will have proper tests there.
+            config['parameters']['autovacuum'] = 'of'  # Bool.transform()
+            config['parameters']['vacuum_cost_limit'] = 'smth'  # Number.transform()
             self.p.reload_config(config, True)
             self.assertEqual(mock_warning.call_args_list[-1][0][0], 'Exception %r when running query')
 
