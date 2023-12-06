@@ -198,6 +198,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response['database_system_identifier'] = patroni.postgresql.sysid
         if patroni.postgresql.pending_restart:
             response['pending_restart'] = True
+            response['pending_restart_reason'] = {
+                param: {
+                    'old_value': value[0],
+                    'new_value': value[1]
+                }
+                for param, value in patroni.postgresql.pending_restart_reason.items()
+            }
         response['patroni'] = {
             'version': patroni.version,
             'scope': patroni.postgresql.scope,

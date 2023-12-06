@@ -55,6 +55,7 @@ class MockPostgresql:
     sysid = 'dummysysid'
     scope = 'dummy'
     pending_restart = True
+    pending_restart_reason = {}
     wal_name = 'wal'
     lsn_name = 'lsn'
     wal_flush = '_flush'

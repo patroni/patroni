@@ -595,13 +595,18 @@ class TestPostgresql(BaseTestPostgresql):
         # Postmaster parameter change (pending_restart)
         init_max_worker_processes = config['parameters']['max_worker_processes']
         config['parameters']['max_worker_processes'] *= 2
-        with patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[GET_PG_SETTINGS_RESULT, [(1,)]])):
+        new_max_worker_processes = config['parameters']['max_worker_processes']
+
+        with patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[
+            GET_PG_SETTINGS_RESULT, [('max_worker_processes', config['parameters']['max_worker_processes'])]])):
             self.p.reload_config(config)
-            self.assertEqual(mock_info.call_args_list[0][0], ('Changed %s from %s to %s (restart might be required)',
-                                                              'max_worker_processes', str(init_max_worker_processes),
-                                                              config['parameters']['max_worker_processes']))
+            self.assertEqual(mock_info.call_args_list[0][0],
+                             ("Changed %s from '%s' to '%s'. Setting 'Pending restart' flag",
+                              'max_worker_processes', str(init_max_worker_processes), new_max_worker_processes))
             self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
             self.assertEqual(self.p.pending_restart, True)
+            self.assertEqual(self.p.pending_restart_reason,
+                             {'max_worker_processes': (str(init_max_worker_processes), str(new_max_worker_processes))})
 
         mock_info.reset_mock()
 
@@ -613,13 +618,14 @@ class TestPostgresql(BaseTestPostgresql):
                                                           str(config['parameters']['max_worker_processes'])))
         self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
         self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, {})
 
         mock_info.reset_mock()
 
         # User-defined parameter changed (removed)
         config['parameters'].pop('f.oo')
         self.p.reload_config(config)
-        self.assertEqual(mock_info.call_args_list[0][0], ('Changed %s from %s to %s', 'f.oo', 'bar', None))
+        self.assertEqual(mock_info.call_args_list[0][0], ("Changed %s from '%s' to '%s'", 'f.oo', 'bar', None))
         self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
         self.assertEqual(self.p.pending_restart, False)
 
@@ -628,7 +634,7 @@ class TestPostgresql(BaseTestPostgresql):
         # Non-postmaster parameter change
         config['parameters']['autovacuum'] = 'off'
         self.p.reload_config(config)
-        self.assertEqual(mock_info.call_args_list[0][0], ("Changed %s from %s to %s", 'autovacuum', 'on', 'off'))
+        self.assertEqual(mock_info.call_args_list[0][0], ("Changed %s from '%s' to '%s'", 'autovacuum', 'on', 'off'))
         self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
         self.assertEqual(self.p.pending_restart, False)
 
@@ -647,10 +653,14 @@ class TestPostgresql(BaseTestPostgresql):
 
         # Non-empty result (outside changes) and exception while querying pending_restart parameters
         with patch('patroni.postgresql.Postgresql._query',
-                   Mock(side_effect=[GET_PG_SETTINGS_RESULT, [(1,)], GET_PG_SETTINGS_RESULT, Exception])):
+                   Mock(side_effect=[GET_PG_SETTINGS_RESULT, [('max_wal_senders', '37')], GET_PG_SETTINGS_RESULT, Exception])):
             self.p.reload_config(config, True)
             self.assertEqual(mock_info.call_args_list[0][0], ('Reloading PostgreSQL configuration.',))
+            self.assertEqual(mock_info.call_args_list[1][0], ("PostgreSQL configuration parameters requiring restart"
+                                                              " (%s) seem to be changed bypassing Patroni config."
+                                                              " Setting 'Pending restart' flag", 'max_wal_senders'))
             self.assertEqual(self.p.pending_restart, True)
+            self.assertEqual(self.p.pending_restart_reason, {'max_wal_senders': ('37', '?')})
 
             # Invalid values, just to increase silly coverage in postgresql.validator.
             # One day we will have proper tests there.

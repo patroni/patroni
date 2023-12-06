@@ -1554,7 +1554,7 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
 
     all_members = [m for c in clusters.values() for m in c['members'] if 'host' in m]
 
-    for c in ('Pending restart', 'Scheduled restart', 'Tags'):
+    for c in ('Pending restart', 'Pending restart reason', 'Scheduled restart', 'Tags'):
         if extended or any(m.get(c.lower().replace(' ', '_')) for m in all_members):
             columns.append(c)
 
@@ -1568,11 +1568,19 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
             logging.debug(member)
 
             lag = member.get('lag', '')
+
+            def format_diff(param: str, values: Tuple[str, str]):
+                full_diff = param + ': ' + values[0] + '->' + values[1]
+                return full_diff if len(full_diff) <= 50 else param + ': [hidden - too long]'
+            restart_reason = '\n'.join(
+                [format_diff(k,v) for k, v in member.get('pending_restart_reason', {}).items()]) or ''
+
             member.update(cluster=name, member=member['name'], group=g,
                           host=member.get('host', ''), tl=member.get('timeline', ''),
                           role=member['role'].replace('_', ' ').title(),
                           lag_in_mb=round(lag / 1024 / 1024) if isinstance(lag, int) else lag,
-                          pending_restart='*' if member.get('pending_restart') else '')
+                          pending_restart='*' if member.get('pending_restart') else '',
+                          pending_restart_reason=restart_reason)
 
             if append_port and member['host'] and member.get('port'):
                 member['host'] = ':'.join([member['host'], str(member['port'])])
