@@ -401,22 +401,23 @@ def parse_real(value: Any, base_unit: Optional[str] = None) -> Optional[float]:
         return convert_to_base_unit(val, unit, base_unit)
 
 
-def compare_values(vartype: str, unit: Optional[str], old_value: Any, new_value: Any) -> bool:
-    """Check if *old_value* and *new_value* are equivalent after parsing them as *vartype*.
+def compare_values(vartype: str, unit: Optional[str], settings_value: Any, config_value: Any) -> bool:
+    """Check if the value from ``pg_settings`` and from Patroni config are equivalent after parsing them as *vartype*.
 
-    :param vartpe: the target type to parse *old_value* and *new_value* before comparing them. Accepts any among of the
-        following (case sensitive):
+    :param vartype: the target type to parse *settings_value* and *config_value* before comparing them.
+        Accepts any among of the following (case sensitive):
 
         * ``bool``: parse values using :func:`parse_bool`; or
         * ``integer``: parse values using :func:`parse_int`; or
         * ``real``: parse values using :func:`parse_real`; or
         * ``enum``: parse values as lowercase strings; or
         * ``string``: parse values as strings. This one is used by default if no valid value is passed as *vartype*.
-    :param unit: base unit to be used as argument when calling :func:`parse_int` or :func:`parse_real` for *new_value*.
-    :param old_value: value to be compared with *new_value*.
-    :param new_value: value to be compared with *old_value*.
+    :param unit: base unit to be used as argument when calling :func:`parse_int` or :func:`parse_real`
+        for *config_value*.
+    :param settings_value: value to be compared with *config_value*.
+    :param config_value: value to be compared with *settings_value*.
 
-    :returns: ``True`` if *old_value* is equivalent to *new_value* when both are parsed as *vartype*.
+    :returns: ``True`` if *settings_value* is equivalent to *config_value* when both are parsed as *vartype*.
 
     :Example:
 
@@ -456,8 +457,8 @@ def compare_values(vartype: str, unit: Optional[str], old_value: Any, new_value:
     }
 
     converter = converters.get(vartype) or converters['string']
-    old_converted = converter(old_value, None)
-    new_converted = converter(new_value, unit)
+    old_converted = converter(settings_value, None)
+    new_converted = converter(config_value, unit)
 
     return old_converted is not None and new_converted is not None and old_converted == new_converted
 
