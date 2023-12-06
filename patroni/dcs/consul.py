@@ -666,7 +666,7 @@ class Consul(AbstractDCS):
         if ret:  # We have no other choise, only read after write :(
             if not retry.ensure_deadline(0.5):
                 return False
-            _, ret = self.retry(self._client.kv.get, self.sync_path)
+            _, ret = self.retry(self._client.kv.get, self.sync_path, consistency='consistent')
             if ret and (ret.get('Value') or b'').decode('utf-8') == value:
                 return ret['ModifyIndex']
         return False
