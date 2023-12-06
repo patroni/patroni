@@ -5,6 +5,7 @@ import re
 import subprocess
 import time
 
+from copy import deepcopy
 from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 
 import patroni.psycopg as psycopg
@@ -25,7 +26,8 @@ from patroni.postgresql.validator import (ValidatorFactoryNoType, ValidatorFacto
 from patroni.utils import RetryFailedError
 from threading import Thread, current_thread
 
-from . import BaseTestPostgresql, MockCursor, MockPostmaster, psycopg_connect, mock_available_gucs
+from . import (BaseTestPostgresql, MockCursor, MockPostmaster, psycopg_connect, mock_available_gucs,
+               GET_PG_SETTINGS_RESULT)
 
 
 mtime_ret = {}
@@ -559,31 +561,103 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch('time.sleep', Mock())
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
-    def test_reload_config(self):
-        parameters = self._PARAMETERS.copy()
-        parameters.pop('f.oo')
-        parameters['wal_buffers'] = '512'
-        config = {'pg_hba': [''], 'pg_ident': [''], 'use_unix_socket': True, 'use_unix_socket_repl': True,
-                  'authentication': {},
-                  'retry_timeout': 10, 'listen': '*', 'krbsrvname': 'postgres', 'parameters': parameters}
+    @patch('patroni.postgresql.config.logger.info')
+    @patch('patroni.postgresql.config.logger.warning')
+    def test_reload_config(self, mock_warning, mock_info):
+        config = deepcopy(self.p.config._config)
+
+        # Nothing changed
         self.p.reload_config(config)
-        parameters['b.ar'] = 'bar'
-        with patch.object(MockCursor, 'fetchall',
-                          Mock(side_effect=[[('wal_block_size', '8191', None, 'integer', 'internal'),
-                                             ('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
-                                             ('shared_buffers', '16384', '8kB', 'integer', 'postmaster'),
-                                             ('wal_buffers', '-1', '8kB', 'integer', 'postmaster'),
-                                             ('port', '5433', None, 'integer', 'postmaster')], Exception])):
+        mock_info.assert_called_once_with('No PostgreSQL configuration items changed, nothing to reload.')
+        mock_warning.assert_not_called()
+        self.assertEqual(self.p.pending_restart, False)
+
+        mock_info.reset_mock()
+
+        # Handle wal_buffers
+        self.p.config._config['parameters']['wal_buffers'] = '512'
+        self.p.reload_config(config)
+        mock_info.assert_called_once_with('No PostgreSQL configuration items changed, nothing to reload.')
+        self.assertEqual(self.p.pending_restart, False)
+
+        mock_info.reset_mock()
+        config = deepcopy(self.p.config._config)
+
+        # hba/ident_changed
+        config['pg_hba'] = ['']
+        config['pg_ident'] = ['']
+        self.p.reload_config(config)
+        mock_info.assert_called_once_with('Reloading PostgreSQL configuration.')
+        self.assertEqual(self.p.pending_restart, False)
+
+        mock_info.reset_mock()
+
+        # Postmaster parameter change (pending_restart)
+        init_max_worker_processes = config['parameters']['max_worker_processes']
+        config['parameters']['max_worker_processes'] *= 2
+        with patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[GET_PG_SETTINGS_RESULT, [(1,)]])):
             self.p.reload_config(config)
-        parameters['autovacuum'] = 'on'
+            self.assertEqual(mock_info.call_args_list[0][0], ('Changed %s from %s to %s (restart might be required)',
+                                                              'max_worker_processes', str(init_max_worker_processes),
+                                                              config['parameters']['max_worker_processes']))
+            self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
+            self.assertEqual(self.p.pending_restart, True)
+
+        mock_info.reset_mock()
+
+        # Reset to the initial value without restart
+        config['parameters']['max_worker_processes'] = init_max_worker_processes
         self.p.reload_config(config)
-        parameters['autovacuum'] = 'off'
-        parameters.pop('search_path')
-        config['listen'] = '*:5433'
+        self.assertEqual(mock_info.call_args_list[0][0], ('Changed %s from %s to %s', 'max_worker_processes',
+                                                          init_max_worker_processes * 2,
+                                                          str(config['parameters']['max_worker_processes'])))
+        self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
+        self.assertEqual(self.p.pending_restart, False)
+
+        mock_info.reset_mock()
+
+        # User-defined parameter changed (removed)
+        config['parameters'].pop('f.oo')
         self.p.reload_config(config)
-        parameters['unix_socket_directories'] = '.'
+        self.assertEqual(mock_info.call_args_list[0][0], ('Changed %s from %s to %s', 'f.oo', 'bar', None))
+        self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
+        self.assertEqual(self.p.pending_restart, False)
+
+        mock_info.reset_mock()
+
+        # Non-postmaster parameter change
+        config['parameters']['autovacuum'] = 'off'
         self.p.reload_config(config)
-        self.p.config.resolve_connection_addresses()
+        self.assertEqual(mock_info.call_args_list[0][0], ("Changed %s from %s to %s", 'autovacuum', 'on', 'off'))
+        self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
+        self.assertEqual(self.p.pending_restart, False)
+
+        config['parameters']['autovacuum'] = 'on'
+        mock_info.reset_mock()
+
+        # Remove invalid parameter
+        config['parameters']['invalid'] = 'value'
+        self.p.reload_config(config)
+        self.assertEqual(mock_warning.call_args_list[0][0],
+                         ('Removing invalid parameter `%s` from postgresql.parameters', 'invalid'))
+        config['parameters'].pop('invalid')
+
+        mock_warning.reset_mock()
+        mock_info.reset_mock()
+
+        # Non-empty result (outside changes) and exception while querying pending_restart parameters
+        with patch('patroni.postgresql.Postgresql._query',
+                   Mock(side_effect=[GET_PG_SETTINGS_RESULT, [(1,)], GET_PG_SETTINGS_RESULT, Exception])):
+            self.p.reload_config(config, True)
+            self.assertEqual(mock_info.call_args_list[0][0], ('Reloading PostgreSQL configuration.',))
+            self.assertEqual(self.p.pending_restart, True)
+
+            # Invalid values, just to increase silly coverage in postgresql.validator.
+            # One day we will have proper tests there.
+            config['parameters']['autovacuum'] = 'of'  # Bool.transform()
+            config['parameters']['vacuum_cost_limit'] = 'smth'  # Number.transform()
+            self.p.reload_config(config, True)
+            self.assertEqual(mock_warning.call_args_list[-1][0][0], 'Exception %r when running query')
 
     def test_resolve_connection_addresses(self):
         self.p.config._config['use_unix_socket'] = self.p.config._config['use_unix_socket_repl'] = True
