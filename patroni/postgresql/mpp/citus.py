@@ -72,22 +72,36 @@ class Citus(AbstractMPP):
 
     @staticmethod
     def validate_config(config: Union[Any, Dict[str, Union[str, int]]]) -> bool:
+        """Check whether provided config is good for a given MPP.
+
+        :param config: configuration of ``citus`` MPP section.
+
+        :returns: ``True`` is config passes validation, otherwise ``False``.
+        """
         return isinstance(config, dict) \
             and isinstance(config.get('database'), str) \
             and parse_int(config.get('group')) is not None
 
     @property
     def group(self) -> int:
+        """The group of this Citus node."""
         return int(self._config['group'])
 
     @property
     def coordinator_group_id(self) -> int:
+        """The group id of the Citus coordinator PostgreSQL cluster."""
         return CITUS_COORDINATOR_GROUP_ID
 
 
 class CitusHandler(Citus, AbstractMPPHandler, Thread):
+    """Define the interfaces for handling an underlying Citus cluster."""
 
     def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
+        """"Initialize a new instance of :class:`CitusHandler`.
+
+        :param postgresql: the Postgres node.
+        :param config: the ``citus`` MPP config section.
+        """
         Thread.__init__(self)
         AbstractMPPHandler.__init__(self, postgresql, config)
         self.daemon = True
@@ -103,6 +117,10 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
         self.schedule_cache_rebuild()
 
     def schedule_cache_rebuild(self) -> None:
+        """Cache rebuild handler.
+
+        Is called to notify handler that it has to refresh its metadata cache from the database.
+        """
         with self._condition:
             self._schedule_load_pg_dist_node = True
 
@@ -362,6 +380,10 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
             task.wait()
 
     def bootstrap(self) -> None:
+        """Bootstrap handler.
+        
+        Is called when the new cluster is initialized (through ``initdb`` or a custom bootstrap method).
+        """
         conn_kwargs = {**self._postgresql.connection_pool.conn_kwargs,
                        'options': '-c synchronous_commit=local -c statement_timeout=0'}
         if self._config['database'] != self._postgresql.database:
@@ -394,6 +416,10 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
             conn.close()
 
     def adjust_postgres_gucs(self, parameters: Dict[str, Any]) -> None:
+        """Adjust GUCs in the current PostgreSQL configuration.
+        
+        :param parameters: dictionary of GUCs, with key as GUC name and the corresponding value as current GUC value.
+        """
         # citus extension must be on the first place in shared_preload_libraries
         shared_preload_libraries = list(filter(
             lambda el: el and el != 'citus',
@@ -411,6 +437,17 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
         parameters['citus.local_hostname'] = self._postgresql.connection_pool.conn_kwargs.get('host', 'localhost')
 
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
+        """Check whether provided replication *slot* existing in the database should not be removed.
+        
+        .. note::
+            MPP database may create replication slots for its own use, for example to migrate data between workers
+            using logical replication, and we don't want to suddenly drop them.
+            
+        :param slot: dictionary containing the replication slot settings, like ``name``, ``database``, ``type``, and
+                     ``plugin``.
+                     
+        :returns: ``True`` if the replication slots should not be removed, otherwise ``False``.
+        """
         if self._postgresql.is_primary() and slot['type'] == 'logical' and slot['database'] == self._config['database']:
             m = CITUS_SLOT_NAME_RE.match(slot['name'])
             return bool(m and {'move': 'pgoutput', 'split': 'citus'}.get(m.group(1)) == slot['plugin'])

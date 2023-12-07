@@ -1359,6 +1359,7 @@ class AbstractDCS(abc.ABC):
 
     @property
     def mpp(self) -> 'AbstractMPP':
+        """Get the effective underlying MPP, if any has been configured."""
         return self._mpp
 
     def client_path(self, path: str) -> str:
@@ -1524,7 +1525,7 @@ class AbstractDCS(abc.ABC):
     def is_citus_coordinator(self) -> bool:
         """:class:`Cluster` instance has a Citus Coordinator group ID.
 
-        :returns: ``True`` if the given node is running as Citus Coordinator (``group=0``).
+        :returns: ``True`` if the given node is running as the MPP Coordinator.
         """
         return self._mpp.is_coordinator()
 
@@ -1534,7 +1535,7 @@ class AbstractDCS(abc.ABC):
           .. note::
               This method is only executed on the worker nodes (``group!=0``) to find the coordinator.
 
-        :returns: Select :class:`Cluster` instance associated with the Citus Coordinator group ID.
+        :returns: Select :class:`Cluster` instance associated with the MPP Coordinator group ID.
         """
         try:
             return self.__get_patroni_cluster(f'{self._base_path}/{self._mpp.coordinator_group_id}/')

@@ -45,6 +45,8 @@ class AbstractMPP(abc.ABC):
     def validate_config(config: Any) -> bool:
         """Check whether provided config is good for a given MPP.
 
+        :param config: configuration of MPP section.
+
         :returns: ``True`` is config passes validation, otherwise ``False``.
         """
 
@@ -67,17 +69,17 @@ class AbstractMPP(abc.ABC):
         return self.is_enabled() and self.group == self.coordinator_group_id
 
     def is_worker(self) -> bool:
-        """Check whether this node is running in the coordinator PostgreSQL cluster.
+        """Check whether this node is running as a MPP worker PostgreSQL cluster.
 
-        :returns: ``True`` if MPP is enabled this node is known to be not running
-                  in the coordinator PostgreSQL cluster, otherwise ``False``.
+        :returns: ``True`` if MPP is enabled and this node is known to be not running
+                  as the coordinator PostgreSQL cluster, otherwise ``False``.
         """
         return self.is_enabled() and not self.is_coordinator()
 
     def _get_handler_cls(self) -> Iterator[Type['AbstractMPPHandler']]:
         """Find Handler classes inherited from a class type of this object.
 
-        :yields: handler classs for this object.
+        :yields: handler classes for this object.
         """
         for cls in self.__class__.__subclasses__():
             if issubclass(cls, AbstractMPPHandler) and cls.__name__.startswith(self.__class__.__name__):
