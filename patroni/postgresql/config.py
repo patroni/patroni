@@ -1155,10 +1155,13 @@ class ConfigHandler(object):
             if self._postgresql.major_version >= 90500:
                 time.sleep(1)
                 try:
-                    settings_diff = {p: param_diff.get(p, (v, '?')) for p, v in self._postgresql.query(
-                        'SELECT name, pg_catalog.current_setting(name) FROM pg_catalog.pg_settings'
-                        ' WHERE pg_catalog.lower(name) != ALL(%s) AND pending_restart',
-                        [n.lower() for n in self._RECOVERY_PARAMETERS])}
+                    settings_diff = {
+                        p: param_diff.get(p, (v, (lambda x: '?' if x is None else x)(self._postgresql.get_guc_value(p))))
+                        for p, v in self._postgresql.query(
+                            'SELECT name, pg_catalog.current_setting(name) FROM pg_catalog.pg_settings'
+                            ' WHERE pg_catalog.lower(name) != ALL(%s) AND pending_restart',
+                            [n.lower() for n in self._RECOVERY_PARAMETERS])
+                        }
                     pending_restart = len(settings_diff) > 0
                     external_change = settings_diff.keys() - param_diff.keys()
                     if external_change:

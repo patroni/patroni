@@ -652,16 +652,24 @@ class TestPostgresql(BaseTestPostgresql):
         mock_info.reset_mock()
 
         # Non-empty result (outside changes) and exception while querying pending_restart parameters
-        with patch('patroni.postgresql.Postgresql._query',
-                   Mock(side_effect=[GET_PG_SETTINGS_RESULT, [('max_wal_senders', '37')], GET_PG_SETTINGS_RESULT, Exception])):
+        with patch.object(Postgresql, 'get_guc_value', Mock(side_effect=['73', None, ''])), \
+             patch('patroni.postgresql.Postgresql._query',
+                   Mock(side_effect=[GET_PG_SETTINGS_RESULT, [('max_wal_senders', '37')]] * 3)):
             self.p.reload_config(config, True)
             self.assertEqual(mock_info.call_args_list[0][0], ('Reloading PostgreSQL configuration.',))
             self.assertEqual(mock_info.call_args_list[1][0], ("PostgreSQL configuration parameters requiring restart"
                                                               " (%s) seem to be changed bypassing Patroni config."
                                                               " Setting 'Pending restart' flag", 'max_wal_senders'))
             self.assertEqual(self.p.pending_restart, True)
+            self.assertEqual(self.p.pending_restart_reason, {'max_wal_senders': ('37', '73')})
+
+            self.p.reload_config(config, True)
             self.assertEqual(self.p.pending_restart_reason, {'max_wal_senders': ('37', '?')})
 
+            self.p.reload_config(config, True)
+            self.assertEqual(self.p.pending_restart_reason, {'max_wal_senders': ('37', '')})
+
+        with patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[GET_PG_SETTINGS_RESULT, Exception])):
             # Invalid values, just to increase silly coverage in postgresql.validator.
             # One day we will have proper tests there.
             config['parameters']['autovacuum'] = 'of'  # Bool.transform()
