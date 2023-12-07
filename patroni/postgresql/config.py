@@ -1098,6 +1098,12 @@ class ConfigHandler(object):
                                     local_connection_address_changed = True
                             else:
                                 logger.info('Changed %s from %s to %s', r[0], r[1], new_value)
+                        elif r[0] in self._server_parameters \
+                                and not compare_values(r[3], r[2], r[1], self._server_parameters[r[0]]):
+                            # Check if any parameter was set back to the current pg_settings value
+                            # We can use pg_settings value here, as it is proved to be equal to new_value
+                            logger.info('Changed %s from %s to %s', r[0], self._server_parameters[r[0]], r[1])
+                            conf_changed = True
                 for param, value in changes.items():
                     if '.' in param:
                         # Check that user-defined-paramters have changed (parameters with period in name)

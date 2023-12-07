@@ -1849,10 +1849,9 @@ class Ha(object):
                             logger.fatal('system ID mismatch, node %s belongs to a different cluster: %s != %s',
                                          self.state_handler.name, self.cluster.initialize, data_sysid)
                             sys.exit(1)
-                elif self.cluster.is_unlocked() and not self.is_paused():
+                elif self.cluster.is_unlocked() and not self.is_paused() and not self.state_handler.cb_called:
                     # "bootstrap", but data directory is not empty
-                    if not self.state_handler.cb_called and self.state_handler.is_running() \
-                            and not self.state_handler.is_primary():
+                    if self.state_handler.is_running() and not self.state_handler.is_primary():
                         self._join_aborted = True
                         logger.error('No initialize key in DCS and PostgreSQL is running as replica, aborting start')
                         logger.error('Please first start Patroni on the node running as primary')

@@ -26,7 +26,40 @@ mock_available_gucs = PropertyMock(return_value={
     'max_wal_senders', 'max_worker_processes', 'port', 'search_path', 'shared_preload_libraries',
     'stats_temp_directory', 'synchronous_standby_names', 'track_commit_timestamp', 'unix_socket_directories',
     'vacuum_cost_delay', 'vacuum_cost_limit', 'wal_keep_size', 'wal_level', 'wal_log_hints', 'zero_damaged_pages',
+    'autovacuum', 'wal_segment_size', 'wal_block_size', 'shared_buffers', 'wal_buffers',
 })
+
+GET_PG_SETTINGS_RESULT = [
+    ('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
+    ('wal_block_size', '8192', None, 'integer', 'internal'),
+    ('shared_buffers', '16384', '8kB', 'integer', 'postmaster'),
+    ('wal_buffers', '-1', '8kB', 'integer', 'postmaster'),
+    ('max_connections', '100', None, 'integer', 'postmaster'),
+    ('max_prepared_transactions', '200', None, 'integer', 'postmaster'),
+    ('max_worker_processes', '8', None, 'integer', 'postmaster'),
+    ('max_locks_per_transaction', '64', None, 'integer', 'postmaster'),
+    ('max_wal_senders', '5', None, 'integer', 'postmaster'),
+    ('search_path', 'public', None, 'string', 'user'),
+    ('port', '5432', None, 'integer', 'postmaster'),
+    ('listen_addresses', '127.0.0.2, 127.0.0.3', None, 'string', 'postmaster'),
+    ('autovacuum', 'on', None, 'bool', 'sighup'),
+    ('unix_socket_directories', '/tmp', None, 'string', 'postmaster'),
+    ('shared_preload_libraries', 'citus', None, 'string', 'postmaster'),
+    ('wal_keep_size', '128', 'MB', 'integer', 'sighup'),
+    ('cluster_name', 'batman', None, 'string', 'postmaster'),
+    ('vacuum_cost_delay', '200', 'ms', 'real', 'user'),
+    ('vacuum_cost_limit', '-1', None, 'integer', 'user'),
+    ('max_stack_depth', '2048', 'kB', 'integer', 'superuser'),
+    ('constraint_exclusion', '', None, 'enum', 'user'),
+    ('force_parallel_mode', '1', None, 'enum', 'user'),
+    ('zero_damaged_pages', 'off', None, 'bool', 'superuser'),
+    ('stats_temp_directory', '/tmp', None, 'string', 'sighup'),
+    ('track_commit_timestamp', 'off', None, 'bool', 'postmaster'),
+    ('wal_log_hints', 'on', None, 'bool', 'superuser'),
+    ('hot_standby', 'on', None, 'bool', 'superuser'),
+    ('max_replication_slots', '5', None, 'integer', 'superuser'),
+    ('wal_level', 'logical', None, 'enum', 'superuser'),
+]
 
 
 class MockResponse(object):
@@ -134,22 +167,9 @@ class MockCursor(object):
                             ('archive_command', 'my archive command'),
                             ('cluster_name', 'my_cluster')]
         elif sql.startswith('SELECT name, setting'):
-            self.results = [('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
-                            ('wal_block_size', '8192', None, 'integer', 'internal'),
-                            ('shared_buffers', '16384', '8kB', 'integer', 'postmaster'),
-                            ('wal_buffers', '-1', '8kB', 'integer', 'postmaster'),
-                            ('max_connections', '100', None, 'integer', 'postmaster'),
-                            ('max_prepared_transactions', '0', None, 'integer', 'postmaster'),
-                            ('max_worker_processes', '8', None, 'integer', 'postmaster'),
-                            ('max_locks_per_transaction', '64', None, 'integer', 'postmaster'),
-                            ('max_wal_senders', '5', None, 'integer', 'postmaster'),
-                            ('search_path', 'public', None, 'string', 'user'),
-                            ('port', '5433', None, 'integer', 'postmaster'),
-                            ('listen_addresses', '*', None, 'string', 'postmaster'),
-                            ('autovacuum', 'on', None, 'bool', 'sighup'),
-                            ('unix_socket_directories', '/tmp', None, 'string', 'postmaster')]
+            self.results = GET_PG_SETTINGS_RESULT
         elif sql.startswith('SELECT COUNT(*) FROM pg_catalog.pg_settings'):
-            self.results = [(1,)]
+            self.results = [(0,)]
         elif sql.startswith('IDENTIFY_SYSTEM'):
             self.results = [('1', 3, '0/402EEC0', '')]
         elif sql.startswith('TIMELINE_HISTORY '):
@@ -219,11 +239,11 @@ class PostgresInit(unittest.TestCase):
     _PARAMETERS = {'wal_level': 'hot_standby', 'max_replication_slots': 5, 'f.oo': 'bar',
                    'search_path': 'public', 'hot_standby': 'on', 'max_wal_senders': 5,
                    'wal_keep_segments': 8, 'wal_log_hints': 'on', 'max_locks_per_transaction': 64,
-                   'max_worker_processes': 8, 'max_connections': 100, 'max_prepared_transactions': 0,
+                   'max_worker_processes': 8, 'max_connections': 100, 'max_prepared_transactions': 200,
                    'track_commit_timestamp': 'off', 'unix_socket_directories': '/tmp',
-                   'trigger_file': 'bla', 'stats_temp_directory': '/tmp', 'zero_damaged_pages': '',
+                   'trigger_file': 'bla', 'stats_temp_directory': '/tmp', 'zero_damaged_pages': 'off',
                    'force_parallel_mode': '1', 'constraint_exclusion': '',
-                   'max_stack_depth': 'Z', 'vacuum_cost_limit': -1, 'vacuum_cost_delay': 200}
+                   'max_stack_depth': 2048, 'vacuum_cost_limit': -1, 'vacuum_cost_delay': 200}
 
     @patch('patroni.psycopg._connect', psycopg_connect)
     @patch('patroni.postgresql.CallbackExecutor', Mock())
