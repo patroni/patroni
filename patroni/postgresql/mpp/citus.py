@@ -381,7 +381,7 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
 
     def bootstrap(self) -> None:
         """Bootstrap handler.
-        
+
         Is called when the new cluster is initialized (through ``initdb`` or a custom bootstrap method).
         """
         conn_kwargs = {**self._postgresql.connection_pool.conn_kwargs,
@@ -417,7 +417,7 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
 
     def adjust_postgres_gucs(self, parameters: Dict[str, Any]) -> None:
         """Adjust GUCs in the current PostgreSQL configuration.
-        
+
         :param parameters: dictionary of GUCs, with key as GUC name and the corresponding value as current GUC value.
         """
         # citus extension must be on the first place in shared_preload_libraries
@@ -438,14 +438,14 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
 
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
         """Check whether provided replication *slot* existing in the database should not be removed.
-        
+
         .. note::
             MPP database may create replication slots for its own use, for example to migrate data between workers
             using logical replication, and we don't want to suddenly drop them.
-            
+
         :param slot: dictionary containing the replication slot settings, like ``name``, ``database``, ``type``, and
                      ``plugin``.
-                     
+
         :returns: ``True`` if the replication slots should not be removed, otherwise ``False``.
         """
         if self._postgresql.is_primary() and slot['type'] == 'logical' and slot['database'] == self._config['database']:
