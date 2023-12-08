@@ -298,7 +298,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics.append("# HELP patroni_postgres_server_version Version of Postgres (if running), 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_server_version gauge")
-        metrics.append("patroni_postgres_server_version {0} {1}".format(scope_label, postgres.get('server_version', 0)))
+        metrics.append("patroni_postgres_server_version{0} {1}".format(scope_label, postgres.get('server_version', 0)))
 
         metrics.append("# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.")
         metrics.append("# TYPE patroni_cluster_unlocked gauge")
@@ -331,7 +331,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if patroni.multisite.is_active:
             metrics.append("# HELP patroni_multisite_switches Number of times multisite leader has been switched")
             metrics.append("# TYPE patroni_multisite_switches counter")
-            metrics.append("patroni_multisite_switches{0}, {1}"
+            metrics.append("patroni_multisite_switches{0} {1}"
                            .format(scope_label, patroni.multisite.site_switches))
 
         self._write_response(200, '\n'.join(metrics)+'\n', content_type='text/plain')
