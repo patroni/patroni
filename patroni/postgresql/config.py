@@ -1111,7 +1111,8 @@ class ConfigHandler(object):
                         # Check that user-defined-parameters have changed (parameters with period in name)
                         if value is None or param not in self._server_parameters \
                                 or str(value) != str(self._server_parameters[param]):
-                            logger.info("Changed %s from '%s' to '%s'", param, self._server_parameters.get(param), value)
+                            logger.info("Changed %s from '%s' to '%s'",
+                                        param, self._server_parameters.get(param), value)
                             conf_changed = True
                     elif param in server_parameters:
                         logger.warning('Removing invalid parameter `%s` from postgresql.parameters', param)
@@ -1161,7 +1162,7 @@ class ConfigHandler(object):
                             'SELECT name, setting FROM pg_catalog.pg_settings'
                             ' WHERE pg_catalog.lower(name) != ALL(%s) AND pending_restart',
                             [n.lower() for n in self._RECOVERY_PARAMETERS])
-                        }
+                    }
                     pending_restart = len(settings_diff) > 0
                     external_change = settings_diff.keys() - param_diff.keys()
                     if external_change:

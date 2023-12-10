@@ -1573,7 +1573,7 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
                 full_diff = param + ': ' + values[0] + '->' + values[1]
                 return full_diff if len(full_diff) <= 50 else param + ': [hidden - too long]'
             restart_reason = '\n'.join(
-                [format_diff(k,v) for k, v in member.get('pending_restart_reason', {}).items()]) or ''
+                [format_diff(k, v) for k, v in member.get('pending_restart_reason', {}).items()]) or ''
 
             member.update(cluster=name, member=member['name'], group=g,
                           host=member.get('host', ''), tl=member.get('timeline', ''),
