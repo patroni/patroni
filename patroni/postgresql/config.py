@@ -1093,7 +1093,7 @@ class ConfigHandler(object):
                             if r[4] == 'postmaster':
                                 pending_restart = True
                                 param_diff[r[0]] = (r[1], str(new_value))
-                                logger.info("Changed %s from '%s' to '%s'. Setting 'Pending restart' flag",
+                                logger.info("Changed %s from '%s' to '%s' (restart might be required)",
                                             r[0], r[1], new_value)
                                 if config.get('use_unix_socket') and r[0] == 'unix_socket_directories'\
                                         or r[0] in ('listen_addresses', 'port'):
