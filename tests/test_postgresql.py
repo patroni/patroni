@@ -597,8 +597,9 @@ class TestPostgresql(BaseTestPostgresql):
         config['parameters']['max_worker_processes'] *= 2
         new_max_worker_processes = config['parameters']['max_worker_processes']
 
-        with patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[
-            GET_PG_SETTINGS_RESULT, [('max_worker_processes', config['parameters']['max_worker_processes'])]])):
+        with patch.object(Postgresql, 'get_guc_value', Mock(return_value=str(new_max_worker_processes))), \
+             patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[
+            GET_PG_SETTINGS_RESULT, [('max_worker_processes', str(init_max_worker_processes))]])):
             self.p.reload_config(config)
             self.assertEqual(mock_info.call_args_list[0][0],
                              ("Changed %s from '%s' to '%s' (restart might be required)",

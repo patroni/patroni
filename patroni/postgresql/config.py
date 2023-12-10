@@ -1156,9 +1156,9 @@ class ConfigHandler(object):
                 time.sleep(1)
                 try:
                     settings_diff = {
-                        p: param_diff.get(p, (v, (lambda x: '?' if x is None else x)(self._postgresql.get_guc_value(p))))
+                        p: (v, (lambda x: '?' if x is None else x)(self._postgresql.get_guc_value(p)))
                         for p, v in self._postgresql.query(
-                            'SELECT name, pg_catalog.current_setting(name) FROM pg_catalog.pg_settings'
+                            'SELECT name, setting FROM pg_catalog.pg_settings'
                             ' WHERE pg_catalog.lower(name) != ALL(%s) AND pending_restart',
                             [n.lower() for n in self._RECOVERY_PARAMETERS])
                         }
