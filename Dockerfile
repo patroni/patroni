@@ -24,7 +24,7 @@ RUN set -ex \
     && apt-cache depends patroni | sed -n -e 's/.*Depends: \(python3-.\+\)$/\1/p' \
             | grep -Ev '^python3-(sphinx|etcd|consul|kazoo|kubernetes)' \
             | xargs apt-get install -y vim curl less jq locales haproxy sudo \
-                            python3-etcd python3-kazoo python3-pip busybox \
+                            python3-etcd python3-kazoo python3-pip zookeeper busybox \
                             net-tools iputils-ping dumb-init --fix-missing \
 \
     # Cleanup all locales but en_US.UTF-8
@@ -68,7 +68,7 @@ RUN set -ex \
     fi \
 \
     # Clean up all useless packages and some files
-    && apt-get purge -y --allow-remove-essential python3-pip gzip bzip2 util-linux e2fsprogs \
+    && apt-get purge -y --allow-remove-essential python3-pip gzip bzip2 e2fsprogs \
                 libmagic1 bsdmainutils login ncurses-bin libmagic-mgc e2fslibs bsdutils \
                 exim4-config gnupg-agent dirmngr \
                 git make \

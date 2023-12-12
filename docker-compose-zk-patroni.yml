@@ -1,0 +1,60 @@
+# docker compose file for running a 3-node PostgreSQL cluster
+# with an existing zookeeper cluster as the DCS and one haproxy node
+#
+# requires a patroni image build from the Dockerfile:
+# $ docker build -t patroni .
+# The cluster could be started as:
+# $ docker-compose up -d
+# You can read more about it in the:
+# https://github.com/zalando/patroni/blob/master/docker/README.md
+version: "2"
+
+networks:
+    patroni_zk-net:
+        external: true
+
+services:
+    haproxy:
+        image: ${PATRONI_TEST_IMAGE:-patroni}
+        networks: [ patroni_zk-net ]
+        env_file: docker/patroni.env
+        hostname: haproxy
+        container_name: demo-haproxy
+        ports:
+            - "5432:5000"
+            - "5433:5001"
+            - "7880:7000"
+        command: haproxy
+        environment: &haproxy_env
+            PATRONI_ZOOKEEPER_HOSTS: "'zk1:2181','zk2:2181','zk3:2181'"
+            PATRONI_SCOPE: demo
+
+    patroni1:
+        image: ${PATRONI_TEST_IMAGE:-patroni}
+        networks: [ patroni_zk-net ]
+        env_file: docker/patroni.env
+        hostname: patroni1
+        container_name: demo-patroni1
+        environment:
+            <<: *haproxy_env
+            PATRONI_NAME: patroni1
+
+    patroni2:
+        image: ${PATRONI_TEST_IMAGE:-patroni}
+        networks: [ patroni_zk-net ]
+        env_file: docker/patroni.env
+        hostname: patroni2
+        container_name: demo-patroni2
+        environment:
+            <<: *haproxy_env
+            PATRONI_NAME: patroni2
+
+    patroni3:
+        image: ${PATRONI_TEST_IMAGE:-patroni}
+        networks: [ patroni_zk-net ]
+        env_file: docker/patroni.env
+        hostname: patroni3
+        container_name: demo-patroni3
+        environment:
+            <<: *haproxy_env
+            PATRONI_NAME: patroni3

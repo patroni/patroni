@@ -20,10 +20,13 @@ case "$1" in
         haproxy -f /etc/haproxy/haproxy.cfg -p /var/run/haproxy.pid -D
         set -- confd "-prefix=$PATRONI_NAMESPACE/$PATRONI_SCOPE" -interval=10 -backend
         if [ -n "$PATRONI_ZOOKEEPER_HOSTS" ]; then
-            while ! /usr/share/zookeeper/bin/zkCli.sh -server "$PATRONI_ZOOKEEPER_HOSTS" ls /; do
+            while ! /usr/share/zookeeper/bin/zkCli.sh -server `echo "$PATRONI_ZOOKEEPER_HOSTS" | tr -d "'"` ls /; do
                 sleep 1
             done
-            set -- "$@" zookeeper -node "$PATRONI_ZOOKEEPER_HOSTS"
+            set -- "$@" zookeeper
+            for z in `echo "$PATRONI_ZOOKEEPER_HOSTS" | tr -d "'" | tr "," " "`; do
+                set -- "$@" -node "$z"
+            done
         else
             while ! etcdctl member list 2> /dev/null; do
                 sleep 1
