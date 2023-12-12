@@ -157,7 +157,8 @@ class TestCtl(unittest.TestCase):
         # Target and source are equal
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nleader\n\ny')
         self.assertEqual(result.exit_code, 1)
-        self.assertIn('Switchover target and source are the same', result.output)
+        self.assertIn("Candidate ['other']", result.output)
+        self.assertIn('Member leader is already the leader of cluster dummy', result.output)
 
         # Candidate is not a member of the cluster
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nReality\n\ny')
@@ -219,6 +220,11 @@ class TestCtl(unittest.TestCase):
         # No candidate specified
         result = self.runner.invoke(ctl, ['failover', 'dummy'], input='0\n')
         self.assertIn('Failover could be performed only to a specific candidate', result.output)
+
+        # Candidate is the same as the leader
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--group', '0'], input='leader\n')
+        self.assertIn("Candidate ['other']", result.output)
+        self.assertIn('Member leader is already the leader of cluster dummy', result.output)
 
         # Temp test to check a fallback to switchover if leader is specified
         with patch('patroni.ctl._do_failover_or_switchover') as failover_func_mock:
