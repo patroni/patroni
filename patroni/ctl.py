@@ -1278,7 +1278,7 @@ def _do_failover_or_switchover(obj: Dict[str, Any], action: str, cluster_name: s
             global_config.is_synchronous_mode,
             not cluster.sync.is_empty,
             not cluster.sync.matches(candidate, True))):
-        if click.confirm(f'Are you sure you want to failover to the asynchronous node {candidate}'):
+        if not click.confirm(f'Are you sure you want to failover to the asynchronous node {candidate}?'):
             raise PatroniCtlException('Aborting ' + action)
 
     scheduled_at_str = None
