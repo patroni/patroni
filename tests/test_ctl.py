@@ -473,6 +473,20 @@ class TestCtl(unittest.TestCase):
         with patch('patroni.ctl.load_config', Mock(return_value={})):
             self.runner.invoke(ctl, ['list'])
 
+        cluster = get_cluster_initialized_with_leader()
+        cluster.members[1].data['pending_restart'] = True
+        cluster.members[1].data['pending_restart_reason'] = {'param': ('', 'very l' + 'o' * 34 + 'ng')}
+        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=cluster)):
+            result = self.runner.invoke(ctl, ['list', 'dummy'])
+            self.assertIn('param: [hidden - too long]', result.output)
+
+            result = self.runner.invoke(ctl, ['list', 'dummy', '-f', 'tsv'])
+            self.assertIn('param: ->very l' + 'o' * 34 + 'ng', result.output)
+
+            cluster.members[1].data['pending_restart_reason'] = {'param': ('', 'new')}
+            result = self.runner.invoke(ctl, ['list', 'dummy'])
+            self.assertIn('param: ->new', result.output)
+
     def test_list_extended(self):
         result = self.runner.invoke(ctl, ['list', 'dummy', '--extended', '--timestamp'])
         assert '2100' in result.output
