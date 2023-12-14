@@ -8,6 +8,7 @@ import os
 import sys
 
 from copy import deepcopy
+from pythonjsonlogger import jsonlogger
 from logging.handlers import RotatingFileHandler
 from patroni.utils import deep_compare
 from queue import Queue, Full
@@ -169,6 +170,7 @@ class PatroniLogger(Thread):
     :ivar log_handler_lock: lock used to modify ``log_handler``.
     """
 
+    DEFAULT_TYPE = 'plain'
     DEFAULT_LEVEL = 'INFO'
     DEFAULT_TRACEBACK_LEVEL = 'ERROR'
     DEFAULT_FORMAT = '%(asctime)s %(levelname)s: %(message)s'
@@ -271,14 +273,54 @@ class PatroniLogger(Thread):
                     new_handler = logging.StreamHandler()
                 handler = new_handler or self.log_handler
 
+            oldlogtype = (self._config or {}).get('type', PatroniLogger.DEFAULT_TYPE)
+            logtype = config.get('type', PatroniLogger.DEFAULT_TYPE)
+
             oldlogformat = (self._config or {}).get('format', PatroniLogger.DEFAULT_FORMAT)
             logformat = config.get('format', PatroniLogger.DEFAULT_FORMAT)
 
             olddateformat = (self._config or {}).get('dateformat') or None
             dateformat = config.get('dateformat') or None  # Convert empty string to `None`
 
-            if (oldlogformat != logformat or olddateformat != dateformat or new_handler) and handler:
-                handler.setFormatter(logging.Formatter(logformat, dateformat))
+            old_static_fields = (self._config or {}).get('static_fields', {})
+            static_fields = config.get('static_fields', {})
+
+            if (
+                not deep_compare({oldlogtype: oldlogformat}, {logtype: logformat})
+                or olddateformat != dateformat
+                or deep_compare(old_static_fields, static_fields)
+                or new_handler
+            ) and handler:
+                if logtype == 'plain':
+                    formatter = logging.Formatter(logformat, dateformat)
+                else:
+                    if type(logformat) is str:
+                        formatter = jsonlogger.JsonFormatter(
+                            logformat,
+                            dateformat,
+                            static_fields=static_fields
+                        )
+                    else:
+                        log_fields: List[str] = []
+                        rename_fields: Dict[str, str] = {}
+
+                        for field in logformat:
+                            if type(field) is str:
+                                log_fields.append(field)
+                            else:
+                                for original_field, renamed_field in field.items():
+                                    log_fields.append(original_field)
+                                    rename_fields[original_field] = renamed_field
+
+                        jsonformat = ' '.join([f'%({field})s' for field in log_fields])
+                        formatter = jsonlogger.JsonFormatter(
+                            jsonformat,
+                            dateformat,
+                            rename_fields=rename_fields,
+                            static_fields=static_fields
+                        )
+
+                handler.setFormatter(formatter)
 
             if new_handler:
                 with self.log_handler_lock:
