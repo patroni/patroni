@@ -1,3 +1,8 @@
+"""Abstract classes for MPP handler.
+
+MPP stands for Massively Parallel Processing, and Citus belongs to this architecture. Currently, Citus is the only
+supported MPP cluster. However, we may consider adapting other databases such as TimescaleDB, GPDB, etc. into Patroni.
+"""
 import abc
 
 from typing import Any, Dict, Iterator, Optional, Union, Tuple, Type, TYPE_CHECKING
