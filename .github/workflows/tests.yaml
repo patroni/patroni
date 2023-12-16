@@ -85,7 +85,7 @@ jobs:
     env:
       DCS: ${{ matrix.dcs }}
       ETCDVERSION: 3.4.23
-      PGVERSION: 15.1-1  # for windows and macos
+      PGVERSION: 16.1-1  # for windows and macos
     strategy:
       fail-fast: false
       matrix:
