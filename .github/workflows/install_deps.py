@@ -110,7 +110,7 @@ def install_etcd():
 
 
 def install_postgres():
-    version = os.environ.get('PGVERSION', '15.1-1')
+    version = os.environ.get('PGVERSION', '16.1-1')
     platform = {'darwin': 'osx', 'win32': 'windows-x64', 'cygwin': 'windows-x64'}[sys.platform]
     if platform == 'osx':
         return subprocess.call(['brew', 'install', 'expect', 'postgresql@{0}'.format(version.split('.')[0])])
