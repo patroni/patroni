@@ -155,34 +155,36 @@ class TestConfig(unittest.TestCase):
     def test_invalid_path(self):
         self.assertRaises(ConfigParseError, Config, 'postgres0')
 
-    @patch.object(Config, 'get')
     @patch('patroni.config.logger')
-    def test__validate_failover_tags(self, mock_logger, mock_get):
+    def test__validate_failover_tags(self, mock_logger):
         """Ensures that only one of `nofailover` or `failover_priority` can be provided"""
-        mock_logger.warning.reset_mock()
-        config = Config("postgres0.yml")
         # Providing one of `nofailover` or `failover_priority` is fine
-        just_nofailover = {"nofailover": True}
-        mock_get.side_effect = [just_nofailover] * 2
-        self.assertIsNone(config._validate_failover_tags())
+        config = {"nofailover": True}
+        self.assertIsNone(Config._validate_failover_tags(config))
         mock_logger.warning.assert_not_called()
-        just_failover_priority = {"failover_priority": 1}
-        mock_get.side_effect = [just_failover_priority] * 2
-        self.assertIsNone(config._validate_failover_tags())
+
+        config = {"failover_priority": 1}
+        self.assertIsNone(Config._validate_failover_tags(config))
         mock_logger.warning.assert_not_called()
+
         # Providing both `nofailover` and `failover_priority` is fine if consistent
-        consistent_false = {"nofailover": False, "failover_priority": 1}
-        mock_get.side_effect = [consistent_false] * 2
-        self.assertIsNone(config._validate_failover_tags())
+        config = {"nofailover": False, "failover_priority": 1}
+        self.assertIsNone(Config._validate_failover_tags(config))
+        self.assertIn('nofailover', config)
+        self.assertIn('failover_priority', config)
         mock_logger.warning.assert_not_called()
-        consistent_true = {"nofailover": True, "failover_priority": 0}
-        mock_get.side_effect = [consistent_true] * 2
-        self.assertIsNone(config._validate_failover_tags())
+
+        config = {"nofailover": True, "failover_priority": 0}
+        self.assertIsNone(Config._validate_failover_tags(config))
+        self.assertIn('nofailover', config)
+        self.assertIn('failover_priority', config)
         mock_logger.warning.assert_not_called()
+
         # Providing both inconsistently should log a warning
-        inconsistent_false = {"nofailover": False, "failover_priority": 0}
-        mock_get.side_effect = [inconsistent_false] * 2
-        self.assertIsNone(config._validate_failover_tags())
+        config = {"nofailover": False, "failover_priority": 0}
+        self.assertIsNone(Config._validate_failover_tags(config))
+        self.assertIn('nofailover', config)
+        self.assertNotIn('failover_priority', config)
         mock_logger.warning.assert_called_once_with(
             'Conflicting configuration between nofailover: %s and failover_priority: %s.'
             + ' Defaulting to nofailover: %s',
@@ -191,9 +193,11 @@ class TestConfig(unittest.TestCase):
             False
         )
         mock_logger.warning.reset_mock()
-        inconsistent_true = {"nofailover": True, "failover_priority": 1}
-        mock_get.side_effect = [inconsistent_true] * 2
-        self.assertIsNone(config._validate_failover_tags())
+
+        config = {"nofailover": True, "failover_priority": 1}
+        self.assertIsNone(Config._validate_failover_tags(config))
+        self.assertIn('nofailover', config)
+        self.assertNotIn('failover_priority', config)
         mock_logger.warning.assert_called_once_with(
             'Conflicting configuration between nofailover: %s and failover_priority: %s.'
             + ' Defaulting to nofailover: %s',

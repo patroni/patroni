@@ -145,7 +145,6 @@ class Config(object):
         if validator:  # patronictl uses validator=None and we don't want to load anything from local cache in this case
             self._load_cache()
         self._cache_needs_saving = False
-        self._validate_failover_tags()
 
     @property
     def config_file(self) -> Optional[str]:
@@ -746,14 +745,11 @@ class Config(object):
             dcs = bootstrap.setdefault('dcs', {})
             dcs.setdefault('synchronous_mode', True)
 
-        updated_fields = (
-            'name',
-            'scope',
-            'retry_timeout',
-            'citus'
-        )
+        if 'tags' in config:
+            self._validate_failover_tags(config['tags'])
 
-        pg_config.update({p: config[p] for p in updated_fields if p in config})
+        # Add params required inside Postgresql class to PG config
+        pg_config.update({p: config[p] for p in ('name', 'scope', 'retry_timeout', 'citus') if p in config})
 
         return config
 
@@ -801,8 +797,11 @@ class Config(object):
         """
         return deepcopy(self.__effective_configuration)
 
-    def _validate_failover_tags(self) -> None:
-        """Check ``nofailover``/``failover_priority`` config and warn user if it's contradictory.
+    @staticmethod
+    def _validate_failover_tags(tags_config: Dict[str, Any]) -> None:
+        """Check ``nofailover``/``failover_priority`` config, remove contradictory tag and warn user.
+
+        :param tags_config: dictionary representing values under the ``tags`` configuration section.
 
         .. note::
           To preserve sanity (and backwards compatibility) the ``nofailover`` tag will still exist. A contradictory
@@ -813,11 +812,11 @@ class Config(object):
           The behaviour is as if ``failover_priority`` were not provided (i.e ``nofailover`` is the
           bedrock source of truth)
         """
-        tags = self.get('tags', {})
-        nofailover_tag = tags.get('nofailover')
-        failover_priority_tag = parse_int(tags.get('failover_priority'))
+        nofailover_tag = tags_config.get('nofailover')
+        failover_priority_tag = parse_int(tags_config.get('failover_priority'))
         if failover_priority_tag is not None \
                 and (nofailover_tag is True and failover_priority_tag > 0
                      or nofailover_tag is False and failover_priority_tag <= 0):
             logger.warning('Conflicting configuration between nofailover: %s and failover_priority: %s. '
                            'Defaulting to nofailover: %s', nofailover_tag, failover_priority_tag, nofailover_tag)
+            tags_config.pop('failover_priority')
