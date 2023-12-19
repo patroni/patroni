@@ -1164,7 +1164,7 @@ class ConfigHandler(object):
                             [n.lower() for n in self._RECOVERY_PARAMETERS])
                     }
                     pending_restart = len(settings_diff) > 0
-                    external_change = settings_diff.keys() - param_diff.keys()
+                    external_change = set(map(lambda x: x[0], settings_diff.items() - param_diff.items()))
                     if external_change:
                         logger.info("PostgreSQL configuration parameters requiring restart"
                                     " (%s) seem to be changed bypassing Patroni config."
