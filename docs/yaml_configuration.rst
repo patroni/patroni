@@ -11,9 +11,11 @@ Global/Universal
 -  **namespace**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service"
 -  **scope**: cluster name
 
+.. _log_settings:
+
 Log
 ---
--  **type**: sets the format of logs. Can be either **plain** or **json**. The default log type is **plain**.
+-  **type**: sets the format of logs. Can be either **plain** or **json**. To use **json** format, you must have the :ref:`jsonlogger <extras>` installed. The default value is **plain**.
 -  **level**: sets the general logging level. Default value is **INFO** (see `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>`_)
 -  **traceback\_level**: sets the level where tracebacks will be visible. Default value is **ERROR**. Set it to **DEBUG** if you want to see tracebacks only if you enable **log.level=DEBUG**.
 -  **format**: sets the log formatting string. If the log type is **plain**, the log format should be a string. Refer to

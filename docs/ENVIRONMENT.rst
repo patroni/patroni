@@ -14,7 +14,7 @@ Global/Universal
 
 Log
 ---
--  **PATRONI\_LOG\_TYPE**: sets the format of logs. Can be either **plain** or **json**. The default log type is **plain**.
+-  **PATRONI\_LOG\_TYPE**: sets the format of logs. Can be either **plain** or **json**. To use **json** format, you must have the :ref:`jsonlogger <extras>` installed. The default value is **plain**.
 -  **PATRONI\_LOG\_LEVEL**: sets the general logging level. Default value is **INFO** (see `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>`_)
 -  **PATRONI\_LOG\_TRACEBACK\_LEVEL**: sets the level where tracebacks will be visible. Default value is **ERROR**. Set it to **DEBUG** if you want to see tracebacks only if you enable **PATRONI\_LOG\_LEVEL=DEBUG**.
 -  **PATRONI\_LOG\_FORMAT**: sets the log formatting string. If the log type is **plain**, the log format should be a string.
