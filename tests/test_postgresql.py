@@ -570,7 +570,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.reload_config(config)
         mock_info.assert_called_once_with('No PostgreSQL configuration items changed, nothing to reload.')
         mock_warning.assert_not_called()
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, {})
 
         mock_info.reset_mock()
 
@@ -578,7 +578,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.config._config['parameters']['wal_buffers'] = '512'
         self.p.reload_config(config)
         mock_info.assert_called_once_with('No PostgreSQL configuration items changed, nothing to reload.')
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, {})
 
         mock_info.reset_mock()
         config = deepcopy(self.p.config._config)
@@ -588,7 +588,7 @@ class TestPostgresql(BaseTestPostgresql):
         config['pg_ident'] = ['']
         self.p.reload_config(config)
         mock_info.assert_called_once_with('Reloading PostgreSQL configuration.')
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, {})
 
         mock_info.reset_mock()
 
@@ -605,7 +605,6 @@ class TestPostgresql(BaseTestPostgresql):
                              ("Changed %s from '%s' to '%s' (restart might be required)",
                               'max_worker_processes', str(init_max_worker_processes), new_max_worker_processes))
             self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
-            self.assertEqual(self.p.pending_restart, True)
             self.assertEqual(self.p.pending_restart_reason,
                              {'max_worker_processes': (str(init_max_worker_processes), str(new_max_worker_processes))})
 
@@ -618,7 +617,6 @@ class TestPostgresql(BaseTestPostgresql):
                                                           init_max_worker_processes * 2,
                                                           str(config['parameters']['max_worker_processes'])))
         self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
-        self.assertEqual(self.p.pending_restart, False)
         self.assertEqual(self.p.pending_restart_reason, {})
 
         mock_info.reset_mock()
@@ -628,7 +626,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.reload_config(config)
         self.assertEqual(mock_info.call_args_list[0][0], ("Changed %s from '%s' to '%s'", 'f.oo', 'bar', None))
         self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, {})
 
         mock_info.reset_mock()
 
@@ -637,7 +635,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.reload_config(config)
         self.assertEqual(mock_info.call_args_list[0][0], ("Changed %s from '%s' to '%s'", 'autovacuum', 'on', 'off'))
         self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, {})
 
         config['parameters']['autovacuum'] = 'on'
         mock_info.reset_mock()
@@ -661,7 +659,6 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertEqual(mock_info.call_args_list[1][0], ("PostgreSQL configuration parameters requiring restart"
                                                               " (%s) seem to be changed bypassing Patroni config."
                                                               " Setting 'Pending restart' flag", 'max_wal_senders'))
-            self.assertEqual(self.p.pending_restart, True)
             self.assertEqual(self.p.pending_restart_reason, {'max_wal_senders': ('37', '73')})
 
             self.p.reload_config(config, True)
@@ -823,18 +820,35 @@ class TestPostgresql(BaseTestPostgresql):
                                                                 'max_worker_processes setting': '20',
                                                                 'max_locks_per_xact setting': '100',
                                                                 'max_wal_senders setting': 10}))
-    @patch('patroni.postgresql.config.logger.warning')
+    @patch('patroni.postgresql.config.logger')
     def test_effective_configuration(self, mock_logger):
         self.p.cancellable.cancel()
         self.p.config.write_recovery_conf({'pause_at_recovery_target': 'false'})
         self.assertFalse(self.p.start())
-        mock_logger.assert_called_once()
-        self.assertTrue('is missing from pg_controldata output' in mock_logger.call_args[0][0])
+        mock_logger.warning.assert_called_once()
+        self.assertTrue('is missing from pg_controldata output' in mock_logger.warning.call_args[0][0])
 
-        self.assertTrue(self.p.pending_restart)
+        self.assertEqual(self.p.pending_restart_reason, {
+            'hot_standby': ('on', 'off'),
+            'max_connections': ('200', '100'),
+            'max_locks_per_transaction': ('100', '64'),
+            'max_wal_senders': ('10', '5'),
+            'max_worker_processes': ('20', '8')
+        })
+        mock_logger.info.assert_called_with("'hot_standby' parameter is set to 'off' during the custom bootstrap."
+                                            " Setting 'Pending restart' flag")
+
         with patch.object(Bootstrap, 'keep_existing_recovery_conf', PropertyMock(return_value=True)):
             self.assertFalse(self.p.start())
-            self.assertTrue(self.p.pending_restart)
+            self.assertEqual(self.p.pending_restart_reason, {
+                'hot_standby': ('on', 'off'),
+                'max_connections': ('200', '100'),
+                'max_locks_per_transaction': ('100', '64'),
+                'max_wal_senders': ('10', '5'),
+                'max_worker_processes': ('20', '8')
+            })
+            mock_logger.info.assert_called_with("'hot_standby' parameter is set to 'off' during the custom bootstrap."
+                                                " Setting 'Pending restart' flag")
 
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.path.isfile', Mock(return_value=False))

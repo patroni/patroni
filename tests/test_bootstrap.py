@@ -235,7 +235,7 @@ class TestBootstrap(BaseTestPostgresql):
         self.assertTrue(task.result)
 
         self.b.bootstrap(config)
-        with patch.object(Postgresql, 'pending_restart', PropertyMock(return_value=True)), \
+        with patch.object(Postgresql, 'pending_restart_reason', PropertyMock({'max_connections': ('200', '100')})), \
                 patch.object(Postgresql, 'restart', Mock()) as mock_restart:
             self.b.post_bootstrap({}, task)
             mock_restart.assert_called_once()

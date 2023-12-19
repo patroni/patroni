@@ -463,7 +463,7 @@ END;$$""".format(f, quote_ident(rewind['username'], postgresql.connection()))
                         postgresql.restart()
                     else:
                         postgresql.config.replace_pg_hba()
-                        if postgresql.pending_restart:
+                        if postgresql.pending_restart_reason:
                             postgresql.restart()
                         else:
                             postgresql.reload()

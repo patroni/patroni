@@ -77,7 +77,6 @@ class Postgresql(object):
         self._state_lock = Lock()
         self.set_state('stopped')
 
-        self._pending_restart = False
         self._pending_restart_reason: Dict[str, Tuple[str, str]] = {}
         self.connection_pool = ConnectionPool()
         self._connection = self.connection_pool.get('heartbeat')
@@ -322,15 +321,10 @@ class Postgresql(object):
         self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout'] / 2.0
 
     @property
-    def pending_restart(self) -> bool:
-        return self._pending_restart
-
-    @property
     def pending_restart_reason(self) -> Dict[str, Tuple[str, str]]:
         return self._pending_restart_reason
 
     def set_pending_restart(self, value: bool, diff_dict: Optional[Dict[str, Tuple[str, str]]] = None) -> None:
-        self._pending_restart = value
         if not value:
             self._pending_restart_reason = {}
         else:
