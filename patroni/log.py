@@ -13,6 +13,7 @@ from logging.handlers import RotatingFileHandler
 from patroni.utils import deep_compare
 from queue import Queue, Full
 from threading import Lock, Thread
+from .exceptions import ConfigParseError
 
 from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
@@ -291,34 +292,44 @@ class PatroniLogger(Thread):
                 or deep_compare(old_static_fields, static_fields)
                 or new_handler
             ) and handler:
-                if logtype == 'plain':
-                    formatter = logging.Formatter(logformat, dateformat)
-                else:
-                    if type(logformat) is str:
-                        formatter = jsonlogger.JsonFormatter(
-                            logformat,
-                            dateformat,
-                            static_fields=static_fields
-                        )
-                    else:
+                if logtype == 'json':
+                    if isinstance(logformat, str):
+                        jsonformat = logformat
+                        rename_fields = {}
+                    elif isinstance(logformat, list):
                         log_fields: List[str] = []
                         rename_fields: Dict[str, str] = {}
 
                         for field in logformat:
-                            if type(field) is str:
+                            if isinstance(field, str):
                                 log_fields.append(field)
-                            else:
+                            elif isinstance(field, dict):
                                 for original_field, renamed_field in field.items():
-                                    log_fields.append(original_field)
-                                    rename_fields[original_field] = renamed_field
+                                    if isinstance(renamed_field, str):
+                                        log_fields.append(original_field)
+                                        rename_fields[original_field] = renamed_field
+                                    else:
+                                        raise ConfigParseError(
+                                            f'Expected key of log field be string but get "{field}"'
+                                        )
+
+                            else:
+                                raise ConfigParseError(
+                                    f'Expected each item of log format be string or dict but get "{field}"'
+                                )
 
                         jsonformat = ' '.join([f'%({field})s' for field in log_fields])
-                        formatter = jsonlogger.JsonFormatter(
-                            jsonformat,
-                            dateformat,
-                            rename_fields=rename_fields,
-                            static_fields=static_fields
-                        )
+                    else:
+                        raise ConfigParseError(f'Expected string or list as log format but get "{logformat}"')
+
+                    formatter = jsonlogger.JsonFormatter(
+                        jsonformat,
+                        dateformat,
+                        rename_fields=rename_fields,
+                        static_fields=static_fields
+                    )
+                else:
+                    formatter = logging.Formatter(logformat, dateformat)
 
                 handler.setFormatter(formatter)
 
