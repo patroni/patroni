@@ -937,6 +937,18 @@ validate_etcd = {
 schema = Schema({
     "name": str,
     "scope": str,
+    Optional("log"): {
+        Optional("level"): EnumValidator(('DEBUG', 'INFO', 'WARN', 'WARNING', 'ERROR', 'FATAL', 'CRITICAL'),
+                                         case_sensitive=True, raise_assert=True),
+        Optional("traceback_level"): EnumValidator(('DEBUG', 'ERROR'), raise_assert=True),
+        Optional("format"): str,
+        Optional("dateformat"): str,
+        Optional("max_queue_size"): int,
+        Optional("dir"): str,
+        Optional("file_num"): int,
+        Optional("file_size"): int,
+        Optional("loggers"): dict
+    },
     Optional("ctl"): {
         Optional("insecure"): bool,
         Optional("cacert"): str,
