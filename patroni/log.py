@@ -8,12 +8,10 @@ import os
 import sys
 
 from copy import deepcopy
-from pythonjsonlogger import jsonlogger
 from logging.handlers import RotatingFileHandler
 from patroni.utils import deep_compare
 from queue import Queue, Full
 from threading import Lock, Thread
-from .exceptions import ConfigParseError
 
 from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
@@ -309,25 +307,34 @@ class PatroniLogger(Thread):
                                         log_fields.append(original_field)
                                         rename_fields[original_field] = renamed_field
                                     else:
-                                        raise ConfigParseError(
-                                            f'Expected key of log field be string but get "{field}"'
+                                        _LOGGER.exception(
+                                            f'Expected renamed log field to be a string, but got "{field}"'
                                         )
 
                             else:
-                                raise ConfigParseError(
-                                    f'Expected each item of log format be string or dict but get "{field}"'
+                                _LOGGER.exception(
+                                    f'Expected each item of log format to be a string or dictionary, but got "{field}"'
                                 )
 
                         jsonformat = ' '.join([f'%({field})s' for field in log_fields])
                     else:
-                        raise ConfigParseError(f'Expected string or list as log format but get "{logformat}"')
+                        jsonformat = logformat
+                        rename_fields = {}
+                        _LOGGER.exception(f'Expected log format to be a string or a list, but got "{logformat}"')
 
-                    formatter = jsonlogger.JsonFormatter(
-                        jsonformat,
-                        dateformat,
-                        rename_fields=rename_fields,
-                        static_fields=static_fields
-                    )
+                    try:
+                        from pythonjsonlogger import jsonlogger
+
+                        formatter = jsonlogger.JsonFormatter(
+                            jsonformat,
+                            dateformat,
+                            rename_fields=rename_fields,
+                            static_fields=static_fields
+                        )
+                    except ImportError:
+                        _LOGGER.exception('Failed to import python-json-logger')
+                        formatter = logging.Formatter(jsonformat, dateformat)
+
                 else:
                     formatter = logging.Formatter(logformat, dateformat)
 
