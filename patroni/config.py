@@ -1,4 +1,5 @@
 """Facilities related to Patroni configuration."""
+import re
 import json
 import logging
 import os
@@ -581,13 +582,11 @@ class Config(object):
                 if value:
                     ret[first][second] = value
 
-        value = ret.get('log', {}).pop('format', None)
-        if value:
-            if value.strip().startswith('-') or '[' in value:
-                value = _parse_list(value)
-
-            if value:
-                ret['log']['format'] = value
+        logformat = ret.get('log', {}).get('format', None)
+        if logformat and not re.search(r'%\(\w+\)', logformat):
+            logformat = _parse_list(logformat)
+            if logformat:
+                ret['log']['format'] = logformat
 
         def _parse_dict(value: str) -> Optional[Dict[str, Any]]:
             """Parse an YAML dictionary *value* as a :class:`dict`.
