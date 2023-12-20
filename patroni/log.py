@@ -284,10 +284,22 @@ class PatroniLogger(Thread):
             old_static_fields = (self._config or {}).get('static_fields', {})
             static_fields = config.get('static_fields', {})
 
+            old_log_config = {
+                'type': oldlogtype,
+                'format': oldlogformat,
+                'dateformat': olddateformat,
+                'static_fields': old_static_fields
+            }
+
+            log_config = {
+                'type': logtype,
+                'format': logformat,
+                'dateformat': dateformat,
+                'static_fields': static_fields
+            }
+
             if (
-                not deep_compare({oldlogtype: oldlogformat}, {logtype: logformat})
-                or olddateformat != dateformat
-                or deep_compare(old_static_fields, static_fields)
+                not deep_compare(old_log_config, log_config)
                 or new_handler
             ) and handler:
                 if logtype == 'json':
@@ -307,20 +319,22 @@ class PatroniLogger(Thread):
                                         log_fields.append(original_field)
                                         rename_fields[original_field] = renamed_field
                                     else:
-                                        _LOGGER.exception(
-                                            f'Expected renamed log field to be a string, but got "{field}"'
+                                        _LOGGER.warning(
+                                            'Expected renamed log field to be a string, but got "%s"',
+                                            renamed_field
                                         )
 
                             else:
-                                _LOGGER.exception(
-                                    f'Expected each item of log format to be a string or dictionary, but got "{field}"'
+                                _LOGGER.warning(
+                                    'Expected each item of log format to be a string or dictionary, but got "%s"',
+                                    field
                                 )
 
                         jsonformat = ' '.join([f'%({field})s' for field in log_fields])
                     else:
-                        jsonformat = logformat
+                        jsonformat = PatroniLogger.DEFAULT_FORMAT
                         rename_fields = {}
-                        _LOGGER.exception(f'Expected log format to be a string or a list, but got "{logformat}"')
+                        _LOGGER.warning('Expected log format to be a string or a list, but got "%s"', logformat)
 
                     try:
                         from pythonjsonlogger import jsonlogger
@@ -331,11 +345,18 @@ class PatroniLogger(Thread):
                             rename_fields=rename_fields,
                             static_fields=static_fields
                         )
-                    except ImportError:
-                        _LOGGER.exception('Failed to import python-json-logger')
+                    except ImportError as e:
+                        _LOGGER.error('Failed to import python-json-logger: %r', e)
                         formatter = logging.Formatter(jsonformat, dateformat)
 
                 else:
+                    if not isinstance(logformat, str):
+                        _LOGGER.warning(
+                            'Expected log format to be a string when log type is plain, but got "%s"',
+                            logformat
+                        )
+                        logformat = PatroniLogger.DEFAULT_FORMAT
+
                     formatter = logging.Formatter(logformat, dateformat)
 
                 handler.setFormatter(formatter)
