@@ -128,6 +128,11 @@ def scheduled_restart(context, url, in_seconds, data):
     context.execute_steps(u"""Given I issue a POST request to {0}/restart with {1}""".format(url, json.dumps(data)))
 
 
+@step('I set {tag:w} tag in {pg_name:w} config')
+def add_bool_tag_to_config(context, tag, pg_name):
+    context.pctl.add_tag_to_config(pg_name, tag, True)
+
+
 @step('I add tag {tag:w} {value:w} to {pg_name:w} config')
 def add_tag_to_config(context, tag, value, pg_name):
     context.pctl.add_tag_to_config(pg_name, tag, value)
