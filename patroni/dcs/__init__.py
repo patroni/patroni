@@ -25,10 +25,9 @@ from ..utils import parse_int
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
     from ..postgresql import Postgresql
+    from ..postgresql.mpp import AbstractMPP
 
 SLOT_ADVANCE_AVAILABLE_VERSION = 110000
-CITUS_COORDINATOR_GROUP_ID = 0
-citus_group_re = re.compile('^(0|[1-9][0-9]*)$')
 slot_name_re = re.compile('^[a-z0-9_]{1,63}$')
 logger = logging.getLogger(__name__)
 
@@ -130,10 +129,9 @@ def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
             p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
                                    'patronictl', 'ttl', 'retry_timeout')
             if p in config})
-        # From citus section we only need "group" parameter, but will propagate everything just in case.
-        if isinstance(config.get('citus'), dict):
-            config[name].update(config['citus'])
-        return dcs_class(config[name])
+
+        from patroni.postgresql.mpp import get_mpp
+        return dcs_class(config[name], get_mpp(config))
 
     available_implementations = ', '.join(sorted([n for n, _ in iter_dcs_classes()]))
     raise PatroniFatalException("Can not find suitable configuration of distributed configuration store\n"
@@ -1338,15 +1336,15 @@ class AbstractDCS(abc.ABC):
     _SYNC = 'sync'
     _FAILSAFE = 'failsafe'
 
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config: Dict[str, Any], mpp: 'AbstractMPP') -> None:
         """Prepare DCS paths, Citus group ID, initial values for state information and processing dependencies.
 
         :ivar config: :class:`dict`, reference to config section of selected DCS.
                       i.e.: ``zookeeper`` for zookeeper, ``etcd`` for etcd, etc...
         """
+        self._mpp = mpp
         self._name = config['name']
         self._base_path = re.sub('/+', '/', '/'.join(['', config.get('namespace', 'service'), config['scope']]))
-        self._citus_group = str(config['group']) if isinstance(config.get('group'), int) else None
         self._set_loop_wait(config.get('loop_wait', 10))
 
         self._ctl = bool(config.get('patronictl', False))
@@ -1359,6 +1357,11 @@ class AbstractDCS(abc.ABC):
         self._last_failsafe: Optional[Dict[str, str]] = {}
         self.event = Event()
 
+    @property
+    def mpp(self) -> 'AbstractMPP':
+        """Get the effective underlying MPP, if any has been configured."""
+        return self._mpp
+
     def client_path(self, path: str) -> str:
         """Construct the absolute key name from appropriate parts for the DCS type.
 
@@ -1367,8 +1370,8 @@ class AbstractDCS(abc.ABC):
         :returns: absolute key name for the current Patroni cluster.
         """
         components = [self._base_path]
-        if self._citus_group:
-            components.append(self._citus_group)
+        if self._mpp.is_enabled():
+            components.append(str(self._mpp.group))
         components.append(path.lstrip('/'))
         return '/'.join(components)
 
@@ -1522,9 +1525,9 @@ class AbstractDCS(abc.ABC):
     def is_citus_coordinator(self) -> bool:
         """:class:`Cluster` instance has a Citus Coordinator group ID.
 
-        :returns: ``True`` if the given node is running as Citus Coordinator (``group=0``).
+        :returns: ``True`` if the given node is running as the MPP Coordinator.
         """
-        return self._citus_group == str(CITUS_COORDINATOR_GROUP_ID)
+        return self._mpp.is_coordinator()
 
     def get_citus_coordinator(self) -> Optional[Cluster]:
         """Load the Patroni cluster for the Citus Coordinator.
@@ -1532,10 +1535,10 @@ class AbstractDCS(abc.ABC):
           .. note::
               This method is only executed on the worker nodes (``group!=0``) to find the coordinator.
 
-        :returns: Select :class:`Cluster` instance associated with the Citus Coordinator group ID.
+        :returns: Select :class:`Cluster` instance associated with the MPP Coordinator group ID.
         """
         try:
-            return self.__get_patroni_cluster(f'{self._base_path}/{CITUS_COORDINATOR_GROUP_ID}/')
+            return self.__get_patroni_cluster(f'{self._base_path}/{self._mpp.coordinator_group_id}/')
         except Exception as e:
             logger.error('Failed to load Citus coordinator cluster from %s: %r', self.__class__.__name__, e)
         return None
@@ -1549,7 +1552,7 @@ class AbstractDCS(abc.ABC):
         groups = self._load_cluster(self._base_path + '/', self._citus_cluster_loader)
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(groups, dict)
-        cluster = groups.pop(CITUS_COORDINATOR_GROUP_ID, Cluster.empty())
+        cluster = groups.pop(self._mpp.coordinator_group_id, Cluster.empty())
         cluster.workers.update(groups)
         return cluster
 

@@ -291,7 +291,7 @@ class SlotsHandler:
         :param name: name of the slot to ignore
 
         :returns: ``True`` if slot *name* matches any slot specified in ``ignore_slots`` configuration,
-                 otherwise will pass through and return result of :meth:`CitusHandler.ignore_replication_slot`.
+                 otherwise will pass through and return result of :meth:`AbstractMPPHandler.ignore_replication_slot`.
         """
         slot = self._replication_slots[name]
         if cluster.config:

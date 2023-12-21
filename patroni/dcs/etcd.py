@@ -22,8 +22,9 @@ from urllib3 import Timeout
 from urllib3.exceptions import HTTPError, ReadTimeoutError, ProtocolError
 
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, \
-    TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
+    TimelineHistory, ReturnFalseException, catch_return_false_exception
 from ..exceptions import DCSError
+from ..postgresql.mpp import AbstractMPP
 from ..request import get as requests_get
 from ..utils import Retry, RetryFailedError, split_host_port, uri, USER_AGENT
 if TYPE_CHECKING:  # pragma: no cover
@@ -470,9 +471,9 @@ class EtcdClient(AbstractEtcdClientWithFailover):
 
 class AbstractEtcd(AbstractDCS):
 
-    def __init__(self, config: Dict[str, Any], client_cls: Type[AbstractEtcdClientWithFailover],
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP, client_cls: Type[AbstractEtcdClientWithFailover],
                  retry_errors_cls: Union[Type[Exception], Tuple[Type[Exception], ...]]) -> None:
-        super(AbstractEtcd, self).__init__(config)
+        super(AbstractEtcd, self).__init__(config, mpp)
         self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
                             retry_exceptions=retry_errors_cls)
         self._ttl = int(config.get('ttl') or 30)
@@ -645,8 +646,8 @@ def catch_etcd_errors(func: Callable[..., Any]) -> Any:
 
 class Etcd(AbstractEtcd):
 
-    def __init__(self, config: Dict[str, Any]) -> None:
-        super(Etcd, self).__init__(config, EtcdClient, (etcd.EtcdLeaderElectionInProgress, EtcdRaftInternal))
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
+        super(Etcd, self).__init__(config, mpp, EtcdClient, (etcd.EtcdLeaderElectionInProgress, EtcdRaftInternal))
         self.__do_not_watch = False
 
     @property
@@ -726,7 +727,7 @@ class Etcd(AbstractEtcd):
         clusters: Dict[int, Dict[str, etcd.EtcdResult]] = defaultdict(dict)
         for node in result.leaves:
             key = node.key[len(result.key):].lstrip('/').split('/', 1)
-            if len(key) == 2 and citus_group_re.match(key[0]):
+            if len(key) == 2 and self._mpp.group_re.match(key[0]):
                 clusters[int(key[0])][key[1]] = node
         return {group: self._cluster_from_nodes(result.etcd_index, nodes) for group, nodes in clusters.items()}
 
