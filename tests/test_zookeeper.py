@@ -7,8 +7,10 @@ from kazoo.handlers.threading import SequentialThreadingHandler
 from kazoo.protocol.states import KeeperState, WatchedEvent, ZnodeStat
 from kazoo.retry import RetryFailedError
 from mock import Mock, PropertyMock, patch
+from patroni.dcs import get_dcs
 from patroni.dcs.zookeeper import Cluster, PatroniKazooClient, \
     PatroniSequentialThreadingHandler, ZooKeeper, ZooKeeperError
+from patroni.postgresql.mpp import get_mpp
 
 
 class MockKazooClient(Mock):
@@ -148,9 +150,9 @@ class TestZooKeeper(unittest.TestCase):
 
     @patch('patroni.dcs.zookeeper.PatroniKazooClient', MockKazooClient)
     def setUp(self):
-        self.zk = ZooKeeper({'hosts': ['localhost:2181'], 'scope': 'test',
-                             'name': 'foo', 'ttl': 30, 'retry_timeout': 10, 'loop_wait': 10,
-                             'set_acls': {'CN=principal2': ['ALL']}})
+        self.zk = get_dcs({'scope': 'test', 'name': 'foo', 'ttl': 30, 'retry_timeout': 10, 'loop_wait': 10,
+                           'zookeeper': {'hosts': ['localhost:2181'], 'set_acls': {'CN=principal2': ['ALL']}}})
+        self.assertIsInstance(self.zk, ZooKeeper)
 
     def test_reload_config(self):
         self.zk.reload_config({'ttl': 20, 'retry_timeout': 10, 'loop_wait': 10})
@@ -177,7 +179,7 @@ class TestZooKeeper(unittest.TestCase):
         self.assertEqual(cluster.last_lsn, 500)
 
     def test__get_citus_cluster(self):
-        self.zk._citus_group = '0'
+        self.zk._mpp = get_mpp({'citus': {'group': 0, 'database': 'postgres'}})
         for _ in range(0, 2):
             cluster = self.zk.get_cluster()
             self.assertIsInstance(cluster, Cluster)

@@ -5,8 +5,10 @@ import unittest
 
 from dns.exception import DNSException
 from mock import Mock, PropertyMock, patch
+from patroni.dcs import get_dcs
 from patroni.dcs.etcd import AbstractDCS, EtcdClient, Cluster, Etcd, EtcdError, DnsCachingResolver
 from patroni.exceptions import DCSError
+from patroni.postgresql.mpp import get_mpp
 from patroni.utils import Retry
 from urllib3.exceptions import ReadTimeoutError
 
@@ -138,8 +140,9 @@ class TestClient(unittest.TestCase):
     @patch.object(EtcdClient, '_get_machines_list',
                   Mock(return_value=['http://localhost:2379', 'http://localhost:4001']))
     def setUp(self):
-        self.etcd = Etcd({'namespace': '/patroni/', 'ttl': 30, 'retry_timeout': 3,
-                          'srv': 'test', 'scope': 'test', 'name': 'foo'})
+        self.etcd = get_dcs({'namespace': '/patroni/', 'ttl': 30, 'retry_timeout': 3,
+                             'etcd': {'srv': 'test'}, 'scope': 'test', 'name': 'foo'})
+        self.assertIsInstance(self.etcd, Etcd)
         self.client = self.etcd._client
         self.client.http.request = http_request
         self.client.http.request_encode_body = http_request
@@ -235,7 +238,7 @@ class TestEtcd(unittest.TestCase):
                   Mock(return_value=['http://localhost:2379', 'http://localhost:4001']))
     def setUp(self):
         self.etcd = Etcd({'namespace': '/patroni/', 'ttl': 30, 'retry_timeout': 10,
-                          'host': 'localhost:2379', 'scope': 'test', 'name': 'foo'})
+                          'host': 'localhost:2379', 'scope': 'test', 'name': 'foo'}, get_mpp({}))
 
     def test_base_path(self):
         self.assertEqual(self.etcd._base_path, '/patroni/test')
@@ -270,7 +273,7 @@ class TestEtcd(unittest.TestCase):
         self.assertRaises(EtcdError, self.etcd.get_cluster)
 
     def test__get_citus_cluster(self):
-        self.etcd._citus_group = '0'
+        self.etcd._mpp = get_mpp({'citus': {'group': 0, 'database': 'postgres'}})
         cluster = self.etcd.get_cluster()
         self.assertIsInstance(cluster, Cluster)
         self.assertIsInstance(cluster.workers[1], Cluster)
