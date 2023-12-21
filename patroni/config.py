@@ -815,10 +815,12 @@ class Config(object):
           bedrock source of truth)
         """
         tags = self.get('tags', {})
+        if 'nofailover' not in tags:
+            return
         nofailover_tag = tags.get('nofailover')
         failover_priority_tag = parse_int(tags.get('failover_priority'))
         if failover_priority_tag is not None \
-                and (nofailover_tag is True and failover_priority_tag > 0
-                     or nofailover_tag is False and failover_priority_tag <= 0):
+                and (bool(nofailover_tag) is True and failover_priority_tag > 0
+                     or bool(nofailover_tag) is False and failover_priority_tag <= 0):
             logger.warning('Conflicting configuration between nofailover: %s and failover_priority: %s. '
                            'Defaulting to nofailover: %s', nofailover_tag, failover_priority_tag, nofailover_tag)

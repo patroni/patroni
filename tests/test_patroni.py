@@ -200,9 +200,11 @@ class TestPatroni(unittest.TestCase):
             # Setting `nofailover: True` has precedence
             (True, 0, True),
             (True, 1, True),
+            ('False', 1, True),  # because we use bool() for the value
             # Similarly, setting `nofailover: False` has precedence
             (False, 0, False),
             (False, 1, False),
+            ('', 0, False),
             # Only when we have `nofailover: None` should we got based on priority
             (None, 0, True),
             (None, 1, False),

@@ -23,8 +23,9 @@ class Tags(abc.ABC):
             ``nofailover``, ``noloadbalance`` or ``nosync``.
 
             For most of the Patroni predefined tags, the returning object will only contain them if they are enabled as
-            they all are boolean values that default to disabled. However 'nofailover' tag is always returned if
-            'failover_priority' tag is defined.
+            they all are boolean values that default to disabled.
+            However ``nofailover`` tag is always returned if ``failover_priority`` tag is defined. In this case, we need
+            both values to see if they are contradictory and the ``nofailover`` value should be used.
 
         :returns: a dictionary of tags set for this node. The key is the tag name, and the value is the corresponding
             tag value.
