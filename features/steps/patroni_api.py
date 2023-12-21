@@ -130,7 +130,7 @@ def scheduled_restart(context, url, in_seconds, data):
 
 @step('I {action:w} {tag:w} tag in {pg_name:w} config')
 def add_bool_tag_to_config(context, action, tag, pg_name):
-    value = True if action == 'set' else False
+    value = action == 'set'
     context.pctl.add_tag_to_config(pg_name, tag, value)
 
 
