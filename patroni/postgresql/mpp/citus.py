@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
 from . import AbstractMPP, AbstractMPPHandler
 from ...dcs import Cluster
-from ...psycopg import connect, quote_ident
+from ...psycopg import connect, quote_ident, quote_literal
 from ...utils import parse_int
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -389,9 +389,16 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
         if self._config['database'] != self._postgresql.database:
             conn = connect(**conn_kwargs)
             try:
+                database = self._config['database']
+                sql = """DO $$
+BEGIN
+    PERFORM * FROM pg_catalog.pg_database WHERE datname = {0};
+    IF NOT FOUND THEN
+        CREATE DATABASE {1};
+    END IF;
+END;$$""".format(quote_literal(database), quote_ident(database, conn))
                 with conn.cursor() as cur:
-                    cur.execute('CREATE DATABASE {0}'.format(
-                        quote_ident(self._config['database'], conn)).encode('utf-8'))
+                    cur.execute(sql.encode('utf-8'))
             finally:
                 conn.close()
 
@@ -399,7 +406,7 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
         conn = connect(**conn_kwargs)
         try:
             with conn.cursor() as cur:
-                cur.execute('CREATE EXTENSION citus')
+                cur.execute('CREATE EXTENSION IF NOT EXISTS citus')
 
                 superuser = self._postgresql.config.superuser
                 params = {k: superuser[k] for k in ('password', 'sslcert', 'sslkey') if k in superuser}
