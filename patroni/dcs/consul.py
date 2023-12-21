@@ -420,7 +420,7 @@ class Consul(AbstractDCS):
     def _consistency(self) -> str:
         return 'consistent' if self._ctl else self._client.consistency
 
-    def _cluster_loader(self, path: str) -> Cluster:
+    def _postgresql_cluster_loader(self, path: str) -> Cluster:
         _, results = self.retry(self._client.kv.get, path, recurse=True, consistency=self._consistency)
         if results is None:
             return Cluster.empty()
@@ -431,7 +431,7 @@ class Consul(AbstractDCS):
 
         return self._cluster_from_nodes(nodes)
 
-    def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+    def _mpp_cluster_loader(self, path: str) -> Dict[int, Cluster]:
         _, results = self.retry(self._client.kv.get, path, recurse=True, consistency=self._consistency)
         clusters: Dict[int, Dict[str, Cluster]] = defaultdict(dict)
         for node in results or []:

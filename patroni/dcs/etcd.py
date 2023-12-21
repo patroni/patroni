@@ -710,7 +710,7 @@ class Etcd(AbstractEtcd):
 
         return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
-    def _cluster_loader(self, path: str) -> Cluster:
+    def _postgresql_cluster_loader(self, path: str) -> Cluster:
         try:
             result = self.retry(self._client.read, path, recursive=True, quorum=self._ctl)
         except etcd.EtcdKeyNotFound:
@@ -718,7 +718,7 @@ class Etcd(AbstractEtcd):
         nodes = {node.key[len(result.key):].lstrip('/'): node for node in result.leaves}
         return self._cluster_from_nodes(result.etcd_index, nodes)
 
-    def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+    def _mpp_cluster_loader(self, path: str) -> Dict[int, Cluster]:
         try:
             result = self.retry(self._client.read, path, recursive=True, quorum=self._ctl)
         except etcd.EtcdKeyNotFound:

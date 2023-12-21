@@ -346,7 +346,7 @@ def get_dcs(scope: str, group: Optional[int]) -> AbstractDCS:
     try:
         dcs = _get_dcs(config)
         if is_citus_cluster() and group is None:
-            dcs.is_citus_coordinator = lambda: True
+            dcs.is_mpp_coordinator = lambda: True
         click.get_current_context().obj['__mpp'] = dcs.mpp
         return dcs
     except PatroniException as e:

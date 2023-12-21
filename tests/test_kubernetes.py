@@ -28,16 +28,16 @@ def mock_list_namespaced_config_map(*args, **kwargs):
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
     metadata.update({'name': 'test-sync', 'annotations': {'leader': 'p-0'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
-    metadata.update({'name': 'test-0-leader', 'labels': {Kubernetes._CITUS_LABEL: '0'},
+    metadata.update({'name': 'test-0-leader', 'labels': {Kubernetes._MPP_GROUP_LABEL: '0'},
                      'annotations': {'optime': '1234x', 'leader': 'p-0', 'ttl': '30s', 'slots': '{', 'failsafe': '{'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
-    metadata.update({'name': 'test-0-config', 'labels': {Kubernetes._CITUS_LABEL: '0'},
+    metadata.update({'name': 'test-0-config', 'labels': {Kubernetes._MPP_GROUP_LABEL: '0'},
                      'annotations': {'initialize': '123', 'config': '{}'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
-    metadata.update({'name': 'test-1-leader', 'labels': {Kubernetes._CITUS_LABEL: '1'},
+    metadata.update({'name': 'test-1-leader', 'labels': {Kubernetes._MPP_GROUP_LABEL: '1'},
                      'annotations': {'leader': 'p-3', 'ttl': '30s'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
-    metadata.update({'name': 'test-2-config', 'labels': {Kubernetes._CITUS_LABEL: '2'}, 'annotations': {}})
+    metadata.update({'name': 'test-2-config', 'labels': {Kubernetes._MPP_GROUP_LABEL: '2'}, 'annotations': {}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
 
     metadata = k8s_client.V1ObjectMeta(resource_version='1')
@@ -62,7 +62,7 @@ def mock_list_namespaced_endpoints(*args, **kwargs):
 
 
 def mock_list_namespaced_pod(*args, **kwargs):
-    metadata = k8s_client.V1ObjectMeta(resource_version='1', labels={'f': 'b', Kubernetes._CITUS_LABEL: '1'},
+    metadata = k8s_client.V1ObjectMeta(resource_version='1', labels={'f': 'b', Kubernetes._MPP_GROUP_LABEL: '1'},
                                        name='p-0', annotations={'status': '{}'},
                                        uid='964dfeae-e79b-4476-8a5a-1920b5c2a69d')
     status = k8s_client.V1PodStatus(pod_ip='10.0.0.1')
@@ -264,11 +264,11 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
 
     @patch('patroni.dcs.kubernetes.logger.error')
     def test_get_citus_coordinator(self, mock_logger):
-        self.assertIsInstance(self.k.get_citus_coordinator(), Cluster)
-        with patch.object(Kubernetes, '_cluster_loader', Mock(side_effect=Exception)):
-            self.assertIsNone(self.k.get_citus_coordinator())
+        self.assertIsInstance(self.k.get_mpp_coordinator(), Cluster)
+        with patch.object(Kubernetes, '_postgresql_cluster_loader', Mock(side_effect=Exception)):
+            self.assertIsNone(self.k.get_mpp_coordinator())
             mock_logger.assert_called()
-            self.assertTrue(mock_logger.call_args[0][0].startswith('Failed to load Citus coordinator'))
+            self.assertTrue(mock_logger.call_args[0][0].startswith('Failed to load MPP coordinator'))
 
     def test_attempt_to_acquire_leader(self):
         with patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', create=True) as mock_patch:

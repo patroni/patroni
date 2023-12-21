@@ -166,13 +166,13 @@ class TestZooKeeper(unittest.TestCase):
 
     def test__cluster_loader(self):
         self.zk._base_path = self.zk._base_path.replace('test', 'bla')
-        self.zk._cluster_loader(self.zk.client_path(''))
+        self.zk._postgresql_cluster_loader(self.zk.client_path(''))
         self.zk._base_path = self.zk._base_path = '/broken'
-        self.zk._cluster_loader(self.zk.client_path(''))
+        self.zk._postgresql_cluster_loader(self.zk.client_path(''))
         self.zk._base_path = self.zk._base_path = '/legacy'
-        self.zk._cluster_loader(self.zk.client_path(''))
+        self.zk._postgresql_cluster_loader(self.zk.client_path(''))
         self.zk._base_path = self.zk._base_path = '/no_node'
-        self.zk._cluster_loader(self.zk.client_path(''))
+        self.zk._postgresql_cluster_loader(self.zk.client_path(''))
 
     def test_get_cluster(self):
         cluster = self.zk.get_cluster()
@@ -186,9 +186,9 @@ class TestZooKeeper(unittest.TestCase):
             self.assertIsInstance(cluster.workers[1], Cluster)
 
     @patch('patroni.dcs.zookeeper.logger.error')
-    @patch.object(ZooKeeper, '_cluster_loader', Mock(side_effect=Exception))
+    @patch.object(ZooKeeper, '_postgresql_cluster_loader', Mock(side_effect=Exception))
     def test_get_citus_coordinator(self, mock_logger):
-        self.assertIsNone(self.zk.get_citus_coordinator())
+        self.assertIsNone(self.zk.get_mpp_coordinator())
         mock_logger.assert_called_once()
 
     def test_delete_leader(self):

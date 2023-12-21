@@ -375,14 +375,14 @@ class Raft(AbstractDCS):
 
         return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
-    def _cluster_loader(self, path: str) -> Cluster:
+    def _postgresql_cluster_loader(self, path: str) -> Cluster:
         response = self._sync_obj.get(path, recursive=True)
         if not response:
             return Cluster.empty()
         nodes = {key[len(path):]: value for key, value in response.items()}
         return self._cluster_from_nodes(nodes)
 
-    def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+    def _mpp_cluster_loader(self, path: str) -> Dict[int, Cluster]:
         clusters: Dict[int, Dict[str, Any]] = defaultdict(dict)
         response = self._sync_obj.get(path, recursive=True)
         for key, value in (response or {}).items():
