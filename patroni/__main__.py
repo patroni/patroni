@@ -68,7 +68,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
         self.watchdog = Watchdog(self.config)
         self.load_dynamic_configuration()
 
-        self.postgresql = Postgresql(self.config['postgresql'])
+        self.postgresql = Postgresql(self.config['postgresql'], self.dcs.mpp)
         self.api = RestApiServer(self, self.config['restapi'])
         self.ha = Ha(self)
 

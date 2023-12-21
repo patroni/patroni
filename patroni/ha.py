@@ -332,7 +332,7 @@ class Ha(object):
             if coordinator and coordinator.leader and coordinator.leader.conn_url:
                 try:
                     data = {'type': event,
-                            'group': self.state_handler.citus_handler.group(),
+                            'group': self.state_handler.citus_handler.group,
                             'leader': self.state_handler.name,
                             'timeout': self.dcs.ttl,
                             'cooldown': self.patroni.config['retry_timeout']}
@@ -847,7 +847,7 @@ class Ha(object):
             self.state_handler.set_role('master')
             self.process_sync_replication()
             self.update_cluster_history()
-            self.state_handler.citus_handler.sync_pg_dist_node(self.cluster)
+            self.state_handler.citus_handler.sync_meta_data(self.cluster)
             return message
         elif self.state_handler.role in ('master', 'promoted', 'primary'):
             self.process_sync_replication()

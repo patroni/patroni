@@ -8,9 +8,11 @@ import unittest
 import urllib3
 
 from mock import Mock, PropertyMock, mock_open, patch
+from patroni.dcs import get_dcs
 from patroni.dcs.kubernetes import Cluster, k8s_client, k8s_config, K8sConfig, K8sConnectionFailed, \
     K8sException, K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException, \
     Retry, RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
+from patroni.postgresql.mpp import get_mpp
 from threading import Thread
 from . import MockResponse, SleepException
 
@@ -225,11 +227,12 @@ class BaseTestKubernetes(unittest.TestCase):
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_pod', mock_list_namespaced_pod, create=True)
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
     def setUp(self, config=None):
-        config = config or {}
-        config.update(ttl=30, scope='test', name='p-0', loop_wait=10, group=0,
-                      retry_timeout=10, labels={'f': 'b'}, bypass_api_service=True)
-        self.k = Kubernetes(config)
-        self.k._citus_group = None
+        config = {'ttl': 30, 'scope': 'test', 'name': 'p-0', 'loop_wait': 10, 'retry_timeout': 10,
+                  'kubernetes': {'labels': {'f': 'b'}, 'bypass_api_service': True, **(config or {})},
+                  'citus': {'group': 0, 'database': 'postgres'}}
+        self.k = get_dcs(config)
+        self.assertIsInstance(self.k, Kubernetes)
+        self.k._mpp = get_mpp({})
         self.assertRaises(AttributeError, self.k._pods._build_cache)
         self.k._pods._is_ready = True
         self.assertRaises(TypeError, self.k._kinds._build_cache)
@@ -254,7 +257,7 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
             self.assertRaises(KubernetesError, self.k.get_cluster)
 
     def test__get_citus_cluster(self):
-        self.k._citus_group = '0'
+        self.k._mpp = get_mpp({'citus': {'group': 0, 'database': 'postgres'}})
         cluster = self.k.get_cluster()
         self.assertIsInstance(cluster, Cluster)
         self.assertIsInstance(cluster.workers[1], Cluster)
@@ -466,7 +469,7 @@ class TestCacheBuilder(BaseTestKubernetes):
     @patch('patroni.dcs.kubernetes.ObjectCache._watch', mock_watch)
     @patch.object(urllib3.HTTPResponse, 'read_chunked')
     def test__build_cache(self, mock_read_chunked):
-        self.k._citus_group = '0'
+        self.k._mpp = get_mpp({'citus': {'group': 0, 'database': 'postgres'}})
         mock_read_chunked.return_value = [json.dumps(
             {'type': 'MODIFIED', 'object': {'metadata': {
                 'name': self.k.config_path, 'resourceVersion': '2', 'annotations': {self.k._CONFIG: 'foo'}}}}

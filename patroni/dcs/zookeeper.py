@@ -12,9 +12,9 @@ from kazoo.retry import RetryFailedError
 from kazoo.security import ACL, make_acl
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
-from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, \
-    TimelineHistory, citus_group_re
+from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, TimelineHistory
 from ..exceptions import DCSError
+from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
@@ -87,8 +87,8 @@ class PatroniKazooClient(KazooClient):
 
 class ZooKeeper(AbstractDCS):
 
-    def __init__(self, config: Dict[str, Any]) -> None:
-        super(ZooKeeper, self).__init__(config)
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
+        super(ZooKeeper, self).__init__(config, mpp)
 
         hosts: Union[str, List[str]] = config.get('hosts', [])
         if isinstance(hosts, list):
@@ -261,7 +261,7 @@ class ZooKeeper(AbstractDCS):
     def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
         ret: Dict[int, Cluster] = {}
         for node in self.get_children(path):
-            if citus_group_re.match(node):
+            if self._mpp.group_re.match(node):
                 ret[int(node)] = self._cluster_loader(path + node + '/')
         return ret
 

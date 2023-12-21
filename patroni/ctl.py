@@ -51,6 +51,7 @@ from .config import Config
 from .dcs import get_dcs as _get_dcs, AbstractDCS, Cluster, Member
 from .exceptions import PatroniException
 from .postgresql.misc import postgres_version_to_int
+from .postgresql.mpp import get_mpp
 from .utils import cluster_as_json, patch_config, polling_loop
 from .request import PatroniRequest
 from .version import __version__
@@ -313,7 +314,7 @@ def ctl(ctx: click.Context, config_file: str, dcs_url: Optional[str], insecure: 
     config = load_config(config_file, dcs_url)
     # backward compatibility for configuration file where ctl section is not defined
     config.setdefault('ctl', {})['insecure'] = config.get('ctl', {}).get('insecure') or insecure
-    ctx.obj = {'__config': config}
+    ctx.obj = {'__config': config, '__mpp': get_mpp(config)}
 
 
 def is_citus_cluster() -> bool:
@@ -321,7 +322,7 @@ def is_citus_cluster() -> bool:
 
     :returns: ``True`` if configuration has ``citus`` section, otherwise ``False``.
     """
-    return bool(_get_configuration().get('citus'))
+    return click.get_current_context().obj['__mpp'].is_enabled()
 
 
 def get_dcs(scope: str, group: Optional[int]) -> AbstractDCS:
@@ -340,12 +341,13 @@ def get_dcs(scope: str, group: Optional[int]) -> AbstractDCS:
     config = _get_configuration()
     config.update({'scope': scope, 'patronictl': True})
     if group is not None:
-        config['citus'] = {'group': group}
+        config['citus'] = {'group': group, 'database': 'postgres'}
     config.setdefault('name', scope)
     try:
         dcs = _get_dcs(config)
         if is_citus_cluster() and group is None:
             dcs.is_citus_coordinator = lambda: True
+        click.get_current_context().obj['__mpp'] = dcs.mpp
         return dcs
     except PatroniException as e:
         raise PatroniCtlException(str(e))

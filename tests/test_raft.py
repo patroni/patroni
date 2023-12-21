@@ -4,8 +4,10 @@ import tempfile
 import time
 
 from mock import Mock, PropertyMock, patch
+from patroni.dcs import get_dcs
 from patroni.dcs.raft import Cluster, DynMemberSyncObj, KVStoreTTL, \
     Raft, RaftError, SyncObjUtility, TCPTransport, _TCPTransport
+from patroni.postgresql.mpp import get_mpp
 from pysyncobj import SyncObjConf, FAIL_REASON
 
 
@@ -128,9 +130,10 @@ class TestRaft(unittest.TestCase):
     _TMP = tempfile.gettempdir()
 
     def test_raft(self):
-        raft = Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'self_addr': '127.0.0.1:1234',
-                     'retry_timeout': 10, 'data_dir': self._TMP,
-                     'database': 'citus', 'group': 0})
+        raft = get_dcs({'ttl': 30, 'scope': 'test', 'name': 'pg', 'retry_timeout': 10,
+                        'raft': {'self_addr': '127.0.0.1:1234', 'data_dir': self._TMP},
+                        'citus': {'group': 0, 'database': 'postgres'}})
+        self.assertIsInstance(raft, Raft)
         raft.reload_config({'retry_timeout': 20, 'ttl': 60, 'loop_wait': 10})
         self.assertTrue(raft._sync_obj.set(raft.members_path + 'legacy', '{"version":"2.0.0"}'))
         self.assertTrue(raft.touch_member(''))
@@ -139,9 +142,9 @@ class TestRaft(unittest.TestCase):
         self.assertTrue(raft.set_config_value('{}'))
         self.assertTrue(raft.write_sync_state('foo', 'bar'))
         self.assertFalse(raft.write_sync_state('foo', 'bar', 1))
-        raft._citus_group = '1'
+        raft._mpp = get_mpp({'citus': {'group': 1, 'database': 'postgres'}})
         self.assertTrue(raft.manual_failover('foo', 'bar'))
-        raft._citus_group = '0'
+        raft._mpp = get_mpp({'citus': {'group': 0, 'database': 'postgres'}})
         self.assertTrue(raft.take_leader())
         cluster = raft.get_cluster()
         self.assertIsInstance(cluster, Cluster)
@@ -157,9 +160,9 @@ class TestRaft(unittest.TestCase):
         self.assertTrue(raft.delete_sync_state())
         self.assertTrue(raft.set_history_value(''))
         self.assertTrue(raft.delete_cluster())
-        raft._citus_group = '1'
+        raft._mpp = get_mpp({'citus': {'group': 1, 'database': 'postgres'}})
         self.assertTrue(raft.delete_cluster())
-        raft._citus_group = None
+        raft._mpp = get_mpp({})
         raft.get_cluster()
         raft.watch(None, 0.001)
         raft._sync_obj.destroy()
@@ -175,5 +178,5 @@ class TestRaft(unittest.TestCase):
     def test_init(self, mock_event, mock_kvstore):
         mock_kvstore.return_value.applied_local_log = False
         mock_event.return_value.is_set.side_effect = [False, True]
-        self.assertIsNotNone(Raft({'ttl': 30, 'scope': 'test', 'name': 'pg', 'patronictl': True,
-                                   'self_addr': '1', 'data_dir': self._TMP}))
+        self.assertIsInstance(get_dcs({'ttl': 30, 'scope': 'test', 'name': 'pg', 'patronictl': True,
+                                       'raft': {'self_addr': '1', 'data_dir': self._TMP}}), Raft)

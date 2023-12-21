@@ -16,9 +16,10 @@ from threading import Condition, Lock, Thread
 from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
 from . import ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, \
-    TimelineHistory, catch_return_false_exception, citus_group_re
+    TimelineHistory, catch_return_false_exception
 from .etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors, DnsCachingResolver, Retry
 from ..exceptions import DCSError, PatroniException
+from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, enable_keepalive, iter_response_objects, RetryFailedError, USER_AGENT
 
 logger = logging.getLogger(__name__)
@@ -671,8 +672,9 @@ class PatroniEtcd3Client(Etcd3Client):
 
 class Etcd3(AbstractEtcd):
 
-    def __init__(self, config: Dict[str, Any]) -> None:
-        super(Etcd3, self).__init__(config, PatroniEtcd3Client, (DeadlineExceeded, Unavailable, FailedPrecondition))
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
+        super(Etcd3, self).__init__(config, mpp, PatroniEtcd3Client,
+                                    (DeadlineExceeded, Unavailable, FailedPrecondition))
         self.__do_not_watch = False
         self._lease = None
         self._last_lease_refresh = 0
@@ -796,7 +798,7 @@ class Etcd3(AbstractEtcd):
         path = self._base_path + '/'
         for node in self._client.get_cluster(path):
             key = node['key'][len(path):].split('/', 1)
-            if len(key) == 2 and citus_group_re.match(key[0]):
+            if len(key) == 2 and self._mpp.group_re.match(key[0]):
                 clusters[int(key[0])][key[1]] = node
         return {group: self._cluster_from_nodes(nodes) for group, nodes in clusters.items()}
 
