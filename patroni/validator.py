@@ -16,6 +16,27 @@ from .collections import CaseInsensitiveSet
 from .dcs import dcs_modules
 from .exceptions import ConfigParseError
 from .utils import parse_int, split_host_port, data_directory_is_empty, get_major_version
+from .log import type_logformat
+
+
+def validate_log_field(field: Union[str, Dict[str, Any], Any]) -> bool:
+    if isinstance(field, str):
+        return True
+    elif isinstance(field, dict):
+        return all(map(lambda renamed_field: isinstance(renamed_field, str), field.values()))
+    return False
+
+
+def validate_log_format(logformat: type_logformat) -> bool:
+    if isinstance(logformat, str):
+        return True
+    elif isinstance(logformat, list):
+        if not all(map(validate_log_field, logformat)):
+            raise ConfigParseError('Each item should be a string or a dictionary with string values')
+
+        return True
+    else:
+        raise ConfigParseError('Should be a string or a list')
 
 
 def data_directory_empty(data_dir: str) -> bool:
@@ -942,7 +963,7 @@ schema = Schema({
         Optional("level"): EnumValidator(('DEBUG', 'INFO', 'WARN', 'WARNING', 'ERROR', 'FATAL', 'CRITICAL'),
                                          case_sensitive=True, raise_assert=True),
         Optional("traceback_level"): EnumValidator(('DEBUG', 'ERROR'), raise_assert=True),
-        Optional("format"): Or(str, [Or(str, dict)]),
+        Optional("format"): validate_log_format,
         Optional("dateformat"): str,
         Optional("static_fields"): dict,
         Optional("max_queue_size"): int,
