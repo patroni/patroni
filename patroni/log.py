@@ -245,6 +245,35 @@ class PatroniLogger(Thread):
             logger = self._root_logger.manager.getLogger(name)
             logger.setLevel(level)
 
+    def _is_config_changed(self, config: Dict[str, Any]) -> bool:
+        oldlogtype = (self._config or {}).get('type', PatroniLogger.DEFAULT_TYPE)
+        logtype = config.get('type', PatroniLogger.DEFAULT_TYPE)
+
+        oldlogformat: type_logformat = (self._config or {}).get('format', PatroniLogger.DEFAULT_FORMAT)
+        logformat: type_logformat = config.get('format', PatroniLogger.DEFAULT_FORMAT)
+
+        olddateformat = (self._config or {}).get('dateformat') or None
+        dateformat = config.get('dateformat') or None  # Convert empty string to `None`
+
+        old_static_fields = (self._config or {}).get('static_fields', {})
+        static_fields = config.get('static_fields', {})
+
+        old_log_config = {
+            'type': oldlogtype,
+            'format': oldlogformat,
+            'dateformat': olddateformat,
+            'static_fields': old_static_fields
+        }
+
+        log_config = {
+            'type': logtype,
+            'format': logformat,
+            'dateformat': dateformat,
+            'static_fields': static_fields
+        }
+
+        return not deep_compare(old_log_config, log_config)
+
     def _get_handler(self, config: Dict[str, Any]) -> type_log_handler:
         """Creates handler if needed and return it."""
 
@@ -262,7 +291,7 @@ class PatroniLogger(Thread):
 
         return handler
 
-    def _get_plain_formatter(self, logformat: type_logformat, dateformat: Union[str, None]) -> logging.Formatter:
+    def _get_plain_formatter(self, logformat: type_logformat, dateformat: Optional[str]) -> logging.Formatter:
         """Create formatter for plain log type."""
 
         if not isinstance(logformat, str):
@@ -271,7 +300,7 @@ class PatroniLogger(Thread):
 
         return logging.Formatter(logformat, dateformat)
 
-    def _get_json_formatter(self, logformat: type_logformat, dateformat: Union[str, None],
+    def _get_json_formatter(self, logformat: type_logformat, dateformat: Optional[str],
                             static_fields: Dict[str, Any]) -> logging.Formatter:
         """Create formatter for json log type."""
 
@@ -316,7 +345,24 @@ class PatroniLogger(Thread):
             )
         except ImportError as e:
             _LOGGER.error('Failed to import python-json-logger: %r', e)
-            formatter = logging.Formatter(jsonformat, dateformat)
+            formatter = self._get_plain_formatter(jsonformat, dateformat)
+
+        return formatter
+
+    def _get_formatter(self, config: Dict[str, Any]) -> logging.Formatter:
+        logtype = config.get('type', PatroniLogger.DEFAULT_TYPE)
+        logformat: type_logformat = config.get('format', PatroniLogger.DEFAULT_FORMAT)
+        dateformat = config.get('dateformat') or None  # Convert empty string to `None`
+        static_fields = config.get('static_fields', {})
+
+        if dateformat is not None and not isinstance(dateformat, str):
+            _LOGGER.warning('Expected log dateformat to be a string, but got "%s"', logformat)
+            dateformat = None
+
+        if logtype == 'json':
+            formatter = self._get_json_formatter(logformat, dateformat, static_fields)
+        else:
+            formatter = self._get_plain_formatter(logformat, dateformat)
 
         return formatter
 
@@ -343,45 +389,8 @@ class PatroniLogger(Thread):
             handler = self._get_handler(config)
             is_new_handler = handler != self.log_handler
 
-            oldlogtype = (self._config or {}).get('type', PatroniLogger.DEFAULT_TYPE)
-            logtype = config.get('type', PatroniLogger.DEFAULT_TYPE)
-
-            oldlogformat: type_logformat = (self._config or {}).get('format', PatroniLogger.DEFAULT_FORMAT)
-            logformat: type_logformat = config.get('format', PatroniLogger.DEFAULT_FORMAT)
-
-            olddateformat = (self._config or {}).get('dateformat') or None
-            dateformat = config.get('dateformat') or None  # Convert empty string to `None`
-
-            if dateformat is not None and not isinstance(dateformat, str):
-                _LOGGER.warning('Expected log dateformat to be a string, but got "%s"', logformat)
-                dateformat = None
-
-            old_static_fields = (self._config or {}).get('static_fields', {})
-            static_fields = config.get('static_fields', {})
-
-            old_log_config = {
-                'type': oldlogtype,
-                'format': oldlogformat,
-                'dateformat': olddateformat,
-                'static_fields': old_static_fields
-            }
-
-            log_config = {
-                'type': logtype,
-                'format': logformat,
-                'dateformat': dateformat,
-                'static_fields': static_fields
-            }
-
-            if (
-                not deep_compare(old_log_config, log_config)
-                or is_new_handler
-            ) and handler:
-                if logtype == 'json':
-                    formatter = self._get_json_formatter(logformat, dateformat, static_fields)
-                else:
-                    formatter = self._get_plain_formatter(logformat, dateformat)
-
+            if (self._is_config_changed(config) or is_new_handler) and handler:
+                formatter = self._get_formatter(config)
                 handler.setFormatter(formatter)
 
             if is_new_handler:
