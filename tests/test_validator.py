@@ -14,6 +14,7 @@ config = {
     "name": "string",
     "scope": "string",
     "log": {
+        "type": "plain",
         "level": "DEBUG",
         "traceback_level": "DEBUG",
         "format": "%(asctime)s %(levelname)s: %(message)s",
@@ -371,3 +372,37 @@ class TestValidator(unittest.TestCase):
         c["tags"]["failover_priority"] = -6
         errors = schema(c)
         self.assertIn('tags.failover_priority -6 didn\'t pass validation: Wrong value', errors)
+
+    def test_json_log_format(self, *args):
+        c = copy.deepcopy(config)
+        c["log"]["type"] = "json"
+        c["log"]["format"] = {"levelname": "level"}
+        errors = schema(c)
+        self.assertIn(
+            'log.format {\'levelname\': \'level\'} didn\'t pass validation: Should be a string or a list',
+            errors
+        )
+
+        c = copy.deepcopy(config)
+        c["log"]["type"] = "json"
+        c["log"]["format"] = [{"levelname": []}]
+        errors = schema(c)
+        self.assertIn(
+            ' '.join([
+                'log.format [{\'levelname\': []}] didn\'t pass validation:',
+                'Each item should be a string or a dictionary with string values'
+            ]),
+            errors
+        )
+
+        c = copy.deepcopy(config)
+        c["log"]["type"] = "json"
+        c["log"]["format"] = [[]]
+        errors = schema(c)
+        self.assertIn(
+            ' '.join([
+                'log.format [[]] didn\'t pass validation:',
+                'Each item should be a string or a dictionary with string values'
+            ]),
+            errors
+        )

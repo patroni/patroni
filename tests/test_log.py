@@ -3,11 +3,13 @@ import os
 import sys
 import unittest
 import yaml
+import json
 
 from mock import Mock, patch
 from patroni.config import Config
 from patroni.log import PatroniLogger
 from queue import Queue, Full
+from typing import Dict, Any
 
 _LOG = logging.getLogger(__name__)
 
@@ -72,3 +74,129 @@ class TestPatroniLogger(unittest.TestCase):
         _LOG.info('blabla')
         logger.shutdown()
         self.assertEqual(logger.records_lost, 0)
+
+    def test_json_list_format(self):
+        config = {
+            'log': {
+                'type': 'json',
+                'format': [
+                    {
+                        'asctime': '@timestamp',
+                        'levelname': 'level'
+                    },
+                    'message'
+                ],
+                'dir': 'log',
+                'static_fields': {
+                    'app': 'patroni'
+                }
+            }
+        }
+
+        log_path = f"{config['log']['dir']}/patroni.log"
+        test_message = 'test json logging in case of list format'
+
+        try:
+            os.remove(log_path)
+        except OSError:
+            pass
+
+        sys.argv = ['patroni.py']
+        os.environ[Config.PATRONI_CONFIG_VARIABLE] = yaml.dump(config, default_flow_style=False)
+        logger = PatroniLogger()
+        patroni_config = Config(None)
+        logger.reload_config(patroni_config['log'])
+
+        logger.start()
+        _LOG.info(test_message)
+        logger.shutdown()
+
+        target_log: Dict[str, Any] = {}
+        with open(log_path) as file:
+            for line in file:
+                if test_message in line:
+                    target_log = json.loads(line)
+                    break
+
+        self.assertIn('@timestamp', target_log)
+        self.assertEqual(target_log['message'], test_message)
+        self.assertEqual(target_log['level'], 'INFO')
+        self.assertEqual(target_log['app'], 'patroni')
+
+    def test_json_str_format(self):
+        config = {
+            'log': {
+                'type': 'json',
+                'format': '%(asctime)s %(levelname)s %(message)s',
+                'dir': 'log',
+                'static_fields': {
+                    'app': 'patroni'
+                }
+            }
+        }
+
+        log_path = f"{config['log']['dir']}/patroni.log"
+        test_message = 'test json logging in case of string format'
+
+        try:
+            os.remove(log_path)
+        except OSError:
+            pass
+
+        sys.argv = ['patroni.py']
+        os.environ[Config.PATRONI_CONFIG_VARIABLE] = yaml.dump(config, default_flow_style=False)
+        logger = PatroniLogger()
+        patroni_config = Config(None)
+        logger.reload_config(patroni_config['log'])
+
+        logger.start()
+        _LOG.info(test_message)
+        logger.shutdown()
+
+        target_log: Dict[str, Any] = {}
+        with open(log_path) as file:
+            for line in file:
+                if test_message in line:
+                    target_log = json.loads(line)
+                    break
+
+        self.assertIn('asctime', target_log)
+        self.assertEqual(target_log['message'], test_message)
+        self.assertEqual(target_log['levelname'], 'INFO')
+        self.assertEqual(target_log['app'], 'patroni')
+
+    def test_plain_format(self):
+        config = {
+            'log': {
+                'type': 'plain',
+                'format': '[%(asctime)s] %(levelname)s %(message)s',
+                'dir': 'log'
+            }
+        }
+
+        log_path = f"{config['log']['dir']}/patroni.log"
+        test_message = 'test plain logging'
+
+        try:
+            os.remove(log_path)
+        except OSError:
+            pass
+
+        sys.argv = ['patroni.py']
+        os.environ[Config.PATRONI_CONFIG_VARIABLE] = yaml.dump(config, default_flow_style=False)
+        logger = PatroniLogger()
+        patroni_config = Config(None)
+        logger.reload_config(patroni_config['log'])
+
+        logger.start()
+        _LOG.info(test_message)
+        logger.shutdown()
+
+        target_log = ''
+        with open(log_path) as file:
+            for line in file:
+                if test_message in line:
+                    target_log = line
+                    break
+
+        self.assertRegexpMatches(target_log, fr'\[.*\] INFO {test_message}')

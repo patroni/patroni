@@ -35,6 +35,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_NAMESPACE': '/patroni/',
             'PATRONI_SCOPE': 'batman2',
             'PATRONI_LOGLEVEL': 'ERROR',
+            'PATRONI_LOG_FORMAT': '["message", {"levelname": "level"}]',
             'PATRONI_LOG_LOGGERS': 'patroni.postmaster: WARNING, urllib3: DEBUG',
             'PATRONI_LOG_FILE_NUM': '5',
             'PATRONI_CITUS_DATABASE': 'citus',
