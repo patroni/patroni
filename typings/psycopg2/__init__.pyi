@@ -20,7 +20,6 @@ from psycopg2._psycopg import (
     NotSupportedError as NotSupportedError,
     OperationalError as OperationalError,
     ProgrammingError as ProgrammingError,
-    DuplicateDatabase as DuplicateDatabase,
     Time as Time,
     TimeFromTicks as TimeFromTicks,
     Timestamp as Timestamp,
