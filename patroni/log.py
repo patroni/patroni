@@ -13,13 +13,7 @@ from patroni.utils import deep_compare
 from queue import Queue, Full
 from threading import Lock, Thread
 
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING, TextIO
-
-if TYPE_CHECKING:
-    type_log_handler = Union[RotatingFileHandler, logging.StreamHandler[TextIO]]
-else:
-    type_log_handler = Union[RotatingFileHandler, logging.StreamHandler]
-
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 type_logformat = Union[List[Union[str, Dict[str, Any], Any]], str, Any]
 
 _LOGGER = logging.getLogger(__name__)
@@ -274,23 +268,6 @@ class PatroniLogger(Thread):
 
         return not deep_compare(old_log_config, log_config)
 
-    def _get_handler(self, config: Dict[str, Any]) -> type_log_handler:
-        """Creates handler if needed and return it."""
-
-        handler = self.log_handler
-
-        if 'dir' in config:
-            if not isinstance(handler, RotatingFileHandler):
-                handler = RotatingFileHandler(os.path.join(config['dir'], __name__))
-
-            handler.maxBytes = int(config.get('file_size', 25000000))  # pyright: ignore [reportGeneralTypeIssues]
-            handler.backupCount = int(config.get('file_num', 4))
-        else:
-            if not isinstance(handler, logging.StreamHandler):
-                handler = logging.StreamHandler()
-
-        return handler
-
     def _get_plain_formatter(self, logformat: type_logformat, dateformat: Optional[str]) -> logging.Formatter:
         """Create formatter for plain log type."""
 
@@ -386,7 +363,18 @@ class PatroniLogger(Thread):
                 # show stack traces as ``ERROR`` log messages
                 logging.Logger.exception = error_exception
 
-            handler = self._get_handler(config)
+            handler = self.log_handler
+
+            if 'dir' in config:
+                if not isinstance(handler, RotatingFileHandler):
+                    handler = RotatingFileHandler(os.path.join(config['dir'], __name__))
+
+                handler.maxBytes = int(config.get('file_size', 25000000))  # pyright: ignore [reportGeneralTypeIssues]
+                handler.backupCount = int(config.get('file_num', 4))
+            else:
+                if not isinstance(handler, logging.StreamHandler):
+                    handler = logging.StreamHandler()
+
             is_new_handler = handler != self.log_handler
 
             if (self._is_config_changed(config) or is_new_handler) and handler:
