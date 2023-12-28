@@ -17,7 +17,8 @@ from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException, PostgresConnectionException
 from ..file_perm import pg_perm
-from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, validate_directory, is_subpath
+from ..utils import (compare_values, maybe_convert_int_base_unit, parse_bool, parse_int,
+                     split_host_port, uri, validate_directory, is_subpath)
 from ..validator import IntValidator, EnumValidator
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -1092,9 +1093,10 @@ class ConfigHandler(object):
                             conf_changed = True
                             if r[4] == 'postmaster':
                                 pending_restart = True
-                                param_diff[r[0]] = (r[1], str(new_value))
+                                old_value = maybe_convert_int_base_unit(r[1], r[2])
+                                param_diff[r[0]] = (old_value, str(new_value))
                                 logger.info("Changed %s from '%s' to '%s' (restart might be required)",
-                                            r[0], r[1], new_value)
+                                            r[0], old_value, new_value)
                                 if config.get('use_unix_socket') and r[0] == 'unix_socket_directories'\
                                         or r[0] in ('listen_addresses', 'port'):
                                     local_connection_address_changed = True
@@ -1156,13 +1158,14 @@ class ConfigHandler(object):
             if self._postgresql.major_version >= 90500:
                 time.sleep(1)
                 try:
-                    settings_diff = {
-                        p: (v, (lambda x: '?' if x is None else x)(self._postgresql.get_guc_value(p)))
-                        for p, v in self._postgresql.query(
-                            'SELECT name, setting FROM pg_catalog.pg_settings'
+                    settings_diff: Dict[str, Tuple[str, str]] = {}
+                    for param, value, unit in self._postgresql.query(
+                            'SELECT name, pg_catalog.current_setting(name), unit FROM pg_catalog.pg_settings'
                             ' WHERE pg_catalog.lower(name) != ALL(%s) AND pending_restart',
-                            [n.lower() for n in self._RECOVERY_PARAMETERS])
-                    }
+                            [n.lower() for n in self._RECOVERY_PARAMETERS]):
+                        new_value = (lambda v: '?' if v is None
+                                     else maybe_convert_int_base_unit(v, unit))(self._postgresql.get_guc_value(param))
+                        settings_diff[param] = (value, new_value)
                     pending_restart = len(settings_diff) > 0
                     external_change = set(map(lambda x: x[0], settings_diff.items() - param_diff.items()))
                     if external_change:

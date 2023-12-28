@@ -599,7 +599,7 @@ class TestPostgresql(BaseTestPostgresql):
 
         with patch.object(Postgresql, 'get_guc_value', Mock(return_value=str(new_max_worker_processes))), \
              patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[
-                 GET_PG_SETTINGS_RESULT, [('max_worker_processes', str(init_max_worker_processes))]])):
+                 GET_PG_SETTINGS_RESULT, [('max_worker_processes', str(init_max_worker_processes), None)]])):
             self.p.reload_config(config)
             self.assertEqual(mock_info.call_args_list[0][0],
                              ("Changed %s from '%s' to '%s' (restart might be required)",
@@ -653,25 +653,26 @@ class TestPostgresql(BaseTestPostgresql):
         # Non-empty result (outside changes) and exception while querying pending_restart parameters
         with patch.object(Postgresql, 'get_guc_value', Mock(side_effect=['73', None, ''])), \
              patch('patroni.postgresql.Postgresql._query',
-                   Mock(side_effect=[GET_PG_SETTINGS_RESULT, [('max_wal_senders', '5')]] * 3)):
-            # pg_settings max_wal_senders (current value) == 5
-            # Patroni config max_wal_senders == 42 (should not end up in the restart reason diff)
-            # get_guc_value (will be used after restart) == 73
-            config['parameters']['max_wal_senders'] = 42
+                   Mock(side_effect=[GET_PG_SETTINGS_RESULT, [('shared_buffers', '128MB', '8kB')]] * 3)):
+            # pg_settings shared_buffers (current value) == 128MB (16384)
+            # Patroni config shared_buffers == 42MB (should not end up in the restart reason diff)
+            # get_guc_value (will be used after restart) == 73 (584kB)
+            config['parameters']['shared_buffers'] = '42MB'
             self.p.reload_config(config, True)
             self.assertEqual(mock_info.call_args_list[0][0],
-                             ("Changed %s from '%s' to '%s' (restart might be required)", 'max_wal_senders', '5', 42))
+                             ("Changed %s from '%s' to '%s' (restart might be required)",
+                              'shared_buffers', '128MB', '42MB'))
             self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
             self.assertEqual(mock_info.call_args_list[2][0], ("PostgreSQL configuration parameters requiring restart"
                                                               " (%s) seem to be changed bypassing Patroni config."
-                                                              " Setting 'Pending restart' flag", 'max_wal_senders'))
-            self.assertEqual(self.p.pending_restart_reason, {'max_wal_senders': ('5', '73')})
+                                                              " Setting 'Pending restart' flag", 'shared_buffers'))
+            self.assertEqual(self.p.pending_restart_reason, {'shared_buffers': ('128MB', '584kB')})
 
             self.p.reload_config(config, True)
-            self.assertEqual(self.p.pending_restart_reason, {'max_wal_senders': ('5', '?')})
+            self.assertEqual(self.p.pending_restart_reason, {'shared_buffers': ('128MB', '?')})
 
             self.p.reload_config(config, True)
-            self.assertEqual(self.p.pending_restart_reason, {'max_wal_senders': ('5', '')})
+            self.assertEqual(self.p.pending_restart_reason, {'shared_buffers': ('128MB', '')})
 
         with patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[GET_PG_SETTINGS_RESULT, Exception])):
             # Invalid values, just to increase silly coverage in postgresql.validator.
