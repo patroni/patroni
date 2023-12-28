@@ -229,11 +229,6 @@ def patroni_main(configfile: str) -> None:
 
     :param configfile: path to Patroni configuration file.
     """
-    from multiprocessing import freeze_support
-
-    # Windows executables created by PyInstaller are frozen, thus we need to enable frozen support for
-    # :mod:`multiprocessing` to avoid :class:`RuntimeError` exceptions.
-    freeze_support()
     abstract_main(Patroni, configfile)
 
 
@@ -391,4 +386,9 @@ def main() -> None:
 
 
 if __name__ == '__main__':
+    from multiprocessing import freeze_support
+
+    # Executables created by PyInstaller are frozen, thus we need to enable frozen support for
+    # :mod:`multiprocessing` to avoid :class:`RuntimeError` exceptions.
+    freeze_support()
     main()
