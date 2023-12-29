@@ -1067,7 +1067,7 @@ class ConfigHandler(object):
         self._superuser = config['authentication'].get('superuser', {})
         server_parameters = self.get_server_parameters(config)
 
-        conf_changed = hba_changed = ident_changed = local_connection_address_changed = pending_restart = False
+        conf_changed = hba_changed = ident_changed = local_connection_address_changed = False
         param_diff: Dict[str, Tuple[str, str]] = {}
         if self._postgresql.state == 'running':
             changes = CaseInsensitiveDict({p: v for p, v in server_parameters.items()
@@ -1092,7 +1092,6 @@ class ConfigHandler(object):
                         if new_value is None or not compare_values(r[3], r[2], r[1], new_value):
                             conf_changed = True
                             if r[4] == 'postmaster':
-                                pending_restart = True
                                 old_value = maybe_convert_int_base_unit(r[1], r[2])
                                 param_diff[r[0]] = (old_value, str(new_value))
                                 logger.info("Changed %s from '%s' to '%s' (restart might be required)",
@@ -1166,7 +1165,6 @@ class ConfigHandler(object):
                         new_value = (lambda v: '?' if v is None
                                      else maybe_convert_int_base_unit(v, unit))(self._postgresql.get_guc_value(param))
                         settings_diff[param] = (value, new_value)
-                    pending_restart = len(settings_diff) > 0
                     external_change = set(map(lambda x: x[0], settings_diff.items() - param_diff.items()))
                     if external_change:
                         logger.info("PostgreSQL configuration parameters requiring restart"
@@ -1178,7 +1176,7 @@ class ConfigHandler(object):
         else:
             logger.info('No PostgreSQL configuration items changed, nothing to reload.')
 
-        self._postgresql.set_pending_restart(pending_restart, param_diff)
+        self._postgresql.set_pending_restart(param_diff)
 
     def set_synchronous_standby_names(self, value: Optional[str]) -> Optional[bool]:
         """Updates synchronous_standby_names and reloads if necessary.
@@ -1233,7 +1231,7 @@ class ConfigHandler(object):
                 effective_configuration[name] = cvalue
                 logger.info("%s value in pg_controldata: %d, in the global configuration: %d."
                             " pg_controldata value will be used. Setting 'Pending restart' flag", name, cvalue, value)
-                self._postgresql.set_pending_restart(True, {name: (str(cvalue), str(value))})
+                self._postgresql.set_pending_restart({name: (str(cvalue), str(value))})
 
         # If we are using custom bootstrap with PITR it could fail when values like max_connections
         # are increased, therefore we disable hot_standby if recovery_target_action == 'promote'.
@@ -1252,7 +1250,7 @@ class ConfigHandler(object):
                 effective_configuration['hot_standby'] = 'off'
                 logger.info("'hot_standby' parameter is set to 'off' during the custom bootstrap."
                             " Setting 'Pending restart' flag")
-                self._postgresql.set_pending_restart(True, {'hot_standby': ('on', 'off')})
+                self._postgresql.set_pending_restart({'hot_standby': ('on', 'off')})
 
         return effective_configuration
 

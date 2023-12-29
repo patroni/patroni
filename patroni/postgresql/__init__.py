@@ -324,11 +324,11 @@ class Postgresql(object):
     def pending_restart_reason(self) -> Dict[str, Tuple[str, str]]:
         return self._pending_restart_reason
 
-    def set_pending_restart(self, value: bool, diff_dict: Optional[Dict[str, Tuple[str, str]]] = None) -> None:
-        if not value:
+    def set_pending_restart(self, diff_dict: Dict[str, Tuple[str, str]]) -> None:
+        if not diff_dict:
             self._pending_restart_reason = {}
         else:
-            self._pending_restart_reason.update(diff_dict or {})
+            self._pending_restart_reason.update(diff_dict)
 
     @property
     def sysid(self) -> str:
@@ -730,7 +730,7 @@ class Postgresql(object):
         self.set_role(role or self.get_postgres_role_from_data_directory())
 
         self.set_state('starting')
-        self.set_pending_restart(False)
+        self.set_pending_restart({})
 
         try:
             if not self.ensure_major_version_is_known():
