@@ -157,3 +157,11 @@ class TestCitus(BaseTestPostgresql):
                                                          'type': 'logical', 'database': 'citus', 'plugin': 'pgoutput'}))
         self.assertTrue(self.c.ignore_replication_slot({'name': 'citus_shard_split_slot_1_2_3',
                                                         'type': 'logical', 'database': 'citus', 'plugin': 'citus'}))
+
+    @patch('patroni.postgresql.mpp.citus.logger.debug')
+    @patch('patroni.postgresql.mpp.citus.connect', psycopg_connect)
+    @patch('patroni.postgresql.mpp.citus.quote_ident', Mock())
+    def test_bootstrap_duplicate_database(self, mock_logger):
+        self.c.bootstrap()
+        mock_logger.assert_called_once()
+        self.assertTrue(mock_logger.call_args[0][0].startswith('Exception when creating database'))
