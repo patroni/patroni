@@ -77,7 +77,7 @@ class Postgresql(object):
         self._state_lock = Lock()
         self.set_state('stopped')
 
-        self._pending_restart_reason: Dict[str, Tuple[str, str]] = {}
+        self._pending_restart_reason: Dict[str, Dict[str, str]] = {}
         self.connection_pool = ConnectionPool()
         self._connection = self.connection_pool.get('heartbeat')
         self.citus_handler = CitusHandler(self, config.get('citus'))
@@ -321,10 +321,10 @@ class Postgresql(object):
         self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout'] / 2.0
 
     @property
-    def pending_restart_reason(self) -> Dict[str, Tuple[str, str]]:
+    def pending_restart_reason(self) -> Dict[str, Dict[str, str]]:
         return self._pending_restart_reason
 
-    def set_pending_restart(self, diff_dict: Dict[str, Tuple[str, str]]) -> None:
+    def set_pending_restart(self, diff_dict: Dict[str, Dict[str, str]]) -> None:
         if not diff_dict:
             self._pending_restart_reason = {}
         else:
