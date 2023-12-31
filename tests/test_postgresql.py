@@ -18,7 +18,7 @@ from patroni.exceptions import PostgresConnectionException, PatroniException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
-from patroni.postgresql.config import get_parameter_diff
+from patroni.postgresql.config import ParamDiff
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import (ValidatorFactoryNoType, ValidatorFactoryInvalidType,
                                           ValidatorFactoryInvalidSpec, ValidatorFactory, InvalidGucValidatorsFile,
@@ -598,7 +598,7 @@ class TestPostgresql(BaseTestPostgresql):
         config['parameters']['max_worker_processes'] *= 2
         new_max_worker_processes = config['parameters']['max_worker_processes']
         # stale reason to be removed
-        self.p._pending_restart_reason = {'max_connections': get_parameter_diff('200', '100')}
+        self.p._pending_restart_reason = {'max_connections': ParamDiff('200', '100')}
 
         with patch.object(Postgresql, 'get_guc_value', Mock(return_value=str(new_max_worker_processes))), \
              patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[
@@ -609,8 +609,7 @@ class TestPostgresql(BaseTestPostgresql):
                               'max_worker_processes', str(init_max_worker_processes), new_max_worker_processes))
             self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
             self.assertEqual(self.p.pending_restart_reason,
-                             {'max_worker_processes': get_parameter_diff(init_max_worker_processes,
-                                                                         new_max_worker_processes)})
+                             {'max_worker_processes': ParamDiff(init_max_worker_processes, new_max_worker_processes)})
 
         mock_info.reset_mock()
 
@@ -670,13 +669,13 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertEqual(mock_info.call_args_list[2][0], ("PostgreSQL configuration parameters requiring restart"
                                                               " (%s) seem to be changed bypassing Patroni config."
                                                               " Setting 'Pending restart' flag", 'shared_buffers'))
-            self.assertEqual(self.p.pending_restart_reason, {'shared_buffers': get_parameter_diff('128MB', '584kB')})
+            self.assertEqual(self.p.pending_restart_reason, {'shared_buffers': ParamDiff('128MB', '584kB')})
 
             self.p.reload_config(config, True)
-            self.assertEqual(self.p.pending_restart_reason, {'shared_buffers': get_parameter_diff('128MB', '?')})
+            self.assertEqual(self.p.pending_restart_reason, {'shared_buffers': ParamDiff('128MB', '?')})
 
             self.p.reload_config(config, True)
-            self.assertEqual(self.p.pending_restart_reason, {'shared_buffers': get_parameter_diff('128MB', '')})
+            self.assertEqual(self.p.pending_restart_reason, {'shared_buffers': ParamDiff('128MB', '')})
 
         # Exception while querying pending_restart parameters
         with patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[GET_PG_SETTINGS_RESULT, Exception])):
@@ -841,11 +840,11 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertTrue('is missing from pg_controldata output' in mock_logger.warning.call_args[0][0])
 
         self.assertEqual(self.p.pending_restart_reason, {
-            'hot_standby': get_parameter_diff('on', 'off'),
-            'max_connections': get_parameter_diff('200', '100'),
-            'max_locks_per_transaction': get_parameter_diff('100', '64'),
-            'max_wal_senders': get_parameter_diff('10', '5'),
-            'max_worker_processes': get_parameter_diff('20', '8')
+            'hot_standby': ParamDiff('on', 'off'),
+            'max_connections': ParamDiff('200', '100'),
+            'max_locks_per_transaction': ParamDiff('100', '64'),
+            'max_wal_senders': ParamDiff('10', '5'),
+            'max_worker_processes': ParamDiff('20', '8')
         })
         mock_logger.info.assert_called_with("'hot_standby' parameter is set to 'off' during the custom bootstrap."
                                             " Setting 'Pending restart' flag")
@@ -853,11 +852,11 @@ class TestPostgresql(BaseTestPostgresql):
         with patch.object(Bootstrap, 'keep_existing_recovery_conf', PropertyMock(return_value=True)):
             self.assertFalse(self.p.start())
             self.assertEqual(self.p.pending_restart_reason, {
-                'hot_standby': get_parameter_diff('on', 'off'),
-                'max_connections': get_parameter_diff('200', '100'),
-                'max_locks_per_transaction': get_parameter_diff('100', '64'),
-                'max_wal_senders': get_parameter_diff('10', '5'),
-                'max_worker_processes': get_parameter_diff('20', '8')
+                'hot_standby': ParamDiff('on', 'off'),
+                'max_connections': ParamDiff('200', '100'),
+                'max_locks_per_transaction': ParamDiff('100', '64'),
+                'max_wal_senders': ParamDiff('10', '5'),
+                'max_worker_processes': ParamDiff('20', '8')
             })
             mock_logger.info.assert_called_with("'hot_standby' parameter is set to 'off' during the custom bootstrap."
                                                 " Setting 'Pending restart' flag")

@@ -50,6 +50,7 @@ from . import global_config
 from .config import Config
 from .dcs import get_dcs as _get_dcs, AbstractDCS, Cluster, Member
 from .exceptions import PatroniException
+from .postgresql.config import ParamDiff
 from .postgresql.misc import postgres_version_to_int
 from .utils import cluster_as_json, patch_config, polling_loop
 from .request import PatroniRequest
@@ -1569,11 +1570,8 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
 
             lag = member.get('lag', '')
 
-            def format_diff(param: str, values: Dict[str, str], hide_long: bool):
-                full_diff = param + ': ' + values['old_value'] + '->' + values['new_value']
-                return full_diff if not hide_long or len(full_diff) <= 50 else param + ': [hidden - too long]'
-            restart_reason = '\n'.join(
-                [format_diff(k, v, fmt == 'pretty') for k, v in member.get('pending_restart_reason', {}).items()]) or ''
+            restart_reason = '\n'.join([ParamDiff.as_string(k, v, fmt == 'pretty')
+                                        for k, v in member.get('pending_restart_reason', {}).items()]) or ''
 
             member.update(cluster=name, member=member['name'], group=g,
                           host=member.get('host', ''), tl=member.get('timeline', ''),

@@ -271,8 +271,17 @@ def _bool_is_true_validator(value: Any) -> bool:
     return parse_bool(value) is True
 
 
-def get_parameter_diff(old_value: Any, new_value: Any) -> Dict[str, str]:
-    return {'old_value': str(old_value), 'new_value': str(new_value)}
+class ParamDiff(dict[str, str]):
+
+    def __init__(self, old_value: Any, new_value: Any):
+        super(ParamDiff, self).__init__()
+        self['old_value'] = str(old_value)
+        self['new_value'] = str(new_value)
+
+    @staticmethod
+    def as_string(param: str, diff_dict: Dict[str, str], hide_long: bool) -> str:
+        full_diff = param + ': ' + diff_dict['old_value'] + '->' + diff_dict['new_value']
+        return full_diff if not hide_long or len(full_diff) <= 50 else param + ': [hidden - too long]'
 
 
 class ConfigHandler(object):
@@ -1072,7 +1081,7 @@ class ConfigHandler(object):
         server_parameters = self.get_server_parameters(config)
 
         conf_changed = hba_changed = ident_changed = local_connection_address_changed = False
-        param_diff: Dict[str, Dict[str, str]] = {}
+        param_diff: Dict[str, ParamDiff] = {}
         if self._postgresql.state == 'running':
             changes = CaseInsensitiveDict({p: v for p, v in server_parameters.items()
                                            if p.lower() not in self._RECOVERY_PARAMETERS})
@@ -1097,7 +1106,7 @@ class ConfigHandler(object):
                             conf_changed = True
                             if r[4] == 'postmaster':
                                 old_value = maybe_convert_int_base_unit(r[1], r[2])
-                                param_diff[r[0]] = get_parameter_diff(old_value, new_value)
+                                param_diff[r[0]] = ParamDiff(old_value, new_value)
                                 logger.info("Changed %s from '%s' to '%s' (restart might be required)",
                                             r[0], old_value, new_value)
                                 if config.get('use_unix_socket') and r[0] == 'unix_socket_directories'\
@@ -1161,14 +1170,14 @@ class ConfigHandler(object):
             if self._postgresql.major_version >= 90500:
                 time.sleep(1)
                 try:
-                    settings_diff: Dict[str, Dict[str, str]] = {}
+                    settings_diff: Dict[str, ParamDiff] = {}
                     for param, value, unit in self._postgresql.query(
                             'SELECT name, pg_catalog.current_setting(name), unit FROM pg_catalog.pg_settings'
                             ' WHERE pg_catalog.lower(name) != ALL(%s) AND pending_restart',
                             [n.lower() for n in self._RECOVERY_PARAMETERS]):
                         new_value = (lambda v: '?' if v is None
                                      else maybe_convert_int_base_unit(v, unit))(self._postgresql.get_guc_value(param))
-                        settings_diff[param] = get_parameter_diff(value, new_value)
+                        settings_diff[param] = ParamDiff(value, new_value)
                     external_change = {param: value for param, value in settings_diff.items()
                                        if param not in param_diff or value != param_diff[param]}
                     if external_change:
@@ -1236,7 +1245,7 @@ class ConfigHandler(object):
                 effective_configuration[name] = cvalue
                 logger.info("%s value in pg_controldata: %d, in the global configuration: %d."
                             " pg_controldata value will be used. Setting 'Pending restart' flag", name, cvalue, value)
-                self._postgresql.set_pending_restart_reason({name: get_parameter_diff(cvalue, value)}, True)
+                self._postgresql.set_pending_restart_reason({name: ParamDiff(cvalue, value)}, True)
 
         # If we are using custom bootstrap with PITR it could fail when values like max_connections
         # are increased, therefore we disable hot_standby if recovery_target_action == 'promote'.
@@ -1255,7 +1264,7 @@ class ConfigHandler(object):
                 effective_configuration['hot_standby'] = 'off'
                 logger.info("'hot_standby' parameter is set to 'off' during the custom bootstrap."
                             " Setting 'Pending restart' flag")
-                self._postgresql.set_pending_restart_reason({'hot_standby': get_parameter_diff('on', 'off')}, True)
+                self._postgresql.set_pending_restart_reason({'hot_standby': ParamDiff('on', 'off')}, True)
 
         return effective_configuration
 
