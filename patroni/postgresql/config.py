@@ -1181,7 +1181,7 @@ class ConfigHandler(object):
         else:
             logger.info('No PostgreSQL configuration items changed, nothing to reload.')
 
-        self._postgresql.set_pending_restart(param_diff)
+        self._postgresql.set_pending_restart_reason(param_diff)
 
     def set_synchronous_standby_names(self, value: Optional[str]) -> Optional[bool]:
         """Updates synchronous_standby_names and reloads if necessary.
@@ -1236,7 +1236,7 @@ class ConfigHandler(object):
                 effective_configuration[name] = cvalue
                 logger.info("%s value in pg_controldata: %d, in the global configuration: %d."
                             " pg_controldata value will be used. Setting 'Pending restart' flag", name, cvalue, value)
-                self._postgresql.set_pending_restart({name: get_parameter_diff(cvalue, value)})
+                self._postgresql.set_pending_restart_reason({name: get_parameter_diff(cvalue, value)}, True)
 
         # If we are using custom bootstrap with PITR it could fail when values like max_connections
         # are increased, therefore we disable hot_standby if recovery_target_action == 'promote'.
@@ -1255,7 +1255,7 @@ class ConfigHandler(object):
                 effective_configuration['hot_standby'] = 'off'
                 logger.info("'hot_standby' parameter is set to 'off' during the custom bootstrap."
                             " Setting 'Pending restart' flag")
-                self._postgresql.set_pending_restart({'hot_standby': get_parameter_diff('on', 'off')})
+                self._postgresql.set_pending_restart_reason({'hot_standby': get_parameter_diff('on', 'off')}, True)
 
         return effective_configuration
 

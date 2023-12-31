@@ -597,6 +597,8 @@ class TestPostgresql(BaseTestPostgresql):
         init_max_worker_processes = config['parameters']['max_worker_processes']
         config['parameters']['max_worker_processes'] *= 2
         new_max_worker_processes = config['parameters']['max_worker_processes']
+        # stale reason to be removed
+        self.p._pending_restart_reason = {'max_connections': get_parameter_diff('200', '100')}
 
         with patch.object(Postgresql, 'get_guc_value', Mock(return_value=str(new_max_worker_processes))), \
              patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[
@@ -652,7 +654,7 @@ class TestPostgresql(BaseTestPostgresql):
         mock_warning.reset_mock()
         mock_info.reset_mock()
 
-        # Non-empty result (outside changes) and exception while querying pending_restart parameters
+        # Non-empty result (outside changes)
         with patch.object(Postgresql, 'get_guc_value', Mock(side_effect=['73', None, ''])), \
              patch('patroni.postgresql.Postgresql._query',
                    Mock(side_effect=[GET_PG_SETTINGS_RESULT, [('shared_buffers', '128MB', '8kB')]] * 3)):
@@ -676,6 +678,7 @@ class TestPostgresql(BaseTestPostgresql):
             self.p.reload_config(config, True)
             self.assertEqual(self.p.pending_restart_reason, {'shared_buffers': get_parameter_diff('128MB', '')})
 
+        # Exception while querying pending_restart parameters
         with patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[GET_PG_SETTINGS_RESULT, Exception])):
             # Invalid values, just to increase silly coverage in postgresql.validator.
             # One day we will have proper tests there.
