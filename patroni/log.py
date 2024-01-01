@@ -333,7 +333,7 @@ class PatroniLogger(Thread):
         static_fields = config.get('static_fields', {})
 
         if dateformat is not None and not isinstance(dateformat, str):
-            _LOGGER.warning('Expected log dateformat to be a string, but got "%s"', logformat)
+            _LOGGER.warning('Expected log dateformat to be a string, but got "%s"', dateformat)
             dateformat = None
 
         if logtype == 'json':
