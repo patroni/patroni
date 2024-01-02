@@ -35,14 +35,14 @@ from .version import __version__
 if TYPE_CHECKING:  # pragma: no cover
     from .dcs import Cluster
 
-memory_unit_conversion_table: OrderedDict[str, Dict[str, Union[int, float]]] = OrderedDict([
+memory_unit_conversion_table: Dict[str, Dict[str, Union[int, float]]] = OrderedDict([
     ('TB', {'B': 1024**4, 'kB': 1024**3, 'MB': 1024**2}),
     ('GB', {'B': 1024**3, 'kB': 1024**2, 'MB': 1024}),
     ('MB', {'B': 1024**2, 'kB': 1024, 'MB': 1}),
     ('kB', {'B': 1024, 'kB': 1, 'MB': 1024**-1}),
     ('B', {'B': 1, 'kB': 1024**-1, 'MB': 1024**-2})
 ])
-time_unit_conversion_table: OrderedDict[str, Dict[str, Union[int, float]]] = OrderedDict([
+time_unit_conversion_table: Dict[str, Dict[str, Union[int, float]]] = OrderedDict([
     ('d', {'ms': 1000 * 60**2 * 24, 's': 60**2 * 24, 'min': 60 * 24}),
     ('h', {'ms': 1000 * 60**2, 's': 60**2, 'min': 60}),
     ('min', {'ms': 1000 * 60, 's': 60, 'min': 1}),
@@ -63,7 +63,7 @@ DBL_RE = re.compile(r'^[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?')
 WHITESPACE_RE = re.compile(r'[ \t\n\r]*', re.VERBOSE | re.MULTILINE | re.DOTALL)
 
 
-def get_conversion_table(base_unit: str) -> OrderedDict[str, Dict[str, Union[int, float]]]:
+def get_conversion_table(base_unit: str) -> Dict[str, Dict[str, Union[int, float]]]:
     """Get convertion table for the specified base unit.
 
     If no convertion table exists for the passed unit, return an empty :class:`OrderedDict`.

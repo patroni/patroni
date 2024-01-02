@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Union, Tuple, 
 from .bootstrap import Bootstrap
 from .callback_executor import CallbackAction, CallbackExecutor
 from .cancellable import CancellableSubprocess
-from .config import ConfigHandler, ParamDiff, mtime
+from .config import ConfigHandler, mtime
 from .connection import ConnectionPool, get_connection_cursor
 from .misc import parse_history, parse_lsn, postgres_major_version_to_int
 from .mpp import AbstractMPP
@@ -35,6 +35,7 @@ from ..tags import Tags
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Connection as Connection3, Cursor
     from psycopg2 import connection as connection3, cursor
+    from .config import ParamDiff
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ class Postgresql(object):
         self._state_lock = Lock()
         self.set_state('stopped')
 
-        self._pending_restart_reason: Dict[str, ParamDiff] = {}
+        self._pending_restart_reason: Dict[str, 'ParamDiff'] = {}
         self.connection_pool = ConnectionPool()
         self._connection = self.connection_pool.get('heartbeat')
         self.citus_handler = mpp.get_handler_impl(self)
@@ -321,10 +322,10 @@ class Postgresql(object):
         self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout'] / 2.0
 
     @property
-    def pending_restart_reason(self) -> Dict[str, ParamDiff]:
+    def pending_restart_reason(self) -> Dict[str, 'ParamDiff']:
         return self._pending_restart_reason
 
-    def set_pending_restart_reason(self, diff_dict: Dict[str, ParamDiff], update: bool = False) -> None:
+    def set_pending_restart_reason(self, diff_dict: Dict[str, 'ParamDiff'], update: bool = False) -> None:
         if update:
             self._pending_restart_reason.update(diff_dict)
         else:

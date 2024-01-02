@@ -271,7 +271,7 @@ def _bool_is_true_validator(value: Any) -> bool:
     return parse_bool(value) is True
 
 
-class ParamDiff(dict[str, str]):
+class ParamDiff(Dict[str, str]):
 
     def __init__(self, old_value: Any, new_value: Any):
         super(ParamDiff, self).__init__()
