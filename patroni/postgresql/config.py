@@ -337,12 +337,24 @@ class ConfigHandler(object):
 
     def load_current_server_parameters(self) -> None:
         """Read GUC's values from ``pg_settings`` when Patroni is joining the the postgres that is already running."""
-        exclude = [name.lower() for name, value in self.CMDLINE_OPTIONS.items() if value[1] == _false_validator] \
-            + [name.lower() for name in self._RECOVERY_PARAMETERS]
-        self._server_parameters = CaseInsensitiveDict({r[0]: r[1] for r in self._postgresql.query(
+        exclude = [name.lower() for name, value in self.CMDLINE_OPTIONS.items() if value[1] == _false_validator]
+        keep_values = {k: self._server_parameters[k] for k in exclude}
+        server_parameters = CaseInsensitiveDict({r[0]: r[1] for r in self._postgresql.query(
             "SELECT name, pg_catalog.current_setting(name) FROM pg_catalog.pg_settings"
             " WHERE (source IN ('command line', 'environment variable') OR sourcefile = %s)"
             " AND pg_catalog.lower(name) != ALL(%s)", self._postgresql_conf, exclude)})
+        recovery_params = CaseInsensitiveDict({k: server_parameters.pop(k) for k in self._RECOVERY_PARAMETERS
+                                               if k in server_parameters})
+        # We also want to load current settings of recovery parameters, including primary_conninfo
+        # and primary_slot_name, otherwise patronictl restart will update postgresql.conf
+        # and remove them, what in the worst case will cause another restart.
+        # We are doing it only for PostgresSQL v12 onwards, because older version still have recovery.conf
+        if not self._postgresql.is_primary() and self._postgresql.major_version >= 120000:
+            # primary_conninfo is expected to be a dict, therefore we need to parse it
+            recovery_params['primary_conninfo'] = parse_dsn(recovery_params.pop('primary_conninfo', '')) or {}
+            self._recovery_params = recovery_params
+
+        self._server_parameters = CaseInsensitiveDict({**server_parameters, **keep_values})
 
     def setup_server_parameters(self) -> None:
         self._server_parameters = self.get_server_parameters(self._config)
