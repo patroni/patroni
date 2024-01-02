@@ -132,7 +132,7 @@ postgresql:
 #  safety_margin: 5
 
 tags:
-    nofailover: false
+    # failover_priority: 1
     noloadbalance: false
     clonefrom: false
     nosync: false
