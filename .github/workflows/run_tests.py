@@ -30,7 +30,7 @@ def main():
         unbuffer = ['timeout', '900', 'unbuffer']
     else:
         if sys.platform == 'darwin':
-            version = os.environ.get('PGVERSION', '15.1-1')
+            version = os.environ.get('PGVERSION', '16.1-1')
             path = '/usr/local/opt/postgresql@{0}/bin:.'.format(version.split('.')[0])
             unbuffer = ['unbuffer']
         else:

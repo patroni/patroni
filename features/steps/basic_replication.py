@@ -123,6 +123,6 @@ def check_patroni_log(context, message_list, level, node, timeout):
         messsages_of_level = context.pctl.read_patroni_log(node, level)
         if any(any(message in line for line in messsages_of_level) for message in message_list):
             break
-        time.sleep(1)
+        sleep(1)
     else:
         assert False, f"There were none of {message_list} {level} in the {node} patroni log after {timeout} seconds"

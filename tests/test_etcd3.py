@@ -4,10 +4,12 @@ import unittest
 import urllib3
 
 from mock import Mock, PropertyMock, patch
+from patroni.dcs import get_dcs
 from patroni.dcs.etcd import DnsCachingResolver
 from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3, Etcd3Client, \
     Etcd3Error, Etcd3ClientError, ReAuthenticateMode, RetryFailedError, InvalidAuthToken, Unavailable, \
     Unknown, UnsupportedEtcdVersion, UserEmpty, AuthFailed, AuthOldRevision, base64_encode
+from patroni.postgresql.mpp import get_mpp
 from threading import Thread
 
 from . import SleepException, MockResponse
@@ -80,9 +82,9 @@ class BaseTestEtcd3(unittest.TestCase):
     @patch.object(Thread, 'start', Mock())
     @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
     def setUp(self):
-        self.etcd3 = Etcd3({'namespace': '/patroni/', 'ttl': 30, 'retry_timeout': 10,
-                            'host': 'localhost:2378', 'scope': 'test', 'name': 'foo',
-                            'username': 'etcduser', 'password': 'etcdpassword'})
+        self.etcd3 = get_dcs({'namespace': '/patroni/', 'ttl': 30, 'retry_timeout': 10, 'name': 'foo', 'scope': 'test',
+                              'etcd3': {'host': 'localhost:2378', 'username': 'etcduser', 'password': 'etcdpassword'}})
+        self.assertIsInstance(self.etcd3, Etcd3)
         self.client = self.etcd3._client
         self.kv_cache = self.client._kv_cache
 
@@ -236,7 +238,7 @@ class TestEtcd3(BaseTestEtcd3):
             self.assertRaises(Etcd3Error, self.etcd3.get_cluster)
 
     def test__get_citus_cluster(self):
-        self.etcd3._citus_group = '0'
+        self.etcd3._mpp = get_mpp({'citus': {'group': 0, 'database': 'postgres'}})
         cluster = self.etcd3.get_cluster()
         self.assertIsInstance(cluster, Cluster)
         self.assertIsInstance(cluster.workers[1], Cluster)

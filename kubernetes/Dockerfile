@@ -1,4 +1,4 @@
-FROM postgres:15
+FROM postgres:16
 LABEL maintainer="Alexander Kukushkin <akukushkin@microsoft.com>"
 
 RUN export DEBIAN_FRONTEND=noninteractive \

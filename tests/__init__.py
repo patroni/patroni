@@ -12,6 +12,7 @@ import patroni.psycopg as psycopg
 from patroni.dcs import Leader, Member
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
+from patroni.postgresql.mpp import get_mpp
 from patroni.utils import RetryFailedError, tzutc
 
 
@@ -128,6 +129,8 @@ class MockCursor(object):
             sql = sql.decode('utf-8')
         if sql.startswith('blabla'):
             raise psycopg.ProgrammingError()
+        if sql.startswith('CREATE DATABASE'):
+            raise psycopg.DuplicateDatabase()
         elif sql == 'CHECKPOINT' or sql.startswith('SELECT pg_catalog.pg_create_'):
             raise psycopg.OperationalError()
         elif sql.startswith('RetryFailedError'):
@@ -252,23 +255,24 @@ class PostgresInit(unittest.TestCase):
     @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='primary'))
     def setUp(self):
         data_dir = os.path.join('data', 'test0')
-        self.p = Postgresql({'name': 'postgresql0', 'scope': 'batman', 'data_dir': data_dir,
-                             'config_dir': data_dir, 'retry_timeout': 10,
-                             'krbsrvname': 'postgres', 'pgpass': os.path.join(data_dir, 'pgpass0'),
-                             'listen': '127.0.0.2, 127.0.0.3:5432',
-                             'connect_address': '127.0.0.2:5432', 'proxy_address': '127.0.0.2:5433',
-                             'authentication': {'superuser': {'username': 'foo', 'password': 'test'},
-                                                'replication': {'username': '', 'password': 'rep-pass'},
-                                                'rewind': {'username': 'rewind', 'password': 'test'}},
-                             'remove_data_directory_on_rewind_failure': True,
-                             'use_pg_rewind': True, 'pg_ctl_timeout': 'bla', 'use_unix_socket': True,
-                             'parameters': self._PARAMETERS,
-                             'recovery_conf': {'foo': 'bar'},
-                             'pg_hba': ['host all all 0.0.0.0/0 md5'],
-                             'pg_ident': ['krb realm postgres'],
-                             'callbacks': {'on_start': 'true', 'on_stop': 'true', 'on_reload': 'true',
-                                           'on_restart': 'true', 'on_role_change': 'true'},
-                             'citus': {'group': 0, 'database': 'citus'}})
+        config = {'name': 'postgresql0', 'scope': 'batman', 'data_dir': data_dir,
+                  'config_dir': data_dir, 'retry_timeout': 10,
+                  'krbsrvname': 'postgres', 'pgpass': os.path.join(data_dir, 'pgpass0'),
+                  'listen': '127.0.0.2, 127.0.0.3:5432',
+                  'connect_address': '127.0.0.2:5432', 'proxy_address': '127.0.0.2:5433',
+                  'authentication': {'superuser': {'username': 'foo', 'password': 'test'},
+                                     'replication': {'username': '', 'password': 'rep-pass'},
+                                     'rewind': {'username': 'rewind', 'password': 'test'}},
+                  'remove_data_directory_on_rewind_failure': True,
+                  'use_pg_rewind': True, 'pg_ctl_timeout': 'bla', 'use_unix_socket': True,
+                  'parameters': self._PARAMETERS,
+                  'recovery_conf': {'foo': 'bar'},
+                  'pg_hba': ['host all all 0.0.0.0/0 md5'],
+                  'pg_ident': ['krb realm postgres'],
+                  'callbacks': {'on_start': 'true', 'on_stop': 'true', 'on_reload': 'true',
+                                'on_restart': 'true', 'on_role_change': 'true'},
+                  'citus': {'group': 0, 'database': 'citus'}}
+        self.p = Postgresql(config, get_mpp(config))
 
 
 class BaseTestPostgresql(PostgresInit):
