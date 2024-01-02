@@ -290,10 +290,10 @@ class Config(object):
         self.__effective_configuration = self._build_effective_configuration({}, self._local_configuration)
         self._data_dir = self.__effective_configuration.get('postgresql', {}).get('data_dir', "")
         self._cache_file = os.path.join(self._data_dir, self.__CACHE_FILENAME)
-        if validator:  # patronictl uses validator=None and we don't want to load anything from local cache in this case
-            self._load_cache()
+        if validator:  # patronictl uses validator=None
+            self._load_cache()  # we don't want to load anything from local cache for ctl
+            self._validate_failover_tags()  # irrelevant for ctl
         self._cache_needs_saving = False
-        self._validate_failover_tags()
 
     @property
     def config_file(self) -> Optional[str]:
@@ -504,6 +504,7 @@ class Config(object):
                     new_configuration = self._build_effective_configuration(self._dynamic_configuration, configuration)
                     self._local_configuration = configuration
                     self.__effective_configuration = new_configuration
+                    self._validate_failover_tags()
                     return True
                 else:
                     logger.info('No local configuration items changed.')
@@ -974,10 +975,12 @@ class Config(object):
           bedrock source of truth)
         """
         tags = self.get('tags', {})
+        if 'nofailover' not in tags:
+            return
         nofailover_tag = tags.get('nofailover')
         failover_priority_tag = parse_int(tags.get('failover_priority'))
         if failover_priority_tag is not None \
-                and (nofailover_tag is True and failover_priority_tag > 0
-                     or nofailover_tag is False and failover_priority_tag <= 0):
+                and (bool(nofailover_tag) is True and failover_priority_tag > 0
+                     or bool(nofailover_tag) is False and failover_priority_tag <= 0):
             logger.warning('Conflicting configuration between nofailover: %s and failover_priority: %s. '
                            'Defaulting to nofailover: %s', nofailover_tag, failover_priority_tag, nofailover_tag)

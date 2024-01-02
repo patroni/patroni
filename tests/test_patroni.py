@@ -174,6 +174,20 @@ class TestPatroni(unittest.TestCase):
         self.p.next_run = time.time() - self.p.dcs.loop_wait - 1
         self.p.schedule_next_run()
 
+    def test__filter_tags(self):
+        tags = {'noloadbalance': False, 'clonefrom': False, 'nosync': False, 'smth': 'random'}
+        self.assertEqual(self.p._filter_tags(tags), {'smth': 'random'})
+
+        tags['clonefrom'] = True
+        tags['smth'] = False
+        self.assertEqual(self.p._filter_tags(tags), {'clonefrom': True, 'smth': False})
+
+        tags = {'nofailover': False, 'failover_priority': 0}
+        self.assertEqual(self.p._filter_tags(tags), tags)
+
+        tags = {'nofailover': True, 'failover_priority': 1}
+        self.assertEqual(self.p._filter_tags(tags), tags)
+
     def test_noloadbalance(self):
         self.p.tags['noloadbalance'] = True
         self.assertTrue(self.p.noloadbalance)
@@ -185,9 +199,11 @@ class TestPatroni(unittest.TestCase):
             # Setting `nofailover: True` has precedence
             (True, 0, True),
             (True, 1, True),
+            ('False', 1, True),  # because we use bool() for the value
             # Similarly, setting `nofailover: False` has precedence
             (False, 0, False),
             (False, 1, False),
+            ('', 0, False),
             # Only when we have `nofailover: None` should we got based on priority
             (None, 0, True),
             (None, 1, False),
