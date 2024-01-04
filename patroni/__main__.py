@@ -330,6 +330,12 @@ def main() -> None:
         ``patroni`` daemon as another process. In that case relevant signals received by the main process and forwarded
         to ``patroni`` daemon process.
     """
+    from multiprocessing import freeze_support
+
+    # Executables created by PyInstaller are frozen, thus we need to enable frozen support for
+    # :mod:`multiprocessing` to avoid :class:`RuntimeError` exceptions.
+    freeze_support()
+
     check_psycopg()
 
     args = process_arguments()
@@ -386,9 +392,4 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-    from multiprocessing import freeze_support
-
-    # Executables created by PyInstaller are frozen, thus we need to enable frozen support for
-    # :mod:`multiprocessing` to avoid :class:`RuntimeError` exceptions.
-    freeze_support()
     main()
