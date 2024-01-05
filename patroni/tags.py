@@ -22,14 +22,18 @@ class Tags(abc.ABC):
             A custom tag is any tag added to the configuration ``tags`` section that is not one of ``clonefrom``,
             ``nofailover``, ``noloadbalance`` or ``nosync``.
 
-            For the Patroni predefined tags, the returning object will only contain them if they are enabled as they
-            all are boolean values that default to disabled.
+            For most of the Patroni predefined tags, the returning object will only contain them if they are enabled as
+            they all are boolean values that default to disabled.
+            However ``nofailover`` tag is always returned if ``failover_priority`` tag is defined. In this case, we need
+            both values to see if they are contradictory and the ``nofailover`` value should be used.
 
         :returns: a dictionary of tags set for this node. The key is the tag name, and the value is the corresponding
             tag value.
         """
         return {tag: value for tag, value in tags.items()
-                if tag not in ('clonefrom', 'nofailover', 'noloadbalance', 'nosync') or value}
+                if any((tag not in ('clonefrom', 'nofailover', 'noloadbalance', 'nosync'),
+                        value,
+                        tag == 'nofailover' and 'failover_priority' in tags))}
 
     @property
     @abc.abstractmethod

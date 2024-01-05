@@ -124,6 +124,6 @@ postgresql:
   #pre_promote: /path/to/pre_promote.sh
 
 tags:
-    nofailover: false
+    # failover_priority: 1
     noloadbalance: false
     clonefrom: false
