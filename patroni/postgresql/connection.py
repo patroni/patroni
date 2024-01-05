@@ -147,7 +147,8 @@ class ConnectionPool:
     def close(self) -> None:
         """Close all named connections from Patroni to PostgreSQL registered in the pool."""
         with self._lock:
-            if any(conn.close(True) for conn in self._connections.values()):
+            closed_connections = [conn.close(True) for conn in self._connections.values()]
+            if any(closed_connections):
                 logger.info("closed patroni connections to postgres")
 
 

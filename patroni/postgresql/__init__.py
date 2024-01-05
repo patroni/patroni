@@ -19,8 +19,8 @@ from .callback_executor import CallbackAction, CallbackExecutor
 from .cancellable import CancellableSubprocess
 from .config import ConfigHandler, mtime
 from .connection import ConnectionPool, get_connection_cursor
-from .citus import CitusHandler
 from .misc import parse_history, parse_lsn, postgres_major_version_to_int
+from .mpp import AbstractMPP
 from .postmaster import PostmasterProcess
 from .slots import SlotsHandler
 from .sync import SyncHandler
@@ -63,7 +63,7 @@ class Postgresql(object):
               "pg_catalog.pg_{0}_{1}_diff(COALESCE(pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint, "
               "pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused()")
 
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
         self.name: str = config['name']
         self.scope: str = config['scope']
         self._data_dir: str = config['data_dir']
@@ -80,7 +80,7 @@ class Postgresql(object):
         self._pending_restart = False
         self.connection_pool = ConnectionPool()
         self._connection = self.connection_pool.get('heartbeat')
-        self.citus_handler = CitusHandler(self, config.get('citus'))
+        self.citus_handler = mpp.get_handler_impl(self)
         self.config = ConfigHandler(self, config)
         self.config.check_directories()
 
@@ -117,6 +117,8 @@ class Postgresql(object):
 
         # Last known running process
         self._postmaster_proc = None
+
+        self._available_gucs = None
 
         if self.is_running():
             # If we found postmaster process we need to figure out whether postgres is accepting connections
@@ -245,7 +247,9 @@ class Postgresql(object):
     @property
     def available_gucs(self) -> CaseInsensitiveSet:
         """GUCs available in this Postgres server."""
-        return self._get_gucs()
+        if not self._available_gucs:
+            self._available_gucs = self._get_gucs()
+        return self._available_gucs
 
     def _version_file_exists(self) -> bool:
         return not self.data_directory_empty() and os.path.isfile(self._version_file)

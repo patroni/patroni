@@ -19,9 +19,9 @@ from urllib3.exceptions import HTTPError
 from threading import Condition, Lock, Thread
 from typing import Any, Callable, Collection, Dict, List, Optional, Tuple, Type, Union, TYPE_CHECKING
 
-from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, \
-    TimelineHistory, CITUS_COORDINATOR_GROUP_ID, citus_group_re
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, TimelineHistory
 from ..exceptions import DCSError
+from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, iter_response_objects, keepalive_socket_options, \
     Retry, RetryFailedError, tzutc, uri, USER_AGENT
 if TYPE_CHECKING:  # pragma: no cover
@@ -748,7 +748,7 @@ class Kubernetes(AbstractDCS):
 
     _CITUS_LABEL = 'citus-group'
 
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
         self._labels = deepcopy(config['labels'])
         self._labels[config.get('scope_label', 'cluster-name')] = config['scope']
         self._label_selector = ','.join('{0}={1}'.format(k, v) for k, v in self._labels.items())
@@ -759,9 +759,9 @@ class Kubernetes(AbstractDCS):
         self._standby_leader_label_value = config.get('standby_leader_label_value', 'master')
         self._tmp_role_label = config.get('tmp_role_label')
         self._ca_certs = os.environ.get('PATRONI_KUBERNETES_CACERT', config.get('cacert')) or SERVICE_CERT_FILENAME
-        super(Kubernetes, self).__init__({**config, 'namespace': ''})
-        if self._citus_group:
-            self._labels[self._CITUS_LABEL] = self._citus_group
+        super(Kubernetes, self).__init__({**config, 'namespace': ''}, mpp)
+        if self._mpp.is_enabled():
+            self._labels[self._CITUS_LABEL] = str(self._mpp.group)
 
         self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
                             retry_exceptions=KubernetesRetriableException)
@@ -944,12 +944,12 @@ class Kubernetes(AbstractDCS):
 
         for name, pod in path['pods'].items():
             group = pod.metadata.labels.get(self._CITUS_LABEL)
-            if group and citus_group_re.match(group):
+            if group and self._mpp.group_re.match(group):
                 clusters[group]['pods'][name] = pod
 
         for name, kind in path['nodes'].items():
             group = kind.metadata.labels.get(self._CITUS_LABEL)
-            if group and citus_group_re.match(group):
+            if group and self._mpp.group_re.match(group):
                 clusters[group]['nodes'][name] = kind
         return {int(group): self._cluster_from_nodes(group, value['nodes'], value['pods'].values())
                 for group, value in clusters.items()}
@@ -976,12 +976,12 @@ class Kubernetes(AbstractDCS):
     def _load_cluster(
             self, path: str, loader: Callable[[Any], Union[Cluster, Dict[int, Cluster]]]
     ) -> Union[Cluster, Dict[int, Cluster]]:
-        group = self._citus_group if path == self.client_path('') else None
+        group = str(self._mpp.group) if self._mpp.is_enabled() and path == self.client_path('') else None
         return self.__load_cluster(group, loader)
 
     def get_citus_coordinator(self) -> Optional[Cluster]:
         try:
-            ret = self.__load_cluster(str(CITUS_COORDINATOR_GROUP_ID), self._cluster_loader)
+            ret = self.__load_cluster(str(self._mpp.coordinator_group_id), self._cluster_loader)
             if TYPE_CHECKING:  # pragma: no cover
                 assert isinstance(ret, Cluster)
             return ret

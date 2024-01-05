@@ -6,12 +6,15 @@ from threading import Condition, Event, Thread
 from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
-from ..dcs import CITUS_COORDINATOR_GROUP_ID, Cluster
-from ..psycopg import connect, quote_ident
+from . import AbstractMPP, AbstractMPPHandler
+from ...dcs import Cluster
+from ...psycopg import connect, quote_ident, DuplicateDatabase
+from ...utils import parse_int
 
 if TYPE_CHECKING:  # pragma: no cover
-    from . import Postgresql
+    from .. import Postgresql
 
+CITUS_COORDINATOR_GROUP_ID = 0
 CITUS_SLOT_NAME_RE = re.compile(r'^citus_shard_(move|split)_slot(_[1-9][0-9]*){2,3}$')
 logger = logging.getLogger(__name__)
 
@@ -63,13 +66,45 @@ class PgDistNode(object):
         return str(self)
 
 
-class CitusHandler(Thread):
+class Citus(AbstractMPP):
 
-    def __init__(self, postgresql: 'Postgresql', config: Optional[Dict[str, Union[str, int]]]) -> None:
-        super(CitusHandler, self).__init__()
+    group_re = re.compile('^(0|[1-9][0-9]*)$')
+
+    @staticmethod
+    def validate_config(config: Union[Any, Dict[str, Union[str, int]]]) -> bool:
+        """Check whether provided config is good for a given MPP.
+
+        :param config: configuration of ``citus`` MPP section.
+
+        :returns: ``True`` is config passes validation, otherwise ``False``.
+        """
+        return isinstance(config, dict) \
+            and isinstance(config.get('database'), str) \
+            and parse_int(config.get('group')) is not None
+
+    @property
+    def group(self) -> int:
+        """The group of this Citus node."""
+        return int(self._config['group'])
+
+    @property
+    def coordinator_group_id(self) -> int:
+        """The group id of the Citus coordinator PostgreSQL cluster."""
+        return CITUS_COORDINATOR_GROUP_ID
+
+
+class CitusHandler(Citus, AbstractMPPHandler, Thread):
+    """Define the interfaces for handling an underlying Citus cluster."""
+
+    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
+        """"Initialize a new instance of :class:`CitusHandler`.
+
+        :param postgresql: the Postgres node.
+        :param config: the ``citus`` MPP config section.
+        """
+        Thread.__init__(self)
+        AbstractMPPHandler.__init__(self, postgresql, config)
         self.daemon = True
-        self._postgresql = postgresql
-        self._config = config
         if config:
             self._connection = postgresql.connection_pool.get(
                 'citus', {'dbname': config['database'],
@@ -81,26 +116,19 @@ class CitusHandler(Thread):
         self._condition = Condition()  # protects _pg_dist_node, _tasks, _in_flight, and _schedule_load_pg_dist_node
         self.schedule_cache_rebuild()
 
-    def is_enabled(self) -> bool:
-        return isinstance(self._config, dict)
-
-    def group(self) -> Optional[int]:
-        return int(self._config['group']) if isinstance(self._config, dict) else None
-
-    def is_coordinator(self) -> bool:
-        return self.is_enabled() and self.group() == CITUS_COORDINATOR_GROUP_ID
-
-    def is_worker(self) -> bool:
-        return self.is_enabled() and not self.is_coordinator()
-
     def schedule_cache_rebuild(self) -> None:
+        """Cache rebuild handler.
+
+        Is called to notify handler that it has to refresh its metadata cache from the database.
+        """
         with self._condition:
             self._schedule_load_pg_dist_node = True
 
     def on_demote(self) -> None:
         with self._condition:
             self._pg_dist_node.clear()
-            self._tasks[:] = []
+            empty_tasks: List[PgDistNode] = []
+            self._tasks[:] = empty_tasks
             self._in_flight = None
 
     def query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
@@ -133,8 +161,8 @@ class CitusHandler(Thread):
             self._pg_dist_node = {r[1]: PgDistNode(r[1], r[2], r[3], 'after_promote', r[0]) for r in rows}
         return True
 
-    def sync_pg_dist_node(self, cluster: Cluster) -> None:
-        """Maintain the `pg_dist_node` from the coordinator leader every heartbeat loop.
+    def sync_meta_data(self, cluster: Cluster) -> None:
+        """Maintain the ``pg_dist_node`` from the coordinator leader every heartbeat loop.
 
         We can't always rely on REST API calls from worker nodes in order
         to maintain `pg_dist_node`, therefore at least once per heartbeat
@@ -295,16 +323,16 @@ class CitusHandler(Thread):
         with self._condition:
             i = self.find_task_by_group(task.group)
 
-            # The `PgDistNode.timeout` == None is an indicator that it was scheduled from the sync_pg_dist_node().
+            # The `PgDistNode.timeout` == None is an indicator that it was scheduled from the sync_meta_data().
             if task.timeout is None:
                 # We don't want to override the already existing task created from REST API.
                 if i is not None and self._tasks[i].timeout is not None:
                     return False
 
                 # There is a little race condition with tasks created from REST API - the call made "before" the member
-                # key is updated in DCS. Therefore it is possible that :func:`sync_pg_dist_node` will try to create a
-                # task based on the outdated values of "state"/"role". To solve it we introduce an artificial timeout.
-                # Only when the timeout is reached new tasks could be scheduled from sync_pg_dist_node()
+                # key is updated in DCS. Therefore it is possible that :func:`sync_meta_data` will try to create a task
+                # based on the outdated values of "state"/"role". To solve it we introduce an artificial timeout.
+                # Only when the timeout is reached new tasks could be scheduled from sync_meta_data()
                 if self._in_flight and self._in_flight.group == task.group and self._in_flight.timeout is not None\
                         and self._in_flight.deadline > time.time():
                     return False
@@ -352,9 +380,10 @@ class CitusHandler(Thread):
             task.wait()
 
     def bootstrap(self) -> None:
-        if not isinstance(self._config, dict):  # self.is_enabled()
-            return
+        """Bootstrap handler.
 
+        Is called when the new cluster is initialized (through ``initdb`` or a custom bootstrap method).
+        """
         conn_kwargs = {**self._postgresql.connection_pool.conn_kwargs,
                        'options': '-c synchronous_commit=local -c statement_timeout=0'}
         if self._config['database'] != self._postgresql.database:
@@ -363,6 +392,8 @@ class CitusHandler(Thread):
                 with conn.cursor() as cur:
                     cur.execute('CREATE DATABASE {0}'.format(
                         quote_ident(self._config['database'], conn)).encode('utf-8'))
+            except DuplicateDatabase as e:
+                logger.debug('Exception when creating database: %r', e)
             finally:
                 conn.close()
 
@@ -370,7 +401,7 @@ class CitusHandler(Thread):
         conn = connect(**conn_kwargs)
         try:
             with conn.cursor() as cur:
-                cur.execute('CREATE EXTENSION citus')
+                cur.execute('CREATE EXTENSION IF NOT EXISTS citus')
 
                 superuser = self._postgresql.config.superuser
                 params = {k: superuser[k] for k in ('password', 'sslcert', 'sslkey') if k in superuser}
@@ -387,9 +418,10 @@ class CitusHandler(Thread):
             conn.close()
 
     def adjust_postgres_gucs(self, parameters: Dict[str, Any]) -> None:
-        if not self.is_enabled():
-            return
+        """Adjust GUCs in the current PostgreSQL configuration.
 
+        :param parameters: dictionary of GUCs, with key as GUC name and the corresponding value as current GUC value.
+        """
         # citus extension must be on the first place in shared_preload_libraries
         shared_preload_libraries = list(filter(
             lambda el: el and el != 'citus',
@@ -407,8 +439,18 @@ class CitusHandler(Thread):
         parameters['citus.local_hostname'] = self._postgresql.connection_pool.conn_kwargs.get('host', 'localhost')
 
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
-        if isinstance(self._config, dict) and self._postgresql.is_primary() and\
-                slot['type'] == 'logical' and slot['database'] == self._config['database']:
+        """Check whether provided replication *slot* existing in the database should not be removed.
+
+        .. note::
+            MPP database may create replication slots for its own use, for example to migrate data between workers
+            using logical replication, and we don't want to suddenly drop them.
+
+        :param slot: dictionary containing the replication slot settings, like ``name``, ``database``, ``type``, and
+                     ``plugin``.
+
+        :returns: ``True`` if the replication slots should not be removed, otherwise ``False``.
+        """
+        if self._postgresql.is_primary() and slot['type'] == 'logical' and slot['database'] == self._config['database']:
             m = CITUS_SLOT_NAME_RE.match(slot['name'])
             return bool(m and {'move': 'pgoutput', 'split': 'citus'}.get(m.group(1)) == slot['plugin'])
         return False

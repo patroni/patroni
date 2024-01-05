@@ -68,7 +68,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
         self.watchdog = Watchdog(self.config)
         self.load_dynamic_configuration()
 
-        self.postgresql = Postgresql(self.config['postgresql'])
+        self.postgresql = Postgresql(self.config['postgresql'], self.dcs.mpp)
         self.api = RestApiServer(self, self.config['restapi'])
         self.ha = Ha(self)
 
@@ -229,11 +229,6 @@ def patroni_main(configfile: str) -> None:
 
     :param configfile: path to Patroni configuration file.
     """
-    from multiprocessing import freeze_support
-
-    # Windows executables created by PyInstaller are frozen, thus we need to enable frozen support for
-    # :mod:`multiprocessing` to avoid :class:`RuntimeError` exceptions.
-    freeze_support()
     abstract_main(Patroni, configfile)
 
 
@@ -335,6 +330,12 @@ def main() -> None:
         ``patroni`` daemon as another process. In that case relevant signals received by the main process and forwarded
         to ``patroni`` daemon process.
     """
+    from multiprocessing import freeze_support
+
+    # Executables created by PyInstaller are frozen, thus we need to enable frozen support for
+    # :mod:`multiprocessing` to avoid :class:`RuntimeError` exceptions.
+    freeze_support()
+
     check_psycopg()
 
     args = process_arguments()

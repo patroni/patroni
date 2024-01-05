@@ -51,6 +51,7 @@ from .config import Config
 from .dcs import get_dcs as _get_dcs, AbstractDCS, Cluster, Member
 from .exceptions import PatroniException
 from .postgresql.misc import postgres_version_to_int
+from .postgresql.mpp import get_mpp
 from .utils import cluster_as_json, patch_config, polling_loop
 from .request import PatroniRequest
 from .version import __version__
@@ -313,7 +314,7 @@ def ctl(ctx: click.Context, config_file: str, dcs_url: Optional[str], insecure: 
     config = load_config(config_file, dcs_url)
     # backward compatibility for configuration file where ctl section is not defined
     config.setdefault('ctl', {})['insecure'] = config.get('ctl', {}).get('insecure') or insecure
-    ctx.obj = {'__config': config}
+    ctx.obj = {'__config': config, '__mpp': get_mpp(config)}
 
 
 def is_citus_cluster() -> bool:
@@ -321,7 +322,7 @@ def is_citus_cluster() -> bool:
 
     :returns: ``True`` if configuration has ``citus`` section, otherwise ``False``.
     """
-    return bool(_get_configuration().get('citus'))
+    return click.get_current_context().obj['__mpp'].is_enabled()
 
 
 def get_dcs(scope: str, group: Optional[int]) -> AbstractDCS:
@@ -340,12 +341,13 @@ def get_dcs(scope: str, group: Optional[int]) -> AbstractDCS:
     config = _get_configuration()
     config.update({'scope': scope, 'patronictl': True})
     if group is not None:
-        config['citus'] = {'group': group}
+        config['citus'] = {'group': group, 'database': 'postgres'}
     config.setdefault('name', scope)
     try:
         dcs = _get_dcs(config)
         if is_citus_cluster() and group is None:
             dcs.is_citus_coordinator = lambda: True
+        click.get_current_context().obj['__mpp'] = dcs.mpp
         return dcs
     except PatroniException as e:
         raise PatroniCtlException(str(e))
@@ -819,7 +821,7 @@ def query(
             raise PatroniCtlException('You need to specify either --command or --file')
         sql = command
 
-    connect_parameters = {}
+    connect_parameters: Dict[str, str] = {}
     if username:
         connect_parameters['username'] = username
     if password:
@@ -1093,7 +1095,7 @@ def restart(cluster_name: str, group: Optional[int], member_names: List[str],
         version = click.prompt('Restart if the PostgreSQL version is less than provided (e.g. 9.5.2) ',
                                type=str, default='')
 
-    content = {}
+    content: Dict[str, Any] = {}
     if pending:
         content['restart_pending'] = True
 
@@ -1185,7 +1187,7 @@ def reinit(cluster_name: str, group: Optional[int], member_names: List[str], for
 
 
 def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[int],
-                               leader: Optional[str], candidate: Optional[str],
+                               switchover_leader: Optional[str], candidate: Optional[str],
                                force: bool, scheduled: Optional[str] = None) -> None:
     """Perform a failover or a switchover operation in the cluster.
 
@@ -1199,7 +1201,7 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
     :param cluster_name: name of the Patroni cluster.
     :param group: filter Citus group within we should perform a failover or switchover. If ``None``, user will be
         prompted for filling it -- unless *force* is ``True``, in which case an exception is raised.
-    :param leader: name of the current leader member.
+    :param switchover_leader: name of the leader member passed as switchover option.
     :param candidate: name of a standby member to be promoted. Nodes that are tagged with ``nofailover`` cannot be used.
     :param force: perform the failover or switchover without asking for confirmations.
     :param scheduled: timestamp when the switchover should be scheduled to occur. If ``now`` perform immediately.
@@ -1208,10 +1210,11 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
         :class:`PatroniCtlException`: if:
             * Patroni is running on a Citus cluster, but no *group* was specified; or
             * a switchover was requested by the cluster has no leader; or
-            * *leader* does not match the current leader of the cluster; or
+            * *switchover_leader* does not match the current leader of the cluster; or
             * cluster has no candidates available for the operation; or
             * no *candidate* is given for a failover operation; or
-            * *leader* and *candidate* are the same; or
+            * current leader and *candidate* are the same; or
+            * *candidate* is tagged as nofailover; or
             * *candidate* is not a member of the cluster; or
             * trying to schedule a switchover in a cluster that is in maintenance mode; or
             * user aborts the operation.
@@ -1231,23 +1234,24 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
 
     config = global_config.from_cluster(cluster)
 
+    cluster_leader = cluster.leader and cluster.leader.name
     # leader has to be be defined for switchover only
     if action == 'switchover':
-        if cluster.leader is None or not cluster.leader.name:
+        if not cluster_leader:
             raise PatroniCtlException('This cluster has no leader')
 
-        if leader is None:
+        if switchover_leader is None:
             if force:
-                leader = cluster.leader.name
+                switchover_leader = cluster_leader
             else:
                 prompt = 'Standby Leader' if config.is_standby_cluster else 'Primary'
-                leader = click.prompt(prompt, type=str, default=(cluster.leader and cluster.leader.name))
+                switchover_leader = click.prompt(prompt, type=str, default=cluster_leader)
 
-        if cluster.leader.name != leader:
-            raise PatroniCtlException(f'Member {leader} is not the leader of cluster {cluster_name}')
+        if cluster_leader != switchover_leader:
+            raise PatroniCtlException(f'Member {switchover_leader} is not the leader of cluster {cluster_name}')
 
     # excluding members with nofailover tag
-    candidate_names = [str(m.name) for m in cluster.members if m.name != leader and not m.nofailover]
+    candidate_names = [str(m.name) for m in cluster.members if m.name != cluster_leader and not m.nofailover]
     # We sort the names for consistent output to the client
     candidate_names.sort()
 
@@ -1260,10 +1264,10 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
     if action == 'failover' and not candidate:
         raise PatroniCtlException('Failover could be performed only to a specific candidate')
 
-    if candidate == leader:
-        raise PatroniCtlException(action.title() + ' target and source are the same.')
-
     if candidate and candidate not in candidate_names:
+        if candidate == cluster_leader:
+            raise PatroniCtlException(
+                f'Member {candidate} is already the leader of cluster {cluster_name}')
         raise PatroniCtlException(
             f'Member {candidate} does not exist in cluster {cluster_name} or is tagged as nofailover')
 
@@ -1272,7 +1276,7 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
             config.is_synchronous_mode,
             not cluster.sync.is_empty,
             not cluster.sync.matches(candidate, True))):
-        if click.confirm(f'Are you sure you want to failover to the asynchronous node {candidate}'):
+        if not click.confirm(f'Are you sure you want to failover to the asynchronous node {candidate}?'):
             raise PatroniCtlException('Aborting ' + action)
 
     scheduled_at_str = None
@@ -1292,7 +1296,7 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
 
     failover_value = {'candidate': candidate}
     if action == 'switchover':
-        failover_value['leader'] = leader
+        failover_value['leader'] = switchover_leader
     if scheduled_at_str:
         failover_value['scheduled_at'] = scheduled_at_str
 
@@ -1300,7 +1304,7 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
 
     # By now we have established that the leader exists and the candidate exists
     if not force:
-        demote_msg = f', demoting current leader {cluster.leader.name}' if cluster.leader else ''
+        demote_msg = f', demoting current leader {cluster_leader}' if cluster_leader else ''
         if scheduled_at_str:
             # only switchover can be scheduled
             if not click.confirm(f'Are you sure you want to schedule switchover of cluster '
@@ -1334,7 +1338,7 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
         logging.exception(r)
         logging.warning('Failing over to DCS')
         click.echo('{0} Could not {1} using Patroni api, falling back to DCS'.format(timestamp(), action))
-        dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at)
+        dcs.manual_failover(switchover_leader, candidate, scheduled_at=scheduled_at)
 
     output_members(cluster, cluster_name, group=group)
 

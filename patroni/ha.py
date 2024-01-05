@@ -343,7 +343,7 @@ class Ha(object):
             if coordinator and coordinator.leader and coordinator.leader.conn_url:
                 try:
                     data = {'type': event,
-                            'group': self.state_handler.citus_handler.group(),
+                            'group': self.state_handler.citus_handler.group,
                             'leader': self.state_handler.name,
                             'timeout': self.dcs.ttl,
                             'cooldown': self.patroni.config['retry_timeout']}
@@ -999,7 +999,7 @@ class Ha(object):
             self.state_handler.set_role('master')
             self.process_sync_replication()
             self.update_cluster_history()
-            self.state_handler.citus_handler.sync_pg_dist_node(self.cluster)
+            self.state_handler.citus_handler.sync_meta_data(self.cluster)
             return message
         elif self.state_handler.role in ('master', 'promoted', 'primary'):
             self.process_sync_replication()
@@ -2041,10 +2041,9 @@ class Ha(object):
                             logger.fatal('system ID mismatch, node %s belongs to a different cluster: %s != %s',
                                          self.state_handler.name, self.cluster.initialize, data_sysid)
                             sys.exit(1)
-                elif self.cluster.is_unlocked() and not self.is_paused():
+                elif self.cluster.is_unlocked() and not self.is_paused() and not self.state_handler.cb_called:
                     # "bootstrap", but data directory is not empty
-                    if not self.state_handler.cb_called and self.state_handler.is_running() \
-                            and not self.state_handler.is_primary():
+                    if self.state_handler.is_running() and not self.state_handler.is_primary():
                         self._join_aborted = True
                         logger.error('No initialize key in DCS and PostgreSQL is running as replica, aborting start')
                         logger.error('Please first start Patroni on the node running as primary')

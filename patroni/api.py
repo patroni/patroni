@@ -37,7 +37,7 @@ from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Ret
 logger = logging.getLogger(__name__)
 
 
-def check_access(func: Callable[['RestApiHandler'], None]) -> Callable[..., None]:
+def check_access(func: Callable[..., None]) -> Callable[..., None]:
     """Check the source ip, authorization header, or client certificates.
 
     .. note::
@@ -1174,8 +1174,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_POST_citus(self) -> None:
         """Handle a ``POST`` request to ``/citus`` path.
 
-        Call :func:`~patroni.postgresql.CitusHandler.handle_event` to handle the request, then write a response with
-        HTTP status code ``200``.
+        Call :func:`~patroni.postgresql.mpp.AbstractMPPHandler.handle_event` to handle the request,
+        then write a response with HTTP status code ``200``.
 
         .. note::
             If unable to parse the request body, then the request is silently discarded.

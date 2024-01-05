@@ -13,6 +13,20 @@ available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 config = {
     "name": "string",
     "scope": "string",
+    "log": {
+        "level": "DEBUG",
+        "traceback_level": "DEBUG",
+        "format": "%(asctime)s %(levelname)s: %(message)s",
+        "dateformat": "%Y-%m-%d %H:%M:%S",
+        "max_queue_size": 100,
+        "dir": "/tmp",
+        "file_num": 10,
+        "file_size": 1000000,
+        "loggers": {
+            "patroni.postmaster": "WARNING",
+            "urllib3": "DEBUG"
+        }
+    },
     "restapi": {
         "listen": "127.0.0.2:800",
         "connect_address": "127.0.0.2:800",
