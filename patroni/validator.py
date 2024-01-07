@@ -20,6 +20,12 @@ from .log import type_logformat
 
 
 def validate_log_field(field: Union[str, Dict[str, Any], Any]) -> bool:
+    """Checks if log field is valid.
+
+    :param field: A log field to be validated.
+
+    :returns: `True` if the field is either a string or a dictionary with string values, `False` otherwise.
+    """
     if isinstance(field, str):
         return True
     elif isinstance(field, dict):
@@ -28,6 +34,17 @@ def validate_log_field(field: Union[str, Dict[str, Any], Any]) -> bool:
 
 
 def validate_log_format(logformat: type_logformat) -> bool:
+    """Checks if log format is valid.
+
+    :param logformat: A log format to be validated.
+
+    :returns: `True` if the log format is either a string or a list of valid log fields.
+
+    :raises:
+        :class:`~patroni.exceptions.ConfigParseError`:
+            * If the logformat is not a string or a list; or
+            * If the log format be a list and it contains atleast one invalid log field.
+    """
     if isinstance(logformat, str):
         return True
     elif isinstance(logformat, list):

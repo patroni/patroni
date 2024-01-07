@@ -158,6 +158,7 @@ class PatroniLogger(Thread):
     .. seealso::
         :class:`QueueHandler`: object used for enqueueing messages in-memory.
 
+    :cvar DEFAULT_TYPE: default type of log format (``plain``).
     :cvar DEFAULT_LEVEL: default logging level (``INFO``).
     :cvar DEFAULT_TRACEBACK_LEVEL: default traceback logging level (``ERROR``).
     :cvar DEFAULT_FORMAT: default format of log messages (``%(asctime)s %(levelname)s: %(message)s``).
@@ -240,6 +241,12 @@ class PatroniLogger(Thread):
             logger.setLevel(level)
 
     def _is_config_changed(self, config: Dict[str, Any]) -> bool:
+        """Checks if the given config is different from the current one.
+
+        :param config: `log` section from Patroni configuration.
+
+        :returns: `True` if the config is changed, `False` otherwise.
+        """
         oldlogtype = (self._config or {}).get('type', PatroniLogger.DEFAULT_TYPE)
         logtype = config.get('type', PatroniLogger.DEFAULT_TYPE)
 
@@ -269,7 +276,16 @@ class PatroniLogger(Thread):
         return not deep_compare(old_log_config, log_config)
 
     def _get_plain_formatter(self, logformat: type_logformat, dateformat: Optional[str]) -> logging.Formatter:
-        """Create formatter for plain log type."""
+        """Returns a logging formatter with the specified format and date format.
+
+        .. note::
+            If the log format is invalid, prints a warning message and uses the default log format instead.
+
+        :param logformat: The format of the log messages.
+        :param dateformat: The format of the timestamp in the log messages.
+
+        :returns: A logging formatter object that can be used to format log records.
+        """
 
         if not isinstance(logformat, str):
             _LOGGER.warning('Expected log format to be a string when log type is plain, but got "%s"', logformat)
@@ -279,7 +295,18 @@ class PatroniLogger(Thread):
 
     def _get_json_formatter(self, logformat: type_logformat, dateformat: Optional[str],
                             static_fields: Dict[str, Any]) -> logging.Formatter:
-        """Create formatter for json log type."""
+        """Returns a logging formatter that outputs JSON formatted messages.
+
+        .. note::
+            If `pythonjsonlogger` library is not installed, prints an error message and return
+            a plain log formatter instead.
+
+        :param logformat: Specifies the log fields and their key names in the JSON log message.
+        :param dateformat: The format of the timestamp in the log messages.
+        :param static_fields: A dictionary of static fields that are added to every log message.
+
+        :returns: A logging formatter object that can be used to format log records as JSON strings.
+        """
 
         if isinstance(logformat, str):
             jsonformat = logformat
@@ -327,6 +354,12 @@ class PatroniLogger(Thread):
         return formatter
 
     def _get_formatter(self, config: Dict[str, Any]) -> logging.Formatter:
+        """Returns a logging formatter based on the type of logger in the given configuration.
+
+        :param config: `log` section from Patroni configuration.
+
+        :returns: A logging.Formatter object that can be used to format log records.
+        """
         logtype = config.get('type', PatroniLogger.DEFAULT_TYPE)
         logformat: type_logformat = config.get('format', PatroniLogger.DEFAULT_FORMAT)
         dateformat = config.get('dateformat') or None  # Convert empty string to `None`
