@@ -18,6 +18,7 @@ from patroni.exceptions import PostgresConnectionException, PatroniException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
+from patroni.postgresql.config import _false_validator
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import (ValidatorFactoryNoType, ValidatorFactoryInvalidType,
                                           ValidatorFactoryInvalidSpec, ValidatorFactory, InvalidGucValidatorsFile,
@@ -1058,3 +1059,14 @@ class TestPostgresql2(BaseTestPostgresql):
         self.assertIn('diff(pg_catalog.pg_current_xlog_flush_location(', self.p.cluster_info_query)
         self.p._major_version = 90500
         self.assertIn('diff(pg_catalog.pg_current_xlog_location(', self.p.cluster_info_query)
+
+    @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
+    @patch.object(Postgresql, '_query', Mock(return_value=[('primary_conninfo', 'host=a port=5433 passfile=/blabla')]))
+    def test_load_current_server_parameters(self):
+        keep_values = {name: self.p.config._server_parameters[name]
+                       for name, value in self.p.config.CMDLINE_OPTIONS.items() if value[1] == _false_validator}
+        self.p.config.load_current_server_parameters()
+        self.assertTrue(all(self.p.config._server_parameters[name] == value for name, value in keep_values.items()))
+        self.assertEqual(dict(self.p.config._recovery_params),
+                         {'primary_conninfo': {'host': 'a', 'port': '5433', 'passfile': '/blabla',
+                          'gssencmode': 'prefer', 'sslmode': 'prefer', 'channel_binding': 'prefer'}})
