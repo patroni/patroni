@@ -24,12 +24,13 @@ def validate_log_field(field: Union[str, Dict[str, Any], Any]) -> bool:
 
     :param field: A log field to be validated.
 
-    :returns: `True` if the field is either a string or a dictionary with string values, `False` otherwise.
+    :returns: `True` if the field is either a string or a dictionary with exactly one key
+    that has string value, `False` otherwise.
     """
     if isinstance(field, str):
         return True
     elif isinstance(field, dict):
-        return all(map(lambda renamed_field: isinstance(renamed_field, str), field.values()))
+        return len(field) == 1 and isinstance(next(iter(field.values())), str)
     return False
 
 
@@ -43,11 +44,14 @@ def validate_log_format(logformat: type_logformat) -> bool:
     :raises:
         :class:`~patroni.exceptions.ConfigParseError`:
             * If the logformat is not a string or a list; or
-            * If the log format be a list and it contains atleast one invalid log field.
+            * If the logformat is an empty list; or
+            * If the log format is a list and it with values that don't pass validation using :func:`validate_log_field`.
     """
     if isinstance(logformat, str):
         return True
     elif isinstance(logformat, list):
+        if len(logformat) == 0:
+            raise ConfigParseError('should contains at least one item')
         if not all(map(validate_log_field, logformat)):
             raise ConfigParseError('Each item should be a string or a dictionary with string values')
 

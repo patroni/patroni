@@ -279,7 +279,7 @@ class PatroniLogger(Thread):
         """Returns a logging formatter with the specified format and date format.
 
         .. note::
-            If the log format is invalid, prints a warning message and uses the default log format instead.
+            If the log format isn't a string, prints a warning message and uses the default log format instead.
 
         :param logformat: The format of the log messages.
         :param dateformat: The format of the timestamp in the log messages.
@@ -298,7 +298,7 @@ class PatroniLogger(Thread):
         """Returns a logging formatter that outputs JSON formatted messages.
 
         .. note::
-            If `pythonjsonlogger` library is not installed, prints an error message and return
+            If `pythonjsonlogger` library is not installed, prints an error message and returns
             a plain log formatter instead.
 
         :param logformat: Specifies the log fields and their key names in the JSON log message.
@@ -332,7 +332,10 @@ class PatroniLogger(Thread):
                         field
                     )
 
-            jsonformat = ' '.join([f'%({field})s' for field in log_fields])
+            if len(log_fields) > 0:
+                jsonformat = ' '.join([f'%({field})s' for field in log_fields])
+            else:
+                jsonformat = PatroniLogger.DEFAULT_FORMAT
         else:
             jsonformat = PatroniLogger.DEFAULT_FORMAT
             rename_fields = {}
