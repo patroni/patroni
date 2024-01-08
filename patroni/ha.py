@@ -327,20 +327,25 @@ class Ha(object):
         return tags
 
     def notify_mpp_coordinator(self, event: str) -> None:
-        if self.state_handler.mpp_handler.is_worker():
+        mpp_handler = self.state_handler.mpp_handler
+        if mpp_handler.is_worker():
             coordinator = self.dcs.get_mpp_coordinator()
             if coordinator and coordinator.leader and coordinator.leader.conn_url:
                 try:
                     data = {'type': event,
-                            'group': self.state_handler.mpp_handler.group,
+                            'group': mpp_handler.group,
                             'leader': self.state_handler.name,
                             'timeout': self.dcs.ttl,
                             'cooldown': self.patroni.config['retry_timeout']}
                     timeout = self.dcs.ttl if event == 'before_demote' else 2
-                    self.patroni.request(coordinator.leader.member, 'post', 'mpp', data, timeout=timeout, retries=0)
+                    if mpp_handler.type == 'Citus':
+                        self.patroni.request(coordinator.leader.member, 'post', 'citus',
+                                             data, timeout=timeout, retries=0)
+                    else:
+                        self.patroni.request(coordinator.leader.member, 'post', 'mpp', data, timeout=timeout, retries=0)
                 except Exception as e:
-                    logger.warning('Request to MPP coordinator leader %s %s failed: %r',
-                                   coordinator.leader.name, coordinator.leader.member.api_url, e)
+                    logger.warning('Request to %s coordinator leader %s %s failed: %r' % (mpp_handler.type,
+                                   coordinator.leader.name, coordinator.leader.member.api_url, e))
 
     def touch_member(self) -> bool:
         with self._member_state_lock:

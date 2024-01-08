@@ -92,6 +92,11 @@ class Citus(AbstractMPP):
         """The group id of the Citus coordinator PostgreSQL cluster."""
         return CITUS_COORDINATOR_GROUP_ID
 
+    @property
+    def type(self) -> str:
+        """The type of Citus cluster."""
+        return "Citus"
+
 
 class CitusHandler(Citus, AbstractMPPHandler, Thread):
     """Define the interfaces for handling an underlying Citus cluster."""

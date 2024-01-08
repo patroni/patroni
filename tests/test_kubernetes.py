@@ -268,7 +268,7 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
         with patch.object(Kubernetes, '_postgresql_cluster_loader', Mock(side_effect=Exception)):
             self.assertIsNone(self.k.get_mpp_coordinator())
             mock_logger.assert_called()
-            self.assertTrue(mock_logger.call_args[0][0].startswith('Failed to load MPP coordinator'))
+            self.assertTrue(mock_logger.call_args[0][0].startswith('Failed to load Null coordinator'))
 
     def test_attempt_to_acquire_leader(self):
         with patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', create=True) as mock_patch:

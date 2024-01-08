@@ -1551,7 +1551,7 @@ class TestHa(PostgresInit):
         self.ha.patroni.request = Mock()
         self.ha.shutdown()
         self.ha.patroni.request.assert_called()
-        self.assertEqual(self.ha.patroni.request.call_args[0][2], 'mpp')
+        self.assertEqual(self.ha.patroni.request.call_args[0][2], 'citus')
         self.assertEqual(self.ha.patroni.request.call_args[0][3]['type'], 'before_demote')
 
     @patch('time.sleep', Mock())
@@ -1667,4 +1667,5 @@ class TestHa(PostgresInit):
             self.ha.notify_mpp_coordinator('before_promote')
             self.assertEqual(self.ha.patroni.request.call_args[1]['timeout'], 2)
             mock_logger.assert_called()
-            self.assertTrue(mock_logger.call_args[0][0].startswith('Request to MPP coordinator'))
+            print(mock_logger.call_args[0][0])
+            self.assertTrue(mock_logger.call_args[0][0].startswith('Request to Citus coordinator'))

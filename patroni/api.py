@@ -1153,7 +1153,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_POST_citus(self) -> None:
         """Handle a ``POST`` request to ``/citus`` path.
 
-        Deprecated, dispatch to do_POST_mpp
+        We keep this entrypoint and dispatch the request to do_POST_mpp.
         """
         self.do_POST_mpp()
 
