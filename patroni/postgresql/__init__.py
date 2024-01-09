@@ -332,7 +332,7 @@ class Postgresql(object):
     def set_pending_restart_reason(self, diff_dict: CaseInsensitiveDict, update: bool = False) -> None:
         """Set new or update current :attr:`_pending_restart_reason`.
 
-        :param diff_dict: :class:``CaseInsensitiveDict` object with the parameters that are causing pending restart
+        :param diff_dict: :class:``CaseInsensitiveDict`` object with the parameters that are causing pending restart
             state with the diff of their values. Used to reset/update the :attr:`_pending_restart_reason`.
         :param update: bool, indicates if :attr:`_pending_restart_reason` should be updated or reset with *diff_dict*.
         """
