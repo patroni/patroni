@@ -316,8 +316,9 @@ def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: Optiona
     convert_tbl = get_conversion_table(base_unit)
     if unit in convert_tbl and base_unit in convert_tbl[unit]:
         value *= convert_tbl[unit][base_unit] / float(base_value)
-        multiplier = convert_tbl[round_order[unit]][base_unit]
-        value = round(value / float(multiplier)) * multiplier
+        if unit in round_order:
+            multiplier = convert_tbl[round_order[unit]][base_unit]
+            value = round(value / float(multiplier)) * multiplier
         return value
 
 
@@ -334,7 +335,7 @@ def convert_int_from_base_unit(base_value: int, base_unit: Optional[str]) -> Opt
             * For time: ``ms``, ``s``, ``min``.
 
     :returns: :class:`str` value representing *base_value* converted from *base_unit* to the greatest
-    possible human-friendly unit, or ``None`` if convertion failed.
+        possible human-friendly unit, or ``None`` if convertion failed.
 
     :Example:
 
@@ -353,7 +354,6 @@ def convert_int_from_base_unit(base_value: int, base_unit: Optional[str]) -> Opt
         >>> convert_int_from_base_unit(1024, 'KB') is None
         True
     """
-
     base_value_mult, base_unit = strtol(base_unit, False)
     if TYPE_CHECKING:  # pragma: no cover
         assert isinstance(base_value_mult, int)
@@ -366,11 +366,11 @@ def convert_int_from_base_unit(base_value: int, base_unit: Optional[str]) -> Opt
             return str(round(base_value / multiplier)) + unit
 
 
-def maybe_convert_int_base_unit(base_value: str, base_unit: Optional[str]) -> str:
-    """Try to convert integer value in a base unit to a human-readable unit.
+def convert_real_from_base_unit(base_value: float, base_unit: Optional[str]) -> Optional[str]:
+    """Convert an floating-point value in some base unit to a human-friendly unit.
 
-    Value is passed as a string. If parsing or subsequent convertion fails, the original
-    value is returned.
+    Same as :func:`convert_int_from_base_unit`, except we have to do the math a bit differently,
+    and there's a possibility that we don't find any exact divisor.
 
     :param base_value: value to be converted from a base unit
     :param base_unit: unit of *value*. Should be one of the base units (case sensitive):
@@ -379,12 +379,67 @@ def maybe_convert_int_base_unit(base_value: str, base_unit: Optional[str]) -> st
             * For time: ``ms``, ``s``, ``min``.
 
     :returns: :class:`str` value representing *base_value* converted from *base_unit* to the greatest
-    possible human-friendly unit, or *base_value* string if convertion failed.
+        possible human-friendly unit, or ``None`` if convertion failed.
+
+    :Example:
+
+        >>> convert_real_from_base_unit(5, 'ms')
+        '5ms'
+
+        >>> convert_real_from_base_unit(2.5, 'ms')
+        '2500us'
+
+        >>> convert_real_from_base_unit(4.0, '256MB')
+        '1GB'
+
+        >>> convert_real_from_base_unit(4.0, '256 MB') is None
+        True
+
     """
-    base_value_int = parse_int(base_value)
-    if not base_value_int or not base_unit:
-        return base_value
-    return convert_int_from_base_unit(base_value_int, base_unit) or base_value
+    base_value_mult, base_unit = strtol(base_unit, False)
+    if TYPE_CHECKING:  # pragma: no cover
+        assert isinstance(base_value_mult, int)
+    base_value *= base_value_mult
+
+    result = None
+    convert_tbl = get_conversion_table(base_unit)
+    for unit in convert_tbl:
+        value = base_value / convert_tbl[unit][base_unit]
+        result = '%d' % value + unit
+        if value > 0 and abs((round(value) / value) - 1.0) <= 1e-8:
+            break
+    return result
+
+
+def maybe_convert_base_unit(base_value: str, vartype: str, base_unit: Optional[str]) -> str:
+    """Try to convert integer or real value in a base unit to a human-readable unit.
+
+    Value is passed as a string. If parsing or subsequent convertion fails, the original
+    value is returned.
+
+    :param base_value: value to be converted from a base unit.
+    :param vartype: the target type to parse *base_value* before converting (``integer``
+        or ``real`` is expected, any other type results in return value being equal to the
+        *base_value* string).
+    :param base_unit: unit of *value*. Should be one of the base units (case sensitive):
+
+            * For space: ``B``, ``kB``, ``MB``;
+            * For time: ``ms``, ``s``, ``min``.
+
+    :returns: :class:`str` value representing *base_value* converted from *base_unit* to the greatest
+        possible human-friendly unit, or *base_value* string if convertion failed.
+    """
+    converters: Dict[str, Tuple[Callable[[str, Optional[str]], Union[int, float, str, None]],
+                                Callable[[Any, Optional[str]], Optional[str]]]] = {
+        'integer': (parse_int, convert_int_from_base_unit),
+        'real': (parse_real, convert_real_from_base_unit),
+        'default': (lambda v, _: v, lambda v, _: v)
+    }
+    parser, converter = converters.get(vartype, converters['default'])
+    parsed_value = parser(base_value, None)
+    if parsed_value:
+        return converter(parsed_value, base_unit) or base_value
+    return base_value
 
 
 def parse_int(value: Any, base_unit: Optional[str] = None) -> Optional[int]:

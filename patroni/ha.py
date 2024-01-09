@@ -363,7 +363,7 @@ class Ha(object):
                 data['tags'] = tags
             if self.state_handler.pending_restart_reason:
                 data['pending_restart'] = True
-                data['pending_restart_reason'] = self.state_handler.pending_restart_reason
+                data['pending_restart_reason'] = dict(self.state_handler.pending_restart_reason)
             if self._async_executor.scheduled_action in (None, 'promote') \
                     and data['state'] in ['running', 'restarting', 'starting']:
                 try:

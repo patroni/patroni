@@ -26,7 +26,7 @@ from .slots import SlotsHandler
 from .sync import SyncHandler
 from .. import global_config, psycopg
 from ..async_executor import CriticalTask
-from ..collections import CaseInsensitiveSet
+from ..collections import CaseInsensitiveSet, CaseInsensitiveDict
 from ..dcs import Cluster, Leader, Member, SLOT_ADVANCE_AVAILABLE_VERSION
 from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
@@ -35,7 +35,6 @@ from ..tags import Tags
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Connection as Connection3, Cursor
     from psycopg2 import connection as connection3, cursor
-    from .config import ParamDiff
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +77,7 @@ class Postgresql(object):
         self._state_lock = Lock()
         self.set_state('stopped')
 
-        self._pending_restart_reason: Dict[str, 'ParamDiff'] = {}
+        self._pending_restart_reason = CaseInsensitiveDict()
         self.connection_pool = ConnectionPool()
         self._connection = self.connection_pool.get('heartbeat')
         self.citus_handler = mpp.get_handler_impl(self)
@@ -322,10 +321,21 @@ class Postgresql(object):
         self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout'] / 2.0
 
     @property
-    def pending_restart_reason(self) -> Dict[str, 'ParamDiff']:
+    def pending_restart_reason(self) -> CaseInsensitiveDict:
+        """Get :attr:`_pending_restart_reason` value.
+
+        :attr:`_pending_restart_reason` is a :class:`CaseInsensitiveDict` object of the PG parameters that are
+        causing pending restart state. Every key is a parameter name, value - :class:`ParamDiff` object.
+        """
         return self._pending_restart_reason
 
-    def set_pending_restart_reason(self, diff_dict: Dict[str, 'ParamDiff'], update: bool = False) -> None:
+    def set_pending_restart_reason(self, diff_dict: CaseInsensitiveDict, update: bool = False) -> None:
+        """Set new or update current :attr:`_pending_restart_reason`.
+
+        :param diff_dict: :class:``CaseInsensitiveDict` object with the parameters that are causing pending restart
+            state with the diff of their values. Used to reset/update the :attr:`_pending_restart_reason`.
+        :param update: bool, indicates if :attr:`_pending_restart_reason` should be updated or reset with *diff_dict*.
+        """
         if update:
             self._pending_restart_reason.update(diff_dict)
         else:
@@ -731,7 +741,7 @@ class Postgresql(object):
         self.set_role(role or self.get_postgres_role_from_data_directory())
 
         self.set_state('starting')
-        self.set_pending_restart_reason({})
+        self.set_pending_restart_reason(CaseInsensitiveDict())
 
         try:
             if not self.ensure_major_version_is_known():
