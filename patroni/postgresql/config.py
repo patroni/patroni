@@ -17,7 +17,7 @@ from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException, PostgresConnectionException
 from ..file_perm import pg_perm
-from ..utils import (compare_values, maybe_convert_base_unit, parse_bool, parse_int,
+from ..utils import (compare_values, maybe_convert_from_base_unit, parse_bool, parse_int,
                      split_host_port, uri, validate_directory, is_subpath)
 from ..validator import IntValidator, EnumValidator
 
@@ -1122,7 +1122,7 @@ class ConfigHandler(object):
                         new_value = changes.pop(r[0])
                         if new_value is None or not compare_values(r[3], r[2], r[1], new_value):
                             conf_changed = True
-                            old_value = maybe_convert_base_unit(r[1], r[3], r[2])
+                            old_value = maybe_convert_from_base_unit(r[1], r[3], r[2])
                             if r[4] == 'postmaster':
                                 param_diff[r[0]] = ParamDiff(old_value, new_value)
                                 logger.info("Changed %s from '%s' to '%s' (restart might be required)",
@@ -1136,7 +1136,7 @@ class ConfigHandler(object):
                                 and not compare_values(r[3], r[2], r[1], self._server_parameters[r[0]]):
                             # Check if any parameter was set back to the current pg_settings value
                             # We can use pg_settings value here, as it is proved to be equal to new_value
-                            logger.info('Changed %s from %s to %s', r[0], self._server_parameters[r[0]], r[1])
+                            logger.info("Changed %s from '%s' to '%s'", r[0], self._server_parameters[r[0]], new_value)
                             conf_changed = True
                 for param, value in changes.items():
                     if '.' in param:
@@ -1195,7 +1195,7 @@ class ConfigHandler(object):
                             [n.lower() for n in self._RECOVERY_PARAMETERS]):
                         new_value = (
                             lambda v: '?' if v is None
-                            else maybe_convert_base_unit(v, vartype, unit))(self._postgresql.get_guc_value(param))
+                            else maybe_convert_from_base_unit(v, vartype, unit))(self._postgresql.get_guc_value(param))
                         settings_diff[param] = ParamDiff(value, new_value)
                     external_change = {param: value for param, value in settings_diff.items()
                                        if param not in param_diff or value != param_diff[param]}

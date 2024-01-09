@@ -10,6 +10,7 @@
 :var WHITESPACE_RE: regular expression to match whitespace characters
 """
 import errno
+import itertools
 import logging
 import os
 import platform
@@ -305,15 +306,12 @@ def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: Optiona
         >>> convert_to_base_unit(1, 'GB', '512 MB') is None
         True
     """
-    round_order = {
-        'TB': 'GB', 'GB': 'MB', 'MB': 'kB', 'kB': 'B',
-        'd': 'h', 'h': 'min', 'min': 's', 's': 'ms', 'ms': 'us'
-    }
     base_value, base_unit = strtol(base_unit, False)
     if TYPE_CHECKING:  # pragma: no cover
         assert isinstance(base_value, int)
 
     convert_tbl = get_conversion_table(base_unit)
+    round_order = dict(zip(convert_tbl, itertools.islice(convert_tbl, 1, None)))
     if unit in convert_tbl and base_unit in convert_tbl[unit]:
         value *= convert_tbl[unit][base_unit] / float(base_value)
         if unit in round_order:
@@ -411,7 +409,7 @@ def convert_real_from_base_unit(base_value: float, base_unit: Optional[str]) -> 
     return result
 
 
-def maybe_convert_base_unit(base_value: str, vartype: str, base_unit: Optional[str]) -> str:
+def maybe_convert_from_base_unit(base_value: str, vartype: str, base_unit: Optional[str]) -> str:
     """Try to convert integer or real value in a base unit to a human-readable unit.
 
     Value is passed as a string. If parsing or subsequent convertion fails, the original

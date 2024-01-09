@@ -617,9 +617,9 @@ class TestPostgresql(BaseTestPostgresql):
         # Reset to the initial value without restart
         config['parameters']['max_worker_processes'] = init_max_worker_processes
         self.p.reload_config(config)
-        self.assertEqual(mock_info.call_args_list[0][0], ('Changed %s from %s to %s', 'max_worker_processes',
+        self.assertEqual(mock_info.call_args_list[0][0], ("Changed %s from '%s' to '%s'", 'max_worker_processes',
                                                           init_max_worker_processes * 2,
-                                                          str(config['parameters']['max_worker_processes'])))
+                                                          config['parameters']['max_worker_processes']))
         self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
         self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
