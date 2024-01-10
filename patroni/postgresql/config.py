@@ -1244,13 +1244,16 @@ class ConfigHandler(object):
 
             if disable_hot_standby:
                 effective_configuration['hot_standby'] = 'off'
-                self._postgresql.set_pending_restart(True)
 
         return effective_configuration
 
     @property
     def replication(self) -> Dict[str, Any]:
         return self._config['authentication']['replication']
+
+    @property
+    def hot_standby(self) -> str:
+        return self._config['parameters']['hot_standby']
 
     @property
     def superuser(self) -> Dict[str, Any]:
