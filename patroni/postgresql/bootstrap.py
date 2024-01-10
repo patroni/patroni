@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional, Union, Tuple, TYPE_CHECK
 from ..async_executor import CriticalTask
 from ..dcs import Leader, Member, RemoteMember
 from ..psycopg import quote_ident, quote_literal
-from ..utils import deep_compare, parse_bool, unquote
+from ..utils import deep_compare, unquote
 
 if TYPE_CHECKING:  # pragma: no cover
     from . import Postgresql
@@ -463,7 +463,7 @@ END;$$""".format(f, quote_ident(rewind['username'], postgresql.connection()))
                         postgresql.restart()
                     else:
                         postgresql.config.replace_pg_hba()
-                        if postgresql.pending_restart or not parse_bool(postgresql.config.hot_standby):
+                        if postgresql.pending_restart:
                             postgresql.restart()
                         else:
                             postgresql.reload()
