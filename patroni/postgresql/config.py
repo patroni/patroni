@@ -647,7 +647,8 @@ class ConfigHandler(object):
 
     @property
     def _parameters_skip_changes(self) -> Tuple[str, ...]:
-        return tuple(self._RECOVERY_PARAMETERS) + ('hot_standby',)
+        additional_params = ('hot_standby',) if self._postgresql.is_primary() else ()
+        return tuple(self._RECOVERY_PARAMETERS) + additional_params
 
     def _read_recovery_params(self) -> Tuple[Optional[CaseInsensitiveDict], bool]:
         """Read current recovery parameters values.

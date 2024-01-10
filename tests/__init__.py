@@ -56,7 +56,7 @@ GET_PG_SETTINGS_RESULT = [
     ('stats_temp_directory', '/tmp', None, 'string', 'sighup'),
     ('track_commit_timestamp', 'off', None, 'bool', 'postmaster'),
     ('wal_log_hints', 'on', None, 'bool', 'superuser'),
-    ('hot_standby', 'on', None, 'bool', 'superuser'),
+    ('hot_standby', 'on', None, 'bool', 'postmaster'),
     ('max_replication_slots', '5', None, 'integer', 'superuser'),
     ('wal_level', 'logical', None, 'enum', 'superuser'),
 ]
