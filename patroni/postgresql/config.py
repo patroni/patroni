@@ -646,9 +646,8 @@ class ConfigHandler(object):
         return CaseInsensitiveSet(self._RECOVERY_PARAMETERS - skip_params)
 
     @property
-    def _parameters_skip_changes(self) -> Tuple[str, ...]:
-        additional_params = ('hot_standby',) if self._postgresql.is_primary() else ()
-        return tuple(self._RECOVERY_PARAMETERS) + additional_params
+    def _parameters_skip_changes(self) -> CaseInsensitiveSet:
+        return CaseInsensitiveSet((*self._RECOVERY_PARAMETERS, 'hot_standby', 'wal_log_hints'))
 
     def _read_recovery_params(self) -> Tuple[Optional[CaseInsensitiveDict], bool]:
         """Read current recovery parameters values.

@@ -576,17 +576,6 @@ class TestPostgresql(BaseTestPostgresql):
         mock_info.reset_mock()
 
         # Ignored params changed
-        with patch.object(Postgresql, 'is_primary', Mock(return_value=False)), \
-             patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[GET_PG_SETTINGS_RESULT, [(1,)]])):
-            config['parameters']['hot_standby'] = 'off'
-            self.p.reload_config(config)
-            self.assertEqual(mock_info.call_args_list[0][0], ('Changed %s from %s to %s (restart might be required)',
-                                                              'hot_standby', 'on', 'off'))
-            self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
-            self.assertEqual(self.p.pending_restart, True)
-
-        mock_info.reset_mock()
-
         config['parameters']['archive_cleanup_command'] = 'blabla'
         self.p.reload_config(config)
         mock_info.assert_called_once_with('No PostgreSQL configuration items changed, nothing to reload.')
