@@ -66,12 +66,15 @@ class AbstractMPP(abc.ABC):
         """The group id of the coordinator PostgreSQL cluster."""
 
     @property
-    @abc.abstractmethod
     def type(self) -> str:
         """The type of the MPP cluster.
 
         :returns: A string representation of the type of a given MPP implementation.
         """
+        for base in self.__class__.__bases__:
+            if not base.__name__.startswith('Abstract'):
+                return base.__name__
+        return self.__class__.__name__
 
     def is_coordinator(self) -> bool:
         """Check whether this node is running in the coordinator PostgreSQL cluster.
@@ -213,14 +216,6 @@ class Null(AbstractMPP):
         :returns: always ``None``.
         """
         return None
-
-    @property
-    def type(self) -> str:
-        """The type for :class:`Null`.
-
-        :returns: always ``Null``.
-        """
-        return "Null"
 
 
 class NullHandler(Null, AbstractMPPHandler):

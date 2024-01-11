@@ -338,11 +338,8 @@ class Ha(object):
                             'timeout': self.dcs.ttl,
                             'cooldown': self.patroni.config['retry_timeout']}
                     timeout = self.dcs.ttl if event == 'before_demote' else 2
-                    if mpp_handler.type == 'Citus':
-                        self.patroni.request(coordinator.leader.member, 'post', 'citus',
-                                             data, timeout=timeout, retries=0)
-                    else:
-                        self.patroni.request(coordinator.leader.member, 'post', 'mpp', data, timeout=timeout, retries=0)
+                    endpoint = 'citus' if mpp_handler.type == 'Citus' else 'mpp'
+                    self.patroni.request(coordinator.leader.member, 'post', endpoint, data, timeout=timeout, retries=0)
                 except Exception as e:
                     logger.warning('Request to %s coordinator leader %s %s failed: %r' % (mpp_handler.type,
                                    coordinator.leader.name, coordinator.leader.member.api_url, e))
