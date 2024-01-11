@@ -55,10 +55,10 @@ GET_PG_SETTINGS_RESULT = [
     ('zero_damaged_pages', 'off', None, 'bool', 'superuser'),
     ('stats_temp_directory', '/tmp', None, 'string', 'sighup'),
     ('track_commit_timestamp', 'off', None, 'bool', 'postmaster'),
-    ('wal_log_hints', 'on', None, 'bool', 'superuser'),
+    ('wal_log_hints', 'on', None, 'bool', 'postmaster'),
     ('hot_standby', 'on', None, 'bool', 'postmaster'),
-    ('max_replication_slots', '5', None, 'integer', 'superuser'),
-    ('wal_level', 'logical', None, 'enum', 'superuser'),
+    ('max_replication_slots', '5', None, 'integer', 'postmaster'),
+    ('wal_level', 'logical', None, 'enum', 'postmaster'),
 ]
 
 
