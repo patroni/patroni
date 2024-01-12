@@ -55,7 +55,7 @@ CONSOLE_SCRIPTS = ['patroni = patroni.__main__:main',
                    'patroni_raft_controller = patroni.raft_controller:main',
                    "patroni_wale_restore = patroni.scripts.wale_restore:main",
                    "patroni_aws = patroni.scripts.aws:main",
-                   "patroni_barman_recover = patroni.scripts.barman_recover:main"]
+                   "patroni_barman = patroni.scripts.barman.cli:main"]
 
 
 class _Command(Command):
