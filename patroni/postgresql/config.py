@@ -275,19 +275,25 @@ class ParamDiff(Dict[str, str]):
     """Single PG parameter's value diff to be stored in :attr:`~patroni.postgresql.Postgresql._pending_restart_reason`.
 
     Extends :class:`dict` to only have the two specific attributes: ``old_value`` and ``new_value`` and their values
-    casted to :class:`str`.
+    casted to :class:`str` and converted from base units (if possible).
     """
 
-    def __init__(self, old_value: Any, new_value: Any):
+    def __init__(self, old_value: Any, new_value: Any, vartype: Optional[str] = None, unit: Optional[str] = None):
         """Create a new instance of :class:`ParamDiff` with the given *old_value* and *new_value*.
 
         :param old_value: current :class:`str` parameter value.
         :param new_value: :class:`str` value of the paramater after a restart.
+        :param vartype: the target type to parse old/new_value. See ``vartype`` argument of
+            :func:`~patroni.utils.maybe_convert_from_base_unit`.
+        :param unit: unit of *old/new_value*. See ``base_unit`` argument of
+            :func:`~patroni.utils.maybe_convert_from_base_unit`.
         """
         super().__init__()
         str_value: Callable[[Any], str] = lambda x: '' if x is None else str(x)
-        self['old_value'] = str_value(old_value)
-        self['new_value'] = str_value(new_value)
+        self['old_value'] = (maybe_convert_from_base_unit(str_value(old_value), vartype, unit)
+                             if vartype else str_value(old_value))
+        self['new_value'] = (maybe_convert_from_base_unit(str_value(new_value), vartype, unit)
+                             if vartype else str_value(new_value))
 
 
 class ConfigHandler(object):
@@ -1122,16 +1128,16 @@ class ConfigHandler(object):
                         new_value = changes.pop(r[0])
                         if new_value is None or not compare_values(r[3], r[2], r[1], new_value):
                             conf_changed = True
-                            old_value = maybe_convert_from_base_unit(r[1], r[3], r[2])
                             if r[4] == 'postmaster':
-                                param_diff[r[0]] = ParamDiff(old_value, new_value)
+                                param_diff[r[0]] = ParamDiff(r[1], new_value, r[3], r[2])
                                 logger.info("Changed %s from '%s' to '%s' (restart might be required)",
-                                            r[0], old_value, new_value)
+                                            r[0], param_diff[r[0]]['old_value'], new_value)
                                 if config.get('use_unix_socket') and r[0] == 'unix_socket_directories'\
                                         or r[0] in ('listen_addresses', 'port'):
                                     local_connection_address_changed = True
                             else:
-                                logger.info("Changed %s from '%s' to '%s'", r[0], old_value, new_value)
+                                logger.info("Changed %s from '%s' to '%s'",
+                                            r[0], maybe_convert_from_base_unit(r[1], r[3], r[2]), new_value)
                         elif r[0] in self._server_parameters \
                                 and not compare_values(r[3], r[2], r[1], self._server_parameters[r[0]]):
                             # Check if any parameter was set back to the current pg_settings value
@@ -1193,10 +1199,8 @@ class ConfigHandler(object):
                             'SELECT name, pg_catalog.current_setting(name), unit, vartype FROM pg_catalog.pg_settings'
                             ' WHERE pg_catalog.lower(name) != ALL(%s) AND pending_restart',
                             [n.lower() for n in self._RECOVERY_PARAMETERS]):
-                        new_value = (
-                            lambda v: '?' if v is None
-                            else maybe_convert_from_base_unit(v, vartype, unit))(self._postgresql.get_guc_value(param))
-                        settings_diff[param] = ParamDiff(value, new_value)
+                        new_value = (lambda v: '?' if v is None else v)(self._postgresql.get_guc_value(param))
+                        settings_diff[param] = ParamDiff(value, new_value, vartype, unit)
                     external_change = {param: value for param, value in settings_diff.items()
                                        if param not in param_diff or value != param_diff[param]}
                     if external_change:
