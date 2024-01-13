@@ -243,20 +243,22 @@ class PatroniLogger(Thread):
     def _is_config_changed(self, config: Dict[str, Any]) -> bool:
         """Checks if the given config is different from the current one.
 
-        :param config: `log` section from Patroni configuration.
+        :param config: ``log`` section from Patroni configuration.
 
-        :returns: `True` if the config is changed, `False` otherwise.
+        :returns: ``True`` if the config is changed, ``False`` otherwise.
         """
-        oldlogtype = (self._config or {}).get('type', PatroniLogger.DEFAULT_TYPE)
+        old_config = self._config or {}
+
+        oldlogtype = old_config.get('type', PatroniLogger.DEFAULT_TYPE)
         logtype = config.get('type', PatroniLogger.DEFAULT_TYPE)
 
-        oldlogformat: type_logformat = (self._config or {}).get('format', PatroniLogger.DEFAULT_FORMAT)
+        oldlogformat: type_logformat = old_config.get('format', PatroniLogger.DEFAULT_FORMAT)
         logformat: type_logformat = config.get('format', PatroniLogger.DEFAULT_FORMAT)
 
-        olddateformat = (self._config or {}).get('dateformat') or None
+        olddateformat = old_config.get('dateformat') or None
         dateformat = config.get('dateformat') or None  # Convert empty string to `None`
 
-        old_static_fields = (self._config or {}).get('static_fields', {})
+        old_static_fields = old_config.get('static_fields', {})
         static_fields = config.get('static_fields', {})
 
         old_log_config = {
@@ -298,7 +300,7 @@ class PatroniLogger(Thread):
         """Returns a logging formatter that outputs JSON formatted messages.
 
         .. note::
-            If `pythonjsonlogger` library is not installed, prints an error message and returns
+            If :mod:`pythonjsonlogger` library is not installed, prints an error message and returns
             a plain log formatter instead.
 
         :param logformat: Specifies the log fields and their key names in the JSON log message.
@@ -351,7 +353,7 @@ class PatroniLogger(Thread):
                 static_fields=static_fields
             )
         except ImportError as e:
-            _LOGGER.error('Failed to import python-json-logger: %r', e)
+            _LOGGER.error('Failed to import "python-json-logger" library. Falling back to the plain logger: %r', e)
             formatter = self._get_plain_formatter(jsonformat, dateformat)
 
         return formatter
@@ -359,9 +361,9 @@ class PatroniLogger(Thread):
     def _get_formatter(self, config: Dict[str, Any]) -> logging.Formatter:
         """Returns a logging formatter based on the type of logger in the given configuration.
 
-        :param config: `log` section from Patroni configuration.
+        :param config: ``log`` section from Patroni configuration.
 
-        :returns: A logging.Formatter object that can be used to format log records.
+        :returns: A :class:`logging.Formatter` object that can be used to format log records.
         """
         logtype = config.get('type', PatroniLogger.DEFAULT_TYPE)
         logformat: type_logformat = config.get('format', PatroniLogger.DEFAULT_FORMAT)
