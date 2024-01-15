@@ -1170,7 +1170,7 @@ class ConfigHandler(object):
                     pending_restart = self._postgresql.query(
                         'SELECT COUNT(*) FROM pg_catalog.pg_settings'
                         ' WHERE pg_catalog.lower(name) != ALL(%s) AND pending_restart',
-                        [n for n in params_skip_changes])[0][0] > 0
+                        [n.lower() for n in params_skip_changes])[0][0] > 0
                     self._postgresql.set_pending_restart(pending_restart)
                 except Exception as e:
                     logger.warning('Exception %r when running query', e)
