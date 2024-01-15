@@ -2,7 +2,7 @@ Integration with other tools
 ============================
 
 Patroni is able to integrate with other tools in your stack. In this section you
-will find a list of example, which although not being an exaustive list, might
+will find a list of examples, which although not an exhaustive list, might
 provide you with ideas on how Patroni can integrate with other tools.
 
 Barman
@@ -12,7 +12,7 @@ Patroni delivers an application named ``patroni_barman`` which has logic to
 communicate with ``pg-backup-api``, so you are able to perform Barman operations
 remotely.
 
-That application currently has a couple sub-commands: ``recover`` and
+This application currently has a couple of sub-commands: ``recover`` and
 ``config-switch``.
 
 patroni_barman recover
@@ -25,11 +25,11 @@ creation method. You can find more information about that in
 patroni_barman config-switch
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The ``config-switch`` sub-command is designed to be used as a ``on_role_change``
+The ``config-switch`` sub-command is designed to be used as an ``on_role_change``
 callback in Patroni. As an example, assume you are streaming WALs from your
 current primary to your Barman host. In the event of a failover in the cluster
 you might want to start streaming WALs from the new primary. You can accomplish
-that by using ``patroni_barman config-switch`` as the ``on_role_change`` callback.
+this by using ``patroni_barman config-switch`` as the ``on_role_change`` callback.
 
 .. note::
     That sub-command relies on the ``barman config-switch`` command, which is in
