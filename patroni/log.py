@@ -290,7 +290,7 @@ class PatroniLogger(Thread):
         """
 
         if not isinstance(logformat, str):
-            _LOGGER.warning('Expected log format to be a string when log type is plain, but got "%s"', logformat)
+            _LOGGER.warning('Expected log format to be a string when log type is plain, but got "%s"', type(logformat))
             logformat = PatroniLogger.DEFAULT_FORMAT
 
         return logging.Formatter(logformat, dateformat)
@@ -326,12 +326,15 @@ class PatroniLogger(Thread):
                             log_fields.append(original_field)
                             rename_fields[original_field] = renamed_field
                         else:
-                            _LOGGER.warning('Expected renamed log field to be a string, but got "%s"', renamed_field)
+                            _LOGGER.warning(
+                                'Expected renamed log field to be a string, but got "%s"',
+                                type(renamed_field)
+                            )
 
                 else:
                     _LOGGER.warning(
                         'Expected each item of log format to be a string or dictionary, but got "%s"',
-                        field
+                        type(field)
                     )
 
             if len(log_fields) > 0:
@@ -341,7 +344,7 @@ class PatroniLogger(Thread):
         else:
             jsonformat = PatroniLogger.DEFAULT_FORMAT
             rename_fields = {}
-            _LOGGER.warning('Expected log format to be a string or a list, but got "%s"', logformat)
+            _LOGGER.warning('Expected log format to be a string or a list, but got "%s"', type(logformat))
 
         try:
             from pythonjsonlogger import jsonlogger
@@ -371,7 +374,7 @@ class PatroniLogger(Thread):
         static_fields = config.get('static_fields', {})
 
         if dateformat is not None and not isinstance(dateformat, str):
-            _LOGGER.warning('Expected log dateformat to be a string, but got "%s"', dateformat)
+            _LOGGER.warning('Expected log dateformat to be a string, but got "%s"', type(dateformat))
             dateformat = None
 
         if logtype == 'json':

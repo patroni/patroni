@@ -582,7 +582,7 @@ class Config(object):
                 if value:
                     ret[first][second] = value
 
-        logformat = ret.get('log', {}).get('format', None)
+        logformat = ret.get('log', {}).get('format')
         if logformat and not re.search(r'%\(\w+\)', logformat):
             logformat = _parse_list(logformat)
             if logformat:
