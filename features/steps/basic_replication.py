@@ -114,7 +114,7 @@ def replication_works(context, primary, replica, time_limit):
     """.format(str(time()).replace('.', '_').replace(',', '_'), primary, replica, time_limit))
 
 
-@then('there is one of {message_list} {level:w} in the {node} patroni log after {timeout:d} seconds')
+@step('there is one of {message_list} {level:w} in the {node} patroni log after {timeout:d} seconds')
 def check_patroni_log(context, message_list, level, node, timeout):
     timeout *= context.timeout_multiplier
     message_list = json.loads(message_list)
