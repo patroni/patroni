@@ -1,3 +1,5 @@
+.. _replica_imaging_and_bootstrap:
+
 Replica imaging and bootstrap
 =============================
 
