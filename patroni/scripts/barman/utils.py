@@ -5,7 +5,7 @@
 from enum import IntEnum
 import json
 import logging
-from typing import Any, Callable, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, Optional, Tuple, Type, Union
 import time
 from urllib.parse import urljoin
 
@@ -274,6 +274,35 @@ class PgBackupApi:
                 "remote_ssh_command": ssh_command,
                 "destination_directory": data_directory,
             },
+        )
+
+        return response["operation_id"]
+
+    @retry(KeyError)
+    def create_config_switch_operation(self, barman_server: str,
+                                       barman_model: Optional[str],
+                                       reset: Optional[bool]) -> str:
+        """Create a config switch operation on the ``pg-backup-api``.
+
+        :param barman_server: name of the Barman server which config is to be
+            switched.
+        :param barman_model: name of the Barman model to be applied to the
+            server, if any.
+        :param reset: ``True`` if you would like to unapply the currently active
+            model for the server, if any.
+
+        :returns: the ID of the config switch operation that has been created.
+        """
+        body: Dict[str, Any] = {"type": "config_switch"}
+
+        if barman_model:
+            body["model_name"] = barman_model
+        elif reset:
+            body["reset"] = reset
+
+        response = self._post_request(
+            f"servers/{barman_server}/operations",
+            body,
         )
 
         return response["operation_id"]

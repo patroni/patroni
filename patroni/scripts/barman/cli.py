@@ -12,6 +12,7 @@ builds the CLI that makes an interface with the actual commands.
 from argparse import ArgumentParser
 import sys
 
+from .config_switch import run_barman_config_switch
 from .recover import run_barman_recover
 from .utils import set_up_logging
 
@@ -128,6 +129,68 @@ def main() -> None:
         dest="loop_wait",
     )
     recover_parser.set_defaults(func=run_barman_recover)
+
+    config_switch_parser = subparsers.add_parser(
+        "config-switch",
+        help="Remote 'barman config-switch'",
+        description="Switch the configuration of a given Barman server. "
+                    "Intended to be used as a 'on_role_change' callback."
+    )
+    config_switch_parser.add_argument(
+        "action",
+        type=str,
+        choices=["on_role_change"],
+        help="Name of the callback (automatically filled by Patroni)",
+    )
+    config_switch_parser.add_argument(
+        "role",
+        type=str,
+        choices=["master", "primary", "promoted", "standby_leader", "replica",
+                 "demoted"],
+        help="Name of the new role of this node (automatically filled by "
+             "Patroni)",
+    )
+    config_switch_parser.add_argument(
+        "cluster",
+        type=str,
+        help="Name of the Patroni cluster involved in the callback "
+             "(automatically filled by Patroni)",
+    )
+    config_switch_parser.add_argument(
+        "--barman-server",
+        type=str,
+        required=True,
+        help="Name of the Barman server which config is to be switched.",
+        dest="barman_server",
+    )
+    group = config_switch_parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "--barman-model",
+        type=str,
+        help="Name of the Barman config model to be applied to the server.",
+        dest="barman_model",
+    )
+    group.add_argument(
+        "--reset",
+        action="store_true",
+        help="Unapply the currently active model for the server, if any.",
+        dest="reset",
+    )
+    config_switch_parser.add_argument(
+        "--switch-when",
+        type=str,
+        required=True,
+        default="promoted",
+        choices=["promoted", "demoted", "always"],
+        help="Controls under which circumstances the 'on_role_change' callback "
+             "should actually switch config in Barman. 'promoted' means the "
+             "'role' is either 'master', 'primary' or 'promoted'. 'demoted' "
+             "means the 'role' is either 'replica' or 'demoted' "
+             "(default: '%(default)s')",
+        dest="switch_when",
+    )
+    config_switch_parser.set_defaults(func=run_barman_config_switch)
+
     args, _ = parser.parse_known_args()
 
     set_up_logging(args.log_file)
