@@ -25,7 +25,7 @@ def validate_log_field(field: Union[str, Dict[str, Any], Any]) -> bool:
     :param field: A log field to be validated.
 
     :returns: ``True`` if the field is either a string or a dictionary with exactly one key
-    that has string value, ``False`` otherwise.
+              that has string value, ``False`` otherwise.
     """
     if isinstance(field, str):
         return True
@@ -45,7 +45,8 @@ def validate_log_format(logformat: type_logformat) -> bool:
         :exc:`~patroni.exceptions.ConfigParseError`:
             * If the logformat is not a string or a list; or
             * If the logformat is an empty list; or
-            * If the log format is a list and it with values that don't pass validation using :func:`validate_log_field`.
+            * If the log format is a list and it with values that don't pass validation using
+              :func:`validate_log_field`.
     """
     if isinstance(logformat, str):
         return True

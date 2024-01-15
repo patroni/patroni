@@ -265,5 +265,5 @@ class TestPatroniLogger(unittest.TestCase):
             self.assertEqual(captured_log_level, 'ERROR')
             self.assertRegex(
                 captured_log_message,
-                r'Failed to import python-json-logger'
+                r'Failed to import "python-json-logger" library. Falling back to the plain logger'
             )
