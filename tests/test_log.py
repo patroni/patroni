@@ -3,13 +3,21 @@ import os
 import sys
 import unittest
 import yaml
-import json
 from io import StringIO
 
 from mock import Mock, patch
 from patroni.config import Config
 from patroni.log import PatroniLogger
 from queue import Queue, Full
+
+try:
+    from pythonjsonlogger import jsonlogger
+    import json
+    json_formatter_is_available = True
+    static_fields_supported = ':param static_fields:' in jsonlogger.JsonFormatter.__init__.__doc__
+    rename_fields_supported = ':param rename_fields:' in jsonlogger.JsonFormatter.__init__.__doc__
+except ImportError:
+    json_formatter_is_available = False
 
 _LOG = logging.getLogger(__name__)
 
@@ -95,13 +103,22 @@ class TestPatroniLogger(unittest.TestCase):
             logger.reload_config(config)
 
             _LOG.info(test_message)
-            target_log = json.loads(stderr_output.getvalue())
+            if json_formatter_is_available:
+                target_log = json.loads(stderr_output.getvalue().split('\n')[-2])
 
-        self.assertIn('@timestamp', target_log)
-        self.assertEqual(target_log['message'], test_message)
-        self.assertEqual(target_log['level'], 'INFO')
-        self.assertEqual(target_log['app'], 'patroni')
-        self.assertEqual(len(target_log), len(config['format']) + len(config['static_fields']))
+                if rename_fields_supported:
+                    self.assertIn('@timestamp', target_log)
+                else:
+                    self.assertIn('asctime', target_log)
+                self.assertEqual(target_log['message'], test_message)
+                if rename_fields_supported:
+                    self.assertEqual(target_log['level'], 'INFO')
+                else:
+                    self.assertEqual(target_log['levelname'], 'INFO')
+                if static_fields_supported:
+                    self.assertEqual(target_log['app'], 'patroni')
+                self.assertEqual(len(target_log), len(config['format'])
+                                 + len(config['static_fields']) * int(static_fields_supported))
 
     def test_json_str_format(self):
         config = {
@@ -119,12 +136,14 @@ class TestPatroniLogger(unittest.TestCase):
             logger.reload_config(config)
 
             _LOG.info(test_message)
-            target_log = json.loads(stderr_output.getvalue())
+            if json_formatter_is_available:
+                target_log = json.loads(stderr_output.getvalue().split('\n')[-2])
 
-        self.assertIn('asctime', target_log)
-        self.assertEqual(target_log['message'], test_message)
-        self.assertEqual(target_log['levelname'], 'INFO')
-        self.assertEqual(target_log['app'], 'patroni')
+                self.assertIn('asctime', target_log)
+                self.assertEqual(target_log['message'], test_message)
+                self.assertEqual(target_log['levelname'], 'INFO')
+                if static_fields_supported:
+                    self.assertEqual(target_log['app'], 'patroni')
 
     def test_plain_format(self):
         config = {
@@ -215,13 +234,10 @@ class TestPatroniLogger(unittest.TestCase):
             captured_log_message = captured_log.records[0].message
 
             self.assertEqual(captured_log_level, 'WARNING')
-            self.assertRegex(
-                captured_log_message,
-                r'Expected log format to be a string or a list, but got ".*"'
-            )
+            self.assertRegex(captured_log_message, r'Expected log format to be a string or a list, but got ".*"')
 
         with self.assertLogs() as captured_log:
-            config['format'] = ['message', ['levelname']]
+            config['format'] = [['levelname']]
             logger.reload_config(config)
 
             captured_log_level = captured_log.records[0].levelname
@@ -234,30 +250,20 @@ class TestPatroniLogger(unittest.TestCase):
             )
 
         with self.assertLogs() as captured_log:
-            config['format'] = [
-                'message',
-                {'asctime': ['timestamp']}
-            ]
+            config['format'] = ['message', {'asctime': ['timestamp']}]
             logger.reload_config(config)
 
             captured_log_level = captured_log.records[0].levelname
             captured_log_message = captured_log.records[0].message
 
             self.assertEqual(captured_log_level, 'WARNING')
-            self.assertRegex(
-                captured_log_message,
-                r'Expected renamed log field to be a string, but got ".*"'
-            )
+            self.assertRegex(captured_log_message, r'Expected renamed log field to be a string, but got ".*"')
 
-    @patch('pythonjsonlogger.jsonlogger.JsonFormatter', side_effect=ImportError)
-    def test_fail_to_import_python_json_logger(self, _):
-        config = {
-            'type': 'json'
-        }
-
+    def test_fail_to_import_python_json_logger(self):
         with self.assertLogs() as captured_log:
             logger = PatroniLogger()
-            logger.reload_config(config)
+            with patch('builtins.__import__', Mock(side_effect=ImportError)):
+                logger.reload_config({'type': 'json'})
 
             captured_log_level = captured_log.records[0].levelname
             captured_log_message = captured_log.records[0].message

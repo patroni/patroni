@@ -349,12 +349,23 @@ class PatroniLogger(Thread):
         try:
             from pythonjsonlogger import jsonlogger
 
-            formatter = jsonlogger.JsonFormatter(
-                jsonformat,
-                dateformat,
-                rename_fields=rename_fields,
-                static_fields=static_fields
-            )
+            kwargs = {}
+
+            # We don't want to fail with the error if legacy versions of python-json-logger is installed!
+            doc = jsonlogger.JsonFormatter.__init__.__doc__
+            if rename_fields:  # pragma: no cover
+                if ':param rename_fields:' in doc:
+                    kwargs['rename_fields'] = rename_fields
+                else:
+                    _LOGGER.warning("Installed pythonjsonlogger doesn't support renaming fields")
+
+            if static_fields:  # pragma: no cover
+                if ':param static_fields:' in doc:
+                    kwargs['static_fields'] = static_fields
+                else:
+                    _LOGGER.warning("Installed pythonjsonlogger doesn't support adding static fields")
+
+            formatter = jsonlogger.JsonFormatter(jsonformat, dateformat, **kwargs)
         except ImportError as e:
             _LOGGER.error('Failed to import "python-json-logger" library. Falling back to the plain logger: %r', e)
             formatter = self._get_plain_formatter(jsonformat, dateformat)
@@ -412,9 +423,10 @@ class PatroniLogger(Thread):
 
                 handler.maxBytes = int(config.get('file_size', 25000000))  # pyright: ignore [reportGeneralTypeIssues]
                 handler.backupCount = int(config.get('file_num', 4))
-            else:
-                if not isinstance(handler, logging.StreamHandler):
-                    handler = logging.StreamHandler()
+            # we can't use `if not isinstance(handler, logging.StreamHandler)` below,
+            # because RotatingFileHandler is a child of StreamHandler!!!
+            elif handler is None or isinstance(handler, RotatingFileHandler):
+                handler = logging.StreamHandler()
 
             is_new_handler = handler != self.log_handler
 
