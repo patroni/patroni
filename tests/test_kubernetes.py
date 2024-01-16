@@ -268,7 +268,7 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
         with patch.object(Kubernetes, '_postgresql_cluster_loader', Mock(side_effect=Exception)):
             self.assertIsNone(self.k.get_mpp_coordinator())
             mock_logger.assert_called()
-            self.assertTrue(mock_logger.call_args[0][0].startswith('Failed to load Null coordinator'))
+            self.assertIn('Failed to load Null coordinator cluster from Kubernetes', mock_logger.call_args[0][0])
 
     @patch('patroni.dcs.kubernetes.logger.error')
     def test_get_citus_coordinator(self, mock_logger):
@@ -277,7 +277,7 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
         with patch.object(Kubernetes, '_postgresql_cluster_loader', Mock(side_effect=Exception)):
             self.assertIsNone(self.k.get_mpp_coordinator())
             mock_logger.assert_called()
-            self.assertTrue(mock_logger.call_args[0][0].startswith('Failed to load Citus coordinator'))
+            self.assertIn('Failed to load Citus coordinator cluster from Kubernetes', mock_logger.call_args[0][0])
 
     def test_attempt_to_acquire_leader(self):
         with patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', create=True) as mock_patch:
