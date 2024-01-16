@@ -404,7 +404,7 @@ def convert_real_from_base_unit(base_value: float, base_unit: Optional[str]) -> 
     convert_tbl = get_conversion_table(base_unit)
     for unit in convert_tbl:
         value = base_value / convert_tbl[unit][base_unit]
-        result = '%g' % value + unit
+        result = f'{value:g}{unit}'
         if value > 0 and abs((round(value) / value) - 1.0) <= 1e-8:
             break
     return result
