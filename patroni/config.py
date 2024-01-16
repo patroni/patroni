@@ -1,4 +1,5 @@
 """Facilities related to Patroni configuration."""
+import re
 import json
 import logging
 import os
@@ -534,8 +535,8 @@ class Config(object):
         _set_section_values('ctl', ['insecure', 'cacert', 'certfile', 'keyfile', 'keyfile_password'])
         _set_section_values('postgresql', ['listen', 'connect_address', 'proxy_address',
                                            'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
-        _set_section_values('log', ['level', 'traceback_level', 'format', 'dateformat', 'max_queue_size',
-                                    'dir', 'file_size', 'file_num', 'loggers'])
+        _set_section_values('log', ['type', 'level', 'traceback_level', 'format', 'dateformat', 'static_fields',
+                                    'max_queue_size', 'dir', 'file_size', 'file_num', 'loggers'])
         _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs', 'password', 'bind_addr'])
 
         for binary in ('pg_ctl', 'initdb', 'pg_controldata', 'pg_basebackup', 'postgres', 'pg_isready', 'pg_rewind'):
@@ -582,6 +583,12 @@ class Config(object):
                 if value:
                     ret[first][second] = value
 
+        logformat = ret.get('log', {}).get('format')
+        if logformat and not re.search(r'%\(\w+\)', logformat):
+            logformat = _parse_list(logformat)
+            if logformat:
+                ret['log']['format'] = logformat
+
         def _parse_dict(value: str) -> Optional[Dict[str, Any]]:
             """Parse an YAML dictionary *value* as a :class:`dict`.
 
@@ -597,7 +604,12 @@ class Config(object):
                 logger.exception('Exception when parsing dict %s', value)
                 return None
 
-        for first, params in (('restapi', ('http_extra_headers', 'https_extra_headers')), ('log', ('loggers',))):
+        dict_configs = (
+            ('restapi', ('http_extra_headers', 'https_extra_headers')),
+            ('log', ('static_fields', 'loggers'))
+        )
+
+        for first, params in dict_configs:
             for second in params:
                 value = ret.get(first, {}).pop(second, None)
                 if value:

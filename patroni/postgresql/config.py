@@ -1103,14 +1103,15 @@ class ConfigHandler(object):
     def reload_config(self, config: Dict[str, Any], sighup: bool = False) -> None:
         self._superuser = config['authentication'].get('superuser', {})
         server_parameters = self.get_server_parameters(config)
+        params_skip_changes = CaseInsensitiveSet((*self._RECOVERY_PARAMETERS, 'hot_standby', 'wal_log_hints'))
 
         conf_changed = hba_changed = ident_changed = local_connection_address_changed = False
         param_diff = CaseInsensitiveDict()
         if self._postgresql.state == 'running':
             changes = CaseInsensitiveDict({p: v for p, v in server_parameters.items()
-                                           if p.lower() not in self._RECOVERY_PARAMETERS})
+                                           if p not in params_skip_changes})
             changes.update({p: None for p in self._server_parameters.keys()
-                            if not (p in changes or p.lower() in self._RECOVERY_PARAMETERS)})
+                            if not (p in changes or p in params_skip_changes)})
             if changes:
                 undef = []
                 if 'wal_buffers' in changes:  # we need to calculate the default value of wal_buffers
@@ -1198,7 +1199,7 @@ class ConfigHandler(object):
                     for param, value, unit, vartype in self._postgresql.query(
                             'SELECT name, pg_catalog.current_setting(name), unit, vartype FROM pg_catalog.pg_settings'
                             ' WHERE pg_catalog.lower(name) != ALL(%s) AND pending_restart',
-                            [n.lower() for n in self._RECOVERY_PARAMETERS]):
+                            [n.lower() for n in params_skip_changes]):
                         new_value = (lambda v: '?' if v is None else v)(self._postgresql.get_guc_value(param))
                         settings_diff[param] = ParamDiff(value, new_value, vartype, unit)
                     external_change = {param: value for param, value in settings_diff.items()
@@ -1285,10 +1286,6 @@ class ConfigHandler(object):
 
             if disable_hot_standby:
                 effective_configuration['hot_standby'] = 'off'
-                logger.info("'hot_standby' parameter is set to 'off' during the custom bootstrap."
-                            " Setting 'Pending restart' flag")
-                self._postgresql.set_pending_restart_reason(
-                    CaseInsensitiveDict({'hot_standby': ParamDiff('off', 'on')}), True)
 
         return effective_configuration
 

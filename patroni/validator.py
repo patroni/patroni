@@ -16,6 +16,49 @@ from .collections import CaseInsensitiveSet
 from .dcs import dcs_modules
 from .exceptions import ConfigParseError
 from .utils import parse_int, split_host_port, data_directory_is_empty, get_major_version
+from .log import type_logformat
+
+
+def validate_log_field(field: Union[str, Dict[str, Any], Any]) -> bool:
+    """Checks if log field is valid.
+
+    :param field: A log field to be validated.
+
+    :returns: ``True`` if the field is either a string or a dictionary with exactly one key
+              that has string value, ``False`` otherwise.
+    """
+    if isinstance(field, str):
+        return True
+    elif isinstance(field, dict):
+        return len(field) == 1 and isinstance(next(iter(field.values())), str)
+    return False
+
+
+def validate_log_format(logformat: type_logformat) -> bool:
+    """Checks if log format is valid.
+
+    :param logformat: A log format to be validated.
+
+    :returns: ``True`` if the log format is either a string or a list of valid log fields.
+
+    :raises:
+        :exc:`~patroni.exceptions.ConfigParseError`:
+            * If the logformat is not a string or a list; or
+            * If the logformat is an empty list; or
+            * If the log format is a list and it with values that don't pass validation using
+              :func:`validate_log_field`.
+    """
+    if isinstance(logformat, str):
+        return True
+    elif isinstance(logformat, list):
+        if len(logformat) == 0:
+            raise ConfigParseError('should contains at least one item')
+        if not all(map(validate_log_field, logformat)):
+            raise ConfigParseError('Each item should be a string or a dictionary with string values')
+
+        return True
+    else:
+        raise ConfigParseError('Should be a string or a list')
 
 
 def data_directory_empty(data_dir: str) -> bool:
@@ -938,11 +981,13 @@ schema = Schema({
     "name": str,
     "scope": str,
     Optional("log"): {
+        Optional("type"): EnumValidator(('plain', 'json'), case_sensitive=True, raise_assert=True),
         Optional("level"): EnumValidator(('DEBUG', 'INFO', 'WARN', 'WARNING', 'ERROR', 'FATAL', 'CRITICAL'),
                                          case_sensitive=True, raise_assert=True),
         Optional("traceback_level"): EnumValidator(('DEBUG', 'ERROR'), raise_assert=True),
-        Optional("format"): str,
+        Optional("format"): validate_log_format,
         Optional("dateformat"): str,
+        Optional("static_fields"): dict,
         Optional("max_queue_size"): int,
         Optional("dir"): str,
         Optional("file_num"): int,
