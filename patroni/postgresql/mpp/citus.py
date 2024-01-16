@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
 from . import AbstractMPP, AbstractMPPHandler
 from ...dcs import Cluster
-from ...psycopg import connect, quote_ident, DuplicateDatabase
+from ...psycopg import connect, quote_ident, ProgrammingError
 from ...utils import parse_int
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -392,8 +392,11 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
                 with conn.cursor() as cur:
                     cur.execute('CREATE DATABASE {0}'.format(
                         quote_ident(self._config['database'], conn)).encode('utf-8'))
-            except DuplicateDatabase as e:
-                logger.debug('Exception when creating database: %r', e)
+            except ProgrammingError as exc:
+                if exc.diag.sqlstate == '42P04':  # DuplicateDatabase
+                    logger.debug('Exception when creating database: %r', exc)
+                else:
+                    raise exc
             finally:
                 conn.close()
 
