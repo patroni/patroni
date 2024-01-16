@@ -575,6 +575,14 @@ class TestPostgresql(BaseTestPostgresql):
 
         mock_info.reset_mock()
 
+        # Ignored params changed
+        config['parameters']['archive_cleanup_command'] = 'blabla'
+        self.p.reload_config(config)
+        mock_info.assert_called_once_with('No PostgreSQL configuration items changed, nothing to reload.')
+        self.assertEqual(self.p.pending_restart, False)
+
+        mock_info.reset_mock()
+
         # Handle wal_buffers
         self.p.config._config['parameters']['wal_buffers'] = '512'
         self.p.reload_config(config)
@@ -801,21 +809,28 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='replica'))
     @patch.object(Postgresql, 'is_running', Mock(return_value=False))
     @patch.object(Bootstrap, 'running_custom_bootstrap', PropertyMock(return_value=True))
-    @patch.object(Postgresql, 'controldata', Mock(return_value={'max_connections setting': '200',
-                                                                'max_worker_processes setting': '20',
-                                                                'max_locks_per_xact setting': '100',
-                                                                'max_wal_senders setting': 10}))
-    @patch('patroni.postgresql.config.logger.warning')
+    @patch('patroni.postgresql.config.logger')
     def test_effective_configuration(self, mock_logger):
-        self.p.cancellable.cancel()
-        self.p.config.write_recovery_conf({'pause_at_recovery_target': 'false'})
-        self.assertFalse(self.p.start())
-        mock_logger.assert_called_once()
-        self.assertTrue('is missing from pg_controldata output' in mock_logger.call_args[0][0])
+        controldata = {'max_connections setting': '100', 'max_worker_processes setting': '8',
+                       'max_locks_per_xact setting': '64', 'max_wal_senders setting': 5}
 
-        self.assertTrue(self.p.pending_restart)
-        with patch.object(Bootstrap, 'keep_existing_recovery_conf', PropertyMock(return_value=True)):
+        with patch.object(Postgresql, 'controldata', Mock(return_value=controldata)), \
+             patch.object(Bootstrap, 'keep_existing_recovery_conf', PropertyMock(return_value=True)):
+            self.p.cancellable.cancel()
             self.assertFalse(self.p.start())
+            self.assertFalse(self.p.pending_restart)
+            mock_logger.warning.assert_called_once()
+            self.assertEqual(mock_logger.warning.call_args[0],
+                             ('%s is missing from pg_controldata output', 'max_prepared_xacts setting'))
+
+        mock_logger.reset_mock()
+        controldata['max_prepared_xacts setting'] = 0
+        controldata['max_wal_senders setting'] *= 2
+
+        with patch.object(Postgresql, 'controldata', Mock(return_value=controldata)):
+            self.p.config.write_recovery_conf({'pause_at_recovery_target': 'false'})
+            self.assertFalse(self.p.start())
+            mock_logger.warning.assert_not_called()
             self.assertTrue(self.p.pending_restart)
 
     @patch('os.path.exists', Mock(return_value=True))
