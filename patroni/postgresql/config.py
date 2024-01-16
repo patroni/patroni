@@ -1076,13 +1076,14 @@ class ConfigHandler(object):
     def reload_config(self, config: Dict[str, Any], sighup: bool = False) -> None:
         self._superuser = config['authentication'].get('superuser', {})
         server_parameters = self.get_server_parameters(config)
+        params_skip_changes = CaseInsensitiveSet((*self._RECOVERY_PARAMETERS, 'hot_standby', 'wal_log_hints'))
 
         conf_changed = hba_changed = ident_changed = local_connection_address_changed = pending_restart = False
         if self._postgresql.state == 'running':
             changes = CaseInsensitiveDict({p: v for p, v in server_parameters.items()
-                                           if p.lower() not in self._RECOVERY_PARAMETERS})
+                                           if p not in params_skip_changes})
             changes.update({p: None for p in self._server_parameters.keys()
-                            if not (p in changes or p.lower() in self._RECOVERY_PARAMETERS)})
+                            if not (p in changes or p in params_skip_changes)})
             if changes:
                 undef = []
                 if 'wal_buffers' in changes:  # we need to calculate the default value of wal_buffers
@@ -1168,7 +1169,7 @@ class ConfigHandler(object):
                     pending_restart = self._postgresql.query(
                         'SELECT COUNT(*) FROM pg_catalog.pg_settings'
                         ' WHERE pg_catalog.lower(name) != ALL(%s) AND pending_restart',
-                        [n.lower() for n in self._RECOVERY_PARAMETERS])[0][0] > 0
+                        [n.lower() for n in params_skip_changes])[0][0] > 0
                     self._postgresql.set_pending_restart(pending_restart)
                 except Exception as e:
                     logger.warning('Exception %r when running query', e)
@@ -1243,7 +1244,6 @@ class ConfigHandler(object):
 
             if disable_hot_standby:
                 effective_configuration['hot_standby'] = 'off'
-                self._postgresql.set_pending_restart(True)
 
         return effective_configuration
 
