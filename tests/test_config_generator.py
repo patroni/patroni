@@ -62,9 +62,10 @@ class TestGenerateConfig(unittest.TestCase):
             'scope': self.environ['PATRONI_SCOPE'],
             'name': HOSTNAME,
             'log': {
+                'type': PatroniLogger.DEFAULT_TYPE,
+                'format': PatroniLogger.DEFAULT_FORMAT,
                 'level': PatroniLogger.DEFAULT_LEVEL,
                 'traceback_level': PatroniLogger.DEFAULT_TRACEBACK_LEVEL,
-                'format': PatroniLogger.DEFAULT_FORMAT,
                 'max_queue_size': PatroniLogger.DEFAULT_MAX_QUEUE_SIZE
             },
             'restapi': {
