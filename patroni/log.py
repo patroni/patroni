@@ -349,10 +349,10 @@ class PatroniLogger(Thread):
         try:
             from pythonjsonlogger import jsonlogger
 
-            kwargs = {}
+            kwargs: Dict[str, Any] = {}
 
             # We don't want to fail with the error if legacy versions of python-json-logger is installed!
-            doc = jsonlogger.JsonFormatter.__init__.__doc__
+            doc: str = jsonlogger.JsonFormatter.__init__.__doc__ or ''  # pyright: ignore [reportUnknownMemberType]
             if rename_fields:  # pragma: no cover
                 if ':param rename_fields:' in doc:
                     kwargs['rename_fields'] = rename_fields
