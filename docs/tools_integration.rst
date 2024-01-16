@@ -34,8 +34,8 @@ this by using ``patroni_barman config-switch`` as the ``on_role_change`` callbac
 .. note::
     That sub-command relies on the ``barman config-switch`` command, which is in
     charge of overriding the configuration of a Barman server by applying a
-    pre-defined model on top of it. Please consult the Barman documentation for
-    more details.
+    pre-defined model on top of it. This command is available since Barman 3.10.
+    Please consult the Barman documentation for more details.
 
 This is an example of how you can configure Patroni to apply a configuration
 model in case this Patroni node is promoted to primary:
@@ -55,6 +55,8 @@ model in case this Patroni node is promoted to primary:
 .. note::
     ``patroni_barman config-switch`` requires that you have both Barman and
     ``pg-backup-api`` configured in the Barman host, so it can execute a remote
-    ``barman config-switch`` through the backup API. The above example uses a
+    ``barman config-switch`` through the backup API. Also, it requires that you
+    have pre-configured Barman models to be applied. The above example uses a
     subset of the available parameters. You can get more information running
-    ``patroni_barman config-switch --help``.
+    ``patroni_barman config-switch --help``, and by consulting the Barman
+    documentation.
