@@ -799,7 +799,7 @@ class Cluster(NamedTuple('Cluster',
     :ivar sync: reference to :class:`SyncState` object, last observed synchronous replication state.
     :ivar history: reference to `TimelineHistory` object.
     :ivar failsafe: failsafe topology. Node is allowed to become the leader only if its name is found in this list.
-    :ivar workers: dictionary of workers of the MPP cluster, optional.  Each key representing the group and the
+    :ivar workers: dictionary of workers of the MPP cluster, optional. Each key representing the group and the
                    corresponding value is a :class:`Cluster` instance.
     """
 
