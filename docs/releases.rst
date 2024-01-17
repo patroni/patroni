@@ -3,6 +3,56 @@
 Release notes
 =============
 
+Version 3.2.2
+-------------
+
+**Bugfixes**
+
+- Don't let replica restore initialize key when DCS was wiped (Alexander Kukushkin)
+
+  It was happening in the method where Patroni was supposed to take over a standalone PG cluster.
+
+- Use consistent read when fetching just updated sync key from Consul (Alexander Kukushkin)
+
+  Consul doesn't provide any interface to immediately get ``ModifyIndex`` for the key that we just updated, therefore we have to perform an explicit read operation. Since stale reads are allowed by default, we sometimes used to get an outdated version of the key.
+
+- Reload Postgres config if a parameter that requires restart was reset to the original value (Polina Bungina)
+
+  Previously Patroni wasn't updating the config, but only resetting the ``pending_restart``.
+
+- Fix erroneous inverted logic of the confirmation prompt message when doing a failover to an async candidate in synchronous mode (Polina Bungina)
+
+  The problem existed only in ``patronictl``.
+
+- Exclude leader from failover candidates in ``patronictl`` (Polina Bungina)
+
+  If the cluster is healthy, failing over to an existing leader is no-op.
+
+- Create Citus database and extension idempotently (Alexander Kukushkin, Zhao Junwang)
+
+  It will allow to create them in the ``post_bootstrap`` script in case if there is a need to add some more dependencies to the Citus database.
+
+- Don't filter our contradictory ``nofailover`` tag (Polina Bungina)
+
+  The configuration ``{nofailover: false, failover_priority: 0}`` set on a node didn't allow it to participate in the race, while it should, because ``nofailover`` tag should take precedence.
+
+- Fixed PyInstaller frozen issue (Sophia Ruan)
+
+  The ``freeze_support()`` was called after ``argparse`` and as a result, Patroni wasn't able to start Postgres.
+
+- Fixed bug in the config generator for ``patronictl`` and ``Citus`` configuration (Israel Barth Rubio)
+
+  It prevented ``patronictl`` and ``Citus`` configuration parameters set via environment variables from being written into the generated config.
+
+- Restore recovery GUCs and some Patroni-managed parameters when joining a running standby (Alexander Kukushkin)
+
+  Patroni was failing to restart Postgres v12 onwards with an error about missing ``port`` in one of the internal structures.
+
+- Fixes around ``pending_restart`` flag (Polina Bungina)
+
+  Don't expose ``pending_restart`` when in custom bootstrap with ``recovery_target_action = promote`` or when someone changed ``hot_standby`` or ``wal_log_hints`` using for example ``ALTER SYSTEM``.
+
+
 Version 3.2.1
 -------------
 
