@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
 from ..dcs import CITUS_COORDINATOR_GROUP_ID, Cluster
-from ..psycopg import connect, quote_ident, DuplicateDatabase
+from ..psycopg import connect, quote_ident, ProgrammingError
 
 if TYPE_CHECKING:  # pragma: no cover
     from . import Postgresql
@@ -364,8 +364,11 @@ class CitusHandler(Thread):
                 with conn.cursor() as cur:
                     cur.execute('CREATE DATABASE {0}'.format(
                         quote_ident(self._config['database'], conn)).encode('utf-8'))
-            except DuplicateDatabase as e:
-                logger.debug('Exception when creating database: %r', e)
+            except ProgrammingError as exc:
+                if exc.diag.sqlstate == '42P04':  # DuplicateDatabase
+                    logger.debug('Exception when creating database: %r', exc)
+                else:
+                    raise exc
             finally:
                 conn.close()
 

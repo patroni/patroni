@@ -1418,7 +1418,7 @@ def switchover(obj: Dict[str, Any], cluster_name: str, group: Optional[int],
 
 
 def generate_topology(level: int, member: Dict[str, Any],
-                      topology: Dict[str, List[Dict[str, Any]]]) -> Iterator[Dict[str, Any]]:
+                      topology: Dict[Optional[str], List[Dict[str, Any]]]) -> Iterator[Dict[str, Any]]:
     """Recursively yield members with their names adjusted according to their *level* in the cluster topology.
 
     .. note::
@@ -1481,7 +1481,7 @@ def topology_sort(members: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
     :yields: *members* sorted by level in the topology, and with a new ``name`` value according to their level
         in the topology.
     """
-    topology: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    topology: Dict[Optional[str], List[Dict[str, Any]]] = defaultdict(list)
     leader = next((m for m in members if m['role'].endswith('leader')), {'name': None})
     replicas = set(member['name'] for member in members if not member['role'].endswith('leader'))
     for member in members:

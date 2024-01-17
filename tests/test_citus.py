@@ -1,6 +1,7 @@
 import time
-from mock import Mock, patch
+from mock import Mock, patch, PropertyMock
 from patroni.postgresql.citus import CitusHandler
+from patroni.psycopg import ProgrammingError
 
 from . import BaseTestPostgresql, MockCursor, psycopg_connect, SleepException
 from .test_ha import get_cluster_initialized_with_leader
@@ -166,6 +167,11 @@ class TestCitus(BaseTestPostgresql):
     @patch('patroni.postgresql.citus.connect', psycopg_connect)
     @patch('patroni.postgresql.citus.quote_ident', Mock())
     def test_bootstrap_duplicate_database(self, mock_logger):
-        self.c.bootstrap()
+        with patch.object(MockCursor, 'execute', Mock(side_effect=ProgrammingError)):
+            self.assertRaises(ProgrammingError, self.c.bootstrap)
+        with patch.object(MockCursor, 'execute', Mock(side_effect=[ProgrammingError, None, None, None])), \
+                patch.object(ProgrammingError, 'diag') as mock_diag:
+            type(mock_diag).sqlstate = PropertyMock(return_value='42P04')
+            self.c.bootstrap()
         mock_logger.assert_called_once()
         self.assertTrue(mock_logger.call_args[0][0].startswith('Exception when creating database'))
