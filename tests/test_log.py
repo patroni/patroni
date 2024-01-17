@@ -7,14 +7,17 @@ from io import StringIO
 
 from mock import Mock, patch
 from patroni.config import Config
-from patroni.log import JsonFormaterCapabilities, PatroniLogger
+from patroni.log import PatroniLogger
 from queue import Queue, Full
 
 try:
-    json_formatter_caps = JsonFormaterCapabilities()
+    from pythonjsonlogger import jsonlogger
     import json
+
+    jsonlogger.JsonFormatter(None, None, rename_fields={}, static_fields={})
+    json_formatter_is_available = True
 except Exception:
-    json_formatter_caps = None
+    json_formatter_is_available = False
 
 _LOG = logging.getLogger(__name__)
 
@@ -100,21 +103,14 @@ class TestPatroniLogger(unittest.TestCase):
             logger.reload_config(config)
 
             _LOG.info(test_message)
-            if json_formatter_caps:
+            if json_formatter_is_available:
                 target_log = json.loads(stderr_output.getvalue().split('\n')[-2])
 
-                if json_formatter_caps.supports_fields_renaming:
-                    self.assertIn('@timestamp', target_log)
-                    self.assertEqual(target_log['level'], 'INFO')
-                else:
-                    self.assertIn('asctime', target_log)
-                    self.assertEqual(target_log['levelname'], 'INFO')
+                self.assertIn('@timestamp', target_log)
                 self.assertEqual(target_log['message'], test_message)
-                if json_formatter_caps.supports_static_fields:
-                    self.assertEqual(target_log['app'], 'patroni')
-                supports_static_fields = json_formatter_caps and json_formatter_caps.supports_static_fields
-                self.assertEqual(len(target_log), len(config['format'])
-                                 + len(config['static_fields']) * int(supports_static_fields))
+                self.assertEqual(target_log['level'], 'INFO')
+                self.assertEqual(target_log['app'], 'patroni')
+                self.assertEqual(len(target_log), len(config['format']) + len(config['static_fields']))
 
     def test_json_str_format(self):
         config = {
@@ -132,14 +128,13 @@ class TestPatroniLogger(unittest.TestCase):
             logger.reload_config(config)
 
             _LOG.info(test_message)
-            if json_formatter_caps:
+            if json_formatter_is_available:
                 target_log = json.loads(stderr_output.getvalue().split('\n')[-2])
 
                 self.assertIn('asctime', target_log)
                 self.assertEqual(target_log['message'], test_message)
                 self.assertEqual(target_log['levelname'], 'INFO')
-                if json_formatter_caps.supports_static_fields:
-                    self.assertEqual(target_log['app'], 'patroni')
+                self.assertEqual(target_log['app'], 'patroni')
 
     def test_plain_format(self):
         config = {
@@ -255,7 +250,7 @@ class TestPatroniLogger(unittest.TestCase):
             self.assertEqual(captured_log_level, 'WARNING')
             self.assertRegex(captured_log_message, r'Expected renamed log field to be a string, but got ".*"')
 
-    def test_fail_to_import_python_json_logger(self):
+    def test_fail_to_use_python_json_logger(self):
         with self.assertLogs() as captured_log:
             logger = PatroniLogger()
             with patch('builtins.__import__', Mock(side_effect=ImportError)):
@@ -267,35 +262,21 @@ class TestPatroniLogger(unittest.TestCase):
             self.assertEqual(captured_log_level, 'ERROR')
             self.assertRegex(
                 captured_log_message,
-                r'Failed to import "python-json-logger" library. Falling back to the plain logger'
+                r'Failed to import "python-json-logger" library: .*. Falling back to the plain logger'
             )
 
+        with self.assertLogs() as captured_log:
+            logger = PatroniLogger()
+            pythonjsonlogger = Mock()
+            pythonjsonlogger.jsonlogger.JsonFormatter = Mock(side_effect=Exception)
+            with patch('builtins.__import__', Mock(return_value=pythonjsonlogger)):
+                logger.reload_config({'type': 'json'})
 
-class TestJsonFormaterCapabilities(unittest.TestCase):
+            captured_log_level = captured_log.records[0].levelname
+            captured_log_message = captured_log.records[0].message
 
-    def test_missing_package(self):
-        importlib = Mock()
-        importlib.metadata.version = Mock(side_effect=Exception)
-        with patch('builtins.__import__', Mock(side_effect=[importlib, ImportError])):
-            self.assertRaises(ImportError, JsonFormaterCapabilities)
-
-        pkg_resources = Mock()
-        pkg_resources.get_distribution = Mock(side_effect=Exception)
-        with patch('builtins.__import__', Mock(side_effect=[ImportError, pkg_resources, ImportError])):
-            self.assertRaises(ImportError, JsonFormaterCapabilities)
-
-    @patch('builtins.__import__')
-    def test_package_found(self, import_mock):
-        import_mock.return_value.metadata.version = Mock(return_value='2.0.1')
-        caps = JsonFormaterCapabilities()
-        self.assertTrue(caps.supports_fields_renaming)
-        self.assertFalse(caps.supports_static_fields)
-
-    def test_legacy_python(self):
-        with patch('builtins.__import__', Mock(side_effect=[ImportError, Exception, Mock()])):
-            caps = JsonFormaterCapabilities()
-            self.assertFalse(caps.supports_fields_renaming)
-
-        with patch('builtins.__import__', Mock(side_effect=[ImportError, ImportError, Mock()])):
-            caps = JsonFormaterCapabilities()
-            self.assertFalse(caps.supports_static_fields)
+            self.assertEqual(captured_log_level, 'ERROR')
+            self.assertRegex(
+                captured_log_message,
+                r'Failed to initialize JsonFormatter: .*. Falling back to the plain logger'
+            )
