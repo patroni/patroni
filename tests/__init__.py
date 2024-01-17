@@ -129,8 +129,6 @@ class MockCursor(object):
             sql = sql.decode('utf-8')
         if sql.startswith('blabla'):
             raise psycopg.ProgrammingError()
-        if sql.startswith('CREATE DATABASE'):
-            raise psycopg.DuplicateDatabase()
         elif sql == 'CHECKPOINT' or sql.startswith('SELECT pg_catalog.pg_create_'):
             raise psycopg.OperationalError()
         elif sql.startswith('RetryFailedError'):
