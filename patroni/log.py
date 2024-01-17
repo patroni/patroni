@@ -9,14 +9,67 @@ import sys
 
 from copy import deepcopy
 from logging.handlers import RotatingFileHandler
-from patroni.utils import deep_compare
 from queue import Queue, Full
 from threading import Lock, Thread
 
 from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+
+from . import parse_version
+from .utils import deep_compare
+
 type_logformat = Union[List[Union[str, Dict[str, Any], Any]], str, Any]
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class JsonFormaterCapabilities:
+    """Try to figure out capabilities of `python-json-logger`."""
+
+    PKG_NAME = 'python-json-logger'
+
+    def __init__(self):
+        """Performs object initialization.
+
+        .. note::
+            The `python-json-logger` doesn't expose its version, therefore we have to get it from the installed package.
+            Unfortunately, ``importlib.metadata`` is available only starting from 3.8+ and there is no guaranty that
+            ``pkg_resources`` is installed, therefore as a fallback we are trying to parse a docstring of the
+            :class:`JsonFormatter` constructor to figure out whether it accepts ``rename_fields`` and ``static_fields``.
+        """
+        try:
+            import importlib.metadata
+
+            self._version = importlib.metadata.version(self.PKG_NAME)
+        except ImportError:  # will happen with python < 3.8
+            try:
+                import pkg_resources
+
+                self._version = pkg_resources.get_distribution(self.PKG_NAME).version
+            except Exception:
+                self._version = None
+        except Exception:
+            self._version = None
+
+        if self._version is None:
+            from pythonjsonlogger import jsonlogger
+
+            doc: str = jsonlogger.JsonFormatter.__init__.__doc__ or ''  # pyright: ignore [reportUnknownMemberType]
+            self._supports_fields_renaming = ':param rename_fields:' in doc
+            self._supports_static_fields = ':param static_fields:' in doc
+        else:
+            self._version = parse_version(self._version)
+            self._supports_fields_renaming = self._version >= (2, 0, 1)
+            self._supports_static_fields = self._version >= (2, 0, 2)
+
+    @property
+    def supports_fields_renaming(self):
+        """``True`` if :class:`JsonFormatter` supports fields renaming."""
+        return self._supports_fields_renaming
+
+    @property
+    def supports_static_fields(self):
+        """``True`` if :class:`JsonFormatter` supports static fields."""
+        return self._supports_static_fields
 
 
 def debug_exception(self: logging.Logger, msg: object, *args: Any, **kwargs: Any) -> None:
@@ -352,18 +405,18 @@ class PatroniLogger(Thread):
             kwargs: Dict[str, Any] = {}
 
             # We don't want to fail with the error if legacy versions of python-json-logger is installed!
-            doc: str = jsonlogger.JsonFormatter.__init__.__doc__ or ''  # pyright: ignore [reportUnknownMemberType]
+            caps = JsonFormaterCapabilities()
             if rename_fields:  # pragma: no cover
-                if ':param rename_fields:' in doc:
+                if caps.supports_fields_renaming:
                     kwargs['rename_fields'] = rename_fields
                 else:
-                    _LOGGER.warning("Installed pythonjsonlogger doesn't support renaming fields")
+                    _LOGGER.warning("Installed %s doesn't support renaming fields", caps.PKG_NAME)
 
             if static_fields:  # pragma: no cover
-                if ':param static_fields:' in doc:
+                if caps.supports_static_fields:
                     kwargs['static_fields'] = static_fields
                 else:
-                    _LOGGER.warning("Installed pythonjsonlogger doesn't support adding static fields")
+                    _LOGGER.warning("Installed %s doesn't support adding static fields", caps.PKG_NAME)
 
             formatter = jsonlogger.JsonFormatter(jsonformat, dateformat, **kwargs)
         except ImportError as e:
