@@ -32,7 +32,8 @@ from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
 from .postgresql.misc import postgres_version_to_int
 from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Retry, \
-    RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json
+    RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json, \
+    is_cluster_healthy
 
 logger = logging.getLogger(__name__)
 
@@ -333,6 +334,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = replica_status_code
         elif 'read-only' in path and 'sync' not in path:
             status_code = 200 if 200 in (primary_status_code, standby_leader_status_code) else replica_status_code
+        elif 'cluster_health' in path or 'cluster-health' in path:
+            status_code = is_cluster_healthy(patroni, cluster)
         elif 'health' in path:
             status_code = 200 if response.get('state') == 'running' else 503
         elif cluster:  # dcs is available

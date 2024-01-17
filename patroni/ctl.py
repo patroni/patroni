@@ -2217,6 +2217,41 @@ def history(cluster_name: str, group: Optional[int], fmt: str) -> None:
     print_output(table_header_row, history, {'TL': 'r', 'LSN': 'r'}, fmt)
 
 
+@ctl.command('cluster-health', help="Show the overall health of the cluster")
+@arg_cluster_name
+@option_default_citus_group
+@click.pass_obj
+def cluster_health(obj: Dict[str, Any], cluster_name: str, group: Optional[int]):
+    """Process ``cluster-health`` command of ``patronictl`` utility.
+
+    Assess the overall health of the cluster.
+
+    A cluster is considered healthy if all standbys are in state streaming
+    and have a smaller lag than ``maximum_lag_on_failover``. If this is not
+    the case, the exit status is other than 0.
+
+    :param obj: Patroni configuration.
+    :param cluster_name: name of the Patroni cluster.
+    :param group: filter which Citus group we should get events from. Refer to the module note for more details.
+    """
+    cluster = get_dcs(obj, cluster_name, group).get_cluster()
+    if cluster.leader:
+        member = cluster.leader.member
+        try:
+            r = request_patroni(member, 'get', 'cluster-health')
+        except Exception as e:
+            click.echo("Failed: No API response: {0}".format(e))
+            sys.exit(1)
+        if r.status == 200:
+            click.echo('cluster is healthy')
+            return
+        else:
+            click.echo('cluster has leader but is not healthy')
+            sys.exit(1)
+    click.echo('cluster is not healthy')
+    sys.exit(2)
+
+
 def format_pg_version(version: int) -> str:
     """Format Postgres version for human consumption.
 

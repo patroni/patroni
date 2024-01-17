@@ -10,6 +10,7 @@
 :var WHITESPACE_RE: regular expression to match whitespace characters
 """
 import errno
+import json
 import logging
 import os
 import platform
@@ -1059,3 +1060,68 @@ def get_major_version(bin_dir: Optional[str] = None, bin_name: str = 'postgres')
     if TYPE_CHECKING:  # pragma: no cover
         assert version is not None
     return '.'.join([version.group(1), version.group(3)]) if int(version.group(1)) < 10 else version.group(1)
+
+
+def is_cluster_healthy(patroni, cluster):
+    if cluster.leader:
+        leader_name = cluster.leader.member.name
+    else:
+        logger.warning('cluster is not healthy: no leader')
+        return 503
+    cluster_lsn = cluster.last_lsn or 0
+    for m in cluster.members:
+        if m.name == leader_name:
+            leader_tl = m.data.get('timeline', '')
+            # sanity check
+            if m.data.get('role', '') != 'master' or m.data.get('state', '') != 'running':
+                logger.warning('cluster is not healthy: leader does not have role master or is not in state running')
+                return 503
+            # check replication data from leader and make sure there are as many rows as replicas
+            try:
+                response = patroni.request(m, timeout=2, retries=0)
+                data = json.loads(response.data.decode('utf-8'))
+            except Exception as e:
+                logger.warning("Request failed to %s: GET %s (%s)", m.name, m.api_url, e)
+            # get possible cascading standbys that do not take part in direct
+            # replication from the leader
+            cascading_replication_members = 0
+            for m in cluster.members:
+                if ('tags' in m.data and 'replicatefrom' in m.data.get('tags')
+                   and m.data.get('tags', {}).get('replicatefrom') != leader_name):
+                    cascading_replication_members += 1
+            replication_members = len(cluster.members) - cascading_replication_members
+            if 'replication' not in data or len(data['replication']) + 1 != replication_members:
+                logger.warning('cluster is not healthy: not all members take part in replication')
+                return 500
+    if cluster.config:
+        maximum_lag_on_failover = cluster.config.data.get('maximum_lag_on_failover', 0)
+    for m in cluster.members:
+        if m.name == leader_name:
+            continue
+        if m.data.get('timeline', '') != leader_tl:
+            logger.warning('cluster is not healthy: timeline mismatch in member %s', m.name)
+            return 500
+        if 'tags' in m.data and 'nofailover' in m.data.get('tags'):
+            nofailover = True
+        lsn = m.data.get('xlog_location')
+        if lsn is None:
+            logger.warning('cluster is not healthy: replication lag in member %s unknown', m.name)
+            return 500
+        elif cluster_lsn >= lsn:
+            lag = cluster_lsn - lsn
+        else:
+            lag = 0
+        if lag > maximum_lag_on_failover and not nofailover:
+            logger.warning('cluster is not healthy: replication lag in member %s', m.name)
+            return 500
+        follower_roles = ("replica", "sync_standby")
+        # replication_state 'in archive recovery' is considered ok as we
+        # checked the lag earlier
+        follower_replication_states = ("streaming", "in archive recovery")
+        if (m.data.get('role', '') not in follower_roles
+                or m.data.get('replication_state', '') not in follower_replication_states):
+            logger.warning('cluster is not healthy: member %s does not have follower role or is not replicating',
+                           m.name)
+            return 500
+    logger.debug('cluster is healthy')
+    return 200
