@@ -76,6 +76,10 @@ class AbstractMPP(abc.ABC):
                 return base.__name__
         return self.__class__.__name__
 
+    @property
+    def k8s_group_label(self):
+        return self.type.lower() + '-group'
+
     def is_coordinator(self) -> bool:
         """Check whether this node is running in the coordinator PostgreSQL cluster.
 

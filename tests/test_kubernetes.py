@@ -18,6 +18,7 @@ from . import MockResponse, SleepException
 
 
 def mock_list_namespaced_config_map(*args, **kwargs):
+    k8s_group_label = get_mpp({'citus': {'group': 0, 'database': 'postgres'}}).k8s_group_label
     metadata = {'resource_version': '1', 'labels': {'f': 'b'}, 'name': 'test-config',
                 'annotations': {'initialize': '123', 'config': '{}'}}
     items = [k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata))]
@@ -28,16 +29,16 @@ def mock_list_namespaced_config_map(*args, **kwargs):
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
     metadata.update({'name': 'test-sync', 'annotations': {'leader': 'p-0'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
-    metadata.update({'name': 'test-0-leader', 'labels': {Kubernetes._MPP_GROUP_LABEL: '0'},
+    metadata.update({'name': 'test-0-leader', 'labels': {k8s_group_label: '0'},
                      'annotations': {'optime': '1234x', 'leader': 'p-0', 'ttl': '30s', 'slots': '{', 'failsafe': '{'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
-    metadata.update({'name': 'test-0-config', 'labels': {Kubernetes._MPP_GROUP_LABEL: '0'},
+    metadata.update({'name': 'test-0-config', 'labels': {k8s_group_label: '0'},
                      'annotations': {'initialize': '123', 'config': '{}'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
-    metadata.update({'name': 'test-1-leader', 'labels': {Kubernetes._MPP_GROUP_LABEL: '1'},
+    metadata.update({'name': 'test-1-leader', 'labels': {k8s_group_label: '1'},
                      'annotations': {'leader': 'p-3', 'ttl': '30s'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
-    metadata.update({'name': 'test-2-config', 'labels': {Kubernetes._MPP_GROUP_LABEL: '2'}, 'annotations': {}})
+    metadata.update({'name': 'test-2-config', 'labels': {k8s_group_label: '2'}, 'annotations': {}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
 
     metadata = k8s_client.V1ObjectMeta(resource_version='1')
@@ -62,7 +63,8 @@ def mock_list_namespaced_endpoints(*args, **kwargs):
 
 
 def mock_list_namespaced_pod(*args, **kwargs):
-    metadata = k8s_client.V1ObjectMeta(resource_version='1', labels={'f': 'b', Kubernetes._MPP_GROUP_LABEL: '1'},
+    k8s_group_label = get_mpp({'citus': {'group': 0, 'database': 'postgres'}}).k8s_group_label
+    metadata = k8s_client.V1ObjectMeta(resource_version='1', labels={'f': 'b', k8s_group_label: '1'},
                                        name='p-0', annotations={'status': '{}'},
                                        uid='964dfeae-e79b-4476-8a5a-1920b5c2a69d')
     status = k8s_client.V1PodStatus(pod_ip='10.0.0.1')
