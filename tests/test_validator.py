@@ -382,17 +382,17 @@ class TestValidator(unittest.TestCase):
 
         c["log"]["format"] = []
         errors = schema(c)
-        self.assertIn("log.format [] didn't pass validation: should contains at least one item", errors)
+        self.assertIn("log.format [] didn't pass validation: should contain at least one item", errors)
 
         c["log"]["format"] = [{"levelname": []}]
         errors = schema(c)
         self.assertIn("log.format [{'levelname': []}] didn't pass validation: "
-                      "Each item should be a string or a dictionary with string values", errors)
+                      "each item should be a string or a dictionary with string values", errors)
 
         c["log"]["format"] = [[]]
         errors = schema(c)
         self.assertIn("log.format [[]] didn't pass validation: "
-                      "Each item should be a string or a dictionary with string values", errors)
+                      "each item should be a string or a dictionary with string values", errors)
 
         c["log"]["format"] = ['foo']
         errors = schema(c)

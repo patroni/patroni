@@ -12,10 +12,11 @@ from queue import Queue, Full
 
 try:
     from pythonjsonlogger import jsonlogger
-    import json
 
     jsonlogger.JsonFormatter(None, None, rename_fields={}, static_fields={})
     json_formatter_is_available = True
+
+    import json  # we need json.loads() function
 except Exception:
     json_formatter_is_available = False
 
