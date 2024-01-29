@@ -36,22 +36,6 @@ from .version import __version__
 if TYPE_CHECKING:  # pragma: no cover
     from .dcs import Cluster
 
-memory_unit_conversion_table: Dict[str, Dict[str, Union[int, float]]] = OrderedDict([
-    ('TB', {'B': 1024**4, 'kB': 1024**3, 'MB': 1024**2}),
-    ('GB', {'B': 1024**3, 'kB': 1024**2, 'MB': 1024}),
-    ('MB', {'B': 1024**2, 'kB': 1024, 'MB': 1}),
-    ('kB', {'B': 1024, 'kB': 1, 'MB': 1024**-1}),
-    ('B', {'B': 1, 'kB': 1024**-1, 'MB': 1024**-2})
-])
-time_unit_conversion_table: Dict[str, Dict[str, Union[int, float]]] = OrderedDict([
-    ('d', {'ms': 1000 * 60**2 * 24, 's': 60**2 * 24, 'min': 60 * 24}),
-    ('h', {'ms': 1000 * 60**2, 's': 60**2, 'min': 60}),
-    ('min', {'ms': 1000 * 60, 's': 60, 'min': 1}),
-    ('s', {'ms': 1000, 's': 1, 'min': 60**-1}),
-    ('ms', {'ms': 1, 's': 1000**-1, 'min': 1 / (1000 * 60)}),
-    ('us', {'ms': 1000**-1, 's': 1000**-2, 'min': 1 / (1000**2 * 60)})
-])
-
 tzutc = tz.tzutc()
 
 logger = logging.getLogger(__name__)
@@ -65,14 +49,29 @@ WHITESPACE_RE = re.compile(r'[ \t\n\r]*', re.VERBOSE | re.MULTILINE | re.DOTALL)
 
 
 def get_conversion_table(base_unit: str) -> Dict[str, Dict[str, Union[int, float]]]:
-    """Get convertion table for the specified base unit.
+    """Get conversion table for the specified base unit.
 
-    If no convertion table exists for the passed unit, return an empty :class:`OrderedDict`.
+    If no conversion table exists for the passed unit, return an empty :class:`OrderedDict`.
 
-    :param base_unit: unit to choose the convertion table for.
+    :param base_unit: unit to choose the conversion table for.
 
     :returns: :class:`OrderedDict` object.
     """
+    memory_unit_conversion_table: Dict[str, Dict[str, Union[int, float]]] = OrderedDict([
+        ('TB', {'B': 1024**4, 'kB': 1024**3, 'MB': 1024**2}),
+        ('GB', {'B': 1024**3, 'kB': 1024**2, 'MB': 1024}),
+        ('MB', {'B': 1024**2, 'kB': 1024, 'MB': 1}),
+        ('kB', {'B': 1024, 'kB': 1, 'MB': 1024**-1}),
+        ('B', {'B': 1, 'kB': 1024**-1, 'MB': 1024**-2})
+    ])
+    time_unit_conversion_table: Dict[str, Dict[str, Union[int, float]]] = OrderedDict([
+        ('d', {'ms': 1000 * 60**2 * 24, 's': 60**2 * 24, 'min': 60 * 24}),
+        ('h', {'ms': 1000 * 60**2, 's': 60**2, 'min': 60}),
+        ('min', {'ms': 1000 * 60, 's': 60, 'min': 1}),
+        ('s', {'ms': 1000, 's': 1, 'min': 60**-1}),
+        ('ms', {'ms': 1, 's': 1000**-1, 'min': 1 / (1000 * 60)}),
+        ('us', {'ms': 1000**-1, 's': 1000**-2, 'min': 1 / (1000**2 * 60)})
+    ])
     if base_unit in ('B', 'kB', 'MB'):
         return memory_unit_conversion_table
     elif base_unit in ('ms', 's', 'min'):
@@ -311,6 +310,7 @@ def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: Optiona
         assert isinstance(base_value, int)
 
     convert_tbl = get_conversion_table(base_unit)
+    # {'TB': 'GB', 'GB': 'MB', ...}
     round_order = dict(zip(convert_tbl, itertools.islice(convert_tbl, 1, None)))
     if unit in convert_tbl and base_unit in convert_tbl[unit]:
         value *= convert_tbl[unit][base_unit] / float(base_value)
@@ -333,7 +333,7 @@ def convert_int_from_base_unit(base_value: int, base_unit: Optional[str]) -> Opt
             * For time: ``ms``, ``s``, ``min``.
 
     :returns: :class:`str` value representing *base_value* converted from *base_unit* to the greatest
-        possible human-friendly unit, or ``None`` if convertion failed.
+        possible human-friendly unit, or ``None`` if conversion failed.
 
     :Example:
 
@@ -377,7 +377,7 @@ def convert_real_from_base_unit(base_value: float, base_unit: Optional[str]) -> 
             * For time: ``ms``, ``s``, ``min``.
 
     :returns: :class:`str` value representing *base_value* converted from *base_unit* to the greatest
-        possible human-friendly unit, or ``None`` if convertion failed.
+        possible human-friendly unit, or ``None`` if conversion failed.
 
     :Example:
 
@@ -392,7 +392,6 @@ def convert_real_from_base_unit(base_value: float, base_unit: Optional[str]) -> 
 
         >>> convert_real_from_base_unit(4.0, '256 MB') is None
         True
-
     """
     base_value_mult, base_unit = strtol(base_unit, False)
     if TYPE_CHECKING:  # pragma: no cover
@@ -403,7 +402,7 @@ def convert_real_from_base_unit(base_value: float, base_unit: Optional[str]) -> 
     convert_tbl = get_conversion_table(base_unit)
     for unit in convert_tbl:
         value = base_value / convert_tbl[unit][base_unit]
-        result = '%d' % value + unit
+        result = f'{value:g}{unit}'
         if value > 0 and abs((round(value) / value) - 1.0) <= 1e-8:
             break
     return result
@@ -412,7 +411,7 @@ def convert_real_from_base_unit(base_value: float, base_unit: Optional[str]) -> 
 def maybe_convert_from_base_unit(base_value: str, vartype: str, base_unit: Optional[str]) -> str:
     """Try to convert integer or real value in a base unit to a human-readable unit.
 
-    Value is passed as a string. If parsing or subsequent convertion fails, the original
+    Value is passed as a string. If parsing or subsequent conversion fails, the original
     value is returned.
 
     :param base_value: value to be converted from a base unit.
@@ -425,7 +424,21 @@ def maybe_convert_from_base_unit(base_value: str, vartype: str, base_unit: Optio
             * For time: ``ms``, ``s``, ``min``.
 
     :returns: :class:`str` value representing *base_value* converted from *base_unit* to the greatest
-        possible human-friendly unit, or *base_value* string if convertion failed.
+        possible human-friendly unit, or *base_value* string if conversion failed.
+
+    :Example:
+
+        >>> maybe_convert_from_base_unit('5', 'integer', 'ms')
+        '5ms'
+
+        >>> maybe_convert_from_base_unit('4.2', 'real', 'ms')
+        '4200us'
+
+        >>> maybe_convert_from_base_unit('on', 'bool', None)
+        'on'
+
+        >>> maybe_convert_from_base_unit('', 'integer', '256MB')
+        ''
     """
     converters: Dict[str, Tuple[Callable[[str, Optional[str]], Union[int, float, str, None]],
                                 Callable[[Any, Optional[str]], Optional[str]]]] = {

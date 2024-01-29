@@ -9,11 +9,13 @@ import sys
 
 from copy import deepcopy
 from logging.handlers import RotatingFileHandler
-from patroni.utils import deep_compare
 from queue import Queue, Full
 from threading import Lock, Thread
 
 from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+
+from .utils import deep_compare
+
 type_logformat = Union[List[Union[str, Dict[str, Any], Any]], str, Any]
 
 _LOGGER = logging.getLogger(__name__)
@@ -349,17 +351,18 @@ class PatroniLogger(Thread):
         try:
             from pythonjsonlogger import jsonlogger
 
-            formatter = jsonlogger.JsonFormatter(
+            return jsonlogger.JsonFormatter(
                 jsonformat,
                 dateformat,
                 rename_fields=rename_fields,
                 static_fields=static_fields
             )
         except ImportError as e:
-            _LOGGER.error('Failed to import "python-json-logger" library. Falling back to the plain logger: %r', e)
-            formatter = self._get_plain_formatter(jsonformat, dateformat)
+            _LOGGER.error('Failed to import "python-json-logger" library: %r. Falling back to the plain logger', e)
+        except Exception as e:
+            _LOGGER.error('Failed to initialize JsonFormatter: %r. Falling back to the plain logger', e)
 
-        return formatter
+        return self._get_plain_formatter(jsonformat, dateformat)
 
     def _get_formatter(self, config: Dict[str, Any]) -> logging.Formatter:
         """Returns a logging formatter based on the type of logger in the given configuration.
@@ -412,9 +415,10 @@ class PatroniLogger(Thread):
 
                 handler.maxBytes = int(config.get('file_size', 25000000))  # pyright: ignore [reportGeneralTypeIssues]
                 handler.backupCount = int(config.get('file_num', 4))
-            else:
-                if not isinstance(handler, logging.StreamHandler):
-                    handler = logging.StreamHandler()
+            # we can't use `if not isinstance(handler, logging.StreamHandler)` below,
+            # because RotatingFileHandler is a child of StreamHandler!!!
+            elif handler is None or isinstance(handler, RotatingFileHandler):
+                handler = logging.StreamHandler()
 
             is_new_handler = handler != self.log_handler
 

@@ -378,31 +378,23 @@ class TestValidator(unittest.TestCase):
         c["log"]["type"] = "json"
         c["log"]["format"] = {"levelname": "level"}
         errors = schema(c)
-        self.assertIn(
-            'log.format {\'levelname\': \'level\'} didn\'t pass validation: Should be a string or a list',
-            errors
-        )
+        self.assertIn("log.format {'levelname': 'level'} didn't pass validation: Should be a string or a list", errors)
 
-        c = copy.deepcopy(config)
-        c["log"]["type"] = "json"
+        c["log"]["format"] = []
+        errors = schema(c)
+        self.assertIn("log.format [] didn't pass validation: should contain at least one item", errors)
+
         c["log"]["format"] = [{"levelname": []}]
         errors = schema(c)
-        self.assertIn(
-            ' '.join([
-                'log.format [{\'levelname\': []}] didn\'t pass validation:',
-                'Each item should be a string or a dictionary with string values'
-            ]),
-            errors
-        )
+        self.assertIn("log.format [{'levelname': []}] didn't pass validation: "
+                      "each item should be a string or a dictionary with string values", errors)
 
-        c = copy.deepcopy(config)
-        c["log"]["type"] = "json"
         c["log"]["format"] = [[]]
         errors = schema(c)
-        self.assertIn(
-            ' '.join([
-                'log.format [[]] didn\'t pass validation:',
-                'Each item should be a string or a dictionary with string values'
-            ]),
-            errors
-        )
+        self.assertIn("log.format [[]] didn't pass validation: "
+                      "each item should be a string or a dictionary with string values", errors)
+
+        c["log"]["format"] = ['foo']
+        errors = schema(c)
+        output = "\n".join(errors)
+        self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
