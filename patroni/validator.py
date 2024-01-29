@@ -52,9 +52,9 @@ def validate_log_format(logformat: type_logformat) -> bool:
         return True
     elif isinstance(logformat, list):
         if len(logformat) == 0:
-            raise ConfigParseError('should contains at least one item')
+            raise ConfigParseError('should contain at least one item')
         if not all(map(validate_log_field, logformat)):
-            raise ConfigParseError('Each item should be a string or a dictionary with string values')
+            raise ConfigParseError('each item should be a string or a dictionary with string values')
 
         return True
     else:
