@@ -17,7 +17,8 @@ from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException, PostgresConnectionException
 from ..file_perm import pg_perm
-from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, validate_directory, is_subpath
+from ..utils import (compare_values, maybe_convert_from_base_unit, parse_bool, parse_int,
+                     split_host_port, uri, validate_directory, is_subpath)
 from ..validator import IntValidator, EnumValidator
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -1102,27 +1103,29 @@ class ConfigHandler(object):
                         new_value = changes.pop(r[0])
                         if new_value is None or not compare_values(r[3], r[2], r[1], new_value):
                             conf_changed = True
+                            old_value = maybe_convert_from_base_unit(r[1], r[3], r[2])
                             if r[4] == 'postmaster':
                                 pending_restart = True
-                                logger.info('Changed %s from %s to %s (restart might be required)',
-                                            r[0], r[1], new_value)
+                                logger.info("Changed %s from '%s' to '%s' (restart might be required)",
+                                            r[0], old_value, new_value)
                                 if config.get('use_unix_socket') and r[0] == 'unix_socket_directories'\
                                         or r[0] in ('listen_addresses', 'port'):
                                     local_connection_address_changed = True
                             else:
-                                logger.info('Changed %s from %s to %s', r[0], r[1], new_value)
+                                logger.info("Changed %s from '%s' to '%s'", r[0], old_value, new_value)
                         elif r[0] in self._server_parameters \
                                 and not compare_values(r[3], r[2], r[1], self._server_parameters[r[0]]):
                             # Check if any parameter was set back to the current pg_settings value
                             # We can use pg_settings value here, as it is proved to be equal to new_value
-                            logger.info('Changed %s from %s to %s', r[0], self._server_parameters[r[0]], r[1])
+                            logger.info("Changed %s from '%s' to '%s'", r[0], self._server_parameters[r[0]], new_value)
                             conf_changed = True
                 for param, value in changes.items():
                     if '.' in param:
-                        # Check that user-defined-paramters have changed (parameters with period in name)
+                        # Check that user-defined-parameters have changed (parameters with period in name)
                         if value is None or param not in self._server_parameters \
                                 or str(value) != str(self._server_parameters[param]):
-                            logger.info('Changed %s from %s to %s', param, self._server_parameters.get(param), value)
+                            logger.info("Changed %s from '%s' to '%s'",
+                                        param, self._server_parameters.get(param), value)
                             conf_changed = True
                     elif param in server_parameters:
                         logger.warning('Removing invalid parameter `%s` from postgresql.parameters', param)
@@ -1228,6 +1231,8 @@ class ConfigHandler(object):
             cvalue = parse_int(data[cname])
             if cvalue is not None and value is not None and cvalue > value:
                 effective_configuration[name] = cvalue
+                logger.info("%s value in pg_controldata: %d, in the global configuration: %d."
+                            " pg_controldata value will be used. Setting 'Pending restart' flag", name, cvalue, value)
                 self._postgresql.set_pending_restart(True)
 
         # If we are using custom bootstrap with PITR it could fail when values like max_connections

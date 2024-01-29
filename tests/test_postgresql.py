@@ -606,9 +606,9 @@ class TestPostgresql(BaseTestPostgresql):
         config['parameters']['max_worker_processes'] *= 2
         with patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[GET_PG_SETTINGS_RESULT, [(1,)]])):
             self.p.reload_config(config)
-            self.assertEqual(mock_info.call_args_list[0][0], ('Changed %s from %s to %s (restart might be required)',
-                                                              'max_worker_processes', str(init_max_worker_processes),
-                                                              config['parameters']['max_worker_processes']))
+            self.assertEqual(mock_info.call_args_list[0][0],
+                             ("Changed %s from '%s' to '%s' (restart might be required)", 'max_worker_processes',
+                              str(init_max_worker_processes), config['parameters']['max_worker_processes']))
             self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
             self.assertEqual(self.p.pending_restart, True)
 
@@ -617,9 +617,9 @@ class TestPostgresql(BaseTestPostgresql):
         # Reset to the initial value without restart
         config['parameters']['max_worker_processes'] = init_max_worker_processes
         self.p.reload_config(config)
-        self.assertEqual(mock_info.call_args_list[0][0], ('Changed %s from %s to %s', 'max_worker_processes',
+        self.assertEqual(mock_info.call_args_list[0][0], ("Changed %s from '%s' to '%s'", 'max_worker_processes',
                                                           init_max_worker_processes * 2,
-                                                          str(config['parameters']['max_worker_processes'])))
+                                                          config['parameters']['max_worker_processes']))
         self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
         self.assertEqual(self.p.pending_restart, False)
 
@@ -628,20 +628,21 @@ class TestPostgresql(BaseTestPostgresql):
         # User-defined parameter changed (removed)
         config['parameters'].pop('f.oo')
         self.p.reload_config(config)
-        self.assertEqual(mock_info.call_args_list[0][0], ('Changed %s from %s to %s', 'f.oo', 'bar', None))
+        self.assertEqual(mock_info.call_args_list[0][0], ("Changed %s from '%s' to '%s'", 'f.oo', 'bar', None))
         self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
         self.assertEqual(self.p.pending_restart, False)
 
         mock_info.reset_mock()
 
         # Non-postmaster parameter change
-        config['parameters']['autovacuum'] = 'off'
+        config['parameters']['vacuum_cost_delay'] = 2.5
         self.p.reload_config(config)
-        self.assertEqual(mock_info.call_args_list[0][0], ("Changed %s from %s to %s", 'autovacuum', 'on', 'off'))
+        self.assertEqual(mock_info.call_args_list[0][0],
+                         ("Changed %s from '%s' to '%s'", 'vacuum_cost_delay', '200ms', 2.5))
         self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
         self.assertEqual(self.p.pending_restart, False)
 
-        config['parameters']['autovacuum'] = 'on'
+        config['parameters']['vacuum_cost_delay'] = 200
         mock_info.reset_mock()
 
         # Remove invalid parameter
@@ -832,6 +833,11 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertFalse(self.p.start())
             mock_logger.warning.assert_not_called()
             self.assertTrue(self.p.pending_restart)
+            mock_logger.info.assert_called_once()
+            self.assertEqual(mock_logger.info.call_args[0],
+                             ("%s value in pg_controldata: %d, in the global configuration: %d."
+                              " pg_controldata value will be used. Setting 'Pending restart' flag",
+                              'max_wal_senders', 10, 5))
 
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.path.isfile', Mock(return_value=False))
