@@ -78,8 +78,8 @@ class BarmanConfigSwitch:
             ``pg-backup-api``, if required.
         :param key_file: certificate key to authenticate against the
             ``pg-backup-api``, if required.
-        :param retry_wait: how long to wait before retrying a failed request to
-            the ``pg-backup-api``.
+        :param retry_wait: how long in seconds to wait before retrying a failed
+            request to the ``pg-backup-api``.
         :param max_retries: maximum number of retries when ``pg-backup-api``
             returns malformed responses.
         """
@@ -87,12 +87,8 @@ class BarmanConfigSwitch:
         self.barman_model = barman_model
         self.reset = reset
 
-        if reset is not None and barman_model is not None:
-            logging.error("Only one among 'barman_model' ('%s') and 'reset' "
-                          "('%s') should be given", barman_model, reset)
-            sys.exit(ExitCode.INVALID_ARGS)
-        elif reset is None and barman_model is None:
-            logging.error("At least one among 'barman_model' ('%s') and "
+        if all([barman_model, reset]) or not any([barman_model, reset]):
+            logging.error("One, and only one among ' barman-model' ('%s') and "
                           "'reset' ('%s') should be given", barman_model, reset)
             sys.exit(ExitCode.INVALID_ARGS)
 

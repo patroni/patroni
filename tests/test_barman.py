@@ -466,7 +466,7 @@ class TestBarmanConfigSwitch(unittest.TestCase):
         with self.assertRaises(SystemExit) as exc:
             BarmanConfigSwitch(BARMAN_SERVER, BARMAN_MODEL, True, API_URL, None, None, RETRY_WAIT, MAX_RETRIES)
 
-        mock_log_error.assert_called_once_with("Only one among 'barman_model' ('%s') and 'reset' "
+        mock_log_error.assert_called_once_with("One, and only one among 'barman_model' ('%s') and 'reset' "
                                                "('%s') should be given", BARMAN_MODEL, True)
         mock_api.assert_not_called()
         self.assertEqual(exc.exception.code, BarmanConfigSwitchExitCode.INVALID_ARGS)
@@ -478,7 +478,7 @@ class TestBarmanConfigSwitch(unittest.TestCase):
         with self.assertRaises(SystemExit) as exc:
             BarmanConfigSwitch(BARMAN_SERVER, None, None, API_URL, None, None, RETRY_WAIT, MAX_RETRIES)
 
-        mock_log_error.assert_called_once_with("At least one among 'barman_model' ('%s') and 'reset' "
+        mock_log_error.assert_called_once_with("One, and only one among 'barman_model' ('%s') and 'reset' "
                                                "('%s') should be given", None, None)
         mock_api.assert_not_called()
         self.assertEqual(exc.exception.code, BarmanConfigSwitchExitCode.INVALID_ARGS)

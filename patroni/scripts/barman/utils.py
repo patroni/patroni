@@ -30,7 +30,7 @@ def retry(exceptions: Union[Type[Exception], Tuple[Type[Exception], ...]]) \
         attributes:
 
         * ``max_retries``: maximum retry attempts before failing;
-        * ``retry_wait``: how long to wait before retrying.
+        * ``retry_wait``: how long in seconds to wait before retrying.
 
     :param exceptions: exceptions that could trigger a retry attempt.
 
@@ -97,8 +97,8 @@ class PgBackupApi:
         if required.
     :ivar key_file: certificate key to authenticate against the
         ``pg-backup-api``, if required.
-    :ivar retry_wait: how long to wait before retrying a failed request to the
-        ``pg-backup-api``.
+    :ivar retry_wait: how long in seconds to wait before retrying a failed
+        request to the ``pg-backup-api``.
     :ivar max_retries: maximum number of retries when ``pg-backup-api`` returns
         malformed responses.
     :ivar http: a HTTP pool manager for performing web requests.
@@ -123,8 +123,8 @@ class PgBackupApi:
             ``pg-backup-api``, if required.
         :param key_file: certificate key to authenticate against the
             ``pg-backup-api``, if required.
-        :param retry_wait: how long to wait before retrying a failed request to
-            the ``pg-backup-api``.
+        :param retry_wait: how long in seconds to wait before retrying a failed
+            request to the ``pg-backup-api``.
         :param max_retries: maximum number of retries when ``pg-backup-api``
             returns malformed responses.
         """
@@ -260,7 +260,7 @@ class PgBackupApi:
             restored.
         :param backup_id: ID of the backup from the Barman server.
         :param ssh_command: SSH command to connect from the Barman host to the
-            local host.
+            target host.
         :param data_directory: path to the Postgres data directory where to
             restore the backup at.
 

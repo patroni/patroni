@@ -53,12 +53,12 @@ class BarmanRecover:
         restored.
     :ivar backup_id: ID of the backup from the Barman server.
     :ivar ssh_command: SSH command to connect from the Barman host to the
-        local host.
+        target host.
     :ivar data_directory: path to the Postgres data directory where to
         restore the backup at.
-    :ivar loop_wait: how long to wait before checking again the status of the
-        recovery process. Higher values are useful for backups that are
-        expected to take long to restore.
+    :ivar loop_wait: how long in seconds to wait before checking again the
+        status of the recovery process. Higher values are useful for backups
+        that are expected to take longer to restore.
     """
 
     def __init__(self, barman_server: str, backup_id: str,
@@ -72,12 +72,12 @@ class BarmanRecover:
             restored.
         :param backup_id: ID of the backup from the Barman server.
         :param ssh_command: SSH command to connect from the Barman host to the
-            local host.
+            target host.
         :param data_directory: path to the Postgres data directory where to
             restore the backup in.
-        :param loop_wait: how long to wait before checking again the status of
-            the recovery process. Higher values are useful for backups that are
-            expected to take longer to restore.
+        :param loop_wait: how long in seconds to wait before checking again the
+            status of the recovery process. Higher values are useful for backups
+            that are expected to take longer to restore.
         :param api_url: base URL to reach the ``pg-backup-api``.
         :param cert_file: certificate to authenticate against the
             ``pg-backup-api``, if required.

@@ -57,8 +57,8 @@ def main() -> None:
         type=int,
         required=False,
         default=2,
-        help="How long to wait before retrying a failed pg-backup-api  request "
-             "(default: '%(default)s')",
+        help="How long in seconds to wait before retrying a failed "
+             "pg-backup-api request (default: '%(default)s')",
         dest="retry_wait",
     )
     parser.add_argument(
