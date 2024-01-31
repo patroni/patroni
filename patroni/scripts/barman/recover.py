@@ -74,16 +74,16 @@ class BarmanRecover:
         :param ssh_command: SSH command to connect from the Barman host to the
             local host.
         :param data_directory: path to the Postgres data directory where to
-            restore the backup at.
+            restore the backup in.
         :param loop_wait: how long to wait before checking again the status of
             the recovery process. Higher values are useful for backups that are
-            expected to take long to restore.
+            expected to take longer to restore.
         :param api_url: base URL to reach the ``pg-backup-api``.
         :param cert_file: certificate to authenticate against the
             ``pg-backup-api``, if required.
         :param key_file: certificate key to authenticate against the
             ``pg-backup-api``, if required.
-        :param retry_wait: how long to wait before retrying a failed request to
+        :param retry_wait: how long in seconds to wait before retrying a failed request to
             the ``pg-backup-api``.
         :param max_retries: maximum number of retries when ``pg-backup-api``
             returns malformed responses.
