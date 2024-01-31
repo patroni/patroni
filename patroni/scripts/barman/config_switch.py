@@ -88,7 +88,7 @@ class BarmanConfigSwitch:
         self.reset = reset
 
         if all([barman_model, reset]) or not any([barman_model, reset]):
-            logging.error("One, and only one among ' barman-model' ('%s') and "
+            logging.error("One, and only one among 'barman_model' ('%s') and "
                           "'reset' ('%s') should be given", barman_model, reset)
             sys.exit(ExitCode.INVALID_ARGS)
 
