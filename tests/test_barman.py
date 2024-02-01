@@ -616,9 +616,9 @@ class TestBarmanConfigSwitchCli(unittest.TestCase):
             run_barman_config_switch(args)
 
         mock_bcs.assert_called_once_with(args.barman_server, args.barman_model,
-                                        args.reset, args.api_url,
-                                        args.cert_file, args.key_file,
-                                        args.retry_wait, args.max_retries)
+                                         args.reset, args.api_url,
+                                         args.cert_file, args.key_file,
+                                         args.retry_wait, args.max_retries)
         mock_log_info.assert_not_called()
         mock_log_error.assert_called_once_with("Config switch operation failed.")
         self.assertEqual(exc.exception.code, BarmanConfigSwitchExitCode.CONFIG_SWITCH_FAILED)
