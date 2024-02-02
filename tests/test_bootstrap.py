@@ -8,7 +8,7 @@ from patroni.collections import CaseInsensitiveDict
 from patroni.postgresql import Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
-from patroni.postgresql.config import ConfigHandler, ParamDiff
+from patroni.postgresql.config import ConfigHandler, get_param_diff
 
 from . import psycopg_connect, BaseTestPostgresql, mock_available_gucs
 
@@ -237,7 +237,7 @@ class TestBootstrap(BaseTestPostgresql):
 
         self.b.bootstrap(config)
         with patch.object(Postgresql, 'pending_restart_reason',
-                          PropertyMock(CaseInsensitiveDict({'max_connections': ParamDiff('200', '100')}))), \
+                          PropertyMock(CaseInsensitiveDict({'max_connections': get_param_diff('200', '100')}))), \
              patch.object(Postgresql, 'restart', Mock()) as mock_restart:
             self.b.post_bootstrap({}, task)
             mock_restart.assert_called_once()

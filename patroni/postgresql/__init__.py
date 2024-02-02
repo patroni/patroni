@@ -325,21 +325,18 @@ class Postgresql(object):
         """Get :attr:`_pending_restart_reason` value.
 
         :attr:`_pending_restart_reason` is a :class:`CaseInsensitiveDict` object of the PG parameters that are
-        causing pending restart state. Every key is a parameter name, value - :class:`ParamDiff` object.
+        causing pending restart state. Every key is a parameter name, value - a dictionary containing the old
+        and the new value (see :func:`~patroni.postgresql.config.get_param_diff`).
         """
         return self._pending_restart_reason
 
-    def set_pending_restart_reason(self, diff_dict: CaseInsensitiveDict, update: bool = False) -> None:
+    def set_pending_restart_reason(self, diff_dict: CaseInsensitiveDict) -> None:
         """Set new or update current :attr:`_pending_restart_reason`.
 
         :param diff_dict: :class:``CaseInsensitiveDict`` object with the parameters that are causing pending restart
             state with the diff of their values. Used to reset/update the :attr:`_pending_restart_reason`.
-        :param update: bool, indicates if :attr:`_pending_restart_reason` should be updated or reset with *diff_dict*.
         """
-        if update:
-            self._pending_restart_reason.update(diff_dict)
-        else:
-            self._pending_restart_reason = diff_dict
+        self._pending_restart_reason = diff_dict
 
     @property
     def sysid(self) -> str:

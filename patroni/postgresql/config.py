@@ -271,29 +271,27 @@ def _bool_is_true_validator(value: Any) -> bool:
     return parse_bool(value) is True
 
 
-class ParamDiff(Dict[str, str]):
-    """Single PG parameter's value diff to be stored in :attr:`~patroni.postgresql.Postgresql._pending_restart_reason`.
+def get_param_diff(old_value: Any, new_value: Any,
+                   vartype: Optional[str] = None, unit: Optional[str] = None) -> Dict[str, str]:
+    """Get a dictionary representing a single PG parameter's value diff.
 
-    Extends :class:`dict` to only have the two specific attributes: ``old_value`` and ``new_value`` and their values
-    casted to :class:`str` and converted from base units (if possible).
+    :param old_value: current :class:`str` parameter value.
+    :param new_value: :class:`str` value of the paramater after a restart.
+    :param vartype: the target type to parse old/new_value. See ``vartype`` argument of
+        :func:`~patroni.utils.maybe_convert_from_base_unit`.
+    :param unit: unit of *old/new_value*. See ``base_unit`` argument of
+        :func:`~patroni.utils.maybe_convert_from_base_unit`.
+
+    :returns: a :class:`dict` object that contains two keys: ``old_value`` and ``new_value``
+        with their values casted to :class:`str` and converted from base units (if possible).
     """
-
-    def __init__(self, old_value: Any, new_value: Any, vartype: Optional[str] = None, unit: Optional[str] = None):
-        """Create a new instance of :class:`ParamDiff` with the given *old_value* and *new_value*.
-
-        :param old_value: current :class:`str` parameter value.
-        :param new_value: :class:`str` value of the paramater after a restart.
-        :param vartype: the target type to parse old/new_value. See ``vartype`` argument of
-            :func:`~patroni.utils.maybe_convert_from_base_unit`.
-        :param unit: unit of *old/new_value*. See ``base_unit`` argument of
-            :func:`~patroni.utils.maybe_convert_from_base_unit`.
-        """
-        super().__init__()
-        str_value: Callable[[Any], str] = lambda x: '' if x is None else str(x)
-        self['old_value'] = (maybe_convert_from_base_unit(str_value(old_value), vartype, unit)
-                             if vartype else str_value(old_value))
-        self['new_value'] = (maybe_convert_from_base_unit(str_value(new_value), vartype, unit)
-                             if vartype else str_value(new_value))
+    str_value: Callable[[Any], str] = lambda x: '' if x is None else str(x)
+    return {
+        'old_value': (maybe_convert_from_base_unit(str_value(old_value), vartype, unit)
+                      if vartype else str_value(old_value)),
+        'new_value': (maybe_convert_from_base_unit(str_value(new_value), vartype, unit)
+                      if vartype else str_value(new_value))
+    }
 
 
 class ConfigHandler(object):
@@ -1130,7 +1128,7 @@ class ConfigHandler(object):
                         if new_value is None or not compare_values(r[3], r[2], r[1], new_value):
                             conf_changed = True
                             if r[4] == 'postmaster':
-                                param_diff[r[0]] = ParamDiff(r[1], new_value, r[3], r[2])
+                                param_diff[r[0]] = get_param_diff(r[1], new_value, r[3], r[2])
                                 logger.info("Changed %s from '%s' to '%s' (restart might be required)",
                                             r[0], param_diff[r[0]]['old_value'], new_value)
                                 if config.get('use_unix_socket') and r[0] == 'unix_socket_directories'\
@@ -1200,8 +1198,9 @@ class ConfigHandler(object):
                             'SELECT name, pg_catalog.current_setting(name), unit, vartype FROM pg_catalog.pg_settings'
                             ' WHERE pg_catalog.lower(name) != ALL(%s) AND pending_restart',
                             [n.lower() for n in params_skip_changes]):
-                        new_value = (lambda v: '?' if v is None else v)(self._postgresql.get_guc_value(param))
-                        settings_diff[param] = ParamDiff(value, new_value, vartype, unit)
+                        new_value = self._postgresql.get_guc_value(param)
+                        new_value = '?' if new_value is None else new_value
+                        settings_diff[param] = get_param_diff(value, new_value, vartype, unit)
                     external_change = {param: value for param, value in settings_diff.items()
                                        if param not in param_diff or value != param_diff[param]}
                     if external_change:
@@ -1258,6 +1257,7 @@ class ConfigHandler(object):
         data = self._postgresql.controldata()
         effective_configuration = self._server_parameters.copy()
 
+        param_diff = CaseInsensitiveDict()
         for name, cname in options_mapping.items():
             value = parse_int(effective_configuration[name])
             if cname not in data:
@@ -1269,7 +1269,8 @@ class ConfigHandler(object):
                 effective_configuration[name] = cvalue
                 logger.info("%s value in pg_controldata: %d, in the global configuration: %d."
                             " pg_controldata value will be used. Setting 'Pending restart' flag", name, cvalue, value)
-                self._postgresql.set_pending_restart_reason(CaseInsensitiveDict({name: ParamDiff(cvalue, value)}), True)
+                param_diff[name] = get_param_diff(cvalue, value)
+        self._postgresql.set_pending_restart_reason(param_diff)
 
         # If we are using custom bootstrap with PITR it could fail when values like max_connections
         # are increased, therefore we disable hot_standby if recovery_target_action == 'promote'.

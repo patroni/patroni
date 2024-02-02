@@ -18,7 +18,7 @@ from patroni.exceptions import PostgresConnectionException, PatroniException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
-from patroni.postgresql.config import ParamDiff, _false_validator
+from patroni.postgresql.config import get_param_diff, _false_validator
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import (ValidatorFactoryNoType, ValidatorFactoryInvalidType,
                                           ValidatorFactoryInvalidSpec, ValidatorFactory, InvalidGucValidatorsFile,
@@ -606,7 +606,7 @@ class TestPostgresql(BaseTestPostgresql):
         config['parameters']['max_worker_processes'] *= 2
         new_max_worker_processes = config['parameters']['max_worker_processes']
         # stale reason to be removed
-        self.p._pending_restart_reason = CaseInsensitiveDict({'max_connections': ParamDiff('200', '100')})
+        self.p._pending_restart_reason = CaseInsensitiveDict({'max_connections': get_param_diff('200', '100')})
 
         with patch.object(Postgresql, 'get_guc_value', Mock(return_value=str(new_max_worker_processes))), \
              patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[
@@ -617,8 +617,8 @@ class TestPostgresql(BaseTestPostgresql):
                               str(init_max_worker_processes), config['parameters']['max_worker_processes']))
             self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
             self.assertEqual(self.p.pending_restart_reason,
-                             CaseInsensitiveDict({'max_worker_processes': ParamDiff(init_max_worker_processes,
-                                                                                    new_max_worker_processes)}))
+                             CaseInsensitiveDict({'max_worker_processes': get_param_diff(init_max_worker_processes,
+                                                                                         new_max_worker_processes)}))
 
         mock_info.reset_mock()
 
@@ -680,15 +680,15 @@ class TestPostgresql(BaseTestPostgresql):
                                                               " (%s) seem to be changed bypassing Patroni config."
                                                               " Setting 'Pending restart' flag", 'shared_buffers'))
             self.assertEqual(self.p.pending_restart_reason,
-                             CaseInsensitiveDict({'shared_buffers': ParamDiff('128MB', '584kB')}))
+                             CaseInsensitiveDict({'shared_buffers': get_param_diff('128MB', '584kB')}))
 
             self.p.reload_config(config, True)
             self.assertEqual(self.p.pending_restart_reason,
-                             CaseInsensitiveDict({'shared_buffers': ParamDiff('128MB', '?')}))
+                             CaseInsensitiveDict({'shared_buffers': get_param_diff('128MB', '?')}))
 
             self.p.reload_config(config, True)
             self.assertEqual(self.p.pending_restart_reason,
-                             CaseInsensitiveDict({'shared_buffers': ParamDiff('128MB', '')}))
+                             CaseInsensitiveDict({'shared_buffers': get_param_diff('128MB', '')}))
 
         # Exception while querying pending_restart parameters
         with patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[GET_PG_SETTINGS_RESULT, Exception])):
@@ -863,7 +863,7 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertFalse(self.p.start())
             mock_logger.warning.assert_not_called()
             self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict({
-                'max_wal_senders': ParamDiff('10', '5')
+                'max_wal_senders': get_param_diff('10', '5')
             }))
             mock_logger.info.assert_called_once()
             self.assertEqual(mock_logger.info.call_args[0],

@@ -12,7 +12,7 @@ from patroni.ctl import ctl, load_config, output_members, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, PatroniCtlException, apply_config_changes, \
     format_config_for_editing, show_diff, invoke_editor, format_pg_version, CONFIG_FILE_PATH, PatronictlPrettyTable
 from patroni.dcs import Cluster, Failover
-from patroni.postgresql.config import ParamDiff
+from patroni.postgresql.config import get_param_diff
 from patroni.postgresql.mpp import get_mpp
 from patroni.psycopg import OperationalError
 from patroni.utils import tzutc
@@ -485,7 +485,7 @@ class TestCtl(unittest.TestCase):
 
         cluster = get_cluster_initialized_with_leader()
         cluster.members[1].data['pending_restart'] = True
-        cluster.members[1].data['pending_restart_reason'] = {'param': ParamDiff('', 'very l' + 'o' * 34 + 'ng')}
+        cluster.members[1].data['pending_restart_reason'] = {'param': get_param_diff('', 'very l' + 'o' * 34 + 'ng')}
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=cluster)):
             result = self.runner.invoke(ctl, ['list', 'dummy'])
             self.assertIn('param: [hidden - too long]', result.output)
@@ -493,7 +493,7 @@ class TestCtl(unittest.TestCase):
             result = self.runner.invoke(ctl, ['list', 'dummy', '-f', 'tsv'])
             self.assertIn('param: ->very l' + 'o' * 34 + 'ng', result.output)
 
-            cluster.members[1].data['pending_restart_reason'] = {'param': ParamDiff('', 'new')}
+            cluster.members[1].data['pending_restart_reason'] = {'param': get_param_diff('', 'new')}
             result = self.runner.invoke(ctl, ['list', 'dummy'])
             self.assertIn('param: ->new', result.output)
 

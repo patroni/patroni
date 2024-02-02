@@ -13,7 +13,7 @@ from patroni.api import RestApiHandler, RestApiServer
 from patroni.dcs import ClusterConfig, Member
 from patroni.exceptions import PostgresConnectionException
 from patroni.ha import _MemberStatus
-from patroni.postgresql.config import ParamDiff
+from patroni.postgresql.config import get_param_diff
 from patroni.psycopg import OperationalError
 from patroni.utils import RetryFailedError, tzutc
 
@@ -203,7 +203,7 @@ class TestRestApiHandler(unittest.TestCase):
     _authorization = '\nAuthorization: Basic dGVzdDp0ZXN0'
 
     def test_do_GET(self):
-        MockPostgresql.pending_restart_reason = {'max_connections': ParamDiff('200', '100')}
+        MockPostgresql.pending_restart_reason = {'max_connections': get_param_diff('200', '100')}
         MockPatroni.dcs.cluster.last_lsn = 20
         MockPatroni.dcs.cluster.sync.members = [MockPostgresql.name]
         with patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True)):
