@@ -487,8 +487,9 @@ class TestCtl(unittest.TestCase):
         cluster.members[1].data['pending_restart'] = True
         cluster.members[1].data['pending_restart_reason'] = {'param': get_param_diff('', 'very l' + 'o' * 34 + 'ng')}
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=cluster)):
-            result = self.runner.invoke(ctl, ['list', 'dummy'])
-            self.assertIn('param: [hidden - too long]', result.output)
+            for cmd in ('list', 'topology'):
+                result = self.runner.invoke(ctl, [cmd, 'dummy'])
+                self.assertIn('param: [hidden - too long]', result.output)
 
             result = self.runner.invoke(ctl, ['list', 'dummy', '-f', 'tsv'])
             self.assertIn('param: ->very l' + 'o' * 34 + 'ng', result.output)

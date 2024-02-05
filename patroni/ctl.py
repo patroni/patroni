@@ -1576,8 +1576,8 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
             def format_diff(param: str, values: Dict[str, str], hide_long: bool):
                 full_diff = param + ': ' + values['old_value'] + '->' + values['new_value']
                 return full_diff if not hide_long or len(full_diff) <= 50 else param + ': [hidden - too long]'
-            restart_reason = '\n'.join(
-                [format_diff(k, v, fmt == 'pretty') for k, v in member.get('pending_restart_reason', {}).items()]) or ''
+            restart_reason = '\n'.join([format_diff(k, v, fmt in ('pretty', 'topology'))
+                                        for k, v in member.get('pending_restart_reason', {}).items()]) or ''
 
             member.update(cluster=name, member=member['name'], group=g,
                           host=member.get('host', ''), tl=member.get('timeline', ''),
