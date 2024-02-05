@@ -362,7 +362,8 @@ class TestBarmanRecover(unittest.TestCase):
         mock_get_status.side_effect = None
 
         with self.assertRaises(SystemExit) as exc:
-            self.assertIsNone(_restore_backup(self.api, BARMAN_SERVER, BACKUP_ID, SSH_COMMAND, DATA_DIRECTORY, LOOP_WAIT))
+            self.assertIsNone(_restore_backup(self.api, BARMAN_SERVER, BACKUP_ID, SSH_COMMAND, DATA_DIRECTORY,
+                                              LOOP_WAIT))
 
         self.assertEqual(exc.exception.code, BarmanRecoverExitCode.HTTP_ERROR)
         mock_log_info.assert_not_called()
@@ -378,7 +379,8 @@ class TestBarmanRecover(unittest.TestCase):
         mock_get_status.side_effect = RetriesExceeded
 
         with self.assertRaises(SystemExit) as exc:
-            self.assertIsNone(_restore_backup(self.api, BARMAN_SERVER, BACKUP_ID, SSH_COMMAND, DATA_DIRECTORY, LOOP_WAIT))
+            self.assertIsNone(_restore_backup(self.api, BARMAN_SERVER, BACKUP_ID, SSH_COMMAND, DATA_DIRECTORY,
+                                              LOOP_WAIT))
 
         self.assertEqual(exc.exception.code, BarmanRecoverExitCode.HTTP_ERROR)
         mock_log_info.assert_called_once_with("Created the recovery operation with ID %s", "some_id")
