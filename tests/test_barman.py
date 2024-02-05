@@ -5,9 +5,9 @@ import unittest
 from urllib3.exceptions import MaxRetryError
 
 from patroni.scripts.barman.cli import main
-from patroni.scripts.barman.config_switch import (BarmanConfigSwitch, ExitCode as BarmanConfigSwitchExitCode,
-                                                  _should_skip_switch, run_barman_config_switch)
-from patroni.scripts.barman.recover import BarmanRecover, ExitCode as BarmanRecoverExitCode, run_barman_recover
+from patroni.scripts.barman.config_switch import (ExitCode as BarmanConfigSwitchExitCode, _should_skip_switch,
+                                                  _switch_config, run_barman_config_switch)
+from patroni.scripts.barman.recover import ExitCode as BarmanRecoverExitCode, _restore_backup, run_barman_recover
 from patroni.scripts.barman.utils import ApiNotOk, OperationStatus, PgBackupApi, RetriesExceeded, set_up_logging
 
 
@@ -269,27 +269,24 @@ class TestPgBackupApi(unittest.TestCase):
 
 class TestBarmanRecover(unittest.TestCase):
 
-    @patch("patroni.scripts.barman.recover.PgBackupApi", MagicMock())
     def setUp(self):
-        self.br = BarmanRecover(BARMAN_SERVER, BACKUP_ID, SSH_COMMAND,
-                                DATA_DIRECTORY, LOOP_WAIT, API_URL, None, None,
-                                RETRY_WAIT, MAX_RETRIES)
+        self.api = MagicMock()
         # Reset the mock as the same instance is used across tests
-        self.br._api._http.request.reset_mock()
-        self.br._api._http.request.side_effect = None
+        self.api._http.request.reset_mock()
+        self.api._http.request.side_effect = None
 
     @patch("time.sleep")
     @patch("logging.info")
     @patch("logging.error")
-    def test_restore_backup(self, mock_log_error, mock_log_info, mock_sleep):
-        mock_create_op = self.br._api.create_recovery_operation
-        mock_get_status = self.br._api.get_operation_status
+    def test__restore_backup(self, mock_log_error, mock_log_info, mock_sleep):
+        mock_create_op = self.api.create_recovery_operation
+        mock_get_status = self.api.get_operation_status
 
         # successful fast restore
         mock_create_op.return_value = "some_id"
         mock_get_status.return_value = OperationStatus.DONE
 
-        self.assertTrue(self.br.restore_backup())
+        self.assertTrue(_restore_backup(self.api, BARMAN_SERVER, BACKUP_ID, SSH_COMMAND, DATA_DIRECTORY, LOOP_WAIT))
 
         mock_create_op.assert_called_once_with(BARMAN_SERVER, BACKUP_ID, SSH_COMMAND, DATA_DIRECTORY)
         mock_get_status.assert_called_once_with(BARMAN_SERVER, "some_id")
@@ -303,7 +300,7 @@ class TestBarmanRecover(unittest.TestCase):
         mock_log_info.reset_mock()
         mock_get_status.side_effect = [OperationStatus.IN_PROGRESS] * 20 + [OperationStatus.DONE]
 
-        self.assertTrue(self.br.restore_backup())
+        self.assertTrue(_restore_backup(self.api, BARMAN_SERVER, BACKUP_ID, SSH_COMMAND, DATA_DIRECTORY, LOOP_WAIT))
 
         mock_create_op.assert_called_once()
 
@@ -327,7 +324,7 @@ class TestBarmanRecover(unittest.TestCase):
         mock_get_status.side_effect = None
         mock_get_status.return_value = OperationStatus.FAILED
 
-        self.assertFalse(self.br.restore_backup())
+        self.assertFalse(_restore_backup(self.api, BARMAN_SERVER, BACKUP_ID, SSH_COMMAND, DATA_DIRECTORY, LOOP_WAIT))
 
         mock_create_op.assert_called_once()
         mock_get_status.assert_called_once_with(BARMAN_SERVER, "some_id")
@@ -342,7 +339,7 @@ class TestBarmanRecover(unittest.TestCase):
         mock_sleep.reset_mock()
         mock_get_status.side_effect = [OperationStatus.IN_PROGRESS] * 20 + [OperationStatus.FAILED]
 
-        self.assertFalse(self.br.restore_backup())
+        self.assertFalse(_restore_backup(self.api, BARMAN_SERVER, BACKUP_ID, SSH_COMMAND, DATA_DIRECTORY, LOOP_WAIT))
 
         mock_create_op.assert_called_once()
 
@@ -365,7 +362,7 @@ class TestBarmanRecover(unittest.TestCase):
         mock_get_status.side_effect = None
 
         with self.assertRaises(SystemExit) as exc:
-            self.assertIsNone(self.br.restore_backup())
+            self.assertIsNone(_restore_backup(self.api, BARMAN_SERVER, BACKUP_ID, SSH_COMMAND, DATA_DIRECTORY, LOOP_WAIT))
 
         self.assertEqual(exc.exception.code, BarmanRecoverExitCode.HTTP_ERROR)
         mock_log_info.assert_not_called()
@@ -381,7 +378,7 @@ class TestBarmanRecover(unittest.TestCase):
         mock_get_status.side_effect = RetriesExceeded
 
         with self.assertRaises(SystemExit) as exc:
-            self.assertIsNone(self.br.restore_backup())
+            self.assertIsNone(_restore_backup(self.api, BARMAN_SERVER, BACKUP_ID, SSH_COMMAND, DATA_DIRECTORY, LOOP_WAIT))
 
         self.assertEqual(exc.exception.code, BarmanRecoverExitCode.HTTP_ERROR)
         mock_log_info.assert_called_once_with("Created the recovery operation with ID %s", "some_id")
@@ -393,39 +390,36 @@ class TestBarmanRecoverCli(unittest.TestCase):
 
     @patch("logging.error")
     @patch("logging.info")
-    @patch("patroni.scripts.barman.recover.BarmanRecover")
-    def test_run_barman_recover(self, mock_br, mock_log_info, mock_log_error):
+    @patch("patroni.scripts.barman.recover._restore_backup")
+    def test_run_barman_recover(self, mock_rb, mock_log_info, mock_log_error):
+        api = MagicMock()
         args = MagicMock()
 
         # successful execution
-        mock_br.return_value.restore_backup.return_value = True
+        mock_rb.return_value = True
 
         with self.assertRaises(SystemExit) as exc:
-            run_barman_recover(args)
+            run_barman_recover(api, args)
 
-        mock_br.assert_called_once_with(args.barman_server, args.backup_id,
+        mock_rb.assert_called_once_with(api, args.barman_server, args.backup_id,
                                         args.ssh_command, args.data_directory,
-                                        args.loop_wait, args.api_url,
-                                        args.cert_file, args.key_file,
-                                        args.retry_wait, args.max_retries)
+                                        args.loop_wait)
         mock_log_info.assert_called_once_with("Recovery operation finished successfully.")
         mock_log_error.assert_not_called()
         self.assertEqual(exc.exception.code, BarmanRecoverExitCode.RECOVERY_DONE)
 
         # failed execution
-        mock_br.reset_mock()
+        mock_rb.reset_mock()
         mock_log_info.reset_mock()
 
-        mock_br.return_value.restore_backup.return_value = False
+        mock_rb.return_value = False
 
         with self.assertRaises(SystemExit) as exc:
-            run_barman_recover(args)
+            run_barman_recover(api, args)
 
-        mock_br.assert_called_once_with(args.barman_server, args.backup_id,
+        mock_rb.assert_called_once_with(api, args.barman_server, args.backup_id,
                                         args.ssh_command, args.data_directory,
-                                        args.loop_wait, args.api_url,
-                                        args.cert_file, args.key_file,
-                                        args.retry_wait, args.max_retries)
+                                        args.loop_wait)
         mock_log_info.assert_not_called()
         mock_log_error.assert_called_once_with("Recovery operation failed.")
         self.assertEqual(exc.exception.code, BarmanRecoverExitCode.RECOVERY_FAILED)
@@ -436,67 +430,26 @@ class TestBarmanRecoverCli(unittest.TestCase):
 
 class TestBarmanConfigSwitch(unittest.TestCase):
 
-    @patch("patroni.scripts.barman.config_switch.PgBackupApi", MagicMock())
     def setUp(self):
-        self.bcs = BarmanConfigSwitch(BARMAN_SERVER, BARMAN_SERVER, None, API_URL, None, None, RETRY_WAIT, MAX_RETRIES)
+        self.api = MagicMock()
         # Reset the mock as the same instance is used across tests
-        self.bcs._api._http.request.reset_mock()
-        self.bcs._api._http.request.side_effect = None
-
-    @patch("logging.error")
-    @patch("patroni.scripts.barman.config_switch.PgBackupApi")
-    def test___init__(self, mock_api, mock_log_error):
-        # valid init -- sample 1
-        BarmanConfigSwitch(BARMAN_SERVER, BARMAN_MODEL, None, API_URL, None, None, RETRY_WAIT, MAX_RETRIES)
-
-        mock_log_error.assert_not_called()
-        mock_api.assert_called_once_with(API_URL, None, None, RETRY_WAIT, MAX_RETRIES)
-
-        # valid init -- sample 2
-        mock_api.reset_mock()
-
-        BarmanConfigSwitch(BARMAN_SERVER, None, True, API_URL, None, None, RETRY_WAIT, MAX_RETRIES)
-
-        mock_log_error.assert_not_called()
-        mock_api.assert_called_once_with(API_URL, None, None, RETRY_WAIT, MAX_RETRIES)
-
-        # invalid init -- sample 1
-        mock_api.reset_mock()
-
-        with self.assertRaises(SystemExit) as exc:
-            BarmanConfigSwitch(BARMAN_SERVER, BARMAN_MODEL, True, API_URL, None, None, RETRY_WAIT, MAX_RETRIES)
-
-        mock_log_error.assert_called_once_with("One, and only one among 'barman_model' ('%s') and 'reset' "
-                                               "('%s') should be given", BARMAN_MODEL, True)
-        mock_api.assert_not_called()
-        self.assertEqual(exc.exception.code, BarmanConfigSwitchExitCode.INVALID_ARGS)
-
-        # invalid init -- sample 2
-        mock_log_error.reset_mock()
-        mock_api.reset_mock()
-
-        with self.assertRaises(SystemExit) as exc:
-            BarmanConfigSwitch(BARMAN_SERVER, None, None, API_URL, None, None, RETRY_WAIT, MAX_RETRIES)
-
-        mock_log_error.assert_called_once_with("One, and only one among 'barman_model' ('%s') and 'reset' "
-                                               "('%s') should be given", None, None)
-        mock_api.assert_not_called()
-        self.assertEqual(exc.exception.code, BarmanConfigSwitchExitCode.INVALID_ARGS)
+        self.api._http.request.reset_mock()
+        self.api._http.request.side_effect = None
 
     @patch("time.sleep")
     @patch("logging.info")
     @patch("logging.error")
-    def test_switch_config(self, mock_log_error, mock_log_info, mock_sleep):
-        mock_create_op = self.bcs._api.create_config_switch_operation
-        mock_get_status = self.bcs._api.get_operation_status
+    def test__switch_config(self, mock_log_error, mock_log_info, mock_sleep):
+        mock_create_op = self.api.create_config_switch_operation
+        mock_get_status = self.api.get_operation_status
 
         # successful config-switch
         mock_create_op.return_value = "some_id"
         mock_get_status.return_value = OperationStatus.DONE
 
-        self.assertTrue(self.bcs.switch_config())
+        self.assertTrue(_switch_config(self.api, BARMAN_SERVER, BARMAN_MODEL, None))
 
-        mock_create_op.assert_called_once_with(BARMAN_SERVER, BARMAN_SERVER, None)
+        mock_create_op.assert_called_once_with(BARMAN_SERVER, BARMAN_MODEL, None)
         mock_get_status.assert_called_once_with(BARMAN_SERVER, "some_id")
         mock_log_info.assert_called_once_with("Created the config switch operation with ID %s", "some_id")
         mock_log_error.assert_not_called()
@@ -510,7 +463,7 @@ class TestBarmanConfigSwitch(unittest.TestCase):
         mock_get_status.side_effect = None
         mock_get_status.return_value = OperationStatus.FAILED
 
-        self.assertFalse(self.bcs.switch_config())
+        self.assertFalse(_switch_config(self.api, BARMAN_SERVER, BARMAN_MODEL, None))
 
         mock_create_op.assert_called_once()
         mock_get_status.assert_called_once_with(BARMAN_SERVER, "some_id")
@@ -525,7 +478,7 @@ class TestBarmanConfigSwitch(unittest.TestCase):
         mock_get_status.side_effect = None
 
         with self.assertRaises(SystemExit) as exc:
-            self.assertIsNone(self.bcs.switch_config())
+            self.assertIsNone(_switch_config(self.api, BARMAN_SERVER, BARMAN_MODEL, None))
 
         self.assertEqual(exc.exception.code, BarmanConfigSwitchExitCode.HTTP_ERROR)
         mock_log_info.assert_not_called()
@@ -542,7 +495,7 @@ class TestBarmanConfigSwitch(unittest.TestCase):
         mock_get_status.side_effect = RetriesExceeded
 
         with self.assertRaises(SystemExit) as exc:
-            self.assertIsNone(self.bcs.switch_config())
+            self.assertIsNone(_switch_config(self.api, BARMAN_SERVER, BARMAN_MODEL, None))
 
         self.assertEqual(exc.exception.code, BarmanConfigSwitchExitCode.HTTP_ERROR)
         mock_log_info.assert_called_once_with("Created the config switch operation with ID %s", "some_id")
@@ -587,56 +540,86 @@ class TestBarmanConfigSwitchCli(unittest.TestCase):
     @patch("logging.error")
     @patch("logging.info")
     @patch("patroni.scripts.barman.config_switch._should_skip_switch")
-    @patch("patroni.scripts.barman.config_switch.BarmanConfigSwitch")
-    def test_run_barman_config_switch(self, mock_bcs, mock_skip, mock_log_info, mock_log_error):
+    @patch("patroni.scripts.barman.config_switch._switch_config")
+    def test_run_barman_config_switch(self, mock_sc, mock_skip, mock_log_info, mock_log_error):
+        api = MagicMock()
         args = MagicMock()
+        args.reset = None
 
         # successful execution
         mock_skip.return_value = False
-        mock_bcs.return_value.switch_config.return_value = True
+        mock_sc.return_value = True
 
         with self.assertRaises(SystemExit) as exc:
-            run_barman_config_switch(args)
+            run_barman_config_switch(api, args)
 
-        mock_bcs.assert_called_once_with(args.barman_server, args.barman_model,
-                                         args.reset, args.api_url,
-                                         args.cert_file, args.key_file,
-                                         args.retry_wait, args.max_retries)
+        mock_sc.assert_called_once_with(api, args.barman_server, args.barman_model,
+                                        args.reset)
         mock_log_info.assert_called_once_with("Config switch operation finished successfully.")
         mock_log_error.assert_not_called()
         self.assertEqual(exc.exception.code, BarmanConfigSwitchExitCode.CONFIG_SWITCH_DONE)
 
         # failed execution
-        mock_bcs.reset_mock()
+        mock_sc.reset_mock()
         mock_log_info.reset_mock()
 
-        mock_bcs.return_value.switch_config.return_value = False
+        mock_sc.return_value = False
 
         with self.assertRaises(SystemExit) as exc:
-            run_barman_config_switch(args)
+            run_barman_config_switch(api, args)
 
-        mock_bcs.assert_called_once_with(args.barman_server, args.barman_model,
-                                         args.reset, args.api_url,
-                                         args.cert_file, args.key_file,
-                                         args.retry_wait, args.max_retries)
+        mock_sc.assert_called_once_with(api, args.barman_server, args.barman_model,
+                                        args.reset)
         mock_log_info.assert_not_called()
         mock_log_error.assert_called_once_with("Config switch operation failed.")
         self.assertEqual(exc.exception.code, BarmanConfigSwitchExitCode.CONFIG_SWITCH_FAILED)
 
         # skipped execution
-        mock_bcs.reset_mock()
+        mock_sc.reset_mock()
         mock_log_info.reset_mock()
         mock_log_error.reset_mock()
         mock_skip.return_value = True
 
         with self.assertRaises(SystemExit) as exc:
-            run_barman_config_switch(args)
+            run_barman_config_switch(api, args)
 
-        mock_bcs.assert_not_called()
+        mock_sc.assert_not_called()
         mock_log_info.assert_called_once_with("Config switch operation was skipped (role=%s, "
                                               "switch_when=%s).", args.role, args.switch_when)
         mock_log_error.assert_not_called()
         self.assertEqual(exc.exception.code, BarmanConfigSwitchExitCode.CONFIG_SWITCH_SKIPPED)
+
+        # invalid args -- sample 1
+        mock_skip.return_value = False
+        args = MagicMock()
+        args.barman_server = BARMAN_SERVER
+        args.barman_model = BARMAN_MODEL
+        args.reset = True
+
+        with self.assertRaises(SystemExit) as exc:
+            run_barman_config_switch(api, args)
+
+        mock_log_error.assert_called_once_with("One, and only one among 'barman_model' ('%s') and 'reset' "
+                                               "('%s') should be given", BARMAN_MODEL, True)
+        api.assert_not_called()
+        self.assertEqual(exc.exception.code, BarmanConfigSwitchExitCode.INVALID_ARGS)
+
+        # invalid args -- sample 2
+        args = MagicMock()
+        args.barman_server = BARMAN_SERVER
+        args.barman_model = None
+        args.reset = None
+
+        mock_log_error.reset_mock()
+        api.reset_mock()
+
+        with self.assertRaises(SystemExit) as exc:
+            run_barman_config_switch(api, args)
+
+        mock_log_error.assert_called_once_with("One, and only one among 'barman_model' ('%s') and 'reset' "
+                                               "('%s') should be given", None, None)
+        api.assert_not_called()
+        self.assertEqual(exc.exception.code, BarmanConfigSwitchExitCode.INVALID_ARGS)
 
 
 # stuff from patroni.scripts.barman.cli
@@ -644,9 +627,10 @@ class TestBarmanConfigSwitchCli(unittest.TestCase):
 
 class TestMain(unittest.TestCase):
 
+    @patch("patroni.scripts.barman.cli.PgBackupApi")
     @patch("patroni.scripts.barman.cli.set_up_logging")
     @patch("patroni.scripts.barman.cli.ArgumentParser")
-    def test_main(self, mock_arg_parse, mock_set_up_log):
+    def test_main(self, mock_arg_parse, mock_set_up_log, mock_api):
         # sub-command specified
         args = MagicMock()
         mock_arg_parse.return_value.parse_known_args.return_value = (args, None)
@@ -655,18 +639,41 @@ class TestMain(unittest.TestCase):
 
         mock_arg_parse.assert_called_once()
         mock_set_up_log.assert_called_once_with(args.log_file)
+        mock_api.assert_called_once_with(args.api_url, args.cert_file,
+                                         args.key_file, args.retry_wait,
+                                         args.max_retries)
         mock_arg_parse.return_value.print_help.assert_not_called()
-        args.func.assert_called_once_with(args)
+        args.func.assert_called_once_with(mock_api.return_value, args)
 
-        # sub-command not specified
+        # Issue in the API
         mock_arg_parse.reset_mock()
         mock_set_up_log.reset_mock()
-        delattr(args, "func")
+        mock_api.reset_mock()
+        mock_api.side_effect = ApiNotOk()
 
         with self.assertRaises(SystemExit) as exc:
             main()
 
         mock_arg_parse.assert_called_once()
         mock_set_up_log.assert_called_once_with(args.log_file)
+        mock_api.assert_called_once_with(args.api_url, args.cert_file,
+                                         args.key_file, args.retry_wait,
+                                         args.max_retries)
+        mock_arg_parse.return_value.print_help.assert_not_called()
+        self.assertEqual(exc.exception.code, -2)
+
+        # sub-command not specified
+        mock_arg_parse.reset_mock()
+        mock_set_up_log.reset_mock()
+        mock_api.reset_mock()
+        delattr(args, "func")
+        mock_api.side_effect = None
+
+        with self.assertRaises(SystemExit) as exc:
+            main()
+
+        mock_arg_parse.assert_called_once()
+        mock_set_up_log.assert_called_once_with(args.log_file)
+        mock_api.assert_not_called()
         mock_arg_parse.return_value.print_help.assert_called_once_with()
         self.assertEqual(exc.exception.code, -1)

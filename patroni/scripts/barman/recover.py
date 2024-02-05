@@ -76,7 +76,7 @@ def _restore_backup(api: "PgBackupApi", barman_server: str, backup_id: str,
             data_directory,
         )
     except RetriesExceeded as exc:
-        logging.error("An issue was faced while trying to create a  recovery "
+        logging.error("An issue was faced while trying to create a recovery "
                       "operation: %r", exc)
         sys.exit(ExitCode.HTTP_ERROR)
 
