@@ -6,15 +6,29 @@ The actual operations are implemented by separate modules. This module only
 builds the CLI that makes an interface with the actual commands.
 
 .. note::
-    Will exit with ``-1`` if no sub-command has been selected.
+    See :class:ExitCode` for possible exit codes of this main script.
 """
 
 from argparse import ArgumentParser
+from enum import IntEnum
+import logging
 import sys
 
 from .config_switch import run_barman_config_switch
 from .recover import run_barman_recover
-from .utils import set_up_logging
+from .utils import ApiNotOk, PgBackupApi, set_up_logging
+
+
+class ExitCode(IntEnum):
+    """Possible exit codes of this script.
+
+    :cvar NO_COMMAND: if no sub-command of ``patroni_barman`` application has
+        been selected by the user.
+    :cvar API_NOT_OK: ``pg-backup-api`` status is not ``OK``.
+    """
+
+    NO_COMMAND = -1
+    API_NOT_OK = -2
 
 
 def main() -> None:
@@ -197,9 +211,18 @@ def main() -> None:
 
     if not hasattr(args, "func"):
         parser.print_help()
-        sys.exit(-1)
+        sys.exit(ExitCode.NO_COMMAND)
 
-    args.func(args)
+    api = None
+
+    try:
+        api = PgBackupApi(args.api_url, args.cert_file, args.key_file,
+                          args.retry_wait, args.max_retries)
+    except ApiNotOk as exc:
+        logging.error("pg-backup-api is not working: %r", exc)
+        sys.exit(ExitCode.API_NOT_OK)
+
+    args.func(api, args)
 
 
 if __name__ == "__main__":
