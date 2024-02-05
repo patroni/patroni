@@ -87,11 +87,6 @@ class BarmanConfigSwitch:
         self.barman_model = barman_model
         self.reset = reset
 
-        if all([barman_model, reset]) or not any([barman_model, reset]):
-            logging.error("One, and only one among 'barman_model' ('%s') and "
-                          "'reset' ('%s') should be given", barman_model, reset)
-            sys.exit(ExitCode.INVALID_ARGS)
-
         try:
             self._api = PgBackupApi(api_url, cert_file, key_file, retry_wait,
                                     max_retries)
@@ -177,6 +172,13 @@ def run_barman_config_switch(args: Namespace) -> None:
         logging.info("Config switch operation was skipped (role=%s, "
                      "switch_when=%s).", args.role, args.switch_when)
         sys.exit(ExitCode.CONFIG_SWITCH_SKIPPED)
+
+    barman_model, reset = args.barman_model, args.reset
+
+    if all([barman_model, reset]) or not any([barman_model, reset]):
+        logging.error("One, and only one among 'barman_model' ('%s') and "
+                        "'reset' ('%s') should be given", barman_model, reset)
+        sys.exit(ExitCode.INVALID_ARGS)
 
     barman_config_switch = BarmanConfigSwitch(args.barman_server,
                                               args.barman_model, args.reset,
