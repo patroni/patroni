@@ -142,6 +142,16 @@ class TestBootstrap(BaseTestPostgresql):
                     (), error_handler
                 ),
                 ["--key=value with spaces"])
+            # not allowed options in list of dicts/strs are filtered out
+            self.assertEqual(
+                self.b.process_user_options(
+                    'pg_basebackup',
+                    [{'checkpoint': 'fast'}, {'dbname': 'dbname=postgres'}, 'gzip', {'label': 'standby'}, 'verbose'],
+                    ('dbname', 'verbose'),
+                    print
+                ),
+                ['--checkpoint=fast', '--gzip', '--label=standby'],
+            )
 
     @patch.object(CancellableSubprocess, 'call', Mock())
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
