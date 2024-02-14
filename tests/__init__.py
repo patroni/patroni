@@ -151,6 +151,8 @@ class MockCursor(object):
             self.results = [(False, 2)]
         elif sql.startswith('SELECT pg_catalog.pg_postmaster_start_time'):
             self.results = [(datetime.datetime.now(tzutc),)]
+        elif sql.endswith('AND pending_restart'):
+            self.results = []
         elif sql.startswith('SELECT name, pg_catalog.current_setting(name) FROM pg_catalog.pg_settings'):
             self.results = [('data_directory', 'data'),
                             ('hba_file', os.path.join('data', 'pg_hba.conf')),
@@ -168,8 +170,6 @@ class MockCursor(object):
                             ('cluster_name', 'my_cluster')]
         elif sql.startswith('SELECT name, setting'):
             self.results = GET_PG_SETTINGS_RESULT
-        elif sql.startswith('SELECT COUNT(*) FROM pg_catalog.pg_settings'):
-            self.results = [(0,)]
         elif sql.startswith('IDENTIFY_SYSTEM'):
             self.results = [('1', 3, '0/402EEC0', '')]
         elif sql.startswith('TIMELINE_HISTORY '):

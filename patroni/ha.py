@@ -361,8 +361,9 @@ class Ha(object):
             tags = self.get_effective_tags()
             if tags:
                 data['tags'] = tags
-            if self.state_handler.pending_restart:
+            if self.state_handler.pending_restart_reason:
                 data['pending_restart'] = True
+                data['pending_restart_reason'] = dict(self.state_handler.pending_restart_reason)
             if self._async_executor.scheduled_action in (None, 'promote') \
                     and data['state'] in ['running', 'restarting', 'starting']:
                 try:
@@ -1485,7 +1486,7 @@ class Ha(object):
         if postgres_version and postgres_version_to_int(postgres_version) <= int(self.state_handler.server_version):
             reason_to_cancel = "postgres version mismatch"
 
-        if pending_restart and not self.state_handler.pending_restart:
+        if pending_restart and not self.state_handler.pending_restart_reason:
             reason_to_cancel = "pending restart flag is not set"
 
         if not reason_to_cancel:

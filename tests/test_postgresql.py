@@ -12,13 +12,13 @@ import patroni.psycopg as psycopg
 
 from patroni import global_config
 from patroni.async_executor import CriticalTask
-from patroni.collections import CaseInsensitiveSet
+from patroni.collections import CaseInsensitiveDict, CaseInsensitiveSet
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PostgresConnectionException, PatroniException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
-from patroni.postgresql.config import _false_validator
+from patroni.postgresql.config import get_param_diff, _false_validator
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import (ValidatorFactoryNoType, ValidatorFactoryInvalidType,
                                           ValidatorFactoryInvalidSpec, ValidatorFactory, InvalidGucValidatorsFile,
@@ -571,7 +571,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.reload_config(config)
         mock_info.assert_called_once_with('No PostgreSQL configuration items changed, nothing to reload.')
         mock_warning.assert_not_called()
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
         mock_info.reset_mock()
 
@@ -579,7 +579,7 @@ class TestPostgresql(BaseTestPostgresql):
         config['parameters']['archive_cleanup_command'] = 'blabla'
         self.p.reload_config(config)
         mock_info.assert_called_once_with('No PostgreSQL configuration items changed, nothing to reload.')
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
         mock_info.reset_mock()
 
@@ -587,7 +587,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.config._config['parameters']['wal_buffers'] = '512'
         self.p.reload_config(config)
         mock_info.assert_called_once_with('No PostgreSQL configuration items changed, nothing to reload.')
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
         mock_info.reset_mock()
         config = deepcopy(self.p.config._config)
@@ -597,20 +597,28 @@ class TestPostgresql(BaseTestPostgresql):
         config['pg_ident'] = ['']
         self.p.reload_config(config)
         mock_info.assert_called_once_with('Reloading PostgreSQL configuration.')
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
         mock_info.reset_mock()
 
         # Postmaster parameter change (pending_restart)
         init_max_worker_processes = config['parameters']['max_worker_processes']
         config['parameters']['max_worker_processes'] *= 2
-        with patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[GET_PG_SETTINGS_RESULT, [(1,)]])):
+        new_max_worker_processes = config['parameters']['max_worker_processes']
+        # stale reason to be removed
+        self.p._pending_restart_reason = CaseInsensitiveDict({'max_connections': get_param_diff('200', '100')})
+
+        with patch.object(Postgresql, 'get_guc_value', Mock(return_value=str(new_max_worker_processes))), \
+             patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[
+                 GET_PG_SETTINGS_RESULT, [('max_worker_processes', str(init_max_worker_processes), None, 'integer')]])):
             self.p.reload_config(config)
             self.assertEqual(mock_info.call_args_list[0][0],
                              ("Changed %s from '%s' to '%s' (restart might be required)", 'max_worker_processes',
                               str(init_max_worker_processes), config['parameters']['max_worker_processes']))
             self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
-            self.assertEqual(self.p.pending_restart, True)
+            self.assertEqual(self.p.pending_restart_reason,
+                             CaseInsensitiveDict({'max_worker_processes': get_param_diff(init_max_worker_processes,
+                                                                                         new_max_worker_processes)}))
 
         mock_info.reset_mock()
 
@@ -621,7 +629,7 @@ class TestPostgresql(BaseTestPostgresql):
                                                           init_max_worker_processes * 2,
                                                           config['parameters']['max_worker_processes']))
         self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
         mock_info.reset_mock()
 
@@ -630,7 +638,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.reload_config(config)
         self.assertEqual(mock_info.call_args_list[0][0], ("Changed %s from '%s' to '%s'", 'f.oo', 'bar', None))
         self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
         mock_info.reset_mock()
 
@@ -640,7 +648,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertEqual(mock_info.call_args_list[0][0],
                          ("Changed %s from '%s' to '%s'", 'vacuum_cost_delay', '200ms', 2.5))
         self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
         config['parameters']['vacuum_cost_delay'] = 200
         mock_info.reset_mock()
@@ -655,13 +663,35 @@ class TestPostgresql(BaseTestPostgresql):
         mock_warning.reset_mock()
         mock_info.reset_mock()
 
-        # Non-empty result (outside changes) and exception while querying pending_restart parameters
-        with patch('patroni.postgresql.Postgresql._query',
-                   Mock(side_effect=[GET_PG_SETTINGS_RESULT, [(1,)], GET_PG_SETTINGS_RESULT, Exception])):
+        # Non-empty result (outside changes)
+        with patch.object(Postgresql, 'get_guc_value', Mock(side_effect=['73', None, ''])), \
+             patch('patroni.postgresql.Postgresql._query',
+                   Mock(side_effect=[GET_PG_SETTINGS_RESULT, [('shared_buffers', '128MB', '8kB', 'integer')]] * 3)):
+            # pg_settings shared_buffers (current value) == 128MB (16384)
+            # Patroni config shared_buffers == 42MB (should not end up in the restart reason diff)
+            # get_guc_value (will be used after restart) == 73 (584kB)
+            config['parameters']['shared_buffers'] = '42MB'
             self.p.reload_config(config, True)
-            self.assertEqual(mock_info.call_args_list[0][0], ('Reloading PostgreSQL configuration.',))
-            self.assertEqual(self.p.pending_restart, True)
+            self.assertEqual(mock_info.call_args_list[0][0],
+                             ("Changed %s from '%s' to '%s' (restart might be required)",
+                              'shared_buffers', '128MB', '42MB'))
+            self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
+            self.assertEqual(mock_info.call_args_list[2][0], ("PostgreSQL configuration parameters requiring restart"
+                                                              " (%s) seem to be changed bypassing Patroni config."
+                                                              " Setting 'Pending restart' flag", 'shared_buffers'))
+            self.assertEqual(self.p.pending_restart_reason,
+                             CaseInsensitiveDict({'shared_buffers': get_param_diff('128MB', '584kB')}))
 
+            self.p.reload_config(config, True)
+            self.assertEqual(self.p.pending_restart_reason,
+                             CaseInsensitiveDict({'shared_buffers': get_param_diff('128MB', '?')}))
+
+            self.p.reload_config(config, True)
+            self.assertEqual(self.p.pending_restart_reason,
+                             CaseInsensitiveDict({'shared_buffers': get_param_diff('128MB', '')}))
+
+        # Exception while querying pending_restart parameters
+        with patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[GET_PG_SETTINGS_RESULT, Exception])):
             # Invalid values, just to increase silly coverage in postgresql.validator.
             # One day we will have proper tests there.
             config['parameters']['autovacuum'] = 'of'  # Bool.transform()
@@ -819,7 +849,7 @@ class TestPostgresql(BaseTestPostgresql):
              patch.object(Bootstrap, 'keep_existing_recovery_conf', PropertyMock(return_value=True)):
             self.p.cancellable.cancel()
             self.assertFalse(self.p.start())
-            self.assertFalse(self.p.pending_restart)
+            self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
             mock_logger.warning.assert_called_once()
             self.assertEqual(mock_logger.warning.call_args[0],
                              ('%s is missing from pg_controldata output', 'max_prepared_xacts setting'))
@@ -832,7 +862,9 @@ class TestPostgresql(BaseTestPostgresql):
             self.p.config.write_recovery_conf({'pause_at_recovery_target': 'false'})
             self.assertFalse(self.p.start())
             mock_logger.warning.assert_not_called()
-            self.assertTrue(self.p.pending_restart)
+            self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict({
+                'max_wal_senders': get_param_diff('10', '5')
+            }))
             mock_logger.info.assert_called_once()
             self.assertEqual(mock_logger.info.call_args[0],
                              ("%s value in pg_controldata: %d, in the global configuration: %d."
