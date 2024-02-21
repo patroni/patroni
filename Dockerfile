@@ -25,8 +25,7 @@ RUN set -ex \
             | grep -Ev '^python3-(sphinx|etcd|consul|kazoo|kubernetes)' \
             | xargs apt-get install -y vim curl less jq locales haproxy sudo \
                             python3-etcd python3-kazoo python3-pip busybox \
-                            net-tools iputils-ping --fix-missing \
-    && pip3 install dumb-init \
+                            net-tools iputils-ping dumb-init --fix-missing \
 \
     # Cleanup all locales but en_US.UTF-8
     && find /usr/share/i18n/charmaps/ -type f ! -name UTF-8.gz -delete \
@@ -53,14 +52,26 @@ RUN set -ex \
     && curl -sL "https://github.com/coreos/etcd/releases/download/v$ETCDVERSION/etcd-v$ETCDVERSION-linux-$(dpkg --print-architecture).tar.gz" \
             | tar xz -C /usr/local/bin --strip=1 --wildcards --no-anchored etcd etcdctl \
 \
-    # Download confd
-    && curl -sL "https://github.com/kelseyhightower/confd/releases/download/v$CONFDVERSION/confd-$CONFDVERSION-linux-$(dpkg --print-architecture)" \
-            > /usr/local/bin/confd && chmod +x /usr/local/bin/confd \
+    && if [ $(dpkg --print-architecture) = 'arm64' ]; then \
+        # Build confd
+        apt-get install -y git make \
+        && curl -sL https://go.dev/dl/go1.20.4.linux-arm64.tar.gz | tar xz -C /usr/local go \
+        && export GOROOT=/usr/local/go && export PATH=$PATH:$GOROOT/bin \
+        && git clone --recurse-submodules https://github.com/kelseyhightower/confd.git \
+        && make -C confd \
+        && cp confd/bin/confd /usr/local/bin/confd \
+        && rm -rf /confd /usr/local/go; \
+    else \
+        # Download confd
+        curl -sL "https://github.com/kelseyhightower/confd/releases/download/v$CONFDVERSION/confd-$CONFDVERSION-linux-$(dpkg --print-architecture)" \
+            > /usr/local/bin/confd && chmod +x /usr/local/bin/confd; \
+    fi \
 \
     # Clean up all useless packages and some files
     && apt-get purge -y --allow-remove-essential python3-pip gzip bzip2 util-linux e2fsprogs \
                 libmagic1 bsdmainutils login ncurses-bin libmagic-mgc e2fslibs bsdutils \
-                exim4-config gnupg-agent dirmngr libpython2.7-stdlib libpython2.7-minimal \
+                exim4-config gnupg-agent dirmngr \
+                git make \
     && apt-get autoremove -y \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/* \
@@ -143,14 +154,15 @@ WORKDIR $PGHOME
 
 RUN sed -i 's/env python/&3/' /patroni*.py \
     # "fix" patroni configs
-    && sed -i 's/^\(  connect_address:\|  - host\)/#&/' postgres?.yml \
     && sed -i 's/^  listen: 127.0.0.1/  listen: 0.0.0.0/' postgres?.yml \
     && sed -i "s|^\(  data_dir: \).*|\1$PGDATA|" postgres?.yml \
     && sed -i "s|^#\(  bin_dir: \).*|\1$PGBIN|" postgres?.yml \
     && sed -i 's/^  - encoding: UTF8/  - locale: en_US.UTF-8\n&/' postgres?.yml \
-    && sed -i 's/^\(scope\|name\|etcd\|  host\|  authentication\|  pg_hba\|  parameters\):/#&/' postgres?.yml \
+    && sed -i 's/^\(scope\|name\|etcd\|  host\|  authentication\|  connect_address\|  parameters\):/#&/' postgres?.yml \
     && sed -i 's/^    \(replication\|superuser\|rewind\|unix_socket_directories\|\(\(  \)\{0,1\}\(username\|password\)\)\):/#&/' postgres?.yml \
-    && sed -i 's/^      parameters:/      pg_hba:\n      - local all all trust\n      - host replication all all md5\n      - host all all all md5\n&\n        max_connections: 100/'  postgres?.yml \
+    && sed -i 's/^      parameters:/&\n        max_connections: 100/'  postgres?.yml \
+    && sed -i 's/^      pg_hba:/&\n      - local all all trust/' postgres?.yml \
+    && sed -i 's/^\(.*\) \(.*\) md5/\1 all md5/' postgres?.yml \
     && if [ "$COMPRESS" = "true" ]; then chmod u+s /usr/bin/sudo; fi \
     && chmod +s /bin/ping \
     && chown -R postgres:postgres "$PGHOME" /run /etc/haproxy

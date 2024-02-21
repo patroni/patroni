@@ -1,8 +1,9 @@
 import logging
+import sys
 
 from enum import Enum
 from threading import Condition, Thread
-from typing import List
+from typing import Any, Dict, List
 
 from .cancellable import CancellableExecutor, CancellableSubprocess
 
@@ -17,7 +18,7 @@ class CallbackAction(str, Enum):
     ON_RELOAD = "on_reload"
     ON_ROLE_CHANGE = "on_role_change"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.value
 
 
@@ -30,7 +31,9 @@ class OnReloadExecutor(CancellableSubprocess):
         self.cancel(kill=True)
         self._kill_children()
         with self._lock:
-            self._start_process(cmd, close_fds=True)
+            started = self._start_process(cmd, close_fds=True)
+        if started and self._process is not None:
+            Thread(target=self._process.wait).start()
 
 
 class CallbackExecutor(CancellableExecutor, Thread):
@@ -51,6 +54,8 @@ class CallbackExecutor(CancellableExecutor, Thread):
         If it couldn't be killed we wait until it finishes.
 
         :param cmd: command to be executed"""
+        kwargs: Dict[str, Any] = {'stacklevel': 3} if sys.version_info >= (3, 8) else {}
+        logger.debug('CallbackExecutor.call(%s)', cmd, **kwargs)
 
         if cmd[-3] == CallbackAction.ON_RELOAD:
             return self._on_reload_executor.call_nowait(cmd)
@@ -60,15 +65,17 @@ class CallbackExecutor(CancellableExecutor, Thread):
             self._cmd = cmd
             self._condition.notify()
 
-    def run(self):
+    def run(self) -> None:
         while True:
             with self._condition:
                 if self._cmd is None:
                     self._condition.wait()
                 cmd, self._cmd = self._cmd, None
 
-            with self._lock:
-                if not self._start_process(cmd, close_fds=True):
-                    continue
-            self._process.wait()
-            self._kill_children()
+            if cmd is not None:
+                with self._lock:
+                    if not self._start_process(cmd, close_fds=True):
+                        continue
+                if self._process:
+                    self._process.wait()
+                    self._kill_children()

@@ -7,6 +7,9 @@ import signal
 import subprocess
 import sys
 
+from multiprocessing.connection import Connection
+from typing import Dict, Optional, List
+
 from patroni import PATRONI_ENV_PREFIX, KUBERNETES_ENV_PREFIX
 
 # avoid spawning the resource tracker process
@@ -26,7 +29,7 @@ STOP_SIGNALS = {
 }
 
 
-def pg_ctl_start(conn, cmdline, env):
+def pg_ctl_start(conn: Connection, cmdline: List[str], env: Dict[str, str]) -> None:
     if os.name != 'nt':
         os.setsid()
     try:
@@ -40,7 +43,8 @@ def pg_ctl_start(conn, cmdline, env):
 
 class PostmasterProcess(psutil.Process):
 
-    def __init__(self, pid):
+    def __init__(self, pid: int) -> None:
+        self._postmaster_pid: Dict[str, str]
         self.is_single_user = False
         if pid < 0:
             pid = -pid
@@ -48,7 +52,7 @@ class PostmasterProcess(psutil.Process):
         super(PostmasterProcess, self).__init__(pid)
 
     @staticmethod
-    def _read_postmaster_pidfile(data_dir):
+    def _read_postmaster_pidfile(data_dir: str) -> Dict[str, str]:
         """Reads and parses postmaster.pid from the data directory
 
         :returns dictionary of values if successful, empty dictionary otherwise
@@ -60,7 +64,7 @@ class PostmasterProcess(psutil.Process):
         except IOError:
             return {}
 
-    def _is_postmaster_process(self):
+    def _is_postmaster_process(self) -> bool:
         try:
             start_time = int(self._postmaster_pid.get('start_time', 0))
             if start_time and abs(self.create_time() - start_time) > 3:
@@ -79,7 +83,7 @@ class PostmasterProcess(psutil.Process):
         return True
 
     @classmethod
-    def _from_pidfile(cls, data_dir):
+    def _from_pidfile(cls, data_dir: str) -> Optional['PostmasterProcess']:
         postmaster_pid = PostmasterProcess._read_postmaster_pidfile(data_dir)
         try:
             pid = int(postmaster_pid.get('pid', 0))
@@ -88,10 +92,10 @@ class PostmasterProcess(psutil.Process):
                 proc._postmaster_pid = postmaster_pid
                 return proc
         except ValueError:
-            pass
+            return None
 
     @staticmethod
-    def from_pidfile(data_dir):
+    def from_pidfile(data_dir: str) -> Optional['PostmasterProcess']:
         try:
             proc = PostmasterProcess._from_pidfile(data_dir)
             return proc if proc and proc._is_postmaster_process() else None
@@ -99,13 +103,13 @@ class PostmasterProcess(psutil.Process):
             return None
 
     @classmethod
-    def from_pid(cls, pid):
+    def from_pid(cls, pid: int) -> Optional['PostmasterProcess']:
         try:
             return cls(pid)
         except psutil.NoSuchProcess:
             return None
 
-    def signal_kill(self):
+    def signal_kill(self) -> bool:
         """to suspend and kill postmaster and all children
 
         :returns True if postmaster and children are killed, False if error
@@ -141,7 +145,7 @@ class PostmasterProcess(psutil.Process):
         psutil.wait_procs(children + [self])
         return True
 
-    def signal_stop(self, mode, pg_ctl='pg_ctl'):
+    def signal_stop(self, mode: str, pg_ctl: str = 'pg_ctl') -> Optional[bool]:
         """Signal postmaster process to stop
 
         :returns None if signaled, True if process is already gone, False if error
@@ -161,7 +165,7 @@ class PostmasterProcess(psutil.Process):
 
         return None
 
-    def pg_ctl_kill(self, mode, pg_ctl):
+    def pg_ctl_kill(self, mode: str, pg_ctl: str) -> Optional[bool]:
         try:
             status = subprocess.call([pg_ctl, "kill", STOP_SIGNALS[mode], str(self.pid)])
         except OSError:
@@ -171,7 +175,7 @@ class PostmasterProcess(psutil.Process):
         else:
             return not self.is_running()
 
-    def wait_for_user_backends_to_close(self, stop_timeout):
+    def wait_for_user_backends_to_close(self, stop_timeout: Optional[float]) -> None:
         # These regexps are cross checked against versions PostgreSQL 9.1 .. 15
         aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:(?:archiver|startup|autovacuum launcher|autovacuum worker|"
                                  "checkpointer|logger|stats collector|wal receiver|wal writer|writer)(?: process  )?|"
@@ -183,8 +187,8 @@ class PostmasterProcess(psutil.Process):
         except psutil.Error:
             return logger.debug('Failed to get list of postmaster children')
 
-        user_backends = []
-        user_backends_cmdlines = {}
+        user_backends: List[psutil.Process] = []
+        user_backends_cmdlines: Dict[int, str] = {}
         for child in children:
             try:
                 cmdline = child.cmdline()
@@ -195,7 +199,7 @@ class PostmasterProcess(psutil.Process):
                 pass
         if user_backends:
             logger.debug('Waiting for user backends %s to close', ', '.join(user_backends_cmdlines.values()))
-            gone, live = psutil.wait_procs(user_backends, stop_timeout)
+            _, live = psutil.wait_procs(user_backends, stop_timeout)
             if stop_timeout and live:
                 live = [user_backends_cmdlines[b.pid] for b in live]
                 logger.warning('Backends still alive after %s: %s', stop_timeout, ', '.join(live))
@@ -203,7 +207,7 @@ class PostmasterProcess(psutil.Process):
                 logger.debug("Backends closed")
 
     @staticmethod
-    def start(pgcommand, data_dir, conf, options):
+    def start(pgcommand: str, data_dir: str, conf: str, options: List[str]) -> Optional['PostmasterProcess']:
         # Unfortunately `pg_ctl start` does not return postmaster pid to us. Without this information
         # it is hard to know the current state of postgres startup, so we had to reimplement pg_ctl start
         # in python. It will start postgres, wait for port to be open and wait until postgres will start
@@ -234,7 +238,7 @@ class PostmasterProcess(psutil.Process):
             pass
         cmdline = [pgcommand, '-D', data_dir, '--config-file={}'.format(conf)] + options
         logger.debug("Starting postgres: %s", " ".join(cmdline))
-        ctx = multiprocessing.get_context('spawn') if sys.version_info >= (3, 4) else multiprocessing
+        ctx = multiprocessing.get_context('spawn')
         parent_conn, child_conn = ctx.Pipe(False)
         proc = ctx.Process(target=pg_ctl_start, args=(child_conn, cmdline, env))
         proc.start()

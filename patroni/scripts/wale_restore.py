@@ -31,7 +31,8 @@ import subprocess
 import sys
 import time
 
-from collections import namedtuple
+from enum import IntEnum
+from typing import Any, List, NamedTuple, Optional, Tuple, TYPE_CHECKING
 
 from .. import psycopg
 
@@ -42,15 +43,14 @@ si_prefixes = ['K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y']
 
 
 # Meaningful names to the exit codes used by WALERestore
-ExitCode = type('Enum', (), {
-    'SUCCESS': 0,  #: Succeeded
-    'RETRY_LATER': 1,  #: External issue, retry later
-    'FAIL': 2  #: Don't try again unless configuration changes
-})
+class ExitCode(IntEnum):
+    SUCCESS = 0  #: Succeeded
+    RETRY_LATER = 1  #: External issue, retry later
+    FAIL = 2  #: Don't try again unless configuration changes
 
 
 # We need to know the current PG version in order to figure out the correct WAL directory name
-def get_major_version(data_dir):
+def get_major_version(data_dir: str) -> float:
     version_file = os.path.join(data_dir, 'PG_VERSION')
     if os.path.isfile(version_file):  # version file exists
         try:
@@ -61,7 +61,7 @@ def get_major_version(data_dir):
     return 0.0
 
 
-def repr_size(n_bytes):
+def repr_size(n_bytes: float) -> str:
     """
     >>> repr_size(1000)
     '1000 Bytes'
@@ -77,7 +77,7 @@ def repr_size(n_bytes):
     return '{0} {1}iB'.format(round(n_bytes, 1), si_prefixes[i])
 
 
-def size_as_bytes(size_, prefix):
+def size_as_bytes(size: float, prefix: str) -> int:
     """
     >>> size_as_bytes(7.5, 'T')
     8246337208320
@@ -88,23 +88,19 @@ def size_as_bytes(size_, prefix):
 
     exponent = si_prefixes.index(prefix) + 1
 
-    return int(size_ * (1024.0 ** exponent))
+    return int(size * (1024.0 ** exponent))
 
 
-WALEConfig = namedtuple(
-    'WALEConfig',
-    [
-        'env_dir',
-        'threshold_mb',
-        'threshold_pct',
-        'cmd',
-    ]
-)
+class WALEConfig(NamedTuple):
+    env_dir: str
+    threshold_mb: int
+    threshold_pct: int
+    cmd: List[str]
 
 
 class WALERestore(object):
-    def __init__(self, scope, datadir, connstring, env_dir, threshold_mb,
-                 threshold_pct, use_iam, no_leader, retries):
+    def __init__(self, scope: str, datadir: str, connstring: str, env_dir: str, threshold_mb: int,
+                 threshold_pct: int, use_iam: int, no_leader: bool, retries: int) -> None:
         self.scope = scope
         self.leader_connection = connstring
         self.data_dir = datadir
@@ -129,7 +125,7 @@ class WALERestore(object):
         self.init_error = (not os.path.exists(self.wal_e.env_dir))
         self.retries = retries
 
-    def run(self):
+    def run(self) -> int:
         """
         Creates a new replica using WAL-E
 
@@ -158,7 +154,7 @@ class WALERestore(object):
             logger.exception("Unhandled exception when running WAL-E restore")
         return ExitCode.FAIL
 
-    def should_use_s3_to_create_replica(self):
+    def should_use_s3_to_create_replica(self) -> Optional[bool]:
         """ determine whether it makes sense to use S3 and not pg_basebackup """
 
         threshold_megabytes = self.wal_e.threshold_mb
@@ -218,7 +214,7 @@ class WALERestore(object):
                 try:
                     # get the difference in bytes between the current WAL location and the backup start offset
                     con = psycopg.connect(self.leader_connection)
-                    if con.server_version >= 100000:
+                    if getattr(con, 'server_version', 0) >= 100000:
                         wal_name = 'wal'
                         lsn_name = 'lsn'
                     else:
@@ -232,8 +228,9 @@ class WALERestore(object):
                                      " ELSE pg_catalog.pg_{0}_{1}_diff(pg_catalog.pg_current_{0}_{1}(), %s)::bigint"
                                      " END").format(wal_name, lsn_name),
                                     (backup_start_lsn, backup_start_lsn, backup_start_lsn))
-
-                        diff_in_bytes = int(cur.fetchone()[0])
+                        for row in cur:
+                            diff_in_bytes = int(row[0])
+                            break
                 except psycopg.Error:
                     logger.exception('could not determine difference with the leader location')
                     if attempts_no < self.retries:  # retry in case of a temporarily connection issue
@@ -262,11 +259,11 @@ class WALERestore(object):
         are_thresholds_ok = is_size_thresh_ok and is_percentage_thresh_ok
 
         class Size(object):
-            def __init__(self, n_bytes, prefix=None):
+            def __init__(self, n_bytes: float, prefix: Optional[str] = None) -> None:
                 self.n_bytes = n_bytes
                 self.prefix = prefix
 
-            def __repr__(self):
+            def __repr__(self) -> str:
                 if self.prefix is not None:
                     n_bytes = size_as_bytes(self.n_bytes, self.prefix)
                 else:
@@ -274,10 +271,10 @@ class WALERestore(object):
                 return repr_size(n_bytes)
 
         class HumanContext(object):
-            def __init__(self, items):
+            def __init__(self, items: List[Tuple[str, Any]]) -> None:
                 self.items = items
 
-            def __repr__(self):
+            def __repr__(self) -> str:
                 return ', '.join('{}={!r}'.format(key, value)
                                  for key, value in self.items)
 
@@ -298,7 +295,7 @@ class WALERestore(object):
             logger.info('Thresholds are OK, using wal-e basebackup: %s', human_context)
         return are_thresholds_ok
 
-    def fix_subdirectory_path_if_broken(self, dirname):
+    def fix_subdirectory_path_if_broken(self, dirname: str) -> bool:
         # in case it is a symlink pointing to a non-existing location, remove it and create the actual directory
         path = os.path.join(self.data_dir, dirname)
         if not os.path.exists(path):
@@ -316,7 +313,7 @@ class WALERestore(object):
                 return False
         return True
 
-    def create_replica_with_s3(self):
+    def create_replica_with_s3(self) -> int:
         # if we're set up, restore the replica using fetch latest
         try:
             cmd = self.wal_e.cmd + ['backup-fetch',
@@ -334,7 +331,7 @@ class WALERestore(object):
         return exit_code
 
 
-def main():
+def main() -> int:
     logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
     parser = argparse.ArgumentParser(description='Script to image replicas using WAL-E')
     parser.add_argument('--scope', required=True)
@@ -363,11 +360,13 @@ def main():
                               threshold_pct=args.threshold_backup_size_percentage, use_iam=args.use_iam,
                               no_leader=args.no_leader, retries=args.retries)
         exit_code = restore.run()
-        if not exit_code == ExitCode.RETRY_LATER:  # only WAL-E failures lead to the retry
+        if exit_code != ExitCode.RETRY_LATER:  # only WAL-E failures lead to the retry
             logger.debug('exit_code is %r, not retrying', exit_code)
             break
         time.sleep(RETRY_SLEEP_INTERVAL)
 
+    if TYPE_CHECKING:  # pragma: no cover
+        assert exit_code is not None
     return exit_code
 
 

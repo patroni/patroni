@@ -155,6 +155,7 @@ class MultisiteController(Thread, AbstractSiteController):
             old_conf, self._standby_config = self._standby_config, {
                 'host': other.data['host'],
                 'port': other.data['port'],
+                'create_replica_methods': ['basebackup'],
             }
         except KeyError:
             old_conf = self._standby_config
@@ -219,12 +220,12 @@ class MultisiteController(Thread, AbstractSiteController):
                     logger.info("Multisite has leader and it is us")
                     if self._release:
                         logger.info("Releasing multisite leader status")
-                        self.dcs.delete_leader()
+                        self.dcs.delete_leader(cluster.leader)
                         self._release = False
                         self._disconnected_operation()
                         self._check_transition(leader=False, note="Released multisite leader status on request")
                         return
-                    if self.dcs.update_leader(None):
+                    if self.dcs.update_leader(cluster.leader, None):
                         logger.info("Updated multisite leader lease")
                         # Make sure we are disabled from standby mode
                         self._standby_config = None
@@ -381,5 +382,3 @@ class KubernetesStateManagement:
 
     def create_failover_event(self, event):
         self._events_api.create_namespaced_event(self.crd_namespace, event)
-
-    _run_and_handle_exceptions = staticmethod(Kubernetes._run_and_handle_exceptions)

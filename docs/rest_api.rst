@@ -3,7 +3,7 @@
 Patroni REST API
 ================
 
-Patroni has a rich REST API, which is used by Patroni itself during the leader race, by the ``patronictl`` tool in order to perform failovers/switchovers/reinitialize/restarts/reloads, by HAProxy or any other kind of load balancer to perform HTTP health checks, and of course could also be used for monitoring. Below you will find the list of Patroni REST API endpoints.
+Patroni has a rich REST API, which is used by Patroni itself during the leader race, by the :ref:`patronictl` tool in order to perform failovers/switchovers/reinitialize/restarts/reloads, by HAProxy or any other kind of load balancer to perform HTTP health checks, and of course could also be used for monitoring. Below you will find the list of Patroni REST API endpoints.
 
 Health check endpoints
 ----------------------
@@ -30,7 +30,8 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
 - ``GET /replica?tag_key1=value1&tag_key2=value2``: replica check endpoint. In addition, It will also check for user defined tags ``key1`` and ``key2`` and their respective values in the **tags** section of the yaml configuration management. If the tag isn't defined for an instance, or if the value in the yaml configuration doesn't match the querying value, it will return HTTP Status Code 503.
 
- In the following requests, since we are checking for the leader or standby-leader status, Patroni doesn't apply any of the user defined tags and they will be ignored.
+  In the following requests, since we are checking for the leader or standby-leader status, Patroni doesn't apply any of the user defined tags and they will be ignored.
+
   - ``GET /?tag_key1=value1&tag_key2=value2``
   - ``GET /leader?tag_key1=value1&tag_key2=value2``
   - ``GET /primary?tag_key1=value1&tag_key2=value2``
@@ -91,26 +92,188 @@ Monitoring endpoint
 
 The ``GET /patroni`` is used by Patroni during the leader race. It also could be used by your monitoring system. The JSON document produced by this endpoint has the same structure as the JSON produced by the health check endpoints.
 
+**Example:** A healthy cluster
+
 .. code-block:: bash
 
     $ curl -s http://localhost:8008/patroni | jq .
     {
       "state": "running",
-      "postmaster_start_time": "2019-09-24 09:22:32.555 CEST",
+      "postmaster_start_time": "2023-08-18 11:03:37.966359+00:00",
       "role": "master",
-      "server_version": 110005,
-      "cluster_unlocked": false,
+      "server_version": 150004,
       "xlog": {
-        "location": 25624640
+        "location": 67395656
       },
-      "timeline": 3,
-      "database_system_identifier": "6739877027151648096",
+      "timeline": 1,
+      "replication": [
+        {
+          "usename": "replicator",
+          "application_name": "patroni2",
+          "client_addr": "10.89.0.6",
+          "state": "streaming",
+          "sync_state": "async",
+          "sync_priority": 0
+        },
+        {
+          "usename": "replicator",
+          "application_name": "patroni3",
+          "client_addr": "10.89.0.2",
+          "state": "streaming",
+          "sync_state": "async",
+          "sync_priority": 0
+        }
+      ],
+      "dcs_last_seen": 1692356718,
+      "tags": {
+        "clonefrom": true
+      },
+      "database_system_identifier": "7268616322854375442",
       "patroni": {
-        "version": "1.6.0",
-        "scope": "batman"
+        "version": "3.1.0",
+        "scope": "demo",
+        "name": "patroni1"
       }
     }
 
+**Example:** An unlocked cluster
+
+.. code-block:: bash
+
+    $ curl -s http://localhost:8008/patroni  | jq .
+    {
+      "state": "running",
+      "postmaster_start_time": "2023-08-18 11:09:08.615242+00:00",
+      "role": "replica",
+      "server_version": 150004,
+      "xlog": {
+        "received_location": 67419744,
+        "replayed_location": 67419744,
+        "replayed_timestamp": null,
+        "paused": false
+      },
+      "timeline": 1,
+      "replication": [
+        {
+          "usename": "replicator",
+          "application_name": "patroni2",
+          "client_addr": "10.89.0.6",
+          "state": "streaming",
+          "sync_state": "async",
+          "sync_priority": 0
+        },
+        {
+          "usename": "replicator",
+          "application_name": "patroni3",
+          "client_addr": "10.89.0.2",
+          "state": "streaming",
+          "sync_state": "async",
+          "sync_priority": 0
+        }
+      ],
+      "cluster_unlocked": true,
+      "dcs_last_seen": 1692356928,
+      "tags": {
+        "clonefrom": true
+      },
+      "database_system_identifier": "7268616322854375442",
+      "patroni": {
+        "version": "3.1.0",
+        "scope": "demo",
+        "name": "patroni1"
+      }
+    }
+
+**Example:** An unlocked cluster with :ref:`DCS failsafe mode <dcs_failsafe_mode>` enabled
+
+.. code-block:: bash
+
+    $ curl -s http://localhost:8008/patroni  | jq .
+    {
+      "state": "running",
+      "postmaster_start_time": "2023-08-18 11:09:08.615242+00:00",
+      "role": "replica",
+      "server_version": 150004,
+      "xlog": {
+        "location": 67420024
+      },
+      "timeline": 1,
+      "replication": [
+        {
+          "usename": "replicator",
+          "application_name": "patroni2",
+          "client_addr": "10.89.0.6",
+          "state": "streaming",
+          "sync_state": "async",
+          "sync_priority": 0
+        },
+        {
+          "usename": "replicator",
+          "application_name": "patroni3",
+          "client_addr": "10.89.0.2",
+          "state": "streaming",
+          "sync_state": "async",
+          "sync_priority": 0
+        }
+      ],
+      "cluster_unlocked": true,
+      "failsafe_mode_is_active": true,
+      "dcs_last_seen": 1692356928,
+      "tags": {
+        "clonefrom": true
+      },
+      "database_system_identifier": "7268616322854375442",
+      "patroni": {
+        "version": "3.1.0",
+        "scope": "demo",
+        "name": "patroni1"
+      }
+    }
+
+**Example:** A cluster with the :ref:`pause mode <pause>` enabled
+
+.. code-block:: bash
+
+    $ curl -s http://localhost:8008/patroni  | jq .
+    {
+      "state": "running",
+      "postmaster_start_time": "2023-08-18 11:09:08.615242+00:00",
+      "role": "replica",
+      "server_version": 150004,
+      "xlog": {
+        "location": 67420024
+      },
+      "timeline": 1,
+      "replication": [
+        {
+          "usename": "replicator",
+          "application_name": "patroni2",
+          "client_addr": "10.89.0.6",
+          "state": "streaming",
+          "sync_state": "async",
+          "sync_priority": 0
+        },
+        {
+          "usename": "replicator",
+          "application_name": "patroni3",
+          "client_addr": "10.89.0.2",
+          "state": "streaming",
+          "sync_state": "async",
+          "sync_priority": 0
+        }
+      ],
+      "pause": true,
+      "dcs_last_seen": 1692356928,
+      "tags": {
+        "clonefrom": true
+      },
+      "database_system_identifier": "7268616322854375442",
+      "patroni": {
+        "version": "3.1.0",
+        "scope": "demo",
+        "name": "patroni1"
+      }
+    }
 
 Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` endpoint.
 
@@ -120,58 +283,70 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	
 	# HELP patroni_version Patroni semver without periods. \
 	# TYPE patroni_version gauge
-	patroni_version{scope="batman"} 020103
+	patroni_version{scope="batman",name="patroni1"} 020103
 	# HELP patroni_postgres_running Value is 1 if Postgres is running, 0 otherwise.
 	# TYPE patroni_postgres_running gauge
-	patroni_postgres_running{scope="batman"} 1
+	patroni_postgres_running{scope="batman",name="patroni1"} 1
 	# HELP patroni_postmaster_start_time Epoch seconds since Postgres started.
 	# TYPE patroni_postmaster_start_time gauge
-	patroni_postmaster_start_time{scope="batman"} 1657656955.179243
+	patroni_postmaster_start_time{scope="batman",name="patroni1"} 1657656955.179243
 	# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.
 	# TYPE patroni_master gauge
-	patroni_master{scope="batman"} 1
+	patroni_master{scope="batman",name="patroni1"} 1
+	# HELP patroni_primary Value is 1 if this node is the leader, 0 otherwise.
+	# TYPE patroni_primary gauge
+	patroni_primary{scope="batman",name="patroni1"} 1
 	# HELP patroni_xlog_location Current location of the Postgres transaction log, 0 if this node is not the leader.
 	# TYPE patroni_xlog_location counter
-	patroni_xlog_location{scope="batman"} 22320573386952
+	patroni_xlog_location{scope="batman",name="patroni1"} 22320573386952
 	# HELP patroni_standby_leader Value is 1 if this node is the standby_leader, 0 otherwise.
 	# TYPE patroni_standby_leader gauge
-	patroni_standby_leader{scope="batman"} 0
+	patroni_standby_leader{scope="batman",name="patroni1"} 0
 	# HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.
 	# TYPE patroni_replica gauge
-	patroni_replica{scope="batman"} 0
+	patroni_replica{scope="batman",name="patroni1"} 0
 	# HELP patroni_sync_standby Value is 1 if this node is a sync standby replica, 0 otherwise.
-        # TYPE patroni_sync_standby gauge
-        patroni_sync_standby{scope="batman"} 0
+	# TYPE patroni_sync_standby gauge
+	patroni_sync_standby{scope="batman",name="patroni1"} 0
 	# HELP patroni_xlog_received_location Current location of the received Postgres transaction log, 0 if this node is not a replica.
 	# TYPE patroni_xlog_received_location counter
-	patroni_xlog_received_location{scope="batman"} 0
+	patroni_xlog_received_location{scope="batman",name="patroni1"} 0
 	# HELP patroni_xlog_replayed_location Current location of the replayed Postgres transaction log, 0 if this node is not a replica.
 	# TYPE patroni_xlog_replayed_location counter
-	patroni_xlog_replayed_location{scope="batman"} 0
+	patroni_xlog_replayed_location{scope="batman",name="patroni1"} 0
 	# HELP patroni_xlog_replayed_timestamp Current timestamp of the replayed Postgres transaction log, 0 if null.
 	# TYPE patroni_xlog_replayed_timestamp gauge
-	patroni_xlog_replayed_timestamp{scope="batman"} 0
+	patroni_xlog_replayed_timestamp{scope="batman",name="patroni1"} 0
 	# HELP patroni_xlog_paused Value is 1 if the Postgres xlog is paused, 0 otherwise.
 	# TYPE patroni_xlog_paused gauge
-	patroni_xlog_paused{scope="batman"} 0
+	patroni_xlog_paused{scope="batman",name="patroni1"} 0
+	# HELP patroni_postgres_streaming Value is 1 if Postgres is streaming, 0 otherwise.
+	# TYPE patroni_postgres_streaming gauge
+	patroni_postgres_streaming{scope="batman",name="patroni1"} 1
+	# HELP patroni_postgres_in_archive_recovery Value is 1 if Postgres is replicating from archive, 0 otherwise.
+	# TYPE patroni_postgres_in_archive_recovery gauge
+	patroni_postgres_in_archive_recovery{scope="batman",name="patroni1"} 0
 	# HELP patroni_postgres_server_version Version of Postgres (if running), 0 otherwise.
 	# TYPE patroni_postgres_server_version gauge
-	patroni_postgres_server_version {scope="batman"} 140004
+	patroni_postgres_server_version{scope="batman",name="patroni1"} 140004
 	# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.
 	# TYPE patroni_cluster_unlocked gauge
-	patroni_cluster_unlocked{scope="batman"} 0
+	patroni_cluster_unlocked{scope="batman",name="patroni1"} 0
 	# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.
 	# TYPE patroni_postgres_timeline counter
-	patroni_postgres_timeline{scope="batman"} 24
+	patroni_failsafe_mode_is_active{scope="batman",name="patroni1"} 0
+	# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.
+	# TYPE patroni_postgres_timeline counter
+	patroni_postgres_timeline{scope="batman",name="patroni1"} 24
 	# HELP patroni_dcs_last_seen Epoch timestamp when DCS was last contacted successfully by Patroni.
 	# TYPE patroni_dcs_last_seen gauge
-	patroni_dcs_last_seen{scope="batman"} 1677658321
+	patroni_dcs_last_seen{scope="batman",name="patroni1"} 1677658321
 	# HELP patroni_pending_restart Value is 1 if the node needs a restart, 0 otherwise.
 	# TYPE patroni_pending_restart gauge
-	patroni_pending_restart{scope="batman"} 1
+	patroni_pending_restart{scope="batman",name="patroni1"} 1
 	# HELP patroni_is_paused Value is 1 if auto failover is disabled, 0 otherwise.
 	# TYPE patroni_is_paused gauge
-	patroni_is_paused{scope="batman"} 1
+	patroni_is_paused{scope="batman",name="patroni1"} 1
 
 
 Cluster status endpoints
@@ -185,24 +360,24 @@ Cluster status endpoints
     {
       "members": [
         {
-          "name": "postgresql0",
-          "host": "127.0.0.1",
-          "port": 5432,
+          "name": "patroni1",
           "role": "leader",
           "state": "running",
-          "api_url": "http://127.0.0.1:8008/patroni",
+          "api_url": "http://10.89.0.4:8008/patroni",
+          "host": "10.89.0.4",
+          "port": 5432,
           "timeline": 5,
           "tags": {
             "clonefrom": true
           }
         },
         {
-          "name": "postgresql1",
-          "host": "127.0.0.1",
-          "port": 5433,
+          "name": "patroni2",
           "role": "replica",
-          "state": "running",
-          "api_url": "http://127.0.0.1:8009/patroni",
+          "state": "streaming",
+          "api_url": "http://10.89.0.6:8008/patroni",
+          "host": "10.89.0.6",
+          "port": 5433,
           "timeline": 5,
           "tags": {
             "clonefrom": true
@@ -210,9 +385,11 @@ Cluster status endpoints
           "lag": 0
         }
       ],
+      "scope": "demo",
       "scheduled_switchover": {
-        "at": "2019-09-24T10:36:00+02:00",
-        "from": "postgresql0"
+        "at": "2023-09-24T10:36:00+02:00",
+        "from": "patroni1",
+        "to": "patroni3"
       }
     }
 
@@ -249,6 +426,7 @@ Cluster status endpoints
       ]
     ]
 
+.. _config_endpoint:
 
 Config endpoint
 ---------------
@@ -257,7 +435,7 @@ Config endpoint
 
 .. code-block:: bash
 
-	$ curl -s localhost:8008/config | jq .
+	$ curl -s http://localhost:8008/config | jq .
 	{
 	  "ttl": 30,
 	  "loop_wait": 10,
@@ -268,7 +446,6 @@ Config endpoint
 	    "use_pg_rewind": true,
 	    "parameters": {
 	      "hot_standby": "on",
-	      "wal_log_hints": "on",
 	      "wal_level": "hot_standby",
 	      "max_wal_senders": 5,
 	      "max_replication_slots": 5,
@@ -295,7 +472,6 @@ Config endpoint
 	    "use_pg_rewind": true,
 	    "parameters": {
 	      "hot_standby": "on",
-	      "wal_log_hints": "on",
 	      "wal_level": "hot_standby",
 	      "max_wal_senders": 5,
 	      "max_replication_slots": 5,
@@ -319,8 +495,9 @@ Let's check that the node processed this configuration. First of all it should s
 	    "location": 2197818976
 	  },
 	  "patroni": {
+	    "version": "1.0",
 	    "scope": "batman",
-	    "version": "1.0"
+	    "name": "patroni1"
 	  },
 	  "state": "running",
 	  "role": "master",
@@ -348,7 +525,6 @@ If you want to remove (reset) some setting just patch it with ``null``:
 	      "hot_standby": "on",
 	      "unix_socket_directories": ".",
 	      "wal_level": "hot_standby",
-	      "wal_log_hints": "on",
 	      "max_wal_senders": 5,
 	      "max_replication_slots": 5
 	    }
@@ -362,7 +538,7 @@ The above call removes ``postgresql.parameters.max_connections`` from the dynami
 .. code-block:: bash
 
 	$ curl -s -XPUT -d \
-		'{"maximum_lag_on_failover":1048576,"retry_timeout":10,"postgresql":{"use_slots":true,"use_pg_rewind":true,"parameters":{"hot_standby":"on","wal_log_hints":"on","wal_level":"hot_standby","unix_socket_directories":".","max_wal_senders":5}},"loop_wait":3,"ttl":20}' \
+		'{"maximum_lag_on_failover":1048576,"retry_timeout":10,"postgresql":{"use_slots":true,"use_pg_rewind":true,"parameters":{"hot_standby":"on","wal_level":"hot_standby","unix_socket_directories":".","max_wal_senders":5}},"loop_wait":3,"ttl":20}' \
 		http://localhost:8008/config | jq .
 	{
 	  "ttl": 20,
@@ -374,7 +550,6 @@ The above call removes ``postgresql.parameters.max_connections`` from the dynami
 	      "hot_standby": "on",
 	      "unix_socket_directories": ".",
 	      "wal_level": "hot_standby",
-	      "wal_log_hints": "on",
 	      "max_wal_senders": 5
 	    },
 	    "use_pg_rewind": true
@@ -386,40 +561,113 @@ The above call removes ``postgresql.parameters.max_connections`` from the dynami
 Switchover and failover endpoints
 ---------------------------------
 
-``POST /switchover`` or ``POST /failover``. These endpoints are very similar to each other. There are a couple of minor differences though:
+.. _switchover_api:
 
-1. The failover endpoint allows to perform a manual failover when there are no healthy nodes, but at the same time it will not allow you to schedule a switchover.
+Switchover
+^^^^^^^^^^
 
-2. The switchover endpoint is the opposite. It works only when the cluster is healthy (there is a leader) and allows to schedule a switchover at a given time.
+``/switchover`` endpoint only works when the cluster is healthy (there is a leader). It also allows to schedule a switchover at a given time.
 
+When calling ``/switchover`` endpoint a candidate can be specified but is not required, in contrast to ``/failover`` endpoint. If a candidate is not provided, all the eligible nodes of the cluster will participate in the leader race after the leader stepped down.
 
-In the JSON body of the ``POST`` request you must specify at least the ``leader`` or ``candidate`` fields and optionally the ``scheduled_at`` field if you want to schedule a switchover at a specific time.
+In the JSON body of the ``POST`` request you must specify the ``leader`` field. The ``candidate`` and the ``scheduled_at`` fields are optional and can be used to schedule a switchover at a specific time.
 
+Depending on the situation, requests might return different HTTP status codes and bodies. Status code **200** is returned when the switchover or failover successfully completed. If the switchover was successfully scheduled, Patroni will return HTTP status code **202**. In case something went wrong, the error status code (one of **400**, **412**, or **503**) will be returned with some details in the response body.
 
-Example: perform a failover to the specific node:
+``DELETE /switchover`` can be used to delete the currently scheduled switchover.
 
-.. code-block:: bash
-
-    $ curl -s http://localhost:8009/failover -XPOST -d '{"candidate":"postgresql1"}'
-    Successfully failed over to "postgresql1"
-
-
-Example: schedule a switchover from the leader to any other healthy replica in the cluster at a specific time:
+**Example:** perform a switchover to any healthy standby
 
 .. code-block:: bash
 
-    $ curl -s http://localhost:8008/switchover -XPOST -d \
-	    '{"leader":"postgresql0","scheduled_at":"2019-09-24T12:00+00"}'
-    Switchover scheduled
+	$ curl -s http://localhost:8008/switchover -XPOST -d '{"leader":"postgresql1"}'
+	Successfully switched over to "postgresql2"
 
 
-Depending on the situation the request might finish with a different HTTP status code and body. The status code **200** is returned when the switchover or failover successfully completed. If the switchover was successfully scheduled, Patroni will return HTTP status code **202**. In case something went wrong, the error status code (one of **400**, **412** or **503**) will be returned with some details in the response body. For more information please check the source code of ``patroni/api.py:do_POST_failover()`` method.
+**Example:** perform a switchover to a specific node
 
-- ``DELETE /switchover``: delete the scheduled switchover
+.. code-block:: bash
 
-The ``POST /switchover`` and ``POST failover`` endpoints are used by ``patronictl switchover`` and ``patronictl failover``, respectively.
-The ``DELETE /switchover`` is used by ``patronictl flush <cluster-name> switchover``.
+	$ curl -s http://localhost:8008/switchover -XPOST -d \
+		'{"leader":"postgresql1","candidate":"postgresql2"}'
+	Successfully switched over to "postgresql2"
 
+
+**Example:** schedule a switchover from the leader to any other healthy standby in the cluster at a specific time.
+
+.. code-block:: bash
+
+	$ curl -s http://localhost:8008/switchover -XPOST -d \
+		'{"leader":"postgresql0","scheduled_at":"2019-09-24T12:00+00"}'
+	Switchover scheduled
+
+
+Failover
+^^^^^^^^
+
+``/failover`` endpoint can be used to perform a manual failover when there are no healthy nodes (e.g. to an asynchronous standby if all synchronous standbys are not healthy enough to promote). However there is no requirement for a cluster not to have leader - failover can also be run on a healthy cluster.
+
+In the JSON body of the ``POST`` request you must specify the ``candidate`` field. If the ``leader`` field is specified, a switchover is triggered instead.
+
+**Example:**
+
+.. code-block:: bash
+
+	$ curl -s http://localhost:8008/failover -XPOST -d '{"candidate":"postgresql1"}'
+	Successfully failed over to "postgresql1"
+
+.. warning::
+	:ref:`Be very careful <failover_healthcheck>` when using this endpoint, as this can cause data loss in certain situations. In most cases, :ref:`the switchover endpoint <switchover_api>` satisfies the administrator's needs. 
+
+
+``POST /switchover`` and ``POST /failover`` endpoints are used by :ref:`patronictl_switchover` and :ref:`patronictl_failover`, respectively.
+
+``DELETE /switchover`` is used by :ref:`patronictl flush cluster-name switchover <patronictl_flush_parameters>`.
+
+.. list-table:: Failover/Switchover comparison
+   :widths: 25 25 25
+   :header-rows: 1
+
+   * -
+     - Failover
+     - Switchover
+   * - Requires leader specified
+     - no
+     - yes
+   * - Requires candidate specified
+     - yes
+     - no
+   * - Can be run in pause
+     - yes
+     - yes (only to a specific candidate)
+   * - Can be scheduled
+     - no
+     - yes (if not in pause)
+
+.. _failover_healthcheck:
+
+Healthy standby
+^^^^^^^^^^^^^^^
+
+There are a couple of checks that a member of a cluster should pass to be able to participate in the leader race during a switchover or to become a leader as a failover/switchover candidate:
+
+- be reachable via Patroni API;
+- not have ``nofailover`` tag set to ``true``;
+- have watchdog fully functional (if required by the configuration);
+- in case of a switchover in a healthy cluster or an automatic failover, not exceed maximum replication lag (``maximum_lag_on_failover`` :ref:`configuration parameter <dynamic_configuration>`);
+- in case of a switchover in a healthy cluster or an automatic failover, not have a timeline number smaller than the cluster timeline if ``check_timeline`` :ref:`configuration parameter <dynamic_configuration>` is set to ``true``;
+- in :ref:`synchronous mode <synchronous_mode>`:
+
+  - In case of a switchover (both with and without a candidate): be listed in the ``/sync`` key members;
+  - For a failover in both healthy and unhealthy clusters, this check is omitted.
+
+.. warning::
+    In case of a manual failover in a cluster without a leader, a candidate will be allowed to promote even if:
+	- it is not in the ``/sync`` key members when synchronous mode is enabled;
+	- its lag exceeds the maximum replication lag allowed;
+	- it has the timeline number smaller than the last known cluster timeline.
+
+.. _restart_endpoint:
 
 Restart endpoint
 ----------------
@@ -434,15 +682,16 @@ Restart endpoint
 
 - ``DELETE /restart``: delete the scheduled restart
 
-``POST /restart`` and ``DELETE /restart`` endpoints are used by ``patronictl restart`` and ``patronictl flush <cluster-name> restart`` respectively.
+``POST /restart`` and ``DELETE /restart`` endpoints are used by :ref:`patronictl_restart` and :ref:`patronictl flush cluster-name restart <patronictl_flush_parameters>` respectively.
 
+.. _reload_endpoint:
 
 Reload endpoint
 ---------------
 
-The ``POST /reload`` call will order Patroni to re-read and apply the configuration file. This is the equivalent of sending the ``SIGHUP`` signal to the Patroni process. In case you changed some of the Postgres parameters which require a restart (like **shared_buffers**), you still have to explicitly do the restart of Postgres by either calling the ``POST /restart`` endpoint or with the help of ``patronictl restart``.
+The ``POST /reload`` call will order Patroni to re-read and apply the configuration file. This is the equivalent of sending the ``SIGHUP`` signal to the Patroni process. In case you changed some of the Postgres parameters which require a restart (like **shared_buffers**), you still have to explicitly do the restart of Postgres by either calling the ``POST /restart`` endpoint or with the help of :ref:`patronictl_restart`.
 
-The reload endpoint is used by ``patronictl reload``.
+The reload endpoint is used by :ref:`patronictl_reload`.
 
 
 Reinitialize endpoint
@@ -452,4 +701,4 @@ Reinitialize endpoint
 
 The call might fail if Patroni is in a loop trying to recover (restart) a failed Postgres. In order to overcome this problem one can specify ``{"force":true}`` in the request body.
 
-The reinitialize endpoint is used by ``patronictl reinit``.
+The reinitialize endpoint is used by :ref:`patronictl_reinit`.

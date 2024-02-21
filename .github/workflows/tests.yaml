@@ -5,6 +5,7 @@ on:
   push:
     branches:
     - master
+    - 'REL_[0-9]+_[0-9]+'
 
 env:
   CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
@@ -116,8 +117,8 @@ jobs:
         sudo apt-get install -y wget ca-certificates gnupg debian-archive-keyring apt-transport-https
         sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
         sudo sh -c 'wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg'
-        sudo sh -c 'echo "deb [signed-by=/etc/apt/trusted.gpg.d/citusdata_community.gpg] https://repos.citusdata.com/community/ubuntu/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/citusdata_community.list'
-        sudo sh -c 'wget -qO - https://repos.citusdata.com/community/gpgkey | gpg --dearmor > /etc/apt/trusted.gpg.d/citusdata_community.gpg'
+        sudo sh -c 'echo "deb [signed-by=/etc/apt/trusted.gpg.d/citusdata_community.gpg] https://packagecloud.io/citusdata/community/ubuntu/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/citusdata_community.list'
+        sudo sh -c 'wget -qO - https://packagecloud.io/citusdata/community/gpgkey | gpg --dearmor > /etc/apt/trusted.gpg.d/citusdata_community.gpg'
       if: matrix.os == 'ubuntu'
     - name: Install dependencies
       run: python .github/workflows/install_deps.py
@@ -157,3 +158,44 @@ jobs:
     steps:
     - run: bash <(curl -Ls https://coverage.codacy.com/get.sh) final
       if: ${{ env.SECRETS_AVAILABLE == 'true' }}
+
+  pyright:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+
+    - name: Install dependencies
+      run: python -m pip install -r requirements.txt psycopg2-binary psycopg
+
+    - uses: jakebailey/pyright-action@v1
+      with:
+        version: 1.1.347
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+        cache: pip
+
+    - name: Install dependencies
+      run: pip install tox
+
+    - name: Install package dependencies
+      run: |
+        sudo apt update \
+        && sudo apt install -y \
+            latexmk texlive-latex-extra tex-gyre \
+            --no-install-recommends
+
+    - name: Generate documentation
+      run: tox -m docs

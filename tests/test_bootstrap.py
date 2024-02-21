@@ -1,4 +1,5 @@
 import os
+import sys
 
 from mock import Mock, PropertyMock, patch
 
@@ -8,12 +9,13 @@ from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.config import ConfigHandler
 
-from . import psycopg_connect, BaseTestPostgresql
+from . import psycopg_connect, BaseTestPostgresql, mock_available_gucs
 
 
 @patch('subprocess.call', Mock(return_value=0))
 @patch('patroni.psycopg.connect', psycopg_connect)
 @patch('os.rename', Mock())
+@patch.object(Postgresql, 'available_gucs', mock_available_gucs)
 class TestBootstrap(BaseTestPostgresql):
 
     @patch('patroni.postgresql.CallbackExecutor', Mock())
@@ -99,6 +101,48 @@ class TestBootstrap(BaseTestPostgresql):
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': [1]})
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': 1})
 
+    def test__process_user_options(self):
+        def error_handler(msg):
+            raise Exception(msg)
+
+        self.assertEqual(self.b.process_user_options('initdb', ['string'], (), error_handler), ['--string'])
+        self.assertEqual(
+            self.b.process_user_options(
+                'initdb',
+                [{'key': 'value'}],
+                (), error_handler
+            ),
+            ['--key=value'])
+        if sys.platform != 'win32':
+            self.assertEqual(
+                self.b.process_user_options(
+                    'initdb',
+                    [{'key': 'value with spaces'}],
+                    (), error_handler
+                ),
+                ["--key=value with spaces"])
+            self.assertEqual(
+                self.b.process_user_options(
+                    'initdb',
+                    [{'key': "'value with spaces'"}],
+                    (), error_handler
+                ),
+                ["--key=value with spaces"])
+            self.assertEqual(
+                self.b.process_user_options(
+                    'initdb',
+                    {'key': 'value with spaces'},
+                    (), error_handler
+                ),
+                ["--key=value with spaces"])
+            self.assertEqual(
+                self.b.process_user_options(
+                    'initdb',
+                    {'key': "'value with spaces'"},
+                    (), error_handler
+                ),
+                ["--key=value with spaces"])
+
     @patch.object(CancellableSubprocess, 'call', Mock())
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
@@ -111,9 +155,9 @@ class TestBootstrap(BaseTestPostgresql):
 
         config = {'users': {'replicator': {'password': 'rep-pass', 'options': ['replication']}}}
 
-        with patch.object(Postgresql, 'is_running', Mock(return_value=False)),\
-                patch.object(Postgresql, 'get_major_version', Mock(return_value=140000)),\
-                patch('multiprocessing.Process', Mock(side_effect=Exception)),\
+        with patch.object(Postgresql, 'is_running', Mock(return_value=False)), \
+                patch.object(Postgresql, 'get_major_version', Mock(return_value=140000)), \
+                patch('multiprocessing.Process', Mock(side_effect=Exception)), \
                 patch('multiprocessing.get_context', Mock(side_effect=Exception), create=True):
             self.assertRaises(Exception, self.b.bootstrap, config)
         with open(os.path.join(self.p.data_dir, 'pg_hba.conf')) as f:
@@ -132,21 +176,28 @@ class TestBootstrap(BaseTestPostgresql):
 
     @patch.object(CancellableSubprocess, 'call')
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=90600))
-    @patch.object(Postgresql, 'controldata',  Mock(return_value={'Database cluster state': 'in production'}))
+    @patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'in production'}))
     def test_custom_bootstrap(self, mock_cancellable_subprocess_call):
         self.p.config._config.pop('pg_hba')
-        config = {'method': 'foo', 'foo': {'command': 'bar'}}
+        config = {'method': 'foo', 'foo': {'command': 'bar --arg1=val1'}}
 
         mock_cancellable_subprocess_call.return_value = 1
         self.assertFalse(self.b.bootstrap(config))
+        self.assertEqual(mock_cancellable_subprocess_call.call_args_list[0][0][0],
+                         ['bar', '--arg1=val1', '--scope=batman', '--datadir=' + os.path.join('data', 'test0')])
+
+        mock_cancellable_subprocess_call.reset_mock()
+        config['foo']['no_params'] = 1
+        self.assertFalse(self.b.bootstrap(config))
+        self.assertEqual(mock_cancellable_subprocess_call.call_args_list[0][0][0], ['bar', '--arg1=val1'])
 
         mock_cancellable_subprocess_call.return_value = 0
-        with patch('multiprocessing.Process', Mock(side_effect=Exception("42"))),\
-                patch('multiprocessing.get_context', Mock(side_effect=Exception("42")), create=True),\
-                patch('os.path.isfile', Mock(return_value=True)),\
-                patch('os.unlink', Mock()),\
-                patch.object(ConfigHandler, 'save_configuration_files', Mock()),\
-                patch.object(ConfigHandler, 'restore_configuration_files', Mock()),\
+        with patch('multiprocessing.Process', Mock(side_effect=Exception("42"))), \
+                patch('multiprocessing.get_context', Mock(side_effect=Exception("42")), create=True), \
+                patch('os.path.isfile', Mock(return_value=True)), \
+                patch('os.unlink', Mock()), \
+                patch.object(ConfigHandler, 'save_configuration_files', Mock()), \
+                patch.object(ConfigHandler, 'restore_configuration_files', Mock()), \
                 patch.object(ConfigHandler, 'write_recovery_conf', Mock()):
             with self.assertRaises(Exception) as e:
                 self.b.bootstrap(config)
@@ -194,7 +245,8 @@ class TestBootstrap(BaseTestPostgresql):
         self.p.reload_config({'authentication': {'superuser': {'username': 'p', 'password': 'p'},
                                                  'replication': {'username': 'r', 'password': 'r'},
                                                  'rewind': {'username': 'rw', 'password': 'rw'}},
-                              'listen': '*', 'retry_timeout': 10, 'parameters': {'wal_level': '', 'hba_file': 'foo'}})
+                              'listen': '*', 'retry_timeout': 10,
+                              'parameters': {'wal_level': '', 'hba_file': 'foo', 'max_prepared_transactions': 10}})
         with patch.object(Postgresql, 'major_version', PropertyMock(return_value=110000)), \
                 patch.object(Postgresql, 'restart', Mock()) as mock_restart:
             self.b.post_bootstrap({}, task)
@@ -206,15 +258,15 @@ class TestBootstrap(BaseTestPostgresql):
         self.assertFalse(self.b.call_post_bootstrap({'post_init': '/bin/false'}))
 
         mock_cancellable_subprocess_call.return_value = 0
-        self.p.config.superuser.pop('username')
+        self.p.connection_pool._conn_kwargs.pop('user')
         self.assertTrue(self.b.call_post_bootstrap({'post_init': '/bin/false'}))
         mock_cancellable_subprocess_call.assert_called()
         args, kwargs = mock_cancellable_subprocess_call.call_args
         self.assertTrue('PGPASSFILE' in kwargs['env'])
-        self.assertEqual(args[0], ['/bin/false', 'dbname=postgres host=127.0.0.2 port=5432'])
+        self.assertEqual(args[0], ['/bin/false', 'dbname=postgres host=/tmp port=5432'])
 
         mock_cancellable_subprocess_call.reset_mock()
-        self.p.config._local_address.pop('host')
+        self.p.connection_pool._conn_kwargs.pop('host')
         self.assertTrue(self.b.call_post_bootstrap({'post_init': '/bin/false'}))
         mock_cancellable_subprocess_call.assert_called()
         self.assertEqual(mock_cancellable_subprocess_call.call_args[0][0], ['/bin/false', 'dbname=postgres port=5432'])

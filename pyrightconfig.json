@@ -1,0 +1,27 @@
+{
+  "include": [
+    "patroni"
+  ],
+
+  "exclude": [
+    "**/__pycache__"
+  ],
+
+  "ignore": [
+  ],
+
+  "defineConstant": {
+    "DEBUG": true
+  },
+
+  "stubPath": "typings/",
+
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+
+  "pythonVersion": "3.11",
+  "pythonPlatform": "All",
+
+  "typeCheckingMode": "strict"
+
+}

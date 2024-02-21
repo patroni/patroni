@@ -3,10 +3,11 @@ import json
 import unittest
 import urllib3
 
-from mock import Mock, patch
+from mock import Mock, PropertyMock, patch
 from patroni.dcs.etcd import DnsCachingResolver
-from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3Client, Etcd3Error, Etcd3ClientError, RetryFailedError,\
-        InvalidAuthToken, Unavailable, Unknown, UnsupportedEtcdVersion, UserEmpty, AuthFailed, base64_encode, Etcd3
+from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3, Etcd3Client, \
+    Etcd3Error, Etcd3ClientError, ReAuthenticateMode, RetryFailedError, InvalidAuthToken, Unavailable, \
+    Unknown, UnsupportedEtcdVersion, UserEmpty, AuthFailed, AuthOldRevision, base64_encode
 from threading import Thread
 
 from . import SleepException, MockResponse
@@ -54,8 +55,11 @@ def mock_urlopen(self, method, url, **kwargs):
             ]}
         })[:-1].encode('utf-8'), b'}{"error":{"grpc_code":14,"message":"","http_code":503}}'])
     elif url.endswith('/kv/put') or url.endswith('/kv/txn'):
-        ret.status_code = 400
-        ret.content = '{"code":5,"error":"etcdserver: requested lease not found"}'
+        if base64_encode('/patroni/test/sync') in kwargs['body']:
+            ret.content = '{"header":{"revision":"1"},"succeeded":true}'
+        else:
+            ret.status_code = 400
+            ret.content = '{"code":5,"error":"etcdserver: requested lease not found"}'
     elif not url.endswith('/kv/deleterange'):
         raise Exception('Unexpected url: {0} {1} {2}'.format(method, url, kwargs))
     return ret
@@ -85,6 +89,11 @@ class BaseTestEtcd3(unittest.TestCase):
 
 class TestKVCache(BaseTestEtcd3):
 
+    @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
+    @patch.object(Etcd3Client, 'watchprefix', Mock(return_value=urllib3.response.HTTPResponse()))
+    def test__build_cache(self):
+        self.kv_cache._build_cache()
+
     def test__do_watch(self):
         self.client.watchprefix = Mock(return_value=False)
         self.assertRaises(AttributeError, self.kv_cache._do_watch, '1')
@@ -94,13 +103,16 @@ class TestKVCache(BaseTestEtcd3):
     def test_run(self):
         self.assertRaises(SleepException, self.kv_cache.run)
 
-    @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
+    @patch.object(urllib3.response.HTTPResponse, 'read_chunked',
+                  Mock(return_value=[b'{"error":{"grpc_code":14,"message":"","http_code":503}}']))
+    @patch.object(Etcd3Client, 'watchprefix', Mock(return_value=urllib3.response.HTTPResponse()))
     def test_kill_stream(self):
         self.assertRaises(Unavailable, self.kv_cache._do_watch, '1')
-        self.kv_cache.kill_stream()
-        with patch.object(MockResponse, 'connection', create=True) as mock_conn:
+        with patch.object(urllib3.response.HTTPResponse, 'connection') as mock_conn:
             self.kv_cache.kill_stream()
             mock_conn.sock.close.side_effect = Exception
+            self.kv_cache.kill_stream()
+            type(mock_conn).sock = PropertyMock(side_effect=Exception)
             self.kv_cache.kill_stream()
 
 
@@ -115,9 +127,15 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         request = {'key': base64_encode('/patroni/test/leader')}
         mock_urlopen.return_value = MockResponse()
         mock_urlopen.return_value.content = '{"succeeded":true,"header":{"revision":"1"}}'
-        self.client.call_rpc('/kv/txn', {'success': [{'request_delete_range': request}]})
         self.client.call_rpc('/kv/put', request)
         self.client.call_rpc('/kv/deleterange', request)
+
+    @patch.object(urllib3.PoolManager, 'urlopen')
+    def test_txn(self, mock_urlopen):
+        mock_urlopen.return_value = MockResponse()
+        mock_urlopen.return_value.content = '{"header":{"revision":"1"}}'
+        self.client.txn({'target': 'MOD', 'mod_revision': '1'},
+                        {'request_delete_range': {'key': base64_encode('/patroni/test/leader')}})
 
     @patch('time.time', Mock(side_effect=[1, 10.9, 100]))
     def test__wait_cache(self):
@@ -143,9 +161,16 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         mock_urlopen.return_value.content = '{"code":16,"error":"etcdserver: invalid auth token"}'
         self.assertRaises(InvalidAuthToken, self.client.deleteprefix, 'foo')
         with patch.object(PatroniEtcd3Client, 'authenticate', Mock(return_value=True)):
-            self.assertRaises(InvalidAuthToken, self.client.deleteprefix, 'foo')
+            retry = self.etcd3._retry.copy()
+            with patch('time.time', Mock(side_effect=[0, 10, 20, 30, 40])):
+                self.assertRaises(InvalidAuthToken, retry, self.client.deleteprefix, 'foo', retry=retry)
             self.client.username = None
-            self.assertRaises(InvalidAuthToken, self.client.deleteprefix, 'foo')
+            self.client._reauthenticate_reason = ReAuthenticateMode.NOT_REQUIRED
+            retry = self.etcd3._retry.copy()
+            self.assertRaises(InvalidAuthToken, retry, self.client.deleteprefix, 'foo', retry=retry)
+            mock_urlopen.return_value.content = '{"code":3,"error":"etcdserver: revision of auth store is old"}'
+            self.client._reauthenticate_reason = ReAuthenticateMode.NOT_REQUIRED
+            self.assertRaises(AuthOldRevision, retry, self.client.deleteprefix, 'foo', retry=retry)
 
     def test__handle_server_response(self):
         response = MockResponse()
@@ -180,7 +205,8 @@ class TestEtcd3(BaseTestEtcd3):
     @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
     def setUp(self):
         super(TestEtcd3, self).setUp()
-        self.assertRaises(AttributeError, self.kv_cache._build_cache)
+#        self.assertRaises(AttributeError, self.kv_cache._build_cache)
+        self.kv_cache._build_cache()
         self.kv_cache._is_ready = True
         self.etcd3.get_cluster()
 
@@ -223,16 +249,20 @@ class TestEtcd3(BaseTestEtcd3):
             self.etcd3.touch_member({})
 
     def test__update_leader(self):
+        leader = self.etcd3.get_cluster().leader
         self.etcd3._lease = None
-        self.etcd3.update_leader('123', failsafe={'foo': 'bar'})
+        with patch.object(Etcd3Client, 'txn', Mock(return_value={'succeeded': True})):
+            self.etcd3.update_leader(leader, '123', failsafe={'foo': 'bar'})
         self.etcd3._last_lease_refresh = 0
-        self.etcd3.update_leader('124')
-        with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(return_value=True)),\
+        self.etcd3.update_leader(leader, '124')
+        with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(return_value=True)), \
                 patch('time.time', Mock(side_effect=[0, 100, 200, 300])):
-            self.assertRaises(Etcd3Error, self.etcd3.update_leader, '126')
+            self.assertRaises(Etcd3Error, self.etcd3.update_leader, leader, '126')
+        self.etcd3._lease = leader.session
+        self.etcd3.update_leader(leader, '124')
         self.etcd3._last_lease_refresh = 0
         with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(side_effect=Unknown)):
-            self.assertFalse(self.etcd3.update_leader('125'))
+            self.assertFalse(self.etcd3.update_leader(leader, '125'))
 
     def test_take_leader(self):
         self.assertFalse(self.etcd3.take_leader())
@@ -275,7 +305,10 @@ class TestEtcd3(BaseTestEtcd3):
         self.etcd3.cancel_initialization()
 
     def test_delete_leader(self):
-        self.etcd3.delete_leader()
+        leader = self.etcd3.get_cluster().leader
+        self.etcd3.delete_leader(leader)
+        self.etcd3._name = 'other'
+        self.etcd3.delete_leader(leader)
 
     def test_delete_cluster(self):
         self.etcd3.delete_cluster()
@@ -284,15 +317,15 @@ class TestEtcd3(BaseTestEtcd3):
         self.etcd3.set_history_value('')
 
     def test_set_sync_state_value(self):
-        self.etcd3.set_sync_state_value('')
+        self.etcd3.set_sync_state_value('', 1)
 
     def test_delete_sync_state(self):
-        self.etcd3.delete_sync_state()
+        self.etcd3.delete_sync_state('1')
 
     def test_watch(self):
         self.etcd3.set_ttl(10)
         self.etcd3.watch(None, 0)
-        self.etcd3.watch(None, 0)
+        self.etcd3.watch('5', 0)
 
     def test_set_socket_options(self):
         with patch('socket.SIO_KEEPALIVE_VALS', 1, create=True):

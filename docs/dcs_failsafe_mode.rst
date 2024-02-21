@@ -23,7 +23,7 @@ In general, it is impossible to distinguish between these two from a single node
 DCS Failsafe Mode
 -----------------
 
-We introduce a new special option, the ``failsafe_mode``. It could be enabled only via global configuration stored in the DCS ``/config`` key. If the failsafe mode is enabled and the leader lock update in DCS failed due to reasons different from the version/value/index mismatch, Postgres may continue to run as a primary if it can access all known members of the cluster via Patroni REST API.
+We introduce a new special option, the ``failsafe_mode``. It could be enabled only via global :ref:`dynamic configuration <dynamic_configuration>` stored in the DCS ``/config`` key. If the failsafe mode is enabled and the leader lock update in DCS failed due to reasons different from the version/value/index mismatch, Postgres may continue to run as a primary if it can access all known members of the cluster via Patroni REST API.
 
 
 Low-level implementation details
@@ -53,11 +53,11 @@ F.A.Q.
 - What if all members of the Patroni cluster are lost while DCS is down?
 
   Patroni could be configured to create the new replica from the backup even when the cluster doesn't have a leader. But, if the new member isn't present in the ``/failsafe`` key, it will not be able to grab the leader lock and promote.
-  
+
 - What will happen if the primary lost access to DCS while replicas didn't?
 
   The primary will execute the failsafe code and contact all known replicas. These replicas will use this information as an indicator that the primary is alive and will not start the leader race even if the leader lock in DCS has expired.
 
 - How to enable the Failsafe Mode?
 
-  Before enabling the ``failsafe_mode`` please make sure that Patroni version on all members is up-to-date. After that, you can use either the ``PATCH /config`` :ref:`REST API <rest_api>` or ``patronictl edit-config -s failsafe_mode=true``
+  Before enabling the ``failsafe_mode`` please make sure that Patroni version on all members is up-to-date. After that, you can use either the ``PATCH /config`` :ref:`REST API <rest_api>` or :ref:`patronictl edit-config -s failsafe_mode=true <patronictl_edit_config_parameters>`

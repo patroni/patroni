@@ -26,7 +26,6 @@ KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd' +\
 EXTRAS_REQUIRE = {'aws': ['boto3'], 'etcd': ['python-etcd'], 'etcd3': ['python-etcd'],
                   'consul': ['python-consul'], 'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'],
                   'kubernetes': [], 'raft': ['pysyncobj', 'cryptography']}
-COVERAGE_XML = True
 
 # Add here all kinds of additional classifiers as defined under
 # https://pypi.python.org/pypi?%3Aaction=list_classifiers
@@ -88,7 +87,7 @@ class Flake8(_Command):
                 yield package_directory
 
     def targets(self):
-        return [package for package in self.package_files()] + ['tests', 'setup.py']
+        return [package for package in self.package_files()] + ['tests', 'features', 'setup.py']
 
     def run(self):
         from flake8.main.cli import main
@@ -116,18 +115,25 @@ class PyTest(_Command):
 
 
 def read(fname):
-    with open(os.path.join(__location__, fname)) as fd:
+    with open(os.path.join(__location__, fname), encoding='utf-8') as fd:
         return fd.read()
 
 
-def setup_package(version):
+def get_versions():
+    old_modules = sys.modules.copy()
+    try:
+        from patroni import MIN_PSYCOPG2, MIN_PSYCOPG3
+        from patroni.version import __version__
+        return __version__, MIN_PSYCOPG2, MIN_PSYCOPG3
+    finally:
+        sys.modules.clear()
+        sys.modules.update(old_modules)
+
+
+def main():
     logging.basicConfig(format='%(message)s', level=os.getenv('LOGLEVEL', logging.WARNING))
 
-    # Assemble additional setup commands
-    cmdclass = {'test': PyTest, 'flake8': Flake8}
-
     install_requires = []
-
     for r in read('requirements.txt').split('\n'):
         r = r.strip()
         if r == '':
@@ -139,15 +145,22 @@ def setup_package(version):
                     deps[i] = r
                     EXTRAS_REQUIRE[e] = deps
                     extra = True
-                    break
-            if extra:
-                break
         if not extra:
             install_requires.append(r)
 
+    # Just for convenience, if someone wants to install dependencies for all extras
+    EXTRAS_REQUIRE['all'] = list({e for extras in EXTRAS_REQUIRE.values() for e in extras})
+
+    patroni_version, min_psycopg2, min_psycopg3 = get_versions()
+
+    # Make it possible to specify psycopg dependency as extra
+    for name, version in {'psycopg[binary]': min_psycopg3, 'psycopg2': min_psycopg2, 'psycopg2-binary': None}.items():
+        EXTRAS_REQUIRE[name] = [name + ('>=' + '.'.join(map(str, version)) if version else '')]
+    EXTRAS_REQUIRE['psycopg3'] = EXTRAS_REQUIRE.pop('psycopg[binary]')
+
     setup(
         name=NAME,
-        version=version,
+        version=patroni_version,
         url=URL,
         author=AUTHOR,
         author_email=AUTHOR_EMAIL,
@@ -157,23 +170,16 @@ def setup_package(version):
         long_description=read('README.rst'),
         classifiers=CLASSIFIERS,
         packages=find_packages(exclude=['tests', 'tests.*']),
-        package_data={MAIN_PACKAGE: ["*.json"]},
+        package_data={MAIN_PACKAGE: [
+            "postgresql/available_parameters/*.yml",
+            "postgresql/available_parameters/*.yaml",
+        ]},
         install_requires=install_requires,
         extras_require=EXTRAS_REQUIRE,
-        cmdclass=cmdclass,
+        cmdclass={'test': PyTest, 'flake8': Flake8},
         entry_points={'console_scripts': CONSOLE_SCRIPTS},
     )
 
 
 if __name__ == '__main__':
-    old_modules = sys.modules.copy()
-    try:
-        from patroni import check_psycopg
-        from patroni.version import __version__
-    finally:
-        sys.modules.clear()
-        sys.modules.update(old_modules)
-
-    check_psycopg()
-
-    setup_package(__version__)
+    main()

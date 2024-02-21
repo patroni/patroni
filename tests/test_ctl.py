@@ -1,14 +1,15 @@
 import etcd
+import mock
 import os
 import unittest
 
 from click.testing import CliRunner
 from datetime import datetime, timedelta
-from mock import patch, Mock, call
+from mock import patch, Mock, PropertyMock
 from patroni.ctl import ctl, load_config, output_members, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, PatroniCtlException, apply_config_changes, \
     format_config_for_editing, show_diff, invoke_editor, format_pg_version, CONFIG_FILE_PATH, PatronictlPrettyTable
-from patroni.dcs.etcd import AbstractEtcdClientWithFailover, Failover
+from patroni.dcs.etcd import AbstractEtcdClientWithFailover, Cluster, Failover
 from patroni.psycopg import OperationalError
 from patroni.utils import tzutc
 from prettytable import PrettyTable, ALL
@@ -20,10 +21,17 @@ from .test_ha import get_cluster_initialized_without_leader, get_cluster_initial
     get_cluster_initialized_with_only_leader, get_cluster_not_initialized_without_leader, get_cluster, Member
 
 
-@patch('patroni.ctl.load_config', Mock(return_value={
-    'scope': 'alpha', 'restapi': {'listen': '::', 'certfile': 'a'},
-    'etcd': {'host': 'localhost:2379'}, 'citus': {'database': 'citus', 'group': 0},
-    'postgresql': {'data_dir': '.', 'pgpass': './pgpass', 'parameters': {}, 'retry_timeout': 5}}))
+DEFAULT_CONFIG = {
+    'scope': 'alpha',
+    'restapi': {'listen': '::', 'certfile': 'a'},
+    'ctl': {'certfile': 'a'},
+    'etcd': {'host': 'localhost:2379'},
+    'citus': {'database': 'citus', 'group': 0},
+    'postgresql': {'data_dir': '.', 'pgpass': './pgpass', 'parameters': {}, 'retry_timeout': 5}
+}
+
+
+@patch('patroni.ctl.load_config', Mock(return_value=DEFAULT_CONFIG))
 class TestCtl(unittest.TestCase):
     TEST_ROLES = ('master', 'primary', 'leader')
 
@@ -67,6 +75,21 @@ class TestCtl(unittest.TestCase):
 
         self.assertIsNotNone(get_cursor({}, get_cluster_initialized_with_leader(), None, {'dbname': 'foo'}, role='any'))
 
+        # Mutually exclusive options
+        with self.assertRaises(PatroniCtlException) as e:
+            get_cursor({}, get_cluster_initialized_with_leader(), None, {'dbname': 'foo'}, member_name='other',
+                       role='replica')
+
+        self.assertEqual(str(e.exception), '--role and --member are mutually exclusive options')
+
+        # Invalid member provided
+        self.assertIsNone(get_cursor({}, get_cluster_initialized_with_leader(), None, {'dbname': 'foo'},
+                                     member_name='invalid'))
+
+        # Valid member provided
+        self.assertIsNotNone(get_cursor({}, get_cluster_initialized_with_leader(), None, {'dbname': 'foo'},
+                                        member_name='other'))
+
     def test_parse_dcs(self):
         assert parse_dcs(None) is None
         assert parse_dcs('localhost') == {'etcd': {'host': 'localhost:2379'}}
@@ -75,14 +98,19 @@ class TestCtl(unittest.TestCase):
         assert parse_dcs('zookeeper://localhost') == {'zookeeper': {'hosts': ['localhost:2181']}}
         assert parse_dcs('exhibitor://dummy') == {'exhibitor': {'hosts': ['dummy'], 'port': 8181}}
         assert parse_dcs('consul://localhost') == {'consul': {'host': 'localhost:8500'}}
+        assert parse_dcs('etcd3://random.com:2399') == {'etcd3': {'host': 'random.com:2399'}}
         self.assertRaises(PatroniCtlException, parse_dcs, 'invalid://test')
 
     def test_output_members(self):
         scheduled_at = datetime.now(tzutc) + timedelta(seconds=600)
         cluster = get_cluster_initialized_with_leader(Failover(1, 'foo', 'bar', scheduled_at))
         del cluster.members[1].data['conn_url']
-        for fmt in ('pretty', 'json', 'yaml', 'tsv', 'topology'):
+        for fmt in ('pretty', 'json', 'yaml', 'topology'):
             self.assertIsNone(output_members({}, cluster, name='abc', fmt=fmt))
+
+        with patch('click.echo') as mock_echo:
+            self.assertIsNone(output_members({}, cluster, name='abc', fmt='tsv'))
+            self.assertEqual(mock_echo.call_args[0][0], 'abc\tother\t\tReplica\trunning\t\tunknown')
 
     @patch('patroni.ctl.get_dcs')
     @patch.object(PoolManager, 'request', Mock(return_value=MockResponse()))
@@ -90,91 +118,138 @@ class TestCtl(unittest.TestCase):
         mock_get_dcs.return_value = self.e
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
         mock_get_dcs.return_value.set_failover_value = Mock()
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
-        assert 'leader' in result.output
 
+        # Confirm
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
+        self.assertEqual(result.exit_code, 0)
+
+        # Abort
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\nN')
+        self.assertEqual(result.exit_code, 1)
+
+        # Without a candidate with --force option
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0', '--force'])
+        self.assertEqual(result.exit_code, 0)
+
+        # Scheduled (confirm)
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'],
                                     input='leader\nother\n2300-01-01T12:23:00\ny')
-        assert result.exit_code == 0
+        self.assertEqual(result.exit_code, 0)
 
-        with patch('patroni.dcs.Cluster.is_paused', Mock(return_value=True)):
-            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
-                                              '--force', '--scheduled', '2015-01-01T12:00:00'])
-            assert result.exit_code == 1
-
-        # Aborting switchover, as we answer NO to the confirmation
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\nN')
-        assert result.exit_code == 1
-
-        # Aborting scheduled switchover, as we answer NO to the confirmation
+        # Scheduled (abort)
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
                                     '--scheduled', '2015-01-01T12:00:00+01:00'], input='leader\nother\n\nN')
-        assert result.exit_code == 1
+        self.assertEqual(result.exit_code, 1)
+
+        # Scheduled with --force option
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
+                                    '--force', '--scheduled', '2015-01-01T12:00:00+01:00'])
+        self.assertEqual(result.exit_code, 0)
+
+        # Scheduled in pause mode
+        with patch('patroni.config.GlobalConfig.is_paused', PropertyMock(return_value=True)):
+            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
+                                              '--force', '--scheduled', '2015-01-01T12:00:00'])
+            self.assertEqual(result.exit_code, 1)
+            self.assertIn("Can't schedule switchover in the paused state", result.output)
 
         # Target and source are equal
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nleader\n\ny')
-        assert result.exit_code == 1
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("Candidate ['other']", result.output)
+        self.assertIn('Member leader is already the leader of cluster dummy', result.output)
 
-        # Reality is not part of this cluster
+        # Candidate is not a member of the cluster
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nReality\n\ny')
-        assert result.exit_code == 1
-
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0', '--force'])
-        assert 'Member' in result.output
-
-        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
-                                          '--force', '--scheduled', '2015-01-01T12:00:00+01:00'])
-        assert result.exit_code == 0
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn('Member Reality does not exist in cluster dummy or is tagged as nofailover', result.output)
 
         # Invalid timestamp
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0', '--force', '--scheduled', 'invalid'])
-        assert result.exit_code != 0
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn('Unable to parse scheduled timestamp', result.output)
 
         # Invalid timestamp
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0',
                                           '--force', '--scheduled', '2115-02-30T12:00:00+01:00'])
-        assert result.exit_code != 0
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn('Unable to parse scheduled timestamp', result.output)
 
         # Specifying wrong leader
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='dummy')
-        assert result.exit_code == 1
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn('Member dummy is not the leader of cluster dummy', result.output)
 
+        # Errors while sending Patroni REST API request
         with patch.object(PoolManager, 'request', Mock(side_effect=Exception)):
-            # Non-responding patroni
             result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'],
                                         input='leader\nother\n2300-01-01T12:23:00\ny')
-            assert 'falling back to DCS' in result.output
+            self.assertIn('falling back to DCS', result.output)
 
-        with patch.object(PoolManager, 'request') as mocked:
-            mocked.return_value.status = 500
+        with patch.object(PoolManager, 'request') as mock_api_request:
+            mock_api_request.return_value.status = 500
             result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
-            assert 'Switchover failed' in result.output
+            self.assertIn('Switchover failed', result.output)
 
-            mocked.return_value.status = 501
-            mocked.return_value.data = b'Server does not support this operation'
+            mock_api_request.return_value.status = 501
+            mock_api_request.return_value.data = b'Server does not support this operation'
             result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
-            assert 'Switchover failed' in result.output
+            self.assertIn('Switchover failed', result.output)
 
         # No members available
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_only_leader
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
-        assert result.exit_code == 1
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn('No candidates found to switchover to', result.output)
 
         # No leader available
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_without_leader
         result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
-        assert result.exit_code == 1
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn('This cluster has no leader', result.output)
+
+        # Citus cluster, no group number specified
+        result = self.runner.invoke(ctl, ['switchover', 'dummy', '--force'], input='\n')
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn('For Citus clusters the --group must me specified', result.output)
 
     @patch('patroni.ctl.get_dcs')
     @patch.object(PoolManager, 'request', Mock(return_value=MockResponse()))
+    @patch('patroni.ctl.request_patroni', Mock(return_value=MockResponse()))
     def test_failover(self, mock_get_dcs):
-        mock_get_dcs.return_value = self.e
-        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
         mock_get_dcs.return_value.set_failover_value = Mock()
-        result = self.runner.invoke(ctl, ['failover', 'dummy', '--force'], input='\n')
-        assert 'For Citus clusters the --group must me specified' in result.output
+
+        # No candidate specified
+        mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
         result = self.runner.invoke(ctl, ['failover', 'dummy'], input='0\n')
-        assert 'Failover could be performed only to a specific candidate' in result.output
+        self.assertIn('Failover could be performed only to a specific candidate', result.output)
+
+        # Candidate is the same as the leader
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--group', '0'], input='leader\n')
+        self.assertIn("Candidate ['other']", result.output)
+        self.assertIn('Member leader is already the leader of cluster dummy', result.output)
+
+        # Temp test to check a fallback to switchover if leader is specified
+        with patch('patroni.ctl._do_failover_or_switchover') as failover_func_mock:
+            result = self.runner.invoke(ctl, ['failover', '--leader', 'leader', 'dummy'], input='0\n')
+            self.assertIn('Supplying a leader name using this command is deprecated', result.output)
+            failover_func_mock.assert_called_once_with(
+                DEFAULT_CONFIG, 'switchover', 'dummy', None, 'leader', None, False)
+
+        cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        cluster.members.append(Member(0, 'async', 28, {'api_url': 'http://127.0.0.1:8012/patroni'}))
+        cluster.config.data['synchronous_mode'] = True
+        mock_get_dcs.return_value.get_cluster = Mock(return_value=cluster)
+        # Failover to an async member in sync mode (confirm)
+        result = self.runner.invoke(ctl,
+                                    ['failover', 'dummy', '--group', '0', '--candidate', 'async'], input='y\ny')
+        self.assertIn('Are you sure you want to failover to the asynchronous node async', result.output)
+        self.assertEqual(result.exit_code, 0)
+
+        # Failover to an async member in sync mode (abort)
+        result = self.runner.invoke(ctl, ['failover', 'dummy', '--group', '0', '--candidate', 'async'], input='N')
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn('Aborting failover', result.output)
 
     @patch('patroni.dcs.dcs_modules', Mock(return_value=['patroni.dcs.dummy', 'patroni.dcs.etcd']))
     def test_get_dcs(self):
@@ -225,11 +300,17 @@ class TestCtl(unittest.TestCase):
                 rows = query_member({}, None, None, None, None, 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
 
         with patch('patroni.ctl.get_cursor', Mock(return_value=None)):
+            # No role nor member given -- generic message
             rows = query_member({}, None, None, None, None, None, 'SELECT pg_catalog.pg_is_in_recovery()', {})
-            self.assertTrue('No connection to' in str(rows))
+            self.assertTrue('No connection is available' in str(rows))
 
-            rows = query_member({}, None, None, None, 'foo', 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
-            self.assertTrue('No connection to' in str(rows))
+            # Member given -- message pointing to member
+            rows = query_member({}, None, None, None, 'foo', None, 'SELECT pg_catalog.pg_is_in_recovery()', {})
+            self.assertTrue('No connection to member foo' in str(rows))
+
+            # Role given -- message pointing to role
+            rows = query_member({}, None, None, None, None, 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
+            self.assertTrue('No connection to role replica' in str(rows))
 
         with patch('patroni.ctl.get_cursor', Mock(side_effect=OperationalError('bla'))):
             rows = query_member({}, None, None, None, None, 'replica', 'SELECT pg_catalog.pg_is_in_recovery()', {})
@@ -308,7 +389,7 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['restart', 'alpha', 'other', '--force', '--scheduled', '2300-10-01T14:30'])
         assert 'Failed: flush scheduled restart' in result.output
 
-        with patch('patroni.dcs.Cluster.is_paused', Mock(return_value=True)):
+        with patch('patroni.config.GlobalConfig.is_paused', PropertyMock(return_value=True)):
             result = self.runner.invoke(ctl,
                                         ['restart', 'alpha', 'other', '--force', '--scheduled', '2300-10-01T14:30'])
             assert result.exit_code == 1
@@ -396,9 +477,19 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.ctl.get_dcs')
     def test_members(self, mock_get_dcs):
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
+
         result = self.runner.invoke(ctl, ['list'])
         assert '127.0.0.1' in result.output
         assert result.exit_code == 0
+        assert 'Citus cluster: alpha -' in result.output
+
+        result = self.runner.invoke(ctl, ['list', '--group', '0'])
+        assert 'Citus cluster: alpha (group: 0, 12345678901) -' in result.output
+
+        with patch('patroni.ctl.load_config', Mock(return_value={'scope': 'alpha'})):
+            result = self.runner.invoke(ctl, ['list'])
+            assert 'Cluster: alpha (12345678901) -' in result.output
+
         with patch('patroni.ctl.load_config', Mock(return_value={})):
             self.runner.invoke(ctl, ['list'])
 
@@ -449,7 +540,7 @@ class TestCtl(unittest.TestCase):
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
 
         for role in self.TEST_ROLES:
-            result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '-r', role], input='y')
+            result = self.runner.invoke(ctl, ['-k', 'flush', 'dummy', 'restart', '-r', role], input='y')
             assert 'No scheduled restart' in result.output
 
         result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '--force'])
@@ -469,7 +560,7 @@ class TestCtl(unittest.TestCase):
 
         scheduled_at = datetime.now(tzutc) + timedelta(seconds=600)
         mock_get_dcs.return_value.get_cluster = Mock(
-                return_value=get_cluster_initialized_with_leader(Failover(1, 'a', 'b', scheduled_at)))
+            return_value=get_cluster_initialized_with_leader(Failover(1, 'a', 'b', scheduled_at)))
         result = self.runner.invoke(ctl, ['flush', 'dummy', 'switchover'])
         assert result.output.startswith('Success: ')
 
@@ -490,7 +581,7 @@ class TestCtl(unittest.TestCase):
         assert 'Failed' in result.output
 
         mock_post.return_value.status = 200
-        with patch('patroni.dcs.Cluster.is_paused', Mock(return_value=True)):
+        with patch('patroni.config.GlobalConfig.is_paused', PropertyMock(return_value=True)):
             result = self.runner.invoke(ctl, ['pause', 'dummy'])
             assert 'Cluster is already paused' in result.output
 
@@ -511,11 +602,11 @@ class TestCtl(unittest.TestCase):
         mock_get_dcs.return_value.get_cluster = get_cluster_initialized_with_leader
 
         mock_post.return_value.status = 200
-        with patch('patroni.dcs.Cluster.is_paused', Mock(return_value=False)):
+        with patch('patroni.config.GlobalConfig.is_paused', PropertyMock(return_value=False)):
             result = self.runner.invoke(ctl, ['resume', 'dummy'])
             assert 'Cluster is not paused' in result.output
 
-        with patch('patroni.dcs.Cluster.is_paused', Mock(return_value=True)):
+        with patch('patroni.config.GlobalConfig.is_paused', PropertyMock(return_value=True)):
             result = self.runner.invoke(ctl, ['resume', 'dummy'])
             assert 'Success' in result.output
 
@@ -576,8 +667,8 @@ class TestCtl(unittest.TestCase):
         )
         mock_env_get.assert_called_once_with('PAGER')
         mock_which.assert_has_calls([
-            call('less'),
-            call('more'),
+            mock.call('less'),
+            mock.call('more'),
         ])
         mock_markup_to_pager.assert_not_called()
 
@@ -594,9 +685,9 @@ class TestCtl(unittest.TestCase):
         )
         mock_env_get.assert_called_once_with('PAGER')
         mock_which.assert_has_calls([
-            call('random'),
-            call('less'),
-            call('more'),
+            mock.call('random'),
+            mock.call('less'),
+            mock.call('more'),
         ])
         mock_markup_to_pager.assert_not_called()
 
@@ -637,6 +728,10 @@ class TestCtl(unittest.TestCase):
         self.runner.invoke(ctl, ['edit-config', 'dummy', '--force', '--apply', '-'], input='foo: bar')
         mock_get_dcs.return_value.set_config_value.return_value = True
         self.runner.invoke(ctl, ['edit-config', 'dummy', '--force', '--apply', '-'], input='foo: bar')
+        mock_get_dcs.return_value.get_cluster = Mock(return_value=Cluster.empty())
+        result = self.runner.invoke(ctl, ['edit-config', 'dummy'])
+        assert result.exit_code == 1
+        assert 'The config key does not exist in the cluster dummy' in result.output
 
     @patch('patroni.ctl.get_dcs')
     def test_version(self, mock_get_dcs):

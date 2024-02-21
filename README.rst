@@ -8,11 +8,11 @@ You can find a version of this documentation that is searchable and also easier 
 
 There are many ways to run high availability with PostgreSQL; for a list, see the `PostgreSQL Documentation <https://wiki.postgresql.org/wiki/Replication,_Clustering,_and_Connection_Pooling>`__.
 
-Patroni is a template for you to create your own customized, high-availability solution using Python and - for maximum accessibility - a distributed configuration store like `ZooKeeper <https://zookeeper.apache.org/>`__, `etcd <https://github.com/coreos/etcd>`__, `Consul <https://github.com/hashicorp/consul>`__ or `Kubernetes <https://kubernetes.io>`__. Database engineers, DBAs, DevOps engineers, and SREs who are looking to quickly deploy HA PostgreSQL in the datacenter-or anywhere else-will hopefully find it useful.
+Patroni is a template for high availability (HA) PostgreSQL solutions using Python. For maximum accessibility, Patroni supports a variety of distributed configuration stores like `ZooKeeper <https://zookeeper.apache.org/>`__, `etcd <https://github.com/coreos/etcd>`__, `Consul <https://github.com/hashicorp/consul>`__ or `Kubernetes <https://kubernetes.io>`__. Database engineers, DBAs, DevOps engineers, and SREs who are looking to quickly deploy HA PostgreSQL in datacenters - or anywhere else - will hopefully find it useful.
 
 We call Patroni a "template" because it is far from being a one-size-fits-all or plug-and-play replication system. It will have its own caveats. Use wisely.
 
-Currently supported PostgreSQL versions: 9.3 to 15.
+Currently supported PostgreSQL versions: 9.3 to 16.
 
 **Note to Citus users**: Starting from 3.0 Patroni nicely integrates with the `Citus <https://github.com/citusdata/citus>`__ database extension to Postgres. Please check the `Citus support page <https://github.com/zalando/patroni/blob/master/docs/citus.rst>`__ in the Patroni documentation for more info about how to use Patroni high availability together with a Citus distributed cluster.
 
@@ -49,7 +49,7 @@ We report new releases information `here <https://github.com/zalando/patroni/rel
 Community
 =========
 
-There are two places to connect with the Patroni community: `on github <https://github.com/zalando/patroni>`__, via Issues and PRs, and on channel `#patroni <https://postgresteam.slack.com/archives/C9XPYG92A>`__ in the `PostgreSQL Slack <https://join.slack.com/t/postgresteam/shared_invite/zt-1qj14i9sj-E9WqIFlvcOiHsEk2yFEMjA>`__.  If you're using Patroni, or just interested, please join us.
+There are two places to connect with the Patroni community: `on github <https://github.com/zalando/patroni>`__, via Issues and PRs, and on channel `#patroni <https://postgresteam.slack.com/archives/C9XPYG92A>`__ in the `PostgreSQL Slack <https://pgtreats.info/slack-invite>`__.  If you're using Patroni, or just interested, please join us.
 
 ===================================
 Technical Requirements/Installation
@@ -74,27 +74,11 @@ There are a few options available:
 
 ::
 
-    sudo apt-get install python-psycopg2   # install python2 psycopg2 module on Debian/Ubuntu
-    sudo apt-get install python3-psycopg2  # install python3 psycopg2 module on Debian/Ubuntu
-    sudo yum install python-psycopg2       # install python2 psycopg2 on RedHat/Fedora/CentOS
+    sudo apt-get install python3-psycopg2  # install psycopg2 module on Debian/Ubuntu
+    sudo yum install python3-psycopg2      # install psycopg2 on RedHat/Fedora/CentOS
 
-2. Install psycopg2 from the binary package
+2. Specify one of `psycopg`, `psycopg2`, or `psycopg2-binary` in the list of dependencies when installing Patroni with pip (see below).
 
-::
-
-    pip install psycopg2-binary
-
-3. Install psycopg2 from source
-
-::
-
-    pip install psycopg2>=2.5.4
-
-4. Use psycopg 3.0 instead of psycopg2
-
-::
-
-    pip install psycopg[binary]
 
 **General installation for pip**
 
@@ -119,13 +103,21 @@ kubernetes
 raft
     `pysyncobj` module in order to use python Raft implementation as DCS
 aws
-    `boto` in order to use AWS callbacks
+    `boto3` in order to use AWS callbacks
+all
+    all of the above (except psycopg family)
+psycopg3
+    `psycopg[binary]>=3.0.0` module
+psycopg2
+    `psycopg2>=2.5.4` module
+psycopg2-binary
+    `psycopg2-binary` module
 
-For example, the command in order to install Patroni together with dependencies for Etcd as a DCS and AWS callbacks is:
+For example, the command in order to install Patroni together with psycopg3, dependencies for Etcd as a DCS, and AWS callbacks is:
 
 ::
 
-    pip install patroni[etcd,aws]
+    pip install patroni[psycopg3,etcd3,aws]
 
 Note that external tools to call in the replica creation or custom bootstrap scripts (i.e. WAL-E) should be installed independently of Patroni.
 

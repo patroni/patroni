@@ -1,8 +1,11 @@
-import collections
+# pyright: reportConstantRedefinition=false
 import ctypes
 import os
 import platform
-from patroni.watchdog.base import WatchdogBase, WatchdogError
+
+from typing import Any, Dict, NamedTuple
+
+from .base import WatchdogBase, WatchdogError
 
 # Pythonification of linux/ioctl.h
 IOC_NONE = 0
@@ -19,7 +22,7 @@ machine = platform.machine()
 if machine in ['mips', 'sparc', 'powerpc', 'ppc64', 'ppc64le']:  # pragma: no cover
     IOC_SIZEBITS = 13
     IOC_DIRBITS = 3
-    IOC_NONE, IOC_WRITE, IOC_READ = 1, 4, 2
+    IOC_NONE, IOC_WRITE = 1, 4
 elif machine == 'parisc':  # pragma: no cover
     IOC_WRITE, IOC_READ = 2, 1
 
@@ -29,19 +32,19 @@ IOC_SIZESHIFT = IOC_TYPESHIFT + IOC_TYPEBITS
 IOC_DIRSHIFT = IOC_SIZESHIFT + IOC_SIZEBITS
 
 
-def IOW(type_, nr, size):
+def IOW(type_: str, nr: int, size: int) -> int:
     return IOC(IOC_WRITE, type_, nr, size)
 
 
-def IOR(type_, nr, size):
+def IOR(type_: str, nr: int, size: int) -> int:
     return IOC(IOC_READ, type_, nr, size)
 
 
-def IOWR(type_, nr, size):
+def IOWR(type_: str, nr: int, size: int) -> int:
     return IOC(IOC_READ | IOC_WRITE, type_, nr, size)
 
 
-def IOC(dir_, type_, nr, size):
+def IOC(dir_: int, type_: str, nr: int, size: int) -> int:
     return (dir_ << IOC_DIRSHIFT) \
         | (ord(type_) << IOC_TYPESHIFT) \
         | (nr << IOC_NRSHIFT) \
@@ -104,9 +107,13 @@ WDIOS = {
 # Implementation
 
 
-class WatchdogInfo(collections.namedtuple('WatchdogInfo', 'options,version,identity')):
+class WatchdogInfo(NamedTuple):
     """Watchdog descriptor from the kernel"""
-    def __getattr__(self, name):
+    options: int
+    version: int
+    identity: str
+
+    def __getattr__(self, name: str) -> bool:
         """Convenience has_XYZ attributes for checking WDIOF bits in options"""
         if name.startswith('has_') and name[4:] in WDIOF:
             return bool(self.options & WDIOF[name[4:]])
@@ -117,32 +124,32 @@ class WatchdogInfo(collections.namedtuple('WatchdogInfo', 'options,version,ident
 class LinuxWatchdogDevice(WatchdogBase):
     DEFAULT_DEVICE = '/dev/watchdog'
 
-    def __init__(self, device):
+    def __init__(self, device: str) -> None:
         self.device = device
         self._support_cache = None
         self._fd = None
 
     @classmethod
-    def from_config(cls, config):
+    def from_config(cls, config: Dict[str, Any]) -> 'LinuxWatchdogDevice':
         device = config.get('device', cls.DEFAULT_DEVICE)
         return cls(device)
 
     @property
-    def is_running(self):
+    def is_running(self) -> bool:
         return self._fd is not None
 
     @property
-    def is_healthy(self):
+    def is_healthy(self) -> bool:
         return os.path.exists(self.device) and os.access(self.device, os.W_OK)
 
-    def open(self):
+    def open(self) -> None:
         try:
             self._fd = os.open(self.device, os.O_WRONLY)
         except OSError as e:
             raise WatchdogError("Can't open watchdog device: {0}".format(e))
 
-    def close(self):
-        if self.is_running:
+    def close(self) -> None:
+        if self._fd is not None:  # self.is_running
             try:
                 os.write(self._fd, b'V')
                 os.close(self._fd)
@@ -151,10 +158,10 @@ class LinuxWatchdogDevice(WatchdogBase):
                 raise WatchdogError("Error while closing {0}: {1}".format(self.describe(), e))
 
     @property
-    def can_be_disabled(self):
+    def can_be_disabled(self) -> bool:
         return self.get_support().has_MAGICCLOSE
 
-    def _ioctl(self, func, arg):
+    def _ioctl(self, func: int, arg: Any) -> None:
         """Runs the specified ioctl on the underlying fd.
 
         Raises WatchdogError if the device is closed.
@@ -165,7 +172,7 @@ class LinuxWatchdogDevice(WatchdogBase):
             import fcntl
             fcntl.ioctl(self._fd, func, arg, True)
 
-    def get_support(self):
+    def get_support(self) -> WatchdogInfo:
         if self._support_cache is None:
             info = watchdog_info()
             try:
@@ -177,7 +184,7 @@ class LinuxWatchdogDevice(WatchdogBase):
                                                bytearray(info.identity).decode(errors='ignore').rstrip('\x00'))
         return self._support_cache
 
-    def describe(self):
+    def describe(self) -> str:
         dev_str = " at {0}".format(self.device) if self.device != self.DEFAULT_DEVICE else ""
         ver_str = ""
         identity = "Linux watchdog device"
@@ -190,17 +197,19 @@ class LinuxWatchdogDevice(WatchdogBase):
 
         return identity + ver_str + dev_str
 
-    def keepalive(self):
+    def keepalive(self) -> None:
+        if self._fd is None:
+            raise WatchdogError("Watchdog device is closed")
         try:
             os.write(self._fd, b'1')
         except OSError as e:
             raise WatchdogError("Could not send watchdog keepalive: {0}".format(e))
 
-    def has_set_timeout(self):
+    def has_set_timeout(self) -> bool:
         """Returns True if setting a timeout is supported."""
         return self.get_support().has_SETTIMEOUT
 
-    def set_timeout(self, timeout):
+    def set_timeout(self, timeout: int) -> None:
         timeout = int(timeout)
         if not 0 < timeout < 0xFFFF:
             raise WatchdogError("Invalid timeout {0}. Supported values are between 1 and 65535".format(timeout))
@@ -209,7 +218,7 @@ class LinuxWatchdogDevice(WatchdogBase):
         except (WatchdogError, OSError, IOError) as e:
             raise WatchdogError("Could not set timeout on watchdog device: {}".format(e))
 
-    def get_timeout(self):
+    def get_timeout(self) -> int:
         timeout = ctypes.c_int()
         try:
             self._ioctl(WDIOC_GETTIMEOUT, timeout)
@@ -222,14 +231,16 @@ class TestingWatchdogDevice(LinuxWatchdogDevice):  # pragma: no cover
     """Converts timeout ioctls to regular writes that can be intercepted from a named pipe."""
     timeout = 60
 
-    def get_support(self):
+    def get_support(self) -> WatchdogInfo:
         return WatchdogInfo(WDIOF['MAGICCLOSE'] | WDIOF['SETTIMEOUT'], 0, "Watchdog test harness")
 
-    def set_timeout(self, timeout):
+    def set_timeout(self, timeout: int) -> None:
+        if self._fd is None:
+            raise WatchdogError("Watchdog device is closed")
         buf = "Ctimeout={0}\n".format(timeout).encode('utf8')
         while len(buf):
             buf = buf[os.write(self._fd, buf):]
         self.timeout = timeout
 
-    def get_timeout(self):
+    def get_timeout(self) -> int:
         return self.timeout

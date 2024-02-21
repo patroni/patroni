@@ -6,7 +6,7 @@ body:
 - type: markdown
   attributes:
     value: |
-      If you have a question please post it on channel [#patroni](https://postgresteam.slack.com/archives/C9XPYG92A) in the [PostgreSQL Slack](https://join.slack.com/t/postgresteam/shared_invite/zt-1qj14i9sj-E9WqIFlvcOiHsEk2yFEMjA).
+      If you have a question please post it on channel [#patroni](https://postgresteam.slack.com/archives/C9XPYG92A) in the [PostgreSQL Slack](https://pgtreats.info/slack-invite).
       Before reporting a bug please make sure to **reproduce it with the latest Patroni version**!
       Please fill the form below and provide as much information as possible.
       Not doing so may result in your bug not being addressed in a timely manner.

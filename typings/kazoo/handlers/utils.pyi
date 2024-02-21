@@ -1,0 +1,6 @@
+from typing import Any, Optional
+class AsyncResult:
+    def set_exception(self, exception: Exception) -> None:
+        ...
+    def get(self, block: bool = False, timeout: Optional[float] = None) -> Any:
+        ...

@@ -3,8 +3,9 @@ import sys
 import unittest
 import io
 
+from copy import deepcopy
 from mock import MagicMock, Mock, patch
-from patroni.config import Config, ConfigParseError
+from patroni.config import Config, ConfigParseError, GlobalConfig
 
 
 class TestConfig(unittest.TestCase):
@@ -19,10 +20,10 @@ class TestConfig(unittest.TestCase):
 
     def test_set_dynamic_configuration(self):
         with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
-            self.assertIsNone(self.config.set_dynamic_configuration({'foo': 'bar'}))
-        self.assertTrue(self.config.set_dynamic_configuration({'synchronous_mode': True,
-                                                               'standby_cluster': {}, 'master_start_timeout': 1}))
-        self.assertEqual(self.config.get('primary_start_timeout'), 1)
+            self.assertFalse(self.config.set_dynamic_configuration({'foo': 'bar'}))
+        self.assertTrue(self.config.set_dynamic_configuration({'standby_cluster': {}, 'postgresql': {
+            'parameters': {'cluster_name': 1, 'hot_standby': 1, 'wal_keep_size': 1,
+                           'track_commit_timestamp': 1, 'wal_level': 1, 'max_connections': '100'}}}))
 
     def test_reload_local_configuration(self):
         os.environ.update({
@@ -71,7 +72,8 @@ class TestConfig(unittest.TestCase):
             'PATRONI_REPLICATION_USERNAME': 'replicator',
             'PATRONI_REPLICATION_PASSWORD': 'rep-pass',
             'PATRONI_admin_PASSWORD': 'admin',
-            'PATRONI_admin_OPTIONS': 'createrole,createdb'
+            'PATRONI_admin_OPTIONS': 'createrole,createdb',
+            'PATRONI_POSTGRESQL_BIN_POSTGRES': 'sergtsop'
         })
         config = Config('postgres0.yml')
         with patch.object(Config, '_load_config_file', Mock(return_value={'restapi': {}})):
@@ -84,6 +86,7 @@ class TestConfig(unittest.TestCase):
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.remove', Mock(side_effect=IOError))
     @patch('os.close', Mock(side_effect=IOError))
+    @patch('os.chmod', Mock())
     @patch('shutil.move', Mock(return_value=None))
     @patch('json.dump', Mock())
     def test_save_cache(self):
@@ -147,3 +150,94 @@ class TestConfig(unittest.TestCase):
     @patch('os.path.isdir', Mock(return_value=False))
     def test_invalid_path(self):
         self.assertRaises(ConfigParseError, Config, 'postgres0')
+
+    @patch.object(Config, 'get')
+    @patch('patroni.config.logger')
+    def test__validate_failover_tags(self, mock_logger, mock_get):
+        """Ensures that only one of `nofailover` or `failover_priority` can be provided"""
+        config = Config("postgres0.yml")
+
+        # Providing one of `nofailover` or `failover_priority` is fine
+        for single_param in ({"nofailover": True}, {"failover_priority": 1}, {"failover_priority": 0}):
+            mock_get.side_effect = [single_param] * 2
+            self.assertIsNone(config._validate_failover_tags())
+            mock_logger.warning.assert_not_called()
+
+        # Providing both `nofailover` and `failover_priority` is fine if consistent
+        for consistent_state in (
+            {"nofailover": False, "failover_priority": 1},
+            {"nofailover": True, "failover_priority": 0},
+            {"nofailover": "False", "failover_priority": 0}
+        ):
+            mock_get.side_effect = [consistent_state] * 2
+            self.assertIsNone(config._validate_failover_tags())
+            mock_logger.warning.assert_not_called()
+
+        # Providing both inconsistently should log a warning
+        for inconsistent_state in (
+            {"nofailover": False, "failover_priority": 0},
+            {"nofailover": True, "failover_priority": 1},
+            {"nofailover": "False", "failover_priority": 1},
+            {"nofailover": "", "failover_priority": 0}
+        ):
+            mock_get.side_effect = [inconsistent_state] * 2
+            self.assertIsNone(config._validate_failover_tags())
+            mock_logger.warning.assert_called_once_with(
+                'Conflicting configuration between nofailover: %s and failover_priority: %s.'
+                + ' Defaulting to nofailover: %s',
+                inconsistent_state['nofailover'],
+                inconsistent_state['failover_priority'],
+                inconsistent_state['nofailover'])
+            mock_logger.warning.reset_mock()
+
+    def test__process_postgresql_parameters(self):
+        expected_params = {
+            'f.oo': 'bar',  # not in ConfigHandler.CMDLINE_OPTIONS
+            'max_connections': 100,  # IntValidator
+            'wal_keep_size': '128MB',  # IntValidator
+            'wal_level': 'hot_standby',  # EnumValidator
+        }
+        input_params = deepcopy(expected_params)
+
+        input_params['max_connections'] = '100'
+        self.assertEqual(self.config._process_postgresql_parameters(input_params), expected_params)
+
+        expected_params['f.oo'] = input_params['f.oo'] = '100'
+        self.assertEqual(self.config._process_postgresql_parameters(input_params), expected_params)
+
+        input_params['wal_level'] = 'cold_standby'
+        expected_params.pop('wal_level')
+        self.assertEqual(self.config._process_postgresql_parameters(input_params), expected_params)
+
+        input_params['max_connections'] = 10
+        expected_params.pop('max_connections')
+        self.assertEqual(self.config._process_postgresql_parameters(input_params), expected_params)
+
+    def test__validate_and_adjust_timeouts(self):
+        with patch('patroni.config.logger.warning') as mock_logger:
+            self.config._validate_and_adjust_timeouts({'ttl': 15})
+            self.assertEqual(mock_logger.call_args_list[0][0],
+                             ("%s=%d can't be smaller than %d, adjusting...", 'ttl', 15, 20))
+        with patch('patroni.config.logger.warning') as mock_logger:
+            self.config._validate_and_adjust_timeouts({'loop_wait': 0})
+            self.assertEqual(mock_logger.call_args_list[0][0],
+                             ("%s=%d can't be smaller than %d, adjusting...", 'loop_wait', 0, 1))
+        with patch('patroni.config.logger.warning') as mock_logger:
+            self.config._validate_and_adjust_timeouts({'retry_timeout': 1})
+            self.assertEqual(mock_logger.call_args_list[0][0],
+                             ("%s=%d can't be smaller than %d, adjusting...", 'retry_timeout', 1, 3))
+        with patch('patroni.config.logger.warning') as mock_logger:
+            self.config._validate_and_adjust_timeouts({'ttl': 20, 'loop_wait': 11, 'retry_timeout': 5})
+            self.assertEqual(mock_logger.call_args_list[0][0],
+                             ('Violated the rule "loop_wait + 2*retry_timeout <= ttl", where ttl=%d '
+                              'and retry_timeout=%d. Adjusting loop_wait from %d to %d', 20, 5, 11, 10))
+        with patch('patroni.config.logger.warning') as mock_logger:
+            self.config._validate_and_adjust_timeouts({'ttl': 20, 'loop_wait': 10, 'retry_timeout': 10})
+            self.assertEqual(mock_logger.call_args_list[0][0],
+                             ('Violated the rule "loop_wait + 2*retry_timeout <= ttl", where ttl=%d. Adjusting'
+                              ' loop_wait from %d to %d and retry_timeout from %d to %d', 20, 10, 1, 10, 9))
+
+    def test_global_config_is_synchronous_mode(self):
+        # we should ignore synchronous_mode setting in a standby cluster
+        config = {'standby_cluster': {'host': 'some_host'}, 'synchronous_mode': True}
+        self.assertFalse(GlobalConfig(config).is_synchronous_mode)

@@ -35,7 +35,7 @@ def check_group_member(context, name, group, key, value, time_limit):
         except Exception:
             pass
         time.sleep(1)
-    assert False, ("{0} in a group {1} does not have {2}={3} (found {4}) in dcs" +
+    assert False, ("{0} in a group {1} does not have {2}={3} (found {4}) in dcs"
                    " after {5} seconds").format(name, group, key, value, response, time_limit)
 
 
@@ -44,12 +44,24 @@ def start_citus(context, name, group):
     return context.pctl.start(name, custom_config={"citus": {"database": "postgres", "group": int(group)}})
 
 
-@step('{name1:w} is registered in the {name2:w} as the worker in group {group:d}')
-def check_registration(context, name1, name2, group):
+@step('{name1:w} is registered in the {name2:w} as the {role:w} in group {group:d} after {time_limit:d} seconds')
+def check_registration(context, name1, name2, role, group, time_limit):
+    time_limit *= context.timeout_multiplier
+    max_time = time.time() + int(time_limit)
+
     worker_port = int(context.pctl.query(name1, "SHOW port").fetchone()[0])
-    r = context.pctl.query(name2, "SELECT nodeport FROM pg_catalog.pg_dist_node WHERE groupid = {0}".format(group))
-    assert worker_port == r.fetchone()[0],\
-        "Worker {0} is not registered in pg_dist_node on the coordinator {1}".format(name1, name2)
+
+    while time.time() < max_time:
+        try:
+            cur = context.pctl.query(name2, "SELECT nodeport, noderole"
+                                            " FROM pg_catalog.pg_dist_node WHERE groupid = {0}".format(group))
+            mapping = {r[0]: r[1] for r in cur}
+            if mapping.get(worker_port) == role:
+                return
+        except Exception:
+            pass
+        time.sleep(1)
+    assert False, "Node {0} is not registered in pg_dist_node on the node {1}".format(name1, name2)
 
 
 @step('I create a distributed table on {name:w}')
@@ -93,7 +105,7 @@ def thread_is_alive(context):
 @step("I stop a thread")
 def stop_insert_thread(context):
     context.thread_stop_event.set()
-    context.thread.join(1*context.timeout_multiplier)
+    context.thread.join(1 * context.timeout_multiplier)
     assert not context.thread.is_alive(), "Thread is still alive"
 
 
@@ -103,15 +115,21 @@ def count_rows(context, name):
     assert rows == context.insert_counter, "Distributed table doesn't have expected amount of rows"
 
 
-@step("There is a transaction in progress on {name:w} changing pg_dist_node")
-def check_transaction(context, name):
-    cur = context.pctl.query(name, "SELECT xact_start FROM pg_stat_activity WHERE pid <> pg_backend_pid()"
-                                   " AND state = 'idle in transaction' AND query ~ 'citus_update_node'")
-    assert cur.rowcount == 1, "There is no idle in transaction updating pg_dist_node"
-    context.xact_start = cur.fetchone()[0]
+@step("there is a transaction in progress on {name:w} changing pg_dist_node after {time_limit:d} seconds")
+def check_transaction(context, name, time_limit):
+    time_limit *= context.timeout_multiplier
+    max_time = time.time() + int(time_limit)
+    while time.time() < max_time:
+        cur = context.pctl.query(name, "SELECT xact_start FROM pg_stat_activity WHERE pid <> pg_backend_pid()"
+                                       " AND state = 'idle in transaction' AND query ~ 'citus_update_node'")
+        if cur.rowcount == 1:
+            context.xact_start = cur.fetchone()[0]
+            return
+        time.sleep(1)
+    assert False, f"There is no idle in transaction on {name} updating pg_dist_node after {time_limit} seconds"
 
 
 @step("a transaction finishes in {timeout:d} seconds")
 def check_transaction_timeout(context, timeout):
-    assert (datetime.now(tzutc) - context.xact_start).seconds > timeout,\
-            "a transaction finished earlier than in {0} seconds".format(timeout)
+    assert (datetime.now(tzutc) - context.xact_start).seconds >= timeout, \
+        "a transaction finished earlier than in {0} seconds".format(timeout)

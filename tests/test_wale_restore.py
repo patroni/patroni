@@ -123,7 +123,7 @@ class TestWALERestore(unittest.TestCase):
         with patch.object(WALERestore, 'run', Mock(return_value=1)), \
                 patch('time.sleep', mock_sleep):
             self.assertEqual(_main(), 1)
-            self.assertTrue(sleeps[0], WALE_TEST_RETRIES)
+            self.assertEqual(sleeps[0], WALE_TEST_RETRIES)
 
     @patch('os.path.isfile', Mock(return_value=True))
     def test_get_major_version(self):

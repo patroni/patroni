@@ -35,30 +35,30 @@ Scenario: check local configuration reload
 	Then I receive a response code 202
 
 Scenario: check dynamic configuration change via DCS
-	Given I run patronictl.py edit-config -s 'ttl=10' -p 'max_connections=101' --force batman
-	Then I receive a response returncode 0
-	And I receive a response output "+ttl: 10"
+	Given I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 20, "postgresql": {"parameters": {"max_connections": "101"}}}
+	Then I receive a response code 200
 	And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 11 seconds
 	When I issue a GET request to http://127.0.0.1:8008/config
 	Then I receive a response code 200
-	And I receive a response ttl 10
+	And I receive a response ttl 20
 	When I issue a GET request to http://127.0.0.1:8008/patroni
 	Then I receive a response code 200
 	And I receive a response tags {'new_tag': 'new_value'}
 	And I sleep for 4 seconds
 
 Scenario: check the scheduled restart
-	Given I issue a PATCH request to http://127.0.0.1:8008/config with {"postgresql": {"parameters": {"superuser_reserved_connections": "6"}}}
-	Then I receive a response code 200
-		And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 5 seconds
+	Given I run patronictl.py edit-config -p 'superuser_reserved_connections=6' --force batman
+	Then I receive a response returncode 0
+	And I receive a response output "+    superuser_reserved_connections: 6"
+	And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 5 seconds
 	Given I issue a scheduled restart at http://127.0.0.1:8008 in 5 seconds with {"role": "replica"}
 	Then I receive a response code 202
-		And I sleep for 8 seconds
-		And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 10 seconds
+	And I sleep for 8 seconds
+	And Response on GET http://127.0.0.1:8008/patroni contains pending_restart after 10 seconds
 	Given I issue a scheduled restart at http://127.0.0.1:8008 in 5 seconds with {"restart_pending": "True"}
 	Then I receive a response code 202
-		And Response on GET http://127.0.0.1:8008/patroni does not contain pending_restart after 10 seconds
-		And postgres0 role is the primary after 10 seconds
+	And Response on GET http://127.0.0.1:8008/patroni does not contain pending_restart after 10 seconds
+	And postgres0 role is the primary after 10 seconds
 
 Scenario: check API requests for the primary-replica pair in the pause mode
 	Given I start postgres1
@@ -68,6 +68,7 @@ Scenario: check API requests for the primary-replica pair in the pause mode
 	When I kill postmaster on postgres1
 	And I issue a GET request to http://127.0.0.1:8009/replica
 	Then I receive a response code 503
+	And "members/postgres1" key in DCS has state=stopped after 10 seconds
 	When I run patronictl.py restart batman postgres1 --force
 	Then I receive a response returncode 0
 	Then replication works from postgres0 to postgres1 after 20 seconds
@@ -76,15 +77,15 @@ Scenario: check API requests for the primary-replica pair in the pause mode
 	Then I receive a response code 200
 	And I receive a response state running
 	And I receive a response role replica
-	When I run patronictl.py reinit batman postgres1 --force
+	When I run patronictl.py reinit batman postgres1 --force --wait
 	Then I receive a response returncode 0
 	And I receive a response output "Success: reinitialize for member postgres1"
+	And postgres1 role is the secondary after 30 seconds
+	And replication works from postgres0 to postgres1 after 20 seconds
 	When I run patronictl.py restart batman postgres0 --force
 	Then I receive a response returncode 0
 	And I receive a response output "Success: restart on member postgres0"
 	And postgres0 role is the primary after 5 seconds
-	When I sleep for 10 seconds
-	Then postgres1 role is the secondary after 15 seconds
 
 Scenario: check the switchover via the API in the pause mode
 	Given I issue a POST request to http://127.0.0.1:8008/switchover with {"leader": "postgres0", "candidate": "postgres1"}

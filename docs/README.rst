@@ -4,7 +4,7 @@
 Introduction
 ============
 
-Patroni originated as a fork of `Governor <https://github.com/compose/governor>`__, the project from Compose. It includes plenty of new features.
+Patroni is a template for high availability (HA) PostgreSQL solutions using Python. Patroni originated as a fork of `Governor <https://github.com/compose/governor>`__, the project from Compose. It includes plenty of new features.
 
 For an example of a Docker-based deployment with Patroni, see `Spilo <https://github.com/zalando/spilo>`__, currently in use at Zalando.
 
@@ -25,83 +25,7 @@ We report new releases information :ref:`here <releases>`.
 Technical Requirements/Installation
 -----------------------------------
 
-**Pre-requirements for Mac OS**
-
-To install requirements on a Mac, run the following:
-
-::
-
-    brew install postgresql etcd haproxy libyaml python
-
-.. _psycopg2_install_options:
-
-**Psycopg**
-
-Starting from `psycopg2-2.8 <http://initd.org/psycopg/articles/2019/04/04/psycopg-28-released/>`__ the binary version of psycopg2 will no longer be installed by default. Installing it from the source code requires C compiler and postgres+python dev packages.
-Since in the python world it is not possible to specify dependency as ``psycopg2 OR psycopg2-binary`` you will have to decide how to install it.
-
-There are a few options available:
-
-1. Use the package manager from your distro
-
-::
-
-    sudo apt-get install python-psycopg2   # install python2 psycopg2 module on Debian/Ubuntu
-    sudo apt-get install python3-psycopg2  # install python3 psycopg2 module on Debian/Ubuntu
-    sudo yum install python-psycopg2       # install python2 psycopg2 on RedHat/Fedora/CentOS
-
-2. Install psycopg2 from the binary package
-
-::
-
-    pip install psycopg2-binary
-
-3. Install psycopg2 from source
-
-::
-
-    pip install psycopg2>=2.5.4
-
-4. Use psycopg 3.0 instead of psycopg2
-
-::
-
-    pip install psycopg[binary]>=3.0.0
-
-**General installation for pip**
-
-Patroni can be installed with pip:
-
-::
-
-    pip install patroni[dependencies]
-
-where dependencies can be either empty, or consist of one or more of the following:
-
-etcd or etcd3
-    `python-etcd` module in order to use Etcd as Distributed Configuration Store (DCS)
-consul
-    `python-consul` module in order to use Consul as DCS
-zookeeper
-    `kazoo` module in order to use Zookeeper as DCS
-exhibitor
-    `kazoo` module in order to use Exhibitor as DCS (same dependencies as for Zookeeper)
-kubernetes
-    `kubernetes` module in order to use Kubernetes as DCS in Patroni
-raft
-    `pysyncobj` module in order to use python Raft implementation as DCS
-aws
-    `boto` in order to use AWS callbacks
-
-For example, the command in order to install Patroni together with dependencies for Etcd as a DCS and AWS callbacks is:
-
-::
-
-    pip install patroni[etcd,aws]
-
-Note that external tools to call in the replica creation or custom bootstrap scripts (i.e. WAL-E) should be installed
-independently of Patroni.
-
+Go :ref:`here <installation>` for guidance on installing and upgrading Patroni on various platforms.
 
 .. _running_configuring:
 
@@ -145,7 +69,7 @@ run:
 YAML Configuration
 ------------------
 
-Go :ref:`here <settings>` for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/zalando/patroni/blob/master/postgres0.yml>`__.
+Go :ref:`here <yaml_configuration>` for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/zalando/patroni/blob/master/postgres0.yml>`__.
 
 
 Environment Configuration
@@ -165,10 +89,6 @@ Applications Should Not Use Superusers
 
 When connecting from an application, always use a non-superuser. Patroni requires access to the database to function properly. By using a superuser from an application, you can potentially use the entire connection pool, including the connections reserved for superusers, with the ``superuser_reserved_connections`` setting. If Patroni cannot access the Primary because the connection pool is full, behavior will be undesirable.
 
-.. |Build Status| image:: https://travis-ci.org/zalando/patroni.svg?branch=master
-   :target: https://travis-ci.org/zalando/patroni
-.. |Coverage Status| image:: https://coveralls.io/repos/zalando/patroni/badge.svg?branch=master
-   :target: https://coveralls.io/r/zalando/patroni?branch=master
 
 Testing Your HA Solution
 --------------------------------------
@@ -179,7 +99,7 @@ That said, here are some pieces of your infrastructure you should be sure to tes
 * Network (the network in front of your system as well as the NICs [physical or virtual] themselves)
 * Disk IO
 * file limits (nofile in Linux)
-* RAM. Even if you have oomkiller turned off as suggested, the unavailability of RAM could cause issues.
+* RAM. Even if you have oomkiller turned off, the unavailability of RAM could cause issues.
 * CPU
 * Virtualization Contention (overcommitting the hypervisor)
 * Any cgroup limitation (likely to be related to the above)

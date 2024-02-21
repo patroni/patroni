@@ -28,7 +28,7 @@ def check_member(context, name, key, value, time_limit):
     while time.time() < max_time:
         try:
             response = json.loads(context.dcs_ctl.query(name))
-            dcs_value = response.get(key)
+            dcs_value = str(response.get(key))
             if dcs_value == value:
                 return
         except Exception:

@@ -19,7 +19,7 @@ def install_requirements(what):
     requirements = ['mock>=2.0.0', 'flake8', 'pytest', 'pytest-cov'] if what == 'all' else ['behave']
     requirements += ['coverage']
     # try to split tests between psycopg2 and psycopg3
-    requirements += ['psycopg[binary]'] if sys.version_info > (3, 7, 0) and\
+    requirements += ['psycopg[binary]'] if sys.version_info >= (3, 8, 0) and\
         (sys.platform != 'darwin' or what == 'etcd3') else ['psycopg2-binary']
     for r in read('requirements.txt').split('\n'):
         r = r.strip()
@@ -46,7 +46,7 @@ def install_packages(what):
     packages = packages.get(what, [])
     ver = versions.get(what)
     if float(ver) >= 15:
-        packages += ['postgresql-{0}-citus-11.2'.format(ver)]
+        packages += ['postgresql-{0}-citus-12.1'.format(ver)]
     subprocess.call(['sudo', 'apt-get', 'update', '-y'])
     return subprocess.call(['sudo', 'apt-get', 'install', '-y', 'postgresql-' + ver, 'expect-dev'] + packages)
 
@@ -85,8 +85,8 @@ def unzip_all(archive):
 
 
 def chmod_755(name):
-    os.chmod(name, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
-             stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+    os.chmod(name, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
+             | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
 
 
 def unpack(archive, name):

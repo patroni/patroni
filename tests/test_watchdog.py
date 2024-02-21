@@ -37,7 +37,7 @@ def mock_ioctl(fd, op, arg=None, mutate_flag=False):
         sys.stderr.write("Get support\n")
         assert (mutate_flag is True)
         arg.options = sum(map(linuxwd.WDIOF.get, ['SETTIMEOUT', 'KEEPALIVEPING']))
-        arg.identity = (ctypes.c_ubyte*32)(*map(ord, 'Mock Watchdog'))
+        arg.identity = (ctypes.c_ubyte * 32)(*map(ord, 'Mock Watchdog'))
     elif op == linuxwd.WDIOC_GETTIMEOUT:
         arg.value = dev.timeout
     elif op == linuxwd.WDIOC_SETTIMEOUT:
@@ -109,6 +109,11 @@ class TestWatchdog(unittest.TestCase):
 
         watchdog.keepalive()
         self.assertEqual(len(device.writes), 1)
+
+        watchdog.impl._fd, fd = None, watchdog.impl._fd
+        watchdog.keepalive()
+        self.assertEqual(len(device.writes), 1)
+        watchdog.impl._fd = fd
 
         watchdog.disable()
         self.assertFalse(device.open)

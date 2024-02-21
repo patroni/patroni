@@ -7,6 +7,7 @@ import psutil
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -51,15 +52,14 @@ class AbstractController(abc.ABC):
         self._log = open(os.path.join(self._output_dir, self._name + '.log'), 'a')
         self._handle = self._start()
 
-        assert self._has_started(), "Process {0} is not running after being started".format(self._name)
-
         max_wait_limit *= self._context.timeout_multiplier
         for _ in range(max_wait_limit):
+            assert self._has_started(), "Process {0} is not running after being started".format(self._name)
             if self._is_accessible():
                 break
             time.sleep(1)
         else:
-            assert False,\
+            assert False, \
                 "{0} instance is not available for queries after {1} seconds".format(self._name, max_wait_limit)
 
     def stop(self, kill=False, timeout=15, _=False):
@@ -162,9 +162,10 @@ class PatroniController(AbstractController):
 
     def stop(self, kill=False, timeout=15, postgres=False):
         if postgres:
-            return subprocess.call(['pg_ctl', '-D', self._data_dir, 'stop', '-mi', '-w'])
+            mode = 'i' if kill else 'f'
+            return subprocess.call(['pg_ctl', '-D', self._data_dir, 'stop', '-m' + mode, '-w'])
         super(PatroniController, self).stop(kill, timeout)
-        if isinstance(self._context.dcs_ctl, KubernetesController):
+        if isinstance(self._context.dcs_ctl, KubernetesController) and not kill:
             self._context.dcs_ctl.delete_pod(self._name[8:])
         if self.watchdog:
             self.watchdog.stop()
@@ -191,7 +192,7 @@ class PatroniController(AbstractController):
             config['raft'] = {'data_dir': self._output_dir, 'self_addr': 'localhost:' + os.environ['RAFT_PORT']}
 
         host = config['restapi']['listen'].rsplit(':', 1)[0]
-        config['restapi']['listen'] = config['restapi']['connect_address'] = '{0}:{1}'.format(host, 8008+int(name[-1]))
+        config['restapi']['listen'] = config['restapi']['connect_address'] = '{}:{}'.format(host, 8008 + int(name[-1]))
 
         host = config['postgresql']['listen'].rsplit(':', 1)[0]
         config['postgresql']['listen'] = config['postgresql']['connect_address'] = '{0}:{1}'.format(host, self.__PORT)
@@ -244,6 +245,10 @@ class PatroniController(AbstractController):
             self.recursive_update(config, custom_config)
 
         self.recursive_update(config, {
+            'log': {
+                'format': '%(asctime)s %(levelname)s [%(pathname)s:%(lineno)d - %(funcName)s]: %(message)s',
+                'loggers': {'patroni.postgresql.callback_executor': 'DEBUG'}
+            },
             'bootstrap': {
                 'dcs': {
                     'loop_wait': 2,
@@ -251,9 +256,9 @@ class PatroniController(AbstractController):
                         'parameters': {
                             'wal_keep_segments': 100,
                             'archive_mode': 'on',
-                            'archive_command': (PatroniPoolController.ARCHIVE_RESTORE_SCRIPT +
-                                                ' --mode archive ' +
-                                                '--dirname {} --filename %f --pathname %p').format(
+                            'archive_command': (PatroniPoolController.ARCHIVE_RESTORE_SCRIPT
+                                                + ' --mode archive '
+                                                + '--dirname {} --filename %f --pathname %p').format(
                                                     os.path.join(self._work_directory, 'data', 'wal_archive'))
                         }
                     }
@@ -342,6 +347,13 @@ class PatroniController(AbstractController):
         subprocess.call(PatroniPoolController.BACKUP_SCRIPT + ['--walmethod=none',
                         '--datadir=' + os.path.join(self._work_directory, dest),
                         '--dbname=' + self.backup_source])
+
+    def read_patroni_log(self, level):
+        try:
+            with open(str(os.path.join(self._output_dir or '', self._name + ".log"))) as f:
+                return [line for line in f.readlines() if line[24:24 + len(level)] == level]
+        except IOError:
+            return []
 
 
 class ProcessHang(object):
@@ -594,7 +606,7 @@ class KubernetesController(AbstractExternalDcsController):
                 api_process = 'kube-apiserver'
             elif context.startswith('k3d-'):
                 container = '{0}-server-0'.format(context)
-                api_process = 'k3s'
+                api_process = 'k3s server'
             else:
                 return super(KubernetesController, self)._is_running()
             try:
@@ -642,9 +654,10 @@ class KubernetesController(AbstractExternalDcsController):
             try:
                 if group is not None:
                     scope = '{0}-{1}'.format(scope, group)
-                ep = scope + {'leader': '', 'history': '-config', 'initialize': '-config'}.get(key, '-' + key)
+                rkey = 'leader' if key in ('status', 'failsafe') else key
+                ep = scope + {'leader': '', 'history': '-config', 'initialize': '-config'}.get(rkey, '-' + rkey)
                 e = self._api.read_namespaced_endpoints(ep, self._namespace)
-                if key != 'sync':
+                if key not in ('sync', 'status', 'failsafe'):
                     return e.metadata.annotations[key]
                 else:
                     return json.dumps(e.metadata.annotations)
@@ -680,7 +693,7 @@ class ZooKeeperController(AbstractExternalDcsController):
         self._client = kazoo.client.KazooClient()
 
     def process_name(self):
-        return "zookeeper"
+        return "java .*zookeeper"
 
     def query(self, key, scope='batman', group=None):
         import kazoo.exceptions
@@ -801,7 +814,7 @@ class PatroniPoolController(object):
             raise Exception  # this one should never happen because the previous line will always raise and exception
         except Exception as e:
             self._context.postgres_supports_ssl = isinstance(e, subprocess.CalledProcessError)\
-                    and 'SSL is not supported by this build' not in e.output.decode()
+                and 'SSL is not supported by this build' not in e.output.decode()
 
     @property
     def patroni_path(self):
@@ -826,7 +839,7 @@ class PatroniPoolController(object):
 
     def __getattr__(self, func):
         if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to',
-                        'add_tag_to_config', 'get_watchdog', 'patroni_hang', 'backup']:
+                        'add_tag_to_config', 'get_watchdog', 'patroni_hang', 'backup', 'read_patroni_log']:
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
         def wrapper(name, *args, **kwargs):
@@ -853,8 +866,8 @@ class PatroniPoolController(object):
             'bootstrap': {
                 'method': 'pg_basebackup',
                 'pg_basebackup': {
-                    'command': " ".join(self.BACKUP_SCRIPT +
-                                        ['--walmethod=stream', '--dbname="{0}"'.format(f.backup_source)])
+                    'command': " ".join(self.BACKUP_SCRIPT
+                                        + ['--walmethod=stream', '--dbname="{0}"'.format(f.backup_source)])
                 },
                 'dcs': {
                     'postgresql': {
@@ -867,9 +880,9 @@ class PatroniPoolController(object):
             'postgresql': {
                 'parameters': {
                     'archive_mode': 'on',
-                    'archive_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode archive ' +
-                                        '--dirname {} --filename %f --pathname %p').format(
-                                        os.path.join(self.patroni_path, 'data', 'wal_archive_clone').replace('\\', '/'))
+                    'archive_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode archive '
+                                        + '--dirname {} --filename %f --pathname %p')
+                    .format(os.path.join(self.patroni_path, 'data', 'wal_archive_clone').replace('\\', '/'))
                 },
                 'authentication': {
                     'superuser': {'password': 'zalando1'},
@@ -879,22 +892,28 @@ class PatroniPoolController(object):
         }
         self.start(to_name, custom_config=custom_config)
 
+    def backup_restore_config(self, params=None):
+        return {
+            'command': (self.BACKUP_RESTORE_SCRIPT
+                        + ' --sourcedir=' + os.path.join(self.patroni_path, 'data', 'basebackup')).replace('\\', '/'),
+            'test-argument': 'test-value',  # test config mapping approach on custom bootstrap/replica creation
+            **(params or {}),
+        }
+
     def bootstrap_from_backup(self, name, cluster_name):
         custom_config = {
             'scope': cluster_name,
             'bootstrap': {
                 'method': 'backup_restore',
-                'backup_restore': {
-                    'command': (self.BACKUP_RESTORE_SCRIPT + ' --sourcedir=' +
-                                os.path.join(self.patroni_path, 'data', 'basebackup').replace('\\', '/')),
+                'backup_restore': self.backup_restore_config({
                     'recovery_conf': {
                         'recovery_target_action': 'promote',
                         'recovery_target_timeline': 'latest',
-                        'restore_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode restore ' +
-                                            '--dirname {} --filename %f --pathname %p').format(
+                        'restore_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode restore '
+                                            + '--dirname {} --filename %f --pathname %p').format(
                             os.path.join(self.patroni_path, 'data', 'wal_archive_clone').replace('\\', '/'))
-                    }
-                }
+                    },
+                })
             },
             'postgresql': {
                 'authentication': {
@@ -910,16 +929,12 @@ class PatroniPoolController(object):
             'scope': cluster_name,
             'postgresql': {
                 'recovery_conf': {
-                    'restore_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode restore ' +
-                                        '--dirname {} --filename %f --pathname %p').format(
-                                        os.path.join(self.patroni_path, 'data', 'wal_archive').replace('\\', '/'))
+                    'restore_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode restore '
+                                        + '--dirname {} --filename %f --pathname %p')
+                    .format(os.path.join(self.patroni_path, 'data', 'wal_archive').replace('\\', '/'))
                 },
                 'create_replica_methods': ['no_leader_bootstrap'],
-                'no_leader_bootstrap': {
-                    'command': (self.BACKUP_RESTORE_SCRIPT + ' --sourcedir=' +
-                                os.path.join(self.patroni_path, 'data', 'basebackup').replace('\\', '/')),
-                    'no_leader': '1'
-                }
+                'no_leader_bootstrap': self.backup_restore_config({'no_leader': '1'})
             }
         }
         self.start(name, custom_config=custom_config)
@@ -1058,11 +1073,15 @@ def before_all(context):
     context.keyfile = os.path.join(context.pctl.output_dir, 'patroni.key')
     context.certfile = os.path.join(context.pctl.output_dir, 'patroni.crt')
     try:
+        if sys.platform == 'darwin' and 'GITHUB_ACTIONS' in os.environ:
+            raise Exception
         with open(os.devnull, 'w') as null:
             ret = subprocess.call(['openssl', 'req', '-nodes', '-new', '-x509', '-subj', '/CN=batman.patroni',
-                                   '-keyout', context.keyfile, '-out', context.certfile], stdout=null, stderr=null)
+                                   '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', context.keyfile,
+                                   '-out', context.certfile], stdout=null, stderr=null)
             if ret != 0:
                 raise Exception
+            os.chmod(context.keyfile, stat.S_IWRITE | stat.S_IREAD)
     except Exception:
         context.keyfile = context.certfile = None
 
@@ -1073,7 +1092,9 @@ def before_all(context):
                            'PATRONI_RESTAPI_CERTFILE': context.certfile,
                            'PATRONI_RESTAPI_KEYFILE': context.keyfile,
                            'PATRONI_RESTAPI_VERIFY_CLIENT': 'required',
-                           'PATRONI_CTL_INSECURE': 'on'})
+                           'PATRONI_CTL_INSECURE': 'on',
+                           'PATRONI_CTL_CERTFILE': context.certfile,
+                           'PATRONI_CTL_KEYFILE': context.keyfile})
         ctl.update({'cacert': context.certfile, 'certfile': context.certfile, 'keyfile': context.keyfile})
     context.request_executor = PatroniRequest({'ctl': ctl}, True)
     context.dcs_ctl = context.pctl.known_dcs[context.pctl.dcs](context)
@@ -1135,3 +1156,5 @@ def before_scenario(context, scenario):
                 break
     if 'dcs-failsafe' in scenario.effective_tags and not context.dcs_ctl._handle:
         scenario.skip('it is not possible to control state of {0} from tests'.format(context.dcs_ctl.name()))
+    if 'reject-duplicate-name' in scenario.effective_tags and context.dcs_ctl.name() == 'raft':
+        scenario.skip('Flaky test with Raft')
