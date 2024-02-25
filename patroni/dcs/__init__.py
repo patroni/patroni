@@ -1475,7 +1475,7 @@ class AbstractDCS(abc.ABC):
     def _postgresql_cluster_loader(self, path: Any) -> Cluster:
         """Load and build the :class:`Cluster` object from DCS, which represents a single PostgreSQL cluster.
 
-        :param path: the path in DCS where to load Cluster(s) from.
+        :param path: the path in DCS where to load :class:`Cluster` from.
 
         :returns: :class:`Cluster` instance.
         """
@@ -1486,8 +1486,7 @@ class AbstractDCS(abc.ABC):
 
         :param path: the path in DCS where to load Cluster(s) from.
 
-        :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values or a
-                  :class:`Cluster` object representing the coordinator with filled `Cluster.workers` attribute.
+        :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
         """
 
     @abc.abstractmethod

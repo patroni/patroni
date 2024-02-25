@@ -376,6 +376,12 @@ class Raft(AbstractDCS):
         return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
     def _postgresql_cluster_loader(self, path: str) -> Cluster:
+        """Load and build the :class:`Cluster` object from DCS, which represents a single PostgreSQL cluster.
+
+        :param path: the path in DCS where to load :class:`Cluster` from.
+
+        :returns: :class:`Cluster` instance.
+        """
         response = self._sync_obj.get(path, recursive=True)
         if not response:
             return Cluster.empty()
@@ -383,6 +389,12 @@ class Raft(AbstractDCS):
         return self._cluster_from_nodes(nodes)
 
     def _mpp_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+        """Load and build all PostgreSQL clusters from a single MPP cluster.
+
+        :param path: the path in DCS where to load Cluster(s) from.
+
+        :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
+        """
         clusters: Dict[int, Dict[str, Any]] = defaultdict(dict)
         response = self._sync_obj.get(path, recursive=True)
         for key, value in (response or {}).items():

@@ -1153,7 +1153,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_POST_citus(self) -> None:
         """Handle a ``POST`` request to ``/citus`` path.
 
-        We keep this entrypoint and dispatch the request to do_POST_mpp.
+        .. note::
+            We keep this entrypoint for backward compatibility and simply dispatch the request to :meth:`do_POST_mpp`.
         """
         self.do_POST_mpp()
 

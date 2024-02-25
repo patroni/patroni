@@ -78,6 +78,10 @@ class AbstractMPP(abc.ABC):
 
     @property
     def k8s_group_label(self):
+        """Group label used for kubernetes DCS of the MPP cluster.
+
+        :returns: A string representation of the k8s group label of a given MPP implementation.
+        """
         return self.type.lower() + '-group'
 
     def is_coordinator(self) -> bool:

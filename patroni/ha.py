@@ -327,6 +327,10 @@ class Ha(object):
         return tags
 
     def notify_mpp_coordinator(self, event: str) -> None:
+        """Send an event to the MPP coordinator.
+
+        :param event: the type of event for coordinator to parse.
+        """
         mpp_handler = self.state_handler.mpp_handler
         if mpp_handler.is_worker():
             coordinator = self.dcs.get_mpp_coordinator()
