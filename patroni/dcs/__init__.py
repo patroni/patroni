@@ -1532,8 +1532,8 @@ class AbstractDCS(abc.ABC):
     def get_mpp_coordinator(self) -> Optional[Cluster]:
         """Load the PostgreSQL cluster for the MPP Coordinator.
 
-          .. note::
-              This method is only executed on the worker nodes to find the coordinator.
+        .. note::
+            This method is only executed on the worker nodes to find the coordinator.
 
         :returns: Select :class:`Cluster` instance associated with the MPP Coordinator group ID.
         """

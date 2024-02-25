@@ -990,6 +990,13 @@ class Kubernetes(AbstractDCS):
         return self.__load_cluster(group, loader)
 
     def get_mpp_coordinator(self) -> Optional[Cluster]:
+        """Load the PostgreSQL cluster for the MPP Coordinator.
+
+        .. note::
+            This method is only executed on the worker nodes to find the coordinator.
+
+        :returns: Select :class:`Cluster` instance associated with the MPP Coordinator group ID.
+        """
         try:
             ret = self.__load_cluster(str(self._mpp.coordinator_group_id), self._postgresql_cluster_loader)
             if TYPE_CHECKING:  # pragma: no cover
