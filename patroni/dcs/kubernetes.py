@@ -1003,7 +1003,7 @@ class Kubernetes(AbstractDCS):
                 assert isinstance(ret, Cluster)
             return ret
         except Exception as e:
-            logger.error('Failed to load %s coordinator cluster from Kubernetes: %r' % (self._mpp.type, e))
+            logger.error('Failed to load %s coordinator cluster from Kubernetes: %r', self._mpp.type, e)
 
     @staticmethod
     def compare_ports(p1: K8sObject, p2: K8sObject) -> bool:

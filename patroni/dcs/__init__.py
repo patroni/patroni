@@ -1540,8 +1540,8 @@ class AbstractDCS(abc.ABC):
         try:
             return self.__get_postgresql_cluster(f'{self._base_path}/{self._mpp.coordinator_group_id}/')
         except Exception as e:
-            logger.error('Failed to load %s coordinator cluster from %s: %r' %
-                         (self._mpp.type, self.__class__.__name__, e))
+            logger.error('Failed to load %s coordinator cluster from %s: %r',
+                         self._mpp.type, self.__class__.__name__, e)
         return None
 
     def _get_mpp_cluster(self) -> Cluster:

@@ -345,8 +345,8 @@ class Ha(object):
                     endpoint = 'citus' if mpp_handler.type == 'Citus' else 'mpp'
                     self.patroni.request(coordinator.leader.member, 'post', endpoint, data, timeout=timeout, retries=0)
                 except Exception as e:
-                    logger.warning('Request to %s coordinator leader %s %s failed: %r' % (mpp_handler.type,
-                                   coordinator.leader.name, coordinator.leader.member.api_url, e))
+                    logger.warning('Request to %s coordinator leader %s %s failed: %r', mpp_handler.type,
+                                   coordinator.leader.name, coordinator.leader.member.api_url, e)
 
     def touch_member(self) -> bool:
         with self._member_state_lock:

@@ -191,7 +191,10 @@ class TestZooKeeper(unittest.TestCase):
         with patch.object(ZooKeeper, '_postgresql_cluster_loader', Mock(side_effect=Exception)):
             self.assertIsNone(self.zk.get_mpp_coordinator())
             mock_logger.assert_called_once()
-            self.assertIn('Failed to load Null coordinator cluster from ZooKeeper', mock_logger.call_args[0][0])
+            self.assertEqual(mock_logger.call_args[0][0], 'Failed to load %s coordinator cluster from %s: %r')
+            self.assertEqual(mock_logger.call_args[0][1], 'Null')
+            self.assertEqual(mock_logger.call_args[0][2], 'ZooKeeper')
+            self.assertIsInstance(mock_logger.call_args[0][3], ZooKeeperError)
 
     @patch('patroni.dcs.logger.error')
     def test_get_citus_coordinator(self, mock_logger):
@@ -200,7 +203,10 @@ class TestZooKeeper(unittest.TestCase):
         with patch.object(ZooKeeper, '_postgresql_cluster_loader', Mock(side_effect=Exception)):
             self.assertIsNone(self.zk.get_mpp_coordinator())
             mock_logger.assert_called_once()
-            self.assertIn('Failed to load Citus coordinator cluster from ZooKeeper', mock_logger.call_args[0][0])
+            self.assertEqual(mock_logger.call_args[0][0], 'Failed to load %s coordinator cluster from %s: %r')
+            self.assertEqual(mock_logger.call_args[0][1], 'Citus')
+            self.assertEqual(mock_logger.call_args[0][2], 'ZooKeeper')
+            self.assertIsInstance(mock_logger.call_args[0][3], ZooKeeperError)
 
     def test_delete_leader(self):
         self.assertTrue(self.zk.delete_leader(self.zk.get_cluster().leader))

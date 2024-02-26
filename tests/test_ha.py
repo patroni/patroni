@@ -1667,4 +1667,5 @@ class TestHa(PostgresInit):
             self.ha.notify_mpp_coordinator('before_promote')
             self.assertEqual(self.ha.patroni.request.call_args[1]['timeout'], 2)
             mock_logger.assert_called()
-            self.assertTrue(mock_logger.call_args[0][0].startswith('Request to Citus coordinator'))
+            self.assertTrue(mock_logger.call_args[0][0].startswith('Request to %s coordinator leader'))
+            self.assertEqual(mock_logger.call_args[0][1], 'Citus')

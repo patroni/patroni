@@ -735,7 +735,7 @@ class Etcd3(AbstractEtcd):
     def cluster_prefix(self) -> str:
         """Construct the cluster prefix for the cluster.
 
-        :returns: A string representation the cluster prefix.
+        :returns: path in the DCS under which we store information about this Patroni cluster.
         """
         return self._base_path + '/' if self.is_mpp_coordinator() else self.client_path('')
 
