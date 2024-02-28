@@ -166,6 +166,8 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
             retry = self.etcd3._retry.copy()
             with patch('time.time', Mock(side_effect=[0, 10, 20, 30, 40])):
                 self.assertRaises(InvalidAuthToken, retry, self.client.deleteprefix, 'foo', retry=retry)
+            with patch('time.time', Mock(side_effect=[0, 10])):
+                self.assertRaises(InvalidAuthToken, self.client.deleteprefix, 'foo')
             self.client.username = None
             self.client._reauthenticate_reason = ReAuthenticateMode.NOT_REQUIRED
             retry = self.etcd3._retry.copy()
@@ -271,8 +273,8 @@ class TestEtcd3(BaseTestEtcd3):
 
     def test_attempt_to_acquire_leader(self):
         self.assertFalse(self.etcd3.attempt_to_acquire_leader())
-        with patch('time.time', Mock(side_effect=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 200])):
-            self.assertRaises(Etcd3Error, self.etcd3.attempt_to_acquire_leader)
+        with patch('time.time', Mock(side_effect=[0, 0, 0, 0, 0, 100, 200])):
+            self.assertFalse(self.etcd3.attempt_to_acquire_leader())
         with patch('time.time', Mock(side_effect=[0, 100, 200, 300, 400])):
             self.assertRaises(Etcd3Error, self.etcd3.attempt_to_acquire_leader)
         with patch.object(PatroniEtcd3Client, 'put', Mock(return_value=False)):

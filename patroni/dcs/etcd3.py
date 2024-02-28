@@ -316,6 +316,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
 
     def handle_auth_errors(self: 'Etcd3Client', func: Callable[..., Any], *args: Any,
                            retry: Optional[Retry] = None, **kwargs: Any) -> Any:
+        reauthenticated = False
         exc = None
         while True:
             if self._reauthenticate_reason:
@@ -324,12 +325,11 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
                         restart_watcher=self._reauthenticate_reason != ReAuthenticateMode.WITHOUT_WATCHER_RESTART,
                         retry=retry)
                     self._reauthenticate_reason = ReAuthenticateMode.NOT_REQUIRED
-                    if retry:
-                        retry.ensure_deadline(0)
                 else:
                     msg = 'Username or password not set, authentication is not possible'
                     logger.fatal(msg)
                     raise exc or Etcd3Exception(msg)
+                reauthenticated = True
 
             try:
                 return func(self, *args, retry=retry, **kwargs)
@@ -349,9 +349,10 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
                 exc = e
             self._reauthenticate_reason = ReAuthenticateMode.WITHOUT_WATCHER_RESTART \
                 if isinstance(exc, AuthOldRevision) else ReAuthenticateMode.REQUIRED
-            if not retry:
+            if retry:
+                retry.ensure_deadline(0.5, exc)
+            elif reauthenticated:
                 raise exc
-            retry.ensure_deadline(0.5, exc)
 
     @_handle_auth_errors
     def range(self, key: str, range_end: Union[bytes, str, None] = None, serializable: bool = True,
@@ -866,14 +867,16 @@ class Etcd3(AbstractEtcd):
         try:
             return _retry(self._client.put, self.leader_path, self._name, self._lease, create_revision='0')
         except LeaseNotFound:
-            logger.error('Our lease disappeared from Etcd. Will try to get a new one and retry attempt')
             self._lease = None
-            retry.ensure_deadline(0)
+            if not retry.ensure_deadline(0):
+                logger.error('Our lease disappeared from Etcd. Deadline exceeded, giving up')
+                return False
+
+            logger.error('Our lease disappeared from Etcd. Will try to get a new one and retry attempt')
 
             _retry(self._do_refresh_lease)
 
             retry.ensure_deadline(1, Etcd3Error('_do_attempt_to_acquire_leader timeout'))
-
             return _retry(self._client.put, self.leader_path, self._name, self._lease, create_revision='0')
 
     @catch_return_false_exception

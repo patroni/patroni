@@ -577,14 +577,17 @@ class Consul(AbstractDCS):
         try:
             return retry(self._client.kv.put, self.leader_path, self._name, acquire=self._session)
         except InvalidSession:
-            logger.error('Our session disappeared from Consul. Will try to get a new one and retry attempt')
             self._session = None
-            retry.ensure_deadline(0)
+
+            if not retry.ensure_deadline(0):
+                logger.error('Our session disappeared from Consul. Deadline exceeded, giving up')
+                return False
+
+            logger.error('Our session disappeared from Consul. Will try to get a new one and retry attempt')
 
             retry(self._do_refresh_session)
 
             retry.ensure_deadline(1, ConsulError('_do_attempt_to_acquire_leader timeout'))
-
             return retry(self._client.kv.put, self.leader_path, self._name, acquire=self._session)
 
     @catch_return_false_exception
