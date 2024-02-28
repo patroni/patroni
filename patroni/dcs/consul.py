@@ -420,7 +420,13 @@ class Consul(AbstractDCS):
     def _consistency(self) -> str:
         return 'consistent' if self._ctl else self._client.consistency
 
-    def _cluster_loader(self, path: str) -> Cluster:
+    def _postgresql_cluster_loader(self, path: str) -> Cluster:
+        """Load and build the :class:`Cluster` object from DCS, which represents a single PostgreSQL cluster.
+
+        :param path: the path in DCS where to load :class:`Cluster` from.
+
+        :returns: :class:`Cluster` instance.
+        """
         _, results = self.retry(self._client.kv.get, path, recurse=True, consistency=self._consistency)
         if results is None:
             return Cluster.empty()
@@ -431,7 +437,13 @@ class Consul(AbstractDCS):
 
         return self._cluster_from_nodes(nodes)
 
-    def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+    def _mpp_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+        """Load and build all PostgreSQL clusters from a single MPP cluster.
+
+        :param path: the path in DCS where to load Cluster(s) from.
+
+        :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
+        """
         _, results = self.retry(self._client.kv.get, path, recurse=True, consistency=self._consistency)
         clusters: Dict[int, Dict[str, Cluster]] = defaultdict(dict)
         for node in results or []:

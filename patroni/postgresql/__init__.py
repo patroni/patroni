@@ -80,7 +80,7 @@ class Postgresql(object):
         self._pending_restart_reason = CaseInsensitiveDict()
         self.connection_pool = ConnectionPool()
         self._connection = self.connection_pool.get('heartbeat')
-        self.citus_handler = mpp.get_handler_impl(self)
+        self.mpp_handler = mpp.get_handler_impl(self)
         self.config = ConfigHandler(self, config)
         self.config.check_directories()
 
@@ -1208,7 +1208,7 @@ class Postgresql(object):
             before_promote()
 
         self.slots_handler.on_promote()
-        self.citus_handler.schedule_cache_rebuild()
+        self.mpp_handler.schedule_cache_rebuild()
 
         ret = self.pg_ctl('promote', '-W')
         if ret:
@@ -1355,7 +1355,7 @@ class Postgresql(object):
         """
         self.ensure_major_version_is_known()
         self.slots_handler.schedule()
-        self.citus_handler.schedule_cache_rebuild()
+        self.mpp_handler.schedule_cache_rebuild()
         self._sysid = ''
 
     def _get_gucs(self) -> CaseInsensitiveSet:

@@ -61,7 +61,7 @@ class MockPostgresql:
     wal_flush = '_flush'
     POSTMASTER_START_TIME = 'pg_catalog.pg_postmaster_start_time()'
     TL_LSN = 'CASE WHEN pg_catalog.pg_is_in_recovery()'
-    citus_handler = Mock()
+    mpp_handler = Mock()
 
     @staticmethod
     def postmaster_start_time():
@@ -672,6 +672,12 @@ class TestRestApiHandler(unittest.TestCase):
     @patch.object(MockHa, 'is_leader', Mock(return_value=True))
     def test_do_POST_citus(self):
         post = 'POST /citus HTTP/1.0' + self._authorization + '\nContent-Length: '
+        MockRestApiServer(RestApiHandler, post + '0\n\n')
+        MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
+
+    @patch.object(MockHa, 'is_leader', Mock(return_value=True))
+    def test_do_POST_mpp(self):
+        post = 'POST /mpp HTTP/1.0' + self._authorization + '\nContent-Length: '
         MockRestApiServer(RestApiHandler, post + '0\n\n')
         MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
 

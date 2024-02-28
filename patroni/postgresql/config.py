@@ -992,7 +992,7 @@ class ConfigHandler(object):
             wal_keep_size = parse_int(parameters.pop('wal_keep_size', self.CMDLINE_OPTIONS['wal_keep_size'][0]), 'MB')
             parameters.setdefault('wal_keep_segments', int(((wal_keep_size or 0) + 8) / 16))
 
-        self._postgresql.citus_handler.adjust_postgres_gucs(parameters)
+        self._postgresql.mpp_handler.adjust_postgres_gucs(parameters)
 
         ret = CaseInsensitiveDict({k: v for k, v in parameters.items() if not self._postgresql.major_version
                                    or self._postgresql.major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 90100))[2]})

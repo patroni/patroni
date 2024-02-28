@@ -733,7 +733,11 @@ class Etcd3(AbstractEtcd):
 
     @property
     def cluster_prefix(self) -> str:
-        return self._base_path + '/' if self.is_citus_coordinator() else self.client_path('')
+        """Construct the cluster prefix for the cluster.
+
+        :returns: path in the DCS under which we store information about this Patroni cluster.
+        """
+        return self._base_path + '/' if self.is_mpp_coordinator() else self.client_path('')
 
     @staticmethod
     def member(node: Dict[str, str]) -> Member:
@@ -787,13 +791,25 @@ class Etcd3(AbstractEtcd):
 
         return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
-    def _cluster_loader(self, path: str) -> Cluster:
+    def _postgresql_cluster_loader(self, path: str) -> Cluster:
+        """Load and build the :class:`Cluster` object from DCS, which represents a single PostgreSQL cluster.
+
+        :param path: the path in DCS where to load :class:`Cluster` from.
+
+        :returns: :class:`Cluster` instance.
+        """
         nodes = {node['key'][len(path):]: node
                  for node in self._client.get_cluster(path)
                  if node['key'].startswith(path)}
         return self._cluster_from_nodes(nodes)
 
-    def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+    def _mpp_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+        """Load and build all PostgreSQL clusters from a single MPP cluster.
+
+        :param path: the path in DCS where to load Cluster(s) from.
+
+        :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
+        """
         clusters: Dict[int, Dict[str, Dict[str, Any]]] = defaultdict(dict)
         path = self._base_path + '/'
         for node in self._client.get_cluster(path):

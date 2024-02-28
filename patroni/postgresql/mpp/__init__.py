@@ -65,6 +65,25 @@ class AbstractMPP(abc.ABC):
     def coordinator_group_id(self) -> Any:
         """The group id of the coordinator PostgreSQL cluster."""
 
+    @property
+    def type(self) -> str:
+        """The type of the MPP cluster.
+
+        :returns: A string representation of the type of a given MPP implementation.
+        """
+        for base in self.__class__.__bases__:
+            if not base.__name__.startswith('Abstract'):
+                return base.__name__
+        return self.__class__.__name__
+
+    @property
+    def k8s_group_label(self):
+        """Group label used for kubernetes DCS of the MPP cluster.
+
+        :returns: A string representation of the k8s group label of a given MPP implementation.
+        """
+        return self.type.lower() + '-group'
+
     def is_coordinator(self) -> bool:
         """Check whether this node is running in the coordinator PostgreSQL cluster.
 

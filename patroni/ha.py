@@ -175,7 +175,7 @@ class Ha(object):
         # Count of concurrent sync disabling requests. Value above zero means that we don't want to be synchronous
         # standby. Changes protected by _member_state_lock.
         self._disable_sync = 0
-        # Remember the last known member role and state written to the DCS in order to notify Citus coordinator
+        # Remember the last known member role and state written to the DCS in order to notify MPP coordinator
         self._last_state = None
 
         # We need following property to avoid shutdown of postgres when join of Patroni to the postgres
@@ -326,20 +326,26 @@ class Ha(object):
             tags['nosync'] = True
         return tags
 
-    def notify_citus_coordinator(self, event: str) -> None:
-        if self.state_handler.citus_handler.is_worker():
-            coordinator = self.dcs.get_citus_coordinator()
+    def notify_mpp_coordinator(self, event: str) -> None:
+        """Send an event to the MPP coordinator.
+
+        :param event: the type of event for coordinator to parse.
+        """
+        mpp_handler = self.state_handler.mpp_handler
+        if mpp_handler.is_worker():
+            coordinator = self.dcs.get_mpp_coordinator()
             if coordinator and coordinator.leader and coordinator.leader.conn_url:
                 try:
                     data = {'type': event,
-                            'group': self.state_handler.citus_handler.group,
+                            'group': mpp_handler.group,
                             'leader': self.state_handler.name,
                             'timeout': self.dcs.ttl,
                             'cooldown': self.patroni.config['retry_timeout']}
                     timeout = self.dcs.ttl if event == 'before_demote' else 2
-                    self.patroni.request(coordinator.leader.member, 'post', 'citus', data, timeout=timeout, retries=0)
+                    endpoint = 'citus' if mpp_handler.type == 'Citus' else 'mpp'
+                    self.patroni.request(coordinator.leader.member, 'post', endpoint, data, timeout=timeout, retries=0)
                 except Exception as e:
-                    logger.warning('Request to Citus coordinator leader %s %s failed: %r',
+                    logger.warning('Request to %s coordinator leader %s %s failed: %r', mpp_handler.type,
                                    coordinator.leader.name, coordinator.leader.member.api_url, e)
 
     def touch_member(self) -> bool:
@@ -403,7 +409,7 @@ class Ha(object):
             if ret:
                 new_state = (data['state'], {'master': 'primary'}.get(data['role'], data['role']))
                 if self._last_state != new_state and new_state == ('running', 'primary'):
-                    self.notify_citus_coordinator('after_promote')
+                    self.notify_mpp_coordinator('after_promote')
                 self._last_state = new_state
             return ret
 
@@ -848,7 +854,7 @@ class Ha(object):
             self.state_handler.set_role('master')
             self.process_sync_replication()
             self.update_cluster_history()
-            self.state_handler.citus_handler.sync_meta_data(self.cluster)
+            self.state_handler.mpp_handler.sync_meta_data(self.cluster)
             return message
         elif self.state_handler.role in ('master', 'promoted', 'primary'):
             self.process_sync_replication()
@@ -868,7 +874,7 @@ class Ha(object):
                 self._failsafe.set_is_active(0)
 
                 def before_promote():
-                    self.notify_citus_coordinator('before_promote')
+                    self.notify_mpp_coordinator('before_promote')
 
                 with self._async_response:
                     self._async_response.reset()
@@ -1239,10 +1245,10 @@ class Ha(object):
                     status['released'] = True
 
         def before_shutdown() -> None:
-            if self.state_handler.citus_handler.is_coordinator():
-                self.state_handler.citus_handler.on_demote()
+            if self.state_handler.mpp_handler.is_coordinator():
+                self.state_handler.mpp_handler.on_demote()
             else:
-                self.notify_citus_coordinator('before_demote')
+                self.notify_mpp_coordinator('before_demote')
 
         self.state_handler.stop(str(mode_control['stop']), checkpoint=bool(mode_control['checkpoint']),
                                 on_safepoint=self.watchdog.disable if self.watchdog.is_running else None,
@@ -1544,10 +1550,10 @@ class Ha(object):
         self.set_start_timeout(timeout)
 
         def before_shutdown() -> None:
-            self.notify_citus_coordinator('before_demote')
+            self.notify_mpp_coordinator('before_demote')
 
         def after_start() -> None:
-            self.notify_citus_coordinator('after_promote')
+            self.notify_mpp_coordinator('after_promote')
 
         # For non async cases we want to wait for restart to complete or timeout before returning.
         do_restart = functools.partial(self.state_handler.restart, timeout, self._async_executor.critical_task,
@@ -2000,7 +2006,7 @@ class Ha(object):
                         self.dcs.write_leader_optime(prev_location)
 
             def _before_shutdown() -> None:
-                self.notify_citus_coordinator('before_demote')
+                self.notify_mpp_coordinator('before_demote')
 
             on_shutdown = _on_shutdown if self.is_leader() else None
             before_shutdown = _before_shutdown if self.is_leader() else None

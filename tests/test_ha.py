@@ -1659,12 +1659,13 @@ class TestHa(PostgresInit):
     @patch('patroni.postgresql.mpp.AbstractMPPHandler.is_coordinator', Mock(return_value=False))
     def test_notify_citus_coordinator(self):
         self.ha.patroni.request = Mock()
-        self.ha.notify_citus_coordinator('before_demote')
+        self.ha.notify_mpp_coordinator('before_demote')
         self.ha.patroni.request.assert_called_once()
         self.assertEqual(self.ha.patroni.request.call_args[1]['timeout'], 30)
         self.ha.patroni.request = Mock(side_effect=Exception)
         with patch('patroni.ha.logger.warning') as mock_logger:
-            self.ha.notify_citus_coordinator('before_promote')
+            self.ha.notify_mpp_coordinator('before_promote')
             self.assertEqual(self.ha.patroni.request.call_args[1]['timeout'], 2)
             mock_logger.assert_called()
-            self.assertTrue(mock_logger.call_args[0][0].startswith('Request to Citus coordinator'))
+            self.assertTrue(mock_logger.call_args[0][0].startswith('Request to %s coordinator leader'))
+            self.assertEqual(mock_logger.call_args[0][1], 'Citus')

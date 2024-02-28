@@ -710,7 +710,13 @@ class Etcd(AbstractEtcd):
 
         return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
-    def _cluster_loader(self, path: str) -> Cluster:
+    def _postgresql_cluster_loader(self, path: str) -> Cluster:
+        """Load and build the :class:`Cluster` object from DCS, which represents a single PostgreSQL cluster.
+
+        :param path: the path in DCS where to load :class:`Cluster` from.
+
+        :returns: :class:`Cluster` instance.
+        """
         try:
             result = self.retry(self._client.read, path, recursive=True, quorum=self._ctl)
         except etcd.EtcdKeyNotFound:
@@ -718,7 +724,13 @@ class Etcd(AbstractEtcd):
         nodes = {node.key[len(result.key):].lstrip('/'): node for node in result.leaves}
         return self._cluster_from_nodes(result.etcd_index, nodes)
 
-    def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+    def _mpp_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+        """Load and build all PostgreSQL clusters from a single MPP cluster.
+
+        :param path: the path in DCS where to load Cluster(s) from.
+
+        :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
+        """
         try:
             result = self.retry(self._client.read, path, recursive=True, quorum=self._ctl)
         except etcd.EtcdKeyNotFound:
