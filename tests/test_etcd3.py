@@ -7,7 +7,7 @@ from mock import Mock, PropertyMock, patch
 from patroni.dcs import get_dcs
 from patroni.dcs.etcd import DnsCachingResolver
 from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3, Etcd3Client, \
-    Etcd3Error, Etcd3ClientError, ReAuthenticateMode, RetryFailedError, InvalidAuthToken, Unavailable, \
+    Etcd3Error, Etcd3ClientError, RetryFailedError, InvalidAuthToken, Unavailable, \
     Unknown, UnsupportedEtcdVersion, UserEmpty, AuthFailed, AuthOldRevision, base64_encode
 from patroni.postgresql.mpp import get_mpp
 from threading import Thread
@@ -169,11 +169,11 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
             with patch('time.time', Mock(side_effect=[0, 10])):
                 self.assertRaises(InvalidAuthToken, self.client.deleteprefix, 'foo')
             self.client.username = None
-            self.client._reauthenticate_reason = ReAuthenticateMode.NOT_REQUIRED
+            self.client._reauthenticate = False
             retry = self.etcd3._retry.copy()
             self.assertRaises(InvalidAuthToken, retry, self.client.deleteprefix, 'foo', retry=retry)
             mock_urlopen.return_value.content = '{"code":3,"error":"etcdserver: revision of auth store is old"}'
-            self.client._reauthenticate_reason = ReAuthenticateMode.NOT_REQUIRED
+            self.client._reauthenticate = False
             self.assertRaises(AuthOldRevision, retry, self.client.deleteprefix, 'foo', retry=retry)
 
     def test__handle_server_response(self):
