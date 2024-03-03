@@ -125,6 +125,8 @@ RUN if [ "$COMPRESS" = "true" ]; then \
         && /bin/busybox sh -c "(find $save_dirs -not -type d && cat /exclude /exclude && echo exclude) | sort | uniq -u | xargs /bin/busybox rm" \
         && /bin/busybox --install -s \
         && /bin/busybox sh -c "find $save_dirs -type d -depth -exec rmdir -p {} \; 2> /dev/null"; \
+    else \
+        /bin/busybox --install -s; \
     fi
 
 FROM scratch
