@@ -1,4 +1,7 @@
 parameters:
+  ac_ignore_maclabel:
+  - type: Bool
+    version_from: 90300
   allow_in_place_tablespaces:
   - type: Bool
     version_from: 150000
