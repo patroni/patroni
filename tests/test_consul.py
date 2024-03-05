@@ -4,7 +4,7 @@ import unittest
 from consul import ConsulException, NotFound
 from mock import Mock, PropertyMock, patch
 from patroni.dcs import get_dcs
-from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulInternalError, \
+from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulAgentService, ConsulInternalError, \
     ConsulError, ConsulClient, HTTPClient, InvalidSessionTTL, InvalidSession, RetryFailedError
 from patroni.postgresql.mpp import get_mpp
 from . import SleepException
@@ -245,8 +245,8 @@ class TestConsul(unittest.TestCase):
     def test_set_history_value(self):
         self.assertTrue(self.c.set_history_value('{}'))
 
-    @patch.object(consul.Consul.Agent.Service, 'register', Mock(side_effect=(False, True, True, True)))
-    @patch.object(consul.Consul.Agent.Service, 'deregister', Mock(return_value=True))
+    @patch.object(ConsulAgentService, 'register', Mock(side_effect=(False, True, True, True)))
+    @patch.object(ConsulAgentService, 'deregister', Mock(return_value=True))
     def test_update_service(self):
         d = {'role': 'replica', 'api_url': 'http://a/t', 'conn_url': 'pg://c:1', 'state': 'running'}
         self.assertIsNone(self.c.update_service({}, {}))
@@ -277,7 +277,7 @@ class TestConsul(unittest.TestCase):
 
         # Changing register_service from True to False calls deregister()
         self.c.reload_config({'consul': {'register_service': False}, 'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10})
-        with patch('consul.Consul.Agent.Service.deregister') as mock_deregister:
+        with patch.object(ConsulAgentService, 'deregister') as mock_deregister:
             self.c.touch_member(d)
             mock_deregister.assert_called_once()
 
@@ -285,31 +285,31 @@ class TestConsul(unittest.TestCase):
 
         # register_service staying False between reloads does not call deregister()
         self.c.reload_config({'consul': {'register_service': False}, 'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10})
-        with patch('consul.Consul.Agent.Service.deregister') as mock_deregister:
+        with patch.object(ConsulAgentService, 'deregister') as mock_deregister:
             self.c.touch_member(d)
             self.assertFalse(mock_deregister.called)
 
         # Changing register_service from False to True calls register()
         self.c.reload_config({'consul': {'register_service': True}, 'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10})
-        with patch('consul.Consul.Agent.Service.register') as mock_register:
+        with patch.object(HTTPClient, 'put', create=True) as mock_put:
             self.c.touch_member(d)
-            mock_register.assert_called_once()
+            mock_put.assert_called_once()
 
         # register_service staying True between reloads does not call register()
         self.c.reload_config({'consul': {'register_service': True}, 'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10})
-        with patch('consul.Consul.Agent.Service.register') as mock_register:
+        with patch.object(ConsulAgentService, 'register') as mock_register:
             self.c.touch_member(d)
             self.assertFalse(mock_deregister.called)
 
         # register_service staying True between reloads does calls register() if other service data has changed
         self.c.reload_config({'consul': {'register_service': True}, 'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10})
-        with patch('consul.Consul.Agent.Service.register') as mock_register:
+        with patch.object(ConsulAgentService, 'register') as mock_register:
             self.c.touch_member(d)
             mock_register.assert_called_once()
 
         # register_service staying True between reloads does calls register() if service_tags have changed
         self.c.reload_config({'consul': {'register_service': True, 'service_tags': ['foo']}, 'loop_wait': 10,
                               'ttl': 30, 'retry_timeout': 10})
-        with patch('consul.Consul.Agent.Service.register') as mock_register:
+        with patch.object(ConsulAgentService, 'register') as mock_register:
             self.c.touch_member(d)
             mock_register.assert_called_once()

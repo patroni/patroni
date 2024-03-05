@@ -42,6 +42,57 @@ class InvalidSession(ConsulException):
     """invalid session"""
 
 
+class ConsulAgentService(base.Consul.Agent.Service):
+    """
+    Consul.Agent.Session with support of ``tagged_addresses``.
+
+    We do it in the Patroni code because ``python-consul`` and
+    ``python-consul2`` modules don't receive any updates for at least 3 years.
+    """
+
+    def register(self, name: str, service_id: Optional[str] = None, address: Optional[str] = None,
+                 port: Optional[int] = None, tags: Optional[List[str]] = None, check: Optional[Dict[str, str]] = None,
+                 token: Optional[str] = None, enable_tag_override: bool = False,
+                 tagged_addresses: Optional[Dict[str, Dict[str, Union[str, int]]]] = None, **kwargs: Any) -> bool:
+        """Add a new service to the local agent.
+
+        :param name: name of the service.
+        :param service_id: service id, optional, if not provided *name* is used.
+        :param address: will default to the address of the agent if not provided.
+        :param port: port on which the service is available.
+        :param tagged_addresses: additional addresses for a node or service.
+        :tags: a list of string values that add service-level labels.
+        :enable_tag_override: optional ``bool`` that enable you to modify a service tags from servers
+                              (consul agent role server). Default is set to ``False``.
+        :check: an optional health check for this service.
+        :token: an optional ACL token to apply to this request.
+
+        :returns: ``True`` if the service was successfully registered/updated, otherwise ``False``.
+        """
+        payload: Dict[str, Any] = {'name': name}
+
+        if enable_tag_override:
+            payload['enabletagoverride'] = enable_tag_override
+        if service_id:
+            payload['id'] = service_id
+        if address:
+            payload['address'] = address
+        if port:
+            payload['port'] = port
+        if tagged_addresses:
+            payload['tagged_addresses'] = tagged_addresses
+        if tags:
+            payload['tags'] = tags
+        if check:
+            payload['check'] = check
+
+        token = token or self.agent.token
+        params = {'token': token} if token else {}
+
+        return self.agent.http.put(base.CB.bool(), '/v1/agent/service/register',
+                                   params=params, data=json.dumps(payload))
+
+
 class Response(NamedTuple):
     code: int
     headers: Union[Mapping[str, str], Mapping[bytes, bytes], None]
@@ -269,6 +320,7 @@ class Consul(AbstractDCS):
             kwargs['verify'] = verify
 
         self._client = ConsulClient(**kwargs)
+        self._agent_service = ConsulAgentService(self._client)
         self.set_retry_timeout(config['retry_timeout'])
         self.set_ttl(config.get('ttl') or 30)
         self._last_session_refresh = 0
@@ -503,14 +555,14 @@ class Consul(AbstractDCS):
     @catch_consul_errors
     def register_service(self, service_name: str, **kwargs: Any) -> bool:
         logger.info('Register service %s, params %s', service_name, kwargs)
-        return self._client.agent.service.register(service_name, **kwargs)
+        return self._agent_service.register(service_name, **kwargs)
 
     @catch_consul_errors
     def deregister_service(self, service_id: str) -> bool:
         logger.info('Deregister service %s', service_id)
         # service_id can contain special characters, but is used as part of uri in deregister request
         service_id = quote(service_id)
-        return self._client.agent.service.deregister(service_id)
+        return self._agent_service.deregister(service_id)
 
     def _update_service(self, data: Dict[str, Any]) -> Optional[bool]:
         service_name = self._service_name
