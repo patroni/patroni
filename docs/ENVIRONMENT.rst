@@ -14,24 +14,23 @@ Global/Universal
 
 Log
 ---
+-  **PATRONI\_LOG\_TYPE**: sets the format of logs. Can be either **plain** or **json**. To use **json** format, you must have the :ref:`jsonlogger <extras>` installed. The default value is **plain**.
 -  **PATRONI\_LOG\_LEVEL**: sets the general logging level. Default value is **INFO** (see `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>`_)
 -  **PATRONI\_LOG\_TRACEBACK\_LEVEL**: sets the level where tracebacks will be visible. Default value is **ERROR**. Set it to **DEBUG** if you want to see tracebacks only if you enable **PATRONI\_LOG\_LEVEL=DEBUG**.
--  **PATRONI\_LOG\_FORMAT**: sets the log formatting string. Default value is **%(asctime)s %(levelname)s: %(message)s** (see `the LogRecord attributes <https://docs.python.org/3.6/library/logging.html#logrecord-attributes>`_)
+-  **PATRONI\_LOG\_FORMAT**: sets the log formatting string. If the log type is **plain**, the log format should be a string.
+   Refer to `the LogRecord attributes <https://docs.python.org/3.6/library/logging.html#logrecord-attributes>`_ for
+   available attributes. If the log type is **json**, the log format can be a list in addition to a string. Each list
+   item should correspond to LogRecord attributes. Be cautious that only the field name is required, and the **%(**
+   and **)** should be omitted. If you wish to print a log field with a different key name, use a dictionary where
+   the dictionary key is the log field, and the value is the name of the field you want to be printed in the log.
+   Default value is **%(asctime)s %(levelname)s: %(message)s**
 -  **PATRONI\_LOG\_DATEFORMAT**: sets the datetime formatting string. (see the `formatTime() documentation <https://docs.python.org/3.6/library/logging.html#logging.Formatter.formatTime>`_)
+-  **PATRONI\_LOG\_STATIC\_FIELDS**: add additional fields to the log. This option is only available when the log type is set to **json**. Example ``PATRONI_LOG_STATIC_FIELDS="{app: patroni}"``
 -  **PATRONI\_LOG\_MAX\_QUEUE\_SIZE**: Patroni is using two-step logging. Log records are written into the in-memory queue and there is a separate thread which pulls them from the queue and writes to stderr or file. The maximum size of the internal queue is limited by default by **1000** records, which is enough to keep logs for the past 1h20m.
 -  **PATRONI\_LOG\_DIR**: Directory to write application logs to. The directory must exist and be writable by the user executing Patroni. If you set this env variable, the application will retain 4 25MB logs by default. You can tune those retention values with `PATRONI_LOG_FILE_NUM` and `PATRONI_LOG_FILE_SIZE` (see below).
 -  **PATRONI\_LOG\_FILE\_NUM**: The number of application logs to retain.
 -  **PATRONI\_LOG\_FILE\_SIZE**: Size of patroni.log file (in bytes) that triggers a log rolling.
 -  **PATRONI\_LOG\_LOGGERS**: Redefine logging level per python module. Example ``PATRONI_LOG_LOGGERS="{patroni.postmaster: WARNING, urllib3: DEBUG}"``
-
-Bootstrap configuration
------------------------
-It is possible to create new database users right after the successful initialization of a new cluster. This process is defined by the following variables:
-
--  **PATRONI\_<username>\_PASSWORD='<password>'**
--  **PATRONI\_<username>\_OPTIONS='list,of,options'**
-
-Example: defining ``PATRONI_admin_PASSWORD=strongpasswd`` and ``PATRONI_admin_OPTIONS='createrole,createdb'`` will cause creation of the user **admin** with the password **strongpasswd** that is allowed to create other users and databases.
 
 Citus
 -----
@@ -94,6 +93,7 @@ ZooKeeper
 -  **PATRONI\_ZOOKEEPER\_KEY\_PASSWORD**: (optional) The client key password.
 -  **PATRONI\_ZOOKEEPER\_VERIFY**: (optional) Whether to verify certificate or not. Defaults to ``true``.
 -  **PATRONI\_ZOOKEEPER\_SET\_ACLS**: (optional) If set, configure Kazoo to apply a default ACL to each ZNode that it creates. ACLs will assume 'x509' schema and should be specified as a dictionary with the principal as the key and one or more permissions as a list in the value.  Permissions may be one of ``CREATE``, ``READ``, ``WRITE``, ``DELETE`` or ``ADMIN``.  For example, ``set_acls: {CN=principal1: [CREATE, READ], CN=principal2: [ALL]}``.
+-  **PATRONI\_ZOOKEEPER\_AUTH\_DATA**: (optional) Authentication credentials to use for the connection. Should be a dictionary in the form that `scheme` is the key and `credential` is the value. Defaults to empty dictionary.
 
 .. note::
     It is required to install ``kazoo>=2.6.0`` to support SSL.

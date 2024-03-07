@@ -4,10 +4,11 @@ import sys
 from mock import Mock, PropertyMock, patch
 
 from patroni.async_executor import CriticalTask
+from patroni.collections import CaseInsensitiveDict
 from patroni.postgresql import Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
-from patroni.postgresql.config import ConfigHandler
+from patroni.postgresql.config import ConfigHandler, get_param_diff
 
 from . import psycopg_connect, BaseTestPostgresql, mock_available_gucs
 
@@ -142,6 +143,16 @@ class TestBootstrap(BaseTestPostgresql):
                     (), error_handler
                 ),
                 ["--key=value with spaces"])
+            # not allowed options in list of dicts/strs are filtered out
+            self.assertEqual(
+                self.b.process_user_options(
+                    'pg_basebackup',
+                    [{'checkpoint': 'fast'}, {'dbname': 'dbname=postgres'}, 'gzip', {'label': 'standby'}, 'verbose'],
+                    ('dbname', 'verbose'),
+                    print
+                ),
+                ['--checkpoint=fast', '--gzip', '--label=standby'],
+            )
 
     @patch.object(CancellableSubprocess, 'call', Mock())
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
@@ -179,10 +190,17 @@ class TestBootstrap(BaseTestPostgresql):
     @patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'in production'}))
     def test_custom_bootstrap(self, mock_cancellable_subprocess_call):
         self.p.config._config.pop('pg_hba')
-        config = {'method': 'foo', 'foo': {'command': 'bar'}}
+        config = {'method': 'foo', 'foo': {'command': 'bar --arg1=val1'}}
 
         mock_cancellable_subprocess_call.return_value = 1
         self.assertFalse(self.b.bootstrap(config))
+        self.assertEqual(mock_cancellable_subprocess_call.call_args_list[0][0][0],
+                         ['bar', '--arg1=val1', '--scope=batman', '--datadir=' + os.path.join('data', 'test0')])
+
+        mock_cancellable_subprocess_call.reset_mock()
+        config['foo']['no_params'] = 1
+        self.assertFalse(self.b.bootstrap(config))
+        self.assertEqual(mock_cancellable_subprocess_call.call_args_list[0][0][0], ['bar', '--arg1=val1'])
 
         mock_cancellable_subprocess_call.return_value = 0
         with patch('multiprocessing.Process', Mock(side_effect=Exception("42"))), \
@@ -228,8 +246,9 @@ class TestBootstrap(BaseTestPostgresql):
         self.assertTrue(task.result)
 
         self.b.bootstrap(config)
-        with patch.object(Postgresql, 'pending_restart', PropertyMock(return_value=True)), \
-                patch.object(Postgresql, 'restart', Mock()) as mock_restart:
+        with patch.object(Postgresql, 'pending_restart_reason',
+                          PropertyMock(CaseInsensitiveDict({'max_connections': get_param_diff('200', '100')}))), \
+             patch.object(Postgresql, 'restart', Mock()) as mock_restart:
             self.b.post_bootstrap({}, task)
             mock_restart.assert_called_once()
 

@@ -45,7 +45,7 @@ class MockFrozenImporter(object):
 @patch('time.sleep', Mock())
 @patch('subprocess.call', Mock(return_value=0))
 @patch('patroni.psycopg.connect', psycopg_connect)
-@patch('urllib3.connection.HTTPConnection.connect', Mock(side_effect=Exception))
+@patch('urllib3.PoolManager.request', Mock(side_effect=Exception))
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())
@@ -69,7 +69,7 @@ class TestPatroni(unittest.TestCase):
             self.assertRaises(SystemExit, _main)
 
     @patch('pkgutil.iter_importers', Mock(return_value=[MockFrozenImporter()]))
-    @patch('urllib3.connection.HTTPConnection.connect', Mock(side_effect=Exception))
+    @patch('urllib3.PoolManager.request', Mock(side_effect=Exception))
     @patch('sys.frozen', Mock(return_value=True), create=True)
     @patch.object(HTTPServer, '__init__', Mock())
     @patch.object(etcd.Client, 'read', etcd_read)
@@ -154,6 +154,7 @@ class TestPatroni(unittest.TestCase):
         self.p.api.start = Mock()
         self.p.logger.start = Mock()
         self.p.config._dynamic_configuration = {}
+        self.assertRaises(SleepException, self.p.run)
         with patch('patroni.dcs.Cluster.is_unlocked', Mock(return_value=True)):
             self.assertRaises(SleepException, self.p.run)
         with patch('patroni.config.Config.reload_local_configuration', Mock(return_value=False)):
@@ -174,15 +175,63 @@ class TestPatroni(unittest.TestCase):
         self.p.next_run = time.time() - self.p.dcs.loop_wait - 1
         self.p.schedule_next_run()
 
+    def test__filter_tags(self):
+        tags = {'noloadbalance': False, 'clonefrom': False, 'nosync': False, 'smth': 'random'}
+        self.assertEqual(self.p._filter_tags(tags), {'smth': 'random'})
+
+        tags['clonefrom'] = True
+        tags['smth'] = False
+        self.assertEqual(self.p._filter_tags(tags), {'clonefrom': True, 'smth': False})
+
+        tags = {'nofailover': False, 'failover_priority': 0}
+        self.assertEqual(self.p._filter_tags(tags), tags)
+
+        tags = {'nofailover': True, 'failover_priority': 1}
+        self.assertEqual(self.p._filter_tags(tags), tags)
+
     def test_noloadbalance(self):
         self.p.tags['noloadbalance'] = True
         self.assertTrue(self.p.noloadbalance)
 
     def test_nofailover(self):
-        self.p.tags['nofailover'] = True
-        self.assertTrue(self.p.nofailover)
-        self.p.tags['nofailover'] = None
-        self.assertFalse(self.p.nofailover)
+        for (nofailover, failover_priority, expected) in [
+            # Without any tags, default is False
+            (None, None, False),
+            # Setting `nofailover: True` has precedence
+            (True, 0, True),
+            (True, 1, True),
+            ('False', 1, True),  # because we use bool() for the value
+            # Similarly, setting `nofailover: False` has precedence
+            (False, 0, False),
+            (False, 1, False),
+            ('', 0, False),
+            # Only when we have `nofailover: None` should we got based on priority
+            (None, 0, True),
+            (None, 1, False),
+        ]:
+            with self.subTest(nofailover=nofailover, failover_priority=failover_priority, expected=expected):
+                self.p.tags['nofailover'] = nofailover
+                self.p.tags['failover_priority'] = failover_priority
+                self.assertEqual(self.p.nofailover, expected)
+
+    def test_failover_priority(self):
+        for (nofailover, failover_priority, expected) in [
+            # Without any tags, default is 1
+            (None, None, 1),
+            # Setting `nofailover: True` has precedence (value 0)
+            (True, 0, 0),
+            (True, 1, 0),
+            # Setting `nofailover: False` and `failover_priority: None` gives 1
+            (False, None, 1),
+            # Normal function of failover_priority
+            (None, 0, 0),
+            (None, 1, 1),
+            (None, 2, 2),
+        ]:
+            with self.subTest(nofailover=nofailover, failover_priority=failover_priority, expected=expected):
+                self.p.tags['nofailover'] = nofailover
+                self.p.tags['failover_priority'] = failover_priority
+                self.assertEqual(self.p.failover_priority, expected)
 
     def test_replicatefrom(self):
         self.assertIsNone(self.p.replicatefrom)
@@ -241,8 +290,8 @@ class TestPatroni(unittest.TestCase):
         )
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=bad_cluster)):
             # If the api of the running node cannot be reached, this implies unique name
-            with patch('urllib3.connection.HTTPConnection.connect', Mock(side_effect=ConnectionError)):
+            with patch('urllib3.PoolManager.request', Mock(side_effect=ConnectionError)):
                 self.assertIsNone(self.p.ensure_unique_name())
             # Only if the api of the running node is reachable do we throw an error
-            with patch('urllib3.connection.HTTPConnection.connect', Mock()):
+            with patch('urllib3.PoolManager.request', Mock()):
                 self.assertRaises(SystemExit, self.p.ensure_unique_name)

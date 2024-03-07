@@ -19,9 +19,9 @@ from urllib3.exceptions import HTTPError
 from threading import Condition, Lock, Thread
 from typing import Any, Callable, Collection, Dict, List, Optional, Tuple, Type, Union, TYPE_CHECKING
 
-from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, \
-    TimelineHistory, CITUS_COORDINATOR_GROUP_ID, citus_group_re
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, TimelineHistory
 from ..exceptions import DCSError
+from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, iter_response_objects, keepalive_socket_options, \
     Retry, RetryFailedError, tzutc, uri, USER_AGENT
 if TYPE_CHECKING:  # pragma: no cover
@@ -746,9 +746,7 @@ class ObjectCache(Thread):
 
 class Kubernetes(AbstractDCS):
 
-    _CITUS_LABEL = 'citus-group'
-
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
         self._labels = deepcopy(config['labels'])
         self._labels[config.get('scope_label', 'cluster-name')] = config['scope']
         self._label_selector = ','.join('{0}={1}'.format(k, v) for k, v in self._labels.items())
@@ -759,9 +757,9 @@ class Kubernetes(AbstractDCS):
         self._standby_leader_label_value = config.get('standby_leader_label_value', 'master')
         self._tmp_role_label = config.get('tmp_role_label')
         self._ca_certs = os.environ.get('PATRONI_KUBERNETES_CACERT', config.get('cacert')) or SERVICE_CERT_FILENAME
-        super(Kubernetes, self).__init__({**config, 'namespace': ''})
-        if self._citus_group:
-            self._labels[self._CITUS_LABEL] = self._citus_group
+        super(Kubernetes, self).__init__({**config, 'namespace': ''}, mpp)
+        if self._mpp.is_enabled():
+            self._labels[self._mpp.k8s_group_label] = str(self._mpp.group)
 
         self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
                             retry_exceptions=KubernetesRetriableException)
@@ -936,20 +934,32 @@ class Kubernetes(AbstractDCS):
 
         return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
-    def _cluster_loader(self, path: Dict[str, Any]) -> Cluster:
+    def _postgresql_cluster_loader(self, path: Dict[str, Any]) -> Cluster:
+        """Load and build the :class:`Cluster` object from DCS, which represents a single PostgreSQL cluster.
+
+        :param path: the path in DCS where to load :class:`Cluster` from.
+
+        :returns: :class:`Cluster` instance.
+        """
         return self._cluster_from_nodes(path['group'], path['nodes'], path['pods'].values())
 
-    def _citus_cluster_loader(self, path: Dict[str, Any]) -> Dict[int, Cluster]:
+    def _mpp_cluster_loader(self, path: Dict[str, Any]) -> Dict[int, Cluster]:
+        """Load and build all PostgreSQL clusters from a single MPP cluster.
+
+        :param path: the path in DCS where to load Cluster(s) from.
+
+        :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
+        """
         clusters: Dict[str, Dict[str, Dict[str, K8sObject]]] = defaultdict(lambda: defaultdict(dict))
 
         for name, pod in path['pods'].items():
-            group = pod.metadata.labels.get(self._CITUS_LABEL)
-            if group and citus_group_re.match(group):
+            group = pod.metadata.labels.get(self._mpp.k8s_group_label)
+            if group and self._mpp.group_re.match(group):
                 clusters[group]['pods'][name] = pod
 
         for name, kind in path['nodes'].items():
-            group = kind.metadata.labels.get(self._CITUS_LABEL)
-            if group and citus_group_re.match(group):
+            group = kind.metadata.labels.get(self._mpp.k8s_group_label)
+            if group and self._mpp.group_re.match(group):
                 clusters[group]['nodes'][name] = kind
         return {int(group): self._cluster_from_nodes(group, value['nodes'], value['pods'].values())
                 for group, value in clusters.items()}
@@ -965,9 +975,9 @@ class Kubernetes(AbstractDCS):
             with self._condition:
                 self._wait_caches(stop_time)
                 pods = {name: pod for name, pod in self._pods.copy().items()
-                        if not group or pod.metadata.labels.get(self._CITUS_LABEL) == group}
+                        if not group or pod.metadata.labels.get(self._mpp.k8s_group_label) == group}
                 nodes = {name: kind for name, kind in self._kinds.copy().items()
-                         if not group or kind.metadata.labels.get(self._CITUS_LABEL) == group}
+                         if not group or kind.metadata.labels.get(self._mpp.k8s_group_label) == group}
             return loader({'group': group, 'pods': pods, 'nodes': nodes})
         except Exception:
             logger.exception('get_cluster')
@@ -976,17 +986,24 @@ class Kubernetes(AbstractDCS):
     def _load_cluster(
             self, path: str, loader: Callable[[Any], Union[Cluster, Dict[int, Cluster]]]
     ) -> Union[Cluster, Dict[int, Cluster]]:
-        group = self._citus_group if path == self.client_path('') else None
+        group = str(self._mpp.group) if self._mpp.is_enabled() and path == self.client_path('') else None
         return self.__load_cluster(group, loader)
 
-    def get_citus_coordinator(self) -> Optional[Cluster]:
+    def get_mpp_coordinator(self) -> Optional[Cluster]:
+        """Load the PostgreSQL cluster for the MPP Coordinator.
+
+        .. note::
+            This method is only executed on the worker nodes to find the coordinator.
+
+        :returns: Select :class:`Cluster` instance associated with the MPP Coordinator group ID.
+        """
         try:
-            ret = self.__load_cluster(str(CITUS_COORDINATOR_GROUP_ID), self._cluster_loader)
+            ret = self.__load_cluster(str(self._mpp.coordinator_group_id), self._postgresql_cluster_loader)
             if TYPE_CHECKING:  # pragma: no cover
                 assert isinstance(ret, Cluster)
             return ret
         except Exception as e:
-            logger.error('Failed to load Citus coordinator cluster from Kubernetes: %r', e)
+            logger.error('Failed to load %s coordinator cluster from Kubernetes: %r', self._mpp.type, e)
 
     @staticmethod
     def compare_ports(p1: K8sObject, p2: K8sObject) -> bool:

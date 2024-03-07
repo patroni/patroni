@@ -13,10 +13,11 @@ from typing import Any, Dict, Iterator, List, Optional, Union, Tuple, TYPE_CHECK
 
 from .connection import get_connection_cursor
 from .misc import format_lsn, fsync_dir
+from .. import global_config
 from ..dcs import Cluster, Leader
 from ..file_perm import pg_perm
 from ..psycopg import OperationalError
-from ..utils import parse_int
+from ..tags import Tags
 
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
@@ -290,18 +291,18 @@ class SlotsHandler:
         :param name: name of the slot to ignore
 
         :returns: ``True`` if slot *name* matches any slot specified in ``ignore_slots`` configuration,
-                 otherwise will pass through and return result of :meth:`CitusHandler.ignore_replication_slot`.
+                 otherwise will pass through and return result of :meth:`AbstractMPPHandler.ignore_replication_slot`.
         """
         slot = self._replication_slots[name]
         if cluster.config:
-            for matcher in cluster.config.ignore_slots_matchers:
+            for matcher in global_config.ignore_slots_matchers:
                 if (
                         (matcher.get("name") is None or matcher["name"] == name)
                         and all(not matcher.get(a) or matcher[a] == slot.get(a)
                                 for a in ('database', 'plugin', 'type'))
                 ):
                     return True
-        return self._postgresql.citus_handler.ignore_replication_slot(slot)
+        return self._postgresql.mpp_handler.ignore_replication_slot(slot)
 
     def drop_replication_slot(self, name: str) -> Tuple[bool, bool]:
         """Drop a named slot from Postgres.
@@ -320,7 +321,7 @@ class SlotsHandler:
                             ' FULL OUTER JOIN dropped ON true'), name)
         return (rows[0][0], rows[0][1]) if rows else (False, False)
 
-    def _drop_incorrect_slots(self, cluster: Cluster, slots: Dict[str, Any], paused: bool) -> None:
+    def _drop_incorrect_slots(self, cluster: Cluster, slots: Dict[str, Any]) -> None:
         """Compare required slots and configured as permanent slots with those found, dropping extraneous ones.
 
         .. note::
@@ -331,11 +332,10 @@ class SlotsHandler:
 
         :param cluster: cluster state information object.
         :param slots: dictionary of desired slot names as keys with slot attributes as a dictionary value, if known.
-        :param paused: ``True`` if the patroni cluster is currently in a paused state.
         """
         # drop old replication slots which are not presented in desired slots.
         for name in set(self._replication_slots) - set(slots):
-            if not paused and not self.ignore_replication_slot(cluster, name):
+            if not global_config.is_paused and not self.ignore_replication_slot(cluster, name):
                 active, dropped = self.drop_replication_slot(name)
                 if dropped:
                     logger.info("Dropped unknown replication slot '%s'", name)
@@ -378,10 +378,9 @@ class SlotsHandler:
                 except Exception:
                     logger.exception("Failed to create physical replication slot '%s'", name)
                 self._schedule_load_slots = True
-            elif not self._postgresql.is_primary() and self._postgresql.can_advance_slots \
-                    and self._replication_slots[name]['type'] == 'physical':
+            elif self._postgresql.can_advance_slots and self._replication_slots[name]['type'] == 'physical':
                 value['restart_lsn'] = self._replication_slots[name]['restart_lsn']
-                lsn = parse_int(value.get('lsn'))
+                lsn = value.get('lsn')
                 if lsn and lsn > value['restart_lsn']:  # The slot has feedback in DCS and needs to be advanced
                     try:
                         lsn = format_lsn(lsn)
@@ -477,12 +476,9 @@ class SlotsHandler:
             # If the logical already exists, copy some information about it into the original structure
             if name in self._replication_slots and compare_slots(value, self._replication_slots[name]):
                 self._copy_items(self._replication_slots[name], value)
-                if 'lsn' in value:  # The slot has feedback in DCS
-                    try:  # Skip slots that don't need to be advanced
-                        if value['confirmed_flush_lsn'] < int(value['lsn']):
-                            advance_slots[value['database']][name] = int(value['lsn'])
-                    except Exception as e:
-                        logger.error('Failed to parse "%s": %r', value['lsn'], e)
+                if 'lsn' in value and value['confirmed_flush_lsn'] < value['lsn']:  # The slot has feedback in DCS
+                    # Skip slots that don't need to be advanced
+                    advance_slots[value['database']][name] = value['lsn']
             elif name not in self._replication_slots and 'lsn' in value:
                 # We want to copy only slots with feedback in a DCS
                 create_slots.append(name)
@@ -497,8 +493,7 @@ class SlotsHandler:
             self._schedule_load_slots = True
         return create_slots + copy_slots
 
-    def sync_replication_slots(self, cluster: Cluster, nofailover: bool,
-                               replicatefrom: Optional[str] = None, paused: bool = False) -> List[str]:
+    def sync_replication_slots(self, cluster: Cluster, tags: Tags) -> List[str]:
         """During the HA loop read, check and alter replication slots found in the cluster.
 
         Read physical and logical slots from ``pg_replication_slots``, then compare to those configured in the DCS.
@@ -508,22 +503,18 @@ class SlotsHandler:
         them on replica nodes by copying slot files from the primary.
 
         :param cluster: object containing stateful information for the cluster.
-        :param nofailover: ``True`` if this node has been tagged to not be a failover candidate.
-        :param replicatefrom: the tag containing the node to replicate from.
-        :param paused: ``True`` if the cluster is in maintenance mode.
+        :param tags: reference to an object implementing :class:`Tags` interface.
 
         :returns: list of logical replication slots names that should be copied from the primary.
         """
         ret = []
-        if self._postgresql.major_version >= 90400 and self._postgresql.global_config and cluster.config:
+        if self._postgresql.major_version >= 90400 and cluster.config:
             try:
                 self.load_replication_slots()
 
-                slots = cluster.get_replication_slots(
-                    self._postgresql.name, self._postgresql.role, nofailover, self._postgresql.major_version,
-                    is_standby_cluster=self._postgresql.global_config.is_standby_cluster, show_error=True)
+                slots = cluster.get_replication_slots(self._postgresql, tags, show_error=True)
 
-                self._drop_incorrect_slots(cluster, slots, paused)
+                self._drop_incorrect_slots(cluster, slots)
 
                 self._ensure_physical_slots(slots)
 
@@ -531,7 +522,7 @@ class SlotsHandler:
                     self._logical_slots_processing_queue.clear()
                     self._ensure_logical_slots_primary(slots)
                 else:
-                    self.check_logical_slots_readiness(cluster, replicatefrom)
+                    self.check_logical_slots_readiness(cluster, tags)
                     ret = self._ensure_logical_slots_replica(slots)
 
                 self._replication_slots = slots
@@ -557,7 +548,7 @@ class SlotsHandler:
         with get_connection_cursor(connect_timeout=3, options="-c statement_timeout=2000", **conn_kwargs) as cur:
             yield cur
 
-    def check_logical_slots_readiness(self, cluster: Cluster, replicatefrom: Optional[str]) -> bool:
+    def check_logical_slots_readiness(self, cluster: Cluster, tags: Tags) -> bool:
         """Determine whether all known logical slots are synchronised from the leader.
 
         1) Retrieve the current ``catalog_xmin`` value for the physical slot from the cluster leader, and
@@ -566,13 +557,13 @@ class SlotsHandler:
         3) store logical slot ``catalog_xmin`` when the physical slot ``catalog_xmin`` becomes valid.
 
         :param cluster: object containing stateful information for the cluster.
-        :param replicatefrom: name of the member that should be used to replicate from.
+        :param tags: reference to an object implementing :class:`Tags` interface.
 
         :returns: ``False`` if any issue while checking logical slots readiness, ``True`` otherwise.
         """
         catalog_xmin = None
         if self._logical_slots_processing_queue and cluster.leader:
-            slot_name = cluster.get_my_slot_name_on_primary(self._postgresql.name, replicatefrom)
+            slot_name = cluster.get_slot_name_on_primary(self._postgresql.name, tags)
             try:
                 with self._get_leader_connection_cursor(cluster.leader) as cur:
                     cur.execute("SELECT slot_name, catalog_xmin FROM pg_catalog.pg_get_replication_slots()"
@@ -650,16 +641,17 @@ class SlotsHandler:
                 if standby_logical_slot:
                     logger.info('Logical slot %s is safe to be used after a failover', name)
 
-    def copy_logical_slots(self, cluster: Cluster, create_slots: List[str]) -> None:
+    def copy_logical_slots(self, cluster: Cluster, tags: Tags, create_slots: List[str]) -> None:
         """Create logical replication slots on standby nodes.
 
         :param cluster: object containing stateful information for the cluster.
+        :param tags: reference to an object implementing :class:`Tags` interface.
         :param create_slots: list of slot names to copy from the primary.
         """
         leader = cluster.leader
         if not leader:
             return
-        slots = cluster.get_replication_slots(self._postgresql.name, 'replica', False, self._postgresql.major_version)
+        slots = cluster.get_replication_slots(self._postgresql, tags, role='replica')
         copy_slots: Dict[str, Dict[str, Any]] = {}
         with self._get_leader_connection_cursor(leader) as cur:
             try:

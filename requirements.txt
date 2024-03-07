@@ -11,3 +11,4 @@ pysyncobj>=0.3.8
 cryptography>=1.4
 psutil>=2.0.0
 ydiff>=1.2.0
+python-json-logger>=2.0.2

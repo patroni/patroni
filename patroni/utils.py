@@ -10,6 +10,7 @@
 :var WHITESPACE_RE: regular expression to match whitespace characters
 """
 import errno
+import itertools
 import logging
 import os
 import platform
@@ -24,6 +25,7 @@ from shlex import split
 
 from typing import Any, Callable, Dict, Iterator, List, Optional, Union, Tuple, Type, TYPE_CHECKING
 
+from collections import OrderedDict
 from dateutil import tz
 from json import JSONDecoder
 from urllib3.response import HTTPResponse
@@ -33,7 +35,6 @@ from .version import __version__
 
 if TYPE_CHECKING:  # pragma: no cover
     from .dcs import Cluster
-    from .config import GlobalConfig
 
 tzutc = tz.tzutc()
 
@@ -45,6 +46,37 @@ DEC_RE = re.compile(r'^[-+]?(0|[1-9][0-9]*)')
 HEX_RE = re.compile(r'^[-+]?0x[0-9a-fA-F]+')
 DBL_RE = re.compile(r'^[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?')
 WHITESPACE_RE = re.compile(r'[ \t\n\r]*', re.VERBOSE | re.MULTILINE | re.DOTALL)
+
+
+def get_conversion_table(base_unit: str) -> Dict[str, Dict[str, Union[int, float]]]:
+    """Get conversion table for the specified base unit.
+
+    If no conversion table exists for the passed unit, return an empty :class:`OrderedDict`.
+
+    :param base_unit: unit to choose the conversion table for.
+
+    :returns: :class:`OrderedDict` object.
+    """
+    memory_unit_conversion_table: Dict[str, Dict[str, Union[int, float]]] = OrderedDict([
+        ('TB', {'B': 1024**4, 'kB': 1024**3, 'MB': 1024**2}),
+        ('GB', {'B': 1024**3, 'kB': 1024**2, 'MB': 1024}),
+        ('MB', {'B': 1024**2, 'kB': 1024, 'MB': 1}),
+        ('kB', {'B': 1024, 'kB': 1, 'MB': 1024**-1}),
+        ('B', {'B': 1, 'kB': 1024**-1, 'MB': 1024**-2})
+    ])
+    time_unit_conversion_table: Dict[str, Dict[str, Union[int, float]]] = OrderedDict([
+        ('d', {'ms': 1000 * 60**2 * 24, 's': 60**2 * 24, 'min': 60 * 24}),
+        ('h', {'ms': 1000 * 60**2, 's': 60**2, 'min': 60}),
+        ('min', {'ms': 1000 * 60, 's': 60, 'min': 1}),
+        ('s', {'ms': 1000, 's': 1, 'min': 60**-1}),
+        ('ms', {'ms': 1, 's': 1000**-1, 'min': 1 / (1000 * 60)}),
+        ('us', {'ms': 1000**-1, 's': 1000**-2, 'min': 1 / (1000**2 * 60)})
+    ])
+    if base_unit in ('B', 'kB', 'MB'):
+        return memory_unit_conversion_table
+    elif base_unit in ('ms', 's', 'min'):
+        return time_unit_conversion_table
+    return OrderedDict()
 
 
 def deep_compare(obj1: Dict[Any, Union[Any, Dict[Any, Any]]], obj2: Dict[Any, Union[Any, Dict[Any, Any]]]) -> bool:
@@ -273,33 +305,152 @@ def convert_to_base_unit(value: Union[int, float], unit: str, base_unit: Optiona
         >>> convert_to_base_unit(1, 'GB', '512 MB') is None
         True
     """
-    convert: Dict[str, Dict[str, Union[int, float]]] = {
-        'B': {'B': 1, 'kB': 1024, 'MB': 1024 * 1024, 'GB': 1024 * 1024 * 1024, 'TB': 1024 * 1024 * 1024 * 1024},
-        'kB': {'B': 1.0 / 1024, 'kB': 1, 'MB': 1024, 'GB': 1024 * 1024, 'TB': 1024 * 1024 * 1024},
-        'MB': {'B': 1.0 / (1024 * 1024), 'kB': 1.0 / 1024, 'MB': 1, 'GB': 1024, 'TB': 1024 * 1024},
-        'ms': {'us': 1.0 / 1000, 'ms': 1, 's': 1000, 'min': 1000 * 60, 'h': 1000 * 60 * 60, 'd': 1000 * 60 * 60 * 24},
-        's': {'us': 1.0 / (1000 * 1000), 'ms': 1.0 / 1000, 's': 1, 'min': 60, 'h': 60 * 60, 'd': 60 * 60 * 24},
-        'min': {'us': 1.0 / (1000 * 1000 * 60), 'ms': 1.0 / (1000 * 60), 's': 1.0 / 60, 'min': 1, 'h': 60, 'd': 60 * 24}
-    }
+    base_value, base_unit = strtol(base_unit, False)
+    if TYPE_CHECKING:  # pragma: no cover
+        assert isinstance(base_value, int)
 
-    round_order = {
-        'TB': 'GB', 'GB': 'MB', 'MB': 'kB', 'kB': 'B',
-        'd': 'h', 'h': 'min', 'min': 's', 's': 'ms', 'ms': 'us'
-    }
-
-    if base_unit and base_unit not in convert:
-        base_value, base_unit = strtol(base_unit, False)
-    else:
-        base_value = 1
-
-    if base_value is not None and base_unit in convert and unit in convert[base_unit]:
-        value *= convert[base_unit][unit] / float(base_value)
-
+    convert_tbl = get_conversion_table(base_unit)
+    # {'TB': 'GB', 'GB': 'MB', ...}
+    round_order = dict(zip(convert_tbl, itertools.islice(convert_tbl, 1, None)))
+    if unit in convert_tbl and base_unit in convert_tbl[unit]:
+        value *= convert_tbl[unit][base_unit] / float(base_value)
         if unit in round_order:
-            multiplier = convert[base_unit][round_order[unit]]
+            multiplier = convert_tbl[round_order[unit]][base_unit]
             value = round(value / float(multiplier)) * multiplier
-
         return value
+
+
+def convert_int_from_base_unit(base_value: int, base_unit: Optional[str]) -> Optional[str]:
+    """Convert an integer value in some base unit to a human-friendly unit.
+
+    The output unit is chosen so that it's the greatest unit that can represent
+    the value without loss.
+
+    :param base_value: value to be converted from a base unit
+    :param base_unit: unit of *value*. Should be one of the base units (case sensitive):
+
+            * For space: ``B``, ``kB``, ``MB``;
+            * For time: ``ms``, ``s``, ``min``.
+
+    :returns: :class:`str` value representing *base_value* converted from *base_unit* to the greatest
+        possible human-friendly unit, or ``None`` if conversion failed.
+
+    :Example:
+
+        >>> convert_int_from_base_unit(1024, 'kB')
+        '1MB'
+
+        >>> convert_int_from_base_unit(1025, 'kB')
+        '1025kB'
+
+        >>> convert_int_from_base_unit(4, '256MB')
+        '1GB'
+
+        >>> convert_int_from_base_unit(4, '256 MB') is None
+        True
+
+        >>> convert_int_from_base_unit(1024, 'KB') is None
+        True
+    """
+    base_value_mult, base_unit = strtol(base_unit, False)
+    if TYPE_CHECKING:  # pragma: no cover
+        assert isinstance(base_value_mult, int)
+    base_value *= base_value_mult
+
+    convert_tbl = get_conversion_table(base_unit)
+    for unit in convert_tbl:
+        multiplier = convert_tbl[unit][base_unit]
+        if multiplier <= 1.0 or base_value % multiplier == 0:
+            return str(round(base_value / multiplier)) + unit
+
+
+def convert_real_from_base_unit(base_value: float, base_unit: Optional[str]) -> Optional[str]:
+    """Convert an floating-point value in some base unit to a human-friendly unit.
+
+    Same as :func:`convert_int_from_base_unit`, except we have to do the math a bit differently,
+    and there's a possibility that we don't find any exact divisor.
+
+    :param base_value: value to be converted from a base unit
+    :param base_unit: unit of *value*. Should be one of the base units (case sensitive):
+
+            * For space: ``B``, ``kB``, ``MB``;
+            * For time: ``ms``, ``s``, ``min``.
+
+    :returns: :class:`str` value representing *base_value* converted from *base_unit* to the greatest
+        possible human-friendly unit, or ``None`` if conversion failed.
+
+    :Example:
+
+        >>> convert_real_from_base_unit(5, 'ms')
+        '5ms'
+
+        >>> convert_real_from_base_unit(2.5, 'ms')
+        '2500us'
+
+        >>> convert_real_from_base_unit(4.0, '256MB')
+        '1GB'
+
+        >>> convert_real_from_base_unit(4.0, '256 MB') is None
+        True
+    """
+    base_value_mult, base_unit = strtol(base_unit, False)
+    if TYPE_CHECKING:  # pragma: no cover
+        assert isinstance(base_value_mult, int)
+    base_value *= base_value_mult
+
+    result = None
+    convert_tbl = get_conversion_table(base_unit)
+    for unit in convert_tbl:
+        value = base_value / convert_tbl[unit][base_unit]
+        result = f'{value:g}{unit}'
+        if value > 0 and abs((round(value) / value) - 1.0) <= 1e-8:
+            break
+    return result
+
+
+def maybe_convert_from_base_unit(base_value: str, vartype: str, base_unit: Optional[str]) -> str:
+    """Try to convert integer or real value in a base unit to a human-readable unit.
+
+    Value is passed as a string. If parsing or subsequent conversion fails, the original
+    value is returned.
+
+    :param base_value: value to be converted from a base unit.
+    :param vartype: the target type to parse *base_value* before converting (``integer``
+        or ``real`` is expected, any other type results in return value being equal to the
+        *base_value* string).
+    :param base_unit: unit of *value*. Should be one of the base units (case sensitive):
+
+            * For space: ``B``, ``kB``, ``MB``;
+            * For time: ``ms``, ``s``, ``min``.
+
+    :returns: :class:`str` value representing *base_value* converted from *base_unit* to the greatest
+        possible human-friendly unit, or *base_value* string if conversion failed.
+
+    :Example:
+
+        >>> maybe_convert_from_base_unit('5', 'integer', 'ms')
+        '5ms'
+
+        >>> maybe_convert_from_base_unit('4.2', 'real', 'ms')
+        '4200us'
+
+        >>> maybe_convert_from_base_unit('on', 'bool', None)
+        'on'
+
+        >>> maybe_convert_from_base_unit('', 'integer', '256MB')
+        ''
+    """
+    converters: Dict[str, Tuple[Callable[[str, Optional[str]], Union[int, float, str, None]],
+                                Callable[[Any, Optional[str]], Optional[str]]]] = {
+        'integer': (parse_int, convert_int_from_base_unit),
+        'real': (parse_real, convert_real_from_base_unit),
+        'default': (lambda v, _: v, lambda v, _: v)
+    }
+    parser, converter = converters.get(vartype, converters['default'])
+    parsed_value = parser(base_value, None)
+    if parsed_value:
+        return converter(parsed_value, base_unit) or base_value
+    return base_value
 
 
 def parse_int(value: Any, base_unit: Optional[str] = None) -> Optional[int]:
@@ -401,22 +552,23 @@ def parse_real(value: Any, base_unit: Optional[str] = None) -> Optional[float]:
         return convert_to_base_unit(val, unit, base_unit)
 
 
-def compare_values(vartype: str, unit: Optional[str], old_value: Any, new_value: Any) -> bool:
-    """Check if *old_value* and *new_value* are equivalent after parsing them as *vartype*.
+def compare_values(vartype: str, unit: Optional[str], settings_value: Any, config_value: Any) -> bool:
+    """Check if the value from ``pg_settings`` and from Patroni config are equivalent after parsing them as *vartype*.
 
-    :param vartpe: the target type to parse *old_value* and *new_value* before comparing them. Accepts any among of the
-        following (case sensitive):
+    :param vartype: the target type to parse *settings_value* and *config_value* before comparing them.
+        Accepts any among of the following (case sensitive):
 
         * ``bool``: parse values using :func:`parse_bool`; or
         * ``integer``: parse values using :func:`parse_int`; or
         * ``real``: parse values using :func:`parse_real`; or
         * ``enum``: parse values as lowercase strings; or
         * ``string``: parse values as strings. This one is used by default if no valid value is passed as *vartype*.
-    :param unit: base unit to be used as argument when calling :func:`parse_int` or :func:`parse_real` for *new_value*.
-    :param old_value: value to be compared with *new_value*.
-    :param new_value: value to be compared with *old_value*.
+    :param unit: base unit to be used as argument when calling :func:`parse_int` or :func:`parse_real`
+        for *config_value*.
+    :param settings_value: value to be compared with *config_value*.
+    :param config_value: value to be compared with *settings_value*.
 
-    :returns: ``True`` if *old_value* is equivalent to *new_value* when both are parsed as *vartype*.
+    :returns: ``True`` if *settings_value* is equivalent to *config_value* when both are parsed as *vartype*.
 
     :Example:
 
@@ -456,8 +608,8 @@ def compare_values(vartype: str, unit: Optional[str], old_value: Any, new_value:
     }
 
     converter = converters.get(vartype) or converters['string']
-    old_converted = converter(old_value, None)
-    new_converted = converter(new_value, unit)
+    old_converted = converter(settings_value, None)
+    new_converted = converter(config_value, unit)
 
     return old_converted is not None and new_converted is not None and old_converted == new_converted
 
@@ -759,12 +911,10 @@ def iter_response_objects(response: HTTPResponse) -> Iterator[Dict[str, Any]]:
         prev = chunk[idx:]
 
 
-def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] = None) -> Dict[str, Any]:
+def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
     """Get a JSON representation of *cluster*.
 
     :param cluster: the :class:`~patroni.dcs.Cluster` object to be parsed as JSON.
-    :param global_config: optional :class:`~patroni.config.GlobalConfig` object to check the cluster state.
-                          if not provided will be instantiated from the `Cluster.config`.
 
     :returns: JSON representation of *cluster*.
 
@@ -793,16 +943,16 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
             * ``from``: name of the member to be demoted;
             * ``to``: name of the member to be promoted.
     """
-    if not global_config:
-        from patroni.config import get_global_config
-        global_config = get_global_config(cluster)
+    from . import global_config
+
+    config = global_config.from_cluster(cluster)
     leader_name = cluster.leader.name if cluster.leader else None
     cluster_lsn = cluster.last_lsn or 0
 
     ret: Dict[str, Any] = {'members': []}
     for m in cluster.members:
         if m.name == leader_name:
-            role = 'standby_leader' if global_config.is_standby_cluster else 'leader'
+            role = 'standby_leader' if config.is_standby_cluster else 'leader'
         elif cluster.sync.matches(m.name):
             role = 'sync_standby'
         else:
@@ -815,11 +965,11 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
             member['host'] = conn_kwargs['host']
             if conn_kwargs.get('port'):
                 member['port'] = int(conn_kwargs['port'])
-        optional_attributes = ('timeline', 'pending_restart', 'scheduled_restart', 'tags')
+        optional_attributes = ('timeline', 'pending_restart', 'pending_restart_reason', 'scheduled_restart', 'tags')
         member.update({n: m.data[n] for n in optional_attributes if n in m.data})
 
         if m.name != leader_name:
-            lsn = m.data.get('xlog_location')
+            lsn = m.lsn
             if lsn is None:
                 member['lag'] = 'unknown'
             elif cluster_lsn >= lsn:
@@ -832,7 +982,7 @@ def cluster_as_json(cluster: 'Cluster', global_config: Optional['GlobalConfig'] 
     # sort members by name for consistency
     cmp: Callable[[Dict[str, Any]], bool] = lambda m: m['name']
     ret['members'].sort(key=cmp)
-    if global_config.is_paused:
+    if config.is_paused:
         ret['pause'] = True
     if cluster.failover and cluster.failover.scheduled_at:
         ret['scheduled_switchover'] = {'at': cluster.failover.scheduled_at.isoformat()}

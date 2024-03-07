@@ -11,12 +11,22 @@ Global/Universal
 -  **namespace**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service"
 -  **scope**: cluster name
 
+.. _log_settings:
+
 Log
 ---
+-  **type**: sets the format of logs. Can be either **plain** or **json**. To use **json** format, you must have the :ref:`jsonlogger <extras>` installed. The default value is **plain**.
 -  **level**: sets the general logging level. Default value is **INFO** (see `the docs for Python logging <https://docs.python.org/3.6/library/logging.html#levels>`_)
 -  **traceback\_level**: sets the level where tracebacks will be visible. Default value is **ERROR**. Set it to **DEBUG** if you want to see tracebacks only if you enable **log.level=DEBUG**.
--  **format**: sets the log formatting string. Default value is **%(asctime)s %(levelname)s: %(message)s** (see `the LogRecord attributes <https://docs.python.org/3.6/library/logging.html#logrecord-attributes>`_)
+-  **format**: sets the log formatting string. If the log type is **plain**, the log format should be a string. Refer to
+   `the LogRecord attributes <https://docs.python.org/3.6/library/logging.html#logrecord-attributes>`_ for
+   available attributes. If the log type is **json**, the log format can be a list in addition to a string. Each list
+   item should correspond to LogRecord attributes. Be cautious that only the field name is required, and the **%(**
+   and **)** should be omitted. If you wish to print a log field with a different key name, use a dictionary where
+   the dictionary key is the log field, and the value is the name of the field you want to be printed in the log.
+   Default value is **%(asctime)s %(levelname)s: %(message)s**
 -  **dateformat**: sets the datetime formatting string. (see the `formatTime() documentation <https://docs.python.org/3.6/library/logging.html#logging.Formatter.formatTime>`_)
+-  **static_fields**: add additional fields to the log. This option is only available when the log type is set to **json**.
 -  **max\_queue\_size**: Patroni is using two-step logging. Log records are written into the in-memory queue and there is a separate thread which pulls them from the queue and writes to stderr or file. The maximum size of the internal queue is limited by default by **1000** records, which is enough to keep logs for the past 1h20m.
 -  **dir**: Directory to write application logs to. The directory must exist and be writable by the user executing Patroni. If you set this value, the application will retain 4 25MB logs by default. You can tune those retention values with `file_num` and `file_size` (see below).
 -  **file\_num**: The number of application logs to retain.
@@ -25,6 +35,20 @@ Log
 
    -  **patroni.postmaster: WARNING**
    -  **urllib3: DEBUG**
+
+Here is an example of how to config patroni to log in json format.
+
+.. code:: YAML
+
+   log:
+      type: json
+      format:
+         - message
+         - module
+         - asctime: '@timestamp'
+         - levelname: level
+      static_fields:
+         app: patroni
 
 .. _bootstrap_settings:
 
@@ -49,23 +73,7 @@ Bootstrap configuration
       -  **- data-checksums**: Must be enabled when pg_rewind is needed on 9.3.
       -  **- encoding: UTF8**: default encoding for new databases.
       -  **- locale: UTF8**: default locale for new databases.
-   -  **users**: Some additional users which need to be created after initializing new cluster, see :ref:`Bootstrap users configuration <bootstrap_users_configuration>` below.
    -  **post\_bootstrap** or **post\_init**: An additional script that will be executed after initializing the cluster. The script receives a connection string URL (with the cluster superuser as a user name). The PGPASSFILE variable is set to the location of pgpass file.
-
-.. _bootstrap_users_configuration:
-
-Bootstrap users configuration
-=============================
-
-Users which need to be created after initializing the cluster:
-
--  **admin**: the name of user
-
-  -  **password**: (optional) password for the user
-  -  **options**: list of options for CREATE USER statement
-
-    -  **- createrole**
-    -  **- createdb**
 
 .. _citus_settings:
 
@@ -149,6 +157,7 @@ ZooKeeper
 -  **key_password**: (optional) The client key password.
 -  **verify**: (optional) Whether to verify certificate or not. Defaults to ``true``.
 -  **set_acls**: (optional) If set, configure Kazoo to apply a default ACL to each ZNode that it creates. ACLs will assume 'x509' schema and should be specified as a dictionary with the principal as the key and one or more permissions as a list in the value.  Permissions may be one of ``CREATE``, ``READ``, ``WRITE``, ``DELETE`` or ``ADMIN``.  For example, ``set_acls: {CN=principal1: [CREATE, READ], CN=principal2: [ALL]}``.
+-  **auth_data**: (optional) Authentication credentials to use for the connection. Should be a dictionary in the form that `scheme` is the key and `credential` is the value. Defaults to empty dictionary.
 
 .. note::
     It is required to install ``kazoo>=2.6.0`` to support SSL.
@@ -384,11 +393,15 @@ Watchdog
 
 Tags
 ----
--  **nofailover**: ``true`` or ``false``, controls whether this node is allowed to participate in the leader race and become a leader. Defaults to ``false``
 -  **clonefrom**: ``true`` or ``false``. If set to ``true`` other nodes might prefer to use this node for bootstrap (take ``pg_basebackup`` from). If there are several nodes with ``clonefrom`` tag set to ``true`` the node to bootstrap from will be chosen randomly. The default value is ``false``.
 -  **noloadbalance**: ``true`` or ``false``. If set to ``true`` the node will return HTTP Status Code 503 for the ``GET /replica`` REST API health-check and therefore will be excluded from the load-balancing. Defaults to ``false``.
 -  **replicatefrom**: The IP address/hostname of another replica. Used to support cascading replication.
 -  **nosync**: ``true`` or ``false``. If set to ``true`` the node will never be selected as a synchronous replica.
+-  **nofailover**: ``true`` or ``false``, controls whether this node is allowed to participate in the leader race and become a leader. Defaults to ``false``, meaning this node _can_ participate in leader races. 
+-  **failover_priority**: integer, controls the priority that this node should have during failover. Nodes with higher priority will be preferred over lower priority nodes if they received/replayed the same amount of WAL. However, nodes with higher values of receive/replay LSN are preferred regardless of their priority. If the ``failover_priority`` is 0 or negative - such node is not allowed to participate in the leader race and to become a leader (similar to ``nofailover: true``).
+
+.. warning::
+   Provide only one of ``nofailover`` or ``failover_priority``. Providing ``nofailover: true`` is the same as ``failover_priority: 0``, and providing ``nofailover: false`` will give the node priority 1. 
 
 In addition to these predefined tags, you can also add your own ones:
 

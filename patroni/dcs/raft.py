@@ -12,9 +12,9 @@ from pysyncobj.transport import TCPTransport, CONNECTION_STATE
 from pysyncobj.utility import TcpUtility
 from typing import Any, Callable, Collection, Dict, List, Optional, Set, Union, TYPE_CHECKING
 
-from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, \
-    TimelineHistory, citus_group_re
+from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, TimelineHistory
 from ..exceptions import DCSError
+from ..postgresql.mpp import AbstractMPP
 from ..utils import validate_directory
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
@@ -285,8 +285,8 @@ class KVStoreTTL(DynMemberSyncObj):
 
 class Raft(AbstractDCS):
 
-    def __init__(self, config: Dict[str, Any]) -> None:
-        super(Raft, self).__init__(config)
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
+        super(Raft, self).__init__(config, mpp)
         self._ttl = int(config.get('ttl') or 30)
 
         ready_event = threading.Event()
@@ -375,19 +375,31 @@ class Raft(AbstractDCS):
 
         return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
-    def _cluster_loader(self, path: str) -> Cluster:
+    def _postgresql_cluster_loader(self, path: str) -> Cluster:
+        """Load and build the :class:`Cluster` object from DCS, which represents a single PostgreSQL cluster.
+
+        :param path: the path in DCS where to load :class:`Cluster` from.
+
+        :returns: :class:`Cluster` instance.
+        """
         response = self._sync_obj.get(path, recursive=True)
         if not response:
             return Cluster.empty()
         nodes = {key[len(path):]: value for key, value in response.items()}
         return self._cluster_from_nodes(nodes)
 
-    def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+    def _mpp_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+        """Load and build all PostgreSQL clusters from a single MPP cluster.
+
+        :param path: the path in DCS where to load Cluster(s) from.
+
+        :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
+        """
         clusters: Dict[int, Dict[str, Any]] = defaultdict(dict)
         response = self._sync_obj.get(path, recursive=True)
         for key, value in (response or {}).items():
             key = key[len(path):].split('/', 1)
-            if len(key) == 2 and citus_group_re.match(key[0]):
+            if len(key) == 2 and self._mpp.group_re.match(key[0]):
                 clusters[int(key[0])][key[1]] = value
         return {group: self._cluster_from_nodes(nodes) for group, nodes in clusters.items()}
 

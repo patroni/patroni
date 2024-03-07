@@ -43,9 +43,13 @@ etcd:
 #  - 127.0.0.1:2223
 #  - 127.0.0.1:2224
 
+# The bootstrap configuration. Works only when the cluster is not yet initialized.
+# If the cluster is already initialized, all changes in the `bootstrap` section are ignored!
 bootstrap:
-  # this section will be written into Etcd:/<namespace>/<scope>/config after initializing new cluster
-  # and all other cluster members will use it as a `global configuration`
+  # This section will be written into Etcd:/<namespace>/<scope>/config after initializing new cluster
+  # and all other cluster members will use it as a `global configuration`.
+  # WARNING! If you want to change any of the parameters that were set up
+  # via `bootstrap.dcs` section, please use `patronictl edit-config`!
   dcs:
     ttl: 30
     loop_wait: 10
@@ -93,7 +97,6 @@ bootstrap:
   # Additional script to be launched after initial cluster creation (will be passed the connection URL as parameter)
 # post_init: /usr/local/bin/setup_cluster.sh
 
-
 postgresql:
   listen: 127.0.0.1:5432
   connect_address: 127.0.0.1:5432
@@ -129,7 +132,7 @@ postgresql:
 #  safety_margin: 5
 
 tags:
-    nofailover: false
+    # failover_priority: 1
     noloadbalance: false
     clonefrom: false
     nosync: false

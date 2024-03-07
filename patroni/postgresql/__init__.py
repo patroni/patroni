@@ -19,22 +19,22 @@ from .callback_executor import CallbackAction, CallbackExecutor
 from .cancellable import CancellableSubprocess
 from .config import ConfigHandler, mtime
 from .connection import ConnectionPool, get_connection_cursor
-from .citus import CitusHandler
 from .misc import parse_history, parse_lsn, postgres_major_version_to_int
+from .mpp import AbstractMPP
 from .postmaster import PostmasterProcess
 from .slots import SlotsHandler
 from .sync import SyncHandler
-from .. import psycopg
+from .. import global_config, psycopg
 from ..async_executor import CriticalTask
-from ..collections import CaseInsensitiveSet
+from ..collections import CaseInsensitiveSet, CaseInsensitiveDict
 from ..dcs import Cluster, Leader, Member, SLOT_ADVANCE_AVAILABLE_VERSION
 from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
+from ..tags import Tags
 
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Connection as Connection3, Cursor
     from psycopg2 import connection as connection3, cursor
-    from ..config import GlobalConfig
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ class Postgresql(object):
               "pg_catalog.pg_{0}_{1}_diff(COALESCE(pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint, "
               "pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused()")
 
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
         self.name: str = config['name']
         self.scope: str = config['scope']
         self._data_dir: str = config['data_dir']
@@ -73,15 +73,14 @@ class Postgresql(object):
         self.connection_string: str
         self.proxy_url: Optional[str]
         self._major_version = self.get_major_version()
-        self._global_config = None
 
         self._state_lock = Lock()
         self.set_state('stopped')
 
-        self._pending_restart = False
+        self._pending_restart_reason = CaseInsensitiveDict()
         self.connection_pool = ConnectionPool()
         self._connection = self.connection_pool.get('heartbeat')
-        self.citus_handler = CitusHandler(self, config.get('citus'))
+        self.mpp_handler = mpp.get_handler_impl(self)
         self.config = ConfigHandler(self, config)
         self.config.check_directories()
 
@@ -118,6 +117,8 @@ class Postgresql(object):
 
         # Last known running process
         self._postmaster_proc = None
+
+        self._available_gucs = None
 
         if self.is_running():
             # If we found postmaster process we need to figure out whether postgres is accepting connections
@@ -217,7 +218,7 @@ class Postgresql(object):
                          "FROM pg_catalog.pg_stat_get_wal_senders() w,"
                          " pg_catalog.pg_stat_get_activity(w.pid)"
                          " WHERE w.state = 'streaming') r)").format(self.wal_name, self.lsn_name)
-                        if (not self.global_config or self.global_config.is_synchronous_mode)
+                        if global_config.is_synchronous_mode
                         and self.role in ('master', 'primary', 'promoted') else "'on', '', NULL")
 
         if self._major_version >= 90600:
@@ -241,7 +242,9 @@ class Postgresql(object):
     @property
     def available_gucs(self) -> CaseInsensitiveSet:
         """GUCs available in this Postgres server."""
-        return self._get_gucs()
+        if not self._available_gucs:
+            self._available_gucs = self._get_gucs()
+        return self._available_gucs
 
     def _version_file_exists(self) -> bool:
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -318,11 +321,22 @@ class Postgresql(object):
         self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout'] / 2.0
 
     @property
-    def pending_restart(self) -> bool:
-        return self._pending_restart
+    def pending_restart_reason(self) -> CaseInsensitiveDict:
+        """Get :attr:`_pending_restart_reason` value.
 
-    def set_pending_restart(self, value: bool) -> None:
-        self._pending_restart = value
+        :attr:`_pending_restart_reason` is a :class:`CaseInsensitiveDict` object of the PG parameters that are
+        causing pending restart state. Every key is a parameter name, value - a dictionary containing the old
+        and the new value (see :func:`~patroni.postgresql.config.get_param_diff`).
+        """
+        return self._pending_restart_reason
+
+    def set_pending_restart_reason(self, diff_dict: CaseInsensitiveDict) -> None:
+        """Set new or update current :attr:`_pending_restart_reason`.
+
+        :param diff_dict: :class:``CaseInsensitiveDict`` object with the parameters that are causing pending restart
+            state with the diff of their values. Used to reset/update the :attr:`_pending_restart_reason`.
+        """
+        self._pending_restart_reason = diff_dict
 
     @property
     def sysid(self) -> str:
@@ -426,40 +440,30 @@ class Postgresql(object):
                 self.config.write_postgresql_conf()
                 self.reload()
 
-    @property
-    def global_config(self) -> Optional['GlobalConfig']:
-        return self._global_config
-
-    def reset_cluster_info_state(self, cluster: Union[Cluster, None], nofailover: bool = False,
-                                 global_config: Optional['GlobalConfig'] = None) -> None:
+    def reset_cluster_info_state(self, cluster: Optional[Cluster], tags: Optional[Tags] = None) -> None:
         """Reset monitoring query cache.
 
-        It happens in the beginning of heart-beat loop and on change of `synchronous_standby_names`.
+        .. note::
+            It happens in the beginning of heart-beat loop and on change of `synchronous_standby_names`.
 
         :param cluster: currently known cluster state from DCS
-        :param nofailover: whether this node could become a new primary.
-                           Important when there are logical permanent replication slots because "nofailover"
-                           node could do cascading replication and should enable `hot_standby_feedback`
-        :param global_config: last known :class:`GlobalConfig` object
+        :param tags: reference to an object implementing :class:`Tags` interface.
         """
         self._cluster_info_state = {}
 
-        if global_config:
-            self._global_config = global_config
-
-        if not self._global_config:
+        if not tags:
             return
 
-        if self._global_config.is_standby_cluster:
-            self._has_permanent_slots = False
+        if global_config.is_standby_cluster:
             # Standby cluster can't have logical replication slots, and we don't need to enforce hot_standby_feedback
             self.set_enforce_hot_standby_feedback(False)
-        elif cluster and cluster.config and cluster.config.modify_version:
-            self._has_permanent_slots = cluster.has_permanent_slots(self.name, nofailover)
+
+        if cluster and cluster.config and cluster.config.modify_version:
             # We want to enable hot_standby_feedback if the replica is supposed
             # to have a logical slot or in case if it is the cascading replica.
-            self.set_enforce_hot_standby_feedback(
-                self.can_advance_slots and cluster.should_enforce_hot_standby_feedback(self.name, nofailover))
+            self.set_enforce_hot_standby_feedback(not global_config.is_standby_cluster and self.can_advance_slots
+                                                  and cluster.should_enforce_hot_standby_feedback(self, tags))
+            self._has_permanent_slots = cluster.has_permanent_slots(self, tags)
 
     def _cluster_info_state_get(self, name: str) -> Optional[Any]:
         if not self._cluster_info_state:
@@ -585,14 +589,17 @@ class Postgresql(object):
                 return match.group(1), match.group(2), match.group(3), match.group(4)
         return None, None, None, None
 
-    def latest_checkpoint_location(self) -> Optional[int]:
-        """Returns checkpoint location for the cleanly shut down primary.
-           But, if we know that the checkpoint was written to the new WAL
-           due to the archive_mode=on, we will return the LSN of prev wal record (SWITCH)."""
+    def _checkpoint_locations_from_controldata(self, data: Dict[str, str]) -> Optional[Tuple[int, int]]:
+        """Get shutdown checkpoint location.
 
-        data = self.controldata()
+        :param data: :class:`dict` object with values returned by `pg_controldata` tool.
+
+        :returns: a tuple of checkpoint LSN for the cleanly shut down primary, and LSN of prev wal record (SWITCH)
+                  if we know that the checkpoint was written to the new WAL file due to the archive_mode=on.
+        """
         timeline = data.get("Latest checkpoint's TimeLineID")
         lsn = checkpoint_lsn = data.get('Latest checkpoint location')
+        prev_lsn = None
         if data.get('Database cluster state') == 'shut down' and lsn and timeline and checkpoint_lsn:
             try:
                 checkpoint_lsn = parse_lsn(checkpoint_lsn)
@@ -603,13 +610,26 @@ class Postgresql(object):
                     _, lsn, _, desc = self.parse_wal_record(timeline, prev)
                     prev = parse_lsn(prev)
                     # If the cluster is shutdown with archive_mode=on, WAL is switched before writing the checkpoint.
-                    # In this case we want to take the LSN of previous record (switch) as the last known WAL location.
+                    # In this case we want to take the LSN of previous record (SWITCH) as the last known WAL location.
                     if lsn and parse_lsn(lsn) == prev and str(desc).strip() in ('xlog switch', 'SWITCH'):
-                        return prev
+                        prev_lsn = prev
             except Exception as e:
                 logger.error('Exception when parsing WAL pg_%sdump output: %r', self.wal_name, e)
             if isinstance(checkpoint_lsn, int):
-                return checkpoint_lsn
+                return checkpoint_lsn, (prev_lsn or checkpoint_lsn)
+
+    def latest_checkpoint_location(self) -> Optional[int]:
+        """Get shutdown checkpoint location.
+
+        .. note::
+            In case if checkpoint was written to the new WAL file due to the archive_mode=on
+            we return LSN of the previous wal record (SWITCH).
+
+        :returns: checkpoint LSN for the cleanly shut down primary.
+        """
+        checkpoint_locations = self._checkpoint_locations_from_controldata(self.controldata())
+        if checkpoint_locations:
+            return checkpoint_locations[1]
 
     def is_running(self) -> Optional[PostmasterProcess]:
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
@@ -718,7 +738,7 @@ class Postgresql(object):
         self.set_role(role or self.get_postgres_role_from_data_directory())
 
         self.set_state('starting')
-        self._pending_restart = False
+        self.set_pending_restart_reason(CaseInsensitiveDict())
 
         try:
             if not self.ensure_major_version_is_known():
@@ -795,7 +815,7 @@ class Postgresql(object):
             return 'not accessible or not healty'
 
     def stop(self, mode: str = 'fast', block_callbacks: bool = False, checkpoint: Optional[bool] = None,
-             on_safepoint: Optional[Callable[..., Any]] = None, on_shutdown: Optional[Callable[[int], Any]] = None,
+             on_safepoint: Optional[Callable[..., Any]] = None, on_shutdown: Optional[Callable[[int, int], Any]] = None,
              before_shutdown: Optional[Callable[..., Any]] = None, stop_timeout: Optional[int] = None) -> bool:
         """Stop PostgreSQL
 
@@ -825,7 +845,7 @@ class Postgresql(object):
         return success
 
     def _do_stop(self, mode: str, block_callbacks: bool, checkpoint: bool,
-                 on_safepoint: Optional[Callable[..., Any]], on_shutdown: Optional[Callable[..., Any]],
+                 on_safepoint: Optional[Callable[..., Any]], on_shutdown: Optional[Callable[[int, int], Any]],
                  before_shutdown: Optional[Callable[..., Any]], stop_timeout: Optional[int]) -> Tuple[bool, bool]:
         postmaster = self.is_running()
         if not postmaster:
@@ -865,7 +885,9 @@ class Postgresql(object):
             while postmaster.is_running():
                 data = self.controldata()
                 if data.get('Database cluster state', '') == 'shut down':
-                    on_shutdown(self.latest_checkpoint_location())
+                    checkpoint_locations = self._checkpoint_locations_from_controldata(data)
+                    if checkpoint_locations:
+                        on_shutdown(*checkpoint_locations)
                     break
                 elif data.get('Database cluster state', '').startswith('shut down'):  # shut down in recovery
                     break
@@ -1186,7 +1208,7 @@ class Postgresql(object):
             before_promote()
 
         self.slots_handler.on_promote()
-        self.citus_handler.schedule_cache_rebuild()
+        self.mpp_handler.schedule_cache_rebuild()
 
         ret = self.pg_ctl('promote', '-W')
         if ret:
@@ -1333,7 +1355,7 @@ class Postgresql(object):
         """
         self.ensure_major_version_is_known()
         self.slots_handler.schedule()
-        self.citus_handler.schedule_cache_rebuild()
+        self.mpp_handler.schedule_cache_rebuild()
         self._sysid = ''
 
     def _get_gucs(self) -> CaseInsensitiveSet:

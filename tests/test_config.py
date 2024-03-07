@@ -5,7 +5,11 @@ import io
 
 from copy import deepcopy
 from mock import MagicMock, Mock, patch
-from patroni.config import Config, ConfigParseError, GlobalConfig
+
+from patroni import global_config
+from patroni.config import ClusterConfig, Config, ConfigParseError
+
+from .test_ha import get_cluster_initialized_with_only_leader
 
 
 class TestConfig(unittest.TestCase):
@@ -31,6 +35,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_NAMESPACE': '/patroni/',
             'PATRONI_SCOPE': 'batman2',
             'PATRONI_LOGLEVEL': 'ERROR',
+            'PATRONI_LOG_FORMAT': '["message", {"levelname": "level"}]',
             'PATRONI_LOG_LOGGERS': 'patroni.postmaster: WARNING, urllib3: DEBUG',
             'PATRONI_LOG_FILE_NUM': '5',
             'PATRONI_CITUS_DATABASE': 'citus',
@@ -151,6 +156,45 @@ class TestConfig(unittest.TestCase):
     def test_invalid_path(self):
         self.assertRaises(ConfigParseError, Config, 'postgres0')
 
+    @patch.object(Config, 'get')
+    @patch('patroni.config.logger')
+    def test__validate_failover_tags(self, mock_logger, mock_get):
+        """Ensures that only one of `nofailover` or `failover_priority` can be provided"""
+        config = Config("postgres0.yml")
+
+        # Providing one of `nofailover` or `failover_priority` is fine
+        for single_param in ({"nofailover": True}, {"failover_priority": 1}, {"failover_priority": 0}):
+            mock_get.side_effect = [single_param] * 2
+            self.assertIsNone(config._validate_failover_tags())
+            mock_logger.warning.assert_not_called()
+
+        # Providing both `nofailover` and `failover_priority` is fine if consistent
+        for consistent_state in (
+            {"nofailover": False, "failover_priority": 1},
+            {"nofailover": True, "failover_priority": 0},
+            {"nofailover": "False", "failover_priority": 0}
+        ):
+            mock_get.side_effect = [consistent_state] * 2
+            self.assertIsNone(config._validate_failover_tags())
+            mock_logger.warning.assert_not_called()
+
+        # Providing both inconsistently should log a warning
+        for inconsistent_state in (
+            {"nofailover": False, "failover_priority": 0},
+            {"nofailover": True, "failover_priority": 1},
+            {"nofailover": "False", "failover_priority": 1},
+            {"nofailover": "", "failover_priority": 0}
+        ):
+            mock_get.side_effect = [inconsistent_state] * 2
+            self.assertIsNone(config._validate_failover_tags())
+            mock_logger.warning.assert_called_once_with(
+                'Conflicting configuration between nofailover: %s and failover_priority: %s.'
+                + ' Defaulting to nofailover: %s',
+                inconsistent_state['nofailover'],
+                inconsistent_state['failover_priority'],
+                inconsistent_state['nofailover'])
+            mock_logger.warning.reset_mock()
+
     def test__process_postgresql_parameters(self):
         expected_params = {
             'f.oo': 'bar',  # not in ConfigHandler.CMDLINE_OPTIONS
@@ -201,4 +245,6 @@ class TestConfig(unittest.TestCase):
     def test_global_config_is_synchronous_mode(self):
         # we should ignore synchronous_mode setting in a standby cluster
         config = {'standby_cluster': {'host': 'some_host'}, 'synchronous_mode': True}
-        self.assertFalse(GlobalConfig(config).is_synchronous_mode)
+        cluster = get_cluster_initialized_with_only_leader(cluster_config=ClusterConfig(1, config, 1))
+        test_config = global_config.from_cluster(cluster)
+        self.assertFalse(test_config.is_synchronous_mode)

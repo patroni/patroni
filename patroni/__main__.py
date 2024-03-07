@@ -68,7 +68,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
         self.watchdog = Watchdog(self.config)
         self.load_dynamic_configuration()
 
-        self.postgresql = Postgresql(self.config['postgresql'])
+        self.postgresql = Postgresql(self.config['postgresql'], self.dcs.mpp)
         self.api = RestApiServer(self, self.config['restapi'])
         self.ha = Ha(self)
 
@@ -107,8 +107,6 @@ class Patroni(AbstractPatroniDaemon, Tags):
 
     def ensure_unique_name(self) -> None:
         """A helper method to prevent splitbrain from operator naming error."""
-        from urllib.parse import urlparse
-        from urllib3.connection import HTTPConnection
         from patroni.dcs import Member
 
         cluster = self.dcs.get_cluster()
@@ -118,14 +116,14 @@ class Patroni(AbstractPatroniDaemon, Tags):
         if not isinstance(member, Member):
             return
         try:
-            parts = urlparse(member.api_url)
-            if isinstance(parts.hostname, str):
-                connection = HTTPConnection(parts.hostname, port=parts.port or 80, timeout=3)
-                connection.connect()
-                logger.fatal("Can't start; there is already a node named '%s' running", self.config['name'])
-                sys.exit(1)
+            # Silence annoying WARNING: Retrying (...) messages when Patroni is quickly restarted.
+            # At this moment we don't have custom log levels configured and hence shouldn't lose anything useful.
+            self.logger.update_loggers({'urllib3.connectionpool': 'ERROR'})
+            _ = self.request(member, endpoint="/liveness", timeout=3)
+            logger.fatal("Can't start; there is already a node named '%s' running", self.config['name'])
+            sys.exit(1)
         except Exception:
-            return
+            self.logger.update_loggers({})
 
     def _get_tags(self) -> Dict[str, Any]:
         """Get tags configured for this node, if any.
@@ -231,11 +229,6 @@ def patroni_main(configfile: str) -> None:
 
     :param configfile: path to Patroni configuration file.
     """
-    from multiprocessing import freeze_support
-
-    # Windows executables created by PyInstaller are frozen, thus we need to enable frozen support for
-    # :mod:`multiprocessing` to avoid :class:`RuntimeError` exceptions.
-    freeze_support()
     abstract_main(Patroni, configfile)
 
 
@@ -337,6 +330,12 @@ def main() -> None:
         ``patroni`` daemon as another process. In that case relevant signals received by the main process and forwarded
         to ``patroni`` daemon process.
     """
+    from multiprocessing import freeze_support
+
+    # Executables created by PyInstaller are frozen, thus we need to enable frozen support for
+    # :mod:`multiprocessing` to avoid :class:`RuntimeError` exceptions.
+    freeze_support()
+
     check_psycopg()
 
     args = process_arguments()

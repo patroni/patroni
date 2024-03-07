@@ -25,7 +25,7 @@ KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd' +\
 
 EXTRAS_REQUIRE = {'aws': ['boto3'], 'etcd': ['python-etcd'], 'etcd3': ['python-etcd'],
                   'consul': ['python-consul'], 'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'],
-                  'kubernetes': [], 'raft': ['pysyncobj', 'cryptography']}
+                  'kubernetes': [], 'raft': ['pysyncobj', 'cryptography'], 'jsonlogger': ['python-json-logger']}
 
 # Add here all kinds of additional classifiers as defined under
 # https://pypi.python.org/pypi?%3Aaction=list_classifiers
@@ -54,7 +54,8 @@ CONSOLE_SCRIPTS = ['patroni = patroni.__main__:main',
                    'patronictl = patroni.ctl:ctl',
                    'patroni_raft_controller = patroni.raft_controller:main',
                    "patroni_wale_restore = patroni.scripts.wale_restore:main",
-                   "patroni_aws = patroni.scripts.aws:main"]
+                   "patroni_aws = patroni.scripts.aws:main",
+                   "patroni_barman_recover = patroni.scripts.barman_recover:main"]
 
 
 class _Command(Command):

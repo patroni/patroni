@@ -1,6 +1,6 @@
 ## This Dockerfile is meant to aid in the building and debugging patroni whilst developing on your local machine
 ## It has all the necessary components to play/debug with a single node appliance, running etcd
-ARG PG_MAJOR=15
+ARG PG_MAJOR=16
 ARG COMPRESS=false
 ARG PGHOME=/home/postgres
 ARG PGDATA=$PGHOME/data
@@ -94,9 +94,9 @@ RUN set -ex \
         /usr/share/locale/??_?? \
         /usr/share/postgresql/*/man \
         /usr/share/postgresql-common/pg_wrapper \
-        /usr/share/vim/vim80/doc \
-        /usr/share/vim/vim80/lang \
-        /usr/share/vim/vim80/tutor \
+        /usr/share/vim/vim*/doc \
+        /usr/share/vim/vim*/lang \
+        /usr/share/vim/vim*/tutor \
 #        /var/lib/dpkg/info/* \
     && find /usr/bin -xtype l -delete \
     && find /var/log -type f -exec truncate --size 0 {} \; \
@@ -125,6 +125,8 @@ RUN if [ "$COMPRESS" = "true" ]; then \
         && /bin/busybox sh -c "(find $save_dirs -not -type d && cat /exclude /exclude && echo exclude) | sort | uniq -u | xargs /bin/busybox rm" \
         && /bin/busybox --install -s \
         && /bin/busybox sh -c "find $save_dirs -type d -depth -exec rmdir -p {} \; 2> /dev/null"; \
+    else \
+        /bin/busybox --install -s; \
     fi
 
 FROM scratch
@@ -143,6 +145,7 @@ ARG PGBIN=/usr/lib/postgresql/$PG_MAJOR/bin
 
 ENV LC_ALL=$LC_ALL LANG=$LANG EDITOR=/usr/bin/editor
 ENV PGDATA=$PGDATA PATH=$PATH:$PGBIN
+ENV ETCDCTL_API=3
 
 COPY patroni /patroni/
 COPY extras/confd/conf.d/haproxy.toml /etc/confd/conf.d/

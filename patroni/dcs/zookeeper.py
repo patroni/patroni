@@ -12,9 +12,9 @@ from kazoo.retry import RetryFailedError
 from kazoo.security import ACL, make_acl
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
-from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, \
-    TimelineHistory, citus_group_re
+from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, TimelineHistory
 from ..exceptions import DCSError
+from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
@@ -87,8 +87,8 @@ class PatroniKazooClient(KazooClient):
 
 class ZooKeeper(AbstractDCS):
 
-    def __init__(self, config: Dict[str, Any]) -> None:
-        super(ZooKeeper, self).__init__(config)
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
+        super(ZooKeeper, self).__init__(config, mpp)
 
         hosts: Union[str, List[str]] = config.get('hosts', [])
         if isinstance(hosts, list):
@@ -115,7 +115,8 @@ class ZooKeeper(AbstractDCS):
         self._client = PatroniKazooClient(hosts, handler=PatroniSequentialThreadingHandler(config['retry_timeout']),
                                           timeout=config['ttl'], connection_retry=KazooRetry(max_delay=1, max_tries=-1,
                                           sleep_func=time.sleep), command_retry=KazooRetry(max_delay=1, max_tries=-1,
-                                          deadline=config['retry_timeout'], sleep_func=time.sleep), **kwargs)
+                                          deadline=config['retry_timeout'], sleep_func=time.sleep),
+                                          auth_data=list(config.get('auth_data', {}).items()), **kwargs)
 
         self.__last_member_data: Optional[Dict[str, Any]] = None
 
@@ -213,7 +214,13 @@ class ZooKeeper(AbstractDCS):
                 members.append(self.member(member, *data))
         return members
 
-    def _cluster_loader(self, path: str) -> Cluster:
+    def _postgresql_cluster_loader(self, path: str) -> Cluster:
+        """Load and build the :class:`Cluster` object from DCS, which represents a single PostgreSQL cluster.
+
+        :param path: the path in DCS where to load :class:`Cluster` from.
+
+        :returns: :class:`Cluster` instance.
+        """
         nodes = set(self.get_children(path))
 
         # get initialize flag
@@ -257,11 +264,17 @@ class ZooKeeper(AbstractDCS):
 
         return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
-    def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+    def _mpp_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+        """Load and build all PostgreSQL clusters from a single MPP cluster.
+
+        :param path: the path in DCS where to load Cluster(s) from.
+
+        :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
+        """
         ret: Dict[int, Cluster] = {}
         for node in self.get_children(path):
-            if citus_group_re.match(node):
-                ret[int(node)] = self._cluster_loader(path + node + '/')
+            if self._mpp.group_re.match(node):
+                ret[int(node)] = self._postgresql_cluster_loader(path + node + '/')
         return ret
 
     def _load_cluster(

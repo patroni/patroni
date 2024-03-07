@@ -43,9 +43,13 @@ etcd:
 #  - 127.0.0.1:2222
 #  - 127.0.0.1:2223
 
+# The bootstrap configuration. Works only when the cluster is not yet initialized.
+# If the cluster is already initialized, all changes in the `bootstrap` section are ignored!
 bootstrap:
-  # this section will be written into Etcd:/<namespace>/<scope>/config after initializing new cluster
-  # and all other cluster members will use it as a `global configuration`
+  # This section will be written into Etcd:/<namespace>/<scope>/config after initializing new cluster
+  # and all other cluster members will use it as a `global configuration`.
+  # WARNING! If you want to change any of the parameters that were set up
+  # via `bootstrap.dcs` section, please use `patronictl edit-config`!
   dcs:
     ttl: 30
     loop_wait: 10
@@ -84,7 +88,6 @@ bootstrap:
   - encoding: UTF8
   - data-checksums
 
-
 postgresql:
   listen: 127.0.0.1:5434
   connect_address: 127.0.0.1:5434
@@ -111,7 +114,7 @@ postgresql:
 #    krb_server_keyfile: /var/spool/keytabs/postgres
     unix_socket_directories: '..'  # parent directory of data_dir
 tags:
-    nofailover: false
+    # failover_priority: 1
     noloadbalance: false
     clonefrom: false
 #    replicatefrom: postgresql1

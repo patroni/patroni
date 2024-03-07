@@ -1,4 +1,5 @@
 """Facilities related to Patroni configuration."""
+import re
 import json
 import logging
 import os
@@ -12,7 +13,7 @@ from typing import Any, Callable, Collection, Dict, List, Optional, Union, TYPE_
 
 from . import PATRONI_ENV_PREFIX
 from .collections import CaseInsensitiveDict
-from .dcs import ClusterConfig, Cluster
+from .dcs import ClusterConfig
 from .exceptions import ConfigParseError
 from .file_perm import pg_perm
 from .postgresql.config import ConfigHandler
@@ -52,154 +53,6 @@ def default_validator(conf: Dict[str, Any]) -> List[str]:
     if not conf:
         raise ConfigParseError("Config is empty.")
     return []
-
-
-class GlobalConfig(object):
-    """A class that wraps global configuration and provides convenient methods to access/check values.
-
-    It is instantiated either by calling :func:`get_global_config` or :meth:`Config.get_global_config`, which picks
-    either a configuration from provided :class:`Cluster` object (the most up-to-date) or from the
-    local cache if :class:`ClusterConfig` is not initialized or doesn't have a valid config.
-    """
-
-    def __init__(self, config: Dict[str, Any]) -> None:
-        """Initialize :class:`GlobalConfig` object with given *config*.
-
-        :param config: current configuration either from
-                       :class:`ClusterConfig` or from :func:`Config.dynamic_configuration`.
-        """
-        self.__config = config
-
-    def get(self, name: str) -> Any:
-        """Gets global configuration value by *name*.
-
-        :param name: parameter name.
-
-        :returns: configuration value or ``None`` if it is missing.
-        """
-        return self.__config.get(name)
-
-    def check_mode(self, mode: str) -> bool:
-        """Checks whether the certain parameter is enabled.
-
-        :param mode: parameter name, e.g. ``synchronous_mode``, ``failsafe_mode``, ``pause``, ``check_timeline``, and
-            so on.
-
-        :returns: ``True`` if parameter *mode* is enabled in the global configuration.
-        """
-        return bool(parse_bool(self.__config.get(mode)))
-
-    @property
-    def is_paused(self) -> bool:
-        """``True`` if cluster is in maintenance mode."""
-        return self.check_mode('pause')
-
-    @property
-    def is_synchronous_mode(self) -> bool:
-        """``True`` if synchronous replication is requested and it is not a standby cluster config."""
-        return self.check_mode('synchronous_mode') and not self.is_standby_cluster
-
-    @property
-    def is_synchronous_mode_strict(self) -> bool:
-        """``True`` if at least one synchronous node is required."""
-        return self.check_mode('synchronous_mode_strict')
-
-    def get_standby_cluster_config(self) -> Union[Dict[str, Any], Any]:
-        """Get ``standby_cluster`` configuration.
-
-        :returns: a copy of ``standby_cluster`` configuration.
-        """
-        return deepcopy(self.get('standby_cluster'))
-
-    @property
-    def is_standby_cluster(self) -> bool:
-        """``True`` if global configuration has a valid ``standby_cluster`` section."""
-        config = self.get_standby_cluster_config()
-        return isinstance(config, dict) and\
-            bool(config.get('host') or config.get('port') or config.get('restore_command'))
-
-    def get_int(self, name: str, default: int = 0) -> int:
-        """Gets current value of *name* from the global configuration and try to return it as :class:`int`.
-
-        :param name: name of the parameter.
-        :param default: default value if *name* is not in the configuration or invalid.
-
-        :returns: currently configured value of *name* from the global configuration or *default* if it is not set or
-            invalid.
-        """
-        ret = parse_int(self.get(name))
-        return default if ret is None else ret
-
-    @property
-    def min_synchronous_nodes(self) -> int:
-        """The minimal number of synchronous nodes based on whether ``synchronous_mode_strict`` is enabled or not."""
-        return 1 if self.is_synchronous_mode_strict else 0
-
-    @property
-    def synchronous_node_count(self) -> int:
-        """Currently configured value of ``synchronous_node_count`` from the global configuration.
-
-        Assume ``1`` if it is not set or invalid.
-        """
-        return max(self.get_int('synchronous_node_count', 1), self.min_synchronous_nodes)
-
-    @property
-    def maximum_lag_on_failover(self) -> int:
-        """Currently configured value of ``maximum_lag_on_failover`` from the global configuration.
-
-        Assume ``1048576`` if it is not set or invalid.
-        """
-        return self.get_int('maximum_lag_on_failover', 1048576)
-
-    @property
-    def maximum_lag_on_syncnode(self) -> int:
-        """Currently configured value of ``maximum_lag_on_syncnode`` from the global configuration.
-
-        Assume ``-1`` if it is not set or invalid.
-        """
-        return self.get_int('maximum_lag_on_syncnode', -1)
-
-    @property
-    def primary_start_timeout(self) -> int:
-        """Currently configured value of ``primary_start_timeout`` from the global configuration.
-
-        Assume ``300`` if it is not set or invalid.
-
-        .. note::
-            ``master_start_timeout`` is still supported to keep backward compatibility.
-        """
-        default = 300
-        return self.get_int('primary_start_timeout', default)\
-            if 'primary_start_timeout' in self.__config else self.get_int('master_start_timeout', default)
-
-    @property
-    def primary_stop_timeout(self) -> int:
-        """Currently configured value of ``primary_stop_timeout`` from the global configuration.
-
-        Assume ``0`` if it is not set or invalid.
-
-        .. note::
-            ``master_stop_timeout`` is still supported to keep backward compatibility.
-        """
-        default = 0
-        return self.get_int('primary_stop_timeout', default)\
-            if 'primary_stop_timeout' in self.__config else self.get_int('master_stop_timeout', default)
-
-
-def get_global_config(cluster: Optional[Cluster], default: Optional[Dict[str, Any]] = None) -> GlobalConfig:
-    """Instantiates :class:`GlobalConfig` based on the input.
-
-    :param cluster: the currently known cluster state from DCS.
-    :param default: default configuration, which will be used if there is no valid *cluster.config*.
-
-    :returns: :class:`GlobalConfig` object.
-    """
-    # Try to protect from the case when DCS was wiped out
-    if cluster and cluster.config and cluster.config.modify_version:
-        config = cluster.config.data
-    else:
-        config = default or {}
-    return GlobalConfig(deepcopy(config))
 
 
 class Config(object):
@@ -290,8 +143,9 @@ class Config(object):
         self.__effective_configuration = self._build_effective_configuration({}, self._local_configuration)
         self._data_dir = self.__effective_configuration.get('postgresql', {}).get('data_dir', "")
         self._cache_file = os.path.join(self._data_dir, self.__CACHE_FILENAME)
-        if validator:  # patronictl uses validator=None and we don't want to load anything from local cache in this case
-            self._load_cache()
+        if validator:  # patronictl uses validator=None
+            self._load_cache()  # we don't want to load anything from local cache for ctl
+            self._validate_failover_tags()  # irrelevant for ctl
         self._cache_needs_saving = False
 
     @property
@@ -503,6 +357,7 @@ class Config(object):
                     new_configuration = self._build_effective_configuration(self._dynamic_configuration, configuration)
                     self._local_configuration = configuration
                     self.__effective_configuration = new_configuration
+                    self._validate_failover_tags()
                     return True
                 else:
                     logger.info('No local configuration items changed.')
@@ -680,8 +535,8 @@ class Config(object):
         _set_section_values('ctl', ['insecure', 'cacert', 'certfile', 'keyfile', 'keyfile_password'])
         _set_section_values('postgresql', ['listen', 'connect_address', 'proxy_address',
                                            'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
-        _set_section_values('log', ['level', 'traceback_level', 'format', 'dateformat', 'max_queue_size',
-                                    'dir', 'file_size', 'file_num', 'loggers'])
+        _set_section_values('log', ['type', 'level', 'traceback_level', 'format', 'dateformat', 'static_fields',
+                                    'max_queue_size', 'dir', 'file_size', 'file_num', 'loggers'])
         _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs', 'password', 'bind_addr'])
 
         for binary in ('pg_ctl', 'initdb', 'pg_controldata', 'pg_basebackup', 'postgres', 'pg_isready', 'pg_rewind'):
@@ -728,6 +583,12 @@ class Config(object):
                 if value:
                     ret[first][second] = value
 
+        logformat = ret.get('log', {}).get('format')
+        if logformat and not re.search(r'%\(\w+\)', logformat):
+            logformat = _parse_list(logformat)
+            if logformat:
+                ret['log']['format'] = logformat
+
         def _parse_dict(value: str) -> Optional[Dict[str, Any]]:
             """Parse an YAML dictionary *value* as a :class:`dict`.
 
@@ -743,7 +604,12 @@ class Config(object):
                 logger.exception('Exception when parsing dict %s', value)
                 return None
 
-        for first, params in (('restapi', ('http_extra_headers', 'https_extra_headers')), ('log', ('loggers',))):
+        dict_configs = (
+            ('restapi', ('http_extra_headers', 'https_extra_headers')),
+            ('log', ('static_fields', 'loggers'))
+        )
+
+        for first, params in dict_configs:
             for second in params:
                 value = ret.get(first, {}).pop(second, None)
                 if value:
@@ -790,7 +656,7 @@ class Config(object):
                               'SERVICE_TAGS', 'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL',
                               'POD_IP', 'PORTS', 'LABELS', 'BYPASS_API_SERVICE', 'RETRIABLE_HTTP_CODES', 'KEY_PASSWORD',
                               'USE_SSL', 'SET_ACLS', 'GROUP', 'DATABASE', 'LEADER_LABEL_VALUE', 'FOLLOWER_LABEL_VALUE',
-                              'STANDBY_LEADER_LABEL_VALUE', 'TMP_ROLE_LABEL') and name:
+                              'STANDBY_LEADER_LABEL_VALUE', 'TMP_ROLE_LABEL', 'AUTH_DATA') and name:
                     value = os.environ.pop(param)
                     if name == 'CITUS':
                         if suffix == 'GROUP':
@@ -801,7 +667,7 @@ class Config(object):
                         value = value and parse_int(value)
                     elif suffix in ('HOSTS', 'PORTS', 'CHECKS', 'SERVICE_TAGS', 'RETRIABLE_HTTP_CODES'):
                         value = value and _parse_list(value)
-                    elif suffix in ('LABELS', 'SET_ACLS'):
+                    elif suffix in ('LABELS', 'SET_ACLS', 'AUTH_DATA'):
                         value = _parse_dict(value)
                     elif suffix in ('USE_PROXIES', 'REGISTER_SERVICE', 'USE_ENDPOINTS', 'BYPASS_API_SERVICE', 'VERIFY'):
                         value = parse_bool(value)
@@ -931,14 +797,25 @@ class Config(object):
         """
         return deepcopy(self.__effective_configuration)
 
-    def get_global_config(self, cluster: Optional[Cluster]) -> GlobalConfig:
-        """Instantiate :class:`GlobalConfig` based on input.
+    def _validate_failover_tags(self) -> None:
+        """Check ``nofailover``/``failover_priority`` config and warn user if it's contradictory.
 
-        Use the configuration from provided *cluster* (the most up-to-date) or from the
-        local cache if *cluster.config* is not initialized or doesn't have a valid config.
-
-        :param cluster: the currently known cluster state from DCS.
-
-        :returns: :class:`GlobalConfig` object.
+        .. note::
+          To preserve sanity (and backwards compatibility) the ``nofailover`` tag will still exist. A contradictory
+          configuration is one where ``nofailover`` is ``True`` but ``failover_priority > 0``, or where
+          ``nofailover`` is ``False``, but ``failover_priority <= 0``. Essentially, ``nofailover`` and
+          ``failover_priority`` are communicating different things.
+          This checks for this edge case (which is a misconfiguration on the part of the user) and warns them.
+          The behaviour is as if ``failover_priority`` were not provided (i.e ``nofailover`` is the
+          bedrock source of truth)
         """
-        return get_global_config(cluster, self._dynamic_configuration)
+        tags = self.get('tags', {})
+        if 'nofailover' not in tags:
+            return
+        nofailover_tag = tags.get('nofailover')
+        failover_priority_tag = parse_int(tags.get('failover_priority'))
+        if failover_priority_tag is not None \
+                and (bool(nofailover_tag) is True and failover_priority_tag > 0
+                     or bool(nofailover_tag) is False and failover_priority_tag <= 0):
+            logger.warning('Conflicting configuration between nofailover: %s and failover_priority: %s. '
+                           'Defaulting to nofailover: %s', nofailover_tag, failover_priority_tag, nofailover_tag)

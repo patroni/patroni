@@ -8,14 +8,17 @@ import unittest
 import urllib3
 
 from mock import Mock, PropertyMock, mock_open, patch
+from patroni.dcs import get_dcs
 from patroni.dcs.kubernetes import Cluster, k8s_client, k8s_config, K8sConfig, K8sConnectionFailed, \
     K8sException, K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException, \
     Retry, RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
+from patroni.postgresql.mpp import get_mpp
 from threading import Thread
 from . import MockResponse, SleepException
 
 
 def mock_list_namespaced_config_map(*args, **kwargs):
+    k8s_group_label = get_mpp({'citus': {'group': 0, 'database': 'postgres'}}).k8s_group_label
     metadata = {'resource_version': '1', 'labels': {'f': 'b'}, 'name': 'test-config',
                 'annotations': {'initialize': '123', 'config': '{}'}}
     items = [k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata))]
@@ -26,16 +29,16 @@ def mock_list_namespaced_config_map(*args, **kwargs):
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
     metadata.update({'name': 'test-sync', 'annotations': {'leader': 'p-0'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
-    metadata.update({'name': 'test-0-leader', 'labels': {Kubernetes._CITUS_LABEL: '0'},
+    metadata.update({'name': 'test-0-leader', 'labels': {k8s_group_label: '0'},
                      'annotations': {'optime': '1234x', 'leader': 'p-0', 'ttl': '30s', 'slots': '{', 'failsafe': '{'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
-    metadata.update({'name': 'test-0-config', 'labels': {Kubernetes._CITUS_LABEL: '0'},
+    metadata.update({'name': 'test-0-config', 'labels': {k8s_group_label: '0'},
                      'annotations': {'initialize': '123', 'config': '{}'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
-    metadata.update({'name': 'test-1-leader', 'labels': {Kubernetes._CITUS_LABEL: '1'},
+    metadata.update({'name': 'test-1-leader', 'labels': {k8s_group_label: '1'},
                      'annotations': {'leader': 'p-3', 'ttl': '30s'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
-    metadata.update({'name': 'test-2-config', 'labels': {Kubernetes._CITUS_LABEL: '2'}, 'annotations': {}})
+    metadata.update({'name': 'test-2-config', 'labels': {k8s_group_label: '2'}, 'annotations': {}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
 
     metadata = k8s_client.V1ObjectMeta(resource_version='1')
@@ -60,7 +63,8 @@ def mock_list_namespaced_endpoints(*args, **kwargs):
 
 
 def mock_list_namespaced_pod(*args, **kwargs):
-    metadata = k8s_client.V1ObjectMeta(resource_version='1', labels={'f': 'b', Kubernetes._CITUS_LABEL: '1'},
+    k8s_group_label = get_mpp({'citus': {'group': 0, 'database': 'postgres'}}).k8s_group_label
+    metadata = k8s_client.V1ObjectMeta(resource_version='1', labels={'f': 'b', k8s_group_label: '1'},
                                        name='p-0', annotations={'status': '{}'},
                                        uid='964dfeae-e79b-4476-8a5a-1920b5c2a69d')
     status = k8s_client.V1PodStatus(pod_ip='10.0.0.1')
@@ -225,11 +229,12 @@ class BaseTestKubernetes(unittest.TestCase):
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_pod', mock_list_namespaced_pod, create=True)
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
     def setUp(self, config=None):
-        config = config or {}
-        config.update(ttl=30, scope='test', name='p-0', loop_wait=10, group=0,
-                      retry_timeout=10, labels={'f': 'b'}, bypass_api_service=True)
-        self.k = Kubernetes(config)
-        self.k._citus_group = None
+        config = {'ttl': 30, 'scope': 'test', 'name': 'p-0', 'loop_wait': 10, 'retry_timeout': 10,
+                  'kubernetes': {'labels': {'f': 'b'}, 'bypass_api_service': True, **(config or {})},
+                  'citus': {'group': 0, 'database': 'postgres'}}
+        self.k = get_dcs(config)
+        self.assertIsInstance(self.k, Kubernetes)
+        self.k._mpp = get_mpp({})
         self.assertRaises(AttributeError, self.k._pods._build_cache)
         self.k._pods._is_ready = True
         self.assertRaises(TypeError, self.k._kinds._build_cache)
@@ -254,18 +259,31 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
             self.assertRaises(KubernetesError, self.k.get_cluster)
 
     def test__get_citus_cluster(self):
-        self.k._citus_group = '0'
+        self.k._mpp = get_mpp({'citus': {'group': 0, 'database': 'postgres'}})
         cluster = self.k.get_cluster()
         self.assertIsInstance(cluster, Cluster)
         self.assertIsInstance(cluster.workers[1], Cluster)
 
     @patch('patroni.dcs.kubernetes.logger.error')
-    def test_get_citus_coordinator(self, mock_logger):
-        self.assertIsInstance(self.k.get_citus_coordinator(), Cluster)
-        with patch.object(Kubernetes, '_cluster_loader', Mock(side_effect=Exception)):
-            self.assertIsNone(self.k.get_citus_coordinator())
+    def test_get_mpp_coordinator(self, mock_logger):
+        self.assertIsInstance(self.k.get_mpp_coordinator(), Cluster)
+        with patch.object(Kubernetes, '_postgresql_cluster_loader', Mock(side_effect=Exception)):
+            self.assertIsNone(self.k.get_mpp_coordinator())
             mock_logger.assert_called()
-            self.assertTrue(mock_logger.call_args[0][0].startswith('Failed to load Citus coordinator'))
+            self.assertEqual(mock_logger.call_args[0][0], 'Failed to load %s coordinator cluster from Kubernetes: %r')
+            self.assertEqual(mock_logger.call_args[0][1], 'Null')
+            self.assertIsInstance(mock_logger.call_args[0][2], KubernetesError)
+
+    @patch('patroni.dcs.kubernetes.logger.error')
+    def test_get_citus_coordinator(self, mock_logger):
+        self.k._mpp = get_mpp({'citus': {'group': 0, 'database': 'postgres'}})
+        self.assertIsInstance(self.k.get_mpp_coordinator(), Cluster)
+        with patch.object(Kubernetes, '_postgresql_cluster_loader', Mock(side_effect=Exception)):
+            self.assertIsNone(self.k.get_mpp_coordinator())
+            mock_logger.assert_called()
+            self.assertEqual(mock_logger.call_args[0][0], 'Failed to load %s coordinator cluster from Kubernetes: %r')
+            self.assertEqual(mock_logger.call_args[0][1], 'Citus')
+            self.assertIsInstance(mock_logger.call_args[0][2], KubernetesError)
 
     def test_attempt_to_acquire_leader(self):
         with patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', create=True) as mock_patch:
@@ -466,7 +484,7 @@ class TestCacheBuilder(BaseTestKubernetes):
     @patch('patroni.dcs.kubernetes.ObjectCache._watch', mock_watch)
     @patch.object(urllib3.HTTPResponse, 'read_chunked')
     def test__build_cache(self, mock_read_chunked):
-        self.k._citus_group = '0'
+        self.k._mpp = get_mpp({'citus': {'group': 0, 'database': 'postgres'}})
         mock_read_chunked.return_value = [json.dumps(
             {'type': 'MODIFIED', 'object': {'metadata': {
                 'name': self.k.config_path, 'resourceVersion': '2', 'annotations': {self.k._CONFIG: 'foo'}}}}

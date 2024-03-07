@@ -51,7 +51,7 @@ Feature: standby cluster
     When I issue a GET request to http://127.0.0.1:8010/patroni
     Then I receive a response code 200
     And I receive a response replication_state streaming
-    And postgres1 does not have a logical replication slot named test_logical
+    And postgres1 does not have a replication slot named test_logical
 
   Scenario: check switchover
     Given I run patronictl.py switchover batman1 --force

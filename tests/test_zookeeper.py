@@ -7,8 +7,10 @@ from kazoo.handlers.threading import SequentialThreadingHandler
 from kazoo.protocol.states import KeeperState, WatchedEvent, ZnodeStat
 from kazoo.retry import RetryFailedError
 from mock import Mock, PropertyMock, patch
+from patroni.dcs import get_dcs
 from patroni.dcs.zookeeper import Cluster, PatroniKazooClient, \
     PatroniSequentialThreadingHandler, ZooKeeper, ZooKeeperError
+from patroni.postgresql.mpp import get_mpp
 
 
 class MockKazooClient(Mock):
@@ -148,9 +150,9 @@ class TestZooKeeper(unittest.TestCase):
 
     @patch('patroni.dcs.zookeeper.PatroniKazooClient', MockKazooClient)
     def setUp(self):
-        self.zk = ZooKeeper({'hosts': ['localhost:2181'], 'scope': 'test',
-                             'name': 'foo', 'ttl': 30, 'retry_timeout': 10, 'loop_wait': 10,
-                             'set_acls': {'CN=principal2': ['ALL']}})
+        self.zk = get_dcs({'scope': 'test', 'name': 'foo', 'ttl': 30, 'retry_timeout': 10, 'loop_wait': 10,
+                           'zookeeper': {'hosts': ['localhost:2181'], 'set_acls': {'CN=principal2': ['ALL']}}})
+        self.assertIsInstance(self.zk, ZooKeeper)
 
     def test_reload_config(self):
         self.zk.reload_config({'ttl': 20, 'retry_timeout': 10, 'loop_wait': 10})
@@ -164,30 +166,47 @@ class TestZooKeeper(unittest.TestCase):
 
     def test__cluster_loader(self):
         self.zk._base_path = self.zk._base_path.replace('test', 'bla')
-        self.zk._cluster_loader(self.zk.client_path(''))
+        self.zk._postgresql_cluster_loader(self.zk.client_path(''))
         self.zk._base_path = self.zk._base_path = '/broken'
-        self.zk._cluster_loader(self.zk.client_path(''))
+        self.zk._postgresql_cluster_loader(self.zk.client_path(''))
         self.zk._base_path = self.zk._base_path = '/legacy'
-        self.zk._cluster_loader(self.zk.client_path(''))
+        self.zk._postgresql_cluster_loader(self.zk.client_path(''))
         self.zk._base_path = self.zk._base_path = '/no_node'
-        self.zk._cluster_loader(self.zk.client_path(''))
+        self.zk._postgresql_cluster_loader(self.zk.client_path(''))
 
     def test_get_cluster(self):
         cluster = self.zk.get_cluster()
         self.assertEqual(cluster.last_lsn, 500)
 
     def test__get_citus_cluster(self):
-        self.zk._citus_group = '0'
+        self.zk._mpp = get_mpp({'citus': {'group': 0, 'database': 'postgres'}})
         for _ in range(0, 2):
             cluster = self.zk.get_cluster()
             self.assertIsInstance(cluster, Cluster)
             self.assertIsInstance(cluster.workers[1], Cluster)
 
-    @patch('patroni.dcs.zookeeper.logger.error')
-    @patch.object(ZooKeeper, '_cluster_loader', Mock(side_effect=Exception))
+    @patch('patroni.dcs.logger.error')
+    def test_get_mpp_coordinator(self, mock_logger):
+        self.assertIsInstance(self.zk.get_mpp_coordinator(), Cluster)
+        with patch.object(ZooKeeper, '_postgresql_cluster_loader', Mock(side_effect=Exception)):
+            self.assertIsNone(self.zk.get_mpp_coordinator())
+            mock_logger.assert_called_once()
+            self.assertEqual(mock_logger.call_args[0][0], 'Failed to load %s coordinator cluster from %s: %r')
+            self.assertEqual(mock_logger.call_args[0][1], 'Null')
+            self.assertEqual(mock_logger.call_args[0][2], 'ZooKeeper')
+            self.assertIsInstance(mock_logger.call_args[0][3], ZooKeeperError)
+
+    @patch('patroni.dcs.logger.error')
     def test_get_citus_coordinator(self, mock_logger):
-        self.assertIsNone(self.zk.get_citus_coordinator())
-        mock_logger.assert_called_once()
+        self.zk._mpp = get_mpp({'citus': {'group': 0, 'database': 'postgres'}})
+        self.assertIsInstance(self.zk.get_mpp_coordinator(), Cluster)
+        with patch.object(ZooKeeper, '_postgresql_cluster_loader', Mock(side_effect=Exception)):
+            self.assertIsNone(self.zk.get_mpp_coordinator())
+            mock_logger.assert_called_once()
+            self.assertEqual(mock_logger.call_args[0][0], 'Failed to load %s coordinator cluster from %s: %r')
+            self.assertEqual(mock_logger.call_args[0][1], 'Citus')
+            self.assertEqual(mock_logger.call_args[0][2], 'ZooKeeper')
+            self.assertIsInstance(mock_logger.call_args[0][3], ZooKeeperError)
 
     def test_delete_leader(self):
         self.assertTrue(self.zk.delete_leader(self.zk.get_cluster().leader))

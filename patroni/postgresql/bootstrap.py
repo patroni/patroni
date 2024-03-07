@@ -100,10 +100,11 @@ class Bootstrap(object):
                     user_options.append('--{0}'.format(opt))
                 elif isinstance(opt, dict):
                     keys = list(opt.keys())
-                    if len(keys) != 1 or not isinstance(opt[keys[0]], str) or not option_is_allowed(keys[0]):
+                    if len(keys) == 1 and isinstance(opt[keys[0]], str) and option_is_allowed(keys[0]):
+                        user_options.append('--{0}={1}'.format(keys[0], unquote(opt[keys[0]])))
+                    else:
                         error_handler('Error when parsing {0} key-value option {1}: only one key-value is allowed'
                                       ' and value should be a string'.format(tool, opt[keys[0]]))
-                    user_options.append('--{0}={1}'.format(keys[0], unquote(opt[keys[0]])))
                 else:
                     error_handler('Error when parsing {0} option {1}: value should be string value'
                                   ' or a single key-value pair'.format(tool, opt))
@@ -151,9 +152,46 @@ class Bootstrap(object):
             os.unlink(trigger_file)
 
     def _custom_bootstrap(self, config: Any) -> bool:
+        """Bootstrap a fresh Patroni cluster using a custom method provided by the user.
+
+        :param config: configuration used for running a custom bootstrap method. It comes from the Patroni YAML file,
+            so it is expected to be a :class:`dict`.
+
+        .. note::
+            *config* must contain a ``command`` key, which value is the command or script to perform the custom
+            bootstrap procedure. The exit code of the ``command`` dictates if the bootstrap succeeded or failed.
+
+            When calling ``command``, Patroni will pass the following arguments to the ``command`` call:
+
+                * ``--scope``: contains the value of ``scope`` configuration;
+                * ``--data_dir``: contains the value of the ``postgresql.data_dir`` configuration.
+
+            You can avoid that behavior by filling the optional key ``no_params`` with the value ``False`` in the
+            configuration file, which will instruct Patroni to not pass these parameters to the ``command`` call.
+
+            Besides that, a couple more keys are supported in *config*, but optional:
+
+                * ``keep_existing_recovery_conf``: if ``True``, instruct Patroni to not remove the existing
+                  ``recovery.conf`` (PostgreSQL <= 11), to not discard recovery parameters from the configuration
+                  (PostgreSQL >= 12), and to not remove the files ``recovery.signal`` or ``standby.signal``
+                  (PostgreSQL >= 12). This is specially useful when you are restoring backups through tools like
+                  pgBackRest and Barman, in which case they generated the appropriate recovery settings for you;
+                * ``recovery_conf``: a section containing a map, where each key is the name of a recovery related
+                  setting, and the value is the value of the corresponding setting.
+
+            Any key/value other than the ones that were described above will be interpreted as additional arguments for
+            the ``command`` call. They will all be added to the call in the format ``--key=value``.
+
+        :returns: ``True`` if the bootstrap was successful, i.e. the execution of the custom ``command`` from *config*
+            exited with code ``0``, ``False`` otherwise.
+        """
         self._postgresql.set_state('running custom bootstrap script')
         params = [] if config.get('no_params') else ['--scope=' + self._postgresql.scope,
                                                      '--datadir=' + self._postgresql.data_dir]
+        # Add custom parameters specified by the user
+        reserved_args = {'command', 'no_params', 'keep_existing_recovery_conf', 'recovery_conf', 'scope', 'datadir'}
+        params += [f"--{arg}={val}" for arg, val in config.items() if arg not in reserved_args]
+
         try:
             logger.info('Running custom bootstrap script: %s', config['command'])
             if self._postgresql.cancellable.call(shlex.split(config['command']) + params) != 0:
@@ -423,15 +461,15 @@ END;$$""".format(f, quote_ident(rewind['username'], postgresql.connection()))
                         postgresql.restart()
                     else:
                         postgresql.config.replace_pg_hba()
-                        if postgresql.pending_restart:
+                        if postgresql.pending_restart_reason:
                             postgresql.restart()
                         else:
                             postgresql.reload()
                             time.sleep(1)  # give a time to postgres to "reload" configuration files
                             postgresql.connection().close()  # close connection to reconnect with a new password
                 else:  # initdb
-                    # We may want create database and extension for citus
-                    self._postgresql.citus_handler.bootstrap()
+                    # We may want create database and extension for some MPP clusters
+                    self._postgresql.mpp_handler.bootstrap()
         except Exception:
             logger.exception('post_bootstrap')
             task.complete(False)
