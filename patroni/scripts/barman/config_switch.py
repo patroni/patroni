@@ -137,11 +137,9 @@ def run_barman_config_switch(api: "PgBackupApi", args: Namespace) -> None:
                      "switch_when=%s).", args.role, args.switch_when)
         sys.exit(ExitCode.CONFIG_SWITCH_SKIPPED)
 
-    barman_model, reset = args.barman_model, args.reset
-
-    if all([barman_model, reset]) or not any([barman_model, reset]):
+    if not bool(args.barman_model) ^ bool(args.reset):
         logging.error("One, and only one among 'barman_model' ('%s') and "
-                      "'reset' ('%s') should be given", barman_model, reset)
+                      "'reset' ('%s') should be given", args.barman_model, args.reset)
         sys.exit(ExitCode.INVALID_ARGS)
 
     successful = _switch_config(api, args.barman_server, args.barman_model,
