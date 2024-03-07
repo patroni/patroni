@@ -445,7 +445,7 @@ class TestBarmanConfigSwitch(unittest.TestCase):
         mock_create_op = self.api.create_config_switch_operation
         mock_get_status = self.api.get_operation_status
 
-        # successful config-switch
+        # successful fast config-switch
         mock_create_op.return_value = "some_id"
         mock_get_status.return_value = OperationStatus.DONE
 
@@ -457,7 +457,29 @@ class TestBarmanConfigSwitch(unittest.TestCase):
         mock_log_error.assert_not_called()
         mock_sleep.assert_not_called()
 
-        # failed config-switch
+        # successful slow config-switch
+        mock_create_op.reset_mock()
+        mock_get_status.reset_mock()
+        mock_log_info.reset_mock()
+        mock_get_status.side_effect = [OperationStatus.IN_PROGRESS] * 20 + [OperationStatus.DONE]
+
+        self.assertTrue(_switch_config(self.api, BARMAN_SERVER, BARMAN_MODEL, None))
+
+        mock_create_op.assert_called_once_with(BARMAN_SERVER, BARMAN_MODEL, None)
+
+        self.assertEqual(mock_get_status.call_count, 21)
+        mock_get_status.assert_has_calls([mock.call(BARMAN_SERVER, "some_id")] * 21)
+
+        self.assertEqual(mock_log_info.call_count, 21)
+        mock_log_info.assert_has_calls([mock.call("Created the config switch operation with ID %s", "some_id")]
+                                       + [mock.call("Config switch operation %s is still in progress", "some_id")] * 20)
+
+        mock_log_error.assert_not_called()
+
+        self.assertEqual(mock_sleep.call_count, 20)
+        mock_sleep.assert_has_calls([mock.call(5)] * 20)
+
+        # failed fast config-switch
         mock_create_op.reset_mock()
         mock_get_status.reset_mock()
         mock_log_info.reset_mock()
@@ -472,6 +494,29 @@ class TestBarmanConfigSwitch(unittest.TestCase):
         mock_log_info.assert_called_once_with("Created the config switch operation with ID %s", "some_id")
         mock_log_error.assert_not_called()
         mock_sleep.assert_not_called()
+
+        # failed slow config-switch
+        mock_create_op.reset_mock()
+        mock_get_status.reset_mock()
+        mock_log_info.reset_mock()
+        mock_sleep.reset_mock()
+        mock_get_status.side_effect = [OperationStatus.IN_PROGRESS] * 20 + [OperationStatus.FAILED]
+
+        self.assertFalse(_switch_config(self.api, BARMAN_SERVER, BARMAN_MODEL, None))
+
+        mock_create_op.assert_called_once()
+
+        self.assertEqual(mock_get_status.call_count, 21)
+        mock_get_status.assert_has_calls([mock.call(BARMAN_SERVER, "some_id")] * 21)
+
+        self.assertEqual(mock_log_info.call_count, 21)
+        mock_log_info.assert_has_calls([mock.call("Created the config switch operation with ID %s", "some_id")]
+                                       + [mock.call("Config switch operation %s is still in progress", "some_id")] * 20)
+
+        mock_log_error.assert_not_called()
+
+        self.assertEqual(mock_sleep.call_count, 20)
+        mock_sleep.assert_has_calls([mock.call(5)] * 20)
 
         # create retries exceeded
         mock_log_info.reset_mock()
