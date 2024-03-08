@@ -17,7 +17,6 @@ Refer to :class:`ExitCode` for possible exit codes of this sub-command.
 from argparse import Namespace
 from enum import IntEnum
 import logging
-import sys
 import time
 from typing import TYPE_CHECKING
 
@@ -44,7 +43,7 @@ class ExitCode(IntEnum):
 
 def _restore_backup(api: "PgBackupApi", barman_server: str, backup_id: str,
                     ssh_command: str, data_directory: str,
-                    loop_wait: int) -> bool:
+                    loop_wait: int) -> int:
     """Restore the configured Barman backup through ``pg-backup-api``.
 
     .. note::
@@ -78,7 +77,7 @@ def _restore_backup(api: "PgBackupApi", barman_server: str, backup_id: str,
     except RetriesExceeded as exc:
         logging.error("An issue was faced while trying to create a recovery "
                       "operation: %r", exc)
-        sys.exit(ExitCode.HTTP_ERROR)
+        return ExitCode.HTTP_ERROR
 
     logging.info("Created the recovery operation with ID %s", operation_id)
 
@@ -89,7 +88,7 @@ def _restore_backup(api: "PgBackupApi", barman_server: str, backup_id: str,
             status = api.get_operation_status(barman_server, operation_id)
         except RetriesExceeded:
             logging.error("Maximum number of retries exceeded, exiting.")
-            sys.exit(ExitCode.HTTP_ERROR)
+            return ExitCode.HTTP_ERROR
 
         if status != OperationStatus.IN_PROGRESS:
             break
@@ -98,10 +97,13 @@ def _restore_backup(api: "PgBackupApi", barman_server: str, backup_id: str,
                      operation_id)
         time.sleep(loop_wait)
 
-    return status == OperationStatus.DONE
+    if status == OperationStatus.DONE:
+        return ExitCode.RECOVERY_DONE
+    else:
+        return ExitCode.RECOVERY_FAILED
 
 
-def run_barman_recover(api: "PgBackupApi", args: Namespace) -> None:
+def run_barman_recover(api: "PgBackupApi", args: Namespace) -> int:
     """Run a remote ``barman recover`` through the ``pg-backup-api``.
 
     :param api: a :class:`PgBackupApi` instance to handle communication with
@@ -109,13 +111,13 @@ def run_barman_recover(api: "PgBackupApi", args: Namespace) -> None:
     :param args: arguments received from the command-line of
         ``patroni_barman recover`` command.
     """
-    successful = _restore_backup(api, args.barman_server, args.backup_id,
-                                 args.ssh_command, args.data_directory,
-                                 args.loop_wait)
+    rc = _restore_backup(api, args.barman_server, args.backup_id,
+                         args.ssh_command, args.data_directory,
+                         args.loop_wait)
 
-    if successful:
+    if rc == ExitCode.RECOVERY_DONE:
         logging.info("Recovery operation finished successfully.")
-        sys.exit(ExitCode.RECOVERY_DONE)
     else:
         logging.error("Recovery operation failed.")
-        sys.exit(ExitCode.RECOVERY_FAILED)
+
+    return rc

@@ -17,7 +17,6 @@ Refer to :class:`ExitCode` for possible exit codes of this sub-command.
 from argparse import Namespace
 from enum import IntEnum
 import logging
-import sys
 import time
 from typing import Optional, TYPE_CHECKING
 
@@ -70,7 +69,7 @@ def _should_skip_switch(args: Namespace) -> bool:
 
 
 def _switch_config(api: "PgBackupApi", barman_server: str,
-                   barman_model: Optional[str], reset: Optional[bool]) -> bool:
+                   barman_model: Optional[str], reset: Optional[bool]) -> int:
     """Switch configuration of Barman server through ``pg-backup-api``.
 
     .. note::
@@ -100,7 +99,7 @@ def _switch_config(api: "PgBackupApi", barman_server: str,
     except RetriesExceeded as exc:
         logging.error("An issue was faced while trying to create a config "
                       "switch operation: %r", exc)
-        sys.exit(ExitCode.HTTP_ERROR)
+        return ExitCode.HTTP_ERROR
 
     logging.info("Created the config switch operation with ID %s",
                  operation_id)
@@ -112,7 +111,7 @@ def _switch_config(api: "PgBackupApi", barman_server: str,
             status = api.get_operation_status(barman_server, operation_id)
         except RetriesExceeded:
             logging.error("Maximum number of retries exceeded, exiting.")
-            sys.exit(ExitCode.HTTP_ERROR)
+            return ExitCode.HTTP_ERROR
 
         if status != OperationStatus.IN_PROGRESS:
             break
@@ -121,10 +120,13 @@ def _switch_config(api: "PgBackupApi", barman_server: str,
                      operation_id)
         time.sleep(5)
 
-    return status == OperationStatus.DONE
+    if status == OperationStatus.DONE:
+        return ExitCode.CONFIG_SWITCH_DONE
+    else:
+        return ExitCode.CONFIG_SWITCH_FAILED
 
 
-def run_barman_config_switch(api: "PgBackupApi", args: Namespace) -> None:
+def run_barman_config_switch(api: "PgBackupApi", args: Namespace) -> int:
     """Run a remote ``barman config-switch`` through the ``pg-backup-api``.
 
     :param api: a :class:`PgBackupApi` instance to handle communication with
@@ -135,19 +137,18 @@ def run_barman_config_switch(api: "PgBackupApi", args: Namespace) -> None:
     if _should_skip_switch(args):
         logging.info("Config switch operation was skipped (role=%s, "
                      "switch_when=%s).", args.role, args.switch_when)
-        sys.exit(ExitCode.CONFIG_SWITCH_SKIPPED)
+        return ExitCode.CONFIG_SWITCH_SKIPPED
 
     if not bool(args.barman_model) ^ bool(args.reset):
         logging.error("One, and only one among 'barman_model' ('%s') and "
                       "'reset' ('%s') should be given", args.barman_model, args.reset)
-        sys.exit(ExitCode.INVALID_ARGS)
+        return ExitCode.INVALID_ARGS
 
-    successful = _switch_config(api, args.barman_server, args.barman_model,
-                                args.reset)
+    rc: int = _switch_config(api, args.barman_server, args.barman_model, args.reset)
 
-    if successful:
+    if rc == ExitCode.CONFIG_SWITCH_DONE:
         logging.info("Config switch operation finished successfully.")
-        sys.exit(ExitCode.CONFIG_SWITCH_DONE)
     else:
         logging.error("Config switch operation failed.")
-        sys.exit(ExitCode.CONFIG_SWITCH_FAILED)
+
+    return rc

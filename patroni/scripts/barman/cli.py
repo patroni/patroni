@@ -222,7 +222,7 @@ def main() -> None:
         logging.error("pg-backup-api is not working: %r", exc)
         sys.exit(ExitCode.API_NOT_OK)
 
-    args.func(api, args)
+    sys.exit(args.func(api, args))
 
 
 if __name__ == "__main__":
