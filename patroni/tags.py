@@ -20,7 +20,7 @@ class Tags(abc.ABC):
 
         .. note::
             A custom tag is any tag added to the configuration ``tags`` section that is not one of ``clonefrom``,
-            ``nofailover``, ``noloadbalance`` or ``nosync``.
+            ``nofailover``, ``noloadbalance``,``nosync`` or ``nostream``.
 
             For most of the Patroni predefined tags, the returning object will only contain them if they are enabled as
             they all are boolean values that default to disabled.
@@ -31,7 +31,7 @@ class Tags(abc.ABC):
             tag value.
         """
         return {tag: value for tag, value in tags.items()
-                if any((tag not in ('clonefrom', 'nofailover', 'noloadbalance', 'nosync'),
+                if any((tag not in ('clonefrom', 'nofailover', 'noloadbalance', 'nosync', 'nostream'),
                         value,
                         tag == 'nofailover' and 'failover_priority' in tags))}
 
@@ -89,3 +89,8 @@ class Tags(abc.ABC):
     def replicatefrom(self) -> Optional[str]:
         """Value of ``replicatefrom`` tag, if any."""
         return self.tags.get('replicatefrom')
+
+    @property
+    def nostream(self) -> bool:
+        """``True`` if ``nostream`` is ``True``, else ``False``."""
+        return bool(self.tags.get('nostream', False))

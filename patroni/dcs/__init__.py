@@ -1069,6 +1069,10 @@ class Cluster(NamedTuple('Cluster',
         the ``replicatefrom`` destination member is currently not a member of the cluster (fallback to the
         primary), or if ``replicatefrom`` destination member happens to be the current primary.
 
+        If the ``nostream`` tag is set on the member - we should not create the replication slot for it on
+        the current primary or any other member even if ``replicatefrom`` is set, because nostream disables
+        WAL streaming.
+
         Will log an error if:
 
             * Conflicting slot names between members are found
@@ -1087,11 +1091,12 @@ class Cluster(NamedTuple('Cluster',
         members = filter(lambda m: m.name != name, self.members)
 
         if role in ('master', 'primary', 'standby_leader'):
-            members = [m for m in members if m.replicatefrom is None
-                       or m.replicatefrom == name or not self.has_member(m.replicatefrom)]
+            members = [m for m in members if (m.replicatefrom is None
+                       or m.replicatefrom == name or not self.has_member(m.replicatefrom))
+                       and not m.nostream]
         else:
             # only manage slots for replicas that replicate from this one, except for the leader among them
-            members = [m for m in members if m.replicatefrom == name and m.name != self.leader_name]
+            members = [m for m in members if (m.replicatefrom == name and m.name != self.leader_name and not m.nostream)]
 
         slots = {slot_name_from_member_name(m.name): {'type': 'physical'} for m in members}
         if len(slots) < len(members):

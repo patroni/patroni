@@ -607,9 +607,12 @@ class Ha(object):
 
         :returns: the node which we should be replicating from.
         """
+        # nostream is set, the node must not use WAL streaming
+        if self.patroni.nostream:
+            return None
         # The standby leader or when there is no standby leader we want to follow
         # the remote member, except when there is no standby leader in pause.
-        if self.is_standby_cluster() \
+        elif self.is_standby_cluster() \
                 and (cluster.leader and cluster.leader.name and cluster.leader.name == self.state_handler.name
                      or cluster.is_unlocked() and not self.is_paused()):
             node_to_follow = self.get_remote_member()
