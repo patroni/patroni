@@ -36,6 +36,17 @@ def main() -> None:
 
     Implements the parser for the application and for its sub-commands.
 
+    The script exit code may be one of:
+
+    * :attr:`ExitCode.NO_COMMAND`: if no sub-command was specified in the
+        ``patroni_barman`` call;
+    * :attr:`ExitCode.API_NOT_OK`: if ``pg-backup-api`` is not correctly up and
+        running;
+    * Value returned by :func:`~patroni.scripts.barman.config_switch.run_barman_config_switch`,
+        if running ``patroni_barman config-switch``;
+    * Value returned by :func:`~patroni.scripts.barman.recover.run_barman_recover`,
+        if running ``patroni_barman recover``.
+
     The called sub-command is expected to exit execution once finished using
     its own set of exit codes.
     """

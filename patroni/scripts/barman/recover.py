@@ -63,7 +63,8 @@ def _restore_backup(api: "PgBackupApi", barman_server: str, backup_id: str,
         status of the recovery process. Higher values are useful for backups
         that are expected to take longer to restore.
 
-    :returns: ``True`` if it was successfully recovered, ``False`` otherwise.
+    :returns: the return code to be used when exiting the ``patroni_barman``
+        application. Refer to :class:`ExitCode`.
     """
     operation_id = None
 
@@ -110,6 +111,9 @@ def run_barman_recover(api: "PgBackupApi", args: Namespace) -> int:
         the API.
     :param args: arguments received from the command-line of
         ``patroni_barman recover`` command.
+
+    :returns: the return code to be used when exiting the ``patroni_barman``
+        application. Refer to :class:`ExitCode`.
     """
     rc = _restore_backup(api, args.barman_server, args.backup_id,
                          args.ssh_command, args.data_directory,

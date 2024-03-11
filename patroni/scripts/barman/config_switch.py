@@ -85,8 +85,8 @@ def _switch_config(api: "PgBackupApi", barman_server: str,
     :param reset: ``True`` if you would like to unapply the currently active
         model for the server, if any.
 
-    :returns: ``True`` if config was successfully switched, ``False``
-        otherwise.
+    :returns: the return code to be used when exiting the ``patroni_barman``
+        application. Refer to :class:`ExitCode`.
     """
     operation_id = None
 
@@ -133,6 +133,9 @@ def run_barman_config_switch(api: "PgBackupApi", args: Namespace) -> int:
         the API.
     :param args: arguments received from the command-line of
         ``patroni_barman config-switch`` command.
+
+    :returns: the return code to be used when exiting the ``patroni_barman``
+        application. Refer to :class:`ExitCode`.
     """
     if _should_skip_switch(args):
         logging.info("Config switch operation was skipped (role=%s, "
