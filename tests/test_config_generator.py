@@ -51,6 +51,7 @@ class TestGenerateConfig(unittest.TestCase):
         os.environ['PATRONI_POSTGRESQL_BIN_POSTGRES'] = 'custom_postgres_bin_from_env'
 
         self.environ = deepcopy(os.environ)
+        self.maxDiff = None
 
         dynamic_config = Config.get_default_config()
         dynamic_config['postgresql']['parameters'] = dict(dynamic_config['postgresql']['parameters'])
@@ -142,6 +143,7 @@ class TestGenerateConfig(unittest.TestCase):
                 'noloadbalance': False,
                 'clonefrom': True,
                 'nosync': False,
+                'nostream': False
             }
         }
         patch_config(self.config, conf)
