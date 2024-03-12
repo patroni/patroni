@@ -266,9 +266,9 @@ def _get_configuration() -> Dict[str, Any]:
 
 
 def _get_mpp() -> AbstractMPP:
-    """Get :class:AbstractMPP object.
+    """Get :class:`AbstractMPP` object.
 
-    :returns: :class:AbstractMPP object from the current context.
+    :returns: :class:`AbstractMPP` object from the current context.
     """
     return click.get_current_context().obj['__mpp']
 
@@ -280,7 +280,7 @@ option_watch = click.option('-W', is_flag=True, help='Auto update the screen eve
 option_force = click.option('--force', is_flag=True, help='Do not ask for confirmation at any point')
 arg_cluster_name = click.argument('cluster_name', required=False,
                                   default=lambda: _get_configuration().get('scope'))
-""":class:AbstractMPP is designed to handle ``group`` of any type. However, currently, we only support :class:`int`
+""":class:`AbstractMPP` is designed to handle ``group`` of any type. However, currently, we only support :class:`int`
 type. It is necessary to refactor the following code when introducing ``group`` type other than :class:`int`.
 """
 option_default_mpp_group = click.option('--group', required=False, type=int, help='MPP cluster group',
@@ -331,7 +331,7 @@ def ctl(ctx: click.Context, config_file: str, dcs_url: Optional[str], insecure: 
 def is_mpp_cluster() -> bool:
     """Check if we are working with MPP cluster.
 
-    :returns: ``True`` if :class::AbstractMPP is enabled, otherwise ``False``.
+    :returns: ``True`` if :class:`AbstractMPP` is enabled, otherwise ``False``.
     """
     return _get_mpp().is_enabled()
 
@@ -934,7 +934,7 @@ def remove(cluster_name: str, group: Optional[int], fmt: str) -> None:
     cluster = dcs.get_cluster()
 
     if is_mpp_cluster() and group is None:
-        raise PatroniCtlException('For {0} clusters the --group must me specified'.format(_get_mpp().type))
+        raise PatroniCtlException(f'For {_get_mpp().type} clusters the --group must me specified')
     output_members(cluster, cluster_name, fmt=fmt)
 
     confirm = click.prompt('Please confirm the cluster name to remove', type=str)
@@ -1238,9 +1238,9 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
 
     if is_mpp_cluster() and group is None:
         if force:
-            raise PatroniCtlException('For {0} clusters the --group must me specified'.format(_get_mpp().type))
+            raise PatroniCtlException(f'For {_get_mpp().type} clusters the --group must me specified')
         else:
-            group = click.prompt('{0} group'.format(_get_mpp().type), type=int)
+            group = click.prompt(f'{_get_mpp().type} group', type=int)
             dcs = get_dcs(cluster_name, group)
             cluster = dcs.get_cluster()
 
@@ -1610,7 +1610,7 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
             rows.append([member.get(n.lower().replace(' ', '_'), '') for n in columns])
 
     if is_mpp_cluster():
-        title = '{0} cluster'.format(_get_mpp().type)
+        title = f'{_get_mpp().type} cluster'
         title_details = '' if group is None else f' (group: {group}, {initialize})'
     else:
         title = 'Cluster'
@@ -1626,7 +1626,7 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         service_info = get_cluster_service_info(c)
         if service_info:
             if is_mpp_cluster() and group is None:
-                click.echo('{0} group: {1}'.format(_get_mpp().type, g))
+                click.echo(f'{_get_mpp().type} group: {g}')
             click.echo(' ' + '\n '.join(service_info))
 
 
