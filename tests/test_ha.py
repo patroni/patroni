@@ -475,6 +475,11 @@ class TestHa(PostgresInit):
         self.p.is_primary = false
         self.assertEqual(self.ha.run_cycle(), 'not promoting because failed to update leader lock in DCS')
 
+    def test_get_node_to_follow_nostream(self):
+        self.ha.patroni.nostream = True
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.assertEqual(self.ha._get_node_to_follow(self.ha.cluster), None)
+
     @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_follow(self):
         self.p.is_primary = false

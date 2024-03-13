@@ -103,7 +103,8 @@ config = {
         "nofailover": False,
         "clonefrom": False,
         "noloadbalance": False,
-        "nosync": False
+        "nosync": False,
+        "nostream": False
     }
 }
 
