@@ -1070,7 +1070,7 @@ class Cluster(NamedTuple('Cluster',
         primary), or if ``replicatefrom`` destination member happens to be the current primary.
 
         If the ``nostream`` tag is set on the member - we should not create the replication slot for it on
-        the current primary or any other member even if ``replicatefrom`` is set, because nostream disables
+        the current primary or any other member even if ``replicatefrom`` is set, because ``nostream`` disables
         WAL streaming.
 
         Will log an error if:
