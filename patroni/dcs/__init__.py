@@ -1098,7 +1098,8 @@ class Cluster(NamedTuple('Cluster',
                        and not m.nostream]
         else:
             # only manage slots for replicas that replicate from this one, except for the leader among them
-            members = [m for m in members if (m.replicatefrom == name and m.name != self.leader_name and not m.nostream)]
+            members = [m for m in members if (m.replicatefrom == name
+                                              and m.name != self.leader_name and not m.nostream)]
 
         slots = {slot_name_from_member_name(m.name): {'type': 'physical'} for m in members}
         if len(slots) < len(members):
