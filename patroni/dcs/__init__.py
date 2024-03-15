@@ -1039,6 +1039,8 @@ class Cluster(NamedTuple('Cluster',
         .. note::
             Permanent replication slots are only considered if ``use_slots`` configuration is enabled.
             A node that is not supposed to become a leader (*nofailover*) will not have permanent replication slots.
+            Also node with disabled streaming (*nostream*) and its cascading followers must not have permanent
+            logical slots due to lack of feedback from node to primary, which makes them unsafe to use.
 
             In a standby cluster we only support physical replication slots.
 
@@ -1054,7 +1056,7 @@ class Cluster(NamedTuple('Cluster',
         if not global_config.use_slots or tags.nofailover:
             return {}
 
-        if global_config.is_standby_cluster:
+        if global_config.is_standby_cluster or self.get_slot_name_on_primary(postgresql.name, tags) is None:
             return self.__permanent_physical_slots \
                 if postgresql.major_version >= SLOT_ADVANCE_AVAILABLE_VERSION or role == 'standby_leader' else {}
 
@@ -1177,7 +1179,7 @@ class Cluster(NamedTuple('Cluster',
             return any(self.should_enforce_hot_standby_feedback(postgresql, m) for m in members)
         return False
 
-    def get_slot_name_on_primary(self, name: str, tags: Tags) -> str:
+    def get_slot_name_on_primary(self, name: str, tags: Tags) -> Optional[str]:
         """Get the name of physical replication slot for this node on the primary.
 
         .. note::
@@ -1191,6 +1193,8 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: the slot name on the primary that is in use for physical replication on this node.
         """
+        if tags.nostream:
+            return None
         replicatefrom = self.get_member(tags.replicatefrom, False) if tags.replicatefrom else None
         return self.get_slot_name_on_primary(replicatefrom.name, replicatefrom) \
             if isinstance(replicatefrom, Member) else slot_name_from_member_name(name)
