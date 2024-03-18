@@ -55,17 +55,11 @@ def _should_skip_switch(args: Namespace) -> bool:
 
     :returns: if the operation should be skipped.
     """
-    ret = False
-
-    if args.switch_when == "promoted" and args.role not in ["master",
-                                                            "primary",
-                                                            "promoted"]:
-        ret = True
-    elif args.switch_when == "demoted" and args.role not in ["replica",
-                                                             "demoted"]:
-        ret = True
-
-    return ret
+    if args.switch_when == "promoted":
+        return args.role not in {"master", "primary", "promoted"}
+    if args.switch_when == "demoted":
+        return args.role not in {"replica", "demoted"}
+    return False
 
 
 def _switch_config(api: "PgBackupApi", barman_server: str,
