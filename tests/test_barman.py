@@ -293,7 +293,11 @@ class TestBarmanRecover(unittest.TestCase):
 
         mock_create_op.assert_called_once_with(BARMAN_SERVER, BACKUP_ID, SSH_COMMAND, DATA_DIRECTORY)
         mock_get_status.assert_called_once_with(BARMAN_SERVER, "some_id")
-        mock_log_info.assert_called_once_with("Created the recovery operation with ID %s", "some_id")
+        mock_log_info.assert_has_calls([
+            mock.call("Created the recovery operation with ID %s", "some_id"),
+            mock.call("Recovery operation finished successfully."),
+        ])
+        mock_log_error.assert_not_called()
         mock_log_error.assert_not_called()
         mock_sleep.assert_not_called()
 
@@ -313,9 +317,10 @@ class TestBarmanRecover(unittest.TestCase):
         self.assertEqual(mock_get_status.call_count, 21)
         mock_get_status.assert_has_calls([mock.call(BARMAN_SERVER, "some_id")] * 21)
 
-        self.assertEqual(mock_log_info.call_count, 21)
+        self.assertEqual(mock_log_info.call_count, 22)
         mock_log_info.assert_has_calls([mock.call("Created the recovery operation with ID %s", "some_id")]
-                                       + [mock.call("Recovery operation %s is still in progress", "some_id")] * 20)
+                                       + [mock.call("Recovery operation %s is still in progress", "some_id")] * 20
+                                       + [mock.call("Recovery operation finished successfully.")])
 
         mock_log_error.assert_not_called()
 
@@ -337,8 +342,12 @@ class TestBarmanRecover(unittest.TestCase):
 
         mock_create_op.assert_called_once()
         mock_get_status.assert_called_once_with(BARMAN_SERVER, "some_id")
-        mock_log_info.assert_called_once_with("Created the recovery operation with ID %s", "some_id")
-        mock_log_error.assert_not_called()
+        mock_log_info.assert_has_calls([
+            mock.call("Created the recovery operation with ID %s", "some_id"),
+        ])
+        mock_log_error.assert_has_calls([
+            mock.call("Recovery operation failed."),
+        ])
         mock_sleep.assert_not_called()
 
         # failed slow restore
@@ -362,13 +371,16 @@ class TestBarmanRecover(unittest.TestCase):
         mock_log_info.assert_has_calls([mock.call("Created the recovery operation with ID %s", "some_id")]
                                        + [mock.call("Recovery operation %s is still in progress", "some_id")] * 20)
 
-        mock_log_error.assert_not_called()
+        mock_log_error.assert_has_calls([
+            mock.call("Recovery operation failed."),
+        ])
 
         self.assertEqual(mock_sleep.call_count, 20)
         mock_sleep.assert_has_calls([mock.call(LOOP_WAIT)] * 20)
 
         # create retries exceeded
         mock_log_info.reset_mock()
+        mock_log_error.reset_mock()
         mock_sleep.reset_mock()
         mock_create_op.side_effect = RetriesExceeded()
         mock_get_status.side_effect = None
@@ -402,10 +414,8 @@ class TestBarmanRecover(unittest.TestCase):
 
 class TestBarmanRecoverCli(unittest.TestCase):
 
-    @patch("logging.error")
-    @patch("logging.info")
     @patch("patroni.scripts.barman.recover._restore_backup")
-    def test_run_barman_recover(self, mock_rb, mock_log_info, mock_log_error):
+    def test_run_barman_recover(self, mock_rb):
         api = MagicMock()
         args = MagicMock()
 
@@ -420,12 +430,9 @@ class TestBarmanRecoverCli(unittest.TestCase):
         mock_rb.assert_called_once_with(api, args.barman_server, args.backup_id,
                                         args.ssh_command, args.data_directory,
                                         args.loop_wait)
-        mock_log_info.assert_called_once_with("Recovery operation finished successfully.")
-        mock_log_error.assert_not_called()
 
         # failed execution
         mock_rb.reset_mock()
-        mock_log_info.reset_mock()
 
         mock_rb.return_value = BarmanRecoverExitCode.RECOVERY_FAILED
 
@@ -437,8 +444,6 @@ class TestBarmanRecoverCli(unittest.TestCase):
         mock_rb.assert_called_once_with(api, args.barman_server, args.backup_id,
                                         args.ssh_command, args.data_directory,
                                         args.loop_wait)
-        mock_log_info.assert_not_called()
-        mock_log_error.assert_called_once_with("Recovery operation failed.")
 
 
 # stuff from patroni.scripts.barman.config_switch
@@ -470,7 +475,10 @@ class TestBarmanConfigSwitch(unittest.TestCase):
 
         mock_create_op.assert_called_once_with(BARMAN_SERVER, BARMAN_MODEL, None)
         mock_get_status.assert_called_once_with(BARMAN_SERVER, "some_id")
-        mock_log_info.assert_called_once_with("Created the config switch operation with ID %s", "some_id")
+        mock_log_info.assert_has_calls([
+            mock.call("Created the config switch operation with ID %s", "some_id"),
+            mock.call("Config switch operation finished successfully."),
+        ])
         mock_log_error.assert_not_called()
         mock_sleep.assert_not_called()
 
@@ -490,9 +498,10 @@ class TestBarmanConfigSwitch(unittest.TestCase):
         self.assertEqual(mock_get_status.call_count, 21)
         mock_get_status.assert_has_calls([mock.call(BARMAN_SERVER, "some_id")] * 21)
 
-        self.assertEqual(mock_log_info.call_count, 21)
+        self.assertEqual(mock_log_info.call_count, 22)
         mock_log_info.assert_has_calls([mock.call("Created the config switch operation with ID %s", "some_id")]
-                                       + [mock.call("Config switch operation %s is still in progress", "some_id")] * 20)
+                                       + [mock.call("Config switch operation %s is still in progress", "some_id")] * 20
+                                       + [mock.call("Config switch operation finished successfully.")])
 
         mock_log_error.assert_not_called()
 
@@ -515,13 +524,14 @@ class TestBarmanConfigSwitch(unittest.TestCase):
         mock_create_op.assert_called_once()
         mock_get_status.assert_called_once_with(BARMAN_SERVER, "some_id")
         mock_log_info.assert_called_once_with("Created the config switch operation with ID %s", "some_id")
-        mock_log_error.assert_not_called()
+        mock_log_error.assert_called_once_with("Config switch operation failed.")
         mock_sleep.assert_not_called()
 
         # failed slow config-switch
         mock_create_op.reset_mock()
         mock_get_status.reset_mock()
         mock_log_info.reset_mock()
+        mock_log_error.reset_mock()
         mock_sleep.reset_mock()
         mock_get_status.side_effect = [OperationStatus.IN_PROGRESS] * 20 + [OperationStatus.FAILED]
 
@@ -539,13 +549,14 @@ class TestBarmanConfigSwitch(unittest.TestCase):
         mock_log_info.assert_has_calls([mock.call("Created the config switch operation with ID %s", "some_id")]
                                        + [mock.call("Config switch operation %s is still in progress", "some_id")] * 20)
 
-        mock_log_error.assert_not_called()
+        mock_log_error.assert_called_once_with("Config switch operation failed.")
 
         self.assertEqual(mock_sleep.call_count, 20)
         mock_sleep.assert_has_calls([mock.call(5)] * 20)
 
         # create retries exceeded
         mock_log_info.reset_mock()
+        mock_log_error.reset_mock()
         mock_sleep.reset_mock()
         mock_create_op.side_effect = RetriesExceeded()
         mock_get_status.side_effect = None
@@ -612,11 +623,11 @@ class TestBarmanConfigSwitchCli(unittest.TestCase):
             args.switch_when = switch_when
             self.assertEqual(_should_skip_switch(args), expected)
 
-    @patch("logging.error")
-    @patch("logging.info")
     @patch("patroni.scripts.barman.config_switch._should_skip_switch")
     @patch("patroni.scripts.barman.config_switch._switch_config")
-    def test_run_barman_config_switch(self, mock_sc, mock_skip, mock_log_info, mock_log_error):
+    @patch("logging.error")
+    @patch("logging.info")
+    def test_run_barman_config_switch(self, mock_log_info, mock_log_error, mock_sc, mock_skip):
         api = MagicMock()
         args = MagicMock()
         args.reset = None
@@ -632,12 +643,9 @@ class TestBarmanConfigSwitchCli(unittest.TestCase):
 
         mock_sc.assert_called_once_with(api, args.barman_server, args.barman_model,
                                         args.reset)
-        mock_log_info.assert_called_once_with("Config switch operation finished successfully.")
-        mock_log_error.assert_not_called()
 
         # failed execution
         mock_sc.reset_mock()
-        mock_log_info.reset_mock()
 
         mock_sc.return_value = BarmanConfigSwitchExitCode.CONFIG_SWITCH_FAILED
 
@@ -648,13 +656,9 @@ class TestBarmanConfigSwitchCli(unittest.TestCase):
 
         mock_sc.assert_called_once_with(api, args.barman_server, args.barman_model,
                                         args.reset)
-        mock_log_info.assert_not_called()
-        mock_log_error.assert_called_once_with("Config switch operation failed.")
 
         # skipped execution
         mock_sc.reset_mock()
-        mock_log_info.reset_mock()
-        mock_log_error.reset_mock()
         mock_skip.return_value = True
 
         self.assertEqual(
