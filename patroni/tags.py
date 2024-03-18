@@ -3,13 +3,15 @@ import abc
 
 from typing import Any, Dict, Optional
 
-from patroni.utils import parse_int
+from patroni.utils import parse_int, parse_bool
 
 
 class Tags(abc.ABC):
     """An abstract class that encapsulates all the ``tags`` logic.
 
     Child classes that want to use provided facilities must implement ``tags`` abstract property.
+    .. note::
+        Due to backward-compatibility reasons, old tags may have a less strict type conversion than new ones.
     """
 
     @staticmethod
@@ -93,4 +95,4 @@ class Tags(abc.ABC):
     @property
     def nostream(self) -> bool:
         """``True`` if ``nostream`` is ``True``, else ``False``."""
-        return bool(self.tags.get('nostream', False))
+        return parse_bool(self.tags.get('nostream')) or False

@@ -142,7 +142,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             [self.leadermem, nostream_node, cascade_node, stream_node], None, SyncState.empty(), None, None)
         global_config.update(cluster)
 
-        # sanity for master
+        # sanity for primary
         self.p.name = self.leadermem.name
         self.assertEqual(
             cluster._get_permanent_slots(self.p, self.leadermem, 'primary'),

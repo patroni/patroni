@@ -1089,17 +1089,16 @@ class Cluster(NamedTuple('Cluster',
         if not global_config.use_slots:
             return {}
 
-        # we always want to exclude the member with our name from the list
-        members = filter(lambda m: m.name != name, self.members)
+        # we always want to exclude the member with our name from the list,
+        # also exlude members with disabled WAL streaming
+        members = filter(lambda m: m.name != name and not m.nostream, self.members)
 
         if role in ('master', 'primary', 'standby_leader'):
-            members = [m for m in members if (m.replicatefrom is None
-                       or m.replicatefrom == name or not self.has_member(m.replicatefrom))
-                       and not m.nostream]
+            members = [m for m in members if m.replicatefrom is None
+                       or m.replicatefrom == name or not self.has_member(m.replicatefrom)]
         else:
             # only manage slots for replicas that replicate from this one, except for the leader among them
-            members = [m for m in members if (m.replicatefrom == name
-                                              and m.name != self.leader_name and not m.nostream)]
+            members = [m for m in members if m.replicatefrom == name and m.name != self.leader_name]
 
         slots = {slot_name_from_member_name(m.name): {'type': 'physical'} for m in members}
         if len(slots) < len(members):
