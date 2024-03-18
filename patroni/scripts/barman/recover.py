@@ -99,8 +99,10 @@ def _restore_backup(api: "PgBackupApi", barman_server: str, backup_id: str,
         time.sleep(loop_wait)
 
     if status == OperationStatus.DONE:
+        logging.info("Recovery operation finished successfully.")
         return ExitCode.RECOVERY_DONE
     else:
+        logging.error("Recovery operation failed.")
         return ExitCode.RECOVERY_FAILED
 
 
@@ -115,13 +117,6 @@ def run_barman_recover(api: "PgBackupApi", args: Namespace) -> int:
     :returns: the return code to be used when exiting the ``patroni_barman``
         application. Refer to :class:`ExitCode`.
     """
-    rc = _restore_backup(api, args.barman_server, args.backup_id,
-                         args.ssh_command, args.data_directory,
-                         args.loop_wait)
-
-    if rc == ExitCode.RECOVERY_DONE:
-        logging.info("Recovery operation finished successfully.")
-    else:
-        logging.error("Recovery operation failed.")
-
-    return rc
+    return _restore_backup(api, args.barman_server, args.backup_id,
+                           args.ssh_command, args.data_directory,
+                           args.loop_wait)

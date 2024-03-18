@@ -115,8 +115,10 @@ def _switch_config(api: "PgBackupApi", barman_server: str,
         time.sleep(5)
 
     if status == OperationStatus.DONE:
+        logging.info("Config switch operation finished successfully.")
         return ExitCode.CONFIG_SWITCH_DONE
     else:
+        logging.error("Config switch operation failed.")
         return ExitCode.CONFIG_SWITCH_FAILED
 
 
@@ -141,11 +143,4 @@ def run_barman_config_switch(api: "PgBackupApi", args: Namespace) -> int:
                       "'reset' ('%s') should be given", args.barman_model, args.reset)
         return ExitCode.INVALID_ARGS
 
-    rc: int = _switch_config(api, args.barman_server, args.barman_model, args.reset)
-
-    if rc == ExitCode.CONFIG_SWITCH_DONE:
-        logging.info("Config switch operation finished successfully.")
-    else:
-        logging.error("Config switch operation failed.")
-
-    return rc
+    return _switch_config(api, args.barman_server, args.barman_model, args.reset)
