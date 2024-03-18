@@ -10,6 +10,7 @@ class Tags(abc.ABC):
     """An abstract class that encapsulates all the ``tags`` logic.
 
     Child classes that want to use provided facilities must implement ``tags`` abstract property.
+
     .. note::
         Due to backward-compatibility reasons, old tags may have a less strict type conversion than new ones.
     """
