@@ -354,6 +354,7 @@ class TestBarmanRecover(unittest.TestCase):
         mock_create_op.reset_mock()
         mock_get_status.reset_mock()
         mock_log_info.reset_mock()
+        mock_log_error.reset_mock()
         mock_sleep.reset_mock()
         mock_get_status.side_effect = [OperationStatus.IN_PROGRESS] * 20 + [OperationStatus.FAILED]
 
@@ -576,7 +577,6 @@ class TestBarmanConfigSwitch(unittest.TestCase):
         mock_create_op.reset_mock()
         mock_create_op.side_effect = None
         mock_log_error.reset_mock()
-        mock_log_info.reset_mock()
         mock_get_status.side_effect = RetriesExceeded
 
         self.assertEqual(
