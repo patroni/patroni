@@ -298,7 +298,6 @@ class TestBarmanRecover(unittest.TestCase):
             mock.call("Recovery operation finished successfully."),
         ])
         mock_log_error.assert_not_called()
-        mock_log_error.assert_not_called()
         mock_sleep.assert_not_called()
 
         # successful slow restore
