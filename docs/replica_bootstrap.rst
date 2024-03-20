@@ -1,3 +1,5 @@
+.. _replica_imaging_and_bootstrap:
+
 Replica imaging and bootstrap
 =============================
 
@@ -79,14 +81,13 @@ As an example, you are able to bootstrap a fresh Patroni cluster from a Barman b
         method: barman
         barman:
             keep_existing_recovery_conf: true
-            command: patroni_barman_recover
-            api-url: https://barman-host:7480
+            command: patroni_barman --api-url https://barman-host:7480 recover
             barman-server: my_server
             ssh-command: ssh postgres@patroni-host
 
 .. note::
-    ``patroni_barman_recover`` requires that you have both Barman and ``pg-backup-api`` configured in the Barman host, so it can execute a remote ``barman recover`` through the backup API.
-    The above example uses a subset of the available parameters. You can get more information running ``patroni_barman_recover --help``.
+    ``patroni_barman recover`` requires that you have both Barman and ``pg-backup-api`` configured in the Barman host, so it can execute a remote ``barman recover`` through the backup API.
+    The above example uses a subset of the available parameters. You can get more information running ``patroni_barman recover --help``.
 
 .. _custom_replica_creation:
 
@@ -150,16 +151,15 @@ example: Barman
             - barman
             - basebackup
         barman:
-            command: patroni_barman_recover
-            api-url: https://barman-host:7480
+            command: patroni_barman --api-url https://barman-host:7480 recover
             barman-server: my_server
             ssh-command: ssh postgres@patroni-host
         basebackup:
             max-rate: '100M'
 
 .. note::
-    ``patroni_barman_recover`` requires that you have both Barman and ``pg-backup-api`` configured in the Barman host, so it can execute a remote ``barman recover`` through the backup API.
-    The above example uses a subset of the available parameters. You can get more information running ``patroni_barman_recover --help``.
+    ``patroni_barman recover`` requires that you have both Barman and ``pg-backup-api`` configured in the Barman host, so it can execute a remote ``barman recover`` through the backup API.
+    The above example uses a subset of the available parameters. You can get more information running ``patroni_barman recover --help``.
 
 The ``create_replica_methods`` defines available replica creation methods and the order of executing them. Patroni will
 stop on the first one that returns 0. Each method should define a separate section in the configuration file, listing the command

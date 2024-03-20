@@ -34,6 +34,7 @@ Currently supported PostgreSQL versions: 9.3 to 16.
    kubernetes
    citus
    existing_data
+   tools_integration
    security
    ha_multi_dc
    faq
