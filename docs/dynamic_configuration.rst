@@ -108,3 +108,7 @@ Note: if cluster topology is static (fixed number of nodes that never change the
 .. warning::
    Permanent replication slots are synchronized only from the ``primary``/``standby_leader`` to replica nodes. That means, applications are supposed to be using them only from the leader node. Using them on replica nodes will cause indefinite growth of ``pg_wal`` on all other nodes in the cluster.
    An exception to that rule are permanent physical slots that match the Patroni member names, if you happen to configure any. Those will be synchronized among all nodes as they are used for replication among them.
+
+
+.. warning::
+   Setting ``nostream`` tag on standby disables copying and synchronization of permanent logical replication slots on the node itself and all its cascading replicas if any.

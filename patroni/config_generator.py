@@ -126,6 +126,7 @@ class AbstractConfigGenerator(abc.ABC):
                 'noloadbalance': False,
                 'clonefrom': True,
                 'nosync': False,
+                'nostream': False,
             }
         }
 

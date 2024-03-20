@@ -399,6 +399,7 @@ Tags
 -  **nosync**: ``true`` or ``false``. If set to ``true`` the node will never be selected as a synchronous replica.
 -  **nofailover**: ``true`` or ``false``, controls whether this node is allowed to participate in the leader race and become a leader. Defaults to ``false``, meaning this node _can_ participate in leader races. 
 -  **failover_priority**: integer, controls the priority that this node should have during failover. Nodes with higher priority will be preferred over lower priority nodes if they received/replayed the same amount of WAL. However, nodes with higher values of receive/replay LSN are preferred regardless of their priority. If the ``failover_priority`` is 0 or negative - such node is not allowed to participate in the leader race and to become a leader (similar to ``nofailover: true``).
+-  **nostream**: ``true`` or ``false``. If set to ``true`` the node will not use replication protocol to stream WAL. It will rely instead on archive recovery (if ``restore_command`` is configured) and ``pg_wal``/``pg_xlog`` polling. It also disables copying and synchronization of permanent logical replication slots on the node itself and all its cascading replicas. Setting this tag on primary node has no effect.
 
 .. warning::
    Provide only one of ``nofailover`` or ``failover_priority``. Providing ``nofailover: true`` is the same as ``failover_priority: 0``, and providing ``nofailover: false`` will give the node priority 1. 

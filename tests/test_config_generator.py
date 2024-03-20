@@ -142,6 +142,7 @@ class TestGenerateConfig(unittest.TestCase):
                 'noloadbalance': False,
                 'clonefrom': True,
                 'nosync': False,
+                'nostream': False
             }
         }
         patch_config(self.config, conf)
