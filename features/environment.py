@@ -900,6 +900,13 @@ class PatroniPoolController(object):
             **(params or {}),
         }
 
+    def recovery_conf_config(self):
+        return {
+            'restore_command': (PatroniPoolController.ARCHIVE_RESTORE_SCRIPT + ' --mode restore '
+                                + '--dirname {} --filename %f --pathname %p')
+            .format(os.path.join(self.patroni_path, 'data', 'wal_archive'))
+        }
+
     def bootstrap_from_backup(self, name, cluster_name):
         custom_config = {
             'scope': cluster_name,

@@ -48,9 +48,12 @@ def kill_postgres(context, name):
 
 @step('I add the table {table_name:w} to {pg_name:w}')
 def add_table(context, table_name, pg_name):
+    version = context.pctl.query(pg_name, "SHOW server_version_num").fetchone()[0]
+    wal_name = 'xlog' if int(version) / 10000 < 10 else 'wal'
     # parse the configuration file and get the port
     try:
         context.pctl.query(pg_name, "CREATE TABLE public.{0}()".format(table_name))
+        context.pctl.query(pg_name, "SELECT pg_switch_{0}()".format(wal_name))
     except pg.Error as e:
         assert False, "Error creating table {0} on {1}: {2}".format(table_name, pg_name, e)
 
