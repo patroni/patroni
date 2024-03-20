@@ -6,6 +6,7 @@ Scenario: check nostream node is recovering from archive
     Then "members/postgres1" key in DCS has replication_state=in archive recovery after 10 seconds
     And replication works from postgres0 to postgres1 after 30 seconds
 
+@slot-advance
 Scenario: check permanent logical replication slots are not copied
     When I issue a PATCH request to http://127.0.0.1:8008/config with {"postgresql": {"parameters": {"wal_level": "logical"}}, "slots":{"test_logical":{"type":"logical","database":"postgres","plugin":"test_decoding"}}}
     Then I receive a response code 200
