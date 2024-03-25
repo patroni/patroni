@@ -1754,7 +1754,7 @@ class Ha(object):
         try:
             try:
                 self.load_cluster_from_dcs()
-                global_config.update(self.cluster)
+                global_config.update(self.cluster, self.patroni.config.dynamic_configuration)
                 self.state_handler.reset_cluster_info_state(self.cluster, self.patroni)
             except Exception:
                 self.state_handler.reset_cluster_info_state(None)
