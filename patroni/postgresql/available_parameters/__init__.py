@@ -1,5 +1,4 @@
 import logging
-import os
 import sys
 
 from pathlib import Path
@@ -9,19 +8,7 @@ logger = logging.getLogger(__name__)
 
 if sys.version_info < (3, 9):
     PathLikeObj = Path
-
-    def get_validator_files() -> Iterator[PathLikeObj]:
-        """Recursively find YAML files from the current package directory.
-
-        :yields: :class:`Path` objects representing validator files.
-        """
-        conf_dir = Path(__file__).parent
-
-        for root, _, filenames in os.walk(conf_dir):
-            files = (Path(root) / filename for filename in filenames)
-            for file in _filter_and_sort_files(files):
-                yield file
-
+    conf_dir = Path(__file__).parent
 else:
     from importlib.resources import files
 
@@ -31,18 +18,30 @@ else:
         from importlib.resources.abc import Traversable
 
     PathLikeObj = Traversable
+    conf_dir = files(__name__)
 
-    def get_validator_files() -> Iterator[PathLikeObj]:
-        """Recursively yield Traversable objects representing validator files from current direcotory."""
 
-        def _traversable_walk(tvbs: Iterator[PathLikeObj]) -> Iterator[PathLikeObj]:
-            for tvb in _filter_and_sort_files(tvbs):
-                if tvb.is_file():
-                    yield tvb
-                elif tvb.is_dir():
-                    yield from _traversable_walk(tvb.iterdir())
+def get_validator_files() -> Iterator[PathLikeObj]:
+    """Recursively find YAML files from the current package directory.
 
-        return _traversable_walk(files(__name__).iterdir())
+    :yields: :class:`PathLikeObj` objects representing validator files.
+    """
+    return _traversable_walk(conf_dir.iterdir())
+
+
+def _traversable_walk(tvbs: Iterator[PathLikeObj]) -> Iterator[PathLikeObj]:
+    """Recursively walk through Path/Traversable objects, yielding all YAML files in deterministic order.
+
+    :param tvbs: An iterator over `PathLikeObj` objects, where each object is a file or directory
+                 that potentially contains YAML files.
+
+    :yields: `PathLikeObj` objects representing YAML files found during the traversal.
+    """
+    for tvb in _filter_and_sort_files(tvbs):
+        if tvb.is_file():
+            yield tvb
+        elif tvb.is_dir():
+            yield from _traversable_walk(tvb.iterdir())
 
 
 def _filter_and_sort_files(files: Iterator[PathLikeObj]) -> Iterator[PathLikeObj]:
@@ -52,8 +51,8 @@ def _filter_and_sort_files(files: Iterator[PathLikeObj]) -> Iterator[PathLikeObj
 
     :yields: filtered and sorted objects.
     """
-    for file in sorted(files):
+    for file in sorted(files, key=lambda x: x.name):
         if file.name.lower().endswith((".yml", ".yaml")) or file.is_dir():
             yield file
         elif not file.name.lower().endswith((".py", ".pyc")):
-            logger.info("Ignored a non-YAML file found under `%s` directory: `%s`.", file, __name__.split('.')[-1])
+            logger.info("Ignored a non-YAML file found under `%s` directory: `%s`.", __name__.split('.')[-1], file)
