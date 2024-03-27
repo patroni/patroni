@@ -1,8 +1,9 @@
 import logging
 import os
 import sys
+
 from pathlib import Path
-from typing import Iterator, Union
+from typing import Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +11,10 @@ if sys.version_info < (3, 9):
     PathLikeObj = Path
 
     def get_validator_files() -> Iterator[PathLikeObj]:
-        """Recursively yield Path objects representing validator files from current directory."""
+        """Recursively find YAML files from the current package directory.
+
+        :yields: :class:`Path` objects representing validator files.
+        """
         conf_dir = Path(__file__).parent
 
         for root, _, filenames in os.walk(conf_dir):
@@ -21,12 +25,12 @@ if sys.version_info < (3, 9):
 else:
     from importlib.resources import files
 
-    if sys.version_info < (3, 11):
+    if sys.version_info < (3, 11):  # pragma: no cover
         from importlib.abc import Traversable
-    else:
+    else:  # pragma: no cover
         from importlib.resources.abc import Traversable
 
-    PathLikeObj = Union[Path, Traversable]
+    PathLikeObj = Traversable
 
     def get_validator_files() -> Iterator[PathLikeObj]:
         """Recursively yield Traversable objects representing validator files from current direcotory."""
@@ -44,14 +48,12 @@ else:
 def _filter_and_sort_files(files: Iterator[PathLikeObj]) -> Iterator[PathLikeObj]:
     """Sort files by name, and filter out non-YAML files and Python files.
 
-    :param files: A list of file or directory to be filtered and sorted.
-    :return: An iterator over the filtered and sorted list.
+    :param files: A list of files and/or directories to be filtered and sorted.
+
+    :yields: filtered and sorted objects.
     """
-    for file in sorted(files, key=lambda f: f.name.lower()):
+    for file in sorted(files):
         if file.name.lower().endswith((".yml", ".yaml")) or file.is_dir():
             yield file
         elif not file.name.lower().endswith((".py", ".pyc")):
-            logger.info(
-                "Ignored a non-YAML file found under `available_parameters` directory: `%s`.",
-                file,
-            )
+            logger.info("Ignored a non-YAML file found under `%s` directory: `%s`.", file, __name__.split('.')[-1])

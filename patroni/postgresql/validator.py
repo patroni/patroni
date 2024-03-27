@@ -261,7 +261,7 @@ class InvalidGucValidatorsFile(PatroniException):
 def _read_postgres_gucs_validators_file(file: PathLikeObj) -> Dict[str, Any]:
     """Read an YAML file and return the corresponding Python object.
 
-    :param file: path object of file to be read. It is expected to be encoded with ``UTF-8``, and to be a YAML document.
+    :param file: path-like object to read from. It is expected to be encoded with ``UTF-8``, and to be a YAML document.
 
     :returns: the YAML content parsed into a Python object. If any issue is faced while reading/parsing the file, then
         return ``None``.

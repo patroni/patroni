@@ -1080,8 +1080,8 @@ class TestPostgresql(BaseTestPostgresql):
                  patch('patroni.postgresql.available_parameters.logger.info') as mock_info, \
                  patch('patroni.postgresql.validator.logger.warning') as mock_warning:
                 _load_postgres_gucs_validators()
-                mock_info.assert_called_once_with('Ignored a non-YAML file found under `available_parameters` '
-                                                  'directory: `%s`.', Path('.') / 'file.txt')
+                mock_info.assert_called_once_with('Ignored a non-YAML file found under `%s` '
+                                                  'directory: `%s`.', Path('.') / 'file.txt', 'available_parameters')
                 mock_warning.assert_called_once()
                 self.assertIn(
                     "Unexpected issue while reading parameters file `random.yaml`: `[Errno 2] No such file or "
@@ -1110,8 +1110,8 @@ class TestPostgresql(BaseTestPostgresql):
                  patch('patroni.postgresql.available_parameters.logger.info') as mock_info, \
                  patch('patroni.postgresql.validator.logger.warning') as mock_warning:
                 _load_postgres_gucs_validators()
-                mock_info.assert_called_once_with('Ignored a non-YAML file found under `available_parameters` '
-                                                  'directory: `%s`.', file4_mock)
+                mock_info.assert_called_once_with('Ignored a non-YAML file found under `%s` '
+                                                  'directory: `%s`.', file4_mock, 'available_parameters')
                 mock_warning.assert_called_once()
                 self.assertIn(
                     "Unexpected issue while reading parameters file `random.yaml`: `[Errno 2] No such file or "
