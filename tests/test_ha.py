@@ -254,10 +254,6 @@ class TestHa(PostgresInit):
     @patch('patroni.dcs.etcd.Etcd.initialize', return_value=True)
     def test_bootstrap_as_standby_leader(self, initialize):
         self.p.data_directory_empty = true
-        self.ha.cluster = Cluster.empty()
-        self.ha.patroni.config._dynamic_configuration = {"standby_cluster": {"port": 5432}}
-        self.assertEqual(self.ha.run_cycle(), 'trying to bootstrap a new standby leader')
-        self.ha.state_handler.bootstrapping = False
         self.ha.cluster = get_cluster_not_initialized_without_leader(
             cluster_config=ClusterConfig(1, {"standby_cluster": {"port": 5432}}, 1))
         self.assertEqual(self.ha.run_cycle(), 'trying to bootstrap a new standby leader')

@@ -185,6 +185,9 @@ class Ha(object):
         # used only in backoff after failing a pre_promote script
         self._released_leader_key_timestamp = 0
 
+        # Initialize global config
+        global_config.update(None, self.patroni.config.dynamic_configuration)
+
     def primary_stop_timeout(self) -> Union[int, None]:
         """:returns: "primary_stop_timeout" from the global configuration or `None` when not in synchronous mode."""
         ret = global_config.primary_stop_timeout
@@ -1754,7 +1757,7 @@ class Ha(object):
         try:
             try:
                 self.load_cluster_from_dcs()
-                global_config.update(self.cluster, self.patroni.config.dynamic_configuration)
+                global_config.update(self.cluster)
                 self.state_handler.reset_cluster_info_state(self.cluster, self.patroni)
             except Exception:
                 self.state_handler.reset_cluster_info_state(None)
