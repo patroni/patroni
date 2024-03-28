@@ -2,7 +2,7 @@ Feature: nostream node
 
 Scenario: check nostream node is recovering from archive
     When I start postgres0
-    And I configure and start postgres1 as a nostream node
+    And I configure and start postgres1 with a tag nostream true
     Then "members/postgres1" key in DCS has replication_state=in archive recovery after 10 seconds
     And replication works from postgres0 to postgres1 after 30 seconds
 

@@ -259,6 +259,10 @@ class PatroniController(AbstractController):
                             'archive_command': (PatroniPoolController.ARCHIVE_RESTORE_SCRIPT
                                                 + ' --mode archive '
                                                 + '--dirname {} --filename %f --pathname %p').format(
+                                                    os.path.join(self._work_directory, 'data', 'wal_archive')),
+                            'restore_command': (PatroniPoolController.ARCHIVE_RESTORE_SCRIPT
+                                                + ' --mode restore '
+                                                + '--dirname {} --filename %f --pathname %p').format(
                                                     os.path.join(self._work_directory, 'data', 'wal_archive'))
                         }
                     }
@@ -898,13 +902,6 @@ class PatroniPoolController(object):
                         + ' --sourcedir=' + os.path.join(self.patroni_path, 'data', 'basebackup')).replace('\\', '/'),
             'test-argument': 'test-value',  # test config mapping approach on custom bootstrap/replica creation
             **(params or {}),
-        }
-
-    def recovery_conf_config(self):
-        return {
-            'restore_command': (PatroniPoolController.ARCHIVE_RESTORE_SCRIPT + ' --mode restore '
-                                + '--dirname {} --filename %f --pathname %p')
-            .format(os.path.join(self.patroni_path, 'data', 'wal_archive'))
         }
 
     def bootstrap_from_backup(self, name, cluster_name):
