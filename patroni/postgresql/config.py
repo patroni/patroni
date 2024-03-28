@@ -639,8 +639,7 @@ class ConfigHandler(object):
                 # We are a standby leader and are using a replication slot. Make sure we connect to
                 # the leader of the main cluster (in case more than one host is specified in the
                 # connstr) by adding 'target_session_attrs=read-write' to primary_conninfo.
-                if is_remote_member and 'target_sesions_attrs' not in primary_conninfo and\
-                        self._postgresql.major_version >= 100000:
+                if is_remote_member and ',' in primary_conninfo['host'] and self._postgresql.major_version >= 100000:
                     primary_conninfo['target_session_attrs'] = 'read-write'
             recovery_params['primary_conninfo'] = primary_conninfo
 
