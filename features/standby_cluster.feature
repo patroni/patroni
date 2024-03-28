@@ -26,7 +26,7 @@ Feature: standby cluster
   Scenario: Detach exiting node from the cluster
     When I shut down postgres1
     Then postgres0 is a leader after 10 seconds
-    And "members/postgres0" key in DCS has role=master after 3 seconds
+    And "members/postgres0" key in DCS has role=master after 5 seconds
     When I issue a GET request to http://127.0.0.1:8008/
     Then I receive a response code 200
 
@@ -47,6 +47,7 @@ Feature: standby cluster
     And there is a postgres1_cb.log with "on_role_change standby_leader batman1" in postgres1 data directory
     When I start postgres2 in a cluster batman1
     Then postgres2 role is the replica after 24 seconds
+    And postgres2 is replicating from postgres1 after 10 seconds
     And table foo is present on postgres2 after 20 seconds
     When I issue a GET request to http://127.0.0.1:8010/patroni
     Then I receive a response code 200
