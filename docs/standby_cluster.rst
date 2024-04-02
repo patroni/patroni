@@ -60,13 +60,13 @@ permanent replication slots feature on the primary cluster to maintain a
 replication slot with the same name as ``primary_slot_name``, or its default
 value if ``primary_slot_name`` is not provided.
 
-In case if the remote site doesn't provide a single endpoint that connects to a
-primary one could lists all hosts of the source cluster in the
+In case the remote site doesn't provide a single endpoint that connects to a
+primary, one could list all hosts of the source cluster in the
 ``standby_cluster.host`` section.  When ``standby_cluster.host`` contains
-multiple hosts speareted by comma Patroni will:
+multiple hosts separated by commas, Patroni will:
 
-* add  to the ``primary_conninfo`` on the
+* add ``target_session_attrs=read-write`` to the ``primary_conninfo`` on the
   standby leader node.
-* use ``target_session_attrs=read-write`` when trying to detemine whether we
+* use ``target_session_attrs=read-write`` when trying to determine whether we
   need to run ``pg_rewind`` or when executing ``pg_rewind`` on all nodes of the
   standby cluster.
