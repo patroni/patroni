@@ -24,7 +24,7 @@ else:
 def get_validator_files() -> Iterator[PathLikeObj]:
     """Recursively find YAML files from the current package directory.
 
-    :yields: :class:`PathLikeObj` objects representing validator files.
+    :returns: an iterator of :class:`PathLikeObj` objects representing validator files.
     """
     return _traversable_walk(conf_dir.iterdir())
 
@@ -32,10 +32,10 @@ def get_validator_files() -> Iterator[PathLikeObj]:
 def _traversable_walk(tvbs: Iterator[PathLikeObj]) -> Iterator[PathLikeObj]:
     """Recursively walk through Path/Traversable objects, yielding all YAML files in deterministic order.
 
-    :param tvbs: An iterator over `PathLikeObj` objects, where each object is a file or directory
+    :param tvbs: An iterator over :class:`PathLikeObj` objects, where each object is a file or directory
                  that potentially contains YAML files.
 
-    :yields: `PathLikeObj` objects representing YAML files found during the traversal.
+    :yields: :class:`PathLikeObj` objects representing YAML files found during the traversal.
     """
     for tvb in _filter_and_sort_files(tvbs):
         if tvb.is_file():
