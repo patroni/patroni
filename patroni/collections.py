@@ -228,6 +228,11 @@ class _FrozenDict(Mapping[str, Any]):
         """Get the length of this dict.
 
         :returns: number of keys in the dict.
+
+        :Example:
+
+        >>> len(_FrozenDict())
+        0
         """
         return len(self.__values)
 
