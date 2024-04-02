@@ -80,7 +80,7 @@ def mock_namespaced_kind(*args, **kwargs):
 
 
 def mock_load_k8s_config(self, *args, **kwargs):
-    self._server = ''
+    self._server = 'http://localhost'
 
 
 class TestK8sConfig(unittest.TestCase):
@@ -242,6 +242,7 @@ class BaseTestKubernetes(unittest.TestCase):
         self.k.get_cluster()
 
 
+@patch('urllib3.PoolManager.request', Mock())
 @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', mock_namespaced_kind, create=True)
 class TestKubernetesConfigMaps(BaseTestKubernetes):
 
@@ -374,6 +375,7 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
         mock_warning.assert_called_once()
 
 
+@patch('urllib3.PoolManager.request', Mock())
 class TestKubernetesEndpointsNoPodIP(BaseTestKubernetes):
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_endpoints', mock_list_namespaced_endpoints, create=True)
     def setUp(self, config=None):
@@ -388,6 +390,7 @@ class TestKubernetesEndpointsNoPodIP(BaseTestKubernetes):
         self.assertEqual(args[2].subsets[0].addresses[0].ip, '10.0.0.1')
 
 
+@patch('urllib3.PoolManager.request', Mock())
 class TestKubernetesEndpoints(BaseTestKubernetes):
 
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_endpoints', mock_list_namespaced_endpoints, create=True)
@@ -478,6 +481,7 @@ def mock_watch(*args):
     return urllib3.HTTPResponse()
 
 
+@patch('urllib3.PoolManager.request', Mock())
 class TestCacheBuilder(BaseTestKubernetes):
 
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
