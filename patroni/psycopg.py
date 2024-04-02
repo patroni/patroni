@@ -42,7 +42,8 @@ try:
             value.prepare(conn)
         return value.getquoted().decode('utf-8')
 except ImportError:
-    from psycopg import connect as __connect, sql, Error, DatabaseError, OperationalError, ProgrammingError
+    from psycopg import connect as __connect  # pyright: ignore [reportUnknownVariableType]
+    from psycopg import sql, Error, DatabaseError, OperationalError, ProgrammingError
 
     def _connect(dsn: Optional[str] = None, **kwargs: Any) -> 'Connection[Any]':
         """Call :func:`psycopg.connect` with *dsn* and ``**kwargs``.
@@ -56,7 +57,7 @@ except ImportError:
 
         :returns: a connection to the database.
         """
-        ret = __connect(dsn or "", **kwargs)
+        ret: 'Connection[Any]' = __connect(dsn or "", **kwargs)
         setattr(ret, 'server_version', ret.pgconn.server_version)  # compatibility with psycopg2
         return ret
 

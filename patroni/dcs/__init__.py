@@ -85,6 +85,8 @@ def dcs_modules() -> List[str]:
 
     :returns: list of known module names with absolute python module path namespace, e.g. ``patroni.dcs.etcd``.
     """
+    if TYPE_CHECKING:  # pragma: no cover
+        assert isinstance(__package__, str)
     return iter_modules(__package__)
 
 
@@ -101,6 +103,8 @@ def iter_dcs_classes(
 
     :returns: an iterator of tuples, each containing the module ``name`` and the imported DCS class object.
     """
+    if TYPE_CHECKING:  # pragma: no cover
+        assert isinstance(__package__, str)
     return iter_classes(__package__, AbstractDCS, config)
 
 

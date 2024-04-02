@@ -299,6 +299,8 @@ def iter_mpp_classes(
 
     :yields: tuples, each containing the module ``name`` and the imported MPP class object.
     """
+    if TYPE_CHECKING:  # pragma: no cover
+        assert isinstance(__package__, str)
     yield from iter_classes(__package__, AbstractMPP, config)
 
 

@@ -11,8 +11,7 @@ import socket
 
 from typing import Any, Dict, Union, Iterator, List, Optional as OptionalType, Tuple, TYPE_CHECKING
 
-from .collections import CaseInsensitiveSet
-
+from .collections import CaseInsensitiveSet, EMPTY_DICT
 from .dcs import dcs_modules
 from .exceptions import ConfigParseError
 from .utils import parse_int, split_host_port, data_directory_is_empty, get_major_version
@@ -245,7 +244,7 @@ def get_bin_name(bin_name: str) -> str:
     """
     if TYPE_CHECKING:  # pragma: no cover
         assert isinstance(schema.data, dict)
-    return (schema.data.get('postgresql', {}).get('bin_name', {}) or {}).get(bin_name, bin_name)
+    return (schema.data.get('postgresql', {}).get('bin_name', {}) or EMPTY_DICT).get(bin_name, bin_name)
 
 
 def validate_data_dir(data_dir: str) -> bool:

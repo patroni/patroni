@@ -413,7 +413,8 @@ class PatroniLogger(Thread):
                 if not isinstance(handler, RotatingFileHandler):
                     handler = RotatingFileHandler(os.path.join(config['dir'], __name__))
 
-                handler.maxBytes = int(config.get('file_size', 25000000))  # pyright: ignore [reportGeneralTypeIssues]
+                max_file_size = int(config.get('file_size', 25000000))
+                handler.maxBytes = max_file_size  # pyright: ignore [reportAttributeAccessIssue]
                 handler.backupCount = int(config.get('file_num', 4))
             # we can't use `if not isinstance(handler, logging.StreamHandler)` below,
             # because RotatingFileHandler is a child of StreamHandler!!!
