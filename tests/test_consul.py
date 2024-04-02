@@ -160,10 +160,8 @@ class TestConsul(unittest.TestCase):
         self.c.set_ttl(20)
         self.c._do_refresh_session = Mock()
         self.assertFalse(self.c.take_leader())
-        with patch('time.time', Mock(side_effect=[0, 100])):
-            self.assertRaises(ConsulError, self.c.take_leader)
-        with patch('time.time', Mock(side_effect=[0, 0, 0, 0, 0, 0, 100])):
-            self.assertRaises(ConsulError, self.c.take_leader)
+        with patch('time.time', Mock(side_effect=[0, 0, 0, 100, 100])):
+            self.assertFalse(self.c.take_leader())
 
     @patch.object(consul.Consul.KV, 'put', Mock(return_value=True))
     def test_set_failover_value(self):

@@ -256,10 +256,18 @@ class PatroniController(AbstractController):
                         'parameters': {
                             'wal_keep_segments': 100,
                             'archive_mode': 'on',
-                            'archive_command': (PatroniPoolController.ARCHIVE_RESTORE_SCRIPT
-                                                + ' --mode archive '
-                                                + '--dirname {} --filename %f --pathname %p').format(
-                                                    os.path.join(self._work_directory, 'data', 'wal_archive'))
+                            'archive_command':
+                                (PatroniPoolController.ARCHIVE_RESTORE_SCRIPT
+                                 + ' --mode archive '
+                                 + '--dirname {} --filename %f --pathname %p').format(
+                                     os.path.join(self._work_directory, 'data',
+                                                  f'wal_archive{str(self._citus_group or "")}')).replace('\\', '/'),
+                            'restore_command':
+                                (PatroniPoolController.ARCHIVE_RESTORE_SCRIPT
+                                 + ' --mode restore '
+                                 + '--dirname {} --filename %f --pathname %p').format(
+                                     os.path.join(self._work_directory, 'data',
+                                                  f'wal_archive{str(self._citus_group or "")}')).replace('\\', '/')
                         }
                     }
                 }
@@ -928,11 +936,6 @@ class PatroniPoolController(object):
         custom_config = {
             'scope': cluster_name,
             'postgresql': {
-                'recovery_conf': {
-                    'restore_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode restore '
-                                        + '--dirname {} --filename %f --pathname %p')
-                    .format(os.path.join(self.patroni_path, 'data', 'wal_archive').replace('\\', '/'))
-                },
                 'create_replica_methods': ['no_leader_bootstrap'],
                 'no_leader_bootstrap': self.backup_restore_config({'no_leader': '1'})
             }

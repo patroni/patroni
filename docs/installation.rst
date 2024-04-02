@@ -60,6 +60,8 @@ raft
     `pysyncobj` module in order to use python Raft implementation as DCS
 aws
     `boto3` in order to use AWS callbacks
+jsonlogger
+    `python-json-logger` module in order to enable :ref:`logging <log_settings>` in json format
 all
     all of the above (except psycopg family)
 psycopg

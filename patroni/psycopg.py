@@ -9,8 +9,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Connection
     from psycopg2 import connection, cursor
 
-__all__ = ['connect', 'quote_ident', 'quote_literal', 'DatabaseError', 'Error', 'OperationalError', 'ProgrammingError',
-           'DuplicateDatabase']
+__all__ = ['connect', 'quote_ident', 'quote_literal', 'DatabaseError', 'Error', 'OperationalError', 'ProgrammingError']
 
 _legacy = False
 try:
@@ -19,7 +18,6 @@ try:
     if parse_version(__version__) < MIN_PSYCOPG2:
         raise ImportError
     from psycopg2 import connect as _connect, Error, DatabaseError, OperationalError, ProgrammingError
-    from psycopg2.errors import DuplicateDatabase
     from psycopg2.extensions import adapt
 
     try:
@@ -45,7 +43,6 @@ try:
         return value.getquoted().decode('utf-8')
 except ImportError:
     from psycopg import connect as __connect, sql, Error, DatabaseError, OperationalError, ProgrammingError
-    from psycopg.errors import DuplicateDatabase
 
     def _connect(dsn: Optional[str] = None, **kwargs: Any) -> 'Connection[Any]':
         """Call :func:`psycopg.connect` with *dsn* and ``**kwargs``.

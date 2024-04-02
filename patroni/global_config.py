@@ -44,19 +44,20 @@ class GlobalConfig(types.ModuleType):
         """
         return bool(cluster and cluster.config and cluster.config.modify_version)
 
-    def update(self, cluster: Optional['Cluster']) -> None:
+    def update(self, cluster: Optional['Cluster'], default: Optional[Dict[str, Any]] = None) -> None:
         """Update with the new global configuration from the :class:`Cluster` object view.
 
         .. note::
-            Global configuration is updated only when configuration in the *cluster* view is valid.
-
             Update happens in-place and is executed only from the main heartbeat thread.
 
         :param cluster: the currently known cluster state from DCS.
+        :param default: default configuration, which will be used if there is no valid *cluster.config*.
         """
         # Try to protect from the case when DCS was wiped out
         if self._cluster_has_valid_config(cluster):
             self.__config = cluster.config.data  # pyright: ignore [reportOptionalMemberAccess]
+        elif default:
+            self.__config = default
 
     def from_cluster(self, cluster: Optional['Cluster']) -> 'GlobalConfig':
         """Return :class:`GlobalConfig` instance from the provided :class:`Cluster` object view.

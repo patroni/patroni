@@ -9,7 +9,7 @@ import time
 from contextlib import contextmanager
 from urllib.parse import urlparse, parse_qsl, unquote
 from types import TracebackType
-from typing import Any, Collection, Dict, Iterator, List, Optional, Union, Tuple, Type, TYPE_CHECKING
+from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Union, Tuple, Type, TYPE_CHECKING
 
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
 from .. import global_config
@@ -17,7 +17,8 @@ from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException, PostgresConnectionException
 from ..file_perm import pg_perm
-from ..utils import compare_values, parse_bool, parse_int, split_host_port, uri, validate_directory, is_subpath
+from ..utils import (compare_values, maybe_convert_from_base_unit, parse_bool, parse_int,
+                     split_host_port, uri, validate_directory, is_subpath)
 from ..validator import IntValidator, EnumValidator
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -270,6 +271,29 @@ def _bool_is_true_validator(value: Any) -> bool:
     return parse_bool(value) is True
 
 
+def get_param_diff(old_value: Any, new_value: Any,
+                   vartype: Optional[str] = None, unit: Optional[str] = None) -> Dict[str, str]:
+    """Get a dictionary representing a single PG parameter's value diff.
+
+    :param old_value: current :class:`str` parameter value.
+    :param new_value: :class:`str` value of the paramater after a restart.
+    :param vartype: the target type to parse old/new_value. See ``vartype`` argument of
+        :func:`~patroni.utils.maybe_convert_from_base_unit`.
+    :param unit: unit of *old/new_value*. See ``base_unit`` argument of
+        :func:`~patroni.utils.maybe_convert_from_base_unit`.
+
+    :returns: a :class:`dict` object that contains two keys: ``old_value`` and ``new_value``
+        with their values casted to :class:`str` and converted from base units (if possible).
+    """
+    str_value: Callable[[Any], str] = lambda x: '' if x is None else str(x)
+    return {
+        'old_value': (maybe_convert_from_base_unit(str_value(old_value), vartype, unit)
+                      if vartype else str_value(old_value)),
+        'new_value': (maybe_convert_from_base_unit(str_value(new_value), vartype, unit)
+                      if vartype else str_value(new_value))
+    }
+
+
 class ConfigHandler(object):
 
     # List of parameters which must be always passed to postmaster as command line options
@@ -337,12 +361,24 @@ class ConfigHandler(object):
 
     def load_current_server_parameters(self) -> None:
         """Read GUC's values from ``pg_settings`` when Patroni is joining the the postgres that is already running."""
-        exclude = [name.lower() for name, value in self.CMDLINE_OPTIONS.items() if value[1] == _false_validator] \
-            + [name.lower() for name in self._RECOVERY_PARAMETERS]
-        self._server_parameters = CaseInsensitiveDict({r[0]: r[1] for r in self._postgresql.query(
+        exclude = [name.lower() for name, value in self.CMDLINE_OPTIONS.items() if value[1] == _false_validator]
+        keep_values = {k: self._server_parameters[k] for k in exclude}
+        server_parameters = CaseInsensitiveDict({r[0]: r[1] for r in self._postgresql.query(
             "SELECT name, pg_catalog.current_setting(name) FROM pg_catalog.pg_settings"
             " WHERE (source IN ('command line', 'environment variable') OR sourcefile = %s)"
             " AND pg_catalog.lower(name) != ALL(%s)", self._postgresql_conf, exclude)})
+        recovery_params = CaseInsensitiveDict({k: server_parameters.pop(k) for k in self._RECOVERY_PARAMETERS
+                                               if k in server_parameters})
+        # We also want to load current settings of recovery parameters, including primary_conninfo
+        # and primary_slot_name, otherwise patronictl restart will update postgresql.conf
+        # and remove them, what in the worst case will cause another restart.
+        # We are doing it only for PostgresSQL v12 onwards, because older version still have recovery.conf
+        if not self._postgresql.is_primary() and self._postgresql.major_version >= 120000:
+            # primary_conninfo is expected to be a dict, therefore we need to parse it
+            recovery_params['primary_conninfo'] = parse_dsn(recovery_params.pop('primary_conninfo', '')) or {}
+            self._recovery_params = recovery_params
+
+        self._server_parameters = CaseInsensitiveDict({**server_parameters, **keep_values})
 
     def setup_server_parameters(self) -> None:
         self._server_parameters = self.get_server_parameters(self._config)
@@ -603,8 +639,7 @@ class ConfigHandler(object):
                 # We are a standby leader and are using a replication slot. Make sure we connect to
                 # the leader of the main cluster (in case more than one host is specified in the
                 # connstr) by adding 'target_session_attrs=read-write' to primary_conninfo.
-                if is_remote_member and 'target_sesions_attrs' not in primary_conninfo and\
-                        self._postgresql.major_version >= 100000:
+                if is_remote_member and ',' in primary_conninfo['host'] and self._postgresql.major_version >= 100000:
                     primary_conninfo['target_session_attrs'] = 'read-write'
             recovery_params['primary_conninfo'] = primary_conninfo
 
@@ -956,7 +991,7 @@ class ConfigHandler(object):
             wal_keep_size = parse_int(parameters.pop('wal_keep_size', self.CMDLINE_OPTIONS['wal_keep_size'][0]), 'MB')
             parameters.setdefault('wal_keep_segments', int(((wal_keep_size or 0) + 8) / 16))
 
-        self._postgresql.citus_handler.adjust_postgres_gucs(parameters)
+        self._postgresql.mpp_handler.adjust_postgres_gucs(parameters)
 
         ret = CaseInsensitiveDict({k: v for k, v in parameters.items() if not self._postgresql.major_version
                                    or self._postgresql.major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 90100))[2]})
@@ -1065,13 +1100,15 @@ class ConfigHandler(object):
     def reload_config(self, config: Dict[str, Any], sighup: bool = False) -> None:
         self._superuser = config['authentication'].get('superuser', {})
         server_parameters = self.get_server_parameters(config)
+        params_skip_changes = CaseInsensitiveSet((*self._RECOVERY_PARAMETERS, 'hot_standby', 'wal_log_hints'))
 
-        conf_changed = hba_changed = ident_changed = local_connection_address_changed = pending_restart = False
+        conf_changed = hba_changed = ident_changed = local_connection_address_changed = False
+        param_diff = CaseInsensitiveDict()
         if self._postgresql.state == 'running':
             changes = CaseInsensitiveDict({p: v for p, v in server_parameters.items()
-                                           if p.lower() not in self._RECOVERY_PARAMETERS})
+                                           if p not in params_skip_changes})
             changes.update({p: None for p in self._server_parameters.keys()
-                            if not (p in changes or p.lower() in self._RECOVERY_PARAMETERS)})
+                            if not (p in changes or p in params_skip_changes)})
             if changes:
                 undef = []
                 if 'wal_buffers' in changes:  # we need to calculate the default value of wal_buffers
@@ -1090,26 +1127,28 @@ class ConfigHandler(object):
                         if new_value is None or not compare_values(r[3], r[2], r[1], new_value):
                             conf_changed = True
                             if r[4] == 'postmaster':
-                                pending_restart = True
-                                logger.info('Changed %s from %s to %s (restart might be required)',
-                                            r[0], r[1], new_value)
+                                param_diff[r[0]] = get_param_diff(r[1], new_value, r[3], r[2])
+                                logger.info("Changed %s from '%s' to '%s' (restart might be required)",
+                                            r[0], param_diff[r[0]]['old_value'], new_value)
                                 if config.get('use_unix_socket') and r[0] == 'unix_socket_directories'\
                                         or r[0] in ('listen_addresses', 'port'):
                                     local_connection_address_changed = True
                             else:
-                                logger.info('Changed %s from %s to %s', r[0], r[1], new_value)
+                                logger.info("Changed %s from '%s' to '%s'",
+                                            r[0], maybe_convert_from_base_unit(r[1], r[3], r[2]), new_value)
                         elif r[0] in self._server_parameters \
                                 and not compare_values(r[3], r[2], r[1], self._server_parameters[r[0]]):
                             # Check if any parameter was set back to the current pg_settings value
                             # We can use pg_settings value here, as it is proved to be equal to new_value
-                            logger.info('Changed %s from %s to %s', r[0], self._server_parameters[r[0]], r[1])
+                            logger.info("Changed %s from '%s' to '%s'", r[0], self._server_parameters[r[0]], new_value)
                             conf_changed = True
                 for param, value in changes.items():
                     if '.' in param:
-                        # Check that user-defined-paramters have changed (parameters with period in name)
+                        # Check that user-defined-parameters have changed (parameters with period in name)
                         if value is None or param not in self._server_parameters \
                                 or str(value) != str(self._server_parameters[param]):
-                            logger.info('Changed %s from %s to %s', param, self._server_parameters.get(param), value)
+                            logger.info("Changed %s from '%s' to '%s'",
+                                        param, self._server_parameters.get(param), value)
                             conf_changed = True
                     elif param in server_parameters:
                         logger.warning('Removing invalid parameter `%s` from postgresql.parameters', param)
@@ -1124,7 +1163,6 @@ class ConfigHandler(object):
                 ident_changed = self._config.get('pg_ident', []) != config['pg_ident']
 
         self._config = config
-        self._postgresql.set_pending_restart(pending_restart)
         self._server_parameters = server_parameters
         self._adjust_recovery_parameters()
         self._krbsrvname = config.get('krbsrvname')
@@ -1154,15 +1192,27 @@ class ConfigHandler(object):
             if self._postgresql.major_version >= 90500:
                 time.sleep(1)
                 try:
-                    pending_restart = self._postgresql.query(
-                        'SELECT COUNT(*) FROM pg_catalog.pg_settings'
-                        ' WHERE pg_catalog.lower(name) != ALL(%s) AND pending_restart',
-                        [n.lower() for n in self._RECOVERY_PARAMETERS])[0][0] > 0
-                    self._postgresql.set_pending_restart(pending_restart)
+                    settings_diff: CaseInsensitiveDict = CaseInsensitiveDict()
+                    for param, value, unit, vartype in self._postgresql.query(
+                            'SELECT name, pg_catalog.current_setting(name), unit, vartype FROM pg_catalog.pg_settings'
+                            ' WHERE pg_catalog.lower(name) != ALL(%s) AND pending_restart',
+                            [n.lower() for n in params_skip_changes]):
+                        new_value = self._postgresql.get_guc_value(param)
+                        new_value = '?' if new_value is None else new_value
+                        settings_diff[param] = get_param_diff(value, new_value, vartype, unit)
+                    external_change = {param: value for param, value in settings_diff.items()
+                                       if param not in param_diff or value != param_diff[param]}
+                    if external_change:
+                        logger.info("PostgreSQL configuration parameters requiring restart"
+                                    " (%s) seem to be changed bypassing Patroni config."
+                                    " Setting 'Pending restart' flag", ', '.join(external_change))
+                    param_diff = settings_diff
                 except Exception as e:
                     logger.warning('Exception %r when running query', e)
         else:
             logger.info('No PostgreSQL configuration items changed, nothing to reload.')
+
+        self._postgresql.set_pending_restart_reason(param_diff)
 
     def set_synchronous_standby_names(self, value: Optional[str]) -> Optional[bool]:
         """Updates synchronous_standby_names and reloads if necessary.
@@ -1206,6 +1256,7 @@ class ConfigHandler(object):
         data = self._postgresql.controldata()
         effective_configuration = self._server_parameters.copy()
 
+        param_diff = CaseInsensitiveDict()
         for name, cname in options_mapping.items():
             value = parse_int(effective_configuration[name])
             if cname not in data:
@@ -1215,7 +1266,10 @@ class ConfigHandler(object):
             cvalue = parse_int(data[cname])
             if cvalue is not None and value is not None and cvalue > value:
                 effective_configuration[name] = cvalue
-                self._postgresql.set_pending_restart(True)
+                logger.info("%s value in pg_controldata: %d, in the global configuration: %d."
+                            " pg_controldata value will be used. Setting 'Pending restart' flag", name, cvalue, value)
+                param_diff[name] = get_param_diff(cvalue, value)
+        self._postgresql.set_pending_restart_reason(param_diff)
 
         # If we are using custom bootstrap with PITR it could fail when values like max_connections
         # are increased, therefore we disable hot_standby if recovery_target_action == 'promote'.
@@ -1232,7 +1286,6 @@ class ConfigHandler(object):
 
             if disable_hot_standby:
                 effective_configuration['hot_standby'] = 'off'
-                self._postgresql.set_pending_restart(True)
 
         return effective_configuration
 
