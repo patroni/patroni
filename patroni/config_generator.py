@@ -99,6 +99,7 @@ class AbstractConfigGenerator(abc.ABC):
                 'listen': cls._IP + ':8008'
             },
             'log': {
+                'type': PatroniLogger.DEFAULT_TYPE,
                 'level': PatroniLogger.DEFAULT_LEVEL,
                 'traceback_level': PatroniLogger.DEFAULT_TRACEBACK_LEVEL,
                 'format': PatroniLogger.DEFAULT_FORMAT,
@@ -125,6 +126,7 @@ class AbstractConfigGenerator(abc.ABC):
                 'noloadbalance': False,
                 'clonefrom': True,
                 'nosync': False,
+                'nostream': False,
             }
         }
 

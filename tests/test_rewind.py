@@ -98,7 +98,8 @@ class TestRewind(BaseTestPostgresql):
             self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
 
     @patch.object(CancellableSubprocess, 'call', mock_cancellable_call)
-    @patch.object(Postgresql, 'checkpoint', side_effect=['', '1'],)
+    @patch.object(Postgresql, 'get_guc_value', Mock(return_value=''))
+    @patch.object(Postgresql, 'checkpoint', side_effect=['', '1'])
     @patch.object(Postgresql, 'stop', Mock(return_value=False))
     @patch.object(Postgresql, 'start', Mock())
     def test_execute(self, mock_checkpoint):

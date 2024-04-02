@@ -249,6 +249,16 @@ class TestPatroni(unittest.TestCase):
         self.p.tags['nosync'] = None
         self.assertFalse(self.p.nosync)
 
+    def test_nostream(self):
+        self.p.tags['nostream'] = 'True'
+        self.assertTrue(self.p.nostream)
+        self.p.tags['nostream'] = 'None'
+        self.assertFalse(self.p.nostream)
+        self.p.tags['nostream'] = 'foo'
+        self.assertFalse(self.p.nostream)
+        self.p.tags['nostream'] = ''
+        self.assertFalse(self.p.nostream)
+
     @patch.object(Thread, 'join', Mock())
     def test_shutdown(self):
         self.p.api.shutdown = Mock(side_effect=Exception)

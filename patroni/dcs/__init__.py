@@ -795,7 +795,7 @@ class Cluster(NamedTuple('Cluster',
                           ('history', Optional[TimelineHistory]),
                           ('failsafe', Optional[Dict[str, str]]),
                           ('workers', Dict[int, 'Cluster'])])):
-    """Immutable object (namedtuple) which represents PostgreSQL or Citus cluster.
+    """Immutable object (namedtuple) which represents PostgreSQL or MPP cluster.
 
     .. note::
         We are using an old-style attribute declaration here because otherwise it is not possible to override `__new__`
@@ -812,8 +812,8 @@ class Cluster(NamedTuple('Cluster',
     :ivar sync: reference to :class:`SyncState` object, last observed synchronous replication state.
     :ivar history: reference to `TimelineHistory` object.
     :ivar failsafe: failsafe topology. Node is allowed to become the leader only if its name is found in this list.
-    :ivar workers: dictionary of workers of the Citus cluster, optional. Each key is an :class:`int` representing
-                   the group, and the corresponding value is a :class:`Cluster` instance.
+    :ivar workers: dictionary of workers of the MPP cluster, optional. Each key representing the group and the
+                   corresponding value is a :class:`Cluster` instance.
     """
 
     def __new__(cls, *args: Any, **kwargs: Any):
@@ -1052,6 +1052,8 @@ class Cluster(NamedTuple('Cluster',
         .. note::
             Permanent replication slots are only considered if ``use_slots`` configuration is enabled.
             A node that is not supposed to become a leader (*nofailover*) will not have permanent replication slots.
+            Also node with disabled streaming (*nostream*) and its cascading followers must not have permanent
+            logical slots due to lack of feedback from node to primary, which makes them unsafe to use.
 
             In a standby cluster we only support physical replication slots.
 
@@ -1067,7 +1069,7 @@ class Cluster(NamedTuple('Cluster',
         if not global_config.use_slots or tags.nofailover:
             return {}
 
-        if global_config.is_standby_cluster:
+        if global_config.is_standby_cluster or self.get_slot_name_on_primary(postgresql.name, tags) is None:
             return self.__permanent_physical_slots \
                 if postgresql.major_version >= SLOT_ADVANCE_AVAILABLE_VERSION or role == 'standby_leader' else {}
 
@@ -1081,6 +1083,10 @@ class Cluster(NamedTuple('Cluster',
         the current primary, because that member would replicate from elsewhere. We still create the slot if
         the ``replicatefrom`` destination member is currently not a member of the cluster (fallback to the
         primary), or if ``replicatefrom`` destination member happens to be the current primary.
+
+        If the ``nostream`` tag is set on the member - we should not create the replication slot for it on
+        the current primary or any other member even if ``replicatefrom`` is set, because ``nostream`` disables
+        WAL streaming.
 
         Will log an error if:
 
@@ -1096,8 +1102,9 @@ class Cluster(NamedTuple('Cluster',
         if not global_config.use_slots:
             return {}
 
-        # we always want to exclude the member with our name from the list
-        members = filter(lambda m: m.name != name, self.members)
+        # we always want to exclude the member with our name from the list,
+        # also exlude members with disabled WAL streaming
+        members = filter(lambda m: m.name != name and not m.nostream, self.members)
 
         if role in ('master', 'primary', 'standby_leader'):
             members = [m for m in members if m.replicatefrom is None
@@ -1185,7 +1192,7 @@ class Cluster(NamedTuple('Cluster',
             return any(self.should_enforce_hot_standby_feedback(postgresql, m) for m in members)
         return False
 
-    def get_slot_name_on_primary(self, name: str, tags: Tags) -> str:
+    def get_slot_name_on_primary(self, name: str, tags: Tags) -> Optional[str]:
         """Get the name of physical replication slot for this node on the primary.
 
         .. note::
@@ -1199,6 +1206,8 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: the slot name on the primary that is in use for physical replication on this node.
         """
+        if tags.nostream:
+            return None
         replicatefrom = self.get_member(tags.replicatefrom, False) if tags.replicatefrom else None
         return self.get_slot_name_on_primary(replicatefrom.name, replicatefrom) \
             if isinstance(replicatefrom, Member) else slot_name_from_member_name(name)
@@ -1276,11 +1285,11 @@ class AbstractDCS(abc.ABC):
     Functional methods that are critical in their timing, required to complete within ``retry_timeout`` period in order
     to prevent the DCS considered inaccessible, each perform construction of complex data objects:
 
-        * :meth:`~AbstractDCS._cluster_loader`:
+        * :meth:`~AbstractDCS._postgresql_cluster_loader`:
             method which processes the structure of data stored in the DCS used to build the :class:`Cluster` object
             with all relevant associated data.
-        * :meth:`~AbstractDCS._citus_cluster_loader`:
-            Similar to above but specifically representing Citus group and workers information.
+        * :meth:`~AbstractDCS._mpp_cluster_loader`:
+            Similar to above but specifically representing MPP group and workers information.
         * :meth:`~AbstractDCS._load_cluster`:
             main method for calling specific ``loader`` method to build the :class:`Cluster` object representing the
             state and topology of the cluster.
@@ -1350,7 +1359,7 @@ class AbstractDCS(abc.ABC):
     _FAILSAFE = 'failsafe'
 
     def __init__(self, config: Dict[str, Any], mpp: 'AbstractMPP') -> None:
-        """Prepare DCS paths, Citus group ID, initial values for state information and processing dependencies.
+        """Prepare DCS paths, MPP object, initial values for state information and processing dependencies.
 
         :ivar config: :class:`dict`, reference to config section of selected DCS.
                       i.e.: ``zookeeper`` for zookeeper, ``etcd`` for etcd, etc...
@@ -1485,22 +1494,21 @@ class AbstractDCS(abc.ABC):
         return self._last_seen
 
     @abc.abstractmethod
-    def _cluster_loader(self, path: Any) -> Cluster:
-        """Load and build the :class:`Cluster` object from DCS, which represents a single Patroni or Citus cluster.
+    def _postgresql_cluster_loader(self, path: Any) -> Cluster:
+        """Load and build the :class:`Cluster` object from DCS, which represents a single PostgreSQL cluster.
 
-        :param path: the path in DCS where to load Cluster(s) from.
+        :param path: the path in DCS where to load :class:`Cluster` from.
 
         :returns: :class:`Cluster` instance.
         """
 
     @abc.abstractmethod
-    def _citus_cluster_loader(self, path: Any) -> Dict[int, Cluster]:
-        """Load and build all Patroni clusters from a single Citus cluster.
+    def _mpp_cluster_loader(self, path: Any) -> Dict[int, Cluster]:
+        """Load and build all PostgreSQL clusters from a single MPP cluster.
 
         :param path: the path in DCS where to load Cluster(s) from.
 
-        :returns: all Citus groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values or a
-                  :class:`Cluster` object representing the coordinator with filled `Cluster.workers` attribute.
+        :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
         """
 
     @abc.abstractmethod
@@ -1515,13 +1523,14 @@ class AbstractDCS(abc.ABC):
             the :meth:`~AbstractDCS.get_cluster` method.
 
         :param path: the path in DCS where to load Cluster(s) from.
-        :param loader: one of :meth:`~AbstractDCS._cluster_loader` or :meth:`~AbstractDCS._citus_cluster_loader`.
+        :param loader: one of :meth:`~AbstractDCS._postgresql_cluster_loader` or
+                       :meth:`~AbstractDCS._mpp_cluster_loader`.
 
         :raise: :exc:`~DCSError` in case of communication problems with DCS. If the current node was running as a
                 primary and exception raised, instance would be demoted.
         """
 
-    def __get_patroni_cluster(self, path: Optional[str] = None) -> Cluster:
+    def __get_postgresql_cluster(self, path: Optional[str] = None) -> Cluster:
         """Low level method to load a :class:`Cluster` object from DCS.
 
         :param path: optional client path in DCS backend to load from.
@@ -1530,39 +1539,40 @@ class AbstractDCS(abc.ABC):
         """
         if path is None:
             path = self.client_path('')
-        cluster = self._load_cluster(path, self._cluster_loader)
+        cluster = self._load_cluster(path, self._postgresql_cluster_loader)
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(cluster, Cluster)
         return cluster
 
-    def is_citus_coordinator(self) -> bool:
-        """:class:`Cluster` instance has a Citus Coordinator group ID.
+    def is_mpp_coordinator(self) -> bool:
+        """:class:`Cluster` instance has a Coordinator group ID.
 
         :returns: ``True`` if the given node is running as the MPP Coordinator.
         """
         return self._mpp.is_coordinator()
 
-    def get_citus_coordinator(self) -> Optional[Cluster]:
-        """Load the Patroni cluster for the Citus Coordinator.
+    def get_mpp_coordinator(self) -> Optional[Cluster]:
+        """Load the PostgreSQL cluster for the MPP Coordinator.
 
-          .. note::
-              This method is only executed on the worker nodes (``group!=0``) to find the coordinator.
+        .. note::
+            This method is only executed on the worker nodes to find the coordinator.
 
         :returns: Select :class:`Cluster` instance associated with the MPP Coordinator group ID.
         """
         try:
-            return self.__get_patroni_cluster(f'{self._base_path}/{self._mpp.coordinator_group_id}/')
+            return self.__get_postgresql_cluster(f'{self._base_path}/{self._mpp.coordinator_group_id}/')
         except Exception as e:
-            logger.error('Failed to load Citus coordinator cluster from %s: %r', self.__class__.__name__, e)
+            logger.error('Failed to load %s coordinator cluster from %s: %r',
+                         self._mpp.type, self.__class__.__name__, e)
         return None
 
-    def _get_citus_cluster(self) -> Cluster:
-        """Load Citus cluster from DCS.
+    def _get_mpp_cluster(self) -> Cluster:
+        """Load MPP cluster from DCS.
 
-        :returns: A Citus :class:`Cluster` instance for the coordinator with workers clusters in the `Cluster.workers`
+        :returns: A MPP :class:`Cluster` instance for the coordinator with workers clusters in the `Cluster.workers`
                   dict.
         """
-        groups = self._load_cluster(self._base_path + '/', self._citus_cluster_loader)
+        groups = self._load_cluster(self._base_path + '/', self._mpp_cluster_loader)
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(groups, dict)
         cluster = groups.pop(self._mpp.coordinator_group_id, Cluster.empty())
@@ -1576,12 +1586,12 @@ class AbstractDCS(abc.ABC):
             Stores copy of time, status and failsafe values for comparison in DCS update decisions.
             Caching is required to avoid overhead placed upon the REST API.
 
-            Returns either a Citus or Patroni implementation of :class:`Cluster` depending on availability.
+            Returns either a PostgreSQL or MPP implementation of :class:`Cluster` depending on availability.
 
         :returns:
         """
         try:
-            cluster = self._get_citus_cluster() if self.is_citus_coordinator() else self.__get_patroni_cluster()
+            cluster = self._get_mpp_cluster() if self.is_mpp_coordinator() else self.__get_postgresql_cluster()
         except Exception:
             self.reset_cluster()
             raise

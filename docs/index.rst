@@ -28,12 +28,14 @@ Currently supported PostgreSQL versions: 9.3 to 16.
    patronictl
    replica_bootstrap
    replication_modes
+   standby_cluster
    watchdog
    pause
    dcs_failsafe_mode
    kubernetes
    citus
    existing_data
+   tools_integration
    security
    ha_multi_dc
    faq

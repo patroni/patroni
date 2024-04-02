@@ -302,7 +302,7 @@ class SlotsHandler:
                                 for a in ('database', 'plugin', 'type'))
                 ):
                     return True
-        return self._postgresql.citus_handler.ignore_replication_slot(slot)
+        return self._postgresql.mpp_handler.ignore_replication_slot(slot)
 
     def drop_replication_slot(self, name: str) -> Tuple[bool, bool]:
         """Drop a named slot from Postgres.

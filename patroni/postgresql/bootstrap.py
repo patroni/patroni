@@ -100,10 +100,11 @@ class Bootstrap(object):
                     user_options.append('--{0}'.format(opt))
                 elif isinstance(opt, dict):
                     keys = list(opt.keys())
-                    if len(keys) != 1 or not isinstance(opt[keys[0]], str) or not option_is_allowed(keys[0]):
+                    if len(keys) == 1 and isinstance(opt[keys[0]], str) and option_is_allowed(keys[0]):
+                        user_options.append('--{0}={1}'.format(keys[0], unquote(opt[keys[0]])))
+                    else:
                         error_handler('Error when parsing {0} key-value option {1}: only one key-value is allowed'
                                       ' and value should be a string'.format(tool, opt[keys[0]]))
-                    user_options.append('--{0}={1}'.format(keys[0], unquote(opt[keys[0]])))
                 else:
                     error_handler('Error when parsing {0} option {1}: value should be string value'
                                   ' or a single key-value pair'.format(tool, opt))
@@ -463,15 +464,15 @@ END;$$""".format(f, quote_ident(rewind['username'], postgresql.connection()))
                         postgresql.restart()
                     else:
                         postgresql.config.replace_pg_hba()
-                        if postgresql.pending_restart:
+                        if postgresql.pending_restart_reason:
                             postgresql.restart()
                         else:
                             postgresql.reload()
                             time.sleep(1)  # give a time to postgres to "reload" configuration files
                             postgresql.connection().close()  # close connection to reconnect with a new password
                 else:  # initdb
-                    # We may want create database and extension for citus
-                    self._postgresql.citus_handler.bootstrap()
+                    # We may want create database and extension for some MPP clusters
+                    self._postgresql.mpp_handler.bootstrap()
         except Exception:
             logger.exception('post_bootstrap')
             task.complete(False)

@@ -13,6 +13,7 @@ from patroni.api import RestApiHandler, RestApiServer
 from patroni.dcs import ClusterConfig, Member
 from patroni.exceptions import PostgresConnectionException
 from patroni.ha import _MemberStatus
+from patroni.postgresql.config import get_param_diff
 from patroni.psycopg import OperationalError
 from patroni.utils import RetryFailedError, tzutc
 
@@ -54,13 +55,13 @@ class MockPostgresql:
     major_version = 90600
     sysid = 'dummysysid'
     scope = 'dummy'
-    pending_restart = True
+    pending_restart_reason = {}
     wal_name = 'wal'
     lsn_name = 'lsn'
     wal_flush = '_flush'
     POSTMASTER_START_TIME = 'pg_catalog.pg_postmaster_start_time()'
     TL_LSN = 'CASE WHEN pg_catalog.pg_is_in_recovery()'
-    citus_handler = Mock()
+    mpp_handler = Mock()
 
     @staticmethod
     def postmaster_start_time():
@@ -202,6 +203,7 @@ class TestRestApiHandler(unittest.TestCase):
     _authorization = '\nAuthorization: Basic dGVzdDp0ZXN0'
 
     def test_do_GET(self):
+        MockPostgresql.pending_restart_reason = {'max_connections': get_param_diff('200', '100')}
         MockPatroni.dcs.cluster.last_lsn = 20
         with patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /replica')
@@ -673,6 +675,12 @@ class TestRestApiHandler(unittest.TestCase):
     @patch.object(MockHa, 'is_leader', Mock(return_value=True))
     def test_do_POST_citus(self):
         post = 'POST /citus HTTP/1.0' + self._authorization + '\nContent-Length: '
+        MockRestApiServer(RestApiHandler, post + '0\n\n')
+        MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
+
+    @patch.object(MockHa, 'is_leader', Mock(return_value=True))
+    def test_do_POST_mpp(self):
+        post = 'POST /mpp HTTP/1.0' + self._authorization + '\nContent-Length: '
         MockRestApiServer(RestApiHandler, post + '0\n\n')
         MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
 

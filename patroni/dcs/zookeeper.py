@@ -214,7 +214,13 @@ class ZooKeeper(AbstractDCS):
                 members.append(self.member(member, *data))
         return members
 
-    def _cluster_loader(self, path: str) -> Cluster:
+    def _postgresql_cluster_loader(self, path: str) -> Cluster:
+        """Load and build the :class:`Cluster` object from DCS, which represents a single PostgreSQL cluster.
+
+        :param path: the path in DCS where to load :class:`Cluster` from.
+
+        :returns: :class:`Cluster` instance.
+        """
         nodes = set(self.get_children(path))
 
         # get initialize flag
@@ -258,11 +264,17 @@ class ZooKeeper(AbstractDCS):
 
         return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
-    def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+    def _mpp_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+        """Load and build all PostgreSQL clusters from a single MPP cluster.
+
+        :param path: the path in DCS where to load Cluster(s) from.
+
+        :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
+        """
         ret: Dict[int, Cluster] = {}
         for node in self.get_children(path):
             if self._mpp.group_re.match(node):
-                ret[int(node)] = self._cluster_loader(path + node + '/')
+                ret[int(node)] = self._postgresql_cluster_loader(path + node + '/')
         return ret
 
     def _load_cluster(

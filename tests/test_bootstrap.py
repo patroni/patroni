@@ -4,10 +4,11 @@ import sys
 from mock import Mock, PropertyMock, patch
 
 from patroni.async_executor import CriticalTask
+from patroni.collections import CaseInsensitiveDict
 from patroni.postgresql import Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
-from patroni.postgresql.config import ConfigHandler
+from patroni.postgresql.config import ConfigHandler, get_param_diff
 
 from . import psycopg_connect, BaseTestPostgresql, mock_available_gucs
 
@@ -142,6 +143,16 @@ class TestBootstrap(BaseTestPostgresql):
                     (), error_handler
                 ),
                 ["--key=value with spaces"])
+            # not allowed options in list of dicts/strs are filtered out
+            self.assertEqual(
+                self.b.process_user_options(
+                    'pg_basebackup',
+                    [{'checkpoint': 'fast'}, {'dbname': 'dbname=postgres'}, 'gzip', {'label': 'standby'}, 'verbose'],
+                    ('dbname', 'verbose'),
+                    print
+                ),
+                ['--checkpoint=fast', '--gzip', '--label=standby'],
+            )
 
     @patch.object(CancellableSubprocess, 'call', Mock())
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
@@ -235,8 +246,9 @@ class TestBootstrap(BaseTestPostgresql):
         self.assertTrue(task.result)
 
         self.b.bootstrap(config)
-        with patch.object(Postgresql, 'pending_restart', PropertyMock(return_value=True)), \
-                patch.object(Postgresql, 'restart', Mock()) as mock_restart:
+        with patch.object(Postgresql, 'pending_restart_reason',
+                          PropertyMock(CaseInsensitiveDict({'max_connections': get_param_diff('200', '100')}))), \
+             patch.object(Postgresql, 'restart', Mock()) as mock_restart:
             self.b.post_bootstrap({}, task)
             mock_restart.assert_called_once()
 

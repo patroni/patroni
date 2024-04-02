@@ -180,6 +180,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``tags``: tags that were set through Patroni configuration merged with dynamically applied tags;
             * ``database_system_identifier``: ``Database system identifier`` from ``pg_controldata`` output;
             * ``pending_restart``: ``True`` if PostgreSQL is pending to be restarted;
+            * ``pending_restart_reason``: dictionary where each key is the parameter that caused "pending restart" flag
+                to be set and the value is a dictionary with the old and the new value.
             * ``scheduled_restart``: a dictionary with a single key ``schedule``, which is the timestamp for the
                 scheduled restart;
             * ``watchdog_failed``: ``True`` if watchdog device is unhealthy;
@@ -196,8 +198,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response['tags'] = tags
         if patroni.postgresql.sysid:
             response['database_system_identifier'] = patroni.postgresql.sysid
-        if patroni.postgresql.pending_restart:
+        if patroni.postgresql.pending_restart_reason:
             response['pending_restart'] = True
+            response['pending_restart_reason'] = dict(patroni.postgresql.pending_restart_reason)
         response['patroni'] = {
             'version': patroni.version,
             'scope': patroni.postgresql.scope,
@@ -654,7 +657,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics.append("# HELP patroni_pending_restart Value is 1 if the node needs a restart, 0 otherwise.")
         metrics.append("# TYPE patroni_pending_restart gauge")
-        metrics.append("patroni_pending_restart{0} {1}".format(labels, int(patroni.postgresql.pending_restart)))
+        metrics.append("patroni_pending_restart{0} {1}"
+                       .format(labels, int(bool(patroni.postgresql.pending_restart_reason))))
 
         metrics.append("# HELP patroni_is_paused Value is 1 if auto failover is disabled, 0 otherwise.")
         metrics.append("# TYPE patroni_is_paused gauge")
@@ -1174,6 +1178,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
     def do_POST_citus(self) -> None:
         """Handle a ``POST`` request to ``/citus`` path.
 
+        .. note::
+            We keep this entrypoint for backward compatibility and simply dispatch the request to :meth:`do_POST_mpp`.
+        """
+        self.do_POST_mpp()
+
+    def do_POST_mpp(self) -> None:
+        """Handle a ``POST`` request to ``/mpp`` path.
+
         Call :func:`~patroni.postgresql.mpp.AbstractMPPHandler.handle_event` to handle the request,
         then write a response with HTTP status code ``200``.
 
@@ -1185,9 +1197,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
             return
 
         patroni = self.server.patroni
-        if patroni.postgresql.citus_handler.is_coordinator() and patroni.ha.is_leader():
+        if patroni.postgresql.mpp_handler.is_coordinator() and patroni.ha.is_leader():
             cluster = patroni.dcs.get_cluster()
-            patroni.postgresql.citus_handler.handle_event(cluster, request)
+            patroni.postgresql.mpp_handler.handle_event(cluster, request)
         self.write_response(200, 'OK')
 
     def parse_request(self) -> bool:

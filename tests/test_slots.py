@@ -124,6 +124,68 @@ class TestSlotsHandler(BaseTestPostgresql):
                   "confirmed_flush_lsn": 12345, "catalog_xmin": 105}])]
             self.assertEqual(self.p.slots(), {})
 
+    def test_nostream_slot_processing(self):
+        config = ClusterConfig(
+            1, {'slots': {'foo': {'type': 'logical', 'database': 'a', 'plugin': 'b'}, 'bar': {'type': 'physical'}}}, 1)
+        nostream_node = Member(0, 'test-2', 28, {
+            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+            'tags': {'nostream': 'True'}
+        })
+        cascade_node = Member(0, 'test-3', 28, {
+            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+            'tags': {'replicatefrom': 'test-2'}
+        })
+        stream_node = Member(0, 'test-4', 28, {
+            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
+        cluster = Cluster(
+            True, config, self.leader, Status.empty(),
+            [self.leadermem, nostream_node, cascade_node, stream_node], None, SyncState.empty(), None, None)
+        global_config.update(cluster)
+
+        # sanity for primary
+        self.p.name = self.leadermem.name
+        self.assertEqual(
+            cluster._get_permanent_slots(self.p, self.leadermem, 'primary'),
+            {'foo': {'type': 'logical', 'database': 'a', 'plugin': 'b'}, 'bar': {'type': 'physical'}})
+        self.assertEqual(
+            cluster._get_members_slots(self.p.name, 'primary'),
+            {'test_4': {'type': 'physical'}})
+
+        # nostream node must not have slot on primary
+        self.p.name = nostream_node.name
+        # permanent logical slots are not allowed on nostream node
+        self.assertEqual(
+            cluster._get_permanent_slots(self.p, nostream_node, 'replica'),
+            {'bar': {'type': 'physical'}})
+        self.assertEqual(
+            cluster.get_slot_name_on_primary(self.p.name, nostream_node),
+            None)
+
+        # check cascade member-slot existence on nostream node
+        self.assertEqual(
+            cluster._get_members_slots(nostream_node.name, 'replica'),
+            {'test_3': {'type': 'physical'}})
+
+        # cascade also does not entitled to have logical slot on itself ...
+        self.p.name = cascade_node.name
+        self.assertEqual(
+            cluster._get_permanent_slots(self.p, cascade_node, 'replica'),
+            {'bar': {'type': 'physical'}})
+        # ... and member-slot on primary
+        self.assertEqual(
+            cluster.get_slot_name_on_primary(self.p.name, cascade_node),
+            None)
+
+        # simple replica must have every permanent slot ...
+        self.p.name = stream_node.name
+        self.assertEqual(
+            cluster._get_permanent_slots(self.p, stream_node, 'replica'),
+            {'foo': {'type': 'logical', 'database': 'a', 'plugin': 'b'}, 'bar': {'type': 'physical'}})
+        # ... and member-slot on primary
+        self.assertEqual(
+            cluster.get_slot_name_on_primary(self.p.name, stream_node),
+            'test_4')
+
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     def test__ensure_logical_slots_replica(self):
         self.p.set_role('replica')
