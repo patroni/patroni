@@ -70,3 +70,9 @@ multiple hosts separated by commas, Patroni will:
 * use ``target_session_attrs=read-write`` when trying to determine whether we
   need to run ``pg_rewind`` or when executing ``pg_rewind`` on all nodes of the
   standby cluster.
+  
+There is also a possibility to replicate the standby cluster from another
+standby cluster or from a standby member of the primary cluster: for that, you
+need to define a single host in the ``standby_cluster.host`` section. However,
+you need to beware that in this case ``pg_rewind`` will fail to execute on the
+standby cluster.
