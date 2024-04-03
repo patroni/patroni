@@ -3,6 +3,67 @@
 Release notes
 =============
 
+Version 3.3.0
+-------------
+
+**New features**
+
+- Add ability to pass ``auth_data`` to Zookeeper client (Aras Mumcuyan)
+
+  It allows to specify the authentication credentials to use for the connection.
+
+- Add a contrib script for ``Barman`` integration (Israel Barth Rubio)
+
+  Provide an application ``patroni_barman`` that allows to perform ``Barman`` operations remotely and can be used as a custom bootstrap/custom replica method or as an ``on_role_change`` callback. Please check :ref:`here <tools_integration>` for more information.
+
+- Support JSON log format (alisalemmi)
+
+  Apart from ``plain``, Patroni now also supports ``json`` log format. Requires ``python-json-logger`` library to be installed.
+
+- Show ``pending_restart_reason`` information (Polina Bungina)
+
+  Provide extended information about the PostgreSQL parameters that caused ``pending_restart`` flag to be set. Both ``patronictl list`` and ``/patroni`` REST API endpoint now show the parameters names and their "diff" as ``pending_restart_reason``.
+
+- Implement ``nostream`` tag (Grigory Smolkin)
+
+  If ``nostream`` tag is set to ``true``, the node will not use replication protocol to stream WAL but instead rely on archive recovery (if ``restore_command`` is configured). It also disables copying and synchronization of permanent logical replication slots on the node itself and all its cascading replicas.
+
+
+**Improvements**
+
+- Implement validation of the log section (Alexander Kukushkin)
+
+  Until now validator was not checking the correctness of the logging configuration provided.
+
+- Improve logging for PostgreSQL parameters change (Polina Bungina)
+
+  Convert old values to a human-readable format and log information about the ``pg_controldata`` vs Patroni global configuration mismatch.
+
+
+**Bugfixes**
+
+- Properly filter out not allowed ``pg_basebackup`` options (Israel Barth Rubio)
+
+  Due to a bug, Patroni was not properly filtering out the not allowed options configured for the ``basebackup`` replica bootstrap method, when provided in the ``- setting: value`` format.
+
+- Fix ``etcd3`` authentication error handling (Alexander Kukushkin)
+
+  Always retry one time on ``etcd3`` authentication error if authentication was not done right before executing the request. Also, do not restart watchers on reauthentication.
+
+- Improve logic of the validator files discovery (Waynerv)
+
+  Use ``importlib`` library to discover the files with available configuration parameters when possible (for Python 3.9+). This implementation is more stable and doesn't break the Patroni distributions based on ``zip`` archives.
+
+- Use ``target_session_attrs`` only when multiple hosts are specified in the ``standby_cluster`` section (Alexander Kukushkin)
+
+  ``target_session_attrs=read-write`` is now added to the ``primary_conninfo`` on the standby leader node only when ``standby_cluster.host`` section contains multiple hosts separated by commas.
+
+- Add compatibility code for ``ydiff`` library version 1.3+ (Alexander Kukushkin)
+
+.. warning::
+    All older Partoni versions are not compatible with ``ydiff`` 1.3+. Please upgrade Patroni, use ``ydiff`` version <1.3, or install ``cdiff``.
+
+
 Version 3.2.2
 -------------
 
