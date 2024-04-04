@@ -15,6 +15,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from psycopg2 import cursor
 
 from . import psycopg
+from .collections import EMPTY_DICT
 from .config import Config
 from .exceptions import PatroniException
 from .log import PatroniLogger
@@ -244,7 +245,8 @@ class SampleConfigGenerator(AbstractConfigGenerator):
                   See :func:`~patroni.postgresql.misc.postgres_major_version_to_int` and
                   :func:`~patroni.utils.get_major_version`.
         """
-        postgres_bin = ((self.config.get('postgresql') or {}).get('bin_name') or {}).get('postgres', 'postgres')
+        postgres_bin = ((self.config.get('postgresql')
+                         or EMPTY_DICT).get('bin_name') or EMPTY_DICT).get('postgres', 'postgres')
         return postgres_major_version_to_int(get_major_version(self.config['postgresql'].get('bin_dir'), postgres_bin))
 
     def generate(self) -> None:
@@ -411,8 +413,10 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
             val = self.parsed_dsn.get(conn_param, os.getenv(env_var))
             if val:
                 su_params[conn_param] = val
-        patroni_env_su_username = ((self.config.get('authentication') or {}).get('superuser') or {}).get('username')
-        patroni_env_su_pwd = ((self.config.get('authentication') or {}).get('superuser') or {}).get('password')
+        patroni_env_su_username = ((self.config.get('authentication')
+                                    or EMPTY_DICT).get('superuser') or EMPTY_DICT).get('username')
+        patroni_env_su_pwd = ((self.config.get('authentication')
+                               or EMPTY_DICT).get('superuser') or EMPTY_DICT).get('password')
         # because we use "username" in the config for some reason
         su_params['username'] = su_params.pop('user', patroni_env_su_username) or getuser()
         su_params['password'] = su_params.get('password', patroni_env_su_pwd) or \

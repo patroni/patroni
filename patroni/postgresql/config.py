@@ -13,7 +13,7 @@ from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Un
 
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
 from .. import global_config
-from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
+from ..collections import CaseInsensitiveDict, CaseInsensitiveSet, EMPTY_DICT
 from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException, PostgresConnectionException
 from ..file_perm import pg_perm
@@ -619,7 +619,8 @@ class ConfigHandler(object):
             fd.write_param(name, value)
 
     def build_recovery_params(self, member: Union[Leader, Member, None]) -> CaseInsensitiveDict:
-        recovery_params = CaseInsensitiveDict({p: v for p, v in (self.get('recovery_conf') or {}).items()
+        default: Dict[str, Any] = {}
+        recovery_params = CaseInsensitiveDict({p: v for p, v in (self.get('recovery_conf') or default).items()
                                                if not p.lower().startswith('recovery_target')
                                                and p.lower() not in ('primary_conninfo', 'primary_slot_name')})
         recovery_params.update({'standby_mode': 'on', 'recovery_target_timeline': 'latest'})
@@ -845,7 +846,7 @@ class ConfigHandler(object):
             required['restart' if mtype else 'reload'] += 1
 
         wanted_recovery_params = self.build_recovery_params(member)
-        for param, value in (self._current_recovery_params or {}).items():
+        for param, value in (self._current_recovery_params or EMPTY_DICT).items():
             # Skip certain parameters defined in the included postgres config files
             # if we know that they are not specified in the patroni configuration.
             if len(value) > 2 and value[2] not in (self._postgresql_conf, self._auto_conf) and \
@@ -1324,4 +1325,4 @@ class ConfigHandler(object):
         return self._config.get(key, default)
 
     def restore_command(self) -> Optional[str]:
-        return (self.get('recovery_conf') or {}).get('restore_command')
+        return (self.get('recovery_conf') or EMPTY_DICT).get('restore_command')

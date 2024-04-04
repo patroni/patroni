@@ -13,6 +13,7 @@ from . import Postgresql
 from .connection import get_connection_cursor
 from .misc import format_lsn, fsync_dir, parse_history, parse_lsn
 from ..async_executor import CriticalTask
+from ..collections import EMPTY_DICT
 from ..dcs import Leader, RemoteMember
 
 logger = logging.getLogger(__name__)
@@ -418,7 +419,7 @@ class Rewind(object):
         dsn = self._postgresql.config.format_dsn(r, True)
         logger.info('running pg_rewind from %s', dsn)
 
-        restore_command = (self._postgresql.config.get('recovery_conf') or {}).get('restore_command') \
+        restore_command = (self._postgresql.config.get('recovery_conf') or EMPTY_DICT).get('restore_command') \
             if self._postgresql.major_version < 120000 else self._postgresql.get_guc_value('restore_command')
 
         # Until v15 pg_rewind expected postgresql.conf to be inside $PGDATA, which is not the case on e.g. Debian

@@ -1,12 +1,13 @@
 import logging
 import sys
 
-from pathlib import Path
 from typing import Iterator
 
 logger = logging.getLogger(__name__)
 
-if sys.version_info < (3, 9):
+if sys.version_info < (3, 9):  # pragma: no cover
+    from pathlib import Path
+
     PathLikeObj = Path
     conf_dir = Path(__file__).parent
 else:

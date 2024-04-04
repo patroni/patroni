@@ -1,3 +1,5 @@
+.. _tools_integration:
+
 Integration with other tools
 ============================
 

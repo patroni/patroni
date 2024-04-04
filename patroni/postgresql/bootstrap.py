@@ -7,6 +7,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
 from ..async_executor import CriticalTask
+from ..collections import EMPTY_DICT
 from ..dcs import Leader, Member, RemoteMember
 from ..psycopg import quote_ident, quote_literal
 from ..utils import deep_compare, unquote
@@ -146,7 +147,7 @@ class Bootstrap(object):
 
         # make sure there is no trigger file or postgres will be automatically promoted
         trigger_file = self._postgresql.config.triggerfile_good_name
-        trigger_file = (self._postgresql.config.get('recovery_conf') or {}).get(trigger_file) or 'promote'
+        trigger_file = (self._postgresql.config.get('recovery_conf') or EMPTY_DICT).get(trigger_file) or 'promote'
         trigger_file = os.path.abspath(os.path.join(self._postgresql.data_dir, trigger_file))
         if os.path.exists(trigger_file):
             os.unlink(trigger_file)
@@ -441,7 +442,7 @@ END;$$""".format(f, quote_ident(rewind['username'], postgresql.connection()))
                 if config.get('users'):
                     logger.warning('User creation via "bootstrap.users" will be removed in v4.0.0')
 
-                for name, value in (config.get('users') or {}).items():
+                for name, value in (config.get('users') or EMPTY_DICT).items():
                     if all(name != a.get('username') for a in (superuser, replication, rewind)):
                         self.create_or_update_role(name, value.get('password'), value.get('options', []))
 

@@ -160,12 +160,10 @@ class TestConfig(unittest.TestCase):
     @patch('patroni.config.logger')
     def test__validate_failover_tags(self, mock_logger, mock_get):
         """Ensures that only one of `nofailover` or `failover_priority` can be provided"""
-        config = Config("postgres0.yml")
-
         # Providing one of `nofailover` or `failover_priority` is fine
         for single_param in ({"nofailover": True}, {"failover_priority": 1}, {"failover_priority": 0}):
             mock_get.side_effect = [single_param] * 2
-            self.assertIsNone(config._validate_failover_tags())
+            self.assertIsNone(self.config._validate_failover_tags())
             mock_logger.warning.assert_not_called()
 
         # Providing both `nofailover` and `failover_priority` is fine if consistent
@@ -175,7 +173,7 @@ class TestConfig(unittest.TestCase):
             {"nofailover": "False", "failover_priority": 0}
         ):
             mock_get.side_effect = [consistent_state] * 2
-            self.assertIsNone(config._validate_failover_tags())
+            self.assertIsNone(self.config._validate_failover_tags())
             mock_logger.warning.assert_not_called()
 
         # Providing both inconsistently should log a warning
@@ -186,7 +184,7 @@ class TestConfig(unittest.TestCase):
             {"nofailover": "", "failover_priority": 0}
         ):
             mock_get.side_effect = [inconsistent_state] * 2
-            self.assertIsNone(config._validate_failover_tags())
+            self.assertIsNone(self.config._validate_failover_tags())
             mock_logger.warning.assert_called_once_with(
                 'Conflicting configuration between nofailover: %s and failover_priority: %s.'
                 + ' Defaulting to nofailover: %s',

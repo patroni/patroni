@@ -174,7 +174,7 @@ jobs:
 
     - uses: jakebailey/pyright-action@v1
       with:
-        version: 1.1.347
+        version: 1.1.356
 
   docs:
     runs-on: ubuntu-latest
