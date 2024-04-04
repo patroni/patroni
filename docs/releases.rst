@@ -6,6 +6,16 @@ Release notes
 Version 3.3.0
 -------------
 
+.. warning::
+   All older Partoni versions are not compatible with ``ydiff>=1.3``.
+
+   There are following options available to "fix" the problem:
+
+   1. upgrade Patroni to the latest version
+   2. install ``ydiff<1.3`` after installing Patroni
+   3. install ``cdiff`` module
+
+
 **New features**
 
 - Add ability to pass ``auth_data`` to Zookeeper client (Aras Mumcuyan)
@@ -16,9 +26,9 @@ Version 3.3.0
 
   Provide an application ``patroni_barman`` that allows to perform ``Barman`` operations remotely and can be used as a custom bootstrap/custom replica method or as an ``on_role_change`` callback. Please check :ref:`here <tools_integration>` for more information.
 
-- Support JSON log format (alisalemmi)
+- Support ``JSON`` log format (alisalemmi)
 
-  Apart from ``plain``, Patroni now also supports ``json`` log format. Requires ``python-json-logger`` library to be installed.
+  Apart from ``plain`` (default), Patroni now also supports ``json`` log format. Requires ``python-json-logger>=2.0.2`` library to be installed.
 
 - Show ``pending_restart_reason`` information (Polina Bungina)
 
@@ -31,7 +41,7 @@ Version 3.3.0
 
 **Improvements**
 
-- Implement validation of the log section (Alexander Kukushkin)
+- Implement validation of the ``log`` section (Alexander Kukushkin)
 
   Until now validator was not checking the correctness of the logging configuration provided.
 
@@ -60,8 +70,7 @@ Version 3.3.0
 
 - Add compatibility code for ``ydiff`` library version 1.3+ (Alexander Kukushkin)
 
-.. warning::
-    All older Partoni versions are not compatible with ``ydiff`` 1.3+. Please upgrade Patroni, use ``ydiff`` version <1.3, or install ``cdiff``.
+  Patroni is relying on some API from ``ydiff`` that is not public because it is supposed to be just a terminal tool rather than a python module. Unfortunately, the API change in 1.3 broke old Patroni versions.
 
 
 Version 3.2.2
