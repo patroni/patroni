@@ -9,7 +9,7 @@ Version 3.3.0
 .. warning::
    All older Partoni versions are not compatible with ``ydiff>=1.3``.
 
-   There are following options available to "fix" the problem:
+   There are the following options available to "fix" the problem:
 
    1. upgrade Patroni to the latest version
    2. install ``ydiff<1.3`` after installing Patroni
