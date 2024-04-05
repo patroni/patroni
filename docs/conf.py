@@ -261,6 +261,14 @@ def builder_inited(app):
     # Remove pages when builder matches any referenced in exclude_from_builder
     if exclude_from_builder.get(app.builder.name):
         _docs_to_remove.extend(exclude_from_builder[app.builder.name])
+        extensions[-4:] = []
+
+
+def _to_be_removed(doc):
+    for remove in _docs_to_remove:
+        if doc.startswith(remove):
+            return True
+    return False
 
 
 def env_get_outdated(app, env, added, changed, removed):
@@ -268,18 +276,12 @@ def env_get_outdated(app, env, added, changed, removed):
 
     Remove the items listed in `docs_to_remove` from known pages.
     """
-    def to_be_removed(doc):
-        for remove in _docs_to_remove:
-            if doc.startswith(remove):
-                return True
-        return False
-
     for doc in list(added):
-        if to_be_removed(doc):
+        if _to_be_removed(doc):
             added.remove(doc)
             removed.add(doc)
     for doc in list(changed):
-        if to_be_removed(doc):
+        if _to_be_removed(doc):
             changed.remove(doc)
             removed.add(doc)
     return []
@@ -293,8 +295,7 @@ def doctree_read(app, doctree):
     from sphinx import addnodes
     for toc_tree_node in doctree.traverse(addnodes.toctree):
         for e in toc_tree_node['entries']:
-            ref = str(e[1])
-            if ref in _docs_to_remove:
+            if _to_be_removed(str(e[1])):
                 toc_tree_node['entries'].remove(e)
 
 
