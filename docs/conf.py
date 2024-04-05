@@ -250,6 +250,17 @@ exclude_from_builder = {
 _docs_to_remove = []
 
 
+def config_inited(app, config):
+    """Run during Sphinx `config-inited` phase.
+
+    rtd reuses the environment, and there is no way to customize this behavior.
+    Thus we remove the saved env.
+    """
+    pickle_file = os.path.join(app.doctreedir, 'environment.pickle')
+    if on_rtd and os.path.exists(pickle_file):
+        os.remove(pickle_file)
+
+
 def builder_inited(app):
     """Run during Sphinx `builder-inited` phase.
 
@@ -261,7 +272,6 @@ def builder_inited(app):
     # Remove pages when builder matches any referenced in exclude_from_builder
     if exclude_from_builder.get(app.builder.name):
         _docs_to_remove.extend(exclude_from_builder[app.builder.name])
-        extensions[-4:] = []
 
 
 def _to_be_removed(doc):
@@ -276,14 +286,14 @@ def env_get_outdated(app, env, added, changed, removed):
 
     Remove the items listed in `docs_to_remove` from known pages.
     """
-    for doc in list(added):
+    to_remove = set()
+    for doc in env.found_docs:
         if _to_be_removed(doc):
-            added.remove(doc)
-            removed.add(doc)
-    for doc in list(changed):
-        if _to_be_removed(doc):
-            changed.remove(doc)
-            removed.add(doc)
+            to_remove.add(doc)
+    added.difference_update(to_remove)
+    changed.difference_update(to_remove)
+    removed.update(to_remove)
+    env.project.docnames.difference_update(to_remove)
     return []
 
 
@@ -316,6 +326,7 @@ def setup(app):
         app.add_stylesheet('custom.css')
 
     # Run extra steps to remove module docs when running with a non-html builder
+    app.connect('config-inited', config_inited)
     app.connect('builder-inited', builder_inited)
     app.connect('env-get-outdated', env_get_outdated)
     app.connect('doctree-read', doctree_read)
