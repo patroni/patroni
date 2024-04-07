@@ -21,6 +21,8 @@ import os
 
 import sys
 
+from sphinx.application import ENV_PICKLE_FILENAME
+
 sys.path.insert(0, os.path.abspath('..'))
 
 from patroni.version import __version__
@@ -256,7 +258,7 @@ def config_inited(app, config):
     rtd reuses the environment, and there is no way to customize this behavior.
     Thus we remove the saved env.
     """
-    pickle_file = os.path.join(app.doctreedir, 'environment.pickle')
+    pickle_file = os.path.join(app.doctreedir, ENV_PICKLE_FILENAME)
     if on_rtd and os.path.exists(pickle_file):
         os.remove(pickle_file)
 
