@@ -334,6 +334,13 @@ class Bootstrap(object):
         not_allowed_options = ('pgdata', 'format', 'wal-method', 'xlog-method', 'gzip',
                                'version', 'compress', 'dbname', 'host', 'port', 'username', 'password')
         user_options = self.process_user_options('basebackup', options, not_allowed_options, logger.error)
+        cmd = [
+            self._postgresql.pgcommand("pg_basebackup"),
+            "--pgdata=" + self._postgresql.data_dir,
+            "-X",
+            "stream",
+            "--dbname=" + conn_url,
+        ] + user_options
 
         for bbfailures in range(0, maxfailures):
             if self._postgresql.cancellable.is_cancelled:
@@ -341,9 +348,8 @@ class Bootstrap(object):
             if not self._postgresql.data_directory_empty():
                 self._postgresql.remove_data_directory()
             try:
-                ret = self._postgresql.cancellable.call([self._postgresql.pgcommand('pg_basebackup'),
-                                                         '--pgdata=' + self._postgresql.data_dir, '-X', 'stream',
-                                                         '--dbname=' + conn_url] + user_options, env=env)
+                logger.debug('calling: %r', cmd)
+                ret = self._postgresql.cancellable.call(cmd, env=env)
                 if ret == 0:
                     break
                 else:
