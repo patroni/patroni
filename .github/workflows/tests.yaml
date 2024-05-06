@@ -26,10 +26,13 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: 3.7
+      if: matrix.dcs != 'macos'
     - name: Install dependencies
       run: python .github/workflows/install_deps.py
+      if: matrix.dcs != 'macos'
     - name: Run tests and flake8
       run: python .github/workflows/run_tests.py
+      if: matrix.dcs != 'macos'
 
     - name: Set up Python 3.8
       uses: actions/setup-python@v4

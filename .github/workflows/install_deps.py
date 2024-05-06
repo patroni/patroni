@@ -9,6 +9,11 @@ import zipfile
 
 
 def install_requirements(what):
+    subprocess.call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'])
+    s = subprocess.call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'wheel', 'setuptools'])
+    if s != 0:
+        return s
+
     old_path = sys.path[:]
     w = os.path.join(os.getcwd(), os.path.dirname(inspect.getfile(inspect.currentframe())))
     sys.path.insert(0, os.path.dirname(os.path.dirname(w)))
@@ -28,11 +33,7 @@ def install_requirements(what):
             if not extras or what == 'all' or what in extras:
                 requirements.append(r)
 
-    subprocess.call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'])
-    subprocess.call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'wheel'])
-    r = subprocess.call([sys.executable, '-m', 'pip', 'install'] + requirements)
-    s = subprocess.call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'setuptools'])
-    return s | r
+    return subprocess.call([sys.executable, '-m', 'pip', 'install'] + requirements)
 
 
 def install_packages(what):
