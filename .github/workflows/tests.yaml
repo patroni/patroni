@@ -105,9 +105,9 @@ jobs:
         python-version: [3.7, 3.12]
         dcs: [etcd, etcd3, consul, exhibitor, kubernetes, raft]
         include:
-#        - os: macos
-#          python-version: 3.8
-#          dcs: raft
+        - os: macos
+          python-version: 3.8
+          dcs: raft
         - os: macos
           python-version: 3.9
           dcs: etcd
