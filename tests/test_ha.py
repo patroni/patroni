@@ -790,7 +790,7 @@ class TestHa(PostgresInit):
             self.assertIn('Incorrect value of scheduled_at: %s', mock_warning.call_args_list[0][0])
 
         # scheduled now
-        scheduled = datetime.datetime.utcnow().replace(tzinfo=tzutc)
+        scheduled = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=tzutc)
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, 'b', scheduled))
         self.ha.cluster.members.append(Member(0, 'b', 28, {'api_url': 'http://127.0.0.1:8011/patroni'}))
         self.assertEqual('switchover: demoting myself', self.ha.run_cycle())
