@@ -11,12 +11,12 @@ jobs:
     name: Build and publish Patroni distributions to PyPI and TestPyPI
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@master
+    - uses: actions/checkout@v4
 
-    - name: Set up Python 3.9
-      uses: actions/setup-python@v4
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
       with:
-        python-version: 3.9
+        python-version: 3.11
 
     - name: Install dependencies
       run: python .github/workflows/install_deps.py
@@ -32,13 +32,13 @@ jobs:
 
     - name: Publish distribution to Test PyPI
       if: github.event_name == 'push'
-      uses: pypa/gh-action-pypi-publish@v1.5.1
+      uses: pypa/gh-action-pypi-publish@v1.8.14
       with:
         password: ${{ secrets.TEST_PYPI_API_TOKEN }}
         repository_url: https://test.pypi.org/legacy/
 
     - name: Publish distribution to PyPI
       if: github.event_name == 'release'
-      uses: pypa/gh-action-pypi-publish@v1.5.1
+      uses: pypa/gh-action-pypi-publish@v1.8.14
       with:
         password: ${{ secrets.PYPI_API_TOKEN }}
