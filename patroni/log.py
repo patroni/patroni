@@ -352,7 +352,7 @@ class PatroniLogger(Thread):
             from pythonjsonlogger import jsonlogger
             if hasattr(jsonlogger, 'RESERVED_ATTRS') and 'taskName' not in jsonlogger.RESERVED_ATTRS:
                 # compatibility with python 3.12, that added a new attribute to LogRecord
-                jsonlogger.RESERVED_ATTRS = jsonlogger.RESERVED_ATTRS + ('taskName',)
+                jsonlogger.RESERVED_ATTRS += ('taskName',)
 
             return jsonlogger.JsonFormatter(
                 jsonformat,
