@@ -211,7 +211,7 @@ class Postgresql(object):
 
         extra = ", " + (("pg_catalog.current_setting('synchronous_commit'), "
                          "pg_catalog.current_setting('synchronous_standby_names'), "
-                         "(SELECT pg_catalog.json_agg(r.*) FROM (SELECT w.pid as pid, application_name, sync_state,"
+                         "(SELECT pg_catalog.json_agg(r.*) FROM (SELECT w.pid as pid, application_name, sync_state, sync_priority"
                          " pg_catalog.pg_{0}_{1}_diff(write_{1}, '0/0')::bigint AS write_lsn,"
                          " pg_catalog.pg_{0}_{1}_diff(flush_{1}, '0/0')::bigint AS flush_lsn,"
                          " pg_catalog.pg_{0}_{1}_diff(replay_{1}, '0/0')::bigint AS replay_lsn "

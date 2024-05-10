@@ -1870,7 +1870,7 @@ class AbstractDCS(abc.ABC):
 
         :returns: dictionary that later could be serialized to JSON or saved directly to DCS.
         """
-        return {'leader': leader, 'sync_standby': ','.join(sorted(sync_standby)) if sync_standby else None}
+        return {'leader': leader, 'sync_standby': ','.join(sync_standby) if sync_standby else None}
 
     def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
                          version: Optional[Any] = None) -> Optional[SyncState]:

@@ -168,6 +168,7 @@ class _Replica(NamedTuple):
     pid: int
     application_name: str
     sync_state: str
+    sync_priority: int
     lsn: int
     nofailover: bool
 
@@ -175,7 +176,7 @@ class _Replica(NamedTuple):
 class _ReplicaList(List[_Replica]):
     """A collection of :class:``_Replica`` objects.
 
-    Values are reverse ordered by ``_Replica.sync_state`` and ``_Replica.lsn``.
+    Values are reverse ordered by ``_Replica.sync_state`` and ``_Replica.lsn``, and ordered by ``_Replica.priority``.
     That is, first there will be replicas that have ``sync_state`` == ``sync``, even if they are not
     the most up-to-date in term of write/flush/replay LSN. It helps to keep the result of chosing new
     synchronous nodes consistent in case if a synchronous standby member is slowed down OR async node
@@ -212,10 +213,10 @@ class _ReplicaList(List[_Replica]):
             #   b. PostgreSQL on the member is known to be running and accepting client connections.
             if member and row[sort_col] is not None and member.is_running and not member.nosync:
                 self.append(_Replica(row['pid'], row['application_name'],
-                                     row['sync_state'], row[sort_col], bool(member.nofailover)))
+                                     row['sync_state'], row['sync_priority'], row[sort_col], bool(member.nofailover)))
 
         # Prefer replicas that are in state ``sync`` and with higher values of ``write``/``flush``/``replay`` LSN.
-        self.sort(key=lambda r: (r.sync_state, r.lsn), reverse=True)
+        self.sort(key=lambda r: (r.sync_state, r.lsn, -r.sync_priority), reverse=True)
 
         self.max_lsn = max(self, key=lambda x: x.lsn).lsn if len(self) > 1 else postgresql.last_operation()
 
