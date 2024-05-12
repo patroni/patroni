@@ -57,7 +57,7 @@ class TestGenerateConfig(unittest.TestCase):
         del dynamic_config['standby_cluster']
         dynamic_config['postgresql']['parameters']['wal_keep_segments'] = 8
         dynamic_config['postgresql']['use_pg_rewind'] = True \
-        if dynamic_config['postgresql']['parameters']['wal_log_hints'] == "on" else False 
+            if dynamic_config['postgresql']['parameters']['wal_log_hints'] == "on" else False
 
         self.config = {
             'scope': self.environ['PATRONI_SCOPE'],
