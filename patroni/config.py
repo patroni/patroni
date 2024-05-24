@@ -388,7 +388,6 @@ class Config(object):
                 * ``cluster_name``: set through ``scope`` local configuration or through ``PATRONI_SCOPE`` environment
                     variable;
                 * ``hot_standby``: always enabled;
-                * ``wal_log_hints``: always enabled.
 
         :param parameters: Postgres parameters to be processed. Should be the parsed YAML value of
             ``postgresql.parameters`` configuration, either from local or from dynamic configuration.

@@ -11,7 +11,7 @@ from patroni.__main__ import main as _main
 from patroni.config import Config
 from patroni.config_generator import AbstractConfigGenerator, get_address, NO_VALUE_MSG
 from patroni.log import PatroniLogger
-from patroni.utils import patch_config
+from patroni.utils import patch_config, parse_bool
 
 from . import psycopg_connect
 
@@ -56,7 +56,8 @@ class TestGenerateConfig(unittest.TestCase):
         dynamic_config['postgresql']['parameters'] = dict(dynamic_config['postgresql']['parameters'])
         del dynamic_config['standby_cluster']
         dynamic_config['postgresql']['parameters']['wal_keep_segments'] = 8
-        dynamic_config['postgresql']['use_pg_rewind'] = True
+        dynamic_config['postgresql']['use_pg_rewind'] = \
+            parse_bool(dynamic_config['postgresql']['parameters']['wal_log_hints']) is True
 
         self.config = {
             'scope': self.environ['PATRONI_SCOPE'],

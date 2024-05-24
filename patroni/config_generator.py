@@ -268,7 +268,8 @@ class SampleConfigGenerator(AbstractConfigGenerator):
         wal_level = 'hot_standby' if self.pg_major < 90600 else 'replica'
         self.config['bootstrap']['dcs']['postgresql']['parameters']['wal_level'] = wal_level
 
-        self.config['bootstrap']['dcs']['postgresql']['use_pg_rewind'] = True
+        self.config['bootstrap']['dcs']['postgresql']['use_pg_rewind'] = \
+            parse_bool(self.config['bootstrap']['dcs']['postgresql']['parameters']['wal_log_hints']) is True
         if self.pg_major >= 110000:
             self.config['postgresql']['authentication'].setdefault(
                 'rewind', {'username': 'rewind_user'}).setdefault('password', NO_VALUE_MSG)
