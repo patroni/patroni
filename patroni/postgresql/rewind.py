@@ -413,10 +413,10 @@ class Rewind(object):
                 logger.warning('Unable to clean %s: %r', replslot_dir, e)
 
     def pg_rewind(self, r: Dict[str, Any]) -> bool:
-        # prepare pg_rewind connection
+        # prepare pg_rewind connection string
         env = self._postgresql.config.write_pgpass(r)
         env.update(LANG='C', LC_ALL='C', PGOPTIONS='-c statement_timeout=0')
-        dsn = self._postgresql.config.format_dsn(r, True)
+        dsn = self._postgresql.config.format_dsn({**r, 'password': None})
         logger.info('running pg_rewind from %s', dsn)
 
         restore_command = (self._postgresql.config.get('recovery_conf') or EMPTY_DICT).get('restore_command') \
