@@ -10,7 +10,7 @@ from copy import deepcopy
 from random import randint
 from threading import Event, Lock
 from typing import Any, Callable, Collection, Dict, Iterator, List, \
-    NamedTuple, Optional, Tuple, Type, TYPE_CHECKING, Union
+    NamedTuple, Optional, Set, Tuple, Type, TYPE_CHECKING, Union
 from urllib.parse import urlparse, urlunparse, parse_qsl
 
 import dateutil.parser
@@ -1203,7 +1203,7 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: the slot name on the primary that is in use for physical replication on this node.
         """
-        seen_nodes = set()
+        seen_nodes: Set[str] = set()
         while True:
             seen_nodes.add(name)
             if tags.nostream:
