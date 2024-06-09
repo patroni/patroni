@@ -4,11 +4,11 @@ import sys
 import unittest
 import yaml
 from io import StringIO
+from queue import Queue, Full
+from unittest.mock import Mock, patch
 
-from mock import Mock, patch
 from patroni.config import Config
 from patroni.log import PatroniLogger
-from queue import Queue, Full
 
 try:
     from pythonjsonlogger import jsonlogger

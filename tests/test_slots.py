@@ -1,10 +1,8 @@
 import mock
 import os
 import unittest
-
-
-from mock import Mock, PropertyMock, patch
 from threading import Thread
+from unittest.mock import Mock, PropertyMock, patch
 
 from patroni import global_config, psycopg
 from patroni.dcs import Cluster, ClusterConfig, Member, Status, SyncState

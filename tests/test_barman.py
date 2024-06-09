@@ -1,6 +1,6 @@
 import logging
 import mock
-from mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 import unittest
 from urllib3.exceptions import MaxRetryError
 

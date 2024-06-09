@@ -2,8 +2,8 @@ import etcd
 import json
 import unittest
 import urllib3
+from unittest.mock import Mock, PropertyMock, patch
 
-from mock import Mock, PropertyMock, patch
 from patroni.dcs import get_dcs
 from patroni.dcs.etcd import DnsCachingResolver
 from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3, Etcd3Client, \
