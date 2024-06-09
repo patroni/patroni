@@ -24,7 +24,8 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/* /root/.cache
 
-COPY entrypoint.sh /
+ADD entrypoint.sh /
+ADD post_bootstrap.sh /
 
 EXPOSE 5432 8008
 ENV LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 EDITOR=/usr/bin/editor

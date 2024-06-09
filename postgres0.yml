@@ -50,6 +50,7 @@ bootstrap:
   # and all other cluster members will use it as a `global configuration`.
   # WARNING! If you want to change any of the parameters that were set up
   # via `bootstrap.dcs` section, please use `patronictl edit-config`!
+  post_bootstrap: /post_bootstrap.sh
   dcs:
     ttl: 30
     loop_wait: 10
