@@ -1,11 +1,11 @@
 import base64
 import datetime
 import json
-import mock
 import socket
 import time
 import unittest
 import urllib3
+from unittest import mock
 from unittest.mock import Mock, PropertyMock, mock_open, patch
 
 from patroni.dcs import get_dcs

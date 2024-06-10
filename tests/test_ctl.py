@@ -1,6 +1,5 @@
 import click
 import etcd
-import mock
 import os
 import unittest
 
@@ -16,6 +15,7 @@ from patroni.postgresql.mpp import get_mpp
 from patroni.psycopg import OperationalError
 from patroni.utils import tzutc
 from prettytable import PrettyTable, ALL
+from unittest import mock
 from unittest.mock import patch, Mock, PropertyMock
 from urllib3 import PoolManager
 
