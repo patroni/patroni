@@ -574,27 +574,26 @@ class ConfigHandler(object):
             del ret['dbname']
         return ret
 
-    def format_dsn(self, params: Dict[str, Any], include_dbname: bool = False) -> str:
+    def format_dsn(self, params: Dict[str, Any]) -> str:
+        """Format connection string from connection parameters.
+
+        .. note::
+            only parameters from the below list are considered and values are escaped.
+
+        :param params: :class:`dict` object with connection parameters.
+
+        :returns: a connection string in a format "key1=value2 key2=value2"
+        """
         # A list of keywords that can be found in a conninfo string. Follows what is acceptable by libpq
         keywords = ('dbname', 'user', 'passfile' if params.get('passfile') else 'password', 'host', 'port',
                     'sslmode', 'sslcompression', 'sslcert', 'sslkey', 'sslpassword', 'sslrootcert', 'sslcrl',
                     'sslcrldir', 'application_name', 'krbsrvname', 'gssencmode', 'channel_binding',
                     'target_session_attrs')
-        if include_dbname:
-            params = params.copy()
-            if 'dbname' not in params:
-                params['dbname'] = self._postgresql.database
-            # we are abusing information about the necessity of dbname
-            # dsn should contain passfile or password only if there is no dbname in it (it is used in recovery.conf)
-            skip = {'passfile', 'password'}
-        else:
-            skip = {'dbname'}
 
         def escape(value: Any) -> str:
             return re.sub(r'([\'\\ ])', r'\\\1', str(value))
 
-        return ' '.join('{0}={1}'.format(kw, escape(params[kw])) for kw in keywords
-                        if kw not in skip and params.get(kw) is not None)
+        return ' '.join('{0}={1}'.format(kw, escape(params[kw])) for kw in keywords if params.get(kw) is not None)
 
     def _write_recovery_params(self, fd: ConfigWriter, recovery_params: CaseInsensitiveDict) -> None:
         if self._postgresql.major_version >= 90500:
@@ -606,8 +605,7 @@ class ConfigHandler(object):
                 recovery_params.setdefault('pause_at_recovery_target', 'false')
         for name, value in sorted(recovery_params.items()):
             if name == 'primary_conninfo':
-                if 'password' in value and self._postgresql.major_version >= 100000:
-                    self.write_pgpass(value)
+                if self._postgresql.major_version >= 100000 and 'PGPASSFILE' in self.write_pgpass(value):
                     value['passfile'] = self._passfile = self._pgpass
                     self._passfile_mtime = mtime(self._pgpass)
                 value = self.format_dsn(value)
@@ -754,7 +752,7 @@ class ConfigHandler(object):
         if passfile_mtime:
             try:
                 with open(passfile) as f:
-                    wanted_lines = (self._pgpass_line(wanted_primary_conninfo) or '').splitlines()
+                    wanted_lines = (self._pgpass_content(wanted_primary_conninfo) or '').splitlines()
                     file_lines = f.read().splitlines()
                     if set(wanted_lines) == set(file_lines):
                         self._passfile = passfile
@@ -873,27 +871,38 @@ class ConfigHandler(object):
             os.unlink(name)
 
     @staticmethod
-    def _pgpass_line(record: Dict[str, Any]) -> Optional[str]:
+    def _pgpass_content(record: Dict[str, Any]) -> Optional[str]:
+        """Generate content of `pgpassfile` based on connection parameters.
+
+        .. note::
+            In case if ``host`` is a comma separated string we generate one line per host.
+
+        :param record: :class:`dict` object with connection parameters.
+        :returns: a string with generated content of pgpassfile or ``None`` if there is no ``password``.
+        """
         if 'password' in record:
             def escape(value: Any) -> str:
                 return re.sub(r'([:\\])', r'\\\1', str(value))
 
-            record = {n: escape(record.get(n) or '*') for n in ('host', 'port', 'user', 'password')}
-            # 'host' could be several comma-separated hostnames, in this case
-            # we need to write on pgpass line per host
-            line = ''
-            for hostname in record['host'].split(','):
-                line += hostname + ':{port}:*:{user}:{password}'.format(**record) + '\n'
-            return line.rstrip()
+            # 'host' could be several comma-separated hostnames, in this case we need to write on pgpass line per host
+            hosts = map(escape, filter(None, map(str.strip, (record.get('host') or '*').split(','))))
+            record = {n: escape(record.get(n) or '*') for n in ('port', 'user', 'password')}
+            return '\n'.join('{host}:{port}:*:{user}:{password}'.format(**record, host=host) for host in hosts)
 
     def write_pgpass(self, record: Dict[str, Any]) -> Dict[str, str]:
-        line = self._pgpass_line(record)
-        if not line:
+        """Maybe creates :attr:`_passfile` based on connection parameters.
+
+        :param record: :class:`dict` object with connection parameters.
+
+        :returns: a copy of environment variables, that will include ``PGPASSFILE`` in case if the file was written.
+        """
+        content = self._pgpass_content(record)
+        if not content:
             return os.environ.copy()
 
         with open(self._pgpass, 'w') as f:
             os.chmod(self._pgpass, stat.S_IWRITE | stat.S_IREAD)
-            f.write(line)
+            f.write(content)
 
         return {**os.environ, 'PGPASSFILE': self._pgpass}
 
