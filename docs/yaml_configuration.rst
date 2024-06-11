@@ -144,7 +144,7 @@ Etcdv3
 If you want that Patroni works with Etcd cluster via protocol version 3, you need to use the ``etcd3`` section in the Patroni configuration file. All configuration parameters are the same as for ``etcd``.
 
 .. warning::
-    Keys created with protocol version 2 are not visible with protocol version 3 and the other way around, therefore it is not possible to switch from ``etcd`` to ``etcd3`` just by updating Patroni config file.
+    Keys created with protocol version 2 are not visible with protocol version 3 and the other way around, therefore it is not possible to switch from ``etcd`` to ``etcd3`` just by updating Patroni config file. In addition, Patroni uses Etcd's gRPC-gateway (proxy) to communicate with the V3 API, which means that TLS common name authentication is not possible.
 
 
 ZooKeeper
