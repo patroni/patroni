@@ -878,13 +878,13 @@ class ConfigHandler(object):
             In case if ``host`` is a comma separated string we generate one line per host.
 
         :param record: :class:`dict` object with connection parameters.
-        :returns: a string with generated content of pgpassfile or ``None`` if there is not ``password``.
+        :returns: a string with generated content of pgpassfile or ``None`` if there is no ``password``.
         """
         if 'password' in record:
             def escape(value: Any) -> str:
                 return re.sub(r'([:\\])', r'\\\1', str(value))
 
-            # 'host' could be several comma-separated hostnames, in this case # we need to write on pgpass line per host
+            # 'host' could be several comma-separated hostnames, in this case we need to write on pgpass line per host
             hosts = map(escape, filter(None, map(str.strip, (record.get('host') or '*').split(','))))
             record = {n: escape(record.get(n) or '*') for n in ('port', 'user', 'password')}
             return '\n'.join('{host}:{port}:*:{user}:{password}'.format(**record, host=host) for host in hosts)
