@@ -412,11 +412,22 @@ class Rewind(object):
             except Exception as e:
                 logger.warning('Unable to clean %s: %r', replslot_dir, e)
 
-    def pg_rewind(self, r: Dict[str, Any]) -> bool:
-        # prepare pg_rewind connection
-        env = self._postgresql.config.write_pgpass(r)
+    def pg_rewind(self, conn_kwargs: Dict[str, Any]) -> bool:
+        """Do pg_rewind.
+
+        .. note::
+            If ``pg_rewind`` doesn't support ``--restore-target-wal`` parameter and exited with non zero code,
+            Patroni will parse stderr/stdout to figure out if it failed due to a missing WAL file and will
+            repeat an attempt after downloading the missing file using ``restore_command``.
+
+        :param conn_kwargs: :class:`dict` object with connection parameters.
+
+        :returns: ``True`` if ``pg_rewind`` finished successfully, ``False`` otherwise.
+        """
+        # prepare pg_rewind connection string
+        env = self._postgresql.config.write_pgpass(conn_kwargs)
         env.update(LANG='C', LC_ALL='C', PGOPTIONS='-c statement_timeout=0')
-        dsn = self._postgresql.config.format_dsn(r, True)
+        dsn = self._postgresql.config.format_dsn({**conn_kwargs, 'password': None})
         logger.info('running pg_rewind from %s', dsn)
 
         restore_command = (self._postgresql.config.get('recovery_conf') or EMPTY_DICT).get('restore_command') \

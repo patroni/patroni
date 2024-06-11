@@ -216,15 +216,13 @@ class Bootstrap(object):
         cmd = config.get('post_bootstrap') or config.get('post_init')
         if cmd:
             r = self._postgresql.connection_pool.conn_kwargs
-            connstring = self._postgresql.config.format_dsn(r, True)
-            if 'host' not in r:
-                # https://www.postgresql.org/docs/current/static/libpq-pgpass.html
-                # A host name of localhost matches both TCP (host name localhost) and Unix domain socket
-                # (pghost empty or the default socket directory) connections coming from the local machine.
-                r['host'] = 'localhost'  # set it to localhost to write into pgpass
 
-            env = self._postgresql.config.write_pgpass(r)
+            # https://www.postgresql.org/docs/current/static/libpq-pgpass.html
+            # A host name of localhost matches both TCP (host name localhost) and Unix domain socket
+            # (pghost empty or the default socket directory) connections coming from the local machine.
+            env = self._postgresql.config.write_pgpass({'host': 'localhost', **r})
             env['PGOPTIONS'] = '-c synchronous_commit=local -c statement_timeout=0'
+            connstring = self._postgresql.config.format_dsn({**r, 'password': None})
 
             try:
                 ret = self._postgresql.cancellable.call(shlex.split(cmd) + [connstring], env=env)
@@ -258,7 +256,7 @@ class Bootstrap(object):
             r = clone_member.conn_kwargs(self._postgresql.config.replication)
             # add the credentials to connect to the replica origin to pgpass.
             env = self._postgresql.config.write_pgpass(r)
-            connstring = self._postgresql.config.format_dsn(r, True)
+            connstring = self._postgresql.config.format_dsn({**r, 'password': None})
         else:
             connstring = ''
             env = os.environ.copy()
