@@ -10,7 +10,7 @@ from copy import deepcopy
 from random import randint
 from threading import Event, Lock
 from typing import Any, Callable, Collection, Dict, Iterator, List, \
-    NamedTuple, Optional, Tuple, Type, TYPE_CHECKING, Union
+    NamedTuple, Optional, Set, Tuple, Type, TYPE_CHECKING, Union
 from urllib.parse import urlparse, urlunparse, parse_qsl
 
 import dateutil.parser
@@ -913,7 +913,9 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: ``True`` if *value* is a physical replication slot, otherwise ``False``.
         """
-        return not value or isinstance(value, dict) and value.get('type', 'physical') == 'physical'
+        return not value \
+            or (isinstance(value, dict) and not Cluster.is_logical_slot(value)
+                and value.get('type', 'physical') == 'physical')
 
     @staticmethod
     def is_logical_slot(value: Union[Any, Dict[str, Any]]) -> bool:
@@ -1179,6 +1181,10 @@ class Cluster(NamedTuple('Cluster',
 
         if global_config.use_slots:
             name = member.name if isinstance(member, Member) else postgresql.name
+
+            if not self.get_slot_name_on_primary(name, member):
+                return False
+
             members = [m for m in self.members if m.replicatefrom == name and m.name != self.leader_name]
             return any(self.should_enforce_hot_standby_feedback(postgresql, m) for m in members)
         return False
@@ -1197,11 +1203,18 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: the slot name on the primary that is in use for physical replication on this node.
         """
-        if tags.nostream:
-            return None
-        replicatefrom = self.get_member(tags.replicatefrom, False) if tags.replicatefrom else None
-        return self.get_slot_name_on_primary(replicatefrom.name, replicatefrom) \
-            if isinstance(replicatefrom, Member) else slot_name_from_member_name(name)
+        seen_nodes: Set[str] = set()
+        while True:
+            seen_nodes.add(name)
+            if tags.nostream:
+                return None
+            replicatefrom = self.get_member(tags.replicatefrom, False) \
+                if tags.replicatefrom and tags.replicatefrom != name else None
+            if not isinstance(replicatefrom, Member):
+                return slot_name_from_member_name(name)
+            if replicatefrom.name in seen_nodes:
+                return None
+            name, tags = replicatefrom.name, replicatefrom
 
     @property
     def timeline(self) -> int:
