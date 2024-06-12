@@ -27,9 +27,7 @@ Currently supported PostgreSQL versions: 9.3 to 16.
 How Patroni Works
 =================
 
-Patroni originated as a fork of `Governor <https://github.com/compose/governor>`__, the project from Compose. It includes plenty of new features.
-
-For an example of a Docker-based deployment with Patroni, see `Spilo <https://github.com/zalando/spilo>`__, currently in use at Zalando.
+Patroni (formerly known as Zalando's Patroni) originated as a fork of `Governor <https://github.com/compose/governor>`__, the project from Compose. It includes plenty of new features.
 
 For additional background info, see:
 

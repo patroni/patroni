@@ -893,7 +893,7 @@ class PatroniPoolController(object):
                     .format(os.path.join(self.patroni_path, 'data', 'wal_archive_clone').replace('\\', '/'))
                 },
                 'authentication': {
-                    'superuser': {'password': 'zalando1'},
+                    'superuser': {'password': 'patroni1'},
                     'replication': {'password': 'rep-pass1'}
                 }
             }
@@ -925,7 +925,7 @@ class PatroniPoolController(object):
             },
             'postgresql': {
                 'authentication': {
-                    'superuser': {'password': 'zalando2'},
+                    'superuser': {'password': 'patroni2'},
                     'replication': {'password': 'rep-pass2'}
                 }
             }

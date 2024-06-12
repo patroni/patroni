@@ -77,8 +77,8 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'Patroni'
-copyright = '2015 Compose, Zalando SE'
-author = 'Zalando SE'
+copyright = '2024 Compose, Zalando SE, Patroni Contributors'
+author = 'Patroni Contributors'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -191,7 +191,7 @@ latex_elements = {
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
     (master_doc, 'Patroni.tex', 'Patroni Documentation',
-     'Zalando SE', 'manual'),
+     'Patroni Contributors', 'manual'),
 ]
 
 

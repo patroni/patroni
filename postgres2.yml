@@ -102,7 +102,7 @@ postgresql:
       password: rep-pass
     superuser:
       username: postgres
-      password: zalando
+      password: patroni
     rewind:  # Has no effect on postgres 10 and lower
       username: rewind_user
       password: rewind_password
