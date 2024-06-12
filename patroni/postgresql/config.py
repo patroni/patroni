@@ -114,16 +114,17 @@ def parse_dsn(value: str) -> Optional[Dict[str, str]]:
     """
     Very simple equivalent of `psycopg2.extensions.parse_dsn` introduced in 2.7.0.
     We are not using psycopg2 function in order to remain compatible with 2.5.4+.
-    There is one minor difference though, this function removes `dbname` from the result
-    and sets the `sslmode`, 'gssencmode', and `channel_binding` to `prefer` if it is not present in
-    the connection string. This is necessary to simplify comparison of the old and the new values.
+    There are a few minor differences though, this function sets the `sslmode`, 'gssencmode',
+    and `channel_binding` to `prefer` if they are not present in the connection string.
+    This is necessary to simplify comparison of the old and the new values.
 
     >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,[::1]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
-    >>> r == {'application_name': 'mya/pp', 'host': ',::1', 'sslmode': 'require',\
+    >>> r == {'application_name': 'mya/pp', 'dbname': 'db/sdf', 'host': ',::1', 'sslmode': 'require',\
               'password': 'pass', 'port': '/123,', 'user': 'u/se', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
     True
     >>> r = parse_dsn(" host = 'host' dbname = db\\\\ name requiressl=1 ")
-    >>> r == {'host': 'host', 'sslmode': 'require', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
+    >>> r == {'dbname': 'db name', 'host': 'host', 'sslmode': 'require',\
+              'gssencmode': 'prefer', 'channel_binding': 'prefer'}
     True
     >>> parse_dsn('requiressl = 0\\\\') == {'sslmode': 'prefer', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
     True
@@ -147,8 +148,6 @@ def parse_dsn(value: str) -> Optional[Dict[str, str]]:
             elif requiressl is not None:
                 ret['sslmode'] = 'prefer'
             ret.setdefault('sslmode', 'prefer')
-        if 'dbname' in ret:
-            del ret['dbname']
         ret.setdefault('gssencmode', 'prefer')
         ret.setdefault('channel_binding', 'prefer')
     return ret
@@ -570,8 +569,8 @@ class ConfigHandler(object):
             ret.setdefault('channel_binding', 'prefer')
         if self._krbsrvname:
             ret['krbsrvname'] = self._krbsrvname
-        if 'dbname' in ret:
-            del ret['dbname']
+        if not ret.get('dbname'):
+            ret['dbname'] = self._postgresql.database
         return ret
 
     def format_dsn(self, params: Dict[str, Any]) -> str:
@@ -771,12 +770,21 @@ class ConfigHandler(object):
         elif not primary_conninfo:
             return False
 
+        if self._postgresql.major_version < 170000:
+            # we want to compare dbname in primary_conninfo only for v17 onwards
+            wanted_primary_conninfo.pop('dbname', None)
+
         if not self._postgresql.is_starting():
             wal_receiver_primary_conninfo = self._postgresql.primary_conninfo()
             if wal_receiver_primary_conninfo:
                 wal_receiver_primary_conninfo = parse_dsn(wal_receiver_primary_conninfo)
                 # when wal receiver is alive use primary_conninfo from pg_stat_wal_receiver for comparison
                 if wal_receiver_primary_conninfo:
+                    # dbname in pg_stat_wal_receiver is always `replication`, we need to use a "real" one
+                    wal_receiver_primary_conninfo.pop('dbname', None)
+                    dbname = primary_conninfo.get('dbname')
+                    if dbname:
+                        wal_receiver_primary_conninfo['dbname'] = dbname
                     primary_conninfo = wal_receiver_primary_conninfo
                     # There could be no password in the primary_conninfo or it is masked.
                     # Just copy the "desired" value in order to make comparison succeed.
