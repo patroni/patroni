@@ -30,7 +30,7 @@ In order to change the dynamic configuration you can use either :ref:`patronictl
 -  **failsafe\_mode**: Enables :ref:`DCS Failsafe Mode <dcs_failsafe_mode>`. Defaults to `false`.
 -  **postgresql**:
 
-   -  **use\_pg\_rewind**: whether or not to use pg_rewind. Defaults to `false`.
+   -  **use\_pg\_rewind**: whether or not to use pg_rewind. Defaults to `false`. Note that either the cluster must be initialized with ``data page checksums`` (``--data-checksums`` option for ``initdb``) and/or ``wal_log_hints`` must be set to ``on``, or ``pg_rewind`` will not work.
    -  **use\_slots**: whether or not to use replication slots. Defaults to `true` on PostgreSQL 9.4+.
    -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower. There is no recovery.conf anymore in PostgreSQL 12, but you may continue using this section, because Patroni handles it transparently.
    -  **parameters**: list of configuration settings for Postgres.
@@ -108,3 +108,7 @@ Note: if cluster topology is static (fixed number of nodes that never change the
 .. warning::
    Permanent replication slots are synchronized only from the ``primary``/``standby_leader`` to replica nodes. That means, applications are supposed to be using them only from the leader node. Using them on replica nodes will cause indefinite growth of ``pg_wal`` on all other nodes in the cluster.
    An exception to that rule are permanent physical slots that match the Patroni member names, if you happen to configure any. Those will be synchronized among all nodes as they are used for replication among them.
+
+
+.. warning::
+   Setting ``nostream`` tag on standby disables copying and synchronization of permanent logical replication slots on the node itself and all its cascading replicas if any.

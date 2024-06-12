@@ -44,7 +44,7 @@ You should not use ``pg_ctl promote`` in this scenario, you need "manually promo
 
 In case you want to return to the "initial" state, there are only two ways of resolving it:
 
-- Add the standby_cluster section back and it will trigger pg_rewind, but there are chances that pg_rewind will fail.
+- Add the standby_cluster section back and it will trigger ``pg_rewind``; however, for ``pg_rewind`` to function properly, either the cluster must be initialized with ``data page checksums`` (``--data-checksums`` option for ``initdb``) and/or ``wal_log_hints`` must be set to ``on``, but there are still chances that ``pg_rewind`` might fail due to other factors.
 - Rebuild the standby cluster from scratch.
 
 Before promoting standby cluster one have to manually ensure that the source cluster is down (STONITH). When DC1 recovers, the cluster has to be converted to a standby cluster.

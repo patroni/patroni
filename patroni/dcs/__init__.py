@@ -10,7 +10,7 @@ from copy import deepcopy
 from random import randint
 from threading import Event, Lock
 from typing import Any, Callable, Collection, Dict, Iterator, List, \
-    NamedTuple, Optional, Tuple, Type, TYPE_CHECKING, Union
+    NamedTuple, Optional, Set, Tuple, Type, TYPE_CHECKING, Union
 from urllib.parse import urlparse, urlunparse, parse_qsl
 
 import dateutil.parser
@@ -85,6 +85,8 @@ def dcs_modules() -> List[str]:
 
     :returns: list of known module names with absolute python module path namespace, e.g. ``patroni.dcs.etcd``.
     """
+    if TYPE_CHECKING:  # pragma: no cover
+        assert isinstance(__package__, str)
     return iter_modules(__package__)
 
 
@@ -101,6 +103,8 @@ def iter_dcs_classes(
 
     :returns: an iterator of tuples, each containing the module ``name`` and the imported DCS class object.
     """
+    if TYPE_CHECKING:  # pragma: no cover
+        assert isinstance(__package__, str)
     return iter_classes(__package__, AbstractDCS, config)
 
 
@@ -909,7 +913,9 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: ``True`` if *value* is a physical replication slot, otherwise ``False``.
         """
-        return not value or isinstance(value, dict) and value.get('type', 'physical') == 'physical'
+        return not value \
+            or (isinstance(value, dict) and not Cluster.is_logical_slot(value)
+                and value.get('type', 'physical') == 'physical')
 
     @staticmethod
     def is_logical_slot(value: Union[Any, Dict[str, Any]]) -> bool:
@@ -1039,6 +1045,8 @@ class Cluster(NamedTuple('Cluster',
         .. note::
             Permanent replication slots are only considered if ``use_slots`` configuration is enabled.
             A node that is not supposed to become a leader (*nofailover*) will not have permanent replication slots.
+            Also node with disabled streaming (*nostream*) and its cascading followers must not have permanent
+            logical slots due to lack of feedback from node to primary, which makes them unsafe to use.
 
             In a standby cluster we only support physical replication slots.
 
@@ -1054,7 +1062,7 @@ class Cluster(NamedTuple('Cluster',
         if not global_config.use_slots or tags.nofailover:
             return {}
 
-        if global_config.is_standby_cluster:
+        if global_config.is_standby_cluster or self.get_slot_name_on_primary(postgresql.name, tags) is None:
             return self.__permanent_physical_slots \
                 if postgresql.major_version >= SLOT_ADVANCE_AVAILABLE_VERSION or role == 'standby_leader' else {}
 
@@ -1068,6 +1076,10 @@ class Cluster(NamedTuple('Cluster',
         the current primary, because that member would replicate from elsewhere. We still create the slot if
         the ``replicatefrom`` destination member is currently not a member of the cluster (fallback to the
         primary), or if ``replicatefrom`` destination member happens to be the current primary.
+
+        If the ``nostream`` tag is set on the member - we should not create the replication slot for it on
+        the current primary or any other member even if ``replicatefrom`` is set, because ``nostream`` disables
+        WAL streaming.
 
         Will log an error if:
 
@@ -1083,8 +1095,9 @@ class Cluster(NamedTuple('Cluster',
         if not global_config.use_slots:
             return {}
 
-        # we always want to exclude the member with our name from the list
-        members = filter(lambda m: m.name != name, self.members)
+        # we always want to exclude the member with our name from the list,
+        # also exlude members with disabled WAL streaming
+        members = filter(lambda m: m.name != name and not m.nostream, self.members)
 
         if role in ('master', 'primary', 'standby_leader'):
             members = [m for m in members if m.replicatefrom is None
@@ -1168,11 +1181,15 @@ class Cluster(NamedTuple('Cluster',
 
         if global_config.use_slots:
             name = member.name if isinstance(member, Member) else postgresql.name
+
+            if not self.get_slot_name_on_primary(name, member):
+                return False
+
             members = [m for m in self.members if m.replicatefrom == name and m.name != self.leader_name]
             return any(self.should_enforce_hot_standby_feedback(postgresql, m) for m in members)
         return False
 
-    def get_slot_name_on_primary(self, name: str, tags: Tags) -> str:
+    def get_slot_name_on_primary(self, name: str, tags: Tags) -> Optional[str]:
         """Get the name of physical replication slot for this node on the primary.
 
         .. note::
@@ -1186,9 +1203,18 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: the slot name on the primary that is in use for physical replication on this node.
         """
-        replicatefrom = self.get_member(tags.replicatefrom, False) if tags.replicatefrom else None
-        return self.get_slot_name_on_primary(replicatefrom.name, replicatefrom) \
-            if isinstance(replicatefrom, Member) else slot_name_from_member_name(name)
+        seen_nodes: Set[str] = set()
+        while True:
+            seen_nodes.add(name)
+            if tags.nostream:
+                return None
+            replicatefrom = self.get_member(tags.replicatefrom, False) \
+                if tags.replicatefrom and tags.replicatefrom != name else None
+            if not isinstance(replicatefrom, Member):
+                return slot_name_from_member_name(name)
+            if replicatefrom.name in seen_nodes:
+                return None
+            name, tags = replicatefrom.name, replicatefrom
 
     @property
     def timeline(self) -> int:

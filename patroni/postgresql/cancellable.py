@@ -100,7 +100,8 @@ class CancellableSubprocess(CancellableExecutor):
 
             if started and self._process is not None:
                 if isinstance(communicate, dict):
-                    communicate['stdout'], communicate['stderr'] = self._process.communicate(input_data)
+                    communicate['stdout'], communicate['stderr'] = \
+                        self._process.communicate(input_data)  # pyright: ignore [reportGeneralTypeIssues]
                 return self._process.wait()
         finally:
             with self._lock:

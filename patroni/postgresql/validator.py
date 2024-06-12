@@ -1,11 +1,11 @@
 import abc
 from copy import deepcopy
 import logging
-import os
 import yaml
 
 from typing import Any, Dict, Iterator, List, MutableMapping, Optional, Tuple, Type, Union
 
+from .available_parameters import get_validator_files, PathLikeObj
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..exceptions import PatroniException
 from ..utils import parse_bool, parse_int, parse_real
@@ -258,10 +258,10 @@ class InvalidGucValidatorsFile(PatroniException):
     """Raised when reading or parsing of a YAML file faces an issue."""
 
 
-def _read_postgres_gucs_validators_file(file: str) -> Dict[str, Any]:
+def _read_postgres_gucs_validators_file(file: PathLikeObj) -> Dict[str, Any]:
     """Read an YAML file and return the corresponding Python object.
 
-    :param file: path to the file to be read. It is expected to be encoded with ``UTF-8``, and to be a YAML document.
+    :param file: path-like object to read from. It is expected to be encoded with ``UTF-8``, and to be a YAML document.
 
     :returns: the YAML content parsed into a Python object. If any issue is faced while reading/parsing the file, then
         return ``None``.
@@ -270,7 +270,7 @@ def _read_postgres_gucs_validators_file(file: str) -> Dict[str, Any]:
         :class:`InvalidGucValidatorsFile`: if faces an issue while reading or parsing *file*.
     """
     try:
-        with open(file, encoding='UTF-8') as stream:
+        with file.open(encoding='UTF-8') as stream:
             return yaml.safe_load(stream)
     except Exception as exc:
         raise InvalidGucValidatorsFile(
@@ -385,21 +385,7 @@ def _load_postgres_gucs_validators() -> None:
                     version_till: null
 
     """
-    conf_dir = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        'available_parameters',
-    )
-    yaml_files: List[str] = []
-
-    for root, _, files in os.walk(conf_dir):
-        for file in sorted(files):
-            full_path = os.path.join(root, file)
-            if file.lower().endswith(('.yml', '.yaml')):
-                yaml_files.append(full_path)
-            else:
-                logger.info('Ignored a non-YAML file found under `available_parameters` directory: `%s`.', full_path)
-
-    for file in yaml_files:
+    for file in get_validator_files():
         try:
             config: Dict[str, Any] = _read_postgres_gucs_validators_file(file)
         except InvalidGucValidatorsFile as exc:
