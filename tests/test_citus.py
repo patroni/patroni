@@ -1,5 +1,6 @@
 import time
-from mock import Mock, patch, PropertyMock
+from unittest.mock import Mock, patch, PropertyMock
+
 from patroni.postgresql.mpp.citus import CitusHandler
 from patroni.psycopg import ProgrammingError
 

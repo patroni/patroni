@@ -2,8 +2,8 @@ import datetime
 import etcd
 import os
 import sys
+from unittest.mock import Mock, MagicMock, PropertyMock, patch, mock_open
 
-from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni import global_config
 from patroni.collections import CaseInsensitiveSet
 from patroni.config import Config

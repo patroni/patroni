@@ -21,7 +21,7 @@ def install_requirements(what):
         from setup import EXTRAS_REQUIRE, read
     finally:
         sys.path = old_path
-    requirements = ['mock>=2.0.0', 'flake8', 'pytest', 'pytest-cov'] if what == 'all' else ['behave']
+    requirements = ['flake8', 'pytest', 'pytest-cov'] if what == 'all' else ['behave']
     requirements += ['coverage']
     # try to split tests between psycopg2 and psycopg3
     requirements += ['psycopg[binary]'] if sys.version_info >= (3, 8, 0) and\

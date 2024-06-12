@@ -1,7 +1,6 @@
 import os
 import sys
-
-from mock import Mock, PropertyMock, patch
+from unittest.mock import Mock, PropertyMock, patch
 
 from patroni.async_executor import CriticalTask
 from patroni.collections import CaseInsensitiveDict

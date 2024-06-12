@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from io import StringIO
-from mock import Mock, patch, mock_open
+from unittest.mock import Mock, patch, mock_open
 from patroni.dcs import dcs_modules
 from patroni.validator import schema, Directory, Schema
 

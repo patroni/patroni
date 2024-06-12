@@ -4,7 +4,7 @@ import unittest
 import io
 
 from copy import deepcopy
-from mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from patroni import global_config
 from patroni.config import ClusterConfig, Config, ConfigParseError

@@ -5,7 +5,7 @@ import yaml
 
 from . import MockConnect, MockCursor, MockConnectionInfo
 from copy import deepcopy
-from mock import MagicMock, Mock, PropertyMock, mock_open as _mock_open, patch
+from unittest.mock import MagicMock, Mock, PropertyMock, mock_open as _mock_open, patch
 
 from patroni.__main__ import main as _main
 from patroni.config import Config
