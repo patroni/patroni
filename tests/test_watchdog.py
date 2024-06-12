@@ -3,14 +3,14 @@ import patroni.watchdog.linux as linuxwd
 import sys
 import unittest
 import os
+from unittest.mock import patch, Mock, PropertyMock
 
-from mock import patch, Mock, PropertyMock
 from patroni.watchdog import Watchdog, WatchdogError
 from patroni.watchdog.base import NullWatchdog
 from patroni.watchdog.linux import LinuxWatchdogDevice
 
 
-class MockDevice(object):
+class MockDevice:
     def __init__(self, fd, filename, flag):
         self.fd = fd
         self.filename = filename

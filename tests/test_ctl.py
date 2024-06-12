@@ -1,12 +1,10 @@
 import click
 import etcd
-import mock
 import os
 import unittest
 
 from click.testing import CliRunner
 from datetime import datetime, timedelta
-from mock import patch, Mock, PropertyMock
 from patroni import global_config
 from patroni.ctl import ctl, load_config, output_members, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, PatroniCtlException, apply_config_changes, \
@@ -17,6 +15,8 @@ from patroni.postgresql.mpp import get_mpp
 from patroni.psycopg import OperationalError
 from patroni.utils import tzutc
 from prettytable import PrettyTable, ALL
+from unittest import mock
+from unittest.mock import patch, Mock, PropertyMock
 from urllib3 import PoolManager
 
 from . import MockConnect, MockCursor, MockResponse, psycopg_connect

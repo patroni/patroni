@@ -1,12 +1,12 @@
 import multiprocessing
 import psutil
 import unittest
+from unittest.mock import Mock, patch, mock_open
 
-from mock import Mock, patch, mock_open
 from patroni.postgresql.postmaster import PostmasterProcess
 
 
-class MockProcess(object):
+class MockProcess:
     def __init__(self, target, args):
         self.target = target
         self.args = args
