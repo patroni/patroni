@@ -176,11 +176,15 @@ class PostmasterProcess(psutil.Process):
             return not self.is_running()
 
     def wait_for_user_backends_to_close(self, stop_timeout: Optional[float]) -> None:
-        # These regexps are cross checked against versions PostgreSQL 9.1 .. 16
+        # These regexps are cross checked against versions PostgreSQL 9.1 .. 17
         aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:(?:archiver|startup|autovacuum launcher|autovacuum worker|"
                                  "checkpointer|logger|stats collector|wal receiver|wal writer|writer)(?: process  )?|"
                                  "walreceiver|wal sender process|walsender|walwriter|background writer|"
-                                 "logical replication launcher|logical replication worker for|bgworker:) ")
+                                 "logical replication launcher|logical replication worker for subscription|"
+                                 "logical replication tablesync worker for subscription|"
+                                 "logical replication parallel apply worker for subscription|"
+                                 "logical replication apply worker for subscription|"
+                                 "slotsync worker|walsummarizer|bgworker:) ")
 
         try:
             children = self.children()
