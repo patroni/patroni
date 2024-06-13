@@ -952,7 +952,7 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
     for m in cluster.members:
         if m.name == leader_name:
             role = 'standby_leader' if config.is_standby_cluster else 'leader'
-        elif cluster.sync.matches(m.name):
+        elif config.is_synchronous_mode and cluster.sync.matches(m.name):
             role = 'sync_standby'
         else:
             role = 'replica'
