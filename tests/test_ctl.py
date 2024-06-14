@@ -503,6 +503,14 @@ class TestCtl(unittest.TestCase):
         assert '2100' in result.output
         assert 'Scheduled restart' in result.output
 
+    def test_list_standby_cluster(self):
+        cluster = get_cluster_initialized_without_leader(leader=True, sync=('leader', 'other'))
+        cluster.config.data.update(synchronous_mode=True, standby_cluster={'port': 5433})
+        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=cluster)):
+            result = self.runner.invoke(ctl, ['list'])
+            self.assertEqual(result.exit_code, 0)
+            self.assertNotIn('Sync Standby', result.output)
+
     def test_topology(self):
         cluster = get_cluster_initialized_with_leader()
         cluster.members.append(Member(0, 'cascade', 28,
