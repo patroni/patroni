@@ -136,3 +136,4 @@ tags:
     noloadbalance: false
     clonefrom: false
     nosync: false
+    nostream: false

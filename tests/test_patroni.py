@@ -4,10 +4,10 @@ import os
 import signal
 import time
 import unittest
+from unittest.mock import Mock, PropertyMock, patch
 
 import patroni.config as config
 from http.server import HTTPServer
-from mock import Mock, PropertyMock, patch
 from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
 from patroni.dcs import Cluster, Member
@@ -248,6 +248,16 @@ class TestPatroni(unittest.TestCase):
         self.assertTrue(self.p.nosync)
         self.p.tags['nosync'] = None
         self.assertFalse(self.p.nosync)
+
+    def test_nostream(self):
+        self.p.tags['nostream'] = 'True'
+        self.assertTrue(self.p.nostream)
+        self.p.tags['nostream'] = 'None'
+        self.assertFalse(self.p.nostream)
+        self.p.tags['nostream'] = 'foo'
+        self.assertFalse(self.p.nostream)
+        self.p.tags['nostream'] = ''
+        self.assertFalse(self.p.nostream)
 
     @patch.object(Thread, 'join', Mock())
     def test_shutdown(self):

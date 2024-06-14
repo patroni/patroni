@@ -1,7 +1,10 @@
 parameters:
+  allow_alter_system:
+  - type: Bool
+    version_from: 170000
   allow_in_place_tablespaces:
   - type: Bool
-    version_from: 150000
+    version_from: 100000
   allow_system_table_mods:
   - type: Bool
     version_from: 90300
@@ -245,6 +248,12 @@ parameters:
     version_from: 90300
     min_val: 0
     max_val: 1000
+  commit_timestamp_buffers:
+  - type: Integer
+    version_from: 170000
+    min_val: 0
+    max_val: 131072
+    unit: 8kB
   compute_query_id:
   - type: EnumBool
     version_from: 140000
@@ -299,6 +308,7 @@ parameters:
   db_user_namespace:
   - type: Bool
     version_from: 90300
+    version_till: 170000
   deadlock_timeout:
   - type: Integer
     version_from: 90300
@@ -313,6 +323,12 @@ parameters:
   debug_io_direct:
   - type: String
     version_from: 160000
+  debug_logical_replication_streaming:
+  - type: Enum
+    version_from: 170000
+    possible_values:
+    - buffered
+    - immediate
   debug_parallel_query:
   - type: EnumBool
     version_from: 160000
@@ -406,6 +422,9 @@ parameters:
   enable_gathermerge:
   - type: Bool
     version_from: 100000
+  enable_group_by_reordering:
+  - type: Bool
+    version_from: 170000
   enable_hashagg:
   - type: Bool
     version_from: 90300
@@ -466,6 +485,9 @@ parameters:
   event_source:
   - type: String
     version_from: 90300
+  event_triggers:
+  - type: Bool
+    version_from: 170000
   exit_on_error:
   - type: Bool
     version_from: 90300
@@ -607,6 +629,12 @@ parameters:
   ignore_system_indexes:
   - type: Bool
     version_from: 90300
+  io_combine_limit:
+  - type: Integer
+    version_from: 170000
+    min_val: 1
+    max_val: 32
+    unit: 8kB
   IntervalStyle:
   - type: Enum
     version_from: 90300
@@ -875,6 +903,7 @@ parameters:
   logical_replication_mode:
   - type: Enum
     version_from: 160000
+    version_till: 170000
     possible_values:
     - buffered
     - immediate
@@ -919,6 +948,11 @@ parameters:
     version_from: 100000
     min_val: 0
     max_val: 262143
+  max_notify_queue_pages:
+  - type: Integer
+    version_from: 170000
+    min_val: 64
+    max_val: 2147483647
   max_parallel_apply_workers_per_subscription:
   - type: Integer
     version_from: 160000
@@ -1072,9 +1106,28 @@ parameters:
     min_val: 2
     max_val: 2147483647
     unit: MB
+  multixact_member_buffers:
+  - type: Integer
+    version_from: 170000
+    min_val: 16
+    max_val: 131072
+    unit: 8kB
+  multixact_offset_buffers:
+  - type: Integer
+    version_from: 170000
+    min_val: 16
+    max_val: 131072
+    unit: 8kB
+  notify_buffers:
+  - type: Integer
+    version_from: 170000
+    min_val: 16
+    max_val: 131072
+    unit: 8kB
   old_snapshot_threshold:
   - type: Integer
     version_from: 90600
+    version_till: 170000
     min_val: -1
     max_val: 86400
     unit: min
@@ -1191,6 +1244,12 @@ parameters:
     version_from: 90300
     min_val: 0
     max_val: 1.79769e+308
+  serializable_buffers:
+  - type: Integer
+    version_from: 170000
+    min_val: 16
+    max_val: 131072
+    unit: 8kB
   session_preload_libraries:
   - type: String
     version_from: 90400
@@ -1283,6 +1342,9 @@ parameters:
   standard_conforming_strings:
   - type: Bool
     version_from: 90300
+  standby_slot_names:
+  - type: String
+    version_from: 170000
   statement_timeout:
   - type: Integer
     version_from: 90300
@@ -1300,6 +1362,15 @@ parameters:
   - type: String
     version_from: 90300
     version_till: 150000
+  subtransaction_buffers:
+  - type: Integer
+    version_from: 170000
+    min_val: 0
+    max_val: 131072
+    unit: 8kB
+  summarize_wal:
+  - type: Bool
+    version_from: 170000
   superuser_reserved_connections:
   - type: Integer
     version_from: 90300
@@ -1310,6 +1381,9 @@ parameters:
     version_from: 90600
     min_val: 0
     max_val: 262143
+  sync_replication_slots:
+  - type: Bool
+    version_from: 170000
   synchronize_seqscans:
   - type: Bool
     version_from: 90300
@@ -1394,12 +1468,16 @@ parameters:
   timezone_abbreviations:
   - type: String
     version_from: 90300
+  trace_connection_negotiation:
+  - type: Bool
+    version_from: 170000
   trace_notify:
   - type: Bool
     version_from: 90300
   trace_recovery_messages:
   - type: Enum
     version_from: 90300
+    version_till: 170000
     possible_values:
     - debug5
     - debug4
@@ -1452,6 +1530,12 @@ parameters:
   track_wal_io_timing:
   - type: Bool
     version_from: 140000
+  transaction_buffers:
+  - type: Integer
+    version_from: 170000
+    min_val: 0
+    max_val: 131072
+    unit: 8kB
   transaction_deferrable:
   - type: Bool
     version_from: 90300
@@ -1466,6 +1550,12 @@ parameters:
   transaction_read_only:
   - type: Bool
     version_from: 90300
+  transaction_timeout:
+  - type: Integer
+    version_from: 170000
+    min_val: 0
+    max_val: 2147483647
+    unit: ms
   transform_null_equals:
   - type: Bool
     version_from: 90300
@@ -1664,6 +1754,12 @@ parameters:
     min_val: 0
     max_val: 2147483647
     unit: kB
+  wal_summary_keep_time:
+  - type: Integer
+    version_from: 170000
+    min_val: 0
+    max_val: 35791394
+    unit: min
   wal_sync_method:
   - type: Enum
     version_from: 90300

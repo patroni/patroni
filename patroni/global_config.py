@@ -10,6 +10,7 @@ import types
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
+from .collections import EMPTY_DICT
 from .utils import parse_bool, parse_int
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -44,19 +45,20 @@ class GlobalConfig(types.ModuleType):
         """
         return bool(cluster and cluster.config and cluster.config.modify_version)
 
-    def update(self, cluster: Optional['Cluster']) -> None:
+    def update(self, cluster: Optional['Cluster'], default: Optional[Dict[str, Any]] = None) -> None:
         """Update with the new global configuration from the :class:`Cluster` object view.
 
         .. note::
-            Global configuration is updated only when configuration in the *cluster* view is valid.
-
             Update happens in-place and is executed only from the main heartbeat thread.
 
         :param cluster: the currently known cluster state from DCS.
+        :param default: default configuration, which will be used if there is no valid *cluster.config*.
         """
         # Try to protect from the case when DCS was wiped out
         if self._cluster_has_valid_config(cluster):
             self.__config = cluster.config.data  # pyright: ignore [reportOptionalMemberAccess]
+        elif default:
+            self.__config = default
 
     def from_cluster(self, cluster: Optional['Cluster']) -> 'GlobalConfig':
         """Return :class:`GlobalConfig` instance from the provided :class:`Cluster` object view.
@@ -213,7 +215,7 @@ class GlobalConfig(types.ModuleType):
     @property
     def use_slots(self) -> bool:
         """``True`` if cluster is configured to use replication slots."""
-        return bool(parse_bool((self.get('postgresql') or {}).get('use_slots', True)))
+        return bool(parse_bool((self.get('postgresql') or EMPTY_DICT).get('use_slots', True)))
 
     @property
     def permanent_slots(self) -> Dict[str, Any]:
@@ -221,7 +223,7 @@ class GlobalConfig(types.ModuleType):
         return deepcopy(self.get('permanent_replication_slots')
                         or self.get('permanent_slots')
                         or self.get('slots')
-                        or {})
+                        or EMPTY_DICT.copy())
 
 
 sys.modules[__name__] = GlobalConfig()

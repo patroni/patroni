@@ -2,8 +2,8 @@ import datetime
 import etcd
 import os
 import sys
+from unittest.mock import Mock, MagicMock, PropertyMock, patch, mock_open
 
-from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from patroni import global_config
 from patroni.collections import CaseInsensitiveSet
 from patroni.config import Config
@@ -146,6 +146,7 @@ zookeeper:
         self.api.connection_string = 'http://127.0.0.1:8008'
         self.clonefrom = None
         self.nosync = False
+        self.nostream = False
         self.scheduled_restart = {'schedule': future_restart_time,
                                   'postmaster_start_time': str(postmaster_start_time)}
         self.watchdog = Watchdog(self.config)
@@ -250,8 +251,6 @@ class TestHa(PostgresInit):
         self.p.data_directory_empty = true
         self.ha.cluster = get_cluster_not_initialized_without_leader(
             cluster_config=ClusterConfig(1, {"standby_cluster": {"port": 5432}}, 1))
-        global_config.update(self.ha.cluster)
-        self.ha.cluster = get_cluster_not_initialized_without_leader(cluster_config=ClusterConfig(0, {}, 0))
         self.assertEqual(self.ha.run_cycle(), 'trying to bootstrap a new standby leader')
 
     def test_bootstrap_waiting_for_standby_leader(self):
@@ -317,7 +316,6 @@ class TestHa(PostgresInit):
             self.ha.state_handler.cancellable._process = Mock()
             self.ha._crash_recovery_started -= 600
             self.ha.cluster.config.data.update({'maximum_lag_on_failover': 10})
-            global_config.update(self.ha.cluster)
             self.assertEqual(self.ha.run_cycle(), 'terminated crash recovery because of startup timeout')
 
     @patch.object(Rewind, 'ensure_clean_shutdown', Mock())
@@ -468,6 +466,11 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.run_cycle(), 'demoted self because failed to update leader lock in DCS')
         self.p.is_primary = false
         self.assertEqual(self.ha.run_cycle(), 'not promoting because failed to update leader lock in DCS')
+
+    def test_get_node_to_follow_nostream(self):
+        self.ha.patroni.nostream = True
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.assertEqual(self.ha._get_node_to_follow(self.ha.cluster), None)
 
     @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_follow(self):
@@ -765,7 +768,6 @@ class TestHa(PostgresInit):
         with patch('patroni.ha.logger.info') as mock_info:
             self.ha.fetch_node_status = get_node_status(wal_position=1)
             self.ha.cluster.config.data.update({'maximum_lag_on_failover': 5})
-            global_config.update(self.ha.cluster)
             self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
             self.assertEqual(mock_info.call_args_list[0][0], ('Member %s exceeds maximum replication lag', 'leader'))
 
@@ -783,7 +785,7 @@ class TestHa(PostgresInit):
             self.assertIn('Incorrect value of scheduled_at: %s', mock_warning.call_args_list[0][0])
 
         # scheduled now
-        scheduled = datetime.datetime.utcnow().replace(tzinfo=tzutc)
+        scheduled = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=tzutc)
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, self.p.name, 'b', scheduled))
         self.ha.cluster.members.append(Member(0, 'b', 28, {'api_url': 'http://127.0.0.1:8011/patroni'}))
         self.assertEqual('switchover: demoting myself', self.ha.run_cycle())
@@ -1271,7 +1273,6 @@ class TestHa(PostgresInit):
         self.p.is_running = false
         self.ha.cluster = get_cluster_initialized_with_leader(sync=(self.p.name, 'other'))
         self.ha.cluster.config.data.update({'synchronous_mode': True, 'primary_start_timeout': 0})
-        global_config.update(self.ha.cluster)
         self.ha.has_lock = true
         self.ha.update_lock = true
         self.ha.fetch_node_status = get_node_status()  # accessible, in_recovery
@@ -1380,7 +1381,6 @@ class TestHa(PostgresInit):
         mock_set_sync.reset_mock()
         self.p.sync_handler.current_state = Mock(return_value=(CaseInsensitiveSet(), CaseInsensitiveSet()))
         self.ha.cluster.config.data['synchronous_mode_strict'] = True
-        global_config.update(self.ha.cluster)
         self.ha.run_cycle()
         mock_set_sync.assert_called_once_with(CaseInsensitiveSet('*'))
 

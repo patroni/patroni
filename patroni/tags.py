@@ -3,13 +3,16 @@ import abc
 
 from typing import Any, Dict, Optional
 
-from patroni.utils import parse_int
+from patroni.utils import parse_int, parse_bool
 
 
 class Tags(abc.ABC):
     """An abstract class that encapsulates all the ``tags`` logic.
 
     Child classes that want to use provided facilities must implement ``tags`` abstract property.
+
+    .. note::
+        Due to backward-compatibility reasons, old tags may have a less strict type conversion than new ones.
     """
 
     @staticmethod
@@ -20,7 +23,7 @@ class Tags(abc.ABC):
 
         .. note::
             A custom tag is any tag added to the configuration ``tags`` section that is not one of ``clonefrom``,
-            ``nofailover``, ``noloadbalance`` or ``nosync``.
+            ``nofailover``, ``noloadbalance``,``nosync`` or ``nostream``.
 
             For most of the Patroni predefined tags, the returning object will only contain them if they are enabled as
             they all are boolean values that default to disabled.
@@ -31,7 +34,7 @@ class Tags(abc.ABC):
             tag value.
         """
         return {tag: value for tag, value in tags.items()
-                if any((tag not in ('clonefrom', 'nofailover', 'noloadbalance', 'nosync'),
+                if any((tag not in ('clonefrom', 'nofailover', 'noloadbalance', 'nosync', 'nostream'),
                         value,
                         tag == 'nofailover' and 'failover_priority' in tags))}
 
@@ -89,3 +92,8 @@ class Tags(abc.ABC):
     def replicatefrom(self) -> Optional[str]:
         """Value of ``replicatefrom`` tag, if any."""
         return self.tags.get('replicatefrom')
+
+    @property
+    def nostream(self) -> bool:
+        """``True`` if ``nostream`` is ``True``, else ``False``."""
+        return parse_bool(self.tags.get('nostream')) or False

@@ -7,6 +7,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
 from ..async_executor import CriticalTask
+from ..collections import EMPTY_DICT
 from ..dcs import Leader, Member, RemoteMember
 from ..psycopg import quote_ident, quote_literal
 from ..utils import deep_compare, unquote
@@ -146,7 +147,7 @@ class Bootstrap(object):
 
         # make sure there is no trigger file or postgres will be automatically promoted
         trigger_file = self._postgresql.config.triggerfile_good_name
-        trigger_file = (self._postgresql.config.get('recovery_conf') or {}).get(trigger_file) or 'promote'
+        trigger_file = (self._postgresql.config.get('recovery_conf') or EMPTY_DICT).get(trigger_file) or 'promote'
         trigger_file = os.path.abspath(os.path.join(self._postgresql.data_dir, trigger_file))
         if os.path.exists(trigger_file):
             os.unlink(trigger_file)
@@ -215,15 +216,13 @@ class Bootstrap(object):
         cmd = config.get('post_bootstrap') or config.get('post_init')
         if cmd:
             r = self._postgresql.connection_pool.conn_kwargs
-            connstring = self._postgresql.config.format_dsn(r, True)
-            if 'host' not in r:
-                # https://www.postgresql.org/docs/current/static/libpq-pgpass.html
-                # A host name of localhost matches both TCP (host name localhost) and Unix domain socket
-                # (pghost empty or the default socket directory) connections coming from the local machine.
-                r['host'] = 'localhost'  # set it to localhost to write into pgpass
 
-            env = self._postgresql.config.write_pgpass(r)
+            # https://www.postgresql.org/docs/current/static/libpq-pgpass.html
+            # A host name of localhost matches both TCP (host name localhost) and Unix domain socket
+            # (pghost empty or the default socket directory) connections coming from the local machine.
+            env = self._postgresql.config.write_pgpass({'host': 'localhost', **r})
             env['PGOPTIONS'] = '-c synchronous_commit=local -c statement_timeout=0'
+            connstring = self._postgresql.config.format_dsn({**r, 'password': None})
 
             try:
                 ret = self._postgresql.cancellable.call(shlex.split(cmd) + [connstring], env=env)
@@ -257,7 +256,7 @@ class Bootstrap(object):
             r = clone_member.conn_kwargs(self._postgresql.config.replication)
             # add the credentials to connect to the replica origin to pgpass.
             env = self._postgresql.config.write_pgpass(r)
-            connstring = self._postgresql.config.format_dsn(r, True)
+            connstring = self._postgresql.config.format_dsn({**r, 'password': None})
         else:
             connstring = ''
             env = os.environ.copy()
@@ -333,6 +332,13 @@ class Bootstrap(object):
         not_allowed_options = ('pgdata', 'format', 'wal-method', 'xlog-method', 'gzip',
                                'version', 'compress', 'dbname', 'host', 'port', 'username', 'password')
         user_options = self.process_user_options('basebackup', options, not_allowed_options, logger.error)
+        cmd = [
+            self._postgresql.pgcommand("pg_basebackup"),
+            "--pgdata=" + self._postgresql.data_dir,
+            "-X",
+            "stream",
+            "--dbname=" + conn_url,
+        ] + user_options
 
         for bbfailures in range(0, maxfailures):
             if self._postgresql.cancellable.is_cancelled:
@@ -340,9 +346,8 @@ class Bootstrap(object):
             if not self._postgresql.data_directory_empty():
                 self._postgresql.remove_data_directory()
             try:
-                ret = self._postgresql.cancellable.call([self._postgresql.pgcommand('pg_basebackup'),
-                                                         '--pgdata=' + self._postgresql.data_dir, '-X', 'stream',
-                                                         '--dbname=' + conn_url] + user_options, env=env)
+                logger.debug('calling: %r', cmd)
+                ret = self._postgresql.cancellable.call(cmd, env=env)
                 if ret == 0:
                     break
                 else:
@@ -439,7 +444,7 @@ END;$$""".format(f, quote_ident(rewind['username'], postgresql.connection()))
                         postgresql.query(sql)
 
                 if config.get('users'):
-                    logger.error('User creation is not be supported after v4.0.0. '
+                    logger.error('User creation is not be supported starting from v4.0.0. '
                                  'Please use "boostrap.post_bootstrap" script to create users.')
 
                 # We were doing a custom bootstrap instead of running initdb, therefore we opened trust

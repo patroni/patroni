@@ -716,7 +716,7 @@ class Retry(object):
         return self._cur_stoptime or 0
 
     def ensure_deadline(self, timeout: float, raise_ex: Optional[Exception] = None) -> bool:
-        """Calculates, sets, and checks the remaining deadline time.
+        """Calculates and checks the remaining deadline time.
 
         :param timeout: if the *deadline* is smaller than the provided *timeout* value raise *raise_ex* exception.
         :param raise_ex: the exception object that will be raised if the *deadline* is smaller than provided *timeout*.
@@ -727,8 +727,7 @@ class Retry(object):
         :raises:
             :class:`Exception`: *raise_ex* if calculated deadline is smaller than provided *timeout*.
         """
-        self.deadline = self.stoptime - time.time()
-        if self.deadline < timeout:
+        if self.stoptime - time.time() < timeout:
             if raise_ex:
                 raise raise_ex
             return False
@@ -953,7 +952,7 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
     for m in cluster.members:
         if m.name == leader_name:
             role = 'standby_leader' if config.is_standby_cluster else 'leader'
-        elif cluster.sync.matches(m.name):
+        elif config.is_synchronous_mode and cluster.sync.matches(m.name):
             role = 'sync_standby'
         else:
             role = 'replica'

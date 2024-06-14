@@ -185,6 +185,9 @@ class Ha(object):
         # used only in backoff after failing a pre_promote script
         self._released_leader_key_timestamp = 0
 
+        # Initialize global config
+        global_config.update(None, self.patroni.config.dynamic_configuration)
+
     def primary_stop_timeout(self) -> Union[int, None]:
         """:returns: "primary_stop_timeout" from the global configuration or `None` when not in synchronous mode."""
         ret = global_config.primary_stop_timeout
@@ -607,9 +610,12 @@ class Ha(object):
 
         :returns: the node which we should be replicating from.
         """
+        # nostream is set, the node must not use WAL streaming
+        if self.patroni.nostream:
+            return None
         # The standby leader or when there is no standby leader we want to follow
         # the remote member, except when there is no standby leader in pause.
-        if self.is_standby_cluster() \
+        elif self.is_standby_cluster() \
                 and (cluster.leader and cluster.leader.name and cluster.leader.name == self.state_handler.name
                      or cluster.is_unlocked() and not self.is_paused()):
             node_to_follow = self.get_remote_member()
