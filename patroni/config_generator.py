@@ -72,8 +72,6 @@ class AbstractConfigGenerator(abc.ABC):
     :ivar config: dictionary used for the generated configuration storage.
     """
 
-    _HOSTNAME, _IP = get_address()
-
     def __init__(self, output_file: Optional[str]) -> None:
         """Set up the output file (if passed), helper vars and the minimal config structure.
 
@@ -92,12 +90,14 @@ class AbstractConfigGenerator(abc.ABC):
         :returns: dictionary with the values gathered from Patroni env, hopefully defined hostname and ip address
                   (otherwise set to :data:`~patroni.config_generator.NO_VALUE_MSG`), and some sane defaults.
         """
+        _HOSTNAME, _IP = get_address()
+
         template_config: Dict[str, Any] = {
             'scope': NO_VALUE_MSG,
-            'name': cls._HOSTNAME,
+            'name': _HOSTNAME,
             'restapi': {
-                'connect_address': cls._IP + ':8008',
-                'listen': cls._IP + ':8008'
+                'connect_address': _IP + ':8008',
+                'listen': _IP + ':8008'
             },
             'log': {
                 'type': PatroniLogger.DEFAULT_TYPE,
@@ -108,8 +108,8 @@ class AbstractConfigGenerator(abc.ABC):
             },
             'postgresql': {
                 'data_dir': NO_VALUE_MSG,
-                'connect_address': cls._IP + ':5432',
-                'listen': cls._IP + ':5432',
+                'connect_address': _IP + ':5432',
+                'listen': _IP + ':5432',
                 'bin_dir': '',
                 'authentication': {
                     'superuser': {
@@ -400,8 +400,9 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
             else:
                 self.config['bootstrap']['dcs']['postgresql']['parameters'][param] = value
 
+        connect_ip = self.config['postgresql']['connect_address'].rsplit(':')[0]
         connect_port = self.parsed_dsn.get('port', os.getenv('PGPORT', helper_dict['port']))
-        self.config['postgresql']['connect_address'] = f'{self._IP}:{connect_port}'
+        self.config['postgresql']['connect_address'] = f'{connect_ip}:{connect_port}'
         self.config['postgresql']['listen'] = f'{helper_dict["listen_addresses"]}:{helper_dict["port"]}'
 
     def _set_su_params(self) -> None:
