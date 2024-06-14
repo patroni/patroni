@@ -4,7 +4,7 @@ parameters:
     version_from: 170000
   allow_in_place_tablespaces:
   - type: Bool
-    version_from: 150000
+    version_from: 100000
   allow_system_table_mods:
   - type: Bool
     version_from: 90300
