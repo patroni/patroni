@@ -1,10 +1,8 @@
-import mock
 import os
 import unittest
-
-
-from mock import Mock, PropertyMock, patch
 from threading import Thread
+from unittest import mock
+from unittest.mock import Mock, PropertyMock, patch
 
 from patroni import global_config, psycopg
 from patroni.dcs import Cluster, ClusterConfig, Member, Status, SyncState
@@ -185,6 +183,32 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.assertEqual(
             cluster.get_slot_name_on_primary(self.p.name, stream_node),
             'test_4')
+
+    def test_get_slot_name_on_primary(self):
+        node1 = Member(0, 'node1', 28, {
+            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+            'tags': {'replicatefrom': 'node2'}
+        })
+        node2 = Member(0, 'node2', 28, {
+            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+            'tags': {'replicatefrom': 'node1'}
+        })
+        cluster = Cluster(True, None, self.leader, Status.empty(), [self.leadermem, node1, node2],
+                          None, SyncState.empty(), None, None)
+        self.assertIsNone(cluster.get_slot_name_on_primary('node1', node1))
+
+    def test_should_enforce_hot_standby_feedback(self):
+        node1 = Member(0, 'postgresql0', 28, {
+            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+            'tags': {'replicatefrom': 'postgresql1'}
+        })
+        node2 = Member(0, 'postgresql1', 28, {
+            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+            'tags': {'replicatefrom': 'postgresql0'}
+        })
+        cluster = Cluster(True, None, self.leader, Status.empty(), [self.leadermem, node1, node2],
+                          None, SyncState.empty(), None, None)
+        self.assertFalse(cluster.should_enforce_hot_standby_feedback(self.p, node1))
 
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     def test__ensure_logical_slots_replica(self):

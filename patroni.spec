@@ -13,13 +13,17 @@ def hiddenimports():
         sys.path.pop(0)
 
 
+def resources():
+    import os
+    res_dir = 'patroni/postgresql/available_parameters/'
+    exts = set(f.split('.')[-1] for f in os.listdir(res_dir))
+    return [(res_dir + '*.' + e, res_dir) for e in exts if e.lower() in {'yml', 'yaml'}]
+
+
 a = Analysis(['patroni/__main__.py'],
              pathex=[],
              binaries=None,
-             datas=[
-                ('patroni/postgresql/available_parameters/*.yml', 'patroni/postgresql/available_parameters'),
-                ('patroni/postgresql/available_parameters/*.yaml', 'patroni/postgresql/available_parameters'),
-            ],
+             datas=resources(),
              hiddenimports=hiddenimports(),
              hookspath=[],
              runtime_hooks=[],

@@ -9,6 +9,11 @@ import zipfile
 
 
 def install_requirements(what):
+    subprocess.call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'])
+    s = subprocess.call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'wheel', 'setuptools'])
+    if s != 0:
+        return s
+
     old_path = sys.path[:]
     w = os.path.join(os.getcwd(), os.path.dirname(inspect.getfile(inspect.currentframe())))
     sys.path.insert(0, os.path.dirname(os.path.dirname(w)))
@@ -16,7 +21,7 @@ def install_requirements(what):
         from setup import EXTRAS_REQUIRE, read
     finally:
         sys.path = old_path
-    requirements = ['mock>=2.0.0', 'flake8', 'pytest', 'pytest-cov'] if what == 'all' else ['behave']
+    requirements = ['flake8', 'pytest', 'pytest-cov'] if what == 'all' else ['behave']
     requirements += ['coverage']
     # try to split tests between psycopg2 and psycopg3
     requirements += ['psycopg[binary]'] if sys.version_info >= (3, 8, 0) and\
@@ -28,11 +33,7 @@ def install_requirements(what):
             if not extras or what == 'all' or what in extras:
                 requirements.append(r)
 
-    subprocess.call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'])
-    subprocess.call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'wheel'])
-    r = subprocess.call([sys.executable, '-m', 'pip', 'install'] + requirements)
-    s = subprocess.call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'setuptools'])
-    return s | r
+    return subprocess.call([sys.executable, '-m', 'pip', 'install'] + requirements)
 
 
 def install_packages(what):

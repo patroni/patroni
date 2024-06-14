@@ -444,8 +444,9 @@ class Consul(AbstractDCS):
 
         :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
         """
+        results: Optional[List[Dict[str, Any]]]
         _, results = self.retry(self._client.kv.get, path, recurse=True, consistency=self._consistency)
-        clusters: Dict[int, Dict[str, Cluster]] = defaultdict(dict)
+        clusters: Dict[int, Dict[str, Dict[str, Any]]] = defaultdict(dict)
         for node in results or []:
             key = node['Key'][len(path):].split('/', 1)
             if len(key) == 2 and self._mpp.group_re.match(key[0]):

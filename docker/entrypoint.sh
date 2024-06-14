@@ -38,7 +38,7 @@ EOT
         exec dumb-init "$@"
         ;;
     etcd)
-        exec "$@" -advertise-client-urls "http://$DOCKER_IP:2379"
+        exec "$@" --auto-compaction-retention=1 -advertise-client-urls "http://$DOCKER_IP:2379"
         ;;
     zookeeper)
         exec /usr/share/zookeeper/bin/zkServer.sh start-foreground

@@ -1,7 +1,7 @@
 import unittest
 import urllib3
+from unittest.mock import Mock, patch
 
-from mock import Mock, patch
 from patroni.dcs import get_dcs
 from patroni.dcs.exhibitor import ExhibitorEnsembleProvider, Exhibitor
 from patroni.dcs.zookeeper import ZooKeeperError

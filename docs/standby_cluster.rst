@@ -70,6 +70,10 @@ multiple hosts separated by commas, Patroni will:
 * use ``target_session_attrs=read-write`` when trying to determine whether we
   need to run ``pg_rewind`` or when executing ``pg_rewind`` on all nodes of the
   standby cluster.
+* It is important to note that for ``pg_rewind`` to operate successfully, 
+  either the cluster must be initialized with ``data page checksums`` 
+  (``--data-checksums`` option for ``initdb``) and/or ``wal_log_hints`` must be set to ``on``.
+  Otherwise, ``pg_rewind`` will not function properly.
   
 There is also a possibility to replicate the standby cluster from another
 standby cluster or from a standby member of the primary cluster: for that, you

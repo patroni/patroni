@@ -10,6 +10,7 @@ import types
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
+from .collections import EMPTY_DICT
 from .utils import parse_bool, parse_int
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -214,7 +215,7 @@ class GlobalConfig(types.ModuleType):
     @property
     def use_slots(self) -> bool:
         """``True`` if cluster is configured to use replication slots."""
-        return bool(parse_bool((self.get('postgresql') or {}).get('use_slots', True)))
+        return bool(parse_bool((self.get('postgresql') or EMPTY_DICT).get('use_slots', True)))
 
     @property
     def permanent_slots(self) -> Dict[str, Any]:
@@ -222,7 +223,7 @@ class GlobalConfig(types.ModuleType):
         return deepcopy(self.get('permanent_replication_slots')
                         or self.get('permanent_slots')
                         or self.get('slots')
-                        or {})
+                        or EMPTY_DICT.copy())
 
 
 sys.modules[__name__] = GlobalConfig()

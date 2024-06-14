@@ -2,8 +2,9 @@ import time
 import unittest
 
 from copy import deepcopy
-from mock import Mock, patch, PropertyMock
+from unittest.mock import Mock, patch, PropertyMock
 from typing import List
+
 from patroni.postgresql.mpp.citus import CitusHandler, PgDistGroup, PgDistNode
 from patroni.psycopg import ProgrammingError
 

@@ -1,7 +1,7 @@
 import logging
-import mock
-from mock import MagicMock, Mock, patch
 import unittest
+from unittest import mock
+from unittest.mock import MagicMock, Mock, patch
 from urllib3.exceptions import MaxRetryError
 
 from patroni.scripts.barman.cli import main

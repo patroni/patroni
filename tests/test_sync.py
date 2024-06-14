@@ -1,6 +1,5 @@
 import os
-
-from mock import Mock, patch, PropertyMock
+from unittest.mock import Mock, patch, PropertyMock
 
 from patroni import global_config
 from patroni.collections import CaseInsensitiveSet

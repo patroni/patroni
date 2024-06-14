@@ -12,7 +12,7 @@ from copy import deepcopy
 from typing import Any, Callable, Collection, Dict, List, Optional, Union, TYPE_CHECKING
 
 from . import PATRONI_ENV_PREFIX
-from .collections import CaseInsensitiveDict
+from .collections import CaseInsensitiveDict, EMPTY_DICT
 from .dcs import ClusterConfig
 from .exceptions import ConfigParseError
 from .file_perm import pg_perm
@@ -388,7 +388,6 @@ class Config(object):
                 * ``cluster_name``: set through ``scope`` local configuration or through ``PATRONI_SCOPE`` environment
                     variable;
                 * ``hot_standby``: always enabled;
-                * ``wal_log_hints``: always enabled.
 
         :param parameters: Postgres parameters to be processed. Should be the parsed YAML value of
             ``postgresql.parameters`` configuration, either from local or from dynamic configuration.
@@ -445,14 +444,14 @@ class Config(object):
 
         for name, value in dynamic_configuration.items():
             if name == 'postgresql':
-                for name, value in (value or {}).items():
+                for name, value in (value or EMPTY_DICT).items():
                     if name == 'parameters':
                         config['postgresql'][name].update(self._process_postgresql_parameters(value))
                     elif name not in ('connect_address', 'proxy_address', 'listen',
                                       'config_dir', 'data_dir', 'pgpass', 'authentication'):
                         config['postgresql'][name] = deepcopy(value)
             elif name == 'standby_cluster':
-                for name, value in (value or {}).items():
+                for name, value in (value or EMPTY_DICT).items():
                     if name in self.__DEFAULT_CONFIG['standby_cluster']:
                         config['standby_cluster'][name] = deepcopy(value)
             elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overridden from DCS
