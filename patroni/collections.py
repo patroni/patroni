@@ -1,9 +1,10 @@
 """Patroni custom object types somewhat like :mod:`collections` module.
 
-Provides a case insensitive :class:`dict` and :class:`set` object types.
+Provides a case insensitive :class:`dict` and :class:`set` object types, and `EMPTY_DICT` frozen dictionary object.
 """
 from collections import OrderedDict
-from typing import Any, Collection, Dict, Iterator, KeysView, MutableMapping, MutableSet, Optional
+from copy import deepcopy
+from typing import Any, Collection, Dict, Iterator, KeysView, Mapping, MutableMapping, MutableSet, Optional
 
 
 class CaseInsensitiveSet(MutableSet[str]):
@@ -48,7 +49,7 @@ class CaseInsensitiveSet(MutableSet[str]):
         """
         return str(set(self._values.values()))
 
-    def __contains__(self, value: str) -> bool:
+    def __contains__(self, value: object) -> bool:
         """Check if set contains *value*.
 
         The check is performed case-insensitively.
@@ -57,7 +58,7 @@ class CaseInsensitiveSet(MutableSet[str]):
 
         :returns: ``True`` if *value* is already in the set, ``False`` otherwise.
         """
-        return value.lower() in self._values
+        return isinstance(value, str) and value.lower() in self._values
 
     def __iter__(self) -> Iterator[str]:
         """Iterate over the values in this set.
@@ -207,3 +208,47 @@ class CaseInsensitiveDict(MutableMapping[str, Any]):
             "<CaseInsensitiveDict{'A': 'B', 'c': 'd'} at ..."
         """
         return '<{0}{1} at {2:x}>'.format(type(self).__name__, dict(self.items()), id(self))
+
+
+class _FrozenDict(Mapping[str, Any]):
+    """Frozen dictionary object."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Create a new instance of :class:`_FrozenDict` with given data."""
+        self.__values: Dict[str, Any] = dict(*args, **kwargs)
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate over keys of this dict.
+
+        :yields: each key present in the dict. Yields each key with its last case that has been stored.
+        """
+        return iter(self.__values)
+
+    def __len__(self) -> int:
+        """Get the length of this dict.
+
+        :returns: number of keys in the dict.
+
+        :Example:
+
+        >>> len(_FrozenDict())
+        0
+        """
+        return len(self.__values)
+
+    def __getitem__(self, key: str) -> Any:
+        """Get the value corresponding to *key*.
+
+        :returns: value corresponding to *key*.
+        """
+        return self.__values[key]
+
+    def copy(self) -> Dict[str, Any]:
+        """Create a copy of this dict.
+
+        :return: a new dict object with the same keys and values of this dict.
+        """
+        return deepcopy(self.__values)
+
+
+EMPTY_DICT = _FrozenDict()

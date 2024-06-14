@@ -2,8 +2,8 @@ import etcd
 import json
 import unittest
 import urllib3
+from unittest.mock import Mock, PropertyMock, patch
 
-from mock import Mock, PropertyMock, patch
 from patroni.dcs import get_dcs
 from patroni.dcs.etcd import DnsCachingResolver
 from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3, Etcd3Client, \
@@ -273,7 +273,7 @@ class TestEtcd3(BaseTestEtcd3):
 
     def test_attempt_to_acquire_leader(self):
         self.assertFalse(self.etcd3.attempt_to_acquire_leader())
-        with patch('time.time', Mock(side_effect=[0, 0, 0, 0, 0, 100, 200])):
+        with patch('time.time', Mock(side_effect=[0, 0, 0, 0, 0, 100, 200, 300])):
             self.assertFalse(self.etcd3.attempt_to_acquire_leader())
         with patch('time.time', Mock(side_effect=[0, 100, 200, 300, 400])):
             self.assertRaises(Etcd3Error, self.etcd3.attempt_to_acquire_leader)

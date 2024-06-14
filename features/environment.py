@@ -1076,8 +1076,6 @@ def before_all(context):
     context.keyfile = os.path.join(context.pctl.output_dir, 'patroni.key')
     context.certfile = os.path.join(context.pctl.output_dir, 'patroni.crt')
     try:
-        if sys.platform == 'darwin' and 'GITHUB_ACTIONS' in os.environ:
-            raise Exception
         with open(os.devnull, 'w') as null:
             ret = subprocess.call(['openssl', 'req', '-nodes', '-new', '-x509', '-subj', '/CN=batman.patroni',
                                    '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', context.keyfile,

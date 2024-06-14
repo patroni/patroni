@@ -4,12 +4,12 @@ import socket
 import unittest
 
 from dns.exception import DNSException
-from mock import Mock, PropertyMock, patch
 from patroni.dcs import get_dcs
 from patroni.dcs.etcd import AbstractDCS, EtcdClient, Cluster, Etcd, EtcdError, DnsCachingResolver
 from patroni.exceptions import DCSError
 from patroni.postgresql.mpp import get_mpp
 from patroni.utils import Retry
+from unittest.mock import Mock, PropertyMock, patch
 from urllib3.exceptions import ReadTimeoutError
 
 from . import SleepException, MockResponse, requests_get

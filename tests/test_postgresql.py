@@ -6,8 +6,8 @@ import subprocess
 import time
 
 from copy import deepcopy
-from mock import Mock, MagicMock, PropertyMock, patch, mock_open
 from pathlib import Path
+from unittest.mock import Mock, MagicMock, PropertyMock, patch, mock_open
 
 import patroni.psycopg as psycopg
 
@@ -294,7 +294,7 @@ class TestPostgresql(BaseTestPostgresql):
             mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '1'
             self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
             mock_get_pg_settings.return_value['primary_conninfo'][1] = 'host=1 target_session_attrs=read-write'\
-                + ' passfile=' + re.sub(r'([\'\\ ])', r'\\\1', self.p.config._pgpass)
+                + ' dbname=postgres passfile=' + re.sub(r'([\'\\ ])', r'\\\1', self.p.config._pgpass)
             mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '0'
             self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
             self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': conninfo.copy()})

@@ -1,8 +1,8 @@
 import consul
 import unittest
+from unittest.mock import Mock, PropertyMock, patch
 
 from consul import ConsulException, NotFound
-from mock import Mock, PropertyMock, patch
 from patroni.dcs import get_dcs
 from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulInternalError, \
     ConsulError, ConsulClient, HTTPClient, InvalidSessionTTL, InvalidSession, RetryFailedError
@@ -160,7 +160,7 @@ class TestConsul(unittest.TestCase):
         self.c.set_ttl(20)
         self.c._do_refresh_session = Mock()
         self.assertFalse(self.c.take_leader())
-        with patch('time.time', Mock(side_effect=[0, 0, 0, 100, 100])):
+        with patch('time.time', Mock(side_effect=[0, 0, 0, 100, 100, 100])):
             self.assertFalse(self.c.take_leader())
 
     @patch.object(consul.Consul.KV, 'put', Mock(return_value=True))

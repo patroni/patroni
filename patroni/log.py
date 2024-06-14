@@ -350,6 +350,9 @@ class PatroniLogger(Thread):
 
         try:
             from pythonjsonlogger import jsonlogger
+            if hasattr(jsonlogger, 'RESERVED_ATTRS') and 'taskName' not in jsonlogger.RESERVED_ATTRS:
+                # compatibility with python 3.12, that added a new attribute to LogRecord
+                jsonlogger.RESERVED_ATTRS += ('taskName',)
 
             return jsonlogger.JsonFormatter(
                 jsonformat,
@@ -413,7 +416,8 @@ class PatroniLogger(Thread):
                 if not isinstance(handler, RotatingFileHandler):
                     handler = RotatingFileHandler(os.path.join(config['dir'], __name__))
 
-                handler.maxBytes = int(config.get('file_size', 25000000))  # pyright: ignore [reportGeneralTypeIssues]
+                max_file_size = int(config.get('file_size', 25000000))
+                handler.maxBytes = max_file_size  # pyright: ignore [reportAttributeAccessIssue]
                 handler.backupCount = int(config.get('file_num', 4))
             # we can't use `if not isinstance(handler, logging.StreamHandler)` below,
             # because RotatingFileHandler is a child of StreamHandler!!!

@@ -1,12 +1,12 @@
 import multiprocessing
 import psutil
 import unittest
+from unittest.mock import Mock, patch, mock_open
 
-from mock import Mock, patch, mock_open
 from patroni.postgresql.postmaster import PostmasterProcess
 
 
-class MockProcess(object):
+class MockProcess:
     def __init__(self, target, args):
         self.target = target
         self.args = args
@@ -132,14 +132,16 @@ class TestPostmasterProcess(unittest.TestCase):
         c2.cmdline = Mock(return_value=["postgres: postgres postgres [local] idle"])
         c3 = Mock()
         c3.cmdline = Mock(side_effect=psutil.NoSuchProcess(123))
+        c4 = Mock()
+        c4.cmdline = Mock(return_value=['postgres: slotsync worker '])
         mock_wait.return_value = ([], [c2])
-        with patch('psutil.Process.children', Mock(return_value=[c1, c2, c3])):
+        with patch('psutil.Process.children', Mock(return_value=[c1, c2, c3, c4])):
             proc = PostmasterProcess(123)
             self.assertIsNone(proc.wait_for_user_backends_to_close(1))
             mock_wait.assert_called_with([c2], 1)
 
         mock_wait.return_value = ([c2], [])
-        with patch('psutil.Process.children', Mock(return_value=[c1, c2, c3])):
+        with patch('psutil.Process.children', Mock(return_value=[c1, c2, c3, c4])):
             proc = PostmasterProcess(123)
             proc.wait_for_user_backends_to_close(1)
 

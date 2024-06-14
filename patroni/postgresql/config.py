@@ -13,7 +13,7 @@ from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Un
 
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
 from .. import global_config
-from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
+from ..collections import CaseInsensitiveDict, CaseInsensitiveSet, EMPTY_DICT
 from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException, PostgresConnectionException
 from ..file_perm import pg_perm
@@ -114,16 +114,17 @@ def parse_dsn(value: str) -> Optional[Dict[str, str]]:
     """
     Very simple equivalent of `psycopg2.extensions.parse_dsn` introduced in 2.7.0.
     We are not using psycopg2 function in order to remain compatible with 2.5.4+.
-    There is one minor difference though, this function removes `dbname` from the result
-    and sets the `sslmode`, 'gssencmode', and `channel_binding` to `prefer` if it is not present in
-    the connection string. This is necessary to simplify comparison of the old and the new values.
+    There are a few minor differences though, this function sets the `sslmode`, 'gssencmode',
+    and `channel_binding` to `prefer` if they are not present in the connection string.
+    This is necessary to simplify comparison of the old and the new values.
 
     >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,[::1]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
-    >>> r == {'application_name': 'mya/pp', 'host': ',::1', 'sslmode': 'require',\
+    >>> r == {'application_name': 'mya/pp', 'dbname': 'db/sdf', 'host': ',::1', 'sslmode': 'require',\
               'password': 'pass', 'port': '/123,', 'user': 'u/se', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
     True
     >>> r = parse_dsn(" host = 'host' dbname = db\\\\ name requiressl=1 ")
-    >>> r == {'host': 'host', 'sslmode': 'require', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
+    >>> r == {'dbname': 'db name', 'host': 'host', 'sslmode': 'require',\
+              'gssencmode': 'prefer', 'channel_binding': 'prefer'}
     True
     >>> parse_dsn('requiressl = 0\\\\') == {'sslmode': 'prefer', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
     True
@@ -147,8 +148,6 @@ def parse_dsn(value: str) -> Optional[Dict[str, str]]:
             elif requiressl is not None:
                 ret['sslmode'] = 'prefer'
             ret.setdefault('sslmode', 'prefer')
-        if 'dbname' in ret:
-            del ret['dbname']
         ret.setdefault('gssencmode', 'prefer')
         ret.setdefault('channel_binding', 'prefer')
     return ret
@@ -325,7 +324,7 @@ class ConfigHandler(object):
         'track_commit_timestamp': ('off', _bool_validator, 90500),
         'max_replication_slots': (10, IntValidator(min=4), 90400),
         'max_worker_processes': (8, IntValidator(min=2), 90400),
-        'wal_log_hints': ('on', _bool_is_true_validator, 90400)
+        'wal_log_hints': ('on', _bool_validator, 90400)
     })
 
     _RECOVERY_PARAMETERS = CaseInsensitiveSet(recovery_parameters.keys())
@@ -570,31 +569,30 @@ class ConfigHandler(object):
             ret.setdefault('channel_binding', 'prefer')
         if self._krbsrvname:
             ret['krbsrvname'] = self._krbsrvname
-        if 'dbname' in ret:
-            del ret['dbname']
+        if not ret.get('dbname'):
+            ret['dbname'] = self._postgresql.database
         return ret
 
-    def format_dsn(self, params: Dict[str, Any], include_dbname: bool = False) -> str:
+    def format_dsn(self, params: Dict[str, Any]) -> str:
+        """Format connection string from connection parameters.
+
+        .. note::
+            only parameters from the below list are considered and values are escaped.
+
+        :param params: :class:`dict` object with connection parameters.
+
+        :returns: a connection string in a format "key1=value2 key2=value2"
+        """
         # A list of keywords that can be found in a conninfo string. Follows what is acceptable by libpq
         keywords = ('dbname', 'user', 'passfile' if params.get('passfile') else 'password', 'host', 'port',
                     'sslmode', 'sslcompression', 'sslcert', 'sslkey', 'sslpassword', 'sslrootcert', 'sslcrl',
                     'sslcrldir', 'application_name', 'krbsrvname', 'gssencmode', 'channel_binding',
                     'target_session_attrs')
-        if include_dbname:
-            params = params.copy()
-            if 'dbname' not in params:
-                params['dbname'] = self._postgresql.database
-            # we are abusing information about the necessity of dbname
-            # dsn should contain passfile or password only if there is no dbname in it (it is used in recovery.conf)
-            skip = {'passfile', 'password'}
-        else:
-            skip = {'dbname'}
 
         def escape(value: Any) -> str:
             return re.sub(r'([\'\\ ])', r'\\\1', str(value))
 
-        return ' '.join('{0}={1}'.format(kw, escape(params[kw])) for kw in keywords
-                        if kw not in skip and params.get(kw) is not None)
+        return ' '.join('{0}={1}'.format(kw, escape(params[kw])) for kw in keywords if params.get(kw) is not None)
 
     def _write_recovery_params(self, fd: ConfigWriter, recovery_params: CaseInsensitiveDict) -> None:
         if self._postgresql.major_version >= 90500:
@@ -606,8 +604,7 @@ class ConfigHandler(object):
                 recovery_params.setdefault('pause_at_recovery_target', 'false')
         for name, value in sorted(recovery_params.items()):
             if name == 'primary_conninfo':
-                if 'password' in value and self._postgresql.major_version >= 100000:
-                    self.write_pgpass(value)
+                if self._postgresql.major_version >= 100000 and 'PGPASSFILE' in self.write_pgpass(value):
                     value['passfile'] = self._passfile = self._pgpass
                     self._passfile_mtime = mtime(self._pgpass)
                 value = self.format_dsn(value)
@@ -619,7 +616,8 @@ class ConfigHandler(object):
             fd.write_param(name, value)
 
     def build_recovery_params(self, member: Union[Leader, Member, None]) -> CaseInsensitiveDict:
-        recovery_params = CaseInsensitiveDict({p: v for p, v in (self.get('recovery_conf') or {}).items()
+        default: Dict[str, Any] = {}
+        recovery_params = CaseInsensitiveDict({p: v for p, v in (self.get('recovery_conf') or default).items()
                                                if not p.lower().startswith('recovery_target')
                                                and p.lower() not in ('primary_conninfo', 'primary_slot_name')})
         recovery_params.update({'standby_mode': 'on', 'recovery_target_timeline': 'latest'})
@@ -753,7 +751,7 @@ class ConfigHandler(object):
         if passfile_mtime:
             try:
                 with open(passfile) as f:
-                    wanted_lines = (self._pgpass_line(wanted_primary_conninfo) or '').splitlines()
+                    wanted_lines = (self._pgpass_content(wanted_primary_conninfo) or '').splitlines()
                     file_lines = f.read().splitlines()
                     if set(wanted_lines) == set(file_lines):
                         self._passfile = passfile
@@ -772,12 +770,21 @@ class ConfigHandler(object):
         elif not primary_conninfo:
             return False
 
+        if self._postgresql.major_version < 170000:
+            # we want to compare dbname in primary_conninfo only for v17 onwards
+            wanted_primary_conninfo.pop('dbname', None)
+
         if not self._postgresql.is_starting():
             wal_receiver_primary_conninfo = self._postgresql.primary_conninfo()
             if wal_receiver_primary_conninfo:
                 wal_receiver_primary_conninfo = parse_dsn(wal_receiver_primary_conninfo)
                 # when wal receiver is alive use primary_conninfo from pg_stat_wal_receiver for comparison
                 if wal_receiver_primary_conninfo:
+                    # dbname in pg_stat_wal_receiver is always `replication`, we need to use a "real" one
+                    wal_receiver_primary_conninfo.pop('dbname', None)
+                    dbname = primary_conninfo.get('dbname')
+                    if dbname:
+                        wal_receiver_primary_conninfo['dbname'] = dbname
                     primary_conninfo = wal_receiver_primary_conninfo
                     # There could be no password in the primary_conninfo or it is masked.
                     # Just copy the "desired" value in order to make comparison succeed.
@@ -845,7 +852,7 @@ class ConfigHandler(object):
             required['restart' if mtype else 'reload'] += 1
 
         wanted_recovery_params = self.build_recovery_params(member)
-        for param, value in (self._current_recovery_params or {}).items():
+        for param, value in (self._current_recovery_params or EMPTY_DICT).items():
             # Skip certain parameters defined in the included postgres config files
             # if we know that they are not specified in the patroni configuration.
             if len(value) > 2 and value[2] not in (self._postgresql_conf, self._auto_conf) and \
@@ -872,27 +879,38 @@ class ConfigHandler(object):
             os.unlink(name)
 
     @staticmethod
-    def _pgpass_line(record: Dict[str, Any]) -> Optional[str]:
+    def _pgpass_content(record: Dict[str, Any]) -> Optional[str]:
+        """Generate content of `pgpassfile` based on connection parameters.
+
+        .. note::
+            In case if ``host`` is a comma separated string we generate one line per host.
+
+        :param record: :class:`dict` object with connection parameters.
+        :returns: a string with generated content of pgpassfile or ``None`` if there is no ``password``.
+        """
         if 'password' in record:
             def escape(value: Any) -> str:
                 return re.sub(r'([:\\])', r'\\\1', str(value))
 
-            record = {n: escape(record.get(n) or '*') for n in ('host', 'port', 'user', 'password')}
-            # 'host' could be several comma-separated hostnames, in this case
-            # we need to write on pgpass line per host
-            line = ''
-            for hostname in record['host'].split(','):
-                line += hostname + ':{port}:*:{user}:{password}'.format(**record) + '\n'
-            return line.rstrip()
+            # 'host' could be several comma-separated hostnames, in this case we need to write on pgpass line per host
+            hosts = map(escape, filter(None, map(str.strip, (record.get('host') or '*').split(','))))
+            record = {n: escape(record.get(n) or '*') for n in ('port', 'user', 'password')}
+            return '\n'.join('{host}:{port}:*:{user}:{password}'.format(**record, host=host) for host in hosts)
 
     def write_pgpass(self, record: Dict[str, Any]) -> Dict[str, str]:
-        line = self._pgpass_line(record)
-        if not line:
+        """Maybe creates :attr:`_passfile` based on connection parameters.
+
+        :param record: :class:`dict` object with connection parameters.
+
+        :returns: a copy of environment variables, that will include ``PGPASSFILE`` in case if the file was written.
+        """
+        content = self._pgpass_content(record)
+        if not content:
             return os.environ.copy()
 
         with open(self._pgpass, 'w') as f:
             os.chmod(self._pgpass, stat.S_IWRITE | stat.S_IREAD)
-            f.write(line)
+            f.write(content)
 
         return {**os.environ, 'PGPASSFILE': self._pgpass}
 
@@ -1100,7 +1118,7 @@ class ConfigHandler(object):
     def reload_config(self, config: Dict[str, Any], sighup: bool = False) -> None:
         self._superuser = config['authentication'].get('superuser', {})
         server_parameters = self.get_server_parameters(config)
-        params_skip_changes = CaseInsensitiveSet((*self._RECOVERY_PARAMETERS, 'hot_standby', 'wal_log_hints'))
+        params_skip_changes = CaseInsensitiveSet((*self._RECOVERY_PARAMETERS, 'hot_standby'))
 
         conf_changed = hba_changed = ident_changed = local_connection_address_changed = False
         param_diff = CaseInsensitiveDict()
@@ -1324,4 +1342,4 @@ class ConfigHandler(object):
         return self._config.get(key, default)
 
     def restore_command(self) -> Optional[str]:
-        return (self.get('recovery_conf') or {}).get('restore_command')
+        return (self.get('recovery_conf') or EMPTY_DICT).get('restore_command')

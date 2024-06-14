@@ -41,7 +41,7 @@ For additional background info, see:
 Development Status
 ==================
 
-Patroni is in active development and accepts contributions. See our `Contributing <https://github.com/zalando/patroni/blob/master/docs/CONTRIBUTING.rst>`__ section below for more details.
+Patroni is in active development and accepts contributions. See our `Contributing <https://github.com/zalando/patroni/blob/master/docs/contributing_guidelines.rst>`__ section below for more details.
 
 We report new releases information `here <https://github.com/zalando/patroni/releases>`__.
 

@@ -20,6 +20,7 @@ from threading import Condition, Lock, Thread
 from typing import Any, Callable, Collection, Dict, List, Optional, Tuple, Type, Union, TYPE_CHECKING
 
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, TimelineHistory
+from ..collections import EMPTY_DICT
 from ..exceptions import DCSError
 from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, iter_response_objects, keepalive_socket_options, \
@@ -470,7 +471,7 @@ class K8sClient(object):
                 if len(args) == 3:  # name, namespace, body
                     body = args[2]
                 elif action == 'create':  # namespace, body
-                    body = args[1]
+                    body = args[1]  # pyright: ignore [reportGeneralTypeIssues]
                 elif action == 'delete':  # name, namespace
                     body = kwargs.pop('body', None)
                 else:
@@ -509,7 +510,7 @@ class KubernetesRetriableException(k8s_client.rest.ApiException):
     @property
     def sleeptime(self) -> Optional[int]:
         try:
-            return int((self.headers or {}).get('retry-after', ''))
+            return int((self.headers or EMPTY_DICT).get('retry-after', ''))
         except Exception:
             return None
 
@@ -654,7 +655,7 @@ class ObjectCache(Thread):
             obj = K8sObject(obj)
             success, old_value = self.set(name, obj)
             if success:
-                new_value = (obj.metadata.annotations or {}).get(self._annotations_map.get(name))
+                new_value = (obj.metadata.annotations or EMPTY_DICT).get(self._annotations_map.get(name, ''))
         elif ev_type == 'DELETED':
             success, old_value = self.delete(name, obj['metadata']['resourceVersion'])
         else:
@@ -662,7 +663,7 @@ class ObjectCache(Thread):
 
         if success and obj.get('kind') != 'Pod':
             if old_value:
-                old_value = (old_value.metadata.annotations or {}).get(self._annotations_map.get(name))
+                old_value = (old_value.metadata.annotations or EMPTY_DICT).get(self._annotations_map.get(name, ''))
 
             value_changed = old_value != new_value and \
                 (name != self._dcs.config_path or old_value is not None and new_value is not None)
@@ -844,7 +845,7 @@ class Kubernetes(AbstractDCS):
 
     @staticmethod
     def member(pod: K8sObject) -> Member:
-        annotations = pod.metadata.annotations or {}
+        annotations = pod.metadata.annotations or EMPTY_DICT
         member = Member.from_node(pod.metadata.resource_version, pod.metadata.name, None, annotations.get('status', ''))
         member.data['pod_labels'] = pod.metadata.labels
         return member
@@ -925,7 +926,7 @@ class Kubernetes(AbstractDCS):
         failover = nodes.get(path + self._FAILOVER)
         metadata = failover and failover.metadata
         failover = metadata and Failover.from_node(metadata.resource_version,
-                                                   (metadata.annotations or {}).copy())
+                                                   (metadata.annotations or EMPTY_DICT).copy())
 
         # get synchronization state
         sync = nodes.get(path + self._SYNC)
@@ -1047,8 +1048,9 @@ class Kubernetes(AbstractDCS):
 
     def __target_ref(self, leader_ip: str, latest_subsets: List[K8sObject], pod: K8sObject) -> K8sObject:
         # we want to re-use existing target_ref if possible
+        empty_addresses: List[K8sObject] = []
         for subset in latest_subsets:
-            for address in subset.addresses or []:
+            for address in subset.addresses or empty_addresses:
                 if address.ip == leader_ip and address.target_ref and address.target_ref.name == self._name:
                     return address.target_ref
         return k8s_client.V1ObjectReference(kind='Pod', uid=pod.metadata.uid, namespace=self._namespace,
@@ -1056,7 +1058,8 @@ class Kubernetes(AbstractDCS):
 
     def _map_subsets(self, endpoints: Dict[str, Any], ips: List[str]) -> None:
         leader = self._kinds.get(self.leader_path)
-        latest_subsets = leader and leader.subsets or []
+        empty_addresses: List[K8sObject] = []
+        latest_subsets = leader and leader.subsets or empty_addresses
         if not ips:
             # We want to have subsets empty
             if latest_subsets:
@@ -1212,7 +1215,7 @@ class Kubernetes(AbstractDCS):
         if not retry.ensure_deadline(0.5):
             return False
 
-        kind_annotations = kind and kind.metadata.annotations or {}
+        kind_annotations = kind and kind.metadata.annotations or EMPTY_DICT
         kind_resource_version = kind and kind.metadata.resource_version
 
         # There is different leader or resource_version in cache didn't change
@@ -1225,7 +1228,7 @@ class Kubernetes(AbstractDCS):
     def update_leader(self, leader: Leader, last_lsn: Optional[int],
                       slots: Optional[Dict[str, int]] = None, failsafe: Optional[Dict[str, str]] = None) -> bool:
         kind = self._kinds.get(self.leader_path)
-        kind_annotations = kind and kind.metadata.annotations or {}
+        kind_annotations = kind and kind.metadata.annotations or EMPTY_DICT
 
         if kind and kind_annotations.get(self._LEADER) != self._name:
             return False
@@ -1346,7 +1349,7 @@ class Kubernetes(AbstractDCS):
     def delete_leader(self, leader: Optional[Leader], last_lsn: Optional[int] = None) -> bool:
         ret = False
         kind = self._kinds.get(self.leader_path)
-        if kind and (kind.metadata.annotations or {}).get(self._LEADER) == self._name:
+        if kind and (kind.metadata.annotations or EMPTY_DICT).get(self._LEADER) == self._name:
             annotations: Dict[str, Optional[str]] = {self._LEADER: None}
             if last_lsn:
                 annotations[self._OPTIME] = str(last_lsn)

@@ -1,12 +1,10 @@
 import click
 import etcd
-import mock
 import os
 import unittest
 
 from click.testing import CliRunner
 from datetime import datetime, timedelta
-from mock import patch, Mock, PropertyMock
 from patroni import global_config
 from patroni.ctl import ctl, load_config, output_members, get_dcs, parse_dcs, \
     get_all_members, get_any_member, get_cursor, query_member, PatroniCtlException, apply_config_changes, \
@@ -17,6 +15,8 @@ from patroni.postgresql.mpp import get_mpp
 from patroni.psycopg import OperationalError
 from patroni.utils import tzutc
 from prettytable import PrettyTable, ALL
+from unittest import mock
+from unittest.mock import patch, Mock, PropertyMock
 from urllib3 import PoolManager
 
 from . import MockConnect, MockCursor, MockResponse, psycopg_connect
@@ -502,6 +502,14 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['list', 'dummy', '--extended', '--timestamp'])
         assert '2100' in result.output
         assert 'Scheduled restart' in result.output
+
+    def test_list_standby_cluster(self):
+        cluster = get_cluster_initialized_without_leader(leader=True, sync=('leader', 'other'))
+        cluster.config.data.update(synchronous_mode=True, standby_cluster={'port': 5433})
+        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=cluster)):
+            result = self.runner.invoke(ctl, ['list'])
+            self.assertEqual(result.exit_code, 0)
+            self.assertNotIn('Sync Standby', result.output)
 
     def test_topology(self):
         cluster = get_cluster_initialized_with_leader()
