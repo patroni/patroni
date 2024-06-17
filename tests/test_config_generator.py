@@ -32,8 +32,7 @@ def mock_open(*args, **kwargs):
 @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 16.2"))
 @patch('psutil.Process.exe', Mock(return_value='/bin/dir/from/running/postgres'))
 @patch('psutil.Process.__init__', Mock(return_value=None))
-@patch.object(AbstractConfigGenerator, '_HOSTNAME', HOSTNAME)
-@patch.object(AbstractConfigGenerator, '_IP', IP)
+@patch('patroni.config_generator.get_address', Mock(return_value=(HOSTNAME, IP)))
 class TestGenerateConfig(unittest.TestCase):
 
     def setUp(self):
