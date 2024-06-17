@@ -23,7 +23,7 @@ Released 2024-06-17
 
 - Fix wrong role reporting in standby clusters (Alexander Kukushkin)
 
-`synchronous_standby_names` and synchronous replication only work on a real primary node and in the case of cascading replication are simply ignored by Postgres. Before this fix, `patronictl list` and `GET /cluster` were falsely reporting some nodes as synchronous.
+  ``synchronous_standby_names`` and synchronous replication only work on a real primary node and in the case of cascading replication are simply ignored by Postgres. Before this fix, ``patronictl list`` and ``GET /cluster`` were falsely reporting some nodes as synchronous.
 
 - Fix availability of the ``allow_in_place_tablespaces`` GUC (Polina Bungina)
 
