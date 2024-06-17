@@ -3,6 +3,32 @@
 Release notes
 =============
 
+Version 3.3.1
+
+Released 2024-06-17
+
+**Stability improvements**
+
+- Compatibility with Python 3.12 (Alexander Kukushkin)
+
+  New attribute is added to ``logging.LogRecord``, remove deprecated ``datetime.datetime.utcnow()``.
+
+
+**Bugfixes**
+
+- Fix infinite recursion in ``replicatefrom`` tags handling (Alexander Kukushkin)
+
+  As a part of this fix, also improve ``is_physical_slot()`` check and adjust documentation.
+
+- Fix wrong role reporting in standby clusters (Alexander Kukushkin)
+
+`synchronous_standby_names` and synchronous replication only work on a real primary node and in the case of cascading replication are simply ignored by Postgres. Before this fix, `patronictl list` and `GET /cluster` were falsely reporting some nodes as synchronous.
+
+- Fix availability of the ``allow_in_place_tablespaces`` GUC (Polina Bungina)
+
+  ``allow_in_place_tablespaces`` was not only added to PostgreSQL 15 but also backpatched to PostgreSQL 10-14.
+
+
 Version 3.3.0
 -------------
 
