@@ -187,7 +187,7 @@ class TestPatroniLogger(unittest.TestCase):
             self.assertEqual(captured_log_level, 'WARNING')
             self.assertRegex(
                 captured_log_message,
-                fr'Expected log dateformat to be a string, but got "{type(config["dateformat"])}"'
+                r'Expected log dateformat to be a string, but got "int"'
             )
 
     def test_invalid_plain_format(self):
