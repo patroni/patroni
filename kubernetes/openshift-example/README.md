@@ -16,7 +16,7 @@ Note: If deploying as a template for multiple users, the following commands shou
 
 ```
 oc import-image postgres:10 --confirm -n openshift
-oc new-build https://github.com/zalando/patroni --context-dir=kubernetes -n openshift
+oc new-build https://github.com/patroni/patroni --context-dir=kubernetes -n openshift
 ```
 
 ## Deploy the Image
