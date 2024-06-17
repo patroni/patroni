@@ -37,7 +37,7 @@ perfectly fine. You can add more standby nodes later.
 Running and Configuring
 -----------------------
 
-The following section assumes Patroni repository as being cloned from https://github.com/zalando/patroni. Namely, you
+The following section assumes Patroni repository as being cloned from https://github.com/patroni/patroni. Namely, you
 will need example configuration files `postgres0.yml` and `postgres1.yml`. If you installed Patroni with pip, you can
 obtain those files from the git repository and replace `./patroni.py` below with `patroni` command.
 
@@ -67,7 +67,7 @@ run:
 YAML Configuration
 ------------------
 
-Go :ref:`here <yaml_configuration>` for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/zalando/patroni/blob/master/postgres0.yml>`__.
+Go :ref:`here <yaml_configuration>` for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/patroni/patroni/blob/master/postgres0.yml>`__.
 
 
 Environment Configuration
