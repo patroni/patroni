@@ -62,6 +62,15 @@ def error_exception(self: logging.Logger, msg: object, *args: Any, **kwargs: Any
     self.error(msg, *args, exc_info=exc_info, **kwargs)
 
 
+def _type(value: Any) -> str:
+    """Get type of the *value*.
+
+    :param value: any arbitrary value.
+    :returns: a string with a type name.
+    """
+    return value.__class__.__name__
+
+
 class QueueHandler(logging.Handler):
     """Queue-based logging handler.
 
@@ -292,7 +301,7 @@ class PatroniLogger(Thread):
         """
 
         if not isinstance(logformat, str):
-            _LOGGER.warning('Expected log format to be a string when log type is plain, but got "%s"', type(logformat))
+            _LOGGER.warning('Expected log format to be a string when log type is plain, but got "%s"', _type(logformat))
             logformat = PatroniLogger.DEFAULT_FORMAT
 
         return logging.Formatter(logformat, dateformat)
@@ -330,13 +339,13 @@ class PatroniLogger(Thread):
                         else:
                             _LOGGER.warning(
                                 'Expected renamed log field to be a string, but got "%s"',
-                                type(renamed_field)
+                                _type(renamed_field)
                             )
 
                 else:
                     _LOGGER.warning(
                         'Expected each item of log format to be a string or dictionary, but got "%s"',
-                        type(field)
+                        _type(field)
                     )
 
             if len(log_fields) > 0:
@@ -346,11 +355,12 @@ class PatroniLogger(Thread):
         else:
             jsonformat = PatroniLogger.DEFAULT_FORMAT
             rename_fields = {}
-            _LOGGER.warning('Expected log format to be a string or a list, but got "%s"', type(logformat))
+            _LOGGER.warning('Expected log format to be a string or a list, but got "%s"', _type(logformat))
 
         try:
             from pythonjsonlogger import jsonlogger
-            if hasattr(jsonlogger, 'RESERVED_ATTRS') and 'taskName' not in jsonlogger.RESERVED_ATTRS:
+            if hasattr(jsonlogger, 'RESERVED_ATTRS') \
+                    and 'taskName' not in jsonlogger.RESERVED_ATTRS:  # pyright: ignore [reportUnnecessaryContains]
                 # compatibility with python 3.12, that added a new attribute to LogRecord
                 jsonlogger.RESERVED_ATTRS += ('taskName',)
 
@@ -380,7 +390,7 @@ class PatroniLogger(Thread):
         static_fields = config.get('static_fields', {})
 
         if dateformat is not None and not isinstance(dateformat, str):
-            _LOGGER.warning('Expected log dateformat to be a string, but got "%s"', type(dateformat))
+            _LOGGER.warning('Expected log dateformat to be a string, but got "%s"', _type(dateformat))
             dateformat = None
 
         if logtype == 'json':
