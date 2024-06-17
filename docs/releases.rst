@@ -4,6 +4,7 @@ Release notes
 =============
 
 Version 3.3.1
+-------------
 
 Released 2024-06-17
 
