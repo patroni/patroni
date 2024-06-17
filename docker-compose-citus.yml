@@ -8,7 +8,7 @@
 # The cluster could be started as:
 # $ docker-compose -f docker-compose-citus.yml up -d
 # You can read more about it in the:
-# https://github.com/zalando/patroni/blob/master/docker/README.md#citus-cluster
+# https://github.com/patroni/patroni/blob/master/docker/README.md#citus-cluster
 version: "2"
 
 networks:

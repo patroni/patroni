@@ -134,7 +134,7 @@ html_static_path = ['_static']
 # Replace "source" links with "edit on GitHub" when using rtd theme
 html_context = {
     'display_github': True,
-    'github_user': 'zalando',
+    'github_user': 'patroni',
     'github_repo': 'patroni',
     'github_version': 'master',
     'conf_py_path': '/docs/',
