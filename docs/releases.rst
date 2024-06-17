@@ -11,7 +11,7 @@ Released 2024-06-17
 
 - Compatibility with Python 3.12 (Alexander Kukushkin)
 
-  New attribute is added to ``logging.LogRecord``, remove deprecated ``datetime.datetime.utcnow()``.
+  Handle a new attribute added to ``logging.LogRecord``.
 
 
 **Bugfixes**
