@@ -1306,6 +1306,7 @@ class TestHa(PostgresInit):
     def test_process_sync_replication(self):
         self.ha.has_lock = true
         mock_set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock()
+        mock_cfg_set_sync = self.p.config.set_synchronous_standby_names = Mock()
         self.p.name = 'leader'
 
         # Test sync key removed when sync mode disabled
@@ -1314,16 +1315,20 @@ class TestHa(PostgresInit):
             self.ha.run_cycle()
             mock_delete_sync.assert_called_once()
             mock_set_sync.assert_called_once_with(CaseInsensitiveSet())
+            mock_cfg_set_sync.assert_called_once()
 
         mock_set_sync.reset_mock()
+        mock_cfg_set_sync.reset_mock()
         # Test sync key not touched when not there
         self.ha.cluster = get_cluster_initialized_with_leader()
         with patch.object(self.ha.dcs, 'delete_sync_state') as mock_delete_sync:
             self.ha.run_cycle()
             mock_delete_sync.assert_not_called()
-            mock_set_sync.assert_called_once_with(CaseInsensitiveSet())
+            mock_set_sync.assert_not_called()
+            mock_cfg_set_sync.assert_called_once()
 
         mock_set_sync.reset_mock()
+        mock_cfg_set_sync.reset_mock()
 
         self.ha.is_synchronous_mode = true
 
@@ -1335,12 +1340,14 @@ class TestHa(PostgresInit):
         mock_set_sync.assert_not_called()
 
         mock_set_sync.reset_mock()
+        mock_cfg_set_sync.reset_mock()
 
         # Test sync standby is replaced when switching standbys
         self.p.sync_handler.current_state = Mock(return_value=(CaseInsensitiveSet(['other2']), CaseInsensitiveSet()))
         self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
         self.ha.run_cycle()
         mock_set_sync.assert_called_once_with(CaseInsensitiveSet(['other2']))
+        mock_cfg_set_sync.assert_not_called()
 
         # Test sync standby is replaced when new standby is joined
         self.p.sync_handler.current_state = Mock(return_value=(CaseInsensitiveSet(['other2', 'other3']),
@@ -1349,14 +1356,18 @@ class TestHa(PostgresInit):
         self.ha.run_cycle()
         self.assertEqual(mock_set_sync.call_args_list[0][0], (CaseInsensitiveSet(['other2']),))
         self.assertEqual(mock_set_sync.call_args_list[1][0], (CaseInsensitiveSet(['other2', 'other3']),))
+        mock_cfg_set_sync.assert_not_called()
 
         mock_set_sync.reset_mock()
+        mock_cfg_set_sync.reset_mock()
         # Test sync standby is not disabled when updating dcs fails
         self.ha.dcs.write_sync_state = Mock(return_value=None)
         self.ha.run_cycle()
         mock_set_sync.assert_not_called()
+        mock_cfg_set_sync.assert_not_called()
 
         mock_set_sync.reset_mock()
+        mock_cfg_set_sync.reset_mock()
         # Test changing sync standby
         self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
         self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('leader', 'other')))
@@ -1384,10 +1395,23 @@ class TestHa(PostgresInit):
 
         # Test sync set to '*' when synchronous_mode_strict is enabled
         mock_set_sync.reset_mock()
+        mock_cfg_set_sync.reset_mock()
         self.p.sync_handler.current_state = Mock(return_value=(CaseInsensitiveSet(), CaseInsensitiveSet()))
         self.ha.cluster.config.data['synchronous_mode_strict'] = True
         self.ha.run_cycle()
         mock_set_sync.assert_called_once_with(CaseInsensitiveSet('*'))
+        mock_cfg_set_sync.assert_not_called()
+
+        # Test the value configured by the user for synchronous_standby_names is used when synchronous mode is disabled
+        self.ha.is_synchronous_mode = false
+
+        mock_set_sync.reset_mock()
+        mock_cfg_set_sync.reset_mock()
+        ssn_mock = PropertyMock(return_value="SOME_SSN")
+        with patch('patroni.postgresql.config.ConfigHandler.synchronous_standby_names', ssn_mock):
+            self.ha.run_cycle()
+            mock_set_sync.assert_not_called()
+            mock_cfg_set_sync.assert_called_once_with("SOME_SSN")
 
     def test_sync_replication_become_primary(self):
         self.ha.is_synchronous_mode = true
