@@ -1344,3 +1344,7 @@ class ConfigHandler(object):
 
     def restore_command(self) -> Optional[str]:
         return (self.get('recovery_conf') or EMPTY_DICT).get('restore_command')
+
+    @property
+    def synchronous_standby_names(self) -> Optional[str]:
+        return (self.get('parameters') or EMPTY_DICT).get('synchronous_standby_names')
