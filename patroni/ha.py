@@ -709,6 +709,10 @@ class Ha(object):
         then that node must have synchronous_standby set to that value. Or more simple, first set in postgresql.conf
         and then in DCS. When removing, first remove in DCS, then in postgresql.conf. This is so we only consider
         promoting standbys that were guaranteed to be replicating synchronously.
+
+        .. note::
+            If ``synchronous_mode`` is disabled, we fall back to using the value configured by the user for
+            ``synchronous_standby_names``, if any.
         """
         if self.is_synchronous_mode():
             sync = self.cluster.sync
@@ -760,9 +764,14 @@ class Ha(object):
                         return logger.info("Synchronous replication key updated by someone else")
                     logger.info("Synchronous standby status assigned to %s", list(allow_promote))
         else:
+            # If synchronous_mode was turned off, we need to update synchronous_standby_names in Postgres
             if not self.cluster.sync.is_empty and self.dcs.delete_sync_state(version=self.cluster.sync.version):
                 logger.info("Disabled synchronous replication")
-            self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
+                self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
+
+            # As synchronous_mode is off, check if the user configured Postgres synchronous replication instead
+            ssn = self.state_handler.config.synchronous_standby_names
+            self.state_handler.config.set_synchronous_standby_names(ssn)
 
     def is_sync_standby(self, cluster: Cluster) -> bool:
         """:returns: `True` if the current node is a synchronous standby."""
