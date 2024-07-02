@@ -27,7 +27,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
         && apt-get -y install postgresql-16-citus-12.1; \
     fi \
     && pip3 install --break-system-packages setuptools \
-    && pip3 install --break-system-packages 'git+https://github.com/zalando/patroni.git#egg=patroni[kubernetes]' \
+    && pip3 install --break-system-packages 'git+https://github.com/patroni/patroni.git#egg=patroni[kubernetes]' \
     && PGHOME=/home/postgres \
     && mkdir -p $PGHOME \
     && chown postgres $PGHOME \

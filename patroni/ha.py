@@ -735,10 +735,19 @@ class Ha(object):
         return sync
 
     def disable_synchronous_replication(self) -> None:
-        """Cleans up /sync key in DCS if synchronous replication is disabled."""
+        """Cleans up ``/sync`` key in DCS and updates ``synchronous_standby_names``.
+
+        .. note::
+            We fall back to using the value configured by the user for ``synchronous_standby_names``, if any.
+        """
+        # If synchronous_mode was turned off, we need to update synchronous_standby_names in Postgres
         if not self.cluster.sync.is_empty and self.dcs.delete_sync_state(version=self.cluster.sync.version):
             logger.info("Disabled synchronous replication")
-        self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
+            self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
+
+        # As synchronous_mode is off, check if the user configured Postgres synchronous replication instead
+        ssn = self.state_handler.config.synchronous_standby_names
+        self.state_handler.config.set_synchronous_standby_names(ssn)
 
     def _process_quorum_replication(self) -> None:
         """Process synchronous replication state when quorum commit is requested.
@@ -812,7 +821,6 @@ class Ha(object):
         and then in DCS. When removing, first remove in DCS, then in postgresql.conf. This is so we only consider
         promoting standbys that were guaranteed to be replicating synchronously.
         """
-
         sync = self._maybe_enable_synchronous_mode()
         if not sync:
             return

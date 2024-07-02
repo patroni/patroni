@@ -3,6 +3,33 @@
 Release notes
 =============
 
+Version 3.3.1
+-------------
+
+Released 2024-06-17
+
+**Stability improvements**
+
+- Compatibility with Python 3.12 (Alexander Kukushkin)
+
+  Handle a new attribute added to ``logging.LogRecord``.
+
+
+**Bugfixes**
+
+- Fix infinite recursion in ``replicatefrom`` tags handling (Alexander Kukushkin)
+
+  As a part of this fix, also improve ``is_physical_slot()`` check and adjust documentation.
+
+- Fix wrong role reporting in standby clusters (Alexander Kukushkin)
+
+  ``synchronous_standby_names`` and synchronous replication only work on a real primary node and in the case of cascading replication are simply ignored by Postgres. Before this fix, ``patronictl list`` and ``GET /cluster`` were falsely reporting some nodes as synchronous.
+
+- Fix availability of the ``allow_in_place_tablespaces`` GUC (Polina Bungina)
+
+  ``allow_in_place_tablespaces`` was not only added to PostgreSQL 15 but also backpatched to PostgreSQL 10-14.
+
+
 Version 3.3.0
 -------------
 
@@ -1741,7 +1768,7 @@ Released 2019-12-05
 
 - Don't expose password when running ``pg_rewind`` (Alexander Kukushkin)
 
-  Bug was introduced in the `#1301 <https://github.com/zalando/patroni/pull/1301>`__
+  Bug was introduced in the `#1301 <https://github.com/patroni/patroni/pull/1301>`__
 
 - Apply connection parameters specified in the ``postgresql.authentication`` to ``pg_basebackup`` and custom replica creation methods (Alexander Kukushkin)
 
@@ -2251,11 +2278,11 @@ This version implements support of permanent replication slots, adds support of 
 
 - A few bugfixes in the "standby cluster" workflow (Alexander Kukushkin)
 
-  Please see https://github.com/zalando/patroni/pull/823 for more details.
+  Please see https://github.com/patroni/patroni/pull/823 for more details.
 
 - Fix REST API health check when cluster management is paused and DCS is not accessible (Alexander Kukushkin)
 
-  Regression was introduced in https://github.com/zalando/patroni/commit/90cf930036a9d5249265af15d2b787ec7517cf57
+  Regression was introduced in https://github.com/patroni/patroni/commit/90cf930036a9d5249265af15d2b787ec7517cf57
 
 Version 1.5.0
 -------------
@@ -2481,7 +2508,7 @@ Released 2018-03-05
 
 - Single user mode was waiting for user input and never finish (Alexander Kukushkin)
 
-  Regression was introduced in https://github.com/zalando/patroni/pull/576
+  Regression was introduced in https://github.com/patroni/patroni/pull/576
 
 
 Version 1.4.2
@@ -2991,7 +3018,7 @@ In addition, the documentation, including these release notes, has been moved to
 
 **Documentation improvements**
 
-- Add a Patroni main `loop workflow diagram <https://raw.githubusercontent.com/zalando/patroni/master/docs/ha_loop_diagram.png>`__. (Alejandro Martínez, Alexander Kukushkin)
+- Add a Patroni main `loop workflow diagram <https://raw.githubusercontent.com/patroni/patroni/master/docs/ha_loop_diagram.png>`__. (Alejandro Martínez, Alexander Kukushkin)
 
 - Improve README, adding the Helm chart and links to release notes. (Lauri Apple)
 
@@ -3305,4 +3332,4 @@ This release adds support for *cascading replication* and simplifies Patroni man
 
   The tests can be launched manually using the *behave* command. They are also launched automatically for pull requests and after commits.
 
-  Release notes for some older versions can be found on `project's github page <https://github.com/zalando/patroni/releases>`__.
+  Release notes for some older versions can be found on `project's github page <https://github.com/patroni/patroni/releases>`__.

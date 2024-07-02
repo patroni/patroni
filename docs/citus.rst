@@ -337,7 +337,7 @@ new Kubernetes objects ConfigMaps or Endpoints, it automatically puts the
 You can find a complete example of Patroni deployment on Kubernetes with Citus
 support in the `kubernetes`__ folder of the Patroni repository.
 
-__ https://github.com/zalando/patroni/tree/master/kubernetes
+__ https://github.com/patroni/patroni/tree/master/kubernetes
 
 There are two important files for you:
 

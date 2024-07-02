@@ -428,7 +428,8 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
         # citus extension must be on the first place in shared_preload_libraries
         shared_preload_libraries = list(filter(
             lambda el: el and el != 'citus',
-            [p.strip() for p in parameters.get('shared_preload_libraries', '').split(',')]))
+            map(str.strip, parameters.get('shared_preload_libraries', '').split(',')))
+        )  # pyright: ignore [reportUnknownArgumentType]
         parameters['shared_preload_libraries'] = ','.join(['citus'] + shared_preload_libraries)
 
         # if not explicitly set Citus overrides max_prepared_transactions to max_connections*2
