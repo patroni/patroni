@@ -273,7 +273,7 @@ class TestSlotsHandler(BaseTestPostgresql):
                 type(mock_diag).sqlstate = PropertyMock(return_value=err)
                 self.s.schedule_advance_slots({'foo': {'bar': 100}})
                 self.s._advance.sync_slots()
-                self.assertCountEqual(self.s._advance._copy_slots, ["bar"])
+                self.assertEqual(self.s._advance._copy_slots, ["bar"])
 
         with patch.object(SlotsAdvanceThread, 'sync_slots', Mock(side_effect=Exception)):
             self.s._advance._condition.wait = Mock()
