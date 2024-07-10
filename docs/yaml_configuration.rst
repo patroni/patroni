@@ -300,7 +300,7 @@ PostgreSQL
    -  **pgpass**: path to the `.pgpass <https://www.postgresql.org/docs/current/static/libpq-pgpass.html>`__ password file. Patroni creates this file before executing pg\_basebackup, the post_init script and under some other circumstances. The location must be writable by Patroni.
    -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower.
    -  **custom\_conf** : path to an optional custom ``postgresql.conf`` file, that will be used in place of ``postgresql.base.conf``. The file must exist on all cluster nodes, be readable by PostgreSQL and will be included from its location on the real ``postgresql.conf``. Note that Patroni will not monitor this file for changes, nor backup it. However, its settings can still be overridden by Patroni's own configuration facilities - see :ref:`dynamic configuration <patroni_configuration>` for details.
-   -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
+   -  **parameters**: configuration parameters (GUCs) for Postgres in format ``{ssl: "on", ssl_cert_file: "cert_file"}``.
    -  **pg\_hba**: list of lines that Patroni will use to generate ``pg_hba.conf``. Patroni ignores this parameter if ``hba_file`` PostgreSQL parameter is set to a non-default value. Together with :ref:`dynamic configuration <dynamic_configuration>` this parameter simplifies management of ``pg_hba.conf``.
 
       -  **- host all all 0.0.0.0/0 md5**
