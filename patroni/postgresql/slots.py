@@ -86,7 +86,8 @@ class SlotsAdvanceThread(Thread):
         except Exception as e:
             logger.error("Failed to advance logical replication slot '%s': %r", slot, e)
             failed = True
-            copy = isinstance(e, OperationalError) and e.diag.sqlstate == '58P01'  # WAL file is gone
+            # WAL file is gone or slot is invalidated
+            copy = isinstance(e, OperationalError) and e.diag.sqlstate in ('58P01', '55000')
         with self._condition:
             if self._scheduled and failed:
                 if copy and slot not in self._copy_slots:
