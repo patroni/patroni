@@ -274,6 +274,10 @@ class TestSlotsHandler(BaseTestPostgresql):
                 self.s.schedule_advance_slots({'foo': {'bar': 100}})
                 self.s._advance.sync_slots()
                 self.assertEqual(self.s._advance._copy_slots, ["bar"])
+                # we don't want to make attempts to advance slots that are to be copied
+                self.s.schedule_advance_slots({'foo': {'bar': 101}})
+                self.assertEqual(self.s._advance._scheduled, {})
+                self.s._advance.clean()
 
         with patch.object(SlotsAdvanceThread, 'sync_slots', Mock(side_effect=Exception)):
             self.s._advance._condition.wait = Mock()
