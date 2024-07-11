@@ -16,11 +16,11 @@ Released 2024-07-11
 
 - Handle logical slots invalidation on a standby (Polina Bungina)
 
-  Since PG16 logical replication slots on a standby can be invalidated due to horizon: from now on, Patroni forces copy (i.e., recreation) of such slots.
+  Since PG16 logical replication slots on a standby can be invalidated due to horizon: from now on, Patroni forces copy (i.e., recreation) of invalidated slots.
 
 - Fix race condition with logical slot advance and copy (Alexander Kukushkin)
 
-  Due to this bug, it was a possible situation when a logical slot was copied with PostgreSQL restart more than once.
+  Due to this bug, it was a possible situation when an invalidated logical replication slot was copied with PostgreSQL restart more than once.
 
 
 Version 3.3.1
