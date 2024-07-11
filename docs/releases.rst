@@ -3,6 +3,26 @@
 Release notes
 =============
 
+Version 3.3.2
+-------------
+
+Released 2024-07-11
+
+**Bugfixes**
+
+- Fix plain Postgres synchronous replication mode (Israel Barth Rubio)
+
+  Since ``synchronous_mode`` was introduced to Patroni, the plain Postgres synchronous replication was not working. With this bugfix, Patroni sets the value of ``synchronous_standby_names`` as configured by the user, if that is the case, when ``synchronous_mode`` is disabled.
+
+- Handle logical slots invalidation on a standby (Polina Bungina)
+
+  Since PG16 logical replication slots on a standby can be invalidated due to horizon: from now on, Patroni forces copy (i.e., recreation) of invalidated slots.
+
+- Fix race condition with logical slot advance and copy (Alexander Kukushkin)
+
+  Due to this bug, it was a possible situation when an invalidated logical replication slot was copied with PostgreSQL restart more than once.
+
+
 Version 3.3.1
 -------------
 
