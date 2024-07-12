@@ -934,15 +934,16 @@ class Cluster(NamedTuple('Cluster',
         """Dictionary of permanent replication slots with their known LSN."""
         ret: Dict[str, Union[Dict[str, Any], Any]] = global_config.permanent_slots
 
-        members: Dict[str, int] = {slot_name_from_member_name(m.name): m.lsn or 0 for m in self.members}
+        members: Dict[str, int] = {slot_name_from_member_name(m.name): m.lsn or 0
+                                   for m in self.members if m.replicatefrom}
         slots: Dict[str, int] = {k: parse_int(v) or 0 for k, v in (self.slots or {}).items()}
         for name, value in list(ret.items()):
             if not value:
                 value = ret[name] = {}
             if isinstance(value, dict):
-                # for permanent physical slots we want to get MAX LSN from the `Cluster.slots` and from the
-                # member with the matching name. It is necessary because we may have the replication slot on
-                # the primary that is streaming from the other standby node using the `replicatefrom` tag.
+                # For permanent physical slots we want to get MAX LSN from the `Cluster.slots` and from the
+                # member that does cascading replication with the matching name (see `replicatefrom` tag).
+                # It is necessary because we may have the permanent replication slot on the primary for this node.
                 lsn = max(members.get(name, 0) if self.is_physical_slot(value) else 0, slots.get(name, 0))
                 if lsn:
                     value['lsn'] = lsn
