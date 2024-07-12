@@ -145,7 +145,7 @@ class Failsafe(object):
     def _reset_state(self) -> None:
         """Reset state of the :class:`Failsafe` object."""
         self._last_update = 0  # holds information when failsafe was trigger last time.
-        self._name = None  # name of the cluster leader
+        self._name = ''  # name of the cluster leader
         self._conn_url = None  # PostgreSQL conn_url of the leader
         self._api_url = None  # Patroni REST api_url of the leader
         self._slots = None  # state of replication slots on the leader
