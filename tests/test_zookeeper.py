@@ -176,7 +176,7 @@ class TestZooKeeper(unittest.TestCase):
 
     def test_get_cluster(self):
         cluster = self.zk.get_cluster()
-        self.assertEqual(cluster.last_lsn, 500)
+        self.assertEqual(cluster.status.last_lsn, 500)
 
     def test__get_citus_cluster(self):
         self.zk._mpp = get_mpp({'citus': {'group': 0, 'database': 'postgres'}})
