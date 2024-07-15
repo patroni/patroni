@@ -94,7 +94,7 @@ class _FailsafeResponse(NamedTuple):
     Consists of the following fields:
 
     :ivar member_name: member name.
-    :ivar accepted: ``True`` if the member agrees that the current primary will continue running, ``False``.
+    :ivar accepted: ``True`` if the member agrees that the current primary will continue running, ``False`` otherwise.
     :ivar lsn: absolute position of received/replayed location in bytes.
     """
 
@@ -128,7 +128,7 @@ class Failsafe(object):
     def update(self, data: Dict[str, Any]) -> None:
         """Update the :class:`Failsafe` object state.
 
-        The last update time is stored and object will be invalidate after `ttl` seconds.
+        The last update time is stored and object will be invalidated after `ttl` seconds.
 
         .. note::
             This method is only called as a result of `POST /failsafe` REST API call.
@@ -144,7 +144,7 @@ class Failsafe(object):
 
     def _reset_state(self) -> None:
         """Reset state of the :class:`Failsafe` object."""
-        self._last_update = 0  # holds information when failsafe was trigger last time.
+        self._last_update = 0  # holds information when failsafe was triggered last time.
         self._name = ''  # name of the cluster leader
         self._conn_url = None  # PostgreSQL conn_url of the leader
         self._api_url = None  # Patroni REST api_url of the leader
@@ -163,7 +163,7 @@ class Failsafe(object):
         """Update and return provided :class:`Cluster` object with fresh values.
 
         .. note::
-            This method is called when failsafe mode is activate and s used to update cluster state
+            This method is called when failsafe mode is activate and is used to update cluster state
             with fresh values of replication `slots` status and `xlog_location` on member nodes.
 
         :returns: :class:`Cluster` object, either unchanged or updated.
@@ -207,7 +207,7 @@ class Failsafe(object):
 
         .. note::
             This method is only called on the primary.
-            Effectively it sets expiration time of failsafe mode. If the provided value is 0 it disables failsafe mode.
+            Effectively it sets expiration time of failsafe mode. If the provided value is 0, it disables failsafe mode.
 
         :param value: time of the last update.
         """
@@ -1001,7 +1001,7 @@ class Ha(object):
 
         :param data: deserialized JSON document from REST API call that contains information about current leader.
 
-        :returns: the reason why caller shouldn continue as a primary or the current value of received/replayed LSN.
+        :returns: the reason why caller shouldn't continue as a primary or the current value of received/replayed LSN.
         """
         if self.state_handler.state == 'running' and self.state_handler.role in ('master', 'primary'):
             return 'Running as a leader'
