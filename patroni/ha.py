@@ -993,7 +993,7 @@ class Ha(object):
 
         :returns True when node is lagging
         """
-        lag = (self.cluster.last_lsn or 0) - wal_position
+        lag = self.cluster.status.last_lsn - wal_position
         return lag > global_config.maximum_lag_on_failover
 
     def _is_healthiest_node(self, members: Collection[Member], check_replication_lag: bool = True) -> bool:

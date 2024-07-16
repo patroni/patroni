@@ -204,7 +204,7 @@ class TestRestApiHandler(unittest.TestCase):
 
     def test_do_GET(self):
         MockPostgresql.pending_restart_reason = {'max_connections': get_param_diff('200', '100')}
-        MockPatroni.dcs.cluster.last_lsn = 20
+        MockPatroni.dcs.cluster.status.last_lsn = 20
         MockPatroni.dcs.cluster.sync.members = [MockPostgresql.name]
         with patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /replica')

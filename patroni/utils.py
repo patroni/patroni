@@ -946,7 +946,7 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
 
     config = global_config.from_cluster(cluster)
     leader_name = cluster.leader.name if cluster.leader else None
-    cluster_lsn = cluster.last_lsn or 0
+    cluster_lsn = cluster.status.last_lsn
 
     ret: Dict[str, Any] = {'members': []}
     for m in cluster.members:
