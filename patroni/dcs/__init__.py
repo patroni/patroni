@@ -751,6 +751,13 @@ class Status(NamedTuple):
         """
         return Status(0, None)
 
+    def is_empty(self):
+        """Validate definition of all attributes of this :class:`Status` instance.
+
+        :returns: ``True`` if all attributes of the current :class:`Status` are unpopulated.
+        """
+        return self.last_lsn == 0 and self.slots is None
+
     @staticmethod
     def from_node(value: Union[str, Dict[str, Any], None]) -> 'Status':
         """Factory method to parse *value* as :class:`Status` object.
@@ -827,14 +834,13 @@ class Cluster(NamedTuple('Cluster',
         return super(Cluster, cls).__new__(cls, *args, **kwargs)
 
     @property
-    def last_lsn(self) -> int:
-        """Last known leader LSN."""
-        return self.status.last_lsn
+    def slots(self) -> Dict[str, int]:
+        """State of permanent replication slots on the primary in the format: ``{"slot_name": int}``.
 
-    @property
-    def slots(self) -> Optional[Dict[str, int]]:
-        """State of permanent replication slots on the primary in the format: ``{"slot_name": int}``."""
-        return self.status.slots
+        .. note::
+            We are trying to be foolproof here and for values that can't be parsed to :class:`int` will return ``0``.
+        """
+        return {k: parse_int(v) or 0 for k, v in (self.status.slots or {}).items()}
 
     @staticmethod
     def empty() -> 'Cluster':
@@ -846,9 +852,9 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: ``True`` if all attributes of the current :class:`Cluster` are unpopulated.
         """
-        return all((self.initialize is None, self.config is None, self.leader is None, self.last_lsn == 0,
+        return all((self.initialize is None, self.config is None, self.leader is None, self.status.is_empty(),
                     self.members == [], self.failover is None, self.sync.version is None,
-                    self.history is None, self.slots is None, self.failsafe is None, self.workers == {}))
+                    self.history is None, self.failsafe is None, self.workers == {}))
 
     def __len__(self) -> int:
         """Implement ``len`` function capability.
@@ -947,8 +953,9 @@ class Cluster(NamedTuple('Cluster',
         """Dictionary of permanent replication slots with their known LSN."""
         ret: Dict[str, Union[Dict[str, Any], Any]] = global_config.permanent_slots
 
-        members: Dict[str, int] = {slot_name_from_member_name(m.name): m.lsn or 0 for m in self.members}
-        slots: Dict[str, int] = {k: parse_int(v) or 0 for k, v in (self.slots or {}).items()}
+        members: Dict[str, int] = {slot_name_from_member_name(m.name): m.lsn or 0
+                                   for m in self.members if m.replicatefrom}
+        slots: Dict[str, int] = self.slots
         for name, value in list(ret.items()):
             if not value:
                 value = ret[name] = {}
@@ -1613,15 +1620,16 @@ class AbstractDCS(abc.ABC):
             self.reset_cluster()
             raise
 
-        self._last_seen = int(time.time())
-        self._last_status = {self._OPTIME: cluster.last_lsn}
-        if cluster.slots:
-            self._last_status['slots'] = cluster.slots
-        self._last_failsafe = cluster.failsafe
-
         with self._cluster_thread_lock:
             self._cluster = cluster
             self._cluster_valid_till = time.time() + self.ttl
+
+            self._last_seen = int(time.time())
+            self._last_status = {self._OPTIME: cluster.status.last_lsn}
+            if cluster.status.slots:
+                self._last_status['slots'] = cluster.status.slots
+            self._last_failsafe = cluster.failsafe
+
             return cluster
 
     @property

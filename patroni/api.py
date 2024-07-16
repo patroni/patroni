@@ -303,7 +303,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         cluster = patroni.dcs.cluster
         config = global_config.from_cluster(cluster)
 
-        leader_optime = cluster and cluster.last_lsn or 0
+        leader_optime = cluster and cluster.status.last_lsn
         replayed_location = response.get('xlog', {}).get('replayed_location', 0)
         max_replica_lag = parse_int(self.path_query.get('lag', [sys.maxsize])[0], 'B')
         if max_replica_lag is None:
