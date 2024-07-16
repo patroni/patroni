@@ -213,7 +213,7 @@ class TestSlotsHandler(BaseTestPostgresql):
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     def test__ensure_logical_slots_replica(self):
         self.p.set_role('replica')
-        self.cluster.slots['ls'] = 12346
+        self.cluster.status.slots['ls'] = 12346
         with patch.object(SlotsHandler, 'check_logical_slots_readiness', Mock(return_value=False)):
             self.assertEqual(self.s.sync_replication_slots(self.cluster, self.tags), [])
         with patch.object(SlotsHandler, '_query', Mock(return_value=[('ls', 'logical', 499, 'b', 'a', 5, 100, 500)])), \
@@ -222,10 +222,10 @@ class TestSlotsHandler(BaseTestPostgresql):
                 patch.object(psycopg.OperationalError, 'diag') as mock_diag:
             type(mock_diag).sqlstate = PropertyMock(return_value='58P01')
             self.assertEqual(self.s.sync_replication_slots(self.cluster, self.tags), ['ls'])
-        self.cluster.slots['ls'] = 'a'
+        self.cluster.status.slots['ls'] = 'a'
         self.assertEqual(self.s.sync_replication_slots(self.cluster, self.tags), [])
         self.cluster.config.data['slots']['ls']['database'] = 'b'
-        self.cluster.slots['ls'] = '500'
+        self.cluster.status.slots['ls'] = '500'
         with patch.object(MockCursor, 'rowcount', PropertyMock(return_value=1), create=True):
             self.assertEqual(self.s.sync_replication_slots(self.cluster, self.tags), ['ls'])
 
