@@ -163,7 +163,7 @@ class Failsafe(object):
         """Update and return provided :class:`Cluster` object with fresh values.
 
         .. note::
-            This method is called when failsafe mode is activate and is used to update cluster state
+            This method is called when failsafe mode is active and is used to update cluster state
             with fresh values of replication `slots` status and `xlog_location` on member nodes.
 
         :returns: :class:`Cluster` object, either unchanged or updated.
