@@ -27,7 +27,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from ..postgresql import Postgresql
     from ..postgresql.mpp import AbstractMPP
 
-SLOT_ADVANCE_AVAILABLE_VERSION = 110000
 slot_name_re = re.compile('^[a-z0-9_]{1,63}$')
 logger = logging.getLogger(__name__)
 
@@ -990,7 +989,7 @@ class Cluster(NamedTuple('Cluster',
         permanent_slots: Dict[str, Any] = self._get_permanent_slots(postgresql, member, role)
 
         disabled_permanent_logical_slots: List[str] = self._merge_permanent_slots(
-            slots, permanent_slots, name, postgresql.major_version)
+            slots, permanent_slots, name, postgresql.can_advance_slots)
 
         if disabled_permanent_logical_slots and show_error:
             logger.error("Permanent logical replication slots supported by Patroni only starting from PostgreSQL 11. "
@@ -999,7 +998,7 @@ class Cluster(NamedTuple('Cluster',
         return slots
 
     def _merge_permanent_slots(self, slots: Dict[str, Dict[str, str]], permanent_slots: Dict[str, Any], name: str,
-                               major_version: int) -> List[str]:
+                               can_advance_slots: bool) -> List[str]:
         """Merge replication *slots* for members with *permanent_slots*.
 
         Perform validation of configured permanent slot name, skipping invalid names.
@@ -1010,7 +1009,8 @@ class Cluster(NamedTuple('Cluster',
         :param slots: Slot names with existing attributes if known.
         :param name: name of this node.
         :param permanent_slots: dictionary containing slot name key and slot information values.
-        :param major_version: postgresql major version.
+        :param can_advance_slots: ``True`` if ``pg_replication_slot_advance()`` function is available,
+                                  ``False`` otherwise.
 
         :returns: List of disabled permanent, logical slot names, if postgresql version < 11.
         """
@@ -1034,7 +1034,7 @@ class Cluster(NamedTuple('Cluster',
                     continue
 
                 if self.is_logical_slot(value):
-                    if major_version < SLOT_ADVANCE_AVAILABLE_VERSION:
+                    if not can_advance_slots:
                         disabled_permanent_logical_slots.append(slot_name)
                     elif slot_name in slots:
                         logger.error("Permanent logical replication slot {'%s': %s} is conflicting with"
@@ -1070,11 +1070,10 @@ class Cluster(NamedTuple('Cluster',
             return {}
 
         if global_config.is_standby_cluster or self.get_slot_name_on_primary(postgresql.name, tags) is None:
-            return self.__permanent_physical_slots \
-                if postgresql.major_version >= SLOT_ADVANCE_AVAILABLE_VERSION or role == 'standby_leader' else {}
+            return self.__permanent_physical_slots if postgresql.can_advance_slots or role == 'standby_leader' else {}
 
-        return self.__permanent_slots if postgresql.major_version >= SLOT_ADVANCE_AVAILABLE_VERSION\
-            or role in ('master', 'primary') else self.__permanent_logical_slots
+        return self.__permanent_slots if postgresql.can_advance_slots or role in ('master', 'primary') \
+            else self.__permanent_logical_slots
 
     def _get_members_slots(self, name: str, role: str) -> Dict[str, Dict[str, str]]:
         """Get physical replication slots configuration for members that sourcing from this node.
@@ -1137,7 +1136,7 @@ class Cluster(NamedTuple('Cluster',
         members_slots: Dict[str, Dict[str, str]] = self._get_members_slots(postgresql.name, role)
         permanent_slots: Dict[str, Any] = self._get_permanent_slots(postgresql, member, role)
         slots = deepcopy(members_slots)
-        self._merge_permanent_slots(slots, permanent_slots, postgresql.name, postgresql.major_version)
+        self._merge_permanent_slots(slots, permanent_slots, postgresql.name, postgresql.can_advance_slots)
         return len(slots) > len(members_slots) or any(self.is_physical_slot(v) for v in permanent_slots.values())
 
     def filter_permanent_slots(self, postgresql: 'Postgresql', slots: Dict[str, int]) -> Dict[str, int]:
@@ -1148,7 +1147,7 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: a :class:`dict` object that contains only slots that are known to be permanent.
         """
-        if postgresql.major_version < SLOT_ADVANCE_AVAILABLE_VERSION:
+        if not postgresql.can_advance_slots:
             return {}  # for legacy PostgreSQL we don't support permanent slots on standby nodes
 
         permanent_slots: Dict[str, Any] = self._get_permanent_slots(postgresql, RemoteMember('', {}), 'replica')
