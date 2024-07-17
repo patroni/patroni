@@ -1724,7 +1724,7 @@ class AbstractDCS(abc.ABC):
                       last_lsn: Optional[int],
                       slots: Optional[Dict[str, int]] = None,
                       failsafe: Optional[Dict[str, str]] = None) -> bool:
-        """Update ``leader`` key (or session) ttl and ``/status`` key.
+        """Update ``leader`` key (or session) ttl, ``/status``, and ``/failsafe`` keys.
 
         :param cluster: :class:`Cluster` object with information about the current cluster state.
         :param last_lsn: absolute WAL LSN in bytes.
