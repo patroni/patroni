@@ -89,7 +89,7 @@ class _MemberStatus(Tags, NamedTuple('_MemberStatus',
 
 
 class _FailsafeResponse(NamedTuple):
-    """Response on POST /failsafe API request.
+    """Response on POST ``/failsafe`` API request.
 
     Consists of the following fields:
 
@@ -109,14 +109,14 @@ class Failsafe(object):
     def __init__(self, dcs: AbstractDCS) -> None:
         """Initialize the :class:`Failsafe` object.
 
-        :param dcs: current DCS object, is used only to get current value of `ttl`.
+        :param dcs: current DCS object, is used only to get current value of ``ttl``.
         """
         self._lock = RLock()
         self._dcs = dcs
         self._reset_state()
 
     def update_slots(self, slots: Dict[str, int]) -> None:
-        """Assign value to `_slots`.
+        """Assign value to :attr:`_slots`.
 
         .. note:: This method is only called on the primary node.
 
@@ -128,7 +128,7 @@ class Failsafe(object):
     def update(self, data: Dict[str, Any]) -> None:
         """Update the :class:`Failsafe` object state.
 
-        The last update time is stored and object will be invalidated after `ttl` seconds.
+        The last update time is stored and object will be invalidated after ``ttl`` seconds.
 
         .. note::
             This method is only called as a result of `POST /failsafe` REST API call.
@@ -164,7 +164,7 @@ class Failsafe(object):
 
         .. note::
             This method is called when failsafe mode is active and is used to update cluster state
-            with fresh values of replication `slots` status and `xlog_location` on member nodes.
+            with fresh values of replication ``slots`` status and ``xlog_location`` on member nodes.
 
         :returns: :class:`Cluster` object, either unchanged or updated.
         """
@@ -187,11 +187,11 @@ class Failsafe(object):
         .. note:
             This method is called from the REST API to report whether the failsafe mode was activated.
 
-            On primary the self._last_update is updated from the :func:`set_is_active` method and always
+            On primary the :attr:`_last_update` is updated from the :func:`set_is_active` method and always
             returns the correct value.
 
-            On replicas the self._last_update is updated at the moment when the primary performs
-            `POST /failsafe` REST API calls.
+            On replicas the :attr:`_last_update` is updated at the moment when the primary performs
+            ``POST /failsafe`` REST API calls.
 
             The side-effect - it is possible that replicas will show ``failsafe_is_active``
             values different from the primary.
@@ -203,11 +203,11 @@ class Failsafe(object):
             return self._last_update + self._dcs.ttl > time.time()
 
     def set_is_active(self, value: float) -> None:
-        """Update self._last_update value.
+        """Update :attr:`_last_update` value.
 
         .. note::
             This method is only called on the primary.
-            Effectively it sets expiration time of failsafe mode. If the provided value is 0, it disables failsafe mode.
+            Effectively it sets expiration time of failsafe mode. If the provided value is ``0``, it disables failsafe mode.
 
         :param value: time of the last update.
         """
@@ -1012,7 +1012,7 @@ class Ha(object):
         return self._failsafe.is_active()
 
     def call_failsafe_member(self, data: Dict[str, Any], member: Member) -> _FailsafeResponse:
-        """Call `POST /failsafe` REST API request on provided member.
+        """Call ``POST /failsafe`` REST API request on provided member.
 
         :param data: data to be send in the POST request.
 
