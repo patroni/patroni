@@ -21,7 +21,7 @@ from .postgresql.misc import postgres_version_to_int
 from .postgresql.postmaster import PostmasterProcess
 from .postgresql.rewind import Rewind
 from .tags import Tags
-from .utils import polling_loop, tzutc
+from .utils import parse_int, polling_loop, tzutc
 
 logger = logging.getLogger(__name__)
 
@@ -88,14 +88,53 @@ class _MemberStatus(Tags, NamedTuple('_MemberStatus',
         return None
 
 
+class _FailsafeResponse(NamedTuple):
+    """Response on POST ``/failsafe`` API request.
+
+    Consists of the following fields:
+
+    :ivar member_name: member name.
+    :ivar accepted: ``True`` if the member agrees that the current primary will continue running, ``False`` otherwise.
+    :ivar lsn: absolute position of received/replayed location in bytes.
+    """
+
+    member_name: str
+    accepted: bool
+    lsn: Optional[int]
+
+
 class Failsafe(object):
+    """Object that represents failsafe state of the cluster."""
 
     def __init__(self, dcs: AbstractDCS) -> None:
+        """Initialize the :class:`Failsafe` object.
+
+        :param dcs: current DCS object, is used only to get current value of ``ttl``.
+        """
         self._lock = RLock()
         self._dcs = dcs
         self._reset_state()
 
+    def update_slots(self, slots: Dict[str, int]) -> None:
+        """Assign value to :attr:`_slots`.
+
+        .. note:: This method is only called on the primary node.
+
+        :param slots: a :class:`dict` object with member names as keys and received/replayed LSNs as values.
+        """
+        with self._lock:
+            self._slots = slots
+
     def update(self, data: Dict[str, Any]) -> None:
+        """Update the :class:`Failsafe` object state.
+
+        The last update time is stored and object will be invalidated after ``ttl`` seconds.
+
+        .. note::
+            This method is only called as a result of `POST /failsafe` REST API call.
+
+        :param data: deserialized JSON document from REST API call that contains information about current leader.
+        """
         with self._lock:
             self._last_update = time.time()
             self._name = data['name']
@@ -104,44 +143,75 @@ class Failsafe(object):
             self._slots = data.get('slots')
 
     def _reset_state(self) -> None:
-        self._last_update = 0
-        self._name = None
-        self._conn_url = None
-        self._api_url = None
-        self._slots = None
+        """Reset state of the :class:`Failsafe` object."""
+        self._last_update = 0  # holds information when failsafe was triggered last time.
+        self._name = ''  # name of the cluster leader
+        self._conn_url = None  # PostgreSQL conn_url of the leader
+        self._api_url = None  # Patroni REST api_url of the leader
+        self._slots = None  # state of replication slots on the leader
 
     @property
     def leader(self) -> Optional[Leader]:
+        """Return information about current cluster leader if the failsafe mode is active."""
         with self._lock:
-            if self._last_update + self._dcs.ttl > time.time() and self._name:
+            if self._last_update + self._dcs.ttl > time.time():
                 return Leader('', '', RemoteMember(self._name, {'api_url': self._api_url,
                                                                 'conn_url': self._conn_url,
                                                                 'slots': self._slots}))
 
     def update_cluster(self, cluster: Cluster) -> Cluster:
+        """Update and return provided :class:`Cluster` object with fresh values.
+
+        .. note::
+            This method is called when failsafe mode is active and is used to update cluster state
+            with fresh values of replication ``slots`` status and ``xlog_location`` on member nodes.
+
+        :returns: :class:`Cluster` object, either unchanged or updated.
+        """
         # Enreach cluster with the real leader if there was a ping from it
         leader = self.leader
         if leader:
             # We rely on the strict order of fields in the namedtuple
             status = Status(cluster.status.last_lsn, leader.member.data['slots'])
             cluster = Cluster(*cluster[0:2], leader, status, *cluster[4:])
+            # To advance LSN of replication slots on the primary for nodes that are doing cascading
+            # replication from other nodes we need to update `xlog_location` on respective members.
+            for member in cluster.members:
+                if member.replicatefrom and status.slots and member.name in status.slots:
+                    member.data['xlog_location'] = status.slots[member.name]
         return cluster
 
     def is_active(self) -> bool:
-        """Is used to report in REST API whether the failsafe mode was activated.
+        """Check whether the failsafe mode is active.
 
-           On primary the self._last_update is set from the
-           set_is_active() method and always returns the correct value.
+        .. note:
+            This method is called from the REST API to report whether the failsafe mode was activated.
 
-           On replicas the self._last_update is set at the moment when
-           the primary performs POST /failsafe REST API calls.
-           The side-effect - it is possible that replicas will show
-           failsafe_is_active values different from the primary."""
+            On primary the :attr:`_last_update` is updated from the :func:`set_is_active` method and always
+            returns the correct value.
+
+            On replicas the :attr:`_last_update` is updated at the moment when the primary performs
+            ``POST /failsafe`` REST API calls.
+
+            The side-effect - it is possible that replicas will show ``failsafe_is_active``
+            values different from the primary.
+
+        :returns: ``True`` if failsafe mode is active, ``False`` otherwise.
+        """
 
         with self._lock:
             return self._last_update + self._dcs.ttl > time.time()
 
     def set_is_active(self, value: float) -> None:
+        """Update :attr:`_last_update` value.
+
+        .. note::
+            This method is only called on the primary.
+            Effectively it sets expiration time of failsafe mode.
+            If the provided value is ``0``, it disables failsafe mode.
+
+        :param value: time of the last update.
+        """
         with self._lock:
             self._last_update = value
             if not value:
@@ -172,6 +242,12 @@ class Ha(object):
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
         # the state and publishing procedure to have consistent ordering and avoid publishing stale values.
         self._member_state_lock = RLock()
+
+        # The last know value of current receive/flush/replay LSN.
+        # We update this value from update_lock() and touch_member() methods, because they fetch it anyway.
+        # This value is used to notify the leader when the failsafe_mode is active without performing any queries.
+        self._last_wal_lsn = None
+
         # Count of concurrent sync disabling requests. Value above zero means that we don't want to be synchronous
         # standby. Changes protected by _member_state_lock.
         self._disable_sync = 0
@@ -295,7 +371,7 @@ class Ha(object):
         last_lsn = slots = None
         if update_status:
             try:
-                last_lsn = self.state_handler.last_operation()
+                last_lsn = self._last_wal_lsn = self.state_handler.last_operation()
                 slots = self.cluster.filter_permanent_slots(
                     self.state_handler,
                     {**self.state_handler.slots(), slot_name_from_member_name(self.state_handler.name): last_lsn})
@@ -377,7 +453,7 @@ class Ha(object):
                     and data['state'] in ['running', 'restarting', 'starting']:
                 try:
                     timeline, wal_position, pg_control_timeline = self.state_handler.timeline_wal_position()
-                    data['xlog_location'] = wal_position
+                    data['xlog_location'] = self._last_wal_lsn = wal_position
                     if not timeline:  # running as a standby
                         replication_state = self.state_handler.replication_state()
                         if replication_state:
@@ -921,23 +997,38 @@ class Ha(object):
         pool.join()
         return results
 
-    def update_failsafe(self, data: Dict[str, Any]) -> Optional[str]:
+    def update_failsafe(self, data: Dict[str, Any]) -> Union[int, str, None]:
+        """Update failsafe state.
+
+        :param data: deserialized JSON document from REST API call that contains information about current leader.
+
+        :returns: the reason why caller shouldn't continue as a primary or the current value of received/replayed LSN.
+        """
         if self.state_handler.state == 'running' and self.state_handler.role in ('master', 'primary'):
             return 'Running as a leader'
         self._failsafe.update(data)
+        return self._last_wal_lsn
 
     def failsafe_is_active(self) -> bool:
         return self._failsafe.is_active()
 
-    def call_failsafe_member(self, data: Dict[str, Any], member: Member) -> bool:
+    def call_failsafe_member(self, data: Dict[str, Any], member: Member) -> _FailsafeResponse:
+        """Call ``POST /failsafe`` REST API request on provided member.
+
+        :param data: data to be send in the POST request.
+
+        :returns: a :class:`_FailsafeResponse` object.
+        """
         try:
             response = self.patroni.request(member, 'post', 'failsafe', data, timeout=2, retries=1)
             response_data = response.data.decode('utf-8')
             logger.info('Got response from %s %s: %s', member.name, member.api_url, response_data)
-            return response.status == 200 and response_data == 'Accepted'
+            accepted = response.status == 200 and response_data == 'Accepted'
+            # member may return its current received/replayed LSN in the "lsn" header.
+            return _FailsafeResponse(member.name, accepted, parse_int(response.headers.get('lsn')))
         except Exception as e:
             logger.warning("Request failed to %s: POST %s (%s)", member.name, member.api_url, e)
-        return False
+        return _FailsafeResponse(member.name, False, None)
 
     def check_failsafe_topology(self) -> bool:
         """Check whether we could continue to run as a primary by calling all members from the failsafe topology.
@@ -957,6 +1048,10 @@ class Ha(object):
             Standby nodes are using information from the ``slots`` dict to advance position of permanent
             replication slots while DCS is not accessible in order to avoid indefinite growth of ``pg_wal``.
 
+            Standby nodes are returning their received/replayed location in the ``lsn`` header, which later are
+            used by the primary to advance position of replication slots that for nodes that are doing cascading
+            replication from other nodes. It is required to avoid indefinite growth of ``pg_wal``.
+
         :returns: ``True`` if all members from the ``/failsafe`` topology agree that this node could continue to
                   run as a ``primary``, or ``False`` if some of standby nodes are not accessible or don't agree.
         """
@@ -971,7 +1066,7 @@ class Ha(object):
         try:
             data['slots'] = {
                 **self.state_handler.slots(),
-                slot_name_from_member_name(self.state_handler.name): self.state_handler.last_operation()
+                slot_name_from_member_name(self.state_handler.name): self._last_wal_lsn
             }
         except Exception:
             logger.exception('Exception when called state_handler.slots()')
@@ -981,10 +1076,15 @@ class Ha(object):
             return True
         pool = ThreadPool(len(members))
         call_failsafe_member = functools.partial(self.call_failsafe_member, data)
-        results = pool.map(call_failsafe_member, members)
+        results: List[_FailsafeResponse] = pool.map(call_failsafe_member, members)
         pool.close()
         pool.join()
-        return all(results)
+        ret = all(r.accepted for r in results)
+        if ret:
+            # The LSN feedback will be later used to advance position of replication slots
+            # for nodes that are doing cascading replication from other nodes.
+            self._failsafe.update_slots({r.member_name: r.lsn for r in results if r.lsn})
+        return ret
 
     def is_lagging(self, wal_position: int) -> bool:
         """Returns if instance with an wal should consider itself unhealthy to be promoted due to replication lag.
@@ -1768,9 +1868,16 @@ class Ha(object):
                 self.load_cluster_from_dcs()
                 global_config.update(self.cluster)
                 self.state_handler.reset_cluster_info_state(self.cluster, self.patroni)
-            except Exception:
+            except Exception as exc1:
                 self.state_handler.reset_cluster_info_state(None)
-                raise
+                if self.is_failsafe_mode():
+                    # If DCS is not accessible we want to get the latest value of received/replayed LSN
+                    # in order to have it immediately available if the failsafe mode is enabled.
+                    try:
+                        self._last_wal_lsn = self.state_handler.last_operation()
+                    except Exception as exc2:
+                        logger.debug('Failed to fetch current wal lsn: %r', exc2)
+                raise exc1
 
             if self.is_paused():
                 self.watchdog.disable()
@@ -1946,6 +2053,7 @@ class Ha(object):
                     self.set_is_leader(True)
                     self._failsafe.set_is_active(time.time())
                     self.watchdog.keepalive()
+                    self._sync_replication_slots(True)
                     return 'continue to run as a leader because failsafe mode is enabled and all members are accessible'
                 self._failsafe.set_is_active(0)
                 msg = 'demoting self because DCS is not accessible and I was a leader'
@@ -1969,15 +2077,14 @@ class Ha(object):
         slots: List[str] = []
 
         # If dcs_failed we don't want to touch replication slots on a leader or replicas if failsafe_mode isn't enabled.
-        if not self.cluster or dcs_failed and (self.is_leader() or not self.is_failsafe_mode()):
+        if not self.cluster or dcs_failed and not self.is_failsafe_mode():
             return slots
 
         # It could be that DCS is read-only, or only the leader can't access it.
         # Only the second one could be handled by `load_cluster_from_dcs()`.
         # The first one affects advancing logical replication slots on replicas, therefore we rely on
         # Failsafe.update_cluster(), that will return "modified" Cluster if failsafe mode is active.
-        cluster = self._failsafe.update_cluster(self.cluster)\
-            if self.is_failsafe_mode() and not self.is_leader() else self.cluster
+        cluster = self._failsafe.update_cluster(self.cluster) if self.is_failsafe_mode() else self.cluster
         if cluster:
             slots = self.state_handler.slots_handler.sync_replication_slots(cluster, self.patroni)
         # Don't copy replication slots if failsafe_mode is active
