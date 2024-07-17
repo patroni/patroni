@@ -207,7 +207,8 @@ class Failsafe(object):
 
         .. note::
             This method is only called on the primary.
-            Effectively it sets expiration time of failsafe mode. If the provided value is ``0``, it disables failsafe mode.
+            Effectively it sets expiration time of failsafe mode.
+            If the provided value is ``0``, it disables failsafe mode.
 
         :param value: time of the last update.
         """
