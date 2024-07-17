@@ -65,7 +65,7 @@ class MockResponse(object):
 
     def __init__(self, status_code=200):
         self.status_code = status_code
-        self.headers = {'content-type': 'json'}
+        self.headers = {'content-type': 'json', 'lsn': 100}
         self.content = '{}'
         self.reason = 'Not Found'
 

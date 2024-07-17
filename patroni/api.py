@@ -752,7 +752,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """Handle a ``POST`` request to ``/failsafe`` path.
 
         Writes a response with HTTP status ``200`` if this node is a Standby, or with HTTP status ``500`` if this is
-        the primary.
+        the primary. In addition to that it returns absolute value of received/replayed LSN in the ``lsn`` header.
 
         .. note::
             If ``failsafe_mode`` is not enabled, then write a response with HTTP status ``502``.
@@ -760,9 +760,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if self.server.patroni.ha.is_failsafe_mode():
             request = self._read_json_content()
             if request:
-                message = self.server.patroni.ha.update_failsafe(request) or 'Accepted'
+                ret = self.server.patroni.ha.update_failsafe(request)
+                headers = {'lsn': str(ret)} if isinstance(ret, int) else {}
+                message = ret if isinstance(ret, str) else 'Accepted'
                 code = 200 if message == 'Accepted' else 500
-                self.write_response(code, message)
+                self.write_response(code, message, headers=headers)
         else:
             self.send_error(502)
 

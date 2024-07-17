@@ -76,7 +76,7 @@ Feature: dcs failsafe mode
   @dcs-failsafe
   Scenario: scale to three-node cluster
     Given I start postgres0
-    And I start postgres2
+    And I configure and start postgres2 with a tag replicatefrom postgres0
     Then "members/postgres2" key in DCS has state=running after 10 seconds
     And "members/postgres0" key in DCS has state=running after 20 seconds
     And Response on GET http://127.0.0.1:8008/failsafe contains postgres2 after 10 seconds
@@ -86,13 +86,14 @@ Feature: dcs failsafe mode
   @dcs-failsafe
   @slot-advance
   Scenario: make sure permanent slots exist on replicas
-    Given I issue a PATCH request to http://127.0.0.1:8009/config with {"slots":{"dcs_slot_0":null,"dcs_slot_2":{"type":"logical","database":"postgres","plugin":"test_decoding"}}}
+    Given I issue a PATCH request to http://127.0.0.1:8009/config with {"slots":{"postgres2":0,"dcs_slot_0":null,"dcs_slot_2":{"type":"logical","database":"postgres","plugin":"test_decoding"}}}
     Then logical slot dcs_slot_2 is in sync between postgres1 and postgres0 after 20 seconds
     And logical slot dcs_slot_2 is in sync between postgres1 and postgres2 after 20 seconds
     When I get all changes from physical slot dcs_slot_1 on postgres1
     Then physical slot dcs_slot_1 is in sync between postgres1 and postgres0 after 10 seconds
     And physical slot dcs_slot_1 is in sync between postgres1 and postgres2 after 10 seconds
     And physical slot postgres0 is in sync between postgres1 and postgres2 after 10 seconds
+    And physical slot postgres2 is in sync between postgres0 and postgres1 after 10 seconds
 
   @dcs-failsafe
   Scenario: check three-node cluster is functioning while DCS is down
@@ -114,3 +115,4 @@ Feature: dcs failsafe mode
     And physical slot dcs_slot_1 is in sync between postgres1 and postgres0 after 10 seconds
     And physical slot dcs_slot_1 is in sync between postgres1 and postgres2 after 10 seconds
     And physical slot postgres0 is in sync between postgres1 and postgres2 after 10 seconds
+    And physical slot postgres2 is in sync between postgres0 and postgres1 after 10 seconds

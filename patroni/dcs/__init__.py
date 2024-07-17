@@ -946,9 +946,9 @@ class Cluster(NamedTuple('Cluster',
             if not value:
                 value = ret[name] = {}
             if isinstance(value, dict):
-                # for permanent physical slots we want to get MAX LSN from the `Cluster.slots` and from the
-                # member with the matching name. It is necessary because we may have the replication slot on
-                # the primary that is streaming from the other standby node using the `replicatefrom` tag.
+                # For permanent physical slots we want to get MAX LSN from the `Cluster.slots` and from the
+                # member that does cascading replication with the matching name (see `replicatefrom` tag).
+                # It is necessary because we may have the permanent replication slot on the primary for this node.
                 lsn = max(members.get(name, 0) if self.is_physical_slot(value) else 0, slots.get(name, 0))
                 if lsn:
                     value['lsn'] = lsn
