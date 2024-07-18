@@ -1371,8 +1371,9 @@ class AbstractDCS(abc.ABC):
     def __init__(self, config: Dict[str, Any], mpp: 'AbstractMPP') -> None:
         """Prepare DCS paths, MPP object, initial values for state information and processing dependencies.
 
-        :ivar config: :class:`dict`, reference to config section of selected DCS.
-                      i.e.: ``zookeeper`` for zookeeper, ``etcd`` for etcd, etc...
+        :param config: :class:`dict`, reference to config section of selected DCS.
+                       i.e.: ``zookeeper`` for zookeeper, ``etcd`` for etcd, etc...
+        :param mpp: an object implementing :class:`AbstractMPP` interface.
         """
         self._mpp = mpp
         self._name = config['name']
@@ -1719,20 +1720,22 @@ class AbstractDCS(abc.ABC):
         """
 
     def update_leader(self,
-                      leader: Leader,
+                      cluster: Cluster,
                       last_lsn: Optional[int],
                       slots: Optional[Dict[str, int]] = None,
                       failsafe: Optional[Dict[str, str]] = None) -> bool:
-        """Update ``leader`` key (or session) ttl and optime/leader.
+        """Update ``leader`` key (or session) ttl, ``/status``, and ``/failsafe`` keys.
 
-        :param leader: :class:`Leader` object with information about the leader.
+        :param cluster: :class:`Cluster` object with information about the current cluster state.
         :param last_lsn: absolute WAL LSN in bytes.
         :param slots: dictionary with permanent slots ``confirmed_flush_lsn``.
         :param failsafe: if defined dictionary passed to :meth:`~AbstractDCS.write_failsafe`.
 
         :returns: ``True`` if ``leader`` key (or session) has been updated successfully.
         """
-        ret = self._update_leader(leader)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(cluster.leader, Leader)
+        ret = self._update_leader(cluster.leader)
         if ret and last_lsn:
             status: Dict[str, Any] = {self._OPTIME: last_lsn}
             if slots:
