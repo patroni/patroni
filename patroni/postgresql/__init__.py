@@ -27,7 +27,7 @@ from .sync import SyncHandler
 from .. import global_config, psycopg
 from ..async_executor import CriticalTask
 from ..collections import CaseInsensitiveSet, CaseInsensitiveDict, EMPTY_DICT
-from ..dcs import Cluster, Leader, Member
+from ..dcs import Cluster, Leader, Member, slot_name_from_member_name
 from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
 from ..tags import Tags
@@ -111,7 +111,7 @@ class Postgresql(object):
         self._state_entry_timestamp = 0
 
         self._cluster_info_state = {}
-        self._has_permanent_slots = True
+        self._should_query_slots = True
         self._enforce_hot_standby_feedback = False
         self._cached_replica_timeline = None
 
@@ -227,7 +227,7 @@ class Postgresql(object):
                         "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint"
                         " AS confirmed_flush_lsn, pg_catalog.pg_wal_lsn_diff(restart_lsn, '0/0')::bigint"
                         " AS restart_lsn FROM pg_catalog.pg_get_replication_slots()) AS s)"
-                        if self._has_permanent_slots and self.can_advance_slots else "NULL") + extra
+                        if self._should_query_slots and self.can_advance_slots else "NULL") + extra
             extra = (", CASE WHEN latest_end_lsn IS NULL THEN NULL ELSE received_tli END,"
                      " slot_name, conninfo, status, {0} FROM pg_catalog.pg_stat_get_wal_receiver()").format(extra)
             if self.role == 'standby_leader':
@@ -463,7 +463,7 @@ class Postgresql(object):
             # to have a logical slot or in case if it is the cascading replica.
             self.set_enforce_hot_standby_feedback(not global_config.is_standby_cluster and self.can_advance_slots
                                                   and cluster.should_enforce_hot_standby_feedback(self, tags))
-            self._has_permanent_slots = cluster.has_permanent_slots(self, tags)
+            self._should_query_slots = global_config.member_slots_ttl > 0 or cluster.has_permanent_slots(self, tags)
 
     def _cluster_info_state_get(self, name: str) -> Optional[Any]:
         if not self._cluster_info_state:
@@ -474,7 +474,7 @@ class Postgresql(object):
                                                'received_tli', 'slot_name', 'conninfo', 'receiver_state',
                                                'restore_command', 'slots', 'synchronous_commit',
                                                'synchronous_standby_names', 'pg_stat_replication'], result))
-                if self._has_permanent_slots and self.can_advance_slots:
+                if self._should_query_slots and self.can_advance_slots:
                     cluster_info_state['slots'] =\
                         self.slots_handler.process_permanent_slots(cluster_info_state['slots'])
                 self._cluster_info_state = cluster_info_state
@@ -495,7 +495,19 @@ class Postgresql(object):
         return self._cluster_info_state_get('received_location')
 
     def slots(self) -> Dict[str, int]:
-        return self._cluster_info_state_get('slots') or {}
+        """Get replication slots state.
+
+        ..note::
+            Since this methods is supposed to be used only by the leader and only to publish state of
+            replication slots to DCS so that other nodes can advance LSN on respective replication slots,
+            we are also adding our own name to the list. All slots that shouldn't be published to DCS
+            later will be filtered out by :meth:`~Cluster.maybe_filter_permanent_slots` method.
+
+        :returns: A :class:`dict` object with replication slot names and LSNs as absolute values.
+        """
+        return {**(self._cluster_info_state_get('slots') or {}),
+                slot_name_from_member_name(self.name): self.last_operation()} \
+            if self.can_advance_slots else {}
 
     def primary_slot_name(self) -> Optional[str]:
         return self._cluster_info_state_get('slot_name')

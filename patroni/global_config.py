@@ -129,7 +129,7 @@ class GlobalConfig(types.ModuleType):
         return isinstance(config, dict) and\
             bool(config.get('host') or config.get('port') or config.get('restore_command'))
 
-    def get_int(self, name: str, default: int = 0) -> int:
+    def get_int(self, name: str, default: int = 0, base_unit: Optional[str] = None) -> int:
         """Gets current value of *name* from the global configuration and try to return it as :class:`int`.
 
         :param name: name of the parameter.
@@ -138,7 +138,7 @@ class GlobalConfig(types.ModuleType):
         :returns: currently configured value of *name* from the global configuration or *default* if it is not set or
             invalid.
         """
-        ret = parse_int(self.get(name))
+        ret = parse_int(self.get(name), base_unit)
         return default if ret is None else ret
 
     @property
@@ -224,6 +224,14 @@ class GlobalConfig(types.ModuleType):
                         or self.get('permanent_slots')
                         or self.get('slots')
                         or EMPTY_DICT.copy())
+
+    @property
+    def member_slots_ttl(self) -> int:
+        """Currently configured value of ``member_slots_ttl`` from the global configuration converted to seconds.
+
+        Assume ``1800`` is it is not set or invalid.
+        """
+        return self.get_int('member_slots_ttl', 1800, base_unit='s')
 
 
 sys.modules[__name__] = GlobalConfig()
