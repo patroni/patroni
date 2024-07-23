@@ -374,7 +374,7 @@ class Ha(object):
                 last_lsn = self._last_wal_lsn = self.state_handler.last_operation()
                 slots = self.cluster.maybe_filter_permanent_slots(self.state_handler, self.state_handler.slots())
             except Exception:
-                logger.exception('Exception when called state_handler.slots()')
+                logger.exception('Exception when called state_handler.last_operation()')
         try:
             ret = self.dcs.update_leader(self.cluster, last_lsn, slots, self._failsafe_config())
         except DCSError:

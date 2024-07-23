@@ -1759,10 +1759,10 @@ class AbstractDCS(abc.ABC):
 
         :returns: the list of replication slots to be written to ``/status`` key or ``None``.
         """
-        timestemp = time.time()
+        timestamp = time.time()
 
         # DCS is a source of truth, therefore we take missing values from there
-        self._last_retain_slots.update({name: timestemp for name in self._last_status['retain_slots']
+        self._last_retain_slots.update({name: timestamp for name in self._last_status['retain_slots']
                                         if (not slots or name not in slots) and name not in self._last_retain_slots})
 
         if slots:  # if slots is not empty it implies we are running v11+
@@ -1779,11 +1779,11 @@ class AbstractDCS(abc.ABC):
 
             permanent_slots = cluster.permanent_physical_slots
             # we want to have in ``retain_slots`` only non-permanent member slots
-            self._last_retain_slots.update({name: timestemp for name in slots
+            self._last_retain_slots.update({name: timestamp for name in slots
                                             if name in members and name not in permanent_slots})
         # retention
         for name, value in list(self._last_retain_slots.items()):
-            if value + global_config.member_slots_ttl <= timestemp:
+            if value + global_config.member_slots_ttl <= timestamp:
                 del self._last_retain_slots[name]
 
         return list(sorted(self._last_retain_slots.keys())) or None
