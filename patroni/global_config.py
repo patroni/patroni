@@ -229,7 +229,7 @@ class GlobalConfig(types.ModuleType):
     def member_slots_ttl(self) -> int:
         """Currently configured value of ``member_slots_ttl`` from the global configuration converted to seconds.
 
-        Assume ``1800`` is it is not set or invalid.
+        Assume ``1800`` if it is not set or invalid.
         """
         return self.get_int('member_slots_ttl', 1800, base_unit='s')
 

@@ -725,7 +725,7 @@ class Status(NamedTuple):
 
     :ivar last_lsn: :class:`int` object containing position of last known leader LSN.
     :ivar slots: state of permanent replication slots on the primary in the format: ``{"slot_name": int}``.
-    :ivar retain_slots: list physical replication slots for members that exist in the xluster.
+    :ivar retain_slots: list physical replication slots for members that exist in the cluster.
     """
     last_lsn: int
     slots: Optional[Dict[str, int]]
@@ -1747,7 +1747,7 @@ class AbstractDCS(abc.ABC):
     def _build_retain_slots(self, cluster: Cluster, slots: Optional[Dict[str, int]]) -> Optional[List[str]]:
         """Handle retention policy of physical replication slots for cluster members.
 
-        When the member key is missing we want to keep its replication slot for a while, so that WAL sengments
+        When the member key is missing we want to keep its replication slot for a while, so that WAL segments
         will not be already absent when it comes back online. It is being solved by storing the list of
         replication slots representing members in the ``retain_slots`` field of the ``/status`` key.
 
