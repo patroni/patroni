@@ -864,7 +864,7 @@ class Ha(object):
         publishing it to the DCS. As the window is rather tiny consequences are holding up commits for one cycle
         period we don't worry about it here."""
 
-        if not self.is_synchronous_mode() or self.patroni.nosync:
+        if self.is_leader() or not self.is_synchronous_mode() or self.patroni.nosync:
             return func()
 
         with self._member_state_lock:
