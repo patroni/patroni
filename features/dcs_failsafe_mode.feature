@@ -86,7 +86,7 @@ Feature: dcs failsafe mode
   @dcs-failsafe
   @slot-advance
   Scenario: make sure permanent slots exist on replicas
-    Given I issue a PATCH request to http://127.0.0.1:8009/config with {"slots":{"postgres2":0,"dcs_slot_0":null,"dcs_slot_2":{"type":"logical","database":"postgres","plugin":"test_decoding"}}}
+    Given I issue a PATCH request to http://127.0.0.1:8009/config with {"slots":{"dcs_slot_0":null,"dcs_slot_2":{"type":"logical","database":"postgres","plugin":"test_decoding"}}}
     Then logical slot dcs_slot_2 is in sync between postgres1 and postgres0 after 20 seconds
     And logical slot dcs_slot_2 is in sync between postgres1 and postgres2 after 20 seconds
     When I get all changes from physical slot dcs_slot_1 on postgres1

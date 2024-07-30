@@ -3,7 +3,7 @@ Feature: permanent slots
     Given I start postgres0
     Then postgres0 is a leader after 10 seconds
     And there is a non empty initialize key in DCS after 15 seconds
-    When I issue a PATCH request to http://127.0.0.1:8008/config with {"slots":{"test_physical":0,"postgres0":0,"postgres1":0,"postgres3":0},"postgresql":{"parameters":{"wal_level":"logical"}}}
+    When I issue a PATCH request to http://127.0.0.1:8008/config with {"slots":{"test_physical":0,"postgres3":0},"postgresql":{"parameters":{"wal_level":"logical"}}}
     Then I receive a response code 200
     And Response on GET http://127.0.0.1:8008/config contains slots after 10 seconds
     When I start postgres1
@@ -34,12 +34,14 @@ Feature: permanent slots
   Scenario: check permanent physical slots that match with member names
     Given postgres0 has a physical replication slot named postgres3 after 2 seconds
     And postgres1 has a physical replication slot named postgres0 after 2 seconds
+    And postgres1 has a physical replication slot named postgres2 after 2 seconds
     And postgres1 has a physical replication slot named postgres3 after 2 seconds
     And postgres2 has a physical replication slot named postgres0 after 2 seconds
     And postgres2 has a physical replication slot named postgres3 after 2 seconds
     And postgres2 has a physical replication slot named postgres1 after 2 seconds
-    And postgres1 does not have a replication slot named postgres2
-    And postgres3 does not have a replication slot named postgres2
+    And postgres3 has a physical replication slot named postgres0 after 2 seconds
+    And postgres3 has a physical replication slot named postgres1 after 2 seconds
+    And postgres3 has a physical replication slot named postgres2 after 2 seconds
 
   @slot-advance
   Scenario: check that permanent slots are advanced on replicas
@@ -53,18 +55,24 @@ Feature: permanent slots
     And Logical slot test_logical is in sync between postgres0 and postgres3 after 10 seconds
     And Physical slot test_physical is in sync between postgres0 and postgres3 after 10 seconds
     And Physical slot postgres1 is in sync between postgres0 and postgres2 after 10 seconds
+    And Physical slot postgres1 is in sync between postgres0 and postgres3 after 10 seconds
     And Physical slot postgres3 is in sync between postgres2 and postgres0 after 20 seconds
     And Physical slot postgres3 is in sync between postgres2 and postgres1 after 10 seconds
-    And postgres1 does not have a replication slot named postgres2
-    And postgres3 does not have a replication slot named postgres2
 
   @slot-advance
-  Scenario: check that only permanent slots are written to the /status key
+  Scenario: check that permanent slots and member slots are written to the /status key
     Given "status" key in DCS has test_physical in slots
     And "status" key in DCS has postgres0 in slots
     And "status" key in DCS has postgres1 in slots
-    And "status" key in DCS does not have postgres2 in slots
+    And "status" key in DCS has postgres2 in slots
     And "status" key in DCS has postgres3 in slots
+
+  @slot-advance
+  Scenario: check that only non-permanent member slots are written to the retain_slots in /status key
+    And "status" key in DCS has postgres0 in retain_slots
+    And "status" key in DCS has postgres1 in retain_slots
+    And "status" key in DCS has postgres2 in retain_slots
+    And "status" key in DCS does not have postgres3 in retain_slots
 
   Scenario: check permanent physical replication slot after failover
     Given I shut down postgres3
