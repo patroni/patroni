@@ -205,7 +205,6 @@ class TestRestApiHandler(unittest.TestCase):
     def test_do_GET(self):
         MockPostgresql.pending_restart_reason = {'max_connections': get_param_diff('200', '100')}
         MockPatroni.dcs.cluster.status.last_lsn = 20
-        MockPatroni.dcs.cluster.sync.members = [MockPostgresql.name]
         with patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /replica')
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M')
@@ -223,12 +222,16 @@ class TestRestApiHandler(unittest.TestCase):
                           Mock(return_value={'role': 'replica', 'sync_standby': True})):
             MockRestApiServer(RestApiHandler, 'GET /synchronous')
             MockRestApiServer(RestApiHandler, 'GET /read-only-sync')
+        with patch.object(RestApiHandler, 'get_postgresql_status',
+                          Mock(return_value={'role': 'replica', 'quorum_standby': True})):
+            MockRestApiServer(RestApiHandler, 'GET /quorum')
+            MockRestApiServer(RestApiHandler, 'GET /read-only-quorum')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
-            MockPatroni.dcs.cluster.sync.members = []
             MockRestApiServer(RestApiHandler, 'GET /asynchronous')
         with patch.object(MockHa, 'is_leader', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /replica')
             MockRestApiServer(RestApiHandler, 'GET /read-only-sync')
+            MockRestApiServer(RestApiHandler, 'GET /read-only-quorum')
             with patch.object(global_config.__class__, 'is_standby_cluster', Mock(return_value=True)):
                 MockRestApiServer(RestApiHandler, 'GET /standby_leader')
         MockPatroni.dcs.cluster = None
