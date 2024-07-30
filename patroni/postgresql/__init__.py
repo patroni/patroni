@@ -27,7 +27,7 @@ from .sync import SyncHandler
 from .. import global_config, psycopg
 from ..async_executor import CriticalTask
 from ..collections import CaseInsensitiveSet, CaseInsensitiveDict, EMPTY_DICT
-from ..dcs import Cluster, Leader, Member, SLOT_ADVANCE_AVAILABLE_VERSION
+from ..dcs import Cluster, Leader, Member
 from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
 from ..tags import Tags
@@ -194,7 +194,7 @@ class Postgresql(object):
     @property
     def can_advance_slots(self) -> bool:
         """``True`` if :attr:``major_version`` is greater than 110000."""
-        return self.major_version >= SLOT_ADVANCE_AVAILABLE_VERSION
+        return self.major_version >= 110000
 
     @property
     def cluster_info_query(self) -> str:

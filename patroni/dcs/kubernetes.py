@@ -1225,7 +1225,7 @@ class Kubernetes(AbstractDCS):
         return bool(_run_and_handle_exceptions(self._patch_or_create, self.leader_path, annotations,
                                                kind_resource_version, ips=ips, retry=_retry))
 
-    def update_leader(self, leader: Leader, last_lsn: Optional[int],
+    def update_leader(self, cluster: Cluster, last_lsn: Optional[int],
                       slots: Optional[Dict[str, int]] = None, failsafe: Optional[Dict[str, str]] = None) -> bool:
         kind = self._kinds.get(self.leader_path)
         kind_annotations = kind and kind.metadata.annotations or EMPTY_DICT
