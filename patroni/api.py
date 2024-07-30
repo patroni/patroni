@@ -43,7 +43,7 @@ def check_access(*args: Any, **kwargs: Any) -> Callable[..., Any]:
     .. note::
         The actual logic to check access is implemented through :func:`RestApiServer.check_access`.
 
-        Optionally it is possible to skip source ip check by specifying `allowlist_check_members`=False``.
+        Optionally it is possible to skip source ip check by specifying ``allowlist_check_members=False``.
 
     :returns: a decorator that executes *func* only if :func:`RestApiServer.check_access` returns ``True``.
 
