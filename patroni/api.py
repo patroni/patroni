@@ -1530,11 +1530,11 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         :returns: ``True`` if client access verification succeeded, otherwise ``None``.
         """
-        if self.__allowlist or allowlist_check_members and self.__allowlist_include_members:
+        allowlist_check_members = allowlist_check_members and bool(self.__allowlist_include_members)
+        if self.__allowlist or allowlist_check_members:
             incoming_ip = ip_address(rh.client_address[0])
 
-            members_ips = tuple(self.__members_ips()) \
-                if allowlist_check_members and self.__allowlist_include_members else ()
+            members_ips = tuple(self.__members_ips()) if allowlist_check_members else ()
 
             if not any(incoming_ip in net for net in self.__allowlist + members_ips):
                 return rh.write_response(403, 'Access is denied')
