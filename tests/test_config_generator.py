@@ -3,7 +3,7 @@ import psutil
 import unittest
 import yaml
 
-from . import MockConnect, MockCursor, MockConnectionInfo
+from . import MockConnect, MockCursor
 from copy import deepcopy
 from unittest.mock import MagicMock, Mock, PropertyMock, mock_open as _mock_open, patch
 
@@ -282,7 +282,7 @@ class TestGenerateConfig(unittest.TestCase):
         with patch('sys.argv', ['patroni.py',
                                 '--generate-config', '--dsn', 'host=foo port=bar user=foobar password=pwd_from_dsn']), \
              patch.object(MockCursor, 'rowcount', PropertyMock(return_value=0), create=True), \
-             patch.object(MockConnectionInfo, 'parameter_status', Mock(return_value='off')), \
+             patch.object(MockConnect, 'get_parameter_status', Mock(return_value='off')), \
              self.assertRaises(SystemExit) as e:
             _main()
         self.assertIn('The provided user does not have superuser privilege', e.exception.code)

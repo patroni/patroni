@@ -477,7 +477,7 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
         with self._get_connection_cursor() as cur:
             self.pg_major = getattr(cur.connection, 'server_version', 0)
 
-            if not parse_bool(cur.connection.info.parameter_status('is_superuser')):
+            if not parse_bool(getattr(cur.connection, 'get_parameter_status')('is_superuser')):
                 raise PatroniException('The provided user does not have superuser privilege')
 
             self._set_pg_params(cur)
