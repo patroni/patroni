@@ -552,7 +552,7 @@ class Config(object):
                     ret[first][second] = value
 
         for first, params in (('restapi', ('request_queue_size',)),
-                              ('log', ('max_queue_size', 'file_size', 'file_num'))):
+                              ('log', ('max_queue_size', 'file_size', 'file_num', 'mode'))):
             for second in params:
                 value = ret.get(first, {}).pop(second, None)
                 if value:

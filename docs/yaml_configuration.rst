@@ -29,6 +29,7 @@ Log
 -  **static_fields**: add additional fields to the log. This option is only available when the log type is set to **json**.
 -  **max\_queue\_size**: Patroni is using two-step logging. Log records are written into the in-memory queue and there is a separate thread which pulls them from the queue and writes to stderr or file. The maximum size of the internal queue is limited by default by **1000** records, which is enough to keep logs for the past 1h20m.
 -  **dir**: Directory to write application logs to. The directory must exist and be writable by the user executing Patroni. If you set this value, the application will retain 4 25MB logs by default. You can tune those retention values with `file_num` and `file_size` (see below).
+-  **mode**: Permissions for log files (for example, ``0644``). If not specified, permissions will be set based on the current umask value.
 -  **file\_num**: The number of application logs to retain.
 -  **file\_size**: Size of patroni.log file (in bytes) that triggers a log rolling.
 -  **loggers**: This section allows redefining logging level per python module

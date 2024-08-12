@@ -39,19 +39,27 @@ class __FilePermissions:
     def __init__(self) -> None:
         """Create a :class:`__FilePermissions` object and set default permissions."""
         self.__set_owner_permissions()
-        self.__set_umask()
+        self.__orig_umask = self.__set_umask()
 
-    def __set_umask(self) -> None:
+    def __set_umask(self) -> int:
         """Set umask value based on calculations.
 
         .. note::
             Should only be called once either :meth:`__set_owner_permissions`
             or :meth:`__set_group_permissions` has been executed.
+
+        :returns: the previous value of the umask or ``0022`` if umask call failed.
         """
         try:
-            os.umask(self.__pg_mode_mask)
+            return os.umask(self.__pg_mode_mask)
         except Exception as e:
             logger.error('Can not set umask to %03o: %r', self.__pg_mode_mask, e)
+            return 0o22
+
+    @property
+    def orig_umask(self) -> int:
+        """Original umask value."""
+        return self.__orig_umask
 
     def __set_owner_permissions(self) -> None:
         """Make directories/files accessible only by the owner."""

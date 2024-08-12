@@ -30,3 +30,6 @@ class TestFilePermissions(unittest.TestCase):
     def test_set_permissions_from_data_directory(self, mock_logger):
         pg_perm.set_permissions_from_data_directory('test')
         self.assertEqual(mock_logger.call_args[0][0], 'Can not check permissions on %s: %r')
+
+    def test_orig_umask(self):
+        self.assertIsNotNone(pg_perm.orig_umask)
