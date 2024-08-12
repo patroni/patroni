@@ -1313,6 +1313,9 @@ parameters:
   synchronize_seqscans:
   - type: Bool
     version_from: 90300
+  synchronized_standby_slots:
+  - type: String
+    version_from: 170000
   synchronous_commit:
   - type: EnumBool
     version_from: 90300
