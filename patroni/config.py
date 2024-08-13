@@ -535,7 +535,7 @@ class Config(object):
         _set_section_values('postgresql', ['listen', 'connect_address', 'proxy_address',
                                            'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
         _set_section_values('log', ['type', 'level', 'traceback_level', 'format', 'dateformat', 'static_fields',
-                                    'max_queue_size', 'dir', 'file_size', 'file_num', 'loggers'])
+                                    'max_queue_size', 'dir', 'mode', 'file_size', 'file_num', 'loggers'])
         _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs', 'password', 'bind_addr'])
 
         for binary in ('pg_ctl', 'initdb', 'pg_controldata', 'pg_basebackup', 'postgres', 'pg_isready', 'pg_rewind'):
@@ -552,7 +552,7 @@ class Config(object):
                     ret[first][second] = value
 
         for first, params in (('restapi', ('request_queue_size',)),
-                              ('log', ('max_queue_size', 'file_size', 'file_num'))):
+                              ('log', ('max_queue_size', 'file_size', 'file_num', 'mode'))):
             for second in params:
                 value = ret.get(first, {}).pop(second, None)
                 if value:

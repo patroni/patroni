@@ -991,6 +991,7 @@ schema = Schema({
         Optional("dir"): str,
         Optional("file_num"): int,
         Optional("file_size"): int,
+        Optional("mode"): IntValidator(min=0, max=511, expected_type=int, raise_assert=True),
         Optional("loggers"): dict
     },
     Optional("ctl"): {
