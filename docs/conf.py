@@ -77,8 +77,8 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'Patroni'
-copyright = '2015 Compose, Zalando SE'
-author = 'Zalando SE'
+copyright = '2024 Compose, Zalando SE, Patroni Contributors'
+author = 'Patroni Contributors'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -134,7 +134,7 @@ html_static_path = ['_static']
 # Replace "source" links with "edit on GitHub" when using rtd theme
 html_context = {
     'display_github': True,
-    'github_user': 'zalando',
+    'github_user': 'patroni',
     'github_repo': 'patroni',
     'github_version': 'master',
     'conf_py_path': '/docs/',
@@ -191,7 +191,7 @@ latex_elements = {
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
     (master_doc, 'Patroni.tex', 'Patroni Documentation',
-     'Zalando SE', 'manual'),
+     'Patroni Contributors', 'manual'),
 ]
 
 

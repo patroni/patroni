@@ -65,7 +65,7 @@ class MockResponse(object):
 
     def __init__(self, status_code=200):
         self.status_code = status_code
-        self.headers = {'content-type': 'json'}
+        self.headers = {'content-type': 'json', 'lsn': 100}
         self.content = '{}'
         self.reason = 'Not Found'
 
@@ -205,20 +205,16 @@ class MockCursor(object):
         pass
 
 
-class MockConnectionInfo(object):
-
-    def parameter_status(self, param_name):
-        if param_name == 'is_superuser':
-            return 'on'
-        return '0'
-
-
 class MockConnect(object):
 
     server_version = 99999
     autocommit = False
     closed = 0
-    info = MockConnectionInfo()
+
+    def get_parameter_status(self, param_name):
+        if param_name == 'is_superuser':
+            return 'on'
+        return '0'
 
     def cursor(self):
         return MockCursor(self)

@@ -16,7 +16,7 @@ Reporting bugs
 --------------
 
 Before reporting a bug please make sure to **reproduce it with the latest Patroni version**!
-Also please double check if the issue already exists in our `Issues Tracker <https://github.com/zalando/patroni/issues>`__.
+Also please double check if the issue already exists in our `Issues Tracker <https://github.com/patroni/patroni/issues>`__.
 
 Running tests
 -------------

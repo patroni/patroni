@@ -893,7 +893,8 @@ class ConfigHandler(object):
                 return re.sub(r'([:\\])', r'\\\1', str(value))
 
             # 'host' could be several comma-separated hostnames, in this case we need to write on pgpass line per host
-            hosts = map(escape, filter(None, map(str.strip, (record.get('host') or '*').split(','))))
+            hosts = map(escape, filter(None, map(str.strip,
+                        (record.get('host', '') or '*').split(','))))  # pyright: ignore [reportUnknownArgumentType]
             record = {n: escape(record.get(n) or '*') for n in ('port', 'user', 'password')}
             return '\n'.join('{host}:{port}:*:{user}:{password}'.format(**record, host=host) for host in hosts)
 
@@ -1343,3 +1344,12 @@ class ConfigHandler(object):
 
     def restore_command(self) -> Optional[str]:
         return (self.get('recovery_conf') or EMPTY_DICT).get('restore_command')
+
+    @property
+    def synchronous_standby_names(self) -> Optional[str]:
+        """Get ``synchronous_standby_names`` value configured by the user.
+
+        :returns: value of ``synchronous_standby_names`` in the Patroni configuration,
+            if any, otherwise ``None``.
+        """
+        return (self.get('parameters') or EMPTY_DICT).get('synchronous_standby_names')

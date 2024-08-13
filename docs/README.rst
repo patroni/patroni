@@ -6,8 +6,6 @@ Introduction
 
 Patroni is a template for high availability (HA) PostgreSQL solutions using Python. Patroni originated as a fork of `Governor <https://github.com/compose/governor>`__, the project from Compose. It includes plenty of new features.
 
-For an example of a Docker-based deployment with Patroni, see `Spilo <https://github.com/zalando/spilo>`__, currently in use at Zalando.
-
 For additional background info, see:
 
 * `PostgreSQL HA with Kubernetes and Patroni <https://www.youtube.com/watch?v=iruaCgeG7qs>`__, talk by Josh Berkus at KubeCon 2016 (video)
@@ -39,7 +37,7 @@ perfectly fine. You can add more standby nodes later.
 Running and Configuring
 -----------------------
 
-The following section assumes Patroni repository as being cloned from https://github.com/zalando/patroni. Namely, you
+The following section assumes Patroni repository as being cloned from https://github.com/patroni/patroni. Namely, you
 will need example configuration files `postgres0.yml` and `postgres1.yml`. If you installed Patroni with pip, you can
 obtain those files from the git repository and replace `./patroni.py` below with `patroni` command.
 
@@ -69,7 +67,7 @@ run:
 YAML Configuration
 ------------------
 
-Go :ref:`here <yaml_configuration>` for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/zalando/patroni/blob/master/postgres0.yml>`__.
+Go :ref:`here <yaml_configuration>` for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/patroni/patroni/blob/master/postgres0.yml>`__.
 
 
 Environment Configuration

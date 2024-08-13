@@ -87,7 +87,7 @@ Note that if you migrate from default role labels to custom ones, you can reduce
 Examples
 --------
 
-- The `kubernetes <https://github.com/zalando/patroni/tree/master/kubernetes>`__ folder of the Patroni repository contains
+- The `kubernetes <https://github.com/patroni/patroni/tree/master/kubernetes>`__ folder of the Patroni repository contains
   examples of the Docker image, and the Kubernetes manifest to test Patroni Kubernetes setup.
   Note that in the current state it will not be able to use PersistentVolumes because of permission issues.
 
@@ -98,5 +98,5 @@ Examples
   to deploy the Spilo image configured with Patroni running using Kubernetes.
 
 - In order to run your database clusters at scale using Patroni and Spilo, take a look at the
-  `postgres-operator <https://github.com/zalando-incubator/postgres-operator>`_ project. It implements the operator pattern
+  `postgres-operator <https://github.com/zalando/postgres-operator>`_ project. It implements the operator pattern
   to manage Spilo clusters.

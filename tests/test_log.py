@@ -38,6 +38,7 @@ class TestPatroniLogger(unittest.TestCase):
                 'traceback_level': 'DEBUG',
                 'max_queue_size': 5,
                 'dir': 'foo',
+                'mode': 0o600,
                 'file_size': 4096,
                 'file_num': 5,
                 'loggers': {
@@ -50,7 +51,9 @@ class TestPatroniLogger(unittest.TestCase):
         os.environ[Config.PATRONI_CONFIG_VARIABLE] = yaml.dump(config, default_flow_style=False)
         logger = PatroniLogger()
         patroni_config = Config(None)
-        logger.reload_config(patroni_config['log'])
+        with patch('os.chmod') as mock_chmod:
+            logger.reload_config(patroni_config['log'])
+            self.assertEqual(mock_chmod.call_args[0][1], 0o600)
         _LOG.exception('test')
         logger.start()
 
@@ -187,7 +190,7 @@ class TestPatroniLogger(unittest.TestCase):
             self.assertEqual(captured_log_level, 'WARNING')
             self.assertRegex(
                 captured_log_message,
-                fr'Expected log dateformat to be a string, but got "{type(config["dateformat"])}"'
+                r'Expected log dateformat to be a string, but got "int"'
             )
 
     def test_invalid_plain_format(self):

@@ -201,7 +201,7 @@ class _ReplicaList(List[_Replica]):
             'remote_write': 'write'
         }.get(postgresql.synchronous_commit(), 'flush') + '_lsn'
 
-        members = CaseInsensitiveDict({m.name: m for m in cluster.members})
+        members = CaseInsensitiveDict({m.name: m for m in cluster.members if m.name.lower() != postgresql.name.lower()})
         for row in postgresql.pg_stat_replication():
             member = members.get(row['application_name'])
 
