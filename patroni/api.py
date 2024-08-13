@@ -266,6 +266,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
                 * HTTP status ``200``: if up and running and without ``noloadbalance`` tag.
 
+            * ``/quorum``:
+
+                * HTTP status ``200``: if up and running as a quorum synchronous standby.
+
+            * ``/read-only-quorum``:
+
+                * HTTP status ``200``: if up and running as a quorum synchronous standby or primary.
+
             * ``/synchronous`` or ``/sync``:
 
                 * HTTP status ``200``: if up and running as a synchronous standby.
@@ -346,16 +354,24 @@ class RestApiHandler(BaseHTTPRequestHandler):
             ignore_tags = True
         elif 'replica' in path:
             status_code = replica_status_code
-        elif 'read-only' in path and 'sync' not in path:
+        elif 'read-only' in path and 'sync' not in path and 'quorum' not in path:
             status_code = 200 if 200 in (primary_status_code, standby_leader_status_code) else replica_status_code
         elif 'health' in path:
             status_code = 200 if response.get('state') == 'running' else 503
         elif cluster:  # dcs is available
+            is_quorum = response.get('quorum_standby')
             is_synchronous = response.get('sync_standby')
             if path in ('/sync', '/synchronous') and is_synchronous:
                 status_code = replica_status_code
-            elif path in ('/async', '/asynchronous') and not is_synchronous:
+            elif path == '/quorum' and is_quorum:
                 status_code = replica_status_code
+            elif path in ('/async', '/asynchronous') and not is_synchronous and not is_quorum:
+                status_code = replica_status_code
+            elif path == '/read-only-quorum':
+                if 200 in (primary_status_code, standby_leader_status_code):
+                    status_code = 200
+                elif is_quorum:
+                    status_code = replica_status_code
             elif path in ('/read-only-sync', '/read-only-synchronous'):
                 if 200 in (primary_status_code, standby_leader_status_code):
                     status_code = 200
@@ -522,6 +538,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``patroni_standby_leader``: ``1`` if standby leader node, else ``0``;
             * ``patroni_replica``: ``1`` if a replica, else ``0``;
             * ``patroni_sync_standby``: ``1`` if a sync replica, else ``0``;
+            * ``patroni_quorum_standby``: ``1`` if a quorum sync replica, else ``0``;
             * ``patroni_xlog_received_location``: ``pg_wal_lsn_diff(pg_last_wal_receive_lsn(), '0/0')``;
             * ``patroni_xlog_replayed_location``: ``pg_wal_lsn_diff(pg_last_wal_replay_lsn(), '0/0)``;
             * ``patroni_xlog_replayed_timestamp``: ``pg_last_xact_replay_timestamp``;
@@ -584,9 +601,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_replica gauge")
         metrics.append("patroni_replica{0} {1}".format(labels, int(postgres['role'] == 'replica')))
 
-        metrics.append("# HELP patroni_sync_standby Value is 1 if this node is a sync standby replica, 0 otherwise.")
+        metrics.append("# HELP patroni_sync_standby Value is 1 if this node is a sync standby, 0 otherwise.")
         metrics.append("# TYPE patroni_sync_standby gauge")
         metrics.append("patroni_sync_standby{0} {1}".format(labels, int(postgres.get('sync_standby', False))))
+
+        metrics.append("# HELP patroni_quorum_standby Value is 1 if this node is a quorum standby, 0 otherwise.")
+        metrics.append("# TYPE patroni_quorum_standby gauge")
+        metrics.append("patroni_quorum_standby{0} {1}".format(labels, int(postgres.get('quorum_standby', False))))
 
         metrics.append("# HELP patroni_xlog_received_location Current location of the received"
                        " Postgres transaction log, 0 if this node is not a replica.")
@@ -1049,16 +1070,17 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         :returns: a string with the error message or ``None`` if good nodes are found.
         """
-        is_synchronous_mode = global_config.from_cluster(cluster).is_synchronous_mode
+        config = global_config.from_cluster(cluster)
         if leader and (not cluster.leader or cluster.leader.name != leader):
             return 'leader name does not match'
         if candidate:
-            if action == 'switchover' and is_synchronous_mode and not cluster.sync.matches(candidate):
+            if action == 'switchover' and config.is_synchronous_mode\
+                    and not config.is_quorum_commit_mode and not cluster.sync.matches(candidate):
                 return 'candidate name does not match with sync_standby'
             members = [m for m in cluster.members if m.name == candidate]
             if not members:
                 return 'candidate does not exists'
-        elif is_synchronous_mode:
+        elif config.is_synchronous_mode and not config.is_quorum_commit_mode:
             members = [m for m in cluster.members if cluster.sync.matches(m.name)]
             if not members:
                 return action + ' is not possible: can not find sync_standby'
@@ -1265,6 +1287,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     * ``paused``: ``pg_is_wal_replay_paused()``;
 
             * ``sync_standby``: ``True`` if replication mode is synchronous and this is a sync standby;
+            * ``quorum_standby``: ``True`` if replication mode is quorum and this is a quorum standby;
             * ``timeline``: PostgreSQL primary node timeline;
             * ``replication``: :class:`list` of :class:`dict` entries, one for each replication connection. Each entry
                 contains the following keys:
@@ -1320,7 +1343,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
             if result['role'] == 'replica' and config.is_synchronous_mode\
                     and cluster and cluster.sync.matches(postgresql.name):
-                result['sync_standby'] = True
+                result['quorum_standby' if global_config.is_quorum_commit_mode else 'sync_standby'] = True
 
             if row[1] > 0:
                 result['timeline'] = row[1]

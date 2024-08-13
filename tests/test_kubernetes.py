@@ -439,7 +439,7 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', mock_namespaced_kind, create=True)
     def test_write_sync_state(self):
-        self.assertIsNotNone(self.k.write_sync_state('a', ['b'], 1))
+        self.assertIsNotNone(self.k.write_sync_state('a', ['b'], 0, 1))
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod', mock_namespaced_kind, create=True)
     @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints', mock_namespaced_kind, create=True)

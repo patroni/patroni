@@ -182,6 +182,11 @@ class Postgresql(object):
         return 'lsn' if self._major_version >= 100000 else 'location'
 
     @property
+    def supports_quorum_commit(self) -> bool:
+        """``True`` if quorum commit is supported by Postgres."""
+        return self._major_version >= 100000
+
+    @property
     def supports_multiple_sync(self) -> bool:
         """:returns: `True` if Postgres version supports more than one synchronous node."""
         return self._major_version >= 90600

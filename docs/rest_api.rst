@@ -45,6 +45,10 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
 - ``GET /read-only-sync``: like the above endpoint, but also includes the primary.
 
+- ``GET /quorum``: returns HTTP status code **200** only when this Patroni node is listed as a quorum node in ``synchronous_standby_names`` on the primary.
+
+- ``GET /read-only-quorum``: like the above endpoint, but also includes the primary.
+
 - ``GET /asynchronous`` or ``GET /async``: returns HTTP status code **200** only when the Patroni node is running as an asynchronous standby.
 
 
@@ -308,6 +312,9 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# HELP patroni_sync_standby Value is 1 if this node is a sync standby replica, 0 otherwise.
 	# TYPE patroni_sync_standby gauge
 	patroni_sync_standby{scope="batman",name="patroni1"} 0
+	# HELP patroni_quorum_standby Value is 1 if this node is a quorum standby replica, 0 otherwise.
+	# TYPE patroni_quorum_standby gauge
+	patroni_quorum_standby{scope="batman",name="patroni1"} 0
 	# HELP patroni_xlog_received_location Current location of the received Postgres transaction log, 0 if this node is not a replica.
 	# TYPE patroni_xlog_received_location counter
 	patroni_xlog_received_location{scope="batman",name="patroni1"} 0
