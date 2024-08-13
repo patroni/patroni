@@ -676,23 +676,6 @@ class Config(object):
             if dcs in ret:
                 ret[dcs].update(_get_auth(dcs))
 
-        users = {}
-        for param in list(os.environ.keys()):
-            if param.startswith(PATRONI_ENV_PREFIX):
-                name, suffix = (param[len(PATRONI_ENV_PREFIX):].rsplit('_', 1) + [''])[:2]
-                # PATRONI_<username>_PASSWORD=<password>, PATRONI_<username>_OPTIONS=<option1,option2,...>
-                # CREATE USER "<username>" WITH <OPTIONS> PASSWORD '<password>'
-                if name and suffix == 'PASSWORD':
-                    password = os.environ.pop(param)
-                    if password:
-                        users[name] = {'password': password}
-                        options = os.environ.pop(param[:-9] + '_OPTIONS', None)  # replace "_PASSWORD" with "_OPTIONS"
-                        options = options and _parse_list(options)
-                        if options:
-                            users[name]['options'] = options
-        if users:
-            ret['bootstrap']['users'] = users
-
         return ret
 
     def _build_effective_configuration(self, dynamic_configuration: Dict[str, Any],
