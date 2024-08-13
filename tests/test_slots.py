@@ -1,8 +1,9 @@
 import os
 import unittest
+
 from threading import Thread
 from unittest import mock
-from unittest.mock import Mock, PropertyMock, patch
+from unittest.mock import Mock, patch, PropertyMock
 
 from patroni import global_config, psycopg
 from patroni.dcs import Cluster, ClusterConfig, Member, Status, SyncState
@@ -11,7 +12,7 @@ from patroni.postgresql.misc import fsync_dir
 from patroni.postgresql.slots import SlotsAdvanceThread, SlotsHandler
 from patroni.tags import Tags
 
-from . import BaseTestPostgresql, psycopg_connect, MockCursor
+from . import BaseTestPostgresql, MockCursor, psycopg_connect
 
 
 class TestTags(Tags):

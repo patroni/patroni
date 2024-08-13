@@ -9,22 +9,25 @@ import random
 import socket
 import tempfile
 import time
-import urllib3
-import yaml
 
 from collections import defaultdict
 from copy import deepcopy
 from http.client import HTTPException
-from urllib3.exceptions import HTTPError
 from threading import Condition, Lock, Thread
-from typing import Any, Callable, Collection, Dict, List, Optional, Tuple, Type, Union, TYPE_CHECKING
+from typing import Any, Callable, Collection, Dict, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
-from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, TimelineHistory
+import urllib3
+import yaml
+
+from urllib3.exceptions import HTTPError
+
 from ..collections import EMPTY_DICT
 from ..exceptions import DCSError
 from ..postgresql.mpp import AbstractMPP
-from ..utils import deep_compare, iter_response_objects, keepalive_socket_options, \
-    Retry, RetryFailedError, tzutc, uri, USER_AGENT
+from ..utils import deep_compare, iter_response_objects, \
+    keepalive_socket_options, Retry, RetryFailedError, tzutc, uri, USER_AGENT
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, TimelineHistory
+
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
 

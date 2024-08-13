@@ -2,8 +2,8 @@ import abc
 import logging
 import platform
 import sys
-from threading import RLock
 
+from threading import RLock
 from typing import Any, Callable, Dict, Optional, Union
 
 from ..config import Config

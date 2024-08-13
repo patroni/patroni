@@ -1,7 +1,7 @@
+import io
 import os
 import sys
 import unittest
-import io
 
 from copy import deepcopy
 from unittest.mock import MagicMock, Mock, patch

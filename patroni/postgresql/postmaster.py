@@ -1,16 +1,17 @@
 import logging
 import multiprocessing
 import os
-import psutil
 import re
 import signal
 import subprocess
 import sys
 
 from multiprocessing.connection import Connection
-from typing import Dict, Optional, List
+from typing import Dict, List, Optional
 
-from patroni import PATRONI_ENV_PREFIX, KUBERNETES_ENV_PREFIX
+import psutil
+
+from patroni import KUBERNETES_ENV_PREFIX, PATRONI_ENV_PREFIX
 
 # avoid spawning the resource tracker process
 if sys.version_info >= (3, 8):  # pragma: no cover

@@ -1,14 +1,15 @@
 import abc
-from copy import deepcopy
 import logging
-import yaml
 
+from copy import deepcopy
 from typing import Any, Dict, Iterator, List, MutableMapping, Optional, Tuple, Type, Union
 
-from .available_parameters import get_validator_files, PathLikeObj
+import yaml
+
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..exceptions import PatroniException
 from ..utils import parse_bool, parse_int, parse_real
+from .available_parameters import get_validator_files, PathLikeObj
 
 logger = logging.getLogger(__name__)
 

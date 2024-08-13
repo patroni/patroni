@@ -1,9 +1,8 @@
 import abc
 import datetime
 import glob
-import os
 import json
-import psutil
+import os
 import re
 import shutil
 import signal
@@ -13,11 +12,14 @@ import sys
 import tempfile
 import threading
 import time
+
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+import psutil
 import yaml
 
 import patroni.psycopg as psycopg
 
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from patroni.request import PatroniRequest
 
 
@@ -498,6 +500,7 @@ class AbstractEtcdController(AbstractDcsController):
 
     def _is_running(self):
         from patroni.dcs.etcd import DnsCachingResolver
+
         # if etcd is running, but we didn't start it
         try:
             self._client = self._client_cls({'host': 'localhost', 'port': 2379, 'retry_timeout': 30,

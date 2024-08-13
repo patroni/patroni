@@ -1,4 +1,5 @@
 from typing import Any
+
 from patroni.exceptions import PatroniException
 from patroni.postgresql.mpp import AbstractMPP, get_mpp, Null
 

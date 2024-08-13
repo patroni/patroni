@@ -1,13 +1,18 @@
-import etcd
 import logging
 import os
 import signal
 import time
 import unittest
-from unittest.mock import Mock, PropertyMock, patch
+
+from http.server import HTTPServer
+from threading import Thread
+from unittest.mock import Mock, patch, PropertyMock
+
+import etcd
 
 import patroni.config as config
-from http.server import HTTPServer
+
+from patroni.__main__ import check_psycopg, main as _main, Patroni
 from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
 from patroni.dcs import Cluster, Member
@@ -15,8 +20,6 @@ from patroni.dcs.etcd import AbstractEtcdClientWithFailover
 from patroni.exceptions import DCSError
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
-from patroni.__main__ import check_psycopg, Patroni, main as _main
-from threading import Thread
 
 from . import psycopg_connect, SleepException
 from .test_etcd import etcd_read, etcd_write

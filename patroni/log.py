@@ -8,12 +8,11 @@ import os
 import sys
 
 from copy import deepcopy
-from logging.handlers import RotatingFileHandler
-from queue import Queue, Full
-from threading import Lock, Thread
-
 from io import TextIOWrapper
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from logging.handlers import RotatingFileHandler
+from queue import Full, Queue
+from threading import Lock, Thread
+from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union
 
 from .file_perm import pg_perm
 from .utils import deep_compare, parse_int

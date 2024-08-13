@@ -8,14 +8,14 @@ import uuid
 
 from multiprocessing.pool import ThreadPool
 from threading import RLock
-from typing import Any, Callable, Collection, Dict, List, NamedTuple, Optional, Union, Tuple, TYPE_CHECKING
+from typing import Any, Callable, Collection, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING, Union
 
 from . import global_config, psycopg
 from .__main__ import Patroni
 from .async_executor import AsyncExecutor, CriticalTask
 from .collections import CaseInsensitiveSet
 from .dcs import AbstractDCS, Cluster, Leader, Member, RemoteMember, Status, SyncState
-from .exceptions import DCSError, PostgresConnectionException, PatroniFatalException
+from .exceptions import DCSError, PatroniFatalException, PostgresConnectionException
 from .postgresql.callback_executor import CallbackAction
 from .postgresql.misc import postgres_version_to_int
 from .postgresql.postmaster import PostmasterProcess

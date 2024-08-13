@@ -9,10 +9,11 @@ builds the CLI that makes an interface with the actual commands.
     See :class:ExitCode` for possible exit codes of this main script.
 """
 
-from argparse import ArgumentParser
-from enum import IntEnum
 import logging
 import sys
+
+from argparse import ArgumentParser
+from enum import IntEnum
 
 from .config_switch import run_barman_config_switch
 from .recover import run_barman_recover

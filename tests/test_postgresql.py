@@ -1,13 +1,15 @@
 import datetime
 import os
-import psutil
 import re
 import subprocess
 import time
 
 from copy import deepcopy
 from pathlib import Path
-from unittest.mock import Mock, MagicMock, PropertyMock, patch, mock_open
+from threading import current_thread, Thread
+from unittest.mock import MagicMock, Mock, mock_open, patch, PropertyMock
+
+import psutil
 
 import patroni.psycopg as psycopg
 
@@ -15,22 +17,19 @@ from patroni import global_config
 from patroni.async_executor import CriticalTask
 from patroni.collections import CaseInsensitiveDict, CaseInsensitiveSet
 from patroni.dcs import RemoteMember
-from patroni.exceptions import PostgresConnectionException, PatroniException
-from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
+from patroni.exceptions import PatroniException, PostgresConnectionException
+from patroni.postgresql import Postgresql, STATE_NO_RESPONSE, STATE_REJECT
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
-from patroni.postgresql.config import get_param_diff, _false_validator
+from patroni.postgresql.config import _false_validator, get_param_diff
 from patroni.postgresql.postmaster import PostmasterProcess
-from patroni.postgresql.validator import (ValidatorFactoryNoType, ValidatorFactoryInvalidType,
-                                          ValidatorFactoryInvalidSpec, ValidatorFactory, InvalidGucValidatorsFile,
-                                          _get_postgres_guc_validators, _read_postgres_gucs_validators_file,
-                                          _load_postgres_gucs_validators, Bool, Integer, Real, Enum, EnumBool, String)
+from patroni.postgresql.validator import _get_postgres_guc_validators, _load_postgres_gucs_validators, \
+    _read_postgres_gucs_validators_file, Bool, Enum, EnumBool, Integer, InvalidGucValidatorsFile, Real, String, \
+    ValidatorFactory, ValidatorFactoryInvalidSpec, ValidatorFactoryInvalidType, ValidatorFactoryNoType
 from patroni.utils import RetryFailedError
-from threading import Thread, current_thread
 
-from . import (BaseTestPostgresql, MockCursor, MockPostmaster, psycopg_connect, mock_available_gucs,
-               GET_PG_SETTINGS_RESULT)
-
+from . import BaseTestPostgresql, GET_PG_SETTINGS_RESULT, \
+    mock_available_gucs, MockCursor, MockPostmaster, psycopg_connect
 
 mtime_ret = {}
 

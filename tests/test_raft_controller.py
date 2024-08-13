@@ -1,11 +1,13 @@
 import logging
 import os
 import unittest
+
 from unittest.mock import Mock, patch
 
 from pysyncobj import SyncObj
+
 from patroni.config import Config
-from patroni.raft_controller import RaftController, main as _main
+from patroni.raft_controller import main as _main, RaftController
 
 from . import SleepException
 from .test_raft import remove_files

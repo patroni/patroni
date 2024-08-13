@@ -7,32 +7,32 @@ utilises the API to perform these functions.
 """
 
 import base64
+import datetime
 import hmac
 import json
 import logging
-import time
-import traceback
-import dateutil.parser
-import datetime
 import os
 import socket
 import sys
+import time
+import traceback
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import ip_address, ip_network, IPv4Network, IPv6Network
 from socketserver import ThreadingMixIn
 from threading import Thread
-from urllib.parse import urlparse, parse_qs
-
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
+from urllib.parse import parse_qs, urlparse
+
+import dateutil.parser
 
 from . import global_config, psycopg
 from .__main__ import Patroni
 from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
 from .postgresql.misc import postgres_version_to_int
-from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Retry, \
-    RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json
+from .utils import cluster_as_json, deep_compare, enable_keepalive, parse_bool, \
+    parse_int, patch_config, Retry, RetryFailedError, split_host_port, tzutc, uri
 
 logger = logging.getLogger(__name__)
 

@@ -1,15 +1,16 @@
 """Facilities related to Patroni configuration."""
-import re
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
-import yaml
 
 from collections import defaultdict
 from copy import deepcopy
-from typing import Any, Callable, Collection, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import Any, Callable, Collection, Dict, List, Optional, TYPE_CHECKING, Union
+
+import yaml
 
 from . import PATRONI_ENV_PREFIX
 from .collections import CaseInsensitiveDict, EMPTY_DICT
@@ -17,8 +18,8 @@ from .dcs import ClusterConfig
 from .exceptions import ConfigParseError
 from .file_perm import pg_perm
 from .postgresql.config import ConfigHandler
-from .validator import IntValidator
 from .utils import deep_compare, parse_bool, parse_int, patch_config
+from .validator import IntValidator
 
 logger = logging.getLogger(__name__)
 
@@ -675,23 +676,6 @@ class Config(object):
         for dcs in ('etcd', 'etcd3'):
             if dcs in ret:
                 ret[dcs].update(_get_auth(dcs))
-
-        users = {}
-        for param in list(os.environ.keys()):
-            if param.startswith(PATRONI_ENV_PREFIX):
-                name, suffix = (param[len(PATRONI_ENV_PREFIX):].rsplit('_', 1) + [''])[:2]
-                # PATRONI_<username>_PASSWORD=<password>, PATRONI_<username>_OPTIONS=<option1,option2,...>
-                # CREATE USER "<username>" WITH <OPTIONS> PASSWORD '<password>'
-                if name and suffix == 'PASSWORD':
-                    password = os.environ.pop(param)
-                    if password:
-                        users[name] = {'password': password}
-                        options = os.environ.pop(param[:-9] + '_OPTIONS', None)  # replace "_PASSWORD" with "_OPTIONS"
-                        options = options and _parse_list(options)
-                        if options:
-                            users[name]['options'] = options
-        if users:
-            ret['bootstrap']['users'] = users
 
         return ret
 

@@ -2,7 +2,8 @@ import logging
 
 from contextlib import contextmanager
 from threading import Lock
-from typing import Any, Dict, Iterator, List, Optional, Union, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
+
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Connection, Cursor
     from psycopg2 import connection, cursor

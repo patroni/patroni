@@ -3,13 +3,13 @@ import re
 import time
 
 from threading import Condition, Event, Thread
+from typing import Any, Collection, Dict, Iterator, List, Optional, Set, Tuple, TYPE_CHECKING, Union
 from urllib.parse import urlparse
-from typing import Any, Collection, Dict, Iterator, List, Optional, Union, Set, Tuple, TYPE_CHECKING
 
-from . import AbstractMPP, AbstractMPPHandler
 from ...dcs import Cluster
-from ...psycopg import connect, quote_ident, ProgrammingError
+from ...psycopg import connect, ProgrammingError, quote_ident
 from ...utils import parse_int
+from . import AbstractMPP, AbstractMPPHandler
 
 if TYPE_CHECKING:  # pragma: no cover
     from .. import Postgresql

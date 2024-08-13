@@ -5,9 +5,10 @@ import tempfile
 import unittest
 
 from io import StringIO
-from unittest.mock import Mock, patch, mock_open
+from unittest.mock import Mock, mock_open, patch
+
 from patroni.dcs import dcs_modules
-from patroni.validator import schema, Directory, Schema
+from patroni.validator import Directory, schema, Schema
 
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 config = {

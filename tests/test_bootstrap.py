@@ -1,6 +1,7 @@
 import os
 import sys
-from unittest.mock import Mock, PropertyMock, patch
+
+from unittest.mock import Mock, patch, PropertyMock
 
 from patroni.async_executor import CriticalTask
 from patroni.collections import CaseInsensitiveDict
@@ -9,7 +10,7 @@ from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.config import ConfigHandler, get_param_diff
 
-from . import psycopg_connect, BaseTestPostgresql, mock_available_gucs
+from . import BaseTestPostgresql, mock_available_gucs, psycopg_connect
 
 
 @patch('subprocess.call', Mock(return_value=0))

@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+
 import json
 import logging
 import os
@@ -6,20 +7,23 @@ import re
 import socket
 import ssl
 import time
-import urllib3
 
 from collections import defaultdict
-from consul import ConsulException, NotFound, base
 from http.client import HTTPException
-from urllib3.exceptions import HTTPError
-from urllib.parse import urlencode, urlparse, quote
-from typing import Any, Callable, Dict, List, Mapping, NamedTuple, Optional, Union, Tuple, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Mapping, NamedTuple, Optional, Tuple, TYPE_CHECKING, Union
+from urllib.parse import quote, urlencode, urlparse
 
-from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, \
-    TimelineHistory, ReturnFalseException, catch_return_false_exception
+import urllib3
+
+from consul import base, ConsulException, NotFound
+from urllib3.exceptions import HTTPError
+
 from ..exceptions import DCSError
 from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port, uri, USER_AGENT
+from . import AbstractDCS, catch_return_false_exception, Cluster, ClusterConfig, \
+    Failover, Leader, Member, ReturnFalseException, Status, SyncState, TimelineHistory
+
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
 

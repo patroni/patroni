@@ -3,12 +3,13 @@
 import json
 import logging
 import sys
+
+from typing import Any, Optional
+
 import boto3
 
 from botocore.exceptions import ClientError
 from botocore.utils import IMDSFetcher
-
-from typing import Any, Optional
 
 from ..utils import Retry, RetryFailedError
 

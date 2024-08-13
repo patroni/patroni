@@ -9,13 +9,13 @@ import os
 import shutil
 import socket
 
-from typing import Any, Dict, Union, Iterator, List, Optional as OptionalType, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Iterator, List, Optional as OptionalType, Tuple, TYPE_CHECKING, Union
 
 from .collections import CaseInsensitiveSet, EMPTY_DICT
 from .dcs import dcs_modules
 from .exceptions import ConfigParseError
-from .utils import parse_int, split_host_port, data_directory_is_empty, get_major_version
 from .log import type_logformat
+from .utils import data_directory_is_empty, get_major_version, parse_int, split_host_port
 
 
 def validate_log_field(field: Union[str, Dict[str, Any], Any]) -> bool:

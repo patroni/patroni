@@ -2,7 +2,7 @@ import unittest
 
 from typing import List, Set, Tuple
 
-from patroni.quorum import QuorumStateResolver, QuorumError
+from patroni.quorum import QuorumError, QuorumStateResolver
 
 
 class QuorumTest(unittest.TestCase):

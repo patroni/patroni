@@ -4,16 +4,19 @@ import json
 import socket
 import time
 import unittest
-import urllib3
+
+from threading import Thread
 from unittest import mock
-from unittest.mock import Mock, PropertyMock, mock_open, patch
+from unittest.mock import Mock, mock_open, patch, PropertyMock
+
+import urllib3
 
 from patroni.dcs import get_dcs
 from patroni.dcs.kubernetes import Cluster, k8s_client, k8s_config, K8sConfig, K8sConnectionFailed, \
-    K8sException, K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException, \
-    Retry, RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
+    K8sException, K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException, Retry, \
+    RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
 from patroni.postgresql.mpp import get_mpp
-from threading import Thread
+
 from . import MockResponse, SleepException
 
 
