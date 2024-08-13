@@ -9,6 +9,7 @@ from .. import global_config
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Cluster
 from ..psycopg import quote_ident as _quote_ident
+
 if TYPE_CHECKING:  # pragma: no cover
     from . import Postgresql
 

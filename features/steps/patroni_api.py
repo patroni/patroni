@@ -1,14 +1,16 @@
 import json
-import parse
 import shlex
 import subprocess
 import sys
 import time
+
+from datetime import datetime, timedelta
+
+import parse
 import yaml
 
 from behave import register_type, step, then
 from dateutil import tz
-from datetime import datetime, timedelta
 
 tzutc = tz.tzutc()
 

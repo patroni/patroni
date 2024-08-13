@@ -1,7 +1,7 @@
 import logging
 
 from .config import Config
-from .daemon import AbstractPatroniDaemon, abstract_main, get_base_arg_parser
+from .daemon import abstract_main, AbstractPatroniDaemon, get_base_arg_parser
 from .dcs.raft import KVStoreTTL
 
 logger = logging.getLogger(__name__)

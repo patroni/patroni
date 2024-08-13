@@ -1,12 +1,12 @@
 import datetime
 import json
-import unittest
 import socket
+import unittest
 
 from http.server import HTTPServer
 from io import BytesIO as IO
 from socketserver import ThreadingMixIn
-from unittest.mock import Mock, PropertyMock, patch
+from unittest.mock import Mock, patch, PropertyMock
 
 from patroni import global_config
 from patroni.api import RestApiHandler, RestApiServer
@@ -19,7 +19,6 @@ from patroni.utils import RetryFailedError, tzutc
 
 from . import MockConnect, psycopg_connect
 from .test_ha import get_cluster_initialized_without_leader
-
 
 future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)
 postmaster_start_time = datetime.datetime.now(tzutc)

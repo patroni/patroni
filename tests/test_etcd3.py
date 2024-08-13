@@ -1,18 +1,20 @@
-import etcd
 import json
 import unittest
+
+from threading import Thread
+from unittest.mock import Mock, patch, PropertyMock
+
+import etcd
 import urllib3
-from unittest.mock import Mock, PropertyMock, patch
 
 from patroni.dcs import get_dcs
 from patroni.dcs.etcd import DnsCachingResolver
-from patroni.dcs.etcd3 import PatroniEtcd3Client, Cluster, Etcd3, Etcd3Client, \
-    Etcd3Error, Etcd3ClientError, RetryFailedError, InvalidAuthToken, Unavailable, \
-    Unknown, UnsupportedEtcdVersion, UserEmpty, AuthFailed, AuthOldRevision, base64_encode
+from patroni.dcs.etcd3 import AuthFailed, AuthOldRevision, base64_encode, Cluster, Etcd3, \
+    Etcd3Client, Etcd3ClientError, Etcd3Error, InvalidAuthToken, PatroniEtcd3Client, \
+    RetryFailedError, Unavailable, Unknown, UnsupportedEtcdVersion, UserEmpty
 from patroni.postgresql.mpp import get_mpp
-from threading import Thread
 
-from . import SleepException, MockResponse
+from . import MockResponse, SleepException
 
 
 def mock_urlopen(self, method, url, **kwargs):

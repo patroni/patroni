@@ -5,22 +5,22 @@ import json
 import logging
 import re
 import time
+
 from collections import defaultdict
 from copy import deepcopy
 from random import randint
 from threading import Event, Lock
 from typing import Any, Callable, Collection, Dict, Iterator, List, \
     NamedTuple, Optional, Set, Tuple, Type, TYPE_CHECKING, Union
-from urllib.parse import urlparse, urlunparse, parse_qsl
+from urllib.parse import parse_qsl, urlparse, urlunparse
 
 import dateutil.parser
 
 from .. import global_config
 from ..dynamic_loader import iter_classes, iter_modules
 from ..exceptions import PatroniFatalException
-from ..utils import deep_compare, uri
 from ..tags import Tags
-from ..utils import parse_int
+from ..utils import deep_compare, parse_int, uri
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config

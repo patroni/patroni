@@ -4,18 +4,20 @@ import select
 import socket
 import time
 
-from kazoo.client import KazooClient, KazooState, KazooRetry
-from kazoo.exceptions import ConnectionClosedError, NoNodeError, NodeExistsError, SessionExpiredError
+from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
+
+from kazoo.client import KazooClient, KazooRetry, KazooState
+from kazoo.exceptions import ConnectionClosedError, NodeExistsError, NoNodeError, SessionExpiredError
 from kazoo.handlers.threading import AsyncResult, SequentialThreadingHandler
 from kazoo.protocol.states import KeeperState, WatchedEvent, ZnodeStat
 from kazoo.retry import RetryFailedError
 from kazoo.security import ACL, make_acl
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
-from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, TimelineHistory
 from ..exceptions import DCSError
 from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, TimelineHistory
+
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
 

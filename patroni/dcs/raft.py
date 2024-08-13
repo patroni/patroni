@@ -5,17 +5,19 @@ import threading
 import time
 
 from collections import defaultdict
-from pysyncobj import SyncObj, SyncObjConf, replicated, FAIL_REASON
+from typing import Any, Callable, Collection, Dict, List, Optional, Set, TYPE_CHECKING, Union
+
+from pysyncobj import FAIL_REASON, replicated, SyncObj, SyncObjConf
 from pysyncobj.dns_resolver import globalDnsResolver
 from pysyncobj.node import TCPNode
-from pysyncobj.transport import TCPTransport, CONNECTION_STATE
+from pysyncobj.transport import CONNECTION_STATE, TCPTransport
 from pysyncobj.utility import TcpUtility
-from typing import Any, Callable, Collection, Dict, List, Optional, Set, Union, TYPE_CHECKING
 
-from . import AbstractDCS, ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, TimelineHistory
 from ..exceptions import DCSError
 from ..postgresql.mpp import AbstractMPP
 from ..utils import validate_directory
+from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, TimelineHistory
+
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
 

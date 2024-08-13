@@ -1,9 +1,11 @@
 import ctypes
-import patroni.watchdog.linux as linuxwd
+import os
 import sys
 import unittest
-import os
-from unittest.mock import patch, Mock, PropertyMock
+
+from unittest.mock import Mock, patch, PropertyMock
+
+import patroni.watchdog.linux as linuxwd
 
 from patroni.watchdog import Watchdog, WatchdogError
 from patroni.watchdog.base import NullWatchdog

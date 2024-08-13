@@ -2,14 +2,16 @@
 import abc
 import logging
 import os
-import psutil
 import socket
 import sys
+
+from contextlib import contextmanager
+from getpass import getpass, getuser
+from typing import Any, Dict, Iterator, List, Optional, TextIO, Tuple, TYPE_CHECKING, Union
+
+import psutil
 import yaml
 
-from getpass import getuser, getpass
-from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Optional, TextIO, Tuple, TYPE_CHECKING, Union
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
     from psycopg2 import cursor
@@ -22,7 +24,6 @@ from .log import PatroniLogger
 from .postgresql.config import ConfigHandler, parse_dsn
 from .postgresql.misc import postgres_major_version_to_int
 from .utils import get_major_version, parse_bool, patch_config, read_stripped
-
 
 # Mapping between the libpq connection parameters and the environment variables.
 # This dict should be kept in sync with `patroni.utils._AUTH_ALLOWED_PARAMETERS`

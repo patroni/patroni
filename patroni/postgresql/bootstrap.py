@@ -4,7 +4,7 @@ import shlex
 import tempfile
 import time
 
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
 
 from ..async_executor import CriticalTask
 from ..collections import EMPTY_DICT

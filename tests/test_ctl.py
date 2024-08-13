@@ -1,28 +1,31 @@
-import click
-import etcd
 import os
 import unittest
 
-from click.testing import CliRunner
 from datetime import datetime, timedelta
+from unittest import mock
+from unittest.mock import Mock, patch, PropertyMock
+
+import click
+import etcd
+
+from click.testing import CliRunner
+from prettytable import ALL, PrettyTable
+from urllib3 import PoolManager
+
 from patroni import global_config
-from patroni.ctl import ctl, load_config, output_members, get_dcs, parse_dcs, \
-    get_all_members, get_any_member, get_cursor, query_member, PatroniCtlException, apply_config_changes, \
-    format_config_for_editing, show_diff, invoke_editor, format_pg_version, CONFIG_FILE_PATH, PatronictlPrettyTable
+from patroni.ctl import apply_config_changes, CONFIG_FILE_PATH, ctl, format_config_for_editing, \
+    format_pg_version, get_all_members, get_any_member, get_cursor, get_dcs, invoke_editor, load_config, \
+    output_members, parse_dcs, PatroniCtlException, PatronictlPrettyTable, query_member, show_diff
 from patroni.dcs import Cluster, Failover
 from patroni.postgresql.config import get_param_diff
 from patroni.postgresql.mpp import get_mpp
 from patroni.psycopg import OperationalError
 from patroni.utils import tzutc
-from prettytable import PrettyTable, ALL
-from unittest import mock
-from unittest.mock import patch, Mock, PropertyMock
-from urllib3 import PoolManager
 
 from . import MockConnect, MockCursor, MockResponse, psycopg_connect
 from .test_etcd import etcd_read, socket_getaddrinfo
-from .test_ha import get_cluster_initialized_without_leader, get_cluster_initialized_with_leader, \
-    get_cluster_initialized_with_only_leader, get_cluster_not_initialized_without_leader, get_cluster, Member
+from .test_ha import get_cluster, get_cluster_initialized_with_leader, get_cluster_initialized_with_only_leader, \
+    get_cluster_initialized_without_leader, get_cluster_not_initialized_without_leader, Member
 
 
 def get_default_config(*args):

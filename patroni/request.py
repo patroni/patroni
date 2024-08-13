@@ -1,10 +1,10 @@
 """Facilities for handling communication with Patroni's REST API."""
 import json
-import urllib3
 
 from typing import Any, Dict, Optional, Union
-
 from urllib.parse import urlparse, urlunparse
+
+import urllib3
 
 from .config import Config
 from .dcs import Member

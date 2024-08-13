@@ -5,11 +5,11 @@ import time
 
 from typing import Any, Callable, Dict, List, Union
 
-from . import Cluster
-from .zookeeper import ZooKeeper
 from ..postgresql.mpp import AbstractMPP
 from ..request import get as requests_get
 from ..utils import uri
+from . import Cluster
+from .zookeeper import ZooKeeper
 
 logger = logging.getLogger(__name__)
 

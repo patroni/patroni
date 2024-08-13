@@ -5,9 +5,9 @@ import logging
 import os
 import pkgutil
 import sys
-from types import ModuleType
 
-from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, TYPE_CHECKING, Type, TypeVar, Union
+from types import ModuleType
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Type, TYPE_CHECKING, TypeVar, Union
 
 if TYPE_CHECKING:  # pragma: no cover
     from .config import Config

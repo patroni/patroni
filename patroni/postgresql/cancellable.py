@@ -1,11 +1,13 @@
 import logging
-import psutil
 import subprocess
+
+from threading import Lock
+from typing import Any, Dict, List, Optional, Union
+
+import psutil
 
 from patroni.exceptions import PostgresException
 from patroni.utils import polling_loop
-from threading import Lock
-from typing import Any, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 

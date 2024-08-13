@@ -1,4 +1,4 @@
-from unittest.mock import Mock, PropertyMock, patch, mock_open
+from unittest.mock import Mock, mock_open, patch, PropertyMock
 
 from patroni.postgresql import Postgresql
 from patroni.postgresql.cancellable import CancellableSubprocess

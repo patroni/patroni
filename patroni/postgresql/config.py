@@ -7,19 +7,19 @@ import stat
 import time
 
 from contextlib import contextmanager
-from urllib.parse import urlparse, parse_qsl, unquote
 from types import TracebackType
-from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Union, Tuple, Type, TYPE_CHECKING
+from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
+from urllib.parse import parse_qsl, unquote, urlparse
 
-from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
 from .. import global_config
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet, EMPTY_DICT
 from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException, PostgresConnectionException
 from ..file_perm import pg_perm
-from ..utils import (compare_values, maybe_convert_from_base_unit, parse_bool, parse_int,
-                     split_host_port, uri, validate_directory, is_subpath)
-from ..validator import IntValidator, EnumValidator
+from ..utils import compare_values, is_subpath, maybe_convert_from_base_unit, \
+    parse_bool, parse_int, split_host_port, uri, validate_directory
+from ..validator import EnumValidator, IntValidator
+from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
 
 if TYPE_CHECKING:  # pragma: no cover
     from . import Postgresql

@@ -1,5 +1,6 @@
-from behave import step, then
 import time
+
+from behave import step, then
 
 
 def polling_loop(timeout, interval=1):

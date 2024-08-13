@@ -1,19 +1,19 @@
 import os
-import psutil
 import unittest
-import yaml
 
-from . import MockConnect, MockCursor
 from copy import deepcopy
-from unittest.mock import MagicMock, Mock, PropertyMock, mock_open as _mock_open, patch
+from unittest.mock import MagicMock, Mock, mock_open as _mock_open, patch, PropertyMock
+
+import psutil
+import yaml
 
 from patroni.__main__ import main as _main
 from patroni.config import Config
 from patroni.config_generator import AbstractConfigGenerator, get_address, NO_VALUE_MSG
 from patroni.log import PatroniLogger
-from patroni.utils import patch_config, parse_bool
+from patroni.utils import parse_bool, patch_config
 
-from . import psycopg_connect
+from . import MockConnect, MockCursor, psycopg_connect
 
 HOSTNAME = 'test_hostname'
 IP = '1.9.8.4'

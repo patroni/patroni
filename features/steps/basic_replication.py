@@ -1,8 +1,10 @@
 import json
-import patroni.psycopg as pg
+
+from time import sleep, time
 
 from behave import step, then
-from time import sleep, time
+
+import patroni.psycopg as pg
 
 
 @step('I start {name:w}')

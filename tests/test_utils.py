@@ -1,8 +1,9 @@
 import unittest
+
 from unittest.mock import Mock, patch
 
 from patroni.exceptions import PatroniException
-from patroni.utils import Retry, RetryFailedError, enable_keepalive, polling_loop, validate_directory, unquote
+from patroni.utils import enable_keepalive, polling_loop, Retry, RetryFailedError, unquote, validate_directory
 
 
 class TestUtils(unittest.TestCase):

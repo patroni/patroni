@@ -6,22 +6,24 @@ Provides classes for the creation, monitoring, management and synchronisation of
 import logging
 import os
 import shutil
+
 from collections import defaultdict
 from contextlib import contextmanager
 from threading import Condition, Thread
-from typing import Any, Dict, Iterator, List, Optional, Union, Tuple, TYPE_CHECKING, Collection
+from typing import Any, Collection, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
 
-from .connection import get_connection_cursor
-from .misc import format_lsn, fsync_dir
 from .. import global_config
 from ..dcs import Cluster, Leader
 from ..file_perm import pg_perm
 from ..psycopg import OperationalError
 from ..tags import Tags
+from .connection import get_connection_cursor
+from .misc import format_lsn, fsync_dir
 
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
     from psycopg2 import cursor
+
     from . import Postgresql
 
 logger = logging.getLogger(__name__)

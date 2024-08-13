@@ -5,6 +5,7 @@ This module is able to handle both :mod:`pyscopg2` and :mod:`psycopg`, and it ex
 ``2.5.4``.
 """
 from typing import Any, Optional, TYPE_CHECKING, Union
+
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Connection
     from psycopg2 import connection, cursor
@@ -14,10 +15,11 @@ __all__ = ['connect', 'quote_ident', 'quote_literal', 'DatabaseError', 'Error', 
 _legacy = False
 try:
     from psycopg2 import __version__
+
     from . import MIN_PSYCOPG2, parse_version
     if parse_version(__version__) < MIN_PSYCOPG2:
         raise ImportError
-    from psycopg2 import connect as _connect, Error, DatabaseError, OperationalError, ProgrammingError
+    from psycopg2 import connect as _connect, DatabaseError, Error, OperationalError, ProgrammingError
     from psycopg2.extensions import adapt
 
     try:
@@ -44,8 +46,9 @@ try:
 except ImportError:
     import types
 
+    from psycopg import DatabaseError, Error, OperationalError, ProgrammingError, sql
+    # isort: off
     from psycopg import connect as __connect  # pyright: ignore [reportUnknownVariableType]
-    from psycopg import sql, Error, DatabaseError, OperationalError, ProgrammingError
 
     def __get_parameter_status(self: 'Connection[Any]', param_name: str) -> Optional[str]:
         """Helper function to be injected into :class:`Connection` object.

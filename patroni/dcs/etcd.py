@@ -1,32 +1,36 @@
 from __future__ import absolute_import
+
 import abc
-import etcd
 import json
 import logging
 import os
-import urllib3.util.connection
 import random
 import socket
 import time
 
 from collections import defaultdict
 from copy import deepcopy
-from dns.exception import DNSException
-from dns import resolver
 from http.client import HTTPException
 from queue import Queue
 from threading import Thread
-from typing import Any, Callable, Collection, Dict, List, Optional, Union, Tuple, Type, TYPE_CHECKING
+from typing import Any, Callable, Collection, Dict, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 from urllib.parse import urlparse
-from urllib3 import Timeout
-from urllib3.exceptions import HTTPError, ReadTimeoutError, ProtocolError
 
-from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, \
-    TimelineHistory, ReturnFalseException, catch_return_false_exception
+import etcd
+import urllib3.util.connection
+
+from dns import resolver
+from dns.exception import DNSException
+from urllib3 import Timeout
+from urllib3.exceptions import HTTPError, ProtocolError, ReadTimeoutError
+
 from ..exceptions import DCSError
 from ..postgresql.mpp import AbstractMPP
 from ..request import get as requests_get
 from ..utils import Retry, RetryFailedError, split_host_port, uri, USER_AGENT
+from . import AbstractDCS, catch_return_false_exception, Cluster, ClusterConfig, \
+    Failover, Leader, Member, ReturnFalseException, Status, SyncState, TimelineHistory
+
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
 

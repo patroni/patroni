@@ -1,6 +1,8 @@
-import psutil
 import unittest
+
 from unittest.mock import Mock, patch
+
+import psutil
 
 from patroni.postgresql.callback_executor import CallbackExecutor
 
