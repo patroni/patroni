@@ -7,7 +7,7 @@ from patroni.collections import CaseInsensitiveSet
 from patroni.dcs import Cluster, ClusterConfig, Status, SyncState
 from patroni.postgresql import Postgresql
 
-from . import BaseTestPostgresql, psycopg_connect, mock_available_gucs
+from . import BaseTestPostgresql, mock_available_gucs, psycopg_connect
 
 
 @patch('subprocess.call', Mock(return_value=0))

@@ -2,11 +2,12 @@
 
 """Utilitary stuff to be used by Barman related scripts."""
 
-from enum import IntEnum
 import json
 import logging
-from typing import Any, Callable, Dict, Optional, Tuple, Type, Union
 import time
+
+from enum import IntEnum
+from typing import Any, Callable, Dict, Optional, Tuple, Type, Union
 from urllib.parse import urljoin
 
 from urllib3 import PoolManager

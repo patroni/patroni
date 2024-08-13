@@ -4,6 +4,7 @@
     Setup file for patroni
 """
 
+import glob
 import inspect
 import logging
 import os
@@ -47,6 +48,7 @@ CLASSIFIERS = [
     'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
     'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
     'Programming Language :: Python :: Implementation :: CPython',
 ]
 
@@ -68,33 +70,67 @@ class _Command(Command):
         pass
 
 
-class Flake8(_Command):
+class _Lint(_Command):
 
-    def package_files(self):
-        seen_package_directories = ()
-        directories = self.distribution.package_dir or {}
-        empty_directory_exists = "" in directories
-        packages = self.distribution.packages or []
-        for package in packages:
-            if package in directories:
-                package_directory = directories[package]
-            elif empty_directory_exists:
-                package_directory = os.path.join(directories[""], package)
+    def package_modules(self):
+        package_dirs = self.distribution.package_dir or {}
+        for package in self.distribution.packages or []:
+            if package in package_dirs:
+                yield package_dirs[package]
+            elif '' in package_dirs:
+                yield os.path.join(package_dirs[''], package)
             else:
-                package_directory = package
+                yield package
 
-            if not package_directory.startswith(seen_package_directories):
-                seen_package_directories += (package_directory + ".",)
-                yield package_directory
+    def package_directories(self):
+        for module in self.package_modules():
+            yield module.replace('.', os.path.sep)
 
-    def targets(self):
-        return [package for package in self.package_files()] + ['tests', 'features', 'setup.py']
+    def aux_directories(self):
+        for dir_name in ('tests', 'features'):
+            for root, dirs, files in os.walk(dir_name):
+                for name in dirs:
+                    yield os.path.join(root, name)
+
+    def dirs_to_check(self):
+        yield from self.package_directories()
+        yield from self.aux_directories()
+
+    def files_to_check(self):
+        for path in self.dirs_to_check():
+            for python_file in glob.iglob(os.path.join(path, '*.py')):
+                yield python_file
+
+        for filename in self.distribution.py_modules or []:
+            yield f'{filename}.py'
+
+        yield 'setup.py'
+
+
+class Flake8(_Lint):
 
     def run(self):
         from flake8.main.cli import main
 
         logging.getLogger().setLevel(logging.ERROR)
-        raise SystemExit(main(self.targets()))
+        raise SystemExit(main(list(self.files_to_check())))
+
+
+class ISort(_Lint):
+
+    def run(self):
+        from isort import api
+
+        wrong_sorted_files = False
+        for python_file in self.files_to_check():
+            try:
+                if not api.check_file(python_file, settings_path=__location__, show_diff=True):
+                    wrong_sorted_files = True
+            except OSError as error:
+                logging.warning('Unable to parse file %s due to %r', python_file, error)
+                wrong_sorted_files = True
+        if wrong_sorted_files:
+            sys.exit(1)
 
 
 class PyTest(_Command):
@@ -177,7 +213,7 @@ def main():
         ]},
         install_requires=install_requires,
         extras_require=EXTRAS_REQUIRE,
-        cmdclass={'test': PyTest, 'flake8': Flake8},
+        cmdclass={'test': PyTest, 'flake8': Flake8, 'isort': ISort},
         entry_points={'console_scripts': CONSOLE_SCRIPTS},
     )
 

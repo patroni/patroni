@@ -1,11 +1,12 @@
 import json
 import time
 
-from behave import step, then
-from dateutil import tz
 from datetime import datetime
 from functools import partial
-from threading import Thread, Event
+from threading import Event, Thread
+
+from behave import step, then
+from dateutil import tz
 
 tzutc = tz.tzutc()
 

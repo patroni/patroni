@@ -1,12 +1,14 @@
 import unittest
-import urllib3
+
 from unittest.mock import Mock, patch
 
+import urllib3
+
 from patroni.dcs import get_dcs
-from patroni.dcs.exhibitor import ExhibitorEnsembleProvider, Exhibitor
+from patroni.dcs.exhibitor import Exhibitor, ExhibitorEnsembleProvider
 from patroni.dcs.zookeeper import ZooKeeperError
 
-from . import SleepException, requests_get
+from . import requests_get, SleepException
 from .test_zookeeper import MockKazooClient
 
 

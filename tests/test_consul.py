@@ -1,12 +1,16 @@
-import consul
 import unittest
-from unittest.mock import Mock, PropertyMock, patch
+
+from unittest.mock import Mock, patch, PropertyMock
+
+import consul
 
 from consul import ConsulException, NotFound
+
 from patroni.dcs import get_dcs
-from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulInternalError, \
-    ConsulError, ConsulClient, HTTPClient, InvalidSessionTTL, InvalidSession, RetryFailedError
+from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulClient, ConsulError, \
+    ConsulInternalError, HTTPClient, InvalidSession, InvalidSessionTTL, RetryFailedError
 from patroni.postgresql.mpp import get_mpp
+
 from . import SleepException
 
 

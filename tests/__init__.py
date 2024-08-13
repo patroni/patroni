@@ -2,7 +2,8 @@ import datetime
 import os
 import shutil
 import unittest
-from unittest.mock import Mock, PropertyMock, patch
+
+from unittest.mock import Mock, patch, PropertyMock
 
 import urllib3
 

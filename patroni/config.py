@@ -1,15 +1,16 @@
 """Facilities related to Patroni configuration."""
-import re
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
-import yaml
 
 from collections import defaultdict
 from copy import deepcopy
-from typing import Any, Callable, Collection, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import Any, Callable, Collection, Dict, List, Optional, TYPE_CHECKING, Union
+
+import yaml
 
 from . import PATRONI_ENV_PREFIX
 from .collections import CaseInsensitiveDict, EMPTY_DICT
@@ -17,8 +18,8 @@ from .dcs import ClusterConfig
 from .exceptions import ConfigParseError
 from .file_perm import pg_perm
 from .postgresql.config import ConfigHandler
-from .validator import IntValidator
 from .utils import deep_compare, parse_bool, parse_int, patch_config
+from .validator import IntValidator
 
 logger = logging.getLogger(__name__)
 

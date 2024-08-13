@@ -2,6 +2,7 @@ import json
 import time
 
 from behave import step, then
+
 import patroni.psycopg as pg
 
 

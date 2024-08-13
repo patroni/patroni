@@ -3,7 +3,7 @@ import abc
 
 from typing import Any, Dict, Optional
 
-from patroni.utils import parse_int, parse_bool
+from patroni.utils import parse_bool, parse_int
 
 
 class Tags(abc.ABC):

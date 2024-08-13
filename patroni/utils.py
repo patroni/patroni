@@ -21,13 +21,13 @@ import subprocess
 import sys
 import tempfile
 import time
-from shlex import split
-
-from typing import Any, Callable, Dict, Iterator, List, Optional, Union, Tuple, Type, TYPE_CHECKING
 
 from collections import OrderedDict
-from dateutil import tz
 from json import JSONDecoder
+from shlex import split
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
+
+from dateutil import tz
 from urllib3.response import HTTPResponse
 
 from .exceptions import PatroniException

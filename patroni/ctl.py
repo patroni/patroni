@@ -12,12 +12,9 @@
     If it is also missing in the configuration file we assume that this is just a normal Patroni cluster (not Citus).
 """
 
-import click
 import codecs
 import copy
 import datetime
-import dateutil.parser
-import dateutil.tz
 import difflib
 import io
 import json
@@ -28,15 +25,21 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import urllib3
 import time
-import yaml
 
 from collections import defaultdict
 from contextlib import contextmanager
-from prettytable import ALL, FRAME, PrettyTable
+from typing import Any, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
 from urllib.parse import urlparse
-from typing import Any, Dict, Iterator, List, Optional, Union, Tuple, TYPE_CHECKING
+
+import click
+import dateutil.parser
+import dateutil.tz
+import urllib3
+import yaml
+
+from prettytable import ALL, FRAME, PrettyTable
+
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
     from psycopg2 import cursor
@@ -52,12 +55,12 @@ except ImportError:  # pragma: no cover
 
 from . import global_config
 from .config import Config
-from .dcs import get_dcs as _get_dcs, AbstractDCS, Cluster, Member
+from .dcs import AbstractDCS, Cluster, get_dcs as _get_dcs, Member
 from .exceptions import PatroniException
 from .postgresql.misc import postgres_version_to_int
 from .postgresql.mpp import get_mpp
-from .utils import cluster_as_json, patch_config, polling_loop
 from .request import PatroniRequest
+from .utils import cluster_as_json, patch_config, polling_loop
 from .version import __version__
 
 CONFIG_DIR_PATH = click.get_app_dir('patroni')

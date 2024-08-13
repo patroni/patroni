@@ -7,14 +7,14 @@ import subprocess
 
 from enum import IntEnum
 from threading import Lock, Thread
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from . import Postgresql
-from .connection import get_connection_cursor
-from .misc import format_lsn, fsync_dir, parse_history, parse_lsn
 from ..async_executor import CriticalTask
 from ..collections import EMPTY_DICT
 from ..dcs import Leader, RemoteMember
+from . import Postgresql
+from .connection import get_connection_cursor
+from .misc import format_lsn, fsync_dir, parse_history, parse_lsn
 
 logger = logging.getLogger(__name__)
 

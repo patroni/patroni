@@ -5,15 +5,15 @@ supported MPP cluster. However, we may consider adapting other databases such as
 """
 import abc
 
-from typing import Any, Dict, Iterator, Optional, Union, Tuple, Type, TYPE_CHECKING
+from typing import Any, Dict, Iterator, Optional, Tuple, Type, TYPE_CHECKING, Union
 
 from ...dcs import Cluster
 from ...dynamic_loader import iter_classes
 from ...exceptions import PatroniException
 
 if TYPE_CHECKING:  # pragma: no cover
-    from .. import Postgresql
     from ...config import Config
+    from .. import Postgresql
 
 
 class AbstractMPP(abc.ABC):

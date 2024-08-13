@@ -1,16 +1,18 @@
 import datetime
-import etcd
 import os
 import sys
-from unittest.mock import Mock, MagicMock, PropertyMock, patch, mock_open
+
+from unittest.mock import MagicMock, Mock, mock_open, patch, PropertyMock
+
+import etcd
 
 from patroni import global_config
 from patroni.collections import CaseInsensitiveSet
 from patroni.config import Config
-from patroni.dcs import Cluster, ClusterConfig, Failover, Leader, Member, get_dcs, Status, SyncState, TimelineHistory
+from patroni.dcs import Cluster, ClusterConfig, Failover, get_dcs, Leader, Member, Status, SyncState, TimelineHistory
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover
-from patroni.exceptions import DCSError, PostgresConnectionException, PatroniFatalException
-from patroni.ha import Ha, _MemberStatus
+from patroni.exceptions import DCSError, PatroniFatalException, PostgresConnectionException
+from patroni.ha import _MemberStatus, Ha
 from patroni.postgresql import Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
@@ -22,8 +24,8 @@ from patroni.postgresql.sync import _SyncState
 from patroni.utils import tzutc
 from patroni.watchdog import Watchdog
 
-from . import PostgresInit, MockPostmaster, psycopg_connect, requests_get
-from .test_etcd import socket_getaddrinfo, etcd_read, etcd_write
+from . import MockPostmaster, PostgresInit, psycopg_connect, requests_get
+from .test_etcd import etcd_read, etcd_write, socket_getaddrinfo
 
 SYSID = '12345678901'
 

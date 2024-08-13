@@ -13,7 +13,7 @@ from argparse import Namespace
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from patroni import MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
-from patroni.daemon import AbstractPatroniDaemon, abstract_main, get_base_arg_parser
+from patroni.daemon import abstract_main, AbstractPatroniDaemon, get_base_arg_parser
 from patroni.tags import Tags
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -268,8 +268,8 @@ def process_arguments() -> Namespace:
         generate_config(args.configfile, False, args.dsn)
         sys.exit(0)
     elif args.validate_config:
-        from patroni.validator import schema
         from patroni.config import Config, ConfigParseError
+        from patroni.validator import schema
 
         try:
             Config(args.configfile, validator=schema)

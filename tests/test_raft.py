@@ -1,14 +1,16 @@
 import os
-import unittest
 import tempfile
 import time
-from unittest.mock import Mock, PropertyMock, patch
+import unittest
+
+from unittest.mock import Mock, patch, PropertyMock
+
+from pysyncobj import FAIL_REASON, SyncObjConf
 
 from patroni.dcs import get_dcs
-from patroni.dcs.raft import Cluster, DynMemberSyncObj, KVStoreTTL, \
-    Raft, RaftError, SyncObjUtility, TCPTransport, _TCPTransport
+from patroni.dcs.raft import _TCPTransport, Cluster, DynMemberSyncObj, \
+    KVStoreTTL, Raft, RaftError, SyncObjUtility, TCPTransport
 from patroni.postgresql.mpp import get_mpp
-from pysyncobj import SyncObjConf, FAIL_REASON
 
 
 def remove_files(prefix):

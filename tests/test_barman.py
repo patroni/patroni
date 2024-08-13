@@ -1,15 +1,16 @@
 import logging
 import unittest
+
 from unittest import mock
 from unittest.mock import MagicMock, Mock, patch
+
 from urllib3.exceptions import MaxRetryError
 
 from patroni.scripts.barman.cli import main
-from patroni.scripts.barman.config_switch import (ExitCode as BarmanConfigSwitchExitCode, _should_skip_switch,
-                                                  _switch_config, run_barman_config_switch)
-from patroni.scripts.barman.recover import ExitCode as BarmanRecoverExitCode, _restore_backup, run_barman_recover
+from patroni.scripts.barman.config_switch import _should_skip_switch, _switch_config, \
+    ExitCode as BarmanConfigSwitchExitCode, run_barman_config_switch
+from patroni.scripts.barman.recover import _restore_backup, ExitCode as BarmanRecoverExitCode, run_barman_recover
 from patroni.scripts.barman.utils import ApiNotOk, OperationStatus, PgBackupApi, RetriesExceeded, set_up_logging
-
 
 API_URL = "http://localhost:7480"
 BARMAN_SERVER = "my_server"

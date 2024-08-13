@@ -1,6 +1,8 @@
-import psutil
 import unittest
+
 from unittest.mock import Mock, patch
+
+import psutil
 
 from patroni.exceptions import PostgresException
 from patroni.postgresql.cancellable import CancellableSubprocess

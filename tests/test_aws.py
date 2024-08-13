@@ -1,10 +1,12 @@
-import botocore
-import botocore.awsrequest
 import sys
 import unittest
 
-from unittest.mock import Mock, PropertyMock, patch
 from collections import namedtuple
+from unittest.mock import Mock, patch, PropertyMock
+
+import botocore
+import botocore.awsrequest
+
 from patroni.scripts.aws import AWSConnection, main as _main
 
 

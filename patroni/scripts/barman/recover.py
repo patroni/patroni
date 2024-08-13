@@ -14,14 +14,14 @@ have ``pg-backup-api`` configured and running in the same host as Barman.
 
 Refer to :class:`ExitCode` for possible exit codes of this sub-command.
 """
-from argparse import Namespace
-from enum import IntEnum
 import logging
 import time
+
+from argparse import Namespace
+from enum import IntEnum
 from typing import TYPE_CHECKING
 
 from .utils import OperationStatus, RetriesExceeded
-
 
 if TYPE_CHECKING:  # pragma: no cover
     from .utils import PgBackupApi
