@@ -86,7 +86,8 @@ class SlotsAdvanceThread(Thread):
         except Exception as e:
             logger.error("Failed to advance logical replication slot '%s': %r", slot, e)
             failed = True
-            copy = isinstance(e, OperationalError) and e.diag.sqlstate == '58P01'  # WAL file is gone
+            # WAL file is gone or slot is invalidated
+            copy = isinstance(e, OperationalError) and e.diag.sqlstate in ('58P01', '55000')
         with self._condition:
             if self._scheduled and failed:
                 if copy and slot not in self._copy_slots:
@@ -94,8 +95,8 @@ class SlotsAdvanceThread(Thread):
                 self._failed = True
 
             new_lsn = self._scheduled.get(database, {}).get(slot, 0)
-            # remove slot from the self._scheduled structure only if it wasn't changed
-            if new_lsn == lsn and database in self._scheduled:
+            # remove slot from the self._scheduled structure if it is to be copied or if it wasn't changed
+            if copy or (new_lsn == lsn and database in self._scheduled):
                 self._scheduled[database].pop(slot)
                 if not self._scheduled[database]:
                     self._scheduled.pop(database)
@@ -151,7 +152,10 @@ class SlotsAdvanceThread(Thread):
         """
         with self._condition:
             for database, values in advance_slots.items():
-                self._scheduled[database].update(values)
+                for name, value in values.items():
+                    # Don't schedule sync for slots that just failed to be advanced and scheduled to be copied
+                    if name not in self._copy_slots:
+                        self._scheduled[database][name] = value
             ret = (self._failed, self._copy_slots)
             self._copy_slots = []
             self._failed = False
@@ -159,7 +163,7 @@ class SlotsAdvanceThread(Thread):
 
         return ret
 
-    def on_promote(self) -> None:
+    def clean(self) -> None:
         """Reset state of the daemon."""
         with self._condition:
             self._scheduled.clear()
@@ -674,6 +678,8 @@ class SlotsHandler:
                 logger.error("Failed to copy logical slots from the %s via postgresql connection: %r", leader.name, e)
 
         if copy_slots and self._postgresql.stop():
+            if self._advance:
+                self._advance.clean()
             pg_perm.set_permissions_from_data_directory(self._postgresql.data_dir)
             for name, value in copy_slots.items():
                 slot_dir = os.path.join(self.pg_replslot_dir, name)
@@ -717,7 +723,7 @@ class SlotsHandler:
 
         """
         if self._advance:
-            self._advance.on_promote()
+            self._advance.clean()
 
         if self._logical_slots_processing_queue:
             logger.warning('Logical replication slots that might be unsafe to use after promote: %s',

@@ -213,7 +213,7 @@ class TestSlotsHandler(BaseTestPostgresql):
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     def test__ensure_logical_slots_replica(self):
         self.p.set_role('replica')
-        self.cluster.slots['ls'] = 12346
+        self.cluster.status.slots['ls'] = 12346
         with patch.object(SlotsHandler, 'check_logical_slots_readiness', Mock(return_value=False)):
             self.assertEqual(self.s.sync_replication_slots(self.cluster, self.tags), [])
         with patch.object(SlotsHandler, '_query', Mock(return_value=[('ls', 'logical', 499, 'b', 'a', 5, 100, 500)])), \
@@ -222,10 +222,10 @@ class TestSlotsHandler(BaseTestPostgresql):
                 patch.object(psycopg.OperationalError, 'diag') as mock_diag:
             type(mock_diag).sqlstate = PropertyMock(return_value='58P01')
             self.assertEqual(self.s.sync_replication_slots(self.cluster, self.tags), ['ls'])
-        self.cluster.slots['ls'] = 'a'
+        self.cluster.status.slots['ls'] = 'a'
         self.assertEqual(self.s.sync_replication_slots(self.cluster, self.tags), [])
         self.cluster.config.data['slots']['ls']['database'] = 'b'
-        self.cluster.slots['ls'] = '500'
+        self.cluster.status.slots['ls'] = '500'
         with patch.object(MockCursor, 'rowcount', PropertyMock(return_value=1), create=True):
             self.assertEqual(self.s.sync_replication_slots(self.cluster, self.tags), ['ls'])
 
@@ -269,9 +269,15 @@ class TestSlotsHandler(BaseTestPostgresql):
     def test_slots_advance_thread(self):
         with patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError)), \
                 patch.object(psycopg.OperationalError, 'diag') as mock_diag:
-            type(mock_diag).sqlstate = PropertyMock(return_value='58P01')
-            self.s.schedule_advance_slots({'foo': {'bar': 100}})
-            self.s._advance.sync_slots()
+            for err in ('58P01', '55000'):
+                type(mock_diag).sqlstate = PropertyMock(return_value=err)
+                self.s.schedule_advance_slots({'foo': {'bar': 100}})
+                self.s._advance.sync_slots()
+                self.assertEqual(self.s._advance._copy_slots, ["bar"])
+                # we don't want to make attempts to advance slots that are to be copied
+                self.s.schedule_advance_slots({'foo': {'bar': 101}})
+                self.assertEqual(self.s._advance._scheduled, {})
+                self.s._advance.clean()
 
         with patch.object(SlotsAdvanceThread, 'sync_slots', Mock(side_effect=Exception)):
             self.s._advance._condition.wait = Mock()

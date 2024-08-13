@@ -1225,7 +1225,7 @@ class Kubernetes(AbstractDCS):
         return bool(_run_and_handle_exceptions(self._patch_or_create, self.leader_path, annotations,
                                                kind_resource_version, ips=ips, retry=_retry))
 
-    def update_leader(self, leader: Leader, last_lsn: Optional[int],
+    def update_leader(self, cluster: Cluster, last_lsn: Optional[int],
                       slots: Optional[Dict[str, int]] = None, failsafe: Optional[Dict[str, str]] = None) -> bool:
         kind = self._kinds.get(self.leader_path)
         kind_annotations = kind and kind.metadata.annotations or EMPTY_DICT
@@ -1373,15 +1373,18 @@ class Kubernetes(AbstractDCS):
         raise NotImplementedError  # pragma: no cover
 
     def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
-                         version: Optional[str] = None) -> Optional[SyncState]:
+                         quorum: Optional[int], version: Optional[str] = None) -> Optional[SyncState]:
         """Prepare and write annotations to $SCOPE-sync Endpoint or ConfigMap.
 
         :param leader: name of the leader node that manages /sync key
         :param sync_standby: collection of currently known synchronous standby node names
+        :param quorum: if the node from sync_standby list is doing a leader race it should
+                       see at least quorum other nodes from the sync_standby + leader list
         :param version: last known `resource_version` for conditional update of the object
         :returns: the new :class:`SyncState` object or None
         """
-        sync_state = self.sync_state(leader, sync_standby)
+        sync_state = self.sync_state(leader, sync_standby, quorum)
+        sync_state['quorum'] = str(sync_state['quorum']) if sync_state['quorum'] is not None else None
         ret = self.patch_or_create(self.sync_path, sync_state, version, False)
         if not isinstance(ret, bool):
             return SyncState.from_node(ret.metadata.resource_version, sync_state)
@@ -1393,7 +1396,7 @@ class Kubernetes(AbstractDCS):
         :param version: last known `resource_version` for conditional update of the object
         :returns: `True` if "delete" was successful
         """
-        return self.write_sync_state(None, None, version=version) is not None
+        return self.write_sync_state(None, None, None, version=version) is not None
 
     def watch(self, leader_version: Optional[str], timeout: float) -> bool:
         if self.__do_not_watch:

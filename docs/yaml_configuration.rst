@@ -29,6 +29,7 @@ Log
 -  **static_fields**: add additional fields to the log. This option is only available when the log type is set to **json**.
 -  **max\_queue\_size**: Patroni is using two-step logging. Log records are written into the in-memory queue and there is a separate thread which pulls them from the queue and writes to stderr or file. The maximum size of the internal queue is limited by default by **1000** records, which is enough to keep logs for the past 1h20m.
 -  **dir**: Directory to write application logs to. The directory must exist and be writable by the user executing Patroni. If you set this value, the application will retain 4 25MB logs by default. You can tune those retention values with `file_num` and `file_size` (see below).
+-  **mode**: Permissions for log files (for example, ``0644``). If not specified, permissions will be set based on the current umask value.
 -  **file\_num**: The number of application logs to retain.
 -  **file\_size**: Size of patroni.log file (in bytes) that triggers a log rolling.
 -  **loggers**: This section allows redefining logging level per python module
@@ -300,7 +301,7 @@ PostgreSQL
    -  **pgpass**: path to the `.pgpass <https://www.postgresql.org/docs/current/static/libpq-pgpass.html>`__ password file. Patroni creates this file before executing pg\_basebackup, the post_init script and under some other circumstances. The location must be writable by Patroni.
    -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower.
    -  **custom\_conf** : path to an optional custom ``postgresql.conf`` file, that will be used in place of ``postgresql.base.conf``. The file must exist on all cluster nodes, be readable by PostgreSQL and will be included from its location on the real ``postgresql.conf``. Note that Patroni will not monitor this file for changes, nor backup it. However, its settings can still be overridden by Patroni's own configuration facilities - see :ref:`dynamic configuration <patroni_configuration>` for details.
-   -  **parameters**: list of configuration settings for Postgres. Many of these are required for replication to work.
+   -  **parameters**: configuration parameters (GUCs) for Postgres in format ``{ssl: "on", ssl_cert_file: "cert_file"}``.
    -  **pg\_hba**: list of lines that Patroni will use to generate ``pg_hba.conf``. Patroni ignores this parameter if ``hba_file`` PostgreSQL parameter is set to a non-default value. Together with :ref:`dynamic configuration <dynamic_configuration>` this parameter simplifies management of ``pg_hba.conf``.
 
       -  **- host all all 0.0.0.0/0 md5**

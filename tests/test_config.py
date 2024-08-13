@@ -38,6 +38,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_LOG_FORMAT': '["message", {"levelname": "level"}]',
             'PATRONI_LOG_LOGGERS': 'patroni.postmaster: WARNING, urllib3: DEBUG',
             'PATRONI_LOG_FILE_NUM': '5',
+            'PATRONI_LOG_MODE': '0123',
             'PATRONI_CITUS_DATABASE': 'citus',
             'PATRONI_CITUS_GROUP': '0',
             'PATRONI_CITUS_HOST': '0',
@@ -73,7 +74,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_RAFT_PARTNER_ADDRS': "'host1:1234','host2:1234'",
             'PATRONI_foo_HOSTS': '[host1,host2',  # Exception in parse_list
             'PATRONI_SUPERUSER_USERNAME': 'postgres',
-            'PATRONI_SUPERUSER_PASSWORD': 'zalando',
+            'PATRONI_SUPERUSER_PASSWORD': 'patroni',
             'PATRONI_REPLICATION_USERNAME': 'replicator',
             'PATRONI_REPLICATION_PASSWORD': 'rep-pass',
             'PATRONI_admin_PASSWORD': 'admin',
@@ -81,6 +82,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_POSTGRESQL_BIN_POSTGRES': 'sergtsop'
         })
         config = Config('postgres0.yml')
+        self.assertEqual(config.local_configuration['log']['mode'], 0o123)
         with patch.object(Config, '_load_config_file', Mock(return_value={'restapi': {}})):
             with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
                 config.reload_local_configuration()

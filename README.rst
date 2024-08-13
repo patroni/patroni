@@ -14,9 +14,9 @@ We call Patroni a "template" because it is far from being a one-size-fits-all or
 
 Currently supported PostgreSQL versions: 9.3 to 16.
 
-**Note to Citus users**: Starting from 3.0 Patroni nicely integrates with the `Citus <https://github.com/citusdata/citus>`__ database extension to Postgres. Please check the `Citus support page <https://github.com/zalando/patroni/blob/master/docs/citus.rst>`__ in the Patroni documentation for more info about how to use Patroni high availability together with a Citus distributed cluster.
+**Note to Citus users**: Starting from 3.0 Patroni nicely integrates with the `Citus <https://github.com/citusdata/citus>`__ database extension to Postgres. Please check the `Citus support page <https://github.com/patroni/patroni/blob/master/docs/citus.rst>`__ in the Patroni documentation for more info about how to use Patroni high availability together with a Citus distributed cluster.
 
-**Note to Kubernetes users**: Patroni can run natively on top of Kubernetes. Take a look at the `Kubernetes <https://github.com/zalando/patroni/blob/master/docs/kubernetes.rst>`__ chapter of the Patroni documentation.
+**Note to Kubernetes users**: Patroni can run natively on top of Kubernetes. Take a look at the `Kubernetes <https://github.com/patroni/patroni/blob/master/docs/kubernetes.rst>`__ chapter of the Patroni documentation.
 
 .. contents::
     :local:
@@ -27,9 +27,7 @@ Currently supported PostgreSQL versions: 9.3 to 16.
 How Patroni Works
 =================
 
-Patroni originated as a fork of `Governor <https://github.com/compose/governor>`__, the project from Compose. It includes plenty of new features.
-
-For an example of a Docker-based deployment with Patroni, see `Spilo <https://github.com/zalando/spilo>`__, currently in use at Zalando.
+Patroni (formerly known as Zalando's Patroni) originated as a fork of `Governor <https://github.com/compose/governor>`__, the project from Compose. It includes plenty of new features.
 
 For additional background info, see:
 
@@ -41,15 +39,15 @@ For additional background info, see:
 Development Status
 ==================
 
-Patroni is in active development and accepts contributions. See our `Contributing <https://github.com/zalando/patroni/blob/master/docs/contributing_guidelines.rst>`__ section below for more details.
+Patroni is in active development and accepts contributions. See our `Contributing <https://github.com/patroni/patroni/blob/master/docs/contributing_guidelines.rst>`__ section below for more details.
 
-We report new releases information `here <https://github.com/zalando/patroni/releases>`__.
+We report new releases information `here <https://github.com/patroni/patroni/releases>`__.
 
 =========
 Community
 =========
 
-There are two places to connect with the Patroni community: `on github <https://github.com/zalando/patroni>`__, via Issues and PRs, and on channel `#patroni <https://postgresteam.slack.com/archives/C9XPYG92A>`__ in the `PostgreSQL Slack <https://pgtreats.info/slack-invite>`__.  If you're using Patroni, or just interested, please join us.
+There are two places to connect with the Patroni community: `on github <https://github.com/patroni/patroni>`__, via Issues and PRs, and on channel `#patroni <https://postgresteam.slack.com/archives/C9XPYG92A>`__ in the `PostgreSQL Slack <https://pgtreats.info/slack-invite>`__.  If you're using Patroni, or just interested, please join us.
 
 ===================================
 Technical Requirements/Installation
@@ -151,19 +149,19 @@ run:
 YAML Configuration
 ==================
 
-Go `here <https://github.com/zalando/patroni/blob/master/docs/dynamic_configuration.rst>`__ for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/zalando/patroni/blob/master/postgres0.yml>`__.
+Go `here <https://github.com/patroni/patroni/blob/master/docs/dynamic_configuration.rst>`__ for comprehensive information about settings for etcd, consul, and ZooKeeper. And for an example, see `postgres0.yml <https://github.com/patroni/patroni/blob/master/postgres0.yml>`__.
 
 =========================
 Environment Configuration
 =========================
 
-Go `here <https://github.com/zalando/patroni/blob/master/docs/ENVIRONMENT.rst>`__ for comprehensive information about configuring(overriding) settings via environment variables.
+Go `here <https://github.com/patroni/patroni/blob/master/docs/ENVIRONMENT.rst>`__ for comprehensive information about configuring(overriding) settings via environment variables.
 
 ===================
 Replication Choices
 ===================
 
-Patroni uses Postgres' streaming replication, which is asynchronous by default. Patroni's asynchronous replication configuration allows for ``maximum_lag_on_failover`` settings. This setting ensures failover will not occur if a follower is more than a certain number of bytes behind the leader. This setting should be increased or decreased based on business requirements. It's also possible to use synchronous replication for better durability guarantees. See `replication modes documentation <https://github.com/zalando/patroni/blob/master/docs/replication_modes.rst>`__ for details.
+Patroni uses Postgres' streaming replication, which is asynchronous by default. Patroni's asynchronous replication configuration allows for ``maximum_lag_on_failover`` settings. This setting ensures failover will not occur if a follower is more than a certain number of bytes behind the leader. This setting should be increased or decreased based on business requirements. It's also possible to use synchronous replication for better durability guarantees. See `replication modes documentation <https://github.com/patroni/patroni/blob/master/docs/replication_modes.rst>`__ for details.
 
 ======================================
 Applications Should Not Use Superusers
@@ -171,7 +169,7 @@ Applications Should Not Use Superusers
 
 When connecting from an application, always use a non-superuser. Patroni requires access to the database to function properly. By using a superuser from an application, you can potentially use the entire connection pool, including the connections reserved for superusers, with the ``superuser_reserved_connections`` setting. If Patroni cannot access the Primary because the connection pool is full, behavior will be undesirable.
 
-.. |Tests Status| image:: https://github.com/zalando/patroni/actions/workflows/tests.yaml/badge.svg
-   :target: https://github.com/zalando/patroni/actions/workflows/tests.yaml?query=branch%3Amaster
-.. |Coverage Status| image:: https://coveralls.io/repos/zalando/patroni/badge.svg?branch=master
-   :target: https://coveralls.io/github/zalando/patroni?branch=master
+.. |Tests Status| image:: https://github.com/patroni/patroni/actions/workflows/tests.yaml/badge.svg
+   :target: https://github.com/patroni/patroni/actions/workflows/tests.yaml?query=branch%3Amaster
+.. |Coverage Status| image:: https://coveralls.io/repos/patroni/patroni/badge.svg?branch=master
+   :target: https://coveralls.io/github/patroni/patroni?branch=master

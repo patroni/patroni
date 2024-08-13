@@ -1065,7 +1065,7 @@ Run a SQL command as ``postgres`` user, and take password from ``libpq`` environ
 
 .. code:: bash
 
-    $ PGPASSWORD=zalando patronictl -c postgres0.yml query batman -U postgres -c "SELECT now()"
+    $ PGPASSWORD=patroni patronictl -c postgres0.yml query batman -U postgres -c "SELECT now()"
     now
     2023-09-12 18:11:37.639500+00:00
 
