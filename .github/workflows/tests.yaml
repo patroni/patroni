@@ -227,4 +227,4 @@ jobs:
       uses: isort/isort-action@master
       with:
         requirementsFiles: "requirements.txt requirements.dev.txt requirements.docs.txt"
-        configuration: "--check-only --diff patroni tests features setup.py"
+        sort-paths: "patroni tests features setup.py"
