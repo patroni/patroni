@@ -12,13 +12,47 @@ from logging.handlers import RotatingFileHandler
 from queue import Queue, Full
 from threading import Lock, Thread
 
+from io import TextIOWrapper
 from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
-from .utils import deep_compare
+from .file_perm import pg_perm
+from .utils import deep_compare, parse_int
 
 type_logformat = Union[List[Union[str, Dict[str, Any], Any]], str, Any]
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class PatroniFileHandler(RotatingFileHandler):
+    """Wrapper of :class:`RotatingFileHandler` to handle permissions of log files. """
+
+    def __init__(self, filename: str, mode: Optional[int]) -> None:
+        """Create a new :class:`PatroniFileHandler` instance.
+
+        :param filename: basename for log files.
+        :param mode: permissions for log files.
+        """
+        self.set_log_file_mode(mode)
+        super(PatroniFileHandler, self).__init__(filename)
+
+    def set_log_file_mode(self, mode: Optional[int]) -> None:
+        """Set mode for Patroni log files.
+
+        :param mode: permissions for log files.
+
+        .. note::
+            If *mode* is not specified, we calculate it from the `umask` value.
+        """
+        self._log_file_mode = 0o666 & ~pg_perm.orig_umask if mode is None else mode
+
+    def _open(self) -> TextIOWrapper:
+        """Open a new log file and assign permissions.
+
+        :returns: the resulting stream.
+        """
+        ret = super(PatroniFileHandler, self)._open()
+        os.chmod(self.baseFilename, self._log_file_mode)
+        return ret
 
 
 def debug_exception(self: logging.Logger, msg: object, *args: Any, **kwargs: Any) -> None:
@@ -423,15 +457,16 @@ class PatroniLogger(Thread):
             handler = self.log_handler
 
             if 'dir' in config:
-                if not isinstance(handler, RotatingFileHandler):
-                    handler = RotatingFileHandler(os.path.join(config['dir'], __name__))
-
+                mode = parse_int(config.get('mode'))
+                if not isinstance(handler, PatroniFileHandler):
+                    handler = PatroniFileHandler(os.path.join(config['dir'], __name__), mode)
+                handler.set_log_file_mode(mode)
                 max_file_size = int(config.get('file_size', 25000000))
                 handler.maxBytes = max_file_size  # pyright: ignore [reportAttributeAccessIssue]
                 handler.backupCount = int(config.get('file_num', 4))
             # we can't use `if not isinstance(handler, logging.StreamHandler)` below,
-            # because RotatingFileHandler is a child of StreamHandler!!!
-            elif handler is None or isinstance(handler, RotatingFileHandler):
+            # because RotatingFileHandler and PatroniFileHandler are children of StreamHandler!!!
+            elif handler is None or isinstance(handler, PatroniFileHandler):
                 handler = logging.StreamHandler()
 
             is_new_handler = handler != self.log_handler
@@ -454,7 +489,7 @@ class PatroniLogger(Thread):
 
         .. note::
             It is used to remove different handlers that were configured previous to a reload in the configuration,
-            e.g. if we are switching from :class:`~logging.handlers.RotatingFileHandler` to
+            e.g. if we are switching from :class:`PatroniFileHandler` to
             class:`~logging.StreamHandler` and vice-versa.
         """
         while True:
