@@ -1,4 +1,4 @@
-from mock import Mock, PropertyMock, patch, mock_open
+from unittest.mock import Mock, PropertyMock, patch, mock_open
 
 from patroni.postgresql import Postgresql
 from patroni.postgresql.cancellable import CancellableSubprocess
@@ -98,11 +98,15 @@ class TestRewind(BaseTestPostgresql):
             self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
 
     @patch.object(CancellableSubprocess, 'call', mock_cancellable_call)
-    @patch.object(Postgresql, 'checkpoint', side_effect=['', '1'],)
+    @patch.object(Postgresql, 'get_guc_value', Mock(return_value=''))
+    @patch.object(Postgresql, 'checkpoint', side_effect=['', '1'])
     @patch.object(Postgresql, 'stop', Mock(return_value=False))
     @patch.object(Postgresql, 'start', Mock())
     def test_execute(self, mock_checkpoint):
-        self.r.execute(self.leader)
+        with patch('patroni.postgresql.rewind.logger.info') as mock_logger:
+            self.r.execute(self.leader)
+            self.assertEqual(mock_logger.call_args_list[0][0],
+                             ('running pg_rewind from %s', 'dbname=postgres user=foo host=127.0.0.1 port=5435'))
         with patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000)):
             self.r.execute(self.leader)
             with patch.object(MockCursor, 'fetchone', Mock(side_effect=Exception)):

@@ -1,7 +1,6 @@
 import os
 import sys
-
-from mock import Mock, PropertyMock, patch
+from unittest.mock import Mock, PropertyMock, patch
 
 from patroni.async_executor import CriticalTask
 from patroni.collections import CaseInsensitiveDict
@@ -92,9 +91,20 @@ class TestBootstrap(BaseTestPostgresql):
         mock_cancellable_subprocess_call.return_value = 1
         self.assertEqual(self.b.create_replica(self.leader), 1)
 
+    @patch.object(CancellableSubprocess, 'call', Mock(return_value=0))
+    @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=True))
     def test_basebackup(self):
-        self.p.cancellable.cancel()
-        self.b.basebackup(None, None, {'foo': 'bar'})
+        with patch('patroni.postgresql.bootstrap.logger.debug') as mock_debug:
+            self.p.cancellable.cancel()
+            self.b.basebackup("", None, {'foo': 'bar'})
+            mock_debug.assert_not_called()
+
+            self.p.cancellable.reset_is_cancelled()
+            self.b.basebackup("", None, {'foo': 'bar'})
+            mock_debug.assert_called_with(
+                'calling: %r',
+                ['pg_basebackup', f'--pgdata={self.p.data_dir}', '-X', 'stream', '--dbname=', '--foo=bar'],
+            )
 
     def test__initdb(self):
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': [{'pgdata': 'bar'}]})

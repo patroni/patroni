@@ -444,8 +444,9 @@ class Consul(AbstractDCS):
 
         :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
         """
+        results: Optional[List[Dict[str, Any]]]
         _, results = self.retry(self._client.kv.get, path, recurse=True, consistency=self._consistency)
-        clusters: Dict[int, Dict[str, Cluster]] = defaultdict(dict)
+        clusters: Dict[int, Dict[str, Dict[str, Any]]] = defaultdict(dict)
         for node in results or []:
             key = node['Key'][len(path):].split('/', 1)
             if len(key) == 2 and self._mpp.group_re.match(key[0]):
@@ -577,14 +578,17 @@ class Consul(AbstractDCS):
         try:
             return retry(self._client.kv.put, self.leader_path, self._name, acquire=self._session)
         except InvalidSession:
-            logger.error('Our session disappeared from Consul. Will try to get a new one and retry attempt')
             self._session = None
-            retry.ensure_deadline(0)
+
+            if not retry.ensure_deadline(0):
+                logger.error('Our session disappeared from Consul. Deadline exceeded, giving up')
+                return False
+
+            logger.error('Our session disappeared from Consul. Will try to get a new one and retry attempt')
 
             retry(self._do_refresh_session)
 
             retry.ensure_deadline(1, ConsulError('_do_attempt_to_acquire_leader timeout'))
-
             return retry(self._client.kv.put, self.leader_path, self._name, acquire=self._session)
 
     @catch_return_false_exception

@@ -41,8 +41,12 @@ if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
     from psycopg2 import cursor
 
-try:
-    from ydiff import markup_to_pager, PatchStream  # pyright: ignore [reportMissingModuleSource]
+try:  # pragma: no cover
+    from ydiff import markup_to_pager  # pyright: ignore [reportMissingModuleSource]
+    try:
+        from ydiff import PatchStream  # pyright: ignore [reportMissingModuleSource]
+    except ImportError:
+        PatchStream = iter
 except ImportError:  # pragma: no cover
     from cdiff import markup_to_pager, PatchStream  # pyright: ignore [reportMissingModuleSource]
 

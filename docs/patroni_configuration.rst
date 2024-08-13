@@ -62,7 +62,6 @@ There are some other Postgres parameters controlled by Patroni:
 - **port** - is set either from ``postgresql.listen`` or from ``PATRONI_POSTGRESQL_LISTEN`` environment variable
 - **cluster_name** - is set either from ``scope`` or from ``PATRONI_SCOPE`` environment variable
 - **hot_standby: on**
-- **wal_log_hints: on** - for Postgres 9.4 and newer.
 
 To be on the safe side parameters from the above lists are not written into ``postgresql.conf``, but passed as a list of arguments to the ``pg_ctl start`` which gives them the highest precedence, even above `ALTER SYSTEM <https://www.postgresql.org/docs/current/static/sql-altersystem.html>`__
 

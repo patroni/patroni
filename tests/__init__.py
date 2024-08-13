@@ -2,8 +2,7 @@ import datetime
 import os
 import shutil
 import unittest
-
-from mock import Mock, PropertyMock, patch
+from unittest.mock import Mock, PropertyMock, patch
 
 import urllib3
 
@@ -66,7 +65,7 @@ class MockResponse(object):
 
     def __init__(self, status_code=200):
         self.status_code = status_code
-        self.headers = {'content-type': 'json'}
+        self.headers = {'content-type': 'json', 'lsn': 100}
         self.content = '{}'
         self.reason = 'Not Found'
 
@@ -179,8 +178,12 @@ class MockCursor(object):
                                  b'3\t0/403DD98\tno recovery target specified\n')]
         elif sql.startswith('SELECT pg_catalog.citus_add_node'):
             self.results = [(2,)]
-        elif sql.startswith('SELECT nodeid, groupid'):
-            self.results = [(1, 0, 'host1', 5432, 'primary'), (2, 1, 'host2', 5432, 'primary')]
+        elif sql.startswith('SELECT groupid, nodename'):
+            self.results = [(0, 'host1', 5432, 'primary', 1),
+                            (0, '127.0.0.1', 5436, 'secondary', 2),
+                            (1, 'host4', 5432, 'primary', 3),
+                            (1, '127.0.0.1', 5437, 'secondary', 4),
+                            (1, '127.0.0.1', 5438, 'secondary', 5)]
         else:
             self.results = [(None, None, None, None, None, None, None, None, None, None)]
         self.rowcount = len(self.results)
@@ -202,20 +205,16 @@ class MockCursor(object):
         pass
 
 
-class MockConnectionInfo(object):
-
-    def parameter_status(self, param_name):
-        if param_name == 'is_superuser':
-            return 'on'
-        return '0'
-
-
 class MockConnect(object):
 
     server_version = 99999
     autocommit = False
     closed = 0
-    info = MockConnectionInfo()
+
+    def get_parameter_status(self, param_name):
+        if param_name == 'is_superuser':
+            return 'on'
+        return '0'
 
     def cursor(self):
         return MockCursor(self)

@@ -26,8 +26,8 @@ from .slots import SlotsHandler
 from .sync import SyncHandler
 from .. import global_config, psycopg
 from ..async_executor import CriticalTask
-from ..collections import CaseInsensitiveSet, CaseInsensitiveDict
-from ..dcs import Cluster, Leader, Member, SLOT_ADVANCE_AVAILABLE_VERSION
+from ..collections import CaseInsensitiveSet, CaseInsensitiveDict, EMPTY_DICT
+from ..dcs import Cluster, Leader, Member
 from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
 from ..tags import Tags
@@ -182,6 +182,11 @@ class Postgresql(object):
         return 'lsn' if self._major_version >= 100000 else 'location'
 
     @property
+    def supports_quorum_commit(self) -> bool:
+        """``True`` if quorum commit is supported by Postgres."""
+        return self._major_version >= 100000
+
+    @property
     def supports_multiple_sync(self) -> bool:
         """:returns: `True` if Postgres version supports more than one synchronous node."""
         return self._major_version >= 90600
@@ -189,7 +194,7 @@ class Postgresql(object):
     @property
     def can_advance_slots(self) -> bool:
         """``True`` if :attr:``major_version`` is greater than 110000."""
-        return self.major_version >= SLOT_ADVANCE_AVAILABLE_VERSION
+        return self.major_version >= 110000
 
     @property
     def cluster_info_query(self) -> str:
@@ -272,7 +277,7 @@ class Postgresql(object):
 
         :returns: path to Postgres binary named *cmd*.
         """
-        return os.path.join(self._bin_dir, (self.config.get('bin_name', {}) or {}).get(cmd, cmd))
+        return os.path.join(self._bin_dir, (self.config.get('bin_name', {}) or EMPTY_DICT).get(cmd, cmd))
 
     def pg_ctl(self, cmd: str, *args: str, **kwargs: Any) -> bool:
         """Builds and executes pg_ctl command
@@ -414,7 +419,7 @@ class Postgresql(object):
         return data_directory_is_empty(self._data_dir)
 
     def replica_method_options(self, method: str) -> Dict[str, Any]:
-        return deepcopy(self.config.get(method, {}) or {})
+        return deepcopy(self.config.get(method, {}) or EMPTY_DICT.copy())
 
     def replica_method_can_work_without_replication_connection(self, method: str) -> bool:
         return method != 'basebackup' and bool(self.replica_method_options(method).get('no_master')

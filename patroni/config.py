@@ -12,7 +12,7 @@ from copy import deepcopy
 from typing import Any, Callable, Collection, Dict, List, Optional, Union, TYPE_CHECKING
 
 from . import PATRONI_ENV_PREFIX
-from .collections import CaseInsensitiveDict
+from .collections import CaseInsensitiveDict, EMPTY_DICT
 from .dcs import ClusterConfig
 from .exceptions import ConfigParseError
 from .file_perm import pg_perm
@@ -388,7 +388,6 @@ class Config(object):
                 * ``cluster_name``: set through ``scope`` local configuration or through ``PATRONI_SCOPE`` environment
                     variable;
                 * ``hot_standby``: always enabled;
-                * ``wal_log_hints``: always enabled.
 
         :param parameters: Postgres parameters to be processed. Should be the parsed YAML value of
             ``postgresql.parameters`` configuration, either from local or from dynamic configuration.
@@ -445,14 +444,14 @@ class Config(object):
 
         for name, value in dynamic_configuration.items():
             if name == 'postgresql':
-                for name, value in (value or {}).items():
+                for name, value in (value or EMPTY_DICT).items():
                     if name == 'parameters':
                         config['postgresql'][name].update(self._process_postgresql_parameters(value))
                     elif name not in ('connect_address', 'proxy_address', 'listen',
                                       'config_dir', 'data_dir', 'pgpass', 'authentication'):
                         config['postgresql'][name] = deepcopy(value)
             elif name == 'standby_cluster':
-                for name, value in (value or {}).items():
+                for name, value in (value or EMPTY_DICT).items():
                     if name in self.__DEFAULT_CONFIG['standby_cluster']:
                         config['standby_cluster'][name] = deepcopy(value)
             elif name in config:  # only variables present in __DEFAULT_CONFIG allowed to be overridden from DCS
@@ -536,7 +535,7 @@ class Config(object):
         _set_section_values('postgresql', ['listen', 'connect_address', 'proxy_address',
                                            'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
         _set_section_values('log', ['type', 'level', 'traceback_level', 'format', 'dateformat', 'static_fields',
-                                    'max_queue_size', 'dir', 'file_size', 'file_num', 'loggers'])
+                                    'max_queue_size', 'dir', 'mode', 'file_size', 'file_num', 'loggers'])
         _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs', 'password', 'bind_addr'])
 
         for binary in ('pg_ctl', 'initdb', 'pg_controldata', 'pg_basebackup', 'postgres', 'pg_isready', 'pg_rewind'):
@@ -553,7 +552,7 @@ class Config(object):
                     ret[first][second] = value
 
         for first, params in (('restapi', ('request_queue_size',)),
-                              ('log', ('max_queue_size', 'file_size', 'file_num'))):
+                              ('log', ('max_queue_size', 'file_size', 'file_num', 'mode'))):
             for second in params:
                 value = ret.get(first, {}).pop(second, None)
                 if value:
@@ -757,7 +756,7 @@ class Config(object):
         if 'citus' in config:
             bootstrap = config.setdefault('bootstrap', {})
             dcs = bootstrap.setdefault('dcs', {})
-            dcs.setdefault('synchronous_mode', True)
+            dcs.setdefault('synchronous_mode', 'quorum')
 
         updated_fields = (
             'name',

@@ -1,13 +1,13 @@
 import base64
 import datetime
 import json
-import mock
 import socket
 import time
 import unittest
 import urllib3
+from unittest import mock
+from unittest.mock import Mock, PropertyMock, mock_open, patch
 
-from mock import Mock, PropertyMock, mock_open, patch
 from patroni.dcs import get_dcs
 from patroni.dcs.kubernetes import Cluster, k8s_client, k8s_config, K8sConfig, K8sConnectionFailed, \
     K8sException, K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException, \
@@ -80,7 +80,7 @@ def mock_namespaced_kind(*args, **kwargs):
 
 
 def mock_load_k8s_config(self, *args, **kwargs):
-    self._server = ''
+    self._server = 'http://localhost'
 
 
 class TestK8sConfig(unittest.TestCase):
@@ -242,6 +242,7 @@ class BaseTestKubernetes(unittest.TestCase):
         self.k.get_cluster()
 
 
+@patch('urllib3.PoolManager.request', Mock())
 @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', mock_namespaced_kind, create=True)
 class TestKubernetesConfigMaps(BaseTestKubernetes):
 
@@ -374,6 +375,7 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
         mock_warning.assert_called_once()
 
 
+@patch('urllib3.PoolManager.request', Mock())
 class TestKubernetesEndpointsNoPodIP(BaseTestKubernetes):
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_endpoints', mock_list_namespaced_endpoints, create=True)
     def setUp(self, config=None):
@@ -381,13 +383,13 @@ class TestKubernetesEndpointsNoPodIP(BaseTestKubernetes):
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', create=True)
     def test_update_leader(self, mock_patch_namespaced_endpoints):
-        leader = self.k.get_cluster().leader
-        self.assertIsNotNone(self.k.update_leader(leader, '123', failsafe={'foo': 'bar'}))
+        self.assertIsNotNone(self.k.update_leader(self.k.get_cluster(), '123', failsafe={'foo': 'bar'}))
         args = mock_patch_namespaced_endpoints.call_args[0]
         self.assertEqual(args[2].subsets[0].addresses[0].target_ref.resource_version, '1')
         self.assertEqual(args[2].subsets[0].addresses[0].ip, '10.0.0.1')
 
 
+@patch('urllib3.PoolManager.request', Mock())
 class TestKubernetesEndpoints(BaseTestKubernetes):
 
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_endpoints', mock_list_namespaced_endpoints, create=True)
@@ -396,38 +398,38 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', create=True)
     def test_update_leader(self, mock_patch_namespaced_endpoints):
-        leader = self.k.get_cluster().leader
-        self.assertIsNotNone(self.k.update_leader(leader, '123', failsafe={'foo': 'bar'}))
+        cluster = self.k.get_cluster()
+        self.assertIsNotNone(self.k.update_leader(cluster, '123', failsafe={'foo': 'bar'}))
         args = mock_patch_namespaced_endpoints.call_args[0]
         self.assertEqual(args[2].subsets[0].addresses[0].target_ref.resource_version, '10')
         self.assertEqual(args[2].subsets[0].addresses[0].ip, '10.0.0.0')
         self.k._kinds._object_cache['test'].subsets[:] = []
-        self.assertIsNotNone(self.k.update_leader(leader, '123'))
+        self.assertIsNotNone(self.k.update_leader(cluster, '123'))
         self.k._kinds._object_cache['test'].metadata.annotations['leader'] = 'p-1'
-        self.assertFalse(self.k.update_leader(leader, '123'))
+        self.assertFalse(self.k.update_leader(cluster, '123'))
 
     @patch.object(k8s_client.CoreV1Api, 'read_namespaced_endpoints', create=True)
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', create=True)
     def test__update_leader_with_retry(self, mock_patch, mock_read):
-        leader = self.k.get_cluster().leader
+        cluster = self.k.get_cluster()
         mock_read.return_value = mock_read_namespaced_endpoints()
         mock_patch.side_effect = k8s_client.rest.ApiException(502, '')
-        self.assertFalse(self.k.update_leader(leader, '123'))
+        self.assertFalse(self.k.update_leader(cluster, '123'))
         mock_patch.side_effect = RetryFailedError('')
-        self.assertRaises(KubernetesError, self.k.update_leader, leader, '123')
+        self.assertRaises(KubernetesError, self.k.update_leader, cluster, '123')
         mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
         with patch('time.time', Mock(side_effect=[0, 100, 200, 0, 0, 0, 0, 100, 200])):
-            self.assertFalse(self.k.update_leader(leader, '123'))
-            self.assertFalse(self.k.update_leader(leader, '123'))
-        self.assertFalse(self.k.update_leader(leader, '123'))
+            self.assertFalse(self.k.update_leader(cluster, '123'))
+            self.assertFalse(self.k.update_leader(cluster, '123'))
+        self.assertFalse(self.k.update_leader(cluster, '123'))
         mock_patch.side_effect = [k8s_client.rest.ApiException(409, ''), mock_namespaced_kind()]
         mock_read.return_value.metadata.resource_version = '2'
         self.assertIsNotNone(self.k._update_leader_with_retry({}, '1', []))
         mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
         mock_read.side_effect = RetryFailedError('')
-        self.assertRaises(KubernetesError, self.k.update_leader, leader, '123')
+        self.assertRaises(KubernetesError, self.k.update_leader, cluster, '123')
         mock_read.side_effect = Exception
-        self.assertFalse(self.k.update_leader(leader, '123'))
+        self.assertFalse(self.k.update_leader(cluster, '123'))
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints',
                   Mock(side_effect=[k8s_client.rest.ApiException(500, ''),
@@ -437,7 +439,7 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', mock_namespaced_kind, create=True)
     def test_write_sync_state(self):
-        self.assertIsNotNone(self.k.write_sync_state('a', ['b'], 1))
+        self.assertIsNotNone(self.k.write_sync_state('a', ['b'], 0, 1))
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod', mock_namespaced_kind, create=True)
     @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints', mock_namespaced_kind, create=True)
@@ -478,6 +480,7 @@ def mock_watch(*args):
     return urllib3.HTTPResponse()
 
 
+@patch('urllib3.PoolManager.request', Mock())
 class TestCacheBuilder(BaseTestKubernetes):
 
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)

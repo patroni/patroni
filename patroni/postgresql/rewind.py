@@ -13,6 +13,7 @@ from . import Postgresql
 from .connection import get_connection_cursor
 from .misc import format_lsn, fsync_dir, parse_history, parse_lsn
 from ..async_executor import CriticalTask
+from ..collections import EMPTY_DICT
 from ..dcs import Leader, RemoteMember
 
 logger = logging.getLogger(__name__)
@@ -209,9 +210,10 @@ class Rewind(object):
         ret = member.conn_kwargs(auth)
         if not ret.get('dbname'):
             ret['dbname'] = self._postgresql.database
-        # Add target_session_attrs in case more than one hostname is specified
-        # (libpq client-side failover) making sure we hit the primary
-        if 'target_session_attrs' not in ret and self._postgresql.major_version >= 100000:
+        # Add target_session_attrs to make sure we hit the primary.
+        # It is not strictly necessary for starting from PostgreSQL v14, which made it possible
+        # to rewind from standby, but doing it from the real primary is always safer.
+        if self._postgresql.major_version >= 100000:
             ret['target_session_attrs'] = 'read-write'
         return ret
 
@@ -410,14 +412,25 @@ class Rewind(object):
             except Exception as e:
                 logger.warning('Unable to clean %s: %r', replslot_dir, e)
 
-    def pg_rewind(self, r: Dict[str, Any]) -> bool:
-        # prepare pg_rewind connection
-        env = self._postgresql.config.write_pgpass(r)
+    def pg_rewind(self, conn_kwargs: Dict[str, Any]) -> bool:
+        """Do pg_rewind.
+
+        .. note::
+            If ``pg_rewind`` doesn't support ``--restore-target-wal`` parameter and exited with non zero code,
+            Patroni will parse stderr/stdout to figure out if it failed due to a missing WAL file and will
+            repeat an attempt after downloading the missing file using ``restore_command``.
+
+        :param conn_kwargs: :class:`dict` object with connection parameters.
+
+        :returns: ``True`` if ``pg_rewind`` finished successfully, ``False`` otherwise.
+        """
+        # prepare pg_rewind connection string
+        env = self._postgresql.config.write_pgpass(conn_kwargs)
         env.update(LANG='C', LC_ALL='C', PGOPTIONS='-c statement_timeout=0')
-        dsn = self._postgresql.config.format_dsn(r, True)
+        dsn = self._postgresql.config.format_dsn({**conn_kwargs, 'password': None})
         logger.info('running pg_rewind from %s', dsn)
 
-        restore_command = (self._postgresql.config.get('recovery_conf') or {}).get('restore_command') \
+        restore_command = (self._postgresql.config.get('recovery_conf') or EMPTY_DICT).get('restore_command') \
             if self._postgresql.major_version < 120000 else self._postgresql.get_guc_value('restore_command')
 
         # Until v15 pg_rewind expected postgresql.conf to be inside $PGDATA, which is not the case on e.g. Debian

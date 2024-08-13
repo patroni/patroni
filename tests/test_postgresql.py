@@ -6,7 +6,8 @@ import subprocess
 import time
 
 from copy import deepcopy
-from mock import Mock, MagicMock, PropertyMock, patch, mock_open
+from pathlib import Path
+from unittest.mock import Mock, MagicMock, PropertyMock, patch, mock_open
 
 import patroni.psycopg as psycopg
 
@@ -293,7 +294,7 @@ class TestPostgresql(BaseTestPostgresql):
             mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '1'
             self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
             mock_get_pg_settings.return_value['primary_conninfo'][1] = 'host=1 target_session_attrs=read-write'\
-                + ' passfile=' + re.sub(r'([\'\\ ])', r'\\\1', self.p.config._pgpass)
+                + ' dbname=postgres passfile=' + re.sub(r'([\'\\ ])', r'\\\1', self.p.config._pgpass)
             mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '0'
             self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
             self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': conninfo.copy()})
@@ -363,7 +364,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, 'start', Mock())
     def test_follow(self):
         self.p.call_nowait(CallbackAction.ON_START)
-        m = RemoteMember('1', {'restore_command': '2', 'primary_slot_name': 'foo', 'conn_kwargs': {'host': 'bar'}})
+        m = RemoteMember('1', {'restore_command': '2', 'primary_slot_name': 'foo', 'conn_kwargs': {'host': 'foo,bar'}})
         self.p.follow(m)
         with patch.object(Postgresql, 'ensure_major_version_is_known', Mock(return_value=False)):
             self.assertIsNone(self.p.follow(m))
@@ -1064,7 +1065,7 @@ class TestPostgresql(BaseTestPostgresql):
     def test__read_postgres_gucs_validators_file(self):
         # raise exception
         with self.assertRaises(InvalidGucValidatorsFile) as exc:
-            _read_postgres_gucs_validators_file('random_file.yaml')
+            _read_postgres_gucs_validators_file(Path('random_file.yaml'))
         self.assertEqual(
             str(exc.exception),
             "Unexpected issue while reading parameters file `random_file.yaml`: `[Errno 2] No such file or directory: "
@@ -1073,17 +1074,32 @@ class TestPostgresql(BaseTestPostgresql):
 
     def test__load_postgres_gucs_validators(self):
         # log messages
-        with patch('os.walk', Mock(return_value=iter([('.', [], ['file.txt', 'random.yaml'])]))), \
-             patch('patroni.postgresql.validator.logger.info') as mock_info, \
+        file1_attrs = {'is_file.return_value': True, 'is_dir.return_value': False}
+        file1_mock = MagicMock(**file1_attrs)
+        file1_mock.name = '__init__.py'
+        file2_attrs = {'is_file.return_value': False, 'is_dir.return_value': True, 'iterdir.return_value': []}
+        file2_mock = MagicMock(**file2_attrs)
+        file2_mock.name = '__pycache__'
+        file3_attrs = {'is_file.return_value': True, 'is_dir.return_value': False}
+        file3_mock = MagicMock(**file3_attrs)
+        file3_mock.name = file3_mock.__str__.return_value = 'random.yaml'
+        file3_mock.open.side_effect = FileNotFoundError('[Errno 2] No such file or directory: random.yaml')
+        file4_attrs = {'is_file.return_value': True, 'is_dir.return_value': False}
+        file4_mock = MagicMock(**file4_attrs)
+        file4_mock.name = 'file.txt'
+        dir_attrs = {'name': 'available_parameters', 'is_file.return_value': False, 'is_dir.return_value': True}
+        dir_mock = MagicMock(**dir_attrs)
+        dir_mock.iterdir.return_value = [file1_mock, file2_mock, file3_mock, file4_mock]
+        with patch('patroni.postgresql.available_parameters.conf_dir', dir_mock), \
+             patch('patroni.postgresql.available_parameters.logger.info') as mock_info, \
              patch('patroni.postgresql.validator.logger.warning') as mock_warning:
             _load_postgres_gucs_validators()
-            mock_info.assert_called_once_with('Ignored a non-YAML file found under `available_parameters` directory: '
-                                              '`%s`.', os.path.join('.', 'file.txt'))
+            mock_info.assert_called_once_with('Ignored a non-YAML file found under `%s` '
+                                              'directory: `%s`.', 'available_parameters', file4_mock)
             mock_warning.assert_called_once()
             self.assertIn(
-                "Unexpected issue while reading parameters file `{0}`: `[Errno 2] No such file or "
-                "directory:".format(os.path.join('.', 'random.yaml')),
-                mock_warning.call_args[0][0]
+                "Unexpected issue while reading parameters file `random.yaml`: `[Errno 2] No such file or "
+                "directory:", mock_warning.call_args[0][0]
             )
 
 

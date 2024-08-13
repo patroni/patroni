@@ -21,6 +21,8 @@ import os
 
 import sys
 
+from sphinx.application import ENV_PICKLE_FILENAME
+
 sys.path.insert(0, os.path.abspath('..'))
 
 from patroni.version import __version__
@@ -75,8 +77,8 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'Patroni'
-copyright = '2015 Compose, Zalando SE'
-author = 'Zalando SE'
+copyright = '2024 Compose, Zalando SE, Patroni Contributors'
+author = 'Patroni Contributors'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -132,7 +134,7 @@ html_static_path = ['_static']
 # Replace "source" links with "edit on GitHub" when using rtd theme
 html_context = {
     'display_github': True,
-    'github_user': 'zalando',
+    'github_user': 'patroni',
     'github_repo': 'patroni',
     'github_version': 'master',
     'conf_py_path': '/docs/',
@@ -189,7 +191,7 @@ latex_elements = {
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
     (master_doc, 'Patroni.tex', 'Patroni Documentation',
-     'Zalando SE', 'manual'),
+     'Patroni Contributors', 'manual'),
 ]
 
 
@@ -243,11 +245,22 @@ intersphinx_mapping = {'python': ('https://docs.python.org/', None)}
 # Remove these pages from index, references, toc trees, etc.
 # If the builder is not 'html' then add the API docs modules index to pages to be removed.
 exclude_from_builder = {
-    'latex': ['modules/modules'],
-    'epub': ['modules/modules'],
+    'latex': ['modules/'],
+    'epub': ['modules/'],
 }
 # Internal holding list, anything added here will always be excluded
 _docs_to_remove = []
+
+
+def config_inited(app, config):
+    """Run during Sphinx `config-inited` phase.
+
+    rtd reuses the environment, and there is no way to customize this behavior.
+    Thus we remove the saved env.
+    """
+    pickle_file = os.path.join(app.doctreedir, ENV_PICKLE_FILENAME)
+    if on_rtd and os.path.exists(pickle_file):
+        os.remove(pickle_file)
 
 
 def builder_inited(app):
@@ -263,14 +276,26 @@ def builder_inited(app):
         _docs_to_remove.extend(exclude_from_builder[app.builder.name])
 
 
+def _to_be_removed(doc):
+    for remove in _docs_to_remove:
+        if doc.startswith(remove):
+            return True
+    return False
+
+
 def env_get_outdated(app, env, added, changed, removed):
     """Run during Sphinx `env-get-outdated` phase.
 
     Remove the items listed in `docs_to_remove` from known pages.
     """
-    added.difference_update(_docs_to_remove)
-    changed.difference_update(_docs_to_remove)
-    removed.update(_docs_to_remove)
+    to_remove = set()
+    for doc in env.found_docs:
+        if _to_be_removed(doc):
+            to_remove.add(doc)
+    added.difference_update(to_remove)
+    changed.difference_update(to_remove)
+    removed.update(to_remove)
+    env.project.docnames.difference_update(to_remove)
     return []
 
 
@@ -282,8 +307,7 @@ def doctree_read(app, doctree):
     from sphinx import addnodes
     for toc_tree_node in doctree.traverse(addnodes.toctree):
         for e in toc_tree_node['entries']:
-            ref = str(e[1])
-            if ref in _docs_to_remove:
+            if _to_be_removed(str(e[1])):
                 toc_tree_node['entries'].remove(e)
 
 
@@ -304,6 +328,7 @@ def setup(app):
         app.add_stylesheet('custom.css')
 
     # Run extra steps to remove module docs when running with a non-html builder
+    app.connect('config-inited', config_inited)
     app.connect('builder-inited', builder_inited)
     app.connect('env-get-outdated', env_get_outdated)
     app.connect('doctree-read', doctree_read)

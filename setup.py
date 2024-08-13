@@ -17,7 +17,7 @@ NAME = 'patroni'
 MAIN_PACKAGE = NAME
 DESCRIPTION = 'PostgreSQL High-Available orchestrator and CLI'
 LICENSE = 'The MIT License'
-URL = 'https://github.com/zalando/patroni'
+URL = 'https://github.com/patroni/patroni'
 AUTHOR = 'Alexander Kukushkin, Polina Bungina'
 AUTHOR_EMAIL = 'akukushkin@microsoft.com, polina.bungina@zalando.de'
 KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd' +\
@@ -55,7 +55,7 @@ CONSOLE_SCRIPTS = ['patroni = patroni.__main__:main',
                    'patroni_raft_controller = patroni.raft_controller:main',
                    "patroni_wale_restore = patroni.scripts.wale_restore:main",
                    "patroni_aws = patroni.scripts.aws:main",
-                   "patroni_barman_recover = patroni.scripts.barman_recover:main"]
+                   "patroni_barman = patroni.scripts.barman.cli:main"]
 
 
 class _Command(Command):

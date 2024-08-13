@@ -46,11 +46,17 @@ def kill_postgres(context, name):
     return context.pctl.stop(name, kill=True, postgres=True)
 
 
+def get_wal_name(context, pg_name):
+    version = context.pctl.query(pg_name, "SHOW server_version_num").fetchone()[0]
+    return 'xlog' if int(version) / 10000 < 10 else 'wal'
+
+
 @step('I add the table {table_name:w} to {pg_name:w}')
 def add_table(context, table_name, pg_name):
     # parse the configuration file and get the port
     try:
         context.pctl.query(pg_name, "CREATE TABLE public.{0}()".format(table_name))
+        context.pctl.query(pg_name, "SELECT pg_switch_{0}()".format(get_wal_name(context, pg_name)))
     except pg.Error as e:
         assert False, "Error creating table {0} on {1}: {2}".format(table_name, pg_name, e)
 
@@ -59,9 +65,7 @@ def add_table(context, table_name, pg_name):
 def toggle_wal_replay(context, action, pg_name):
     # pause or resume the wal replay process
     try:
-        version = context.pctl.query(pg_name, "SHOW server_version_num").fetchone()[0]
-        wal_name = 'xlog' if int(version) / 10000 < 10 else 'wal'
-        context.pctl.query(pg_name, "SELECT pg_{0}_replay_{1}()".format(wal_name, action))
+        context.pctl.query(pg_name, "SELECT pg_{0}_replay_{1}()".format(get_wal_name(context, pg_name), action))
     except pg.Error as e:
         assert False, "Error during {0} wal recovery on {1}: {2}".format(action, pg_name, e)
 
