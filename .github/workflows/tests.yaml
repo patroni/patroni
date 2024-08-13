@@ -223,12 +223,6 @@ jobs:
         python-version: 3.12
         cache: pip
 
-    - name: debug
-      run: |
-        python3 -m pip install "isort[requirements_deprecated_finder,pipfile_deprecated_finder]"
-        python3 -m pip install -r requirements.txt
-        isort --check-only --diff patroni tests features setup.py
-
     - name: isort
       uses: isort/isort-action@master
       with:

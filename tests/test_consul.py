@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch, PropertyMock
 import consul
 
 from consul import ConsulException, NotFound
+
 from patroni.dcs import get_dcs
 from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulClient, ConsulError, \
     ConsulInternalError, HTTPClient, InvalidSession, InvalidSessionTTL, RetryFailedError

@@ -15,9 +15,8 @@ from urllib.parse import quote, urlencode, urlparse
 
 import urllib3
 
-from urllib3.exceptions import HTTPError
-
 from consul import base, ConsulException, NotFound
+from urllib3.exceptions import HTTPError
 
 from ..exceptions import DCSError
 from ..postgresql.mpp import AbstractMPP
