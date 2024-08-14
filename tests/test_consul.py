@@ -262,9 +262,8 @@ class TestConsul(unittest.TestCase):
         d['state'] = 'running'
         d['role'] = 'bla'
         self.assertIsNone(self.c.update_service({}, d))
-        for role in ('master', 'primary'):
-            d['role'] = role
-            self.assertTrue(self.c.update_service({}, d))
+        d['role'] = 'primary'
+        self.assertTrue(self.c.update_service({}, d))
 
     @patch.object(consul.Consul.KV, 'put', Mock(side_effect=ConsulException))
     def test_reload_config(self):

@@ -1085,7 +1085,7 @@ class Cluster(NamedTuple('Cluster',
         if global_config.is_standby_cluster or self.get_slot_name_on_primary(postgresql.name, tags) is None:
             return self.__permanent_physical_slots if postgresql.can_advance_slots or role == 'standby_leader' else {}
 
-        return self.__permanent_slots if postgresql.can_advance_slots or role in ('master', 'primary') \
+        return self.__permanent_slots if postgresql.can_advance_slots or role == 'primary' \
             else self.__permanent_logical_slots
 
     def _get_members_slots(self, name: str, role: str) -> Dict[str, Dict[str, str]]:
@@ -1118,7 +1118,7 @@ class Cluster(NamedTuple('Cluster',
         # also exlude members with disabled WAL streaming
         members = filter(lambda m: m.name != name and not m.nostream, self.members)
 
-        if role in ('master', 'primary', 'standby_leader'):
+        if role in ('primary', 'standby_leader'):
             members = [m for m in members if m.replicatefrom is None
                        or m.replicatefrom == name or not self.has_member(m.replicatefrom)]
         else:

@@ -46,7 +46,7 @@ Example session:
 
     $ kubectl get pods -L role
     NAME            READY   STATUS    RESTARTS   AGE   ROLE
-    patronidemo-0   1/1     Running   0          34s   master
+    patronidemo-0   1/1     Running   0          34s   primary
     patronidemo-1   1/1     Running   0          30s   replica
     patronidemo-2   1/1     Running   0          26s   replica
 
@@ -119,12 +119,12 @@ Example session:
 
     $ kubectl get pods -l cluster-name=citusdemo -L role
     NAME            READY   STATUS    RESTARTS   AGE    ROLE
-    citusdemo-0-0   1/1     Running   0          105s   master
+    citusdemo-0-0   1/1     Running   0          105s   primary
     citusdemo-0-1   1/1     Running   0          101s   replica
     citusdemo-0-2   1/1     Running   0          96s    replica
-    citusdemo-1-0   1/1     Running   0          105s   master
+    citusdemo-1-0   1/1     Running   0          105s   primary
     citusdemo-1-1   1/1     Running   0          101s   replica
-    citusdemo-2-0   1/1     Running   0          105s   master
+    citusdemo-2-0   1/1     Running   0          105s   primary
     citusdemo-2-1   1/1     Running   0          101s   replica
 
     $ kubectl exec -ti citusdemo-0-0 -- bash

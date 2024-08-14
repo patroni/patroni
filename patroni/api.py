@@ -326,8 +326,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             response.get('role') == 'replica' and response.get('state') == 'running' else 503
 
         if not cluster and response.get('pause'):
-            leader_status_code = 200 if response.get('role') in ('master', 'primary', 'standby_leader') else 503
-            primary_status_code = 200 if response.get('role') in ('master', 'primary') else 503
+            leader_status_code = 200 if response.get('role') in ('primary', 'standby_leader') else 503
+            primary_status_code = 200 if response.get('role') == 'primary' else 503
             standby_leader_status_code = 200 if response.get('role') == 'standby_leader' else 503
         elif patroni.ha.is_leader():
             leader_status_code = 200
@@ -435,7 +435,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         """
         patroni: Patroni = self.server.patroni
-        is_primary = patroni.postgresql.role in ('master', 'primary') and patroni.postgresql.is_running()
+        is_primary = patroni.postgresql.role == 'primary' and patroni.postgresql.is_running()
         # We can tolerate Patroni problems longer on the replica.
         # On the primary the liveness probe most likely will start failing only after the leader key expired.
         # It should not be a big problem because replicas will see that the primary is still alive via REST API call.
@@ -532,8 +532,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``patroni_version``: Patroni version without periods, e.g. ``030002`` for Patroni ``3.0.2``;
             * ``patroni_postgres_running``: ``1`` if PostgreSQL is running, else ``0``;
             * ``patroni_postmaster_start_time``: epoch timestamp since Postmaster was started;
-            * ``patroni_master``: ``1`` if this node holds the leader lock, else ``0``;
-            * ``patroni_primary``: same as ``patroni_master``;
+            * ``patroni_primary``: ``1`` if this node holds the leader lock, else ``0``;
             * ``patroni_xlog_location``: ``pg_wal_lsn_diff(pg_current_wal_flush_lsn(), '0/0')`` if leader, else ``0``;
             * ``patroni_standby_leader``: ``1`` if standby leader node, else ``0``;
             * ``patroni_replica``: ``1`` if a replica, else ``0``;
@@ -580,13 +579,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
         postmaster_start_time = (postmaster_start_time - epoch).total_seconds() if postmaster_start_time else 0
         metrics.append("patroni_postmaster_start_time{0} {1}".format(labels, postmaster_start_time))
 
-        metrics.append("# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.")
-        metrics.append("# TYPE patroni_master gauge")
-        metrics.append("patroni_master{0} {1}".format(labels, int(postgres['role'] in ('master', 'primary'))))
-
         metrics.append("# HELP patroni_primary Value is 1 if this node is the leader, 0 otherwise.")
         metrics.append("# TYPE patroni_primary gauge")
-        metrics.append("patroni_primary{0} {1}".format(labels, int(postgres['role'] in ('master', 'primary'))))
+        metrics.append("patroni_primary{0} {1}".format(labels, int(postgres['role'] == 'primary')))
 
         metrics.append("# HELP patroni_xlog_location Current location of the Postgres"
                        " transaction log, 0 if this node is not the leader.")
@@ -863,7 +858,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``schedule``: timestamp at which the restart should occur;
             * ``role``: restart only nodes which role is ``role``. Can be either:
 
-                * ``primary`` (or ``master``); or
+                * ``primary`; or
                 * ``replica``.
 
             * ``postgres_version``: restart only nodes which PostgreSQL version is less than ``postgres_version``, e.g.
@@ -912,9 +907,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     status_code = _
                     break
             elif k == 'role':
-                if request[k] not in ('master', 'primary', 'replica'):
+                if request[k] not in ('primary', 'standby_leader', 'replica'):
                     status_code = 400
-                    data = "PostgreSQL role should be either primary or replica"
+                    data = "PostgreSQL role should be either primary, standby_leader, or replica"
                     break
             elif k == 'postgres_version':
                 try:
@@ -1271,11 +1266,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
               ``initdb failed``, ``running custom bootstrap script``, ``custom bootstrap failed``,
               ``creating replica``, or ``unknown``;
             * ``postmaster_start_time``: ``pg_postmaster_start_time()``;
-            * ``role``: ``replica`` or ``master`` based on ``pg_is_in_recovery()`` output;
+            * ``role``: ``replica`` or ``primary`` based on ``pg_is_in_recovery()`` output;
             * ``server_version``: Postgres version without periods, e.g. ``150002`` for Postgres ``15.2``;
             * ``xlog``: dictionary. Its structure depends on ``role``:
 
-                * If ``master``:
+                * If ``primary``:
 
                     * ``location``: ``pg_current_wal_flush_lsn()``
 
@@ -1327,7 +1322,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             result = {
                 'state': postgresql.state,
                 'postmaster_start_time': row[0],
-                'role': 'replica' if row[1] == 0 else 'master',
+                'role': 'replica' if row[1] == 0 else 'primary',
                 'server_version': postgresql.server_version,
                 'xlog': ({
                     'received_location': row[4] or row[3],

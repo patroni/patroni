@@ -43,7 +43,7 @@ def get_default_config(*args):
 @patch('patroni.ctl.load_config', get_default_config)
 @patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
 class TestCtl(unittest.TestCase):
-    TEST_ROLES = ('master', 'primary', 'leader')
+    TEST_ROLES = ('primary', 'leader')
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
     def setUp(self):

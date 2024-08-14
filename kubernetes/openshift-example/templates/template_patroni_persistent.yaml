@@ -34,7 +34,7 @@ objects:
     labels:
       application: ${APPLICATION_NAME}
       cluster-name: ${PATRONI_CLUSTER_NAME}
-    name: ${PATRONI_MASTER_SERVICE_NAME}
+    name: ${PATRONI_PRIMARY_SERVICE_NAME}
   spec:
     ports:
     - port: 5432
@@ -43,7 +43,7 @@ objects:
     selector:
       application: ${APPLICATION_NAME}
       cluster-name: ${PATRONI_CLUSTER_NAME}
-      role: master
+      role: primary
     sessionAffinity: None
     type: ClusterIP
   status:
@@ -107,7 +107,7 @@ objects:
         initContainers:
         - command:
           - sh
-          - -c 
+          - -c
           - "mkdir -p /home/postgres/pgdata/pgroot/data && chmod 0700 /home/postgres/pgdata/pgroot/data"
           image: docker-registry.default.svc:5000/${NAMESPACE}/patroni:latest
           imagePullPolicy: IfNotPresent
@@ -196,7 +196,7 @@ objects:
         terminationGracePeriodSeconds: 0
         volumes:
         - name: ${APPLICATION_NAME}
-          persistentVolumeClaim: 
+          persistentVolumeClaim:
             claimName: ${APPLICATION_NAME}
     volumeClaimTemplates:
     - metadata:
@@ -313,12 +313,12 @@ parameters:
   displayName: Cluster Name
   name: PATRONI_CLUSTER_NAME
   value: patroni-persistent
-- description: The name of the OpenShift Service exposed for the patroni-persistent-master container.
-  displayName: Master service name.  
-  name: PATRONI_MASTER_SERVICE_NAME
-  value: patroni-persistent-master
+- description: The name of the OpenShift Service exposed for the patroni-persistent-primary container.
+  displayName: Primary service name.
+  name: PATRONI_PRIMARY_SERVICE_NAME
+  value: patroni-persistent-primary
 - description: The name of the OpenShift Service exposed for the patroni-persistent-replica containers.
-  displayName: Replica service name. 
+  displayName: Replica service name.
   name: PATRONI_REPLICA_SERVICE_NAME
   value: patroni-persistent-replica
 - description: Maximum amount of memory the container can use.
@@ -345,11 +345,11 @@ parameters:
   displayName: Repication Passsword
   name: PATRONI_REPLICATION_PASSWORD
   value: postgres
-- description: Service account name used for pods and rolebindings to form a cluster in the project. 
+- description: Service account name used for pods and rolebindings to form a cluster in the project.
   displayName: Service Account
   name: SERVICE_ACCOUNT
   value: patroni-persistent
-- description: The size of the persistent volume to create. 
+- description: The size of the persistent volume to create.
   displayName: Persistent Volume Size
   name: PVC_SIZE
   value: 5Gi

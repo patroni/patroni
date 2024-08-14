@@ -301,7 +301,7 @@ class Bootstrap(object):
                                           "datadir": self._postgresql.data_dir,
                                           "connstring": connstring})
                 else:
-                    for param in ('no_params', 'no_master', 'no_leader', 'keep_data'):
+                    for param in ('no_params', 'no_leader', 'keep_data'):
                         method_config.pop(param, None)
                 params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                 try:

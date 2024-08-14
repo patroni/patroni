@@ -595,10 +595,6 @@ class TestBarmanConfigSwitchCli(unittest.TestCase):
         args = MagicMock()
 
         for role, switch_when, expected in [
-            ("master", "promoted", False),
-            ("master", "demoted", True),
-            ("master", "always", False),
-
             ("primary", "promoted", False),
             ("primary", "demoted", True),
             ("primary", "always", False),

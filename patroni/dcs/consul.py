@@ -532,9 +532,7 @@ class Consul(AbstractDCS):
             check['TLSServerName'] = self._service_check_tls_server_name
         tags = self._service_tags[:]
         tags.append(role)
-        if role == 'master':
-            tags.append('primary')
-        elif role == 'primary':
+        if role == 'primary':
             tags.append('master')
         self._previous_loop_service_tags = self._service_tags
         self._previous_loop_token = self._client.token
@@ -553,7 +551,7 @@ class Consul(AbstractDCS):
             return self.deregister_service(params['service_id'])
 
         self._previous_loop_register_service = self._register_service
-        if role in ['master', 'primary', 'replica', 'standby-leader']:
+        if role in ['primary', 'replica', 'standby-leader']:
             if state != 'running':
                 return
             return self.register_service(service_name, **params)

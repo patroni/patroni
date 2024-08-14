@@ -69,7 +69,7 @@ Feature: citus
   Scenario: check that in-flight transaction is rolled back after timeout when other workers need to change pg_dist_node
     Given I start postgres4 in citus group 2
     Then postgres4 is a leader in a group 2 after 10 seconds
-    And "members/postgres4" key in a group 2 in DCS has role=master after 3 seconds
+    And "members/postgres4" key in a group 2 in DCS has role=primary after 3 seconds
     When I run patronictl.py edit-config batman --group 2 -s ttl=20 --force
     Then I receive a response returncode 0
     And I receive a response output "+ttl: 20"

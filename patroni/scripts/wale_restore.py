@@ -343,7 +343,7 @@ def main() -> int:
     parser.add_argument('--threshold_megabytes', type=int, default=10240)
     parser.add_argument('--threshold_backup_size_percentage', type=int, default=30)
     parser.add_argument('--use_iam', type=int, default=0)
-    parser.add_argument('--no_leader', '--no_master', type=int, default=0)
+    parser.add_argument('--no_leader', type=int, default=0)
     args = parser.parse_args()
 
     exit_code = None
