@@ -260,6 +260,19 @@ class Member(Tags, NamedTuple('Member',
                 ret['user'] = ret.pop('username')
         return ret
 
+    def get_endpoint_url(self, endpoint: Optional[str] = None) -> str:
+        """Get URL from member :attr:`~Member.api_url` and endpoint.
+
+        :param endpoint: URL path of REST API.
+
+        :returns: full URL for this REST API.
+        """
+        url = self.api_url or ''
+        if endpoint:
+            scheme, netloc, _, _, _, _ = urlparse(url)
+            url = urlunparse((scheme, netloc, endpoint, '', '', ''))
+        return url
+
     @property
     def api_url(self) -> Optional[str]:
         """The ``api_url`` value from :attr:`~Member.data` if defined."""
