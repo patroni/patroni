@@ -70,7 +70,7 @@ class PostmasterProcess(psutil.Process):
             start_time = int(self._postmaster_pid.get('start_time', 0))
             if start_time and abs(self.create_time() - start_time) > 3:
                 logger.info('Process %s is not postmaster, too much difference between PID file start time %s and '
-                            'process start time %s', self.pid, self.create_time(), start_time)
+                            'process start time %s', self.pid, start_time, self.create_time())
                 return False
         except ValueError:
             logger.warning('Garbage start time value in pid file: %r', self._postmaster_pid.get('start_time'))
