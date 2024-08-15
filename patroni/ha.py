@@ -1024,15 +1024,17 @@ class Ha(object):
 
         :returns: a :class:`_FailsafeResponse` object.
         """
+        endpoint = 'failsafe'
+        url = member.get_endpoint_url(endpoint)
         try:
-            response = self.patroni.request(member, 'post', 'failsafe', data, timeout=2, retries=1)
+            response = self.patroni.request(member, 'post', endpoint, data, timeout=2, retries=1)
             response_data = response.data.decode('utf-8')
-            logger.info('Got response from %s %s: %s', member.name, member.api_url, response_data)
+            logger.info('Got response from %s %s: %s', member.name, url, response_data)
             accepted = response.status == 200 and response_data == 'Accepted'
             # member may return its current received/replayed LSN in the "lsn" header.
             return _FailsafeResponse(member.name, accepted, parse_int(response.headers.get('lsn')))
         except Exception as e:
-            logger.warning("Request failed to %s: POST %s (%s)", member.name, member.api_url, e)
+            logger.warning("Request failed to %s: POST %s (%s)", member.name, url, e)
         return _FailsafeResponse(member.name, False, None)
 
     def check_failsafe_topology(self) -> bool:
