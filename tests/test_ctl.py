@@ -231,12 +231,6 @@ class TestCtl(unittest.TestCase):
         self.assertIn("Candidate ['other']", result.output)
         self.assertIn('Member leader is already the leader of cluster dummy', result.output)
 
-        # Temp test to check a fallback to switchover if leader is specified
-        with patch('patroni.ctl._do_failover_or_switchover') as failover_func_mock:
-            result = self.runner.invoke(ctl, ['failover', '--leader', 'leader', 'dummy'], input='0\n')
-            self.assertIn('Supplying a leader name using this command is deprecated', result.output)
-            failover_func_mock.assert_called_once_with('switchover', 'dummy', None, 'leader', None, False)
-
         cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
         cluster.members.append(Member(0, 'async', 28, {'api_url': 'http://127.0.0.1:8012/patroni'}))
         cluster.config.data['synchronous_mode'] = True
