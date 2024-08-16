@@ -614,7 +614,7 @@ Failover
 
 ``/failover`` endpoint can be used to perform a manual failover when there are no healthy nodes (e.g. to an asynchronous standby if all synchronous standbys are not healthy enough to promote). However there is no requirement for a cluster not to have leader - failover can also be run on a healthy cluster.
 
-In the JSON body of the ``POST`` request you must specify the ``candidate`` field.
+In the JSON body of the ``POST`` request you must specify the ``candidate`` field. If the ``leader`` field is specified, a switchover is triggered instead.
 
 **Example:**
 
