@@ -82,10 +82,10 @@ class Postgresql(object):
         self.connection_pool = ConnectionPool()
         self._connection = self.connection_pool.get('heartbeat')
         self.mpp_handler = mpp.get_handler_impl(self)
+        self._bin_dir = config.get('bin_dir') or ''
         self.config = ConfigHandler(self, config)
         self.config.check_directories()
 
-        self._bin_dir = config.get('bin_dir') or ''
         self.bootstrap = Bootstrap(self)
         self.bootstrapping = False
         self.__thread_ident = current_thread().ident

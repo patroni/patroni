@@ -3,7 +3,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from patroni.exceptions import PatroniException
-from patroni.utils import enable_keepalive, polling_loop, Retry, RetryFailedError, unquote, validate_directory
+from patroni.utils import enable_keepalive, get_postgres_version, \
+    polling_loop, Retry, RetryFailedError, unquote, validate_directory
 
 
 class TestUtils(unittest.TestCase):
@@ -66,6 +67,18 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(unquote(
             '\'value with a \'"\'"\' single quote\''),
             'value with a \' single quote')
+
+    def test_get_postgres_version(self):
+        with patch('subprocess.check_output', Mock(return_value=b'postgres (PostgreSQL) 9.6.24\n')):
+            self.assertEqual(get_postgres_version(), '9.6.24')
+        with patch('subprocess.check_output',
+                   Mock(return_value=b'postgres (PostgreSQL) 10.23 (Ubuntu 10.23-4.pgdg22.04+1)\n')):
+            self.assertEqual(get_postgres_version(), '10.23')
+        with patch('subprocess.check_output',
+                   Mock(return_value=b'postgres (PostgreSQL) 17beta3 (Ubuntu 17~beta3-1.pgdg22.04+1)\n')):
+            self.assertEqual(get_postgres_version(), '17')
+        with patch('subprocess.check_output', Mock(side_effect=OSError)):
+            self.assertRaises(PatroniException, get_postgres_version, 'postgres')
 
 
 @patch('time.sleep', Mock())

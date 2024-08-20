@@ -16,8 +16,9 @@ from ..collections import CaseInsensitiveDict, CaseInsensitiveSet, EMPTY_DICT
 from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException, PostgresConnectionException
 from ..file_perm import pg_perm
-from ..utils import compare_values, is_subpath, maybe_convert_from_base_unit, \
-    parse_bool, parse_int, split_host_port, uri, validate_directory
+from ..postgresql.misc import postgres_version_to_int
+from ..utils import compare_values, get_postgres_version, is_subpath, \
+    maybe_convert_from_base_unit, parse_bool, parse_int, split_host_port, uri, validate_directory
 from ..validator import EnumValidator, IntValidator
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
 
@@ -404,6 +405,15 @@ class ConfigHandler(object):
         return self._config_dir
 
     @property
+    def full_pg_version(self) -> int:
+        if self._postgresql.state == 'running':
+            try:
+                return self._postgresql.server_version
+            except AttributeError:
+                pass
+        return postgres_version_to_int(get_postgres_version(bin_name=self._postgresql.pgcommand('postgres')))
+
+    @property
     def _configuration_to_save(self) -> List[str]:
         configuration = [os.path.basename(self._postgresql_conf)]
         if 'custom_conf' not in self._config:
@@ -487,7 +497,7 @@ class ConfigHandler(object):
             include = self._config.get('custom_conf') or self._postgresql_base_conf_name
             f.writeline("include '{0}'\n".format(ConfigWriter.escape(include)))
             for name, value in sorted((configuration).items()):
-                value = transform_postgresql_parameter_value(self._postgresql.major_version, name, value)
+                value = transform_postgresql_parameter_value(self.full_pg_version, name, value)
                 if value is not None and\
                         (name != 'hba_file' or not self._postgresql.bootstrap.running_custom_bootstrap):
                     f.write_param(name, value)

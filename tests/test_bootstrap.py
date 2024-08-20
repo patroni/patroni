@@ -14,6 +14,7 @@ from . import BaseTestPostgresql, psycopg_connect
 
 
 @patch('subprocess.call', Mock(return_value=0))
+@patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
 @patch('patroni.psycopg.connect', psycopg_connect)
 @patch('os.rename', Mock())
 class TestBootstrap(BaseTestPostgresql):
