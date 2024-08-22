@@ -2,7 +2,6 @@
 import json
 
 from typing import Any, Dict, Optional, Union
-from urllib.parse import urlparse, urlunparse
 
 import urllib3
 
@@ -164,10 +163,7 @@ class PatroniRequest(object):
 
         :returns: the response returned upon request.
         """
-        url = member.api_url or ''
-        if endpoint:
-            scheme, netloc, _, _, _, _ = urlparse(url)
-            url = urlunparse((scheme, netloc, endpoint, '', '', ''))
+        url = member.get_endpoint_url(endpoint)
         return self.request(method, url, data, **kwargs)
 
 

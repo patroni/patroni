@@ -577,6 +577,23 @@ class TestHa(PostgresInit):
         self.p.set_role('primary')
         self.assertEqual(self.ha.update_failsafe({}), 'Running as a leader')
 
+    def test_call_failsafe_member(self):
+        member = Member(0, 'test', 1, {'api_url': 'http://localhost:8011/patroni'})
+        self.ha.patroni.request = Mock()
+        self.ha.patroni.request.return_value.data = b'Accepted'
+        self.ha.patroni.request.return_value.status = 200
+        with patch('patroni.ha.logger.info') as mock_logger:
+            ret = self.ha.call_failsafe_member({}, member)
+            self.assertEqual(mock_logger.call_args_list[0][0], ('Got response from %s %s: %s', 'test', 'http://localhost:8011/failsafe', 'Accepted'))
+            self.assertTrue(ret.accepted)
+
+        e = Exception('request failed')
+        self.ha.patroni.request.side_effect = e
+        with patch('patroni.ha.logger.warning') as mock_logger:
+            ret = self.ha.call_failsafe_member({}, member)
+            self.assertEqual(mock_logger.call_args_list[0][0], ('Request failed to %s: POST %s (%s)', 'test', 'http://localhost:8011/failsafe', e))
+            self.assertFalse(ret.accepted)
+
     @patch('time.sleep', Mock())
     def test_bootstrap_from_another_member(self):
         self.ha.cluster = get_cluster_initialized_with_leader()

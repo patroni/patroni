@@ -1193,9 +1193,9 @@ def reinit(cluster_name: str, group: Optional[int], member_names: List[str], for
                 wait_on_members.remove(member)
 
 
-def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[int],
-                               switchover_leader: Optional[str], candidate: Optional[str],
-                               force: bool, scheduled: Optional[str] = None) -> None:
+def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[int], candidate: Optional[str],
+                               force: bool, switchover_leader: Optional[str] = None,
+                               switchover_scheduled: Optional[str] = None) -> None:
     """Perform a failover or a switchover operation in the cluster.
 
     Informational messages are printed in the console during the operation, as well as the list of members before and
@@ -1208,10 +1208,11 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
     :param cluster_name: name of the Patroni cluster.
     :param group: filter Citus group within we should perform a failover or switchover. If ``None``, user will be
         prompted for filling it -- unless *force* is ``True``, in which case an exception is raised.
-    :param switchover_leader: name of the leader member passed as switchover option.
     :param candidate: name of a standby member to be promoted. Nodes that are tagged with ``nofailover`` cannot be used.
     :param force: perform the failover or switchover without asking for confirmations.
-    :param scheduled: timestamp when the switchover should be scheduled to occur. If ``now`` perform immediately.
+    :param switchover_leader: name of the leader passed to the switchover command if any.
+    :param switchover_scheduled: timestamp when the switchover should be scheduled to occur. If ``now``,
+        perform immediately.
 
     :raises:
         :class:`PatroniCtlException`: if:
@@ -1290,12 +1291,12 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
     scheduled_at = None
 
     if action == 'switchover':
-        if scheduled is None and not force:
+        if switchover_scheduled is None and not force:
             next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
-            scheduled = click.prompt('When should the switchover take place (e.g. ' + next_hour + ' ) ',
-                                     type=str, default='now')
+            switchover_scheduled = click.prompt('When should the switchover take place (e.g. ' + next_hour + ' ) ',
+                                                type=str, default='now')
 
-        scheduled_at = parse_scheduled(scheduled)
+        scheduled_at = parse_scheduled(switchover_scheduled)
         if scheduled_at:
             if config.is_paused:
                 raise PatroniCtlException("Can't schedule switchover in the paused state")
@@ -1353,20 +1354,12 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
 @ctl.command('failover', help='Failover to a replica')
 @arg_cluster_name
 @option_citus_group
-@click.option('--leader', '--primary', '--master', 'leader', help='The name of the current leader', default=None)
 @click.option('--candidate', help='The name of the candidate', default=None)
 @option_force
-def failover(cluster_name: str, group: Optional[int],
-             leader: Optional[str], candidate: Optional[str], force: bool) -> None:
+def failover(cluster_name: str, group: Optional[int], candidate: Optional[str], force: bool) -> None:
     """Process ``failover`` command of ``patronictl`` utility.
 
     Perform a failover operation immediately in the cluster.
-
-    .. note::
-        If *leader* is given perform a switchover instead of a failover.
-        This behavior is deprecated. ``--leader`` option support will be
-        removed in the next major release.
-
     .. seealso::
         Refer to :func:`_do_failover_or_switchover` for details.
 
@@ -1374,17 +1367,10 @@ def failover(cluster_name: str, group: Optional[int],
     :param group: filter Citus group within we should perform a failover or switchover. If ``None``, user will be
         prompted for filling it -- unless *force* is ``True``, in which case an exception is raised by
         :func:`_do_failover_or_switchover`.
-    :param leader: name of the current leader member.
     :param candidate: name of a standby member to be promoted. Nodes that are tagged with ``nofailover`` cannot be used.
     :param force: perform the failover or switchover without asking for confirmations.
     """
-    action = 'failover'
-    if leader:
-        action = 'switchover'
-        click.echo(click.style(
-            'Supplying a leader name using this command is deprecated and will be removed in a future version of'
-            ' Patroni, change your scripts to use `switchover` instead.\nExecuting switchover!', fg='red'))
-    _do_failover_or_switchover(action, cluster_name, group, leader, candidate, force)
+    _do_failover_or_switchover('failover', cluster_name, group, candidate, force)
 
 
 @ctl.command('switchover', help='Switchover to a replica')
@@ -1413,7 +1399,7 @@ def switchover(cluster_name: str, group: Optional[int], leader: Optional[str],
     :param force: perform the switchover without asking for confirmations.
     :param scheduled: timestamp when the switchover should be scheduled to occur. If ``now`` perform immediately.
     """
-    _do_failover_or_switchover('switchover', cluster_name, group, leader, candidate, force, scheduled)
+    _do_failover_or_switchover('switchover', cluster_name, group, candidate, force, leader, scheduled)
 
 
 def generate_topology(level: int, member: Dict[str, Any],

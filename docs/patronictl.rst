@@ -320,7 +320,6 @@ Synopsis
     failover
       [ CLUSTER_NAME ]
       [ --group CITUS_GROUP ]
-      [ { --leader | --primary } LEADER_NAME ]
       --candidate CANDIDATE_NAME
       [ --force ]
 
@@ -358,16 +357,6 @@ Parameters
     Perform a failover in the given Citus group.
 
     ``CITUS_GROUP`` is the ID of the Citus group.
-
-``--leader`` / ``--primary``
-    Indicate who is the expected leader at failover time.
-
-    If given, a switchover is performed instead of a failover.
-
-    ``LEADER_NAME`` should match the name of the current leader in the cluster.
-
-    .. warning::
-        This argument is deprecated and will be removed in a future release.
 
 ``--candidate``
     The node to be promoted on failover.
