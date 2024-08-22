@@ -140,7 +140,8 @@ class GlobalConfig(types.ModuleType):
 
         :param name: name of the parameter.
         :param default: default value if *name* is not in the configuration or invalid.
-        :param base_unit: an optional base unit to convert value of *name* parameter to. Not used if the value does not contain a unit.
+        :param base_unit: an optional base unit to convert value of *name* parameter to.
+                          Not used if the value does not contain a unit.
 
         :returns: currently configured value of *name* from the global configuration or *default* if it is not set or
             invalid.
