@@ -16,8 +16,8 @@ from ..collections import CaseInsensitiveDict, CaseInsensitiveSet, EMPTY_DICT
 from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException, PostgresConnectionException
 from ..file_perm import pg_perm
-from ..postgresql.misc import postgres_version_to_int
-from ..utils import compare_values, get_postgres_version, is_subpath, \
+from ..postgresql.misc import postgres_major_version_to_int, postgres_version_to_int
+from ..utils import compare_values, get_major_version, get_postgres_version, is_subpath, \
     maybe_convert_from_base_unit, parse_bool, parse_int, split_host_port, uri, validate_directory
 from ..validator import EnumValidator, IntValidator
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
@@ -405,13 +405,23 @@ class ConfigHandler(object):
         return self._config_dir
 
     @property
-    def full_pg_version(self) -> int:
+    def pg_version(self) -> int:
+        """Current full postgres version if instance is running, major version otherwise.
+
+        We can only use ``postgres --version`` output if major version there equals to the one
+        in data directory. If it is not the case, we should use major version from the ``PG_VERSION``
+        file.
+        """
         if self._postgresql.state == 'running':
             try:
                 return self._postgresql.server_version
             except AttributeError:
                 pass
-        return postgres_version_to_int(get_postgres_version(bin_name=self._postgresql.pgcommand('postgres')))
+        bin_name = self._postgresql.pgcommand('postgres')
+        bin_minor = postgres_version_to_int(get_postgres_version(bin_name=bin_name))
+        bin_major = postgres_major_version_to_int(get_major_version(bin_name=bin_name))
+        datadir_major = self._postgresql.major_version
+        return datadir_major if bin_major != datadir_major else bin_minor
 
     @property
     def _configuration_to_save(self) -> List[str]:
@@ -496,8 +506,9 @@ class ConfigHandler(object):
         with self.config_writer(self._postgresql_conf) as f:
             include = self._config.get('custom_conf') or self._postgresql_base_conf_name
             f.writeline("include '{0}'\n".format(ConfigWriter.escape(include)))
+            version = self.pg_version
             for name, value in sorted((configuration).items()):
-                value = transform_postgresql_parameter_value(self.full_pg_version, name, value)
+                value = transform_postgresql_parameter_value(version, name, value)
                 if value is not None and\
                         (name != 'hba_file' or not self._postgresql.bootstrap.running_custom_bootstrap):
                     f.write_param(name, value)

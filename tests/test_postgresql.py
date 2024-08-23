@@ -342,7 +342,6 @@ class TestPostgresql(BaseTestPostgresql):
         with patch('patroni.postgresql.config.mtime', mock_mtime):
             self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
 
-    @patch.object(Postgresql, 'server_version', PropertyMock(side_effect=AttributeError))
     def test_write_postgresql_and_sanitize_auto_conf(self):
         read_data = 'primary_conninfo = foo\nfoo = bar\n'
         with open(os.path.join(self.p.data_dir, 'postgresql.auto.conf'), 'w') as f:
@@ -533,6 +532,13 @@ class TestPostgresql(BaseTestPostgresql):
     def test_sysid(self):
         with patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string)):
             self.assertEqual(self.p.sysid, "6200971513092291716")
+
+    def test_pg_version(self):
+        self.assertEqual(self.p.config.pg_version, 99999)  # server_version
+        with patch.object(Postgresql, 'server_version', PropertyMock(side_effect=AttributeError)):
+            self.assertEqual(self.p.config.pg_version, 140000)  # PG_VERSION==14, postgres --version == 12.1
+            with patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 14.1")):
+                self.assertEqual(self.p.config.pg_version, 140001)
 
     @patch('os.path.isfile', Mock(return_value=True))
     @patch('shutil.copy', Mock(side_effect=IOError))
