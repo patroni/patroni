@@ -1183,7 +1183,7 @@ def unquote(string: str) -> str:
 def get_postgres_version(bin_dir: Optional[str] = None, bin_name: str = 'postgres') -> str:
     """Get full PostgreSQL version.
 
-    Like func:`get_major_version` but extended with minor version.
+    It is based on the output of ``postgres --version``.
 
     :param bin_dir: path to the PostgreSQL binaries directory. If ``None`` or an empty string, it will use the first
                     *bin_name* binary that is found by the subprocess in the ``PATH``.
@@ -1221,7 +1221,7 @@ def get_postgres_version(bin_dir: Optional[str] = None, bin_name: str = 'postgre
 def get_major_version(bin_dir: Optional[str] = None, bin_name: str = 'postgres') -> str:
     """Get the major version of PostgreSQL.
 
-    It is based on the output of ``postgres --version``.
+    Like func:`get_postgres_version` but without minor version.
 
     :param bin_dir: path to the PostgreSQL binaries directory. If ``None`` or an empty string, it will use the first
                     *bin_name* binary that is found by the subprocess in the ``PATH``.
@@ -1238,4 +1238,4 @@ def get_major_version(bin_dir: Optional[str] = None, bin_name: str = 'postgres')
         * Returns `15` for PostgreSQL 15.2
     """
     full_version = get_postgres_version(bin_dir, bin_name)
-    return re.sub(r'(\.\d+)(?!\.)', '', full_version)
+    return re.sub(r'\.\d+$', '', full_version)
