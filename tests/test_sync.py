@@ -6,12 +6,11 @@ from patroni.collections import CaseInsensitiveSet
 from patroni.dcs import Cluster, SyncState
 from patroni.postgresql import Postgresql
 
-from . import BaseTestPostgresql, psycopg_connect, mock_available_gucs
+from . import BaseTestPostgresql, psycopg_connect
 
 
 @patch('subprocess.call', Mock(return_value=0))
 @patch('patroni.psycopg.connect', psycopg_connect)
-@patch.object(Postgresql, 'available_gucs', mock_available_gucs)
 @patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True))
 class TestSync(BaseTestPostgresql):
 
@@ -20,7 +19,6 @@ class TestSync(BaseTestPostgresql):
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
-    @patch.object(Postgresql, 'available_gucs', mock_available_gucs)
     def setUp(self):
         super(TestSync, self).setUp()
         self.p.config.write_postgresql_conf()

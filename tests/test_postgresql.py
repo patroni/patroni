@@ -13,7 +13,7 @@ import patroni.psycopg as psycopg
 
 from patroni import global_config
 from patroni.async_executor import CriticalTask
-from patroni.collections import CaseInsensitiveDict, CaseInsensitiveSet
+from patroni.collections import CaseInsensitiveDict
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PostgresConnectionException, PatroniException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
@@ -24,12 +24,12 @@ from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import (ValidatorFactoryNoType, ValidatorFactoryInvalidType,
                                           ValidatorFactoryInvalidSpec, ValidatorFactory, InvalidGucValidatorsFile,
                                           _get_postgres_guc_validators, _read_postgres_gucs_validators_file,
-                                          _load_postgres_gucs_validators, Bool, Integer, Real, Enum, EnumBool, String)
+                                          _load_postgres_gucs_validators, Bool, Integer, Real, Enum, EnumBool, String,
+                                          transform_postgresql_parameter_value)
 from patroni.utils import RetryFailedError
 from threading import Thread, current_thread
 
-from . import (BaseTestPostgresql, MockCursor, MockPostmaster, psycopg_connect, mock_available_gucs,
-               GET_PG_SETTINGS_RESULT)
+from . import BaseTestPostgresql, MockCursor, MockPostmaster, psycopg_connect, GET_PG_SETTINGS_RESULT
 
 
 mtime_ret = {}
@@ -99,8 +99,8 @@ Data page checksum version:           0
 
 
 @patch('subprocess.call', Mock(return_value=0))
+@patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
 @patch('patroni.psycopg.connect', psycopg_connect)
-@patch.object(Postgresql, 'available_gucs', mock_available_gucs)
 class TestPostgresql(BaseTestPostgresql):
 
     @patch('subprocess.call', Mock(return_value=0))
@@ -108,7 +108,6 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
-    @patch.object(Postgresql, 'available_gucs', mock_available_gucs)
     def setUp(self):
         super(TestPostgresql, self).setUp()
         self.p.config.write_postgresql_conf()
@@ -536,9 +535,16 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertEqual(self.p.controldata(), {})
 
     @patch('patroni.postgresql.Postgresql._version_file_exists', Mock(return_value=True))
-    @patch('subprocess.check_output', MagicMock(return_value=0, side_effect=pg_controldata_string))
     def test_sysid(self):
-        self.assertEqual(self.p.sysid, "6200971513092291716")
+        with patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string)):
+            self.assertEqual(self.p.sysid, "6200971513092291716")
+
+    def test_pg_version(self):
+        self.assertEqual(self.p.config.pg_version, 99999)  # server_version
+        with patch.object(Postgresql, 'server_version', PropertyMock(side_effect=AttributeError)):
+            self.assertEqual(self.p.config.pg_version, 140000)  # PG_VERSION==14, postgres --version == 12.1
+            with patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 14.1")):
+                self.assertEqual(self.p.config.pg_version, 140001)
 
     @patch('os.path.isfile', Mock(return_value=True))
     @patch('shutil.copy', Mock(side_effect=IOError))
@@ -902,6 +908,32 @@ class TestPostgresql(BaseTestPostgresql):
     def test_handle_parameter_change(self):
         self.p.handle_parameter_change()
 
+    @patch('patroni.postgresql.validator.logger.warning')
+    def test_transform_postgresql_parameter_value(self, mock_warning):
+        not_none_values = (
+            ('foo.bar', 'foo', 160003),  # name, value, version
+            ("allow_in_place_tablespaces", 'true', 130008),
+            ("restrict_nonsystem_relation_kind", 'view', 160005)
+        )
+        for i in not_none_values:
+            self.assertIsNotNone(
+                transform_postgresql_parameter_value(i[2], i[0], i[1])
+            )
+
+        none_values = (
+            ("archive_cleanup_command", 'foo', 160003, False),  # name, value, version, unexpected param
+            ("allow_in_place_tablespaces", 'true', 130005, True),
+            ("restrict_nonsystem_relation_kind", 'view', 160001, True),
+        )
+        for i in none_values:
+            self.assertIsNone(
+                transform_postgresql_parameter_value(i[2], i[0], i[1])
+            )
+            if i[3]:
+                mock_warning.assert_called_once_with(
+                    'Removing unexpected parameter=%s value=%s from the config', i[0], i[1])
+            mock_warning.reset_mock()
+
     def test_validator_factory(self):
         # validator with no type
         validator = {
@@ -1123,12 +1155,6 @@ class TestPostgresql2(BaseTestPostgresql):
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     def setUp(self):
         super(TestPostgresql2, self).setUp()
-
-    @patch('subprocess.check_output', Mock(return_value='\n'.join(mock_available_gucs.return_value).encode('utf-8')))
-    def test_available_gucs(self):
-        gucs = self.p.available_gucs
-        self.assertIsInstance(gucs, CaseInsensitiveSet)
-        self.assertEqual(gucs, mock_available_gucs.return_value)
 
     def test_cluster_info_query(self):
         self.assertIn('diff(pg_catalog.pg_current_wal_flush_lsn(', self.p.cluster_info_query)

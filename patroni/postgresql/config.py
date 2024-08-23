@@ -11,6 +11,7 @@ from urllib.parse import urlparse, parse_qsl, unquote
 from types import TracebackType
 from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Union, Tuple, Type, TYPE_CHECKING
 
+from .misc import get_major_from_minor_version, postgres_version_to_int
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
 from .. import global_config
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet, EMPTY_DICT
@@ -18,7 +19,7 @@ from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException, PostgresConnectionException
 from ..file_perm import pg_perm
 from ..utils import (compare_values, maybe_convert_from_base_unit, parse_bool, parse_int,
-                     split_host_port, uri, validate_directory, is_subpath)
+                     split_host_port, uri, validate_directory, is_subpath, get_postgres_version)
 from ..validator import IntValidator, EnumValidator
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -408,6 +409,24 @@ class ConfigHandler(object):
         return self._config_dir
 
     @property
+    def pg_version(self) -> int:
+        """Current full postgres version if instance is running, major version otherwise.
+
+        We can only use ``postgres --version`` output if major version there equals to the one
+        in data directory. If it is not the case, we should use major version from the ``PG_VERSION``
+        file.
+        """
+        if self._postgresql.state == 'running':
+            try:
+                return self._postgresql.server_version
+            except AttributeError:
+                pass
+        bin_minor = postgres_version_to_int(get_postgres_version(bin_name=self._postgresql.pgcommand('postgres')))
+        bin_major = get_major_from_minor_version(bin_minor)
+        datadir_major = self._postgresql.major_version
+        return datadir_major if bin_major != datadir_major else bin_minor
+
+    @property
     def _configuration_to_save(self) -> List[str]:
         configuration = [os.path.basename(self._postgresql_conf)]
         if 'custom_conf' not in self._config:
@@ -490,9 +509,9 @@ class ConfigHandler(object):
         with self.config_writer(self._postgresql_conf) as f:
             include = self._config.get('custom_conf') or self._postgresql_base_conf_name
             f.writeline("include '{0}'\n".format(ConfigWriter.escape(include)))
+            version = self.pg_version
             for name, value in sorted((configuration).items()):
-                value = transform_postgresql_parameter_value(self._postgresql.major_version, name, value,
-                                                             self._postgresql.available_gucs)
+                value = transform_postgresql_parameter_value(version, name, value)
                 if value is not None and\
                         (name != 'hba_file' or not self._postgresql.bootstrap.running_custom_bootstrap):
                     f.write_param(name, value)
@@ -615,8 +634,7 @@ class ConfigHandler(object):
                     self._passfile_mtime = mtime(self._pgpass)
                 value = self.format_dsn(value)
             else:
-                value = transform_recovery_parameter_value(self._postgresql.major_version, name, value,
-                                                           self._postgresql.available_gucs)
+                value = transform_recovery_parameter_value(self._postgresql.major_version, name, value)
                 if value is None:
                     continue
             fd.write_param(name, value)

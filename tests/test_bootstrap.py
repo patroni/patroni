@@ -9,13 +9,13 @@ from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.config import ConfigHandler, get_param_diff
 
-from . import psycopg_connect, BaseTestPostgresql, mock_available_gucs
+from . import psycopg_connect, BaseTestPostgresql
 
 
 @patch('subprocess.call', Mock(return_value=0))
+@patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
 @patch('patroni.psycopg.connect', psycopg_connect)
 @patch('os.rename', Mock())
-@patch.object(Postgresql, 'available_gucs', mock_available_gucs)
 class TestBootstrap(BaseTestPostgresql):
 
     @patch('patroni.postgresql.CallbackExecutor', Mock())
