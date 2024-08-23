@@ -4,7 +4,22 @@ parameters:
     version_from: 170000
   allow_in_place_tablespaces:
   - type: Bool
-    version_from: 100000
+    version_from: 150000
+  - type: Bool
+    version_from: 140005
+    version_till: 140099
+  - type: Bool
+    version_from: 130008
+    version_till: 130099
+  - type: Bool
+    version_from: 120012
+    version_till: 120099
+  - type: Bool
+    version_from: 110017
+    version_till: 110099
+  - type: Bool
+    version_from: 100022
+    version_till: 100099
   allow_system_table_mods:
   - type: Bool
     version_from: 90300
@@ -1222,6 +1237,24 @@ parameters:
   restart_after_crash:
   - type: Bool
     version_from: 90300
+  restrict_nonsystem_relation_kind:
+  - type: String
+    version_from: 170000
+  - type: String
+    version_from: 160004
+    version_till: 160099
+  - type: String
+    version_from: 150008
+    version_till: 150099
+  - type: String
+    version_from: 140013
+    version_till: 140099
+  - type: String
+    version_from: 130016
+    version_till: 130099
+  - type: String
+    version_from: 120020
+    version_till: 120099
   row_security:
   - type: Bool
     version_from: 90500
