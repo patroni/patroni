@@ -152,7 +152,8 @@ class TestRaft(unittest.TestCase):
         self.assertIsInstance(cluster, Cluster)
         self.assertIsInstance(cluster.workers[1], Cluster)
         self.assertTrue(raft.delete_leader(cluster.leader))
-        self.assertTrue(raft._sync_obj.set(raft.status_path, '{"optime":1234567,"slots":{"ls":12345}}'))
+        self.assertTrue(raft._sync_obj.set(raft.status_path,
+                                           '{"optime":1234567,"slots":{"ls":12345},"retain_slots":["postgresql0"]}'))
         raft.get_cluster()
         self.assertTrue(raft.update_leader(cluster, '1', failsafe={'foo': 'bat'}))
         self.assertTrue(raft._sync_obj.set(raft.failsafe_path, '{"foo"}'))

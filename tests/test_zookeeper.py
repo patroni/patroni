@@ -54,7 +54,8 @@ class MockKazooClient(Mock):
         elif path.endswith('/initialize'):
             return (b'foo', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
         elif path.endswith('/status'):
-            return (b'{"optime":500,"slots":{"ls":1234567}}', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
+            return (b'{"optime":500,"slots":{"ls":1234567},"retain_slots":["postgresql0"]}',
+                    ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
         elif path.endswith('/failsafe'):
             return (b'{a}', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
         return (b'', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))

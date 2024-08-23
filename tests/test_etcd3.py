@@ -225,7 +225,8 @@ class TestEtcd3(BaseTestEtcd3):
                 "header": {"revision": "1"},
                 "kvs": [
                     {"key": base64_encode('/patroni/test/status'),
-                     "value": base64_encode('{"optime":1234567,"slots":{"ls":12345}}'), "mod_revision": '1'}
+                     "value": base64_encode('{"optime":1234567,"slots":{"ls":12345},"retain_slots": ["foo"]}'),
+                     "mod_revision": '1'}
                 ]
             })
             self.assertIsInstance(self.etcd3.get_cluster(), Cluster)

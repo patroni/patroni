@@ -46,8 +46,8 @@ def kv_get(self, key, **kwargs):
                   'ModifyIndex': 6429, 'Value': b'{"leader": "leader", "sync_standby": null}'},
                  {'CreateIndex': 1085, 'Flags': 0, 'Key': key + 'failsafe', 'LockIndex': 0,
                   'ModifyIndex': 6429, 'Value': b'{'},
-                 {'CreateIndex': 1085, 'Flags': 0, 'Key': key + 'status', 'LockIndex': 0,
-                  'ModifyIndex': 6429, 'Value': b'{"optime":4496294792, "slots":{"ls":12345}}'}])
+                 {'CreateIndex': 1085, 'Flags': 0, 'Key': key + 'status', 'LockIndex': 0, 'ModifyIndex': 6429,
+                  'Value': b'{"optime":4496294792,"slots":{"ls":12345},"retain_slots":["postgresql0","postgresql1"]}'}])
     if key == 'service/good/':
         return good_cls
     if key == 'service/broken/':

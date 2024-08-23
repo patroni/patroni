@@ -16,3 +16,11 @@ Scenario: check permanent logical replication slots are not copied
     Then "members/postgres2" key in DCS has replication_state=streaming after 10 seconds 
     And postgres1 does not have a replication slot named test_logical
     And postgres2 does not have a replication slot named test_logical
+
+@slot-advance
+Scenario: check that slots are written to the /status key
+    Given "status" key in DCS has postgres0 in slots
+    And "status" key in DCS has postgres2 in slots
+    And "status" key in DCS has test_logical in slots
+    And "status" key in DCS has test_logical in slots
+    And "status" key in DCS does not have postgres1 in slots

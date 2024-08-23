@@ -26,14 +26,16 @@ def mock_list_namespaced_config_map(*args, **kwargs):
                 'annotations': {'initialize': '123', 'config': '{}'}}
     items = [k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata))]
     metadata.update({'name': 'test-leader',
-                     'annotations': {'optime': '1234x', 'leader': 'p-0', 'ttl': '30s', 'slots': '{', 'failsafe': '{'}})
+                     'annotations': {'optime': '1234x', 'leader': 'p-0', 'ttl': '30s',
+                                     'slots': '{', 'retain_slots': '{', 'failsafe': '{'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
     metadata.update({'name': 'test-failover', 'annotations': {'leader': 'p-0'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
     metadata.update({'name': 'test-sync', 'annotations': {'leader': 'p-0'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
     metadata.update({'name': 'test-0-leader', 'labels': {k8s_group_label: '0'},
-                     'annotations': {'optime': '1234x', 'leader': 'p-0', 'ttl': '30s', 'slots': '{', 'failsafe': '{'}})
+                     'annotations': {'optime': '1234x', 'leader': 'p-0', 'ttl': '30s',
+                                     'slots': '{', 'retain_slots': '{', 'failsafe': '{'}})
     items.append(k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata)))
     metadata.update({'name': 'test-0-config', 'labels': {k8s_group_label: '0'},
                      'annotations': {'initialize': '123', 'config': '{}'}})
@@ -421,7 +423,7 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         mock_patch.side_effect = RetryFailedError('')
         self.assertRaises(KubernetesError, self.k.update_leader, cluster, '123')
         mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
-        with patch('time.time', Mock(side_effect=[0, 100, 200, 0, 0, 0, 0, 100, 200])):
+        with patch('time.time', Mock(side_effect=[0, 0, 100, 200, 0, 0, 0, 0, 0, 100, 200])):
             self.assertFalse(self.k.update_leader(cluster, '123'))
             self.assertFalse(self.k.update_leader(cluster, '123'))
         self.assertFalse(self.k.update_leader(cluster, '123'))
