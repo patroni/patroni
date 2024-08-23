@@ -38,7 +38,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.s = self.p.slots_handler
         self.p.start()
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}, 'ls2': None}}, 1)
-        self.cluster = Cluster(True, config, self.leader, Status(0, {'ls': 12345, 'ls2': 12345}),
+        self.cluster = Cluster(True, config, self.leader, Status(0, {'ls': 12345, 'ls2': 12345}, []),
                                [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
         global_config.update(self.cluster)
         self.tags = TestTags()
@@ -47,7 +47,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         config = ClusterConfig(1, {'slots': {'test_3': {'database': 'a', 'plugin': 'b'},
                                              'A': 0, 'ls': 0, 'b': {'type': 'logical', 'plugin': '1'}},
                                    'ignore_slots': [{'name': 'blabla'}]}, 1)
-        cluster = Cluster(True, config, self.leader, Status(0, {'test_3': 10}),
+        cluster = Cluster(True, config, self.leader, Status(0, {'test_3': 10}, []),
                           [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
         global_config.update(cluster)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg.OperationalError)):
@@ -89,7 +89,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
             'tags': {'replicatefrom': 'postgresql0'}
         })
-        cluster = Cluster(True, config, self.leader, Status(0, {'ls': 10}),
+        cluster = Cluster(True, config, self.leader, Status(0, {'ls': 10}, []),
                           [self.me, self.other, self.leadermem, cascading_replica], None, SyncState.empty(), None, None)
         self.p.set_role('replica')
         with patch.object(Postgresql, '_query') as mock_query, \
@@ -114,30 +114,33 @@ class TestSlotsHandler(BaseTestPostgresql):
                   "confirmed_flush_lsn": 12345, "catalog_xmin": 105, "restart_lsn": 12344},
                  {"slot_name": "blabla", "type": "physical", "datoid": None, "plugin": None,
                   "confirmed_flush_lsn": None, "catalog_xmin": 105, "restart_lsn": 12344}])]
-            self.assertEqual(self.p.slots(), {'ls': 12345, 'blabla': 12344})
+            self.assertEqual(self.p.slots(), {'ls': 12345, 'blabla': 12344, 'postgresql0': 0})
 
             self.p.reset_cluster_info_state(None)
             mock_query.return_value = [(
                 1, 0, 0, 0, 0, 0, 0, 0, 0, None, None,
                 [{"slot_name": "ls", "type": "logical", "datoid": 6, "plugin": "b",
                   "confirmed_flush_lsn": 12345, "catalog_xmin": 105}])]
-            self.assertEqual(self.p.slots(), {})
+            self.assertEqual(self.p.slots(), {'postgresql0': 0})
 
     def test_nostream_slot_processing(self):
         config = ClusterConfig(
             1, {'slots': {'foo': {'type': 'logical', 'database': 'a', 'plugin': 'b'}, 'bar': {'type': 'physical'}}}, 1)
         nostream_node = Member(0, 'test-2', 28, {
             'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
-            'tags': {'nostream': 'True'}
+            'tags': {'nostream': 'True'},
+            'xlog_location': 10,
         })
         cascade_node = Member(0, 'test-3', 28, {
             'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
-            'tags': {'replicatefrom': 'test-2'}
+            'tags': {'replicatefrom': 'test-2'},
+            'xlog_location': 98
         })
         stream_node = Member(0, 'test-4', 28, {
-            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
+            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+            'xlog_location': 99})
         cluster = Cluster(
-            True, config, self.leader, Status.empty(),
+            True, config, self.leader, Status(100, {'leader': 99, 'test_2': 98, 'test_3': 97, 'test_4': 98}, []),
             [self.leadermem, nostream_node, cascade_node, stream_node], None, SyncState.empty(), None, None)
         global_config.update(cluster)
 
@@ -147,8 +150,8 @@ class TestSlotsHandler(BaseTestPostgresql):
             cluster._get_permanent_slots(self.p, self.leadermem, 'primary'),
             {'foo': {'type': 'logical', 'database': 'a', 'plugin': 'b'}, 'bar': {'type': 'physical'}})
         self.assertEqual(
-            cluster._get_members_slots(self.p.name, 'primary'),
-            {'test_4': {'type': 'physical'}})
+            cluster._get_members_slots(self.p.name, 'primary', False, True),
+            {'test_3': {'type': 'physical', 'lsn': 98}, 'test_4': {'type': 'physical', 'lsn': 98}})
 
         # nostream node must not have slot on primary
         self.p.name = nostream_node.name
@@ -162,8 +165,10 @@ class TestSlotsHandler(BaseTestPostgresql):
 
         # check cascade member-slot existence on nostream node
         self.assertEqual(
-            cluster._get_members_slots(nostream_node.name, 'replica'),
-            {'test_3': {'type': 'physical'}})
+            cluster._get_members_slots(nostream_node.name, 'replica', False, True),
+            {'leader': {'type': 'physical', 'lsn': 99},
+             'test_3': {'type': 'physical', 'lsn': 98},
+             'test_4': {'type': 'physical', 'lsn': 98}})
 
         # cascade also does not entitled to have logical slot on itself ...
         self.p.name = cascade_node.name
@@ -291,7 +296,7 @@ class TestSlotsHandler(BaseTestPostgresql):
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     def test_advance_physical_slots(self):
         config = ClusterConfig(1, {'slots': {'blabla': {'type': 'physical'}, 'leader': None}}, 1)
-        cluster = Cluster(True, config, self.leader, Status(0, {'blabla': 12346}),
+        cluster = Cluster(True, config, self.leader, Status(0, {'blabla': 12346}, []),
                           [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
         global_config.update(cluster)
         self.s.sync_replication_slots(cluster, self.tags)

@@ -181,7 +181,10 @@ What is the difference between ``etcd`` and ``etcd3`` in Patroni configuration?
     * API version 2 will be completely removed on Etcd v3.6.
 
 I have ``use_slots`` enabled in my Patroni configuration, but when a cluster member goes offline for some time, the replication slot used by that member is dropped on the upstream node. What can I do to avoid that issue?
-    You can configure a permanent physical replication slot for the members.
+    There are two options:
+
+    1. You can tune ``member_slots_ttl`` (default value ``30min``, available since Patroni ``4.0.0`` and PostgreSQL 11 onwards) and replication slots for absent members will not be removed when the members downtime is shorter than the configured threshold.
+    2. You can configure permanent physical replication slots for the members.
 
     Since Patroni ``3.2.0`` it is now possible to have member slots as permanent slots managed by Patroni.
 

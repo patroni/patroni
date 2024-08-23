@@ -14,7 +14,7 @@ from . import global_config, psycopg
 from .__main__ import Patroni
 from .async_executor import AsyncExecutor, CriticalTask
 from .collections import CaseInsensitiveSet
-from .dcs import AbstractDCS, Cluster, Leader, Member, RemoteMember, slot_name_from_member_name, Status, SyncState
+from .dcs import AbstractDCS, Cluster, Leader, Member, RemoteMember, Status, SyncState
 from .exceptions import DCSError, PatroniFatalException, PostgresConnectionException
 from .postgresql.callback_executor import CallbackAction
 from .postgresql.misc import postgres_version_to_int
@@ -173,7 +173,7 @@ class Failsafe(object):
         leader = self.leader
         if leader:
             # We rely on the strict order of fields in the namedtuple
-            status = Status(cluster.status.last_lsn, leader.member.data['slots'])
+            status = Status(cluster.status[0], leader.member.data['slots'], *cluster.status[2:])
             cluster = Cluster(*cluster[0:2], leader, status, *cluster[4:])
             # To advance LSN of replication slots on the primary for nodes that are doing cascading
             # replication from other nodes we need to update `xlog_location` on respective members.
@@ -383,9 +383,7 @@ class Ha(object):
         if update_status:
             try:
                 last_lsn = self._last_wal_lsn = self.state_handler.last_operation()
-                slots = self.cluster.filter_permanent_slots(
-                    self.state_handler,
-                    {**self.state_handler.slots(), slot_name_from_member_name(self.state_handler.name): last_lsn})
+                slots = self.cluster.maybe_filter_permanent_slots(self.state_handler, self.state_handler.slots())
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
         try:
@@ -1221,12 +1219,10 @@ class Ha(object):
             'api_url': self.patroni.api.connection_string,
         }
         try:
-            data['slots'] = {
-                **self.state_handler.slots(),
-                slot_name_from_member_name(self.state_handler.name): self._last_wal_lsn
-            }
+            data['slots'] = self.state_handler.slots()
         except Exception:
             logger.exception('Exception when called state_handler.slots()')
+
         members = [RemoteMember(name, {'api_url': url})
                    for name, url in failsafe.items() if name != self.state_handler.name]
         if not members:  # A sinlge node cluster

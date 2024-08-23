@@ -1244,6 +1244,8 @@ class Kubernetes(AbstractDCS):
         if last_lsn:
             annotations[self._OPTIME] = str(last_lsn)
             annotations['slots'] = json.dumps(slots, separators=(',', ':')) if slots else None
+            retain_slots = self._build_retain_slots(cluster, slots)
+            annotations['retain_slots'] = json.dumps(retain_slots) if retain_slots else None
 
         if failsafe is not None:
             annotations[self._FAILSAFE] = json.dumps(failsafe, separators=(',', ':')) if failsafe else None

@@ -77,7 +77,8 @@ def etcd_read(self, key, **kwargs):
                      "modifiedIndex": 20730, "createdIndex": 20730}],
                  "modifiedIndex": 1581, "createdIndex": 1581},
                 {"key": "/service/batman5/failsafe", "value": '{', "modifiedIndex": 1582, "createdIndex": 1582},
-                {"key": "/service/batman5/status", "value": '{"optime":2164261704,"slots":{"ls":12345}}',
+                {"key": "/service/batman5/status",
+                 "value": '{"optime":2164261704,"slots":{"ls":12345},"retain_slots":["postgresql0","postgresql1"]}',
                  "modifiedIndex": 1582, "createdIndex": 1582}], "modifiedIndex": 1581, "createdIndex": 1581}}
     if key == '/service/legacy/':
         response['node']['nodes'].pop()

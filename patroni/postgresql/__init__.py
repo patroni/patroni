@@ -17,8 +17,8 @@ from psutil import TimeoutExpired
 
 from .. import global_config, psycopg
 from ..async_executor import CriticalTask
-from ..collections import CaseInsensitiveDict, CaseInsensitiveSet, EMPTY_DICT
-from ..dcs import Cluster, Leader, Member
+from ..collections import CaseInsensitiveDict, EMPTY_DICT
+from ..dcs import Cluster, Leader, Member, slot_name_from_member_name
 from ..exceptions import PostgresConnectionException
 from ..tags import Tags
 from ..utils import data_directory_is_empty, parse_int, polling_loop, Retry, RetryFailedError
@@ -82,10 +82,10 @@ class Postgresql(object):
         self.connection_pool = ConnectionPool()
         self._connection = self.connection_pool.get('heartbeat')
         self.mpp_handler = mpp.get_handler_impl(self)
+        self._bin_dir = config.get('bin_dir') or ''
         self.config = ConfigHandler(self, config)
         self.config.check_directories()
 
-        self._bin_dir = config.get('bin_dir') or ''
         self.bootstrap = Bootstrap(self)
         self.bootstrapping = False
         self.__thread_ident = current_thread().ident
@@ -112,14 +112,12 @@ class Postgresql(object):
         self._state_entry_timestamp = 0
 
         self._cluster_info_state = {}
-        self._has_permanent_slots = True
+        self._should_query_slots = True
         self._enforce_hot_standby_feedback = False
         self._cached_replica_timeline = None
 
         # Last known running process
         self._postmaster_proc = None
-
-        self._available_gucs = None
 
         if self.is_running():
             # If we found postmaster process we need to figure out whether postgres is accepting connections
@@ -233,7 +231,7 @@ class Postgresql(object):
                         "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint"
                         " AS confirmed_flush_lsn, pg_catalog.pg_wal_lsn_diff(restart_lsn, '0/0')::bigint"
                         " AS restart_lsn FROM pg_catalog.pg_get_replication_slots()) AS s)"
-                        if self._has_permanent_slots and self.can_advance_slots else "NULL") + extra
+                        if self._should_query_slots and self.can_advance_slots else "NULL") + extra
             extra = (", CASE WHEN latest_end_lsn IS NULL THEN NULL ELSE received_tli END,"
                      " slot_name, conninfo, status, {0} FROM pg_catalog.pg_stat_get_wal_receiver()").format(extra)
             if self.role == 'standby_leader':
@@ -244,13 +242,6 @@ class Postgresql(object):
             extra = "0, NULL, NULL, NULL, NULL, NULL, NULL" + extra
 
         return ("SELECT " + self.TL_LSN + ", {3}").format(self.wal_name, self.lsn_name, self.wal_flush, extra)
-
-    @property
-    def available_gucs(self) -> CaseInsensitiveSet:
-        """GUCs available in this Postgres server."""
-        if not self._available_gucs:
-            self._available_gucs = self._get_gucs()
-        return self._available_gucs
 
     def _version_file_exists(self) -> bool:
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -468,7 +459,7 @@ class Postgresql(object):
             # to have a logical slot or in case if it is the cascading replica.
             self.set_enforce_hot_standby_feedback(not global_config.is_standby_cluster and self.can_advance_slots
                                                   and cluster.should_enforce_hot_standby_feedback(self, tags))
-            self._has_permanent_slots = cluster.has_permanent_slots(self, tags)
+            self._should_query_slots = global_config.member_slots_ttl > 0 or cluster.has_permanent_slots(self, tags)
 
     def _cluster_info_state_get(self, name: str) -> Optional[Any]:
         if not self._cluster_info_state:
@@ -479,7 +470,7 @@ class Postgresql(object):
                                                'received_tli', 'slot_name', 'conninfo', 'receiver_state',
                                                'restore_command', 'slots', 'synchronous_commit',
                                                'synchronous_standby_names', 'pg_stat_replication'], result))
-                if self._has_permanent_slots and self.can_advance_slots:
+                if self._should_query_slots and self.can_advance_slots:
                     cluster_info_state['slots'] =\
                         self.slots_handler.process_permanent_slots(cluster_info_state['slots'])
                 self._cluster_info_state = cluster_info_state
@@ -500,7 +491,19 @@ class Postgresql(object):
         return self._cluster_info_state_get('received_location')
 
     def slots(self) -> Dict[str, int]:
-        return self._cluster_info_state_get('slots') or {}
+        """Get replication slots state.
+
+        ..note::
+            Since this methods is supposed to be used only by the leader and only to publish state of
+            replication slots to DCS so that other nodes can advance LSN on respective replication slots,
+            we are also adding our own name to the list. All slots that shouldn't be published to DCS
+            later will be filtered out by :meth:`~Cluster.maybe_filter_permanent_slots` method.
+
+        :returns: A :class:`dict` object with replication slot names and LSNs as absolute values.
+        """
+        return {**(self._cluster_info_state_get('slots') or {}),
+                slot_name_from_member_name(self.name): self.last_operation()} \
+            if self.can_advance_slots else {}
 
     def primary_slot_name(self) -> Optional[str]:
         return self._cluster_info_state_get('slot_name')
@@ -1362,13 +1365,3 @@ class Postgresql(object):
         self.slots_handler.schedule()
         self.mpp_handler.schedule_cache_rebuild()
         self._sysid = ''
-
-    def _get_gucs(self) -> CaseInsensitiveSet:
-        """Get all available GUCs based on ``postgres --describe-config`` output.
-
-        :returns: all available GUCs in the local Postgres server.
-        """
-        cmd = [self.pgcommand('postgres'), '--describe-config']
-        return CaseInsensitiveSet({
-            line.split('\t')[0] for line in subprocess.check_output(cmd).decode('utf-8').strip().split('\n')
-        })
