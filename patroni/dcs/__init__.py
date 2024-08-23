@@ -1199,7 +1199,10 @@ class Cluster(NamedTuple('Cluster',
     def maybe_filter_permanent_slots(self, postgresql: 'Postgresql', slots: Dict[str, int]) -> Dict[str, int]:
         """Filter out all non-permanent slots from provided *slots* dict.
 
-        .. note:: In case if retention of replication slots for members is enabled we will not do any filtering.
+        .. note::
+             In case if retention of replication slots for members is enabled we will not do
+             any filtering, because we need to publish LSN values for members replication slots,
+             so that other nodes can use them to advance LSN, like they do it for permanent slots.
 
         :param postgresql: reference to :class:`Postgresql` object.
         :param slots: slot names with LSN values.
@@ -1781,7 +1784,8 @@ class AbstractDCS(abc.ABC):
         and removing names when they were observed longer than ``member_slots_ttl`` ago.
 
         :param cluster: :class:`Cluster` object with information about the current cluster state.
-        :param slots: slot names with LSN values.
+        :param slots: slot names with LSN values that exist on the leader node and consists
+                      of slots for cluster members and permanent replication slots.
 
         :returns: the list of replication slots to be written to ``/status`` key or ``None``.
         """
@@ -1810,6 +1814,8 @@ class AbstractDCS(abc.ABC):
         # retention
         for name, value in list(self._last_retain_slots.items()):
             if value + global_config.member_slots_ttl <= timestamp:
+                logger.info("Replication slot '%s' for absent cluster member is expired after %d sec.",
+                            name, global_config.member_slots_ttl)
                 del self._last_retain_slots[name]
 
         return list(sorted(self._last_retain_slots.keys())) or None
