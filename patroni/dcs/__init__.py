@@ -1164,6 +1164,10 @@ class Cluster(NamedTuple('Cluster',
             slot_name = slot_name_from_member_name(member.name)
             lsn = slots.get(slot_name, 0)
             if member.replicatefrom:
+                # `/status` key is maintained by the leader, but `member` may be connected to some other node.
+                # In that case, the slot in the leader is inactive and doesn't advance, so we use the LSN
+                # reported by the member to advance replication slot LSN.
+                # `max` is only a fallback so we take the LSN from the slot when there is no feedback from the member.
                 lsn = max(member.lsn or 0, lsn)
             ret[slot_name] = {'type': 'physical', 'lsn': lsn}
         ret.update({slot: {'type': 'physical'} for slot in self.status.retain_slots
