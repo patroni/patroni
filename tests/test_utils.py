@@ -3,7 +3,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from patroni.exceptions import PatroniException
-from patroni.utils import enable_keepalive, polling_loop, Retry, RetryFailedError, unquote, validate_directory
+from patroni.utils import enable_keepalive, get_major_version, get_postgres_version, \
+    polling_loop, Retry, RetryFailedError, unquote, validate_directory
 
 
 class TestUtils(unittest.TestCase):
@@ -66,6 +67,47 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(unquote(
             '\'value with a \'"\'"\' single quote\''),
             'value with a \' single quote')
+
+    def test_get_postgres_version(self):
+        with patch('subprocess.check_output', Mock(return_value=b'postgres (PostgreSQL) 9.6.24\n')):
+            self.assertEqual(get_postgres_version(), '9.6.24')
+        with patch('subprocess.check_output',
+                   Mock(return_value=b'postgres (PostgreSQL) 10.23 (Ubuntu 10.23-4.pgdg22.04+1)\n')):
+            self.assertEqual(get_postgres_version(), '10.23')
+        with patch('subprocess.check_output',
+                   Mock(return_value=b'postgres (PostgreSQL) 17beta3 (Ubuntu 17~beta3-1.pgdg22.04+1)\n')):
+            self.assertEqual(get_postgres_version(), '17.0')
+        with patch('subprocess.check_output',
+                   Mock(return_value=b'postgres (PostgreSQL) 9.6beta3\n')):
+            self.assertEqual(get_postgres_version(), '9.6.0')
+        with patch('subprocess.check_output', Mock(return_value=b'postgres (PostgreSQL) 9.6rc2\n')):
+            self.assertEqual(get_postgres_version(), '9.6.0')
+        # because why not
+        with patch('subprocess.check_output', Mock(return_value=b'postgres (PostgreSQL) 10\n')):
+            self.assertEqual(get_postgres_version(), '10.0')
+        with patch('subprocess.check_output', Mock(return_value=b'postgres (PostgreSQL) 10wow, something new\n')):
+            self.assertEqual(get_postgres_version(), '10.0')
+        with patch('subprocess.check_output', Mock(side_effect=OSError)):
+            self.assertRaises(PatroniException, get_postgres_version, 'postgres')
+
+    def test_get_major_version(self):
+        with patch('subprocess.check_output', Mock(return_value=b'postgres (PostgreSQL) 9.6.24\n')):
+            self.assertEqual(get_major_version(), '9.6')
+        with patch('subprocess.check_output',
+                   Mock(return_value=b'postgres (PostgreSQL) 10.23 (Ubuntu 10.23-4.pgdg22.04+1)\n')):
+            self.assertEqual(get_major_version(), '10')
+        with patch('subprocess.check_output',
+                   Mock(return_value=b'postgres (PostgreSQL) 17beta3 (Ubuntu 17~beta3-1.pgdg22.04+1)\n')):
+            self.assertEqual(get_major_version(), '17')
+        with patch('subprocess.check_output',
+                   Mock(return_value=b'postgres (PostgreSQL) 9.6beta3\n')):
+            self.assertEqual(get_major_version(), '9.6')
+        with patch('subprocess.check_output', Mock(return_value=b'postgres (PostgreSQL) 9.6rc2\n')):
+            self.assertEqual(get_major_version(), '9.6')
+        with patch('subprocess.check_output', Mock(return_value=b'postgres (PostgreSQL) 10\n')):
+            self.assertEqual(get_major_version(), '10')
+        with patch('subprocess.check_output', Mock(side_effect=OSError)):
+            self.assertRaises(PatroniException, get_major_version, 'postgres')
 
 
 @patch('time.sleep', Mock())
