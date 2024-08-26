@@ -188,7 +188,7 @@ And this is how it looks on the coordinator side::
 Secondary nodes
 ---------------
 
-Starting from Patroni v4.0.0 Citus secondary nodes without ``nofailover`` :ref:`tag <tags_settings>` are also registered in ``pg_dist_node``.
+Starting from Patroni v4.0.0 Citus secondary nodes without ``noloadbalance`` :ref:`tag <tags_settings>` are also registered in ``pg_dist_node``.
 However, to use secondary nodes for read-only queries applications need to change `citus.use_secondary_nodes <https://docs.citusdata.com/en/latest/develop/api_guc.html#citus-use-secondary-nodes-enum>`__ GUC.
 
 Peek into DCS
