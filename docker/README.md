@@ -40,27 +40,27 @@ Example session:
     aef8bf3ee91f   patroni   "/bin/sh /entrypoint…"   15 minutes ago   Up 15 minutes                                                                   demo-etcd1
 
     $ docker logs demo-patroni1
-    2023-11-21 09:04:33,547 INFO: Selected new etcd server http://172.29.0.3:2379
-    2023-11-21 09:04:33,605 INFO: Lock owner: None; I am patroni1
-    2023-11-21 09:04:33,693 INFO: trying to bootstrap a new cluster
+    2024-08-26 09:04:33,547 INFO: Selected new etcd server http://172.29.0.3:2379
+    2024-08-26 09:04:33,605 INFO: Lock owner: None; I am patroni1
+    2024-08-26 09:04:33,693 INFO: trying to bootstrap a new cluster
     ...
-    2023-11-21 09:04:34.920 UTC [43] LOG:  starting PostgreSQL 15.5 (Debian 15.5-1.pgdg120+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14) 12.2.0, 64-bit
-    2023-11-21 09:04:34.921 UTC [43] LOG:  listening on IPv4 address "0.0.0.0", port 5432
-    2023-11-21 09:04:34,922 INFO: postmaster pid=43
-    2023-11-21 09:04:34.922 UTC [43] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
-    2023-11-21 09:04:34.925 UTC [47] LOG:  database system was shut down at 2023-11-21 09:04:34 UTC
-    2023-11-21 09:04:34.928 UTC [43] LOG:  database system is ready to accept connections
+    2024-08-26 09:04:34.920 UTC [43] LOG:  starting PostgreSQL 16.4 (Debian 16.4-1.pgdg120+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14) 12.2.0, 64-bit
+    2024-08-26 09:04:34.921 UTC [43] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+    2024-08-26 09:04:34,922 INFO: postmaster pid=43
+    2024-08-26 09:04:34.922 UTC [43] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+    2024-08-26 09:04:34.925 UTC [47] LOG:  database system was shut down at 2024-08-26 09:04:34 UTC
+    2024-08-26 09:04:34.928 UTC [43] LOG:  database system is ready to accept connections
     localhost:5432 - accepting connections
     localhost:5432 - accepting connections
-    2023-11-21 09:04:34,938 INFO: establishing a new patroni heartbeat connection to postgres
-    2023-11-21 09:04:34,992 INFO: running post_bootstrap
-    2023-11-21 09:04:35,004 WARNING: User creation via "bootstrap.users" will be removed in v4.0.0
-    2023-11-21 09:04:35,009 WARNING: Could not activate Linux watchdog device: Can't open watchdog device: [Errno 2] No such file or directory: '/dev/watchdog'
-    2023-11-21 09:04:35,189 INFO: initialized a new cluster
-    2023-11-21 09:04:35,328 INFO: no action. I am (patroni1), the leader with the lock
-    2023-11-21 09:04:43,824 INFO: establishing a new patroni restapi connection to postgres
-    2023-11-21 09:04:45,322 INFO: no action. I am (patroni1), the leader with the lock
-    2023-11-21 09:04:55,320 INFO: no action. I am (patroni1), the leader with the lock
+    2024-08-26 09:04:34,938 INFO: establishing a new patroni heartbeat connection to postgres
+    2024-08-26 09:04:34,992 INFO: running post_bootstrap
+    2024-08-26 09:04:35,004 WARNING: User creation via "bootstrap.users" will be removed in v4.0.0
+    2024-08-26 09:04:35,009 WARNING: Could not activate Linux watchdog device: Can't open watchdog device: [Errno 2] No such file or directory: '/dev/watchdog'
+    2024-08-26 09:04:35,189 INFO: initialized a new cluster
+    2024-08-26 09:04:35,328 INFO: no action. I am (patroni1), the leader with the lock
+    2024-08-26 09:04:43,824 INFO: establishing a new patroni restapi connection to postgres
+    2024-08-26 09:04:45,322 INFO: no action. I am (patroni1), the leader with the lock
+    2024-08-26 09:04:55,320 INFO: no action. I am (patroni1), the leader with the lock
     ...
 
     $ docker exec -ti demo-patroni1 bash
@@ -93,7 +93,7 @@ Example session:
     $ docker exec -ti demo-haproxy bash
     postgres@haproxy:~$ psql -h localhost -p 5000 -U postgres -W
     Password: postgres
-    psql (15.5 (Debian 15.5-1.pgdg120+1))
+    psql (16.4 (Debian 16.4-1.pgdg120+1))
     Type "help" for help.
 
     postgres=# SELECT pg_is_in_recovery();
@@ -106,7 +106,7 @@ Example session:
 
     postgres@haproxy:~$ psql -h localhost -p 5001 -U postgres -W
     Password: postgres
-    psql (15.5 (Debian 15.5-1.pgdg120+1))
+    psql (16.4 (Debian 16.4-1.pgdg120+1))
     Type "help" for help.
 
     postgres=# SELECT pg_is_in_recovery();
@@ -122,7 +122,7 @@ The haproxy listens on ports 5000 (connects to the coordinator primary) and 5001
 
 Example session:
 
-    $ docker compose -f docker-compose-citus.yml up -d
+    $ docker-compose -f docker-compose-citus.yml up -d
     ✔ Network patroni_demo    Created
     ✔ Container demo-coord2   Started
     ✔ Container demo-work2-2  Started
@@ -153,48 +153,62 @@ Example session:
 
 
     $ docker logs demo-coord1
-    2023-11-21 09:36:14,293 INFO: Selected new etcd server http://172.30.0.4:2379
-    2023-11-21 09:36:14,390 INFO: Lock owner: None; I am coord1
-    2023-11-21 09:36:14,478 INFO: trying to bootstrap a new cluster
+    2024-08-26 08:21:05,323 INFO: Selected new etcd server http://172.19.0.5:2379
+    2024-08-26 08:21:05,339 INFO: No PostgreSQL configuration items changed, nothing to reload.
+    2024-08-26 08:21:05,388 INFO: Lock owner: None; I am coord1
+    2024-08-26 08:21:05,480 INFO: trying to bootstrap a new cluster
     ...
-    2023-11-21 09:36:16,475 INFO: postmaster pid=52
+    2024-08-26 08:21:17,115 INFO: postmaster pid=35
     localhost:5432 - no response
-    2023-11-21 09:36:16.495 UTC [52] LOG:  starting PostgreSQL 15.5 (Debian 15.5-1.pgdg120+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14) 12.2.0, 64-bit
-    2023-11-21 09:36:16.495 UTC [52] LOG:  listening on IPv4 address "0.0.0.0", port 5432
-    2023-11-21 09:36:16.496 UTC [52] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
-    2023-11-21 09:36:16.498 UTC [56] LOG:  database system was shut down at 2023-11-21 09:36:15 UTC
-    2023-11-21 09:36:16.501 UTC [52] LOG:  database system is ready to accept connections
+    2024-08-26 08:21:17.127 UTC [35] LOG:  starting PostgreSQL 16.4 (Debian 16.4-1.pgdg120+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14) 12.2.0, 64-bit
+    2024-08-26 08:21:17.127 UTC [35] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+    2024-08-26 08:21:17.141 UTC [35] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+    2024-08-26 08:21:17.155 UTC [39] LOG:  database system was shut down at 2024-08-26 08:21:05 UTC
+    2024-08-26 08:21:17.182 UTC [35] LOG:  database system is ready to accept connections
+    2024-08-26 08:21:17,683 INFO: establishing a new patroni heartbeat connection to postgres
+    2024-08-26 08:21:17,704 INFO: establishing a new patroni restapi connection to postgres
     localhost:5432 - accepting connections
     localhost:5432 - accepting connections
-    2023-11-21 09:36:17,509 INFO: establishing a new patroni heartbeat connection to postgres
-    2023-11-21 09:36:17,569 INFO: running post_bootstrap
-    2023-11-21 09:36:17,593 WARNING: User creation via "bootstrap.users" will be removed in v4.0.0
-    2023-11-21 09:36:17,783 INFO: establishing a new patroni restapi connection to postgres
-    2023-11-21 09:36:17,969 WARNING: Could not activate Linux watchdog device: Can't open watchdog device: [Errno 2] No such file or directory: '/dev/watchdog'
-    2023-11-21 09:36:17.969 UTC [70] LOG:  starting maintenance daemon on database 16386 user 10
-    2023-11-21 09:36:17.969 UTC [70] CONTEXT:  Citus maintenance daemon for database 16386 user 10
-    2023-11-21 09:36:18.159 UTC [54] LOG:  checkpoint starting: immediate force wait
-    2023-11-21 09:36:18,162 INFO: initialized a new cluster
-    2023-11-21 09:36:18,164 INFO: Lock owner: coord1; I am coord1
-    2023-11-21 09:36:18,297 INFO: Enabled synchronous replication
-    2023-11-21 09:36:18,298 DEBUG: Adding the new task: PgDistNode(nodeid=None,group=0,host=172.30.0.3,port=5432,event=after_promote)
-    2023-11-21 09:36:18,298 DEBUG: Adding the new task: PgDistNode(nodeid=None,group=1,host=172.30.0.7,port=5432,event=after_promote)
-    2023-11-21 09:36:18,298 DEBUG: Adding the new task: PgDistNode(nodeid=None,group=2,host=172.30.0.8,port=5432,event=after_promote)
-    2023-11-21 09:36:18,299 DEBUG: query(SELECT nodeid, groupid, nodename, nodeport, noderole FROM pg_catalog.pg_dist_node WHERE noderole = 'primary', ())
-    2023-11-21 09:36:18,299 INFO: establishing a new patroni citus connection to postgres
-    2023-11-21 09:36:18,323 DEBUG: query(SELECT pg_catalog.citus_add_node(%s, %s, %s, 'primary', 'default'), ('172.30.0.7', 5432, 1))
-    2023-11-21 09:36:18,361 INFO: no action. I am (coord1), the leader with the lock
-    2023-11-21 09:36:18,393 DEBUG: query(SELECT pg_catalog.citus_add_node(%s, %s, %s, 'primary', 'default'), ('172.30.0.8', 5432, 2))
-    2023-11-21 09:36:28,164 INFO: Lock owner: coord1; I am coord1
-    2023-11-21 09:36:28,251 INFO: Assigning synchronous standby status to ['coord3']
+    2024-08-26 08:21:18,202 INFO: running post_bootstrap
+    2024-08-26 08:21:19.048 UTC [53] LOG:  starting maintenance daemon on database 16385 user 10
+    2024-08-26 08:21:19.048 UTC [53] CONTEXT:  Citus maintenance daemon for database 16385 user 10
+    2024-08-26 08:21:19,058 WARNING: Could not activate Linux watchdog device: Can't open watchdog device: [Errno 2] No such file or directory: '/dev/watchdog'
+    2024-08-26 08:21:19.250 UTC [37] LOG:  checkpoint starting: immediate force wait
+    2024-08-26 08:21:19,275 INFO: initialized a new cluster
+    2024-08-26 08:21:22.946 UTC [37] LOG:  checkpoint starting: immediate force wait
+    2024-08-26 08:21:29,059 INFO: Lock owner: coord1; I am coord1
+    2024-08-26 08:21:29,205 INFO: Enabled synchronous replication
+    2024-08-26 08:21:29,206 DEBUG: query(SELECT groupid, nodename, nodeport, noderole, nodeid FROM pg_catalog.pg_dist_node, ())
+    2024-08-26 08:21:29,206 INFO: establishing a new patroni citus connection to postgres
+    2024-08-26 08:21:29,206 DEBUG: Adding the new task: PgDistTask({PgDistNode(nodeid=None,host=172.19.0.8,port=5432,role=primary)})
+    2024-08-26 08:21:29,206 DEBUG: Adding the new task: PgDistTask({PgDistNode(nodeid=None,host=172.19.0.2,port=5432,role=primary)})
+    2024-08-26 08:21:29,206 DEBUG: Adding the new task: PgDistTask({PgDistNode(nodeid=None,host=172.19.0.9,port=5432,role=primary)})
+    2024-08-26 08:21:29,219 DEBUG: query(SELECT pg_catalog.citus_add_node(%s, %s, %s, %s, 'default'), ('172.19.0.2', 5432, 1, 'primary'))
+    2024-08-26 08:21:29,256 DEBUG: query(SELECT pg_catalog.citus_add_node(%s, %s, %s, %s, 'default'), ('172.19.0.9', 5432, 2, 'primary'))
+    2024-08-26 08:21:29,474 INFO: no action. I am (coord1), the leader with the lock
+    2024-08-26 08:21:39,060 INFO: Lock owner: coord1; I am coord1
+    2024-08-26 08:21:39,159 DEBUG: Adding the new task: PgDistTask({PgDistNode(nodeid=None,host=172.19.0.8,port=5432,role=primary), PgDistNode(nodeid=None,host=172.19.0.11,port=5432,role=secondary), PgDistNode(nodeid=None,host=172.19.0.7,port=5432,role=secondary)})
+    2024-08-26 08:21:39,159 DEBUG: Adding the new task: PgDistTask({PgDistNode(nodeid=None,host=172.19.0.2,port=5432,role=primary), PgDistNode(nodeid=None,host=172.19.0.12,port=5432,role=secondary)})
+    2024-08-26 08:21:39,159 DEBUG: Adding the new task: PgDistTask({PgDistNode(nodeid=None,host=172.19.0.6,port=5432,role=secondary), PgDistNode(nodeid=None,host=172.19.0.9,port=5432,role=primary)})
+    2024-08-26 08:21:39,160 DEBUG: query(BEGIN, ())
+    2024-08-26 08:21:39,160 DEBUG: query(SELECT pg_catalog.citus_add_node(%s, %s, %s, %s, 'default'), ('172.19.0.11', 5432, 0, 'secondary'))
+    2024-08-26 08:21:39,164 DEBUG: query(SELECT pg_catalog.citus_add_node(%s, %s, %s, %s, 'default'), ('172.19.0.7', 5432, 0, 'secondary'))
+    2024-08-26 08:21:39,166 DEBUG: query(COMMIT, ())
+    2024-08-26 08:21:39,176 DEBUG: query(SELECT pg_catalog.citus_add_node(%s, %s, %s, %s, 'default'), ('172.19.0.12', 5432, 1, 'secondary'))
+    2024-08-26 08:21:39,191 DEBUG: query(SELECT pg_catalog.citus_add_node(%s, %s, %s, %s, 'default'), ('172.19.0.6', 5432, 2, 'secondary'))
+    2024-08-26 08:21:39,211 INFO: no action. I am (coord1), the leader with the lock
+    2024-08-26 08:21:49,060 INFO: Lock owner: coord1; I am coord1
+    2024-08-26 08:21:49,166 INFO: Setting synchronous replication to 1 of 2 (coord2, coord3)
     server signaled
-    2023-11-21 09:36:28.435 UTC [52] LOG:  received SIGHUP, reloading configuration files
-    2023-11-21 09:36:28.436 UTC [52] LOG:  parameter "synchronous_standby_names" changed to "coord3"
-    2023-11-21 09:36:28.641 UTC [83] LOG:  standby "coord3" is now a synchronous standby with priority 1
-    2023-11-21 09:36:28.641 UTC [83] STATEMENT:  START_REPLICATION SLOT "coord3" 0/3000000 TIMELINE 1
-    2023-11-21 09:36:30,582 INFO: Synchronous standby status assigned to ['coord3']
-    2023-11-21 09:36:30,626 INFO: no action. I am (coord1), the leader with the lock
-    2023-11-21 09:36:38,250 INFO: no action. I am (coord1), the leader with the lock
+    2024-08-26 08:21:49.170 UTC [35] LOG:  received SIGHUP, reloading configuration files
+    2024-08-26 08:21:49.171 UTC [35] LOG:  parameter "synchronous_standby_names" changed to "ANY 1 (coord2,coord3)"
+    2024-08-26 08:21:49.377 UTC [68] LOG:  standby "coord2" is now a candidate for quorum synchronous standby
+    2024-08-26 08:21:49.377 UTC [68] STATEMENT:  START_REPLICATION SLOT "coord2" 0/3000000 TIMELINE 1
+    2024-08-26 08:21:49.377 UTC [69] LOG:  standby "coord3" is now a candidate for quorum synchronous standby
+    2024-08-26 08:21:49.377 UTC [69] STATEMENT:  START_REPLICATION SLOT "coord3" 0/4000000 TIMELINE 1
+    2024-08-26 08:21:50,278 INFO: Setting leader to coord1, quorum to 1 of 2 (coord2, coord3)
+    2024-08-26 08:21:50,390 INFO: no action. I am (coord1), the leader with the lock
+    2024-08-26 08:21:59,159 INFO: no action. I am (coord1), the leader with the lock
     ...
 
     $ docker exec -ti demo-haproxy bash
@@ -229,7 +243,7 @@ Example session:
 
     postgres@haproxy:~$ psql -h localhost -p 5000 -U postgres -d citus
     Password for user postgres: postgres
-    psql (15.5 (Debian 15.5-1.pgdg120+1))
+    psql (16.4 (Debian 16.4-1.pgdg120+1))
     SSL connection (protocol: TLSv1.3, cipher: TLS_AES_256_GCM_SHA384, compression: off)
     Type "help" for help.
 
@@ -240,67 +254,76 @@ Example session:
     (1 row)
 
     citus=# table pg_dist_node;
-     nodeid | groupid |  nodename  | nodeport | noderack | hasmetadata | isactive | noderole | nodecluster | metadatasynced | shouldhaveshards 
-    --------+---------+------------+----------+----------+-------------+----------+----------+-------------+----------------+------------------
-          1 |       0 | 172.30.0.3 |     5432 | default  | t           | t        | primary  | default     | t              | f
-          2 |       1 | 172.30.0.7 |     5432 | default  | t           | t        | primary  | default     | t              | t
-          3 |       2 | 172.30.0.8 |     5432 | default  | t           | t        | primary  | default     | t              | t
-    (3 rows)
+     nodeid | groupid |  nodename   | nodeport | noderack | hasmetadata | isactive | noderole  | nodecluster | metadatasynced | shouldhaveshards
+    --------+---------+-------------+----------+----------+-------------+----------+-----------+-------------+----------------+------------------
+          1 |       0 | 172.19.0.8  |     5432 | default  | t           | t        | primary   | default     | t              | f
+          2 |       1 | 172.19.0.2  |     5432 | default  | t           | t        | primary   | default     | t              | t
+          3 |       2 | 172.19.0.9  |     5432 | default  | t           | t        | primary   | default     | t              | t
+          4 |       0 | 172.19.0.11 |     5432 | default  | t           | t        | secondary | default     | t              | f
+          5 |       0 | 172.19.0.7  |     5432 | default  | t           | t        | secondary | default     | t              | f
+          6 |       1 | 172.19.0.12 |     5432 | default  | f           | t        | secondary | default     | f              | t
+          7 |       2 | 172.19.0.6  |     5432 | default  | f           | t        | secondary | default     | f              | t
+    (7 rows)
 
     citus=# \q
 
     postgres@haproxy:~$ patronictl list
-    + Citus cluster: demo ----------+--------------+-----------+----+-----------+
-    | Group | Member  | Host        | Role         | State     | TL | Lag in MB |
-    +-------+---------+-------------+--------------+-----------+----+-----------+
-    |     0 | coord1  | 172.30.0.3  | Leader       | running   |  1 |           |
-    |     0 | coord2  | 172.30.0.12 | Replica      | streaming |  1 |         0 |
-    |     0 | coord3  | 172.30.0.2  | Sync Standby | streaming |  1 |         0 |
-    |     1 | work1-1 | 172.30.0.7  | Leader       | running   |  1 |           |
-    |     1 | work1-2 | 172.30.0.10 | Sync Standby | streaming |  1 |         0 |
-    |     2 | work2-1 | 172.30.0.8  | Leader       | running   |  1 |           |
-    |     2 | work2-2 | 172.30.0.11 | Sync Standby | streaming |  1 |         0 |
-    +-------+---------+-------------+--------------+-----------+----+-----------+
+    + Citus cluster: demo ----------+----------------+-----------+----+-----------+
+    | Group | Member  | Host        | Role           | State     | TL | Lag in MB |
+    +-------+---------+-------------+----------------+-----------+----+-----------+
+    |     0 | coord1  | 172.19.0.8  | Leader         | running   |  1 |           |
+    |     0 | coord2  | 172.19.0.7  | Quorum Standby | streaming |  1 |         0 |
+    |     0 | coord3  | 172.19.0.11 | Quorum Standby | streaming |  1 |         0 |
+    |     1 | work1-1 | 172.19.0.12 | Quorum Standby | streaming |  1 |         0 |
+    |     1 | work1-2 | 172.19.0.2  | Leader         | running   |  1 |           |
+    |     2 | work2-1 | 172.19.0.6  | Quorum Standby | streaming |  1 |         0 |
+    |     2 | work2-2 | 172.19.0.9  | Leader         | running   |  1 |           |
+    +-------+---------+-------------+----------------+-----------+----+-----------+
 
 
     postgres@haproxy:~$ patronictl switchover --group 2 --force
     Current cluster topology
-    + Citus cluster: demo (group: 2, 7303846899271086103) --+-----------+
-    | Member  | Host        | Role         | State     | TL | Lag in MB |
-    +---------+-------------+--------------+-----------+----+-----------+
-    | work2-1 | 172.30.0.8  | Leader       | running   |  1 |           |
-    | work2-2 | 172.30.0.11 | Sync Standby | streaming |  1 |         0 |
-    +---------+-------------+--------------+-----------+----+-----------+
-    2023-11-21 09:44:15.83849 Successfully switched over to "work2-2"
-    + Citus cluster: demo (group: 2, 7303846899271086103) -------+
-    | Member  | Host        | Role    | State   | TL | Lag in MB |
-    +---------+-------------+---------+---------+----+-----------+
-    | work2-1 | 172.30.0.8  | Replica | stopped |    |   unknown |
-    | work2-2 | 172.30.0.11 | Leader  | running |  1 |           |
-    +---------+-------------+---------+---------+----+-----------+
+    + Citus cluster: demo (group: 2, 7407360296219029527) ---+-----------+
+    | Member  | Host       | Role           | State     | TL | Lag in MB |
+    +---------+------------+----------------+-----------+----+-----------+
+    | work2-1 | 172.19.0.6 | Quorum Standby | streaming |  1 |         0 |
+    | work2-2 | 172.19.0.9 | Leader         | running   |  1 |           |
+    +---------+------------+----------------+-----------+----+-----------+
+    2024-08-26 08:31:45.92277 Successfully switched over to "work2-1"
+    + Citus cluster: demo (group: 2, 7407360296219029527) ------+
+    | Member  | Host       | Role    | State   | TL | Lag in MB |
+    +---------+------------+---------+---------+----+-----------+
+    | work2-1 | 172.19.0.6 | Leader  | running |  1 |           |
+    | work2-2 | 172.19.0.9 | Replica | stopped |    |   unknown |
+    +---------+------------+---------+---------+----+-----------+
 
     postgres@haproxy:~$ patronictl list
-    + Citus cluster: demo ----------+--------------+-----------+----+-----------+
-    | Group | Member  | Host        | Role         | State     | TL | Lag in MB |
-    +-------+---------+-------------+--------------+-----------+----+-----------+
-    |     0 | coord1  | 172.30.0.3  | Leader       | running   |  1 |           |
-    |     0 | coord2  | 172.30.0.12 | Replica      | streaming |  1 |         0 |
-    |     0 | coord3  | 172.30.0.2  | Sync Standby | streaming |  1 |         0 |
-    |     1 | work1-1 | 172.30.0.7  | Leader       | running   |  1 |           |
-    |     1 | work1-2 | 172.30.0.10 | Sync Standby | streaming |  1 |         0 |
-    |     2 | work2-1 | 172.30.0.8  | Sync Standby | streaming |  2 |         0 |
-    |     2 | work2-2 | 172.30.0.11 | Leader       | running   |  2 |           |
-    +-------+---------+-------------+--------------+-----------+----+-----------+
+    + Citus cluster: demo ----------+----------------+-----------+----+-----------+
+    | Group | Member  | Host        | Role           | State     | TL | Lag in MB |
+    +-------+---------+-------------+----------------+-----------+----+-----------+
+    |     0 | coord1  | 172.19.0.8  | Leader         | running   |  1 |           |
+    |     0 | coord2  | 172.19.0.7  | Quorum Standby | streaming |  1 |         0 |
+    |     0 | coord3  | 172.19.0.11 | Quorum Standby | streaming |  1 |         0 |
+    |     1 | work1-1 | 172.19.0.12 | Quorum Standby | streaming |  1 |         0 |
+    |     1 | work1-2 | 172.19.0.2  | Leader         | running   |  1 |           |
+    |     2 | work2-1 | 172.19.0.6  | Leader         | running   |  2 |           |
+    |     2 | work2-2 | 172.19.0.9  | Quorum Standby | streaming |  2 |         0 |
+    +-------+---------+-------------+----------------+-----------+----+-----------+
 
     postgres@haproxy:~$ psql -h localhost -p 5000 -U postgres -d citus
-    psql (15.5 (Debian 15.5-1.pgdg120+1))
+    Password for user postgres: postgres
+    psql (16.4 (Debian 16.4-1.pgdg120+1))
     SSL connection (protocol: TLSv1.3, cipher: TLS_AES_256_GCM_SHA384, compression: off)
     Type "help" for help.
 
     citus=# table pg_dist_node;
-     nodeid | groupid |  nodename   | nodeport | noderack | hasmetadata | isactive | noderole | nodecluster | metadatasynced | shouldhaveshards 
-    --------+---------+-------------+----------+----------+-------------+----------+----------+-------------+----------------+------------------
-          1 |       0 | 172.30.0.3  |     5432 | default  | t           | t        | primary  | default     | t              | f
-          3 |       2 | 172.30.0.11 |     5432 | default  | t           | t        | primary  | default     | t              | t
-          2 |       1 | 172.30.0.7  |     5432 | default  | t           | t        | primary  | default     | t              | t
-    (3 rows)
+     nodeid | groupid |  nodename   | nodeport | noderack | hasmetadata | isactive | noderole  | nodecluster | metadatasynced | shouldhaveshards
+    --------+---------+-------------+----------+----------+-------------+----------+-----------+-------------+----------------+------------------
+          1 |       0 | 172.19.0.8  |     5432 | default  | t           | t        | primary   | default     | t              | f
+          4 |       0 | 172.19.0.11 |     5432 | default  | t           | t        | secondary | default     | t              | f
+          5 |       0 | 172.19.0.7  |     5432 | default  | t           | t        | secondary | default     | t              | f
+          6 |       1 | 172.19.0.12 |     5432 | default  | f           | t        | secondary | default     | f              | t
+          3 |       2 | 172.19.0.6  |     5432 | default  | t           | t        | primary   | default     | t              | t
+          2 |       1 | 172.19.0.2  |     5432 | default  | t           | t        | primary   | default     | t              | t
+          8 |       2 | 172.19.0.9  |     5432 | default  | f           | t        | secondary | default     | f              | t
+    (7 rows)
