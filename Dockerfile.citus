@@ -180,7 +180,7 @@ RUN sed -i 's/env python/&3/' /patroni*.py \
     && sed -i "s|^\(  data_dir: \).*|\1$PGDATA|" postgres?.yml \
     && sed -i "s|^#\(  bin_dir: \).*|\1$PGBIN|" postgres?.yml \
     && sed -i 's/^  - encoding: UTF8/  - locale: en_US.UTF-8\n&/' postgres?.yml \
-    && sed -i 's/^scope:/log:\n  loggers:\n    patroni.postgresql.citus: DEBUG\n#&/' postgres?.yml \
+    && sed -i 's/^scope:/log:\n  loggers:\n    patroni.postgresql.mpp.citus: DEBUG\n#&/' postgres?.yml \
     && sed -i 's/^\(name\|etcd\|  host\|  authentication\|  connect_address\|  parameters\):/#&/' postgres?.yml \
     && sed -i 's/^    \(replication\|superuser\|rewind\|unix_socket_directories\|\(\(  \)\{0,1\}\(username\|password\)\)\):/#&/' postgres?.yml \
     && sed -i 's/^postgresql:/&\n  basebackup:\n    checkpoint: fast/' postgres?.yml \

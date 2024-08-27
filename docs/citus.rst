@@ -138,7 +138,7 @@ An example of :ref:`patronictl_switchover` on the worker cluster::
     Citus group: 2
     Primary [work2-2]:
     Candidate ['work2-1'] []:
-    When should the switchover take place (e.g. 2022-12-22T08:02 )  [now]:
+    When should the switchover take place (e.g. 2024-08-26T08:02 )  [now]:
     Current cluster topology
     + Citus cluster: demo (group: 2, 7179854924063375386) -+-----------+
     | Member  | Host       | Role           | State   | TL | Lag in MB |
@@ -147,7 +147,7 @@ An example of :ref:`patronictl_switchover` on the worker cluster::
     | work2-2 | 172.27.0.7 | Leader         | running |  1 |           |
     +---------+------------+----------------+---------+----+-----------+
     Are you sure you want to switchover cluster demo, demoting current primary work2-2? [y/N]: y
-    2022-12-22 07:02:40.33003 Successfully switched over to "work2-1"
+    2024-08-26 07:02:40.33003 Successfully switched over to "work2-1"
     + Citus cluster: demo (group: 2, 7179854924063375386) ------+
     | Member  | Host       | Role    | State   | TL | Lag in MB |
     +---------+------------+---------+---------+----+-----------+
@@ -171,16 +171,25 @@ An example of :ref:`patronictl_switchover` on the worker cluster::
 And this is how it looks on the coordinator side::
 
     # The worker primary notifies the coordinator that it is going to execute "pg_ctl stop".
-    2022-12-22 07:02:38,636 DEBUG: query("BEGIN")
-    2022-12-22 07:02:38,636 DEBUG: query("SELECT pg_catalog.citus_update_node(3, '172.27.0.7-demoted', 5432, true, 10000)")
+    2024-08-26 07:02:38,636 DEBUG: query(BEGIN, ())
+    2024-08-26 07:02:38,636 DEBUG: query(SELECT pg_catalog.citus_update_node(%s, %s, %s, true, %s), (3, '172.19.0.7-demoted', 5432, 10000))
     # From this moment all application traffic on the coordinator to the worker group 2 is paused.
 
+    # The old worker primary is assiged as a secondary. 
+    2024-08-26 07:02:40,084 DEBUG: query(SELECT pg_catalog.citus_update_node(%s, %s, %s, true, %s), (7, '172.19.0.7', 5432, 10000))
+
     # The future worker primary notifies the coordinator that it acquired the leader lock in DCS and about to run "pg_ctl promote".
-    2022-12-22 07:02:40,085 DEBUG: query("SELECT pg_catalog.citus_update_node(3, '172.27.0.5', 5432)")
+    2024-08-26 07:02:40,085 DEBUG: query(SELECT pg_catalog.citus_update_node(%s, %s, %s, true, %s), (3, '172.19.0.5', 5432, 10000))
 
     # The new worker primary just finished promote and notifies coordinator that it is ready to accept read-write traffic.
-    2022-12-22 07:02:41,485 DEBUG: query("COMMIT")
+    2024-08-26 07:02:41,485 DEBUG: query(COMMIT, ())
     # From this moment the application traffic on the coordinator to the worker group 2 is unblocked.
+
+Secondary nodes
+---------------
+
+Starting from Patroni v4.0.0 Citus secondary nodes without ``noloadbalance`` :ref:`tag <tags_settings>` are also registered in ``pg_dist_node``.
+However, to use secondary nodes for read-only queries applications need to change `citus.use_secondary_nodes <https://docs.citusdata.com/en/latest/develop/api_guc.html#citus-use-secondary-nodes-enum>`__ GUC.
 
 Peek into DCS
 -------------
