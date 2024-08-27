@@ -885,10 +885,12 @@ class ConfigHandler(object):
                 return re.sub(r'([:\\])', r'\\\1', str(value))
 
             # 'host' could be several comma-separated hostnames, in this case we need to write on pgpass line per host
-            hosts = map(escape, filter(None, map(str.strip,
-                        (record.get('host', '') or '*').split(','))))  # pyright: ignore [reportUnknownArgumentType]
+            hosts = [escape(host) for host in filter(None, map(str.strip,
+                     (record.get('host', '') or '*').split(',')))]  # pyright: ignore [reportUnknownArgumentType]
+            if any(host.startswith('/') for host in hosts) and 'localhost' not in hosts:
+                hosts.append('localhost')
             record = {n: escape(record.get(n) or '*') for n in ('port', 'user', 'password')}
-            return '\n'.join('{host}:{port}:*:{user}:{password}'.format(**record, host=host) for host in hosts)
+            return ''.join('{host}:{port}:*:{user}:{password}\n'.format(**record, host=host) for host in hosts)
 
     def write_pgpass(self, record: Dict[str, Any]) -> Dict[str, str]:
         """Maybe creates :attr:`_passfile` based on connection parameters.
