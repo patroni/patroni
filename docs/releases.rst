@@ -9,7 +9,7 @@ Version 4.0.0
 Released 2024-08-29
 
 .. warning::
-   - This version completes work on getting rid of the "master" term, in favor of "primary". This means a couple of breaking changes, please read the release notes carefully. Upgrading to the Patroni 4+ will work reliably only if you run Patroni 3+.
+   - This version completes work on getting rid of the "master" term, in favor of "primary". This means a couple of breaking changes, please read the release notes carefully. Upgrading to the Patroni 4+ will work reliably only if you run Patroni 3.1.0 or newer. Upgrading from an older version directly to 4+ is possible but may lead to unexpected behavior if the primary fails while the rest of the nodes are running on other Patroni versions.
 
 
 **Breaking changes**
@@ -34,9 +34,9 @@ Released 2024-08-29
 
 **New features**
 
-- Quorum-based synchronous replication (Ants Aasma, Alexander Kukushkin)
+- Quorum-based failover (Ants Aasma, Alexander Kukushkin)
 
-  The feature generalizes ``synchronous_mode`` to multiple nodes being in sync. The trade-off between synchronization overhead and fault tolerance is user-selectable via ``synchronous_node_count`` configuration parameter, specifying how many nodes must contain a commit before it is acknowledged. Check :ref:`here <quorum_mode>` for more information.
+  The feature implements quorum-based synchronous replication (available from PostgreSQL v10) which helps to reduce worst-case latencies, even during normal operation, as a higher latency of replicating to one standby can be compensated by other standbys. Patroni implements additional safeguards to prevent any user-visible data loss by choosing a failover candidate based on the latest transaction received.
 
 - Register Citus secondaries in ``pg_dist_node`` (Alexander Kukushkin)
 
@@ -48,7 +48,7 @@ Released 2024-08-29
 
 - Make permissions of log files created by Patroni configurable (Alexander Kukushkin)
 
-  Allows to set specific permission rules for log files created by Patroni in case the ones set based on ``$PGDATA`` directory's permissions are not suitable.
+  Allows to set specific permissions for log files created by Patroni. If not specified, permissions are set based on the current ``umask`` value.
 
 - Compatibility with PostgreSQL 17 beta3 (Alexander Kukushkin)
 
@@ -74,7 +74,7 @@ Released 2024-08-29
 
 - Don't let the current node be chosen as synchronous (Alexander Kukushkin)
 
-  There may be "something" streaming from the current primary node with ``application_name`` that matches the name of the current primary. Patroni was not properly handling this situation, which could end up in the primary being declared as a synchronous node and consequently was blocking switchovers. It was also impossible to perform a clean shutdown, as the primary was waiting for itself to release it from synchronous nodes.
+  There may be "something" streaming from the current primary node with ``application_name`` that matches the name of the current primary. Patroni was not properly handling this situation, which could end up in the primary being declared as a synchronous node and consequently was blocking switchovers.
 
 - Ignore ``restapi.allowlist_include_members`` for POST /failsafe (Alexander Kukushkin)
 
