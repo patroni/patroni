@@ -54,6 +54,10 @@ Released 2024-08-29
 
   GUC's validator rules were extended. Patroni handles all the new auxiliary backends during shutdown and sets ``dbname`` in ``primary_conninfo``, as it is required for logical replication slots synchronization.
 
+- Implement ``--ignore-listen-port`` option for Patroni config validation (Sahil Naphade)
+
+  Make it possible to ignore already bound ports when running ``patroni --validate-config``.
+
 
 **Improvements**
 
