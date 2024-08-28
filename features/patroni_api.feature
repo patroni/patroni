@@ -7,7 +7,7 @@ Scenario: check API requests on a stand-alone server
 	When I issue a GET request to http://127.0.0.1:8008/
 	Then I receive a response code 200
 	And I receive a response state running
-	And I receive a response role master
+	And I receive a response role primary
 	When I issue a GET request to http://127.0.0.1:8008/standby_leader
 	Then I receive a response code 503
 	When I issue a GET request to http://127.0.0.1:8008/health
@@ -17,7 +17,7 @@ Scenario: check API requests on a stand-alone server
 	When I issue a POST request to http://127.0.0.1:8008/reinitialize with {"force": true}
 	Then I receive a response code 503
 	And I receive a response text I am the leader, can not reinitialize
-	When I run patronictl.py switchover batman --master postgres0 --force
+	When I run patronictl.py switchover batman --primary postgres0 --force
 	Then I receive a response returncode 1
 	And I receive a response output "Error: No candidates found to switchover to"
 	When I issue a POST request to http://127.0.0.1:8008/switchover with {"leader": "postgres0"}

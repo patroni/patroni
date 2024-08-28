@@ -493,7 +493,7 @@ class Ha(object):
 
             ret = self.dcs.touch_member(data)
             if ret:
-                new_state = (data['state'], {'master': 'primary'}.get(data['role'], data['role']))
+                new_state = (data['state'], data['role'])
                 if self._last_state != new_state and new_state == ('running', 'primary'):
                     self.notify_mpp_coordinator('after_promote')
                 self._last_state = new_state
@@ -636,7 +636,7 @@ class Ha(object):
                 and data.get('Database cluster state') in ('in production', 'in crash recovery',
                                                            'shutting down', 'shut down')\
                 and self.state_handler.state == 'crashed'\
-                and self.state_handler.role in ('primary', 'master')\
+                and self.state_handler.role == 'primary'\
                 and not self.state_handler.config.recovery_conf_exists():
             # We know 100% that we were running as a primary a few moments ago, therefore could just start postgres
             msg = 'starting primary after failure'
@@ -733,7 +733,7 @@ class Ha(object):
             if not (self._rewind.is_needed and self._rewind.can_rewind_or_reinitialize_allowed)\
                     or self.cluster.is_unlocked():
                 if is_leader:
-                    self.state_handler.set_role('master')
+                    self.state_handler.set_role('primary')
                     return 'continue to run as primary without lock'
                 elif self.state_handler.role != 'standby_leader':
                     self.state_handler.set_role('replica')
@@ -1096,12 +1096,12 @@ class Ha(object):
         if self.state_handler.is_primary():
             # Inform the state handler about its primary role.
             # It may be unaware of it if postgres is promoted manually.
-            self.state_handler.set_role('master')
+            self.state_handler.set_role('primary')
             self.process_sync_replication()
             self.update_cluster_history()
             self.state_handler.mpp_handler.sync_meta_data(self.cluster)
             return message
-        elif self.state_handler.role in ('master', 'promoted', 'primary'):
+        elif self.state_handler.role in ('primary', 'promoted'):
             self.process_sync_replication()
             return message
         else:
@@ -1109,7 +1109,7 @@ class Ha(object):
                 # Somebody else updated sync state, it may be due to us losing the lock. To be safe,
                 # postpone promotion until next cycle. TODO: trigger immediate retry of run_cycle.
                 return 'Postponing promotion because synchronous replication state was updated by somebody else'
-            if self.state_handler.role not in ('master', 'promoted', 'primary'):
+            if self.state_handler.role not in ('primary', 'promoted'):
                 # reset failsafe state when promote
                 self._failsafe.set_is_active(0)
 
@@ -1157,7 +1157,7 @@ class Ha(object):
 
         :returns: the reason why caller shouldn't continue as a primary or the current value of received/replayed LSN.
         """
-        if self.state_handler.state == 'running' and self.state_handler.role in ('master', 'primary'):
+        if self.state_handler.state == 'running' and self.state_handler.role == 'primary':
             return 'Running as a leader'
         self._failsafe.update(data)
         return self._last_wal_lsn
@@ -1936,7 +1936,7 @@ class Ha(object):
                     self.state_handler.cancellable.cancel()
                     return 'lost leader before promote'
 
-            if self.state_handler.role in ('master', 'primary'):
+            if self.state_handler.role == 'primary':
                 logger.info('Demoting primary during %s', self._async_executor.scheduled_action)
                 if self._async_executor.scheduled_action in ('restart', 'starting primary after failure'):
                     # Restart needs a special interlocking cancel because postmaster may be just started in a
@@ -1962,7 +1962,7 @@ class Ha(object):
         if not self.state_handler.is_running():
             self.watchdog.disable()
             if self.has_lock():
-                if self.state_handler.role in ('master', 'primary', 'standby_leader'):
+                if self.state_handler.role in ('primary', 'standby_leader'):
                     self.state_handler.set_role('demoted')
                 self._delete_leader()
                 return 'removed leader key after trying and failing to start postgres'
@@ -1987,7 +1987,7 @@ class Ha(object):
             if not self.state_handler.is_primary():
                 return 'waiting for end of recovery after bootstrap'
 
-            self.state_handler.set_role('master')
+            self.state_handler.set_role('primary')
             ret = self._async_executor.try_run_async('post_bootstrap', self.state_handler.bootstrap.post_bootstrap,
                                                      args=(self.patroni.config['bootstrap'], self._async_response))
             return ret or 'running post_bootstrap'

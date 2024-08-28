@@ -56,7 +56,7 @@ def _should_skip_switch(args: Namespace) -> bool:
     :returns: if the operation should be skipped.
     """
     if args.switch_when == "promoted":
-        return args.role not in {"master", "primary", "promoted"}
+        return args.role not in {"primary", "promoted"}
     if args.switch_when == "demoted":
         return args.role not in {"replica", "demoted"}
     return False

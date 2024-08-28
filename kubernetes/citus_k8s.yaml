@@ -458,7 +458,7 @@ metadata:
     application: patroni
     cluster-name: citusdemo
     citus-type: worker
-    role: master
+    role: primary
 spec:
   type: ClusterIP
   selector:

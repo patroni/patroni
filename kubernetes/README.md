@@ -23,7 +23,7 @@ Example session:
 
     $ docker build -t patroni .
     Sending build context to Docker daemon  138.8kB
-    Step 1/9 : FROM postgres:15
+    Step 1/9 : FROM postgres:16
     ...
     Successfully built e9bfe69c5d2b
     Successfully tagged patroni:latest
@@ -46,7 +46,7 @@ Example session:
 
     $ kubectl get pods -L role
     NAME            READY   STATUS    RESTARTS   AGE   ROLE
-    patronidemo-0   1/1     Running   0          34s   master
+    patronidemo-0   1/1     Running   0          34s   primary
     patronidemo-1   1/1     Running   0          30s   replica
     patronidemo-2   1/1     Running   0          26s   replica
 
@@ -82,7 +82,7 @@ Example session:
 
     demo@localhost:~/git/patroni/kubernetes$ docker build -f Dockerfile.citus -t patroni-citus-k8s .
     Sending build context to Docker daemon  138.8kB
-    Step 1/11 : FROM postgres:15
+    Step 1/11 : FROM postgres:16
     ...
     Successfully built 8cd73e325028
     Successfully tagged patroni-citus-k8s:latest
@@ -119,36 +119,40 @@ Example session:
 
     $ kubectl get pods -l cluster-name=citusdemo -L role
     NAME            READY   STATUS    RESTARTS   AGE    ROLE
-    citusdemo-0-0   1/1     Running   0          105s   master
+    citusdemo-0-0   1/1     Running   0          105s   primary
     citusdemo-0-1   1/1     Running   0          101s   replica
     citusdemo-0-2   1/1     Running   0          96s    replica
-    citusdemo-1-0   1/1     Running   0          105s   master
+    citusdemo-1-0   1/1     Running   0          105s   primary
     citusdemo-1-1   1/1     Running   0          101s   replica
-    citusdemo-2-0   1/1     Running   0          105s   master
+    citusdemo-2-0   1/1     Running   0          105s   primary
     citusdemo-2-1   1/1     Running   0          101s   replica
 
     $ kubectl exec -ti citusdemo-0-0 -- bash
     postgres@citusdemo-0-0:~$ patronictl list
-    + Citus cluster: citusdemo -----------+--------------+---------+----+-----------+
-    | Group | Member        | Host        | Role         | State   | TL | Lag in MB |
-    +-------+---------------+-------------+--------------+---------+----+-----------+
-    |     0 | citusdemo-0-0 | 10.244.0.10 | Leader       | running |  1 |           |
-    |     0 | citusdemo-0-1 | 10.244.0.12 | Replica      | running |  1 |         0 |
-    |     0 | citusdemo-0-2 | 10.244.0.14 | Sync Standby | running |  1 |         0 |
-    |     1 | citusdemo-1-0 | 10.244.0.8  | Leader       | running |  1 |           |
-    |     1 | citusdemo-1-1 | 10.244.0.11 | Sync Standby | running |  1 |         0 |
-    |     2 | citusdemo-2-0 | 10.244.0.9  | Leader       | running |  1 |           |
-    |     2 | citusdemo-2-1 | 10.244.0.13 | Sync Standby | running |  1 |         0 |
-    +-------+---------------+-------------+--------------+---------+----+-----------+
+    + Citus cluster: citusdemo -----------+----------------+---------+----+-----------+
+    | Group | Member        | Host        | Role           | State   | TL | Lag in MB |
+    +-------+---------------+-------------+----------------+---------+----+-----------+
+    |     0 | citusdemo-0-0 | 10.244.0.10 | Leader         | running |  1 |           |
+    |     0 | citusdemo-0-1 | 10.244.0.12 | Replica        | running |  1 |         0 |
+    |     0 | citusdemo-0-2 | 10.244.0.14 | Quorum Standby | running |  1 |         0 |
+    |     1 | citusdemo-1-0 | 10.244.0.8  | Leader         | running |  1 |           |
+    |     1 | citusdemo-1-1 | 10.244.0.11 | Quorum Standby | running |  1 |         0 |
+    |     2 | citusdemo-2-0 | 10.244.0.9  | Leader         | running |  1 |           |
+    |     2 | citusdemo-2-1 | 10.244.0.13 | Quorum Standby | running |  1 |         0 |
+    +-------+---------------+-------------+----------------+---------+----+-----------+
 
     postgres@citusdemo-0-0:~$ psql citus
-    psql (15.1 (Debian 15.1-1.pgdg110+1))
+    psql (16.4 (Debian 16.4-1.pgdg120+1))
     Type "help" for help.
 
     citus=# table pg_dist_node;
-     nodeid | groupid |  nodename   | nodeport | noderack | hasmetadata | isactive | noderole | nodecluster | metadatasynced | shouldhaveshards
-    --------+---------+-------------+----------+----------+-------------+----------+----------+-------------+----------------+------------------
-          1 |       0 | 10.244.0.10 |     5432 | default  | t           | t        | primary  | default     | t              | f
-          2 |       1 | 10.244.0.8  |     5432 | default  | t           | t        | primary  | default     | t              | t
-          3 |       2 | 10.244.0.9  |     5432 | default  | t           | t        | primary  | default     | t              | t
-    (3 rows)
+     nodeid | groupid |  nodename   | nodeport | noderack | hasmetadata | isactive | noderole  | nodecluster | metadatasynced | shouldhaveshards
+    --------+---------+-------------+----------+----------+-------------+----------+-----------+-------------+----------------+------------------
+          1 |       0 | 10.244.0.10 |     5432 | default  | t           | t        | primary   | default     | t              | f
+          2 |       1 | 10.244.0.8  |     5432 | default  | t           | t        | primary   | default     | t              | t
+          3 |       2 | 10.244.0.9  |     5432 | default  | t           | t        | primary   | default     | t              | t
+          4 |       0 | 10.244.0.14 |     5432 | default  | t           | t        | secondary | default     | t              | f
+          5 |       0 | 10.244.0.12 |     5432 | default  | t           | t        | secondary | default     | t              | f
+          6 |       1 | 10.244.0.11 |     5432 | default  | t           | t        | secondary | default     | t              | t
+          7 |       2 | 10.244.0.13 |     5432 | default  | t           | t        | secondary | default     | t              | t
+    (7 rows)

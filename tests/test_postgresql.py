@@ -262,6 +262,10 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.config.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo'})
         self.p.config.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo', 'password': 'bar'})
 
+    def test__pgpass_content(self):
+        pgpass = self.p.config._pgpass_content({'host': '/tmp', 'port': '5432', 'user': 'foo', 'password': 'bar'})
+        self.assertEqual(pgpass, "/tmp:5432:*:foo:bar\nlocalhost:5432:*:foo:bar\n")
+
     def test_checkpoint(self):
         with patch.object(MockCursor, 'fetchone', Mock(return_value=(True, ))):
             self.assertEqual(self.p.checkpoint({'user': 'postgres'}), 'is_in_recovery=true')

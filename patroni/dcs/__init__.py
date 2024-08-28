@@ -1111,7 +1111,7 @@ class Cluster(NamedTuple('Cluster',
         if global_config.is_standby_cluster or self.get_slot_name_on_primary(postgresql.name, tags) is None:
             return self.permanent_physical_slots if postgresql.can_advance_slots or role == 'standby_leader' else {}
 
-        return self.__permanent_slots if postgresql.can_advance_slots or role in ('master', 'primary') \
+        return self.__permanent_slots if postgresql.can_advance_slots or role == 'primary' \
             else self.__permanent_logical_slots
 
     def _get_members_slots(self, name: str, role: str, nofailover: bool,
@@ -1150,7 +1150,7 @@ class Cluster(NamedTuple('Cluster',
             # if the node does only cascading and can't become the leader, we
             # want only to have slots for members that could connect to it.
             members = [m for m in members if not nofailover or m.replicatefrom == name]
-        elif role in ('master', 'primary', 'standby_leader'):  # PostgreSQL is older than 11
+        elif role in ('primary', 'standby_leader'):  # PostgreSQL is older than 11
             # on the leader want to have slots only for the nodes that are supposed to be replicating from it.
             members = [m for m in members if m.replicatefrom is None
                        or m.replicatefrom == name or not self.has_member(m.replicatefrom)]

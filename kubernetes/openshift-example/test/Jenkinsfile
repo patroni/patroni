@@ -15,9 +15,9 @@ pipeline {
         script {
             openshift.withCluster() {
                 openshift.withProject() {
-                  def pgbench = openshift.newApp( "https://github.com/stewartshea/docker-pgbench/", "--name=pgbench", "-e PGPASSWORD=postgres", "-e PGUSER=postgres", "-e PGHOST=patroni-persistent-master", "-e PGDATABASE=postgres", "-e TEST_CLIENT_COUNT=20", "-e TEST_DURATION=120" )
+                  def pgbench = openshift.newApp( "https://github.com/stewartshea/docker-pgbench/", "--name=pgbench", "-e PGPASSWORD=postgres", "-e PGUSER=postgres", "-e PGHOST=patroni-persistent-primary", "-e PGDATABASE=postgres", "-e TEST_CLIENT_COUNT=20", "-e TEST_DURATION=120" )
                   def pgbenchdc = openshift.selector( "dc", "pgbench" )
-                  timeout(5) { 
+                  timeout(5) {
                     pgbenchdc.rollout().status()
                     }
                   }

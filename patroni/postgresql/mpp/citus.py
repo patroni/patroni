@@ -674,7 +674,8 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
         task = PgDistTask(groupid, {primary}, event=event, timeout=timeout, cooldown=cooldown)
         for member in cluster.members:
             secondary = self._pg_dist_node('secondary', member.conn_url)\
-                if member.name != leader_name and member.is_running and member.conn_url else None
+                if member.name != leader_name and not member.noloadbalance and member.is_running and member.conn_url\
+                else None
             if secondary:
                 task.add(secondary)
         return task if self._add_task(task) else None

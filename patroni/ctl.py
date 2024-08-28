@@ -282,7 +282,7 @@ arg_cluster_name = click.argument('cluster_name', required=False,
 option_default_citus_group = click.option('--group', required=False, type=int, help='Citus group',
                                           default=lambda: _get_configuration().get('citus', {}).get('group'))
 option_citus_group = click.option('--group', required=False, type=int, help='Citus group')
-role_choice = click.Choice(['leader', 'primary', 'standby-leader', 'replica', 'standby', 'any', 'master'])
+role_choice = click.Choice(['leader', 'primary', 'standby-leader', 'replica', 'standby', 'any'])
 
 
 @click.group(cls=click.Group)
@@ -486,7 +486,7 @@ def get_all_members(cluster: Cluster, group: Optional[int], role: str = 'leader'
     :param group: filter which Citus group we should get members from. If ``None`` get from all groups.
     :param role: role to filter members. Can be one among:
 
-        * ``primary`` or ``master``: the primary PostgreSQL instance;
+        * ``primary``: the primary PostgreSQL instance;
         * ``replica`` or ``standby``: a standby PostgreSQL instance;
         * ``leader``: the leader of a Patroni cluster. Can also be used to get the leader of a Patroni standby cluster;
         * ``standby-leader``: the leader of a Patroni standby cluster;
@@ -497,16 +497,15 @@ def get_all_members(cluster: Cluster, group: Optional[int], role: str = 'leader'
     clusters = {0: cluster}
     if is_citus_cluster() and group is None:
         clusters.update(cluster.workers)
-    if role in ('leader', 'master', 'primary', 'standby-leader'):
+    if role in ('leader', 'primary', 'standby-leader'):
         # In the DCS the members' role can be one among: ``primary``, ``master``, ``replica`` or ``standby_leader``.
-        # ``primary`` and ``master`` are the same thing, so we map both to ``master`` to have a simpler ``if``.
-        # In a future release we might remove ``master`` from the available roles for the DCS members.
-        role = {'primary': 'master', 'standby-leader': 'standby_leader'}.get(role, role)
+        # ``primary`` and ``master`` are the same thing.
+        role = {'standby-leader': 'standby_leader'}.get(role, role)
         for cluster in clusters.values():
             if cluster.leader is not None and cluster.leader.name and\
                     (role == 'leader'
-                     or cluster.leader.data.get('role') != 'master' and role == 'standby_leader'
-                     or cluster.leader.data.get('role') != 'standby_leader' and role == 'master'):
+                     or cluster.leader.data.get('role') not in ('primary', 'master') and role == 'standby_leader'
+                     or cluster.leader.data.get('role') != 'standby_leader' and role == 'primary'):
                 yield cluster.leader.member
         return
 
@@ -608,8 +607,7 @@ def get_cursor(cluster: Cluster, group: Optional[int], connect_parameters: Dict[
     row = cursor.fetchone()
     in_recovery = not row or row[0]
 
-    if in_recovery and role in ('replica', 'standby', 'standby-leader')\
-            or not in_recovery and role in ('master', 'primary'):
+    if in_recovery and role in ('replica', 'standby', 'standby-leader') or not in_recovery and role == 'primary':
         return cursor
 
     conn.close()
@@ -1376,7 +1374,7 @@ def failover(cluster_name: str, group: Optional[int], candidate: Optional[str], 
 @ctl.command('switchover', help='Switchover to a replica')
 @arg_cluster_name
 @option_citus_group
-@click.option('--leader', '--primary', '--master', 'leader', help='The name of the current leader', default=None)
+@click.option('--leader', '--primary', 'leader', help='The name of the current leader', default=None)
 @click.option('--candidate', help='The name of the candidate', default=None)
 @click.option('--scheduled', help='Timestamp of a scheduled switchover in unambiguous format (e.g. ISO 8601)',
               default=None)

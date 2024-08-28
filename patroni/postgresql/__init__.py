@@ -128,19 +128,19 @@ class Postgresql(object):
             # we know that PostgreSQL is accepting connections and can read some GUC's from pg_settings
             self.config.load_current_server_parameters()
 
-            self.set_role('master' if self.is_primary() else 'replica')
+            self.set_role('primary' if self.is_primary() else 'replica')
 
             hba_saved = self.config.replace_pg_hba()
             ident_saved = self.config.replace_pg_ident()
 
-            if self.major_version < 120000 or self.role in ('master', 'primary'):
+            if self.major_version < 120000 or self.role == 'primary':
                 # If PostgreSQL is running as a primary or we run PostgreSQL that is older than 12 we can
                 # call reload_config() once again (the first call happened in the ConfigHandler constructor),
                 # so that it can figure out if config files should be updated and pg_ctl reload executed.
                 self.config.reload_config(config, sighup=bool(hba_saved or ident_saved))
             elif hba_saved or ident_saved:
                 self.reload()
-        elif not self.is_running() and self.role in ('master', 'primary'):
+        elif not self.is_running() and self.role == 'primary':
             self.set_role('demoted')
 
     @property
@@ -223,7 +223,7 @@ class Postgresql(object):
                          " pg_catalog.pg_stat_get_activity(w.pid)"
                          " WHERE w.state = 'streaming') r)").format(self.wal_name, self.lsn_name)
                         if global_config.is_synchronous_mode
-                        and self.role in ('master', 'primary', 'promoted') else "'on', '', NULL")
+                        and self.role in ('primary', 'promoted') else "'on', '', NULL")
 
         if self._major_version >= 90600:
             extra = ("pg_catalog.current_setting('restore_command')" if self._major_version >= 120000 else "NULL") +\
@@ -348,7 +348,7 @@ class Postgresql(object):
         elif self.config.recovery_conf_exists():
             return 'replica'
         else:
-            return 'master'
+            return 'primary'
 
     @property
     def server_version(self) -> int:
@@ -414,8 +414,7 @@ class Postgresql(object):
         return deepcopy(self.config.get(method, {}) or EMPTY_DICT.copy())
 
     def replica_method_can_work_without_replication_connection(self, method: str) -> bool:
-        return method != 'basebackup' and bool(self.replica_method_options(method).get('no_master')
-                                               or self.replica_method_options(method).get('no_leader'))
+        return method != 'basebackup' and bool(self.replica_method_options(method).get('no_leader'))
 
     def can_create_replica_without_replication_connection(self, replica_methods: Optional[List[str]]) -> bool:
         """ go through the replication methods to see if there are ones
@@ -567,7 +566,7 @@ class Postgresql(object):
             return bool(self._cluster_info_state_get('timeline'))
         except PostgresConnectionException:
             logger.warning('Failed to determine PostgreSQL state from the connection, falling back to cached role')
-            return bool(self.is_running() and self.role in ('master', 'primary'))
+            return bool(self.is_running() and self.role == 'primary')
 
     def replay_paused(self) -> bool:
         return self._cluster_info_state_get('replay_paused') or False
@@ -668,7 +667,7 @@ class Postgresql(object):
 
         if self.callback and cb_type in self.callback:
             cmd = self.callback[cb_type]
-            role = 'master' if self.role == 'promoted' else self.role
+            role = 'primary' if self.role == 'promoted' else self.role
             try:
                 cmd = shlex.split(self.callback[cb_type]) + [cb_type, role, self.scope]
                 self._callback_executor.call(cmd)
@@ -1136,7 +1135,7 @@ class Postgresql(object):
         # and we know for sure that postgres was already running before, we will only execute on_role_change
         # callback and prevent execution of on_restart/on_start callback.
         # If the role remains the same (replica or standby_leader), we will execute on_start or on_restart
-        change_role = self.cb_called and (self.role in ('master', 'primary', 'demoted')
+        change_role = self.cb_called and (self.role in ('primary', 'demoted')
                                           or not {'standby_leader', 'replica'} - {self.role, role})
         if change_role:
             self.__cb_pending = CallbackAction.NOOP
@@ -1162,7 +1161,7 @@ class Postgresql(object):
         for _ in polling_loop(wait_seconds):
             data = self.controldata()
             if data.get('Database cluster state') == 'in production':
-                self.set_role('master')
+                self.set_role('primary')
                 return True
 
     def _pre_promote(self) -> bool:
@@ -1197,7 +1196,7 @@ class Postgresql(object):
 
     def promote(self, wait_seconds: int, task: CriticalTask,
                 before_promote: Optional[Callable[..., Any]] = None) -> Optional[bool]:
-        if self.role in ('promoted', 'master', 'primary'):
+        if self.role in ('promoted', 'primary'):
             return True
 
         ret = self._pre_promote()

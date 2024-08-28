@@ -104,8 +104,8 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
     {
       "state": "running",
       "postmaster_start_time": "2024-08-28 19:39:26.352526+00:00",
-      "role": "master",
-      "server_version": 160003,
+      "role": "primary",
+      "server_version": 160004,
       "xlog": {
         "location": 67395656
       },
@@ -149,7 +149,7 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
       "state": "running",
       "postmaster_start_time": "2024-08-28 19:39:26.352526+00:00",
       "role": "replica",
-      "server_version": 160003,
+      "server_version": 160004,
       "xlog": {
         "received_location": 67419744,
         "replayed_location": 67419744,
@@ -197,7 +197,7 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
       "state": "running",
       "postmaster_start_time": "2024-08-28 19:39:26.352526+00:00",
       "role": "replica",
-      "server_version": 160003,
+      "server_version": 160004,
       "xlog": {
         "location": 67420024
       },
@@ -243,7 +243,7 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
       "state": "running",
       "postmaster_start_time": "2024-08-28 19:39:26.352526+00:00",
       "role": "replica",
-      "server_version": 160003,
+      "server_version": 160004,
       "xlog": {
         "location": 67420024
       },
@@ -294,9 +294,6 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# HELP patroni_postmaster_start_time Epoch seconds since Postgres started.
 	# TYPE patroni_postmaster_start_time gauge
 	patroni_postmaster_start_time{scope="batman",name="patroni1"} 1724873966.352526
-	# HELP patroni_master Value is 1 if this node is the leader, 0 otherwise.
-	# TYPE patroni_master gauge
-	patroni_master{scope="batman",name="patroni1"} 1
 	# HELP patroni_primary Value is 1 if this node is the leader, 0 otherwise.
 	# TYPE patroni_primary gauge
 	patroni_primary{scope="batman",name="patroni1"} 1
@@ -335,7 +332,7 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	patroni_postgres_in_archive_recovery{scope="batman",name="patroni1"} 0
 	# HELP patroni_postgres_server_version Version of Postgres (if running), 0 otherwise.
 	# TYPE patroni_postgres_server_version gauge
-	patroni_postgres_server_version{scope="batman",name="patroni1"} 160003
+	patroni_postgres_server_version{scope="batman",name="patroni1"} 160004
 	# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.
 	# TYPE patroni_cluster_unlocked gauge
 	patroni_cluster_unlocked{scope="batman",name="patroni1"} 0
@@ -495,18 +492,12 @@ Let's check that the node processed this configuration. First of all it should s
 
 	$ curl -s http://localhost:8008/patroni | jq .
 	{
-	  "state": "running",
+	  "database_system_identifier": "6287881213849985952",
 	  "postmaster_start_time": "2024-08-28 19:39:26.352526+00:00",
-	  "role": "replica",
-	  "server_version": 160003,
 	  "xlog": {
-	    "received_location": 67425896,
-	    "replayed_location": 67425896,
-	    "replayed_timestamp": "2024-08-28 19:40:53.999410+00:00",
-	    "paused": false
+	    "location": 2197818976
 	  },
 	  "timeline": 1,
-	  "replication_state": "streaming",
 	  "dcs_last_seen": 1724874545,
 	  "database_system_identifier": "7408277255830290455",
 	  "pending_restart": true,
@@ -518,9 +509,12 @@ Let's check that the node processed this configuration. First of all it should s
 	  },
 	  "patroni": {
 	    "version": "4.0.0",
-	    "scope": "demo",
-	    "name": "patroni3"
-	  }
+	    "scope": "batman",
+	    "name": "patroni1"
+	  },
+	  "state": "running",
+	  "role": "primary",
+	  "server_version": 160004
 	}
 
 Removing parameters:
