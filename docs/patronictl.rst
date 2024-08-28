@@ -1940,25 +1940,25 @@ Get version of ``patronictl`` only:
 .. code:: bash
 
     $ patronictl -c postgres0.yml version
-    patronictl version 3.1.0
+    patronictl version 4.0.0
 
 Get version of ``patronictl`` and of all members of cluster ``batman``:
 
 .. code:: bash
 
     $ patronictl -c postgres0.yml version batman
-    patronictl version 3.1.0
+    patronictl version 4.0.0
 
-    postgresql0: Patroni 3.1.0 PostgreSQL 15.2
-    postgresql1: Patroni 3.1.0 PostgreSQL 15.2
-    postgresql2: Patroni 3.1.0 PostgreSQL 15.2
+    postgresql0: Patroni 4.0.0 PostgreSQL 16.3
+    postgresql1: Patroni 4.0.0 PostgreSQL 16.3
+    postgresql2: Patroni 4.0.0 PostgreSQL 16.3
 
 Get version of ``patronictl`` and of members ``postgresql1`` and ``postgresql2`` of cluster ``batman``:
 
 .. code:: bash
 
     $ patronictl -c postgres0.yml version batman postgresql1 postgresql2
-    patronictl version 3.1.0
+    patronictl version 4.0.0
 
-    postgresql1: Patroni 3.1.0 PostgreSQL 15.2
-    postgresql2: Patroni 3.1.0 PostgreSQL 15.2
+    postgresql1: Patroni 4.0.0 PostgreSQL 16.3
+    postgresql2: Patroni 4.0.0 PostgreSQL 16.3
