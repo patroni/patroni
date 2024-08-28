@@ -55,7 +55,7 @@ Consul
 -  **PATRONI\_CONSUL\_CONSISTENCY**: (optional) Select consul consistency mode. Possible values are ``default``, ``consistent``, or ``stale`` (more details in `consul API reference <https://www.consul.io/api/features/consistency.html/>`__)
 -  **PATRONI\_CONSUL\_CHECKS**: (optional) list of Consul health checks used for the session. By default an empty list is used.
 -  **PATRONI\_CONSUL\_REGISTER\_SERVICE**: (optional) whether or not to register a service with the name defined by the scope parameter and the tag master, primary, replica, or standby-leader depending on the node's role. Defaults to **false**
--  **PATRONI\_CONSUL\_SERVICE\_TAGS**: (optional) additional static tags to add to the Consul service apart from the role (``master``/``primary``/``replica``/``standby-leader``). By default an empty list is used.
+-  **PATRONI\_CONSUL\_SERVICE\_TAGS**: (optional) additional static tags to add to the Consul service apart from the role (``primary``/``replica``/``standby-leader``). By default an empty list is used.
 -  **PATRONI\_CONSUL\_SERVICE\_CHECK\_INTERVAL**: (optional) how often to perform health check against registered url
 -  **PATRONI\_CONSUL\_SERVICE\_CHECK\_TLS\_SERVER\_NAME**: (optional) overide SNI host when connecting via TLS, see also `consul agent check API reference <https://www.consul.io/api-docs/agent/check#tlsservername>`__.
 
@@ -113,11 +113,11 @@ Kubernetes
 -  **PATRONI\_KUBERNETES\_NAMESPACE**: (optional) Kubernetes namespace where the Patroni pod is running. Default value is `default`.
 -  **PATRONI\_KUBERNETES\_LABELS**: Labels in format ``{label1: value1, label2: value2}``. These labels will be used to find existing objects (Pods and either Endpoints or ConfigMaps) associated with the current cluster. Also Patroni will set them on every object (Endpoint or ConfigMap) it creates.
 -  **PATRONI\_KUBERNETES\_SCOPE\_LABEL**: (optional) name of the label containing cluster name. Default value is `cluster-name`.
--  **PATRONI\_KUBERNETES\_ROLE\_LABEL**: (optional) name of the label containing role (master or replica or other custom value). Patroni will set this label on the pod it runs in. Default value is ``role``.
--  **PATRONI\_KUBERNETES\_LEADER\_LABEL\_VALUE**: (optional) value of the pod label when Postgres role is `master`. Default value is `master`.
+-  **PATRONI\_KUBERNETES\_ROLE\_LABEL**: (optional) name of the label containing role (`primary`, `replica` or other custom value). Patroni will set this label on the pod it runs in. Default value is ``role``.
+-  **PATRONI\_KUBERNETES\_LEADER\_LABEL\_VALUE**: (optional) value of the pod label when Postgres role is `primary`. Default value is `primary`.
 -  **PATRONI\_KUBERNETES\_FOLLOWER\_LABEL\_VALUE**: (optional) value of the pod label when Postgres role is `replica`. Default value is `replica`.
--  **PATRONI\_KUBERNETES\_STANDBY\_LEADER\_LABEL\_VALUE**: (optional) value of the pod label when Postgres role is ``standby_leader``. Default value is ``master``.
--  **PATRONI\_KUBERNETES\_TMP\_ROLE\_LABEL**: (optional) name of the temporary label containing role (master or replica). Value of this label will always use the default of corresponding role. Set only when necessary.
+-  **PATRONI\_KUBERNETES\_STANDBY\_LEADER\_LABEL\_VALUE**: (optional) value of the pod label when Postgres role is ``standby_leader``. Default value is ``primary``.
+-  **PATRONI\_KUBERNETES\_TMP\_ROLE\_LABEL**: (optional) name of the temporary label containing role (`primary` or `replica`). Value of this label will always use the default of corresponding role. Set only when necessary.
 -  **PATRONI\_KUBERNETES\_USE\_ENDPOINTS**: (optional) if set to true, Patroni will use Endpoints instead of ConfigMaps to run leader elections and keep cluster state.
 -  **PATRONI\_KUBERNETES\_POD\_IP**: (optional) IP address of the pod Patroni is running in. This value is required when `PATRONI_KUBERNETES_USE_ENDPOINTS` is enabled and is used to populate the leader endpoint subsets when the pod's PostgreSQL is promoted.
 -  **PATRONI\_KUBERNETES\_PORTS**: (optional) if the Service object has the name for the port, the same name must appear in the Endpoint object, otherwise service won't work. For example, if your service is defined as ``{Kind: Service, spec: {ports: [{name: postgresql, port: 5432, targetPort: 5432}]}}``, then you have to set ``PATRONI_KUBERNETES_PORTS='[{"name": "postgresql", "port": 5432}]'`` and Patroni will use it for updating subsets of the leader Endpoint. This parameter is used only if `PATRONI_KUBERNETES_USE_ENDPOINTS` is set.

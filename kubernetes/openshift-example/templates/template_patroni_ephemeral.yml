@@ -36,7 +36,7 @@ objects:
     labels:
       application: ${APPLICATION_NAME}
       cluster-name: ${PATRONI_CLUSTER_NAME}
-    name: ${PATRONI_MASTER_SERVICE_NAME}
+    name: ${PATRONI_PRIMARY_SERVICE_NAME}
   spec:
     ports:
     - port: 5432
@@ -45,7 +45,7 @@ objects:
     selector:
       application: ${APPLICATION_NAME}
       cluster-name: ${PATRONI_CLUSTER_NAME}
-      role: master
+      role: primary
     sessionAffinity: None
     type: ClusterIP
   status:
@@ -289,12 +289,12 @@ parameters:
   displayName: Cluster Name
   name: PATRONI_CLUSTER_NAME
   value: patroni-ephemeral
-- description: The name of the OpenShift Service exposed for the patroni-ephemeral-master container.
-  displayName: Master service name.  
-  name: PATRONI_MASTER_SERVICE_NAME
-  value: patroni-ephemeral-master
+- description: The name of the OpenShift Service exposed for the patroni-ephemeral-primary container.
+  displayName: Primary service name.
+  name: PATRONI_PRIMARY_SERVICE_NAME
+  value: patroni-ephemeral-primary
 - description: The name of the OpenShift Service exposed for the patroni-ephemeral-replica containers.
-  displayName: Replica service name. 
+  displayName: Replica service name.
   name: PATRONI_REPLICA_SERVICE_NAME
   value: patroni-ephemeral-replica
 - description: Maximum amount of memory the container can use.
@@ -321,7 +321,7 @@ parameters:
   displayName: Repication Passsword
   name: PATRONI_REPLICATION_PASSWORD
   value: postgres
-- description: Service account name used for pods and rolebindings to form a cluster in the project. 
+- description: Service account name used for pods and rolebindings to form a cluster in the project.
   displayName: Service Account
   name: SERVICE_ACCOUNT
   value: patroniocp

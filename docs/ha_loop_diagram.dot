@@ -109,7 +109,7 @@ digraph G {
   subgraph cluster_process_healthy_cluster {
     label = "process_healthy_cluster"
     "healthy_has_lock" [label="Am I the owner of the leader lock?", shape=diamond]
-    "healthy_is_leader" [label="Is Postgres running as master?", shape=diamond]
+    "healthy_is_leader" [label="Is Postgres running as primary?", shape=diamond]
     "healthy_no_lock" [label="Follow the leader (async,\ncreate/update recovery.conf and restart if necessary)"]
     "healthy_has_lock" -> "healthy_no_lock" [label="no" color="red"]
     "healthy_has_lock" -> "healthy_update_leader_lock" [label="yes" color="green"]
@@ -119,7 +119,7 @@ digraph G {
     "healthy_update_success" -> "healthy_is_leader" [label="yes" color="green"]
     "healthy_update_success" -> "healthy_demote" [label="no" color="red"]
     "healthy_demote" [label="Demote (async,\nrestart in read-only)"]
-    "healthy_failover" [label="Promote Postgres to master"]
+    "healthy_failover" [label="Promote Postgres to primary"]
     "healthy_is_leader" -> "healthy_failover" [label="no" color="red"]
   }
   "healthy_demote" -> "update_member"
@@ -134,10 +134,10 @@ digraph G {
     "unhealthy_leader_race" [label="Try to create leader key"]
     "unhealthy_leader_race" -> "unhealthy_acquire_lock"
     "unhealthy_acquire_lock" [label="Was I able to get the lock?", shape="diamond"]
-    "unhealthy_is_leader" [label="Is Postgres running as master?", shape=diamond]
+    "unhealthy_is_leader" [label="Is Postgres running as primary?", shape=diamond]
     "unhealthy_acquire_lock" -> "unhealthy_is_leader" [label="yes" color="green"]
     "unhealthy_is_leader" -> "unhealthy_promote" [label="no" color="red"]
-    "unhealthy_promote" [label="Promote to master"]
+    "unhealthy_promote" [label="Promote to primary"]
     "unhealthy_is_healthiest" -> "unhealthy_follow" [label="no" color="red"]
     "unhealthy_follow" [label="try to follow somebody else()"]
     "unhealthy_acquire_lock" -> "unhealthy_follow" [label="no" color="red"]

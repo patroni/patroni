@@ -10,7 +10,7 @@ Feature: ignored slots
     When I shut down postgres1
     And I start postgres1
     Then postgres1 is a leader after 10 seconds
-    And "members/postgres1" key in DCS has role=master after 10 seconds
+    And "members/postgres1" key in DCS has role=primary after 10 seconds
     # Make sure Patroni has finished telling Postgres it should be accepting writes.
     And postgres1 role is the primary after 20 seconds
     # 1. Create our test logical replication slot.
@@ -38,7 +38,7 @@ Feature: ignored slots
     # cycle we don't accidentally rewind to before the slot creation.
     And replication works from postgres1 to postgres0 after 20 seconds
     When I shut down postgres1
-    Then "members/postgres0" key in DCS has role=master after 10 seconds
+    Then "members/postgres0" key in DCS has role=primary after 10 seconds
 
     # 2. After a failover the server (now a replica) still has the slot.
     When I start postgres1
@@ -54,7 +54,7 @@ Feature: ignored slots
 
     # 3. After a failover the server (now a primary) still has the slot.
     When I shut down postgres0
-    Then "members/postgres1" key in DCS has role=master after 10 seconds
+    Then "members/postgres1" key in DCS has role=primary after 10 seconds
     And postgres1 has a logical replication slot named unmanaged_slot_0 with the test_decoding plugin after 2 seconds
     And postgres1 has a logical replication slot named unmanaged_slot_1 with the test_decoding plugin after 2 seconds
     And postgres1 has a logical replication slot named unmanaged_slot_2 with the test_decoding plugin after 2 seconds

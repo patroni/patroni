@@ -1009,7 +1009,7 @@ class ConfigHandler(object):
             synchronous_standby_names = self._server_parameters.get('synchronous_standby_names')
             if synchronous_standby_names is None:
                 if global_config.is_synchronous_mode_strict\
-                        and self._postgresql.role in ('master', 'primary', 'promoted'):
+                        and self._postgresql.role in ('primary', 'promoted'):
                     parameters['synchronous_standby_names'] = '*'
                 else:
                     parameters.pop('synchronous_standby_names', None)
@@ -1277,7 +1277,7 @@ class ConfigHandler(object):
         As a workaround we will start it with the values from controldata and set `pending_restart`
         to true as an indicator that current values of parameters are not matching expectations."""
 
-        if self._postgresql.role in ('master', 'primary'):
+        if self._postgresql.role == 'primary':
             return self._server_parameters
 
         options_mapping = {

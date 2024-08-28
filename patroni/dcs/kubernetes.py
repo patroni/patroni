@@ -756,9 +756,9 @@ class Kubernetes(AbstractDCS):
         self._label_selector = ','.join('{0}={1}'.format(k, v) for k, v in self._labels.items())
         self._namespace = config.get('namespace') or 'default'
         self._role_label = config.get('role_label', 'role')
-        self._leader_label_value = config.get('leader_label_value', 'master')
+        self._leader_label_value = config.get('leader_label_value', 'primary')
         self._follower_label_value = config.get('follower_label_value', 'replica')
-        self._standby_leader_label_value = config.get('standby_leader_label_value', 'master')
+        self._standby_leader_label_value = config.get('standby_leader_label_value', 'primary')
         self._tmp_role_label = config.get('tmp_role_label')
         self._ca_certs = os.environ.get('PATRONI_KUBERNETES_CACERT', config.get('cacert')) or SERVICE_CERT_FILENAME
         super(Kubernetes, self).__init__({**config, 'namespace': ''}, mpp)
@@ -1312,8 +1312,8 @@ class Kubernetes(AbstractDCS):
         cluster = self.cluster
         if cluster and cluster.leader and cluster.leader.name == self._name:
             role = self._standby_leader_label_value if data['role'] == 'standby_leader' else self._leader_label_value
-            tmp_role = 'master'
-        elif data['state'] == 'running' and data['role'] not in ('master', 'primary'):
+            tmp_role = 'primary'
+        elif data['state'] == 'running' and data['role'] != 'primary':
             role = {'replica': self._follower_label_value}.get(data['role'], data['role'])
             tmp_role = data['role']
         else:

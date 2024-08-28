@@ -26,7 +26,7 @@ Feature: standby cluster
   Scenario: Detach exiting node from the cluster
     When I shut down postgres1
     Then postgres0 is a leader after 10 seconds
-    And "members/postgres0" key in DCS has role=master after 5 seconds
+    And "members/postgres0" key in DCS has role=primary after 5 seconds
     When I issue a GET request to http://127.0.0.1:8008/
     Then I receive a response code 200
 
