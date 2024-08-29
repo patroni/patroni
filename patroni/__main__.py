@@ -241,6 +241,8 @@ def process_arguments() -> Namespace:
       * ``--validate-config`` -- used to validate the Patroni configuration file
       * ``--generate-config`` -- used to generate Patroni configuration from a running PostgreSQL instance
       * ``--generate-sample-config`` -- used to generate a sample Patroni configuration
+      * ``--ignore-listen-port`` | ``-i`` -- used to ignore ``listen`` ports already in use.
+          Can be used only with ``--validate-config``
 
     .. note::
         If running with ``--generate-config``, ``--generate-sample-config`` or ``--validate-flag`` will exit
@@ -259,6 +261,9 @@ def process_arguments() -> Namespace:
                        help='Generate a Patroni yaml configuration file for a running instance')
     parser.add_argument('--dsn', help='Optional DSN string of the instance to be used as a source \
                                     for config generation. Superuser connection is required.')
+    parser.add_argument('--ignore-listen-port', '-i', action='store_true',
+                        help='Ignore `listen` ports already in use.\
+                              Can only be used with --validate-config')
     args = parser.parse_args()
 
     if args.generate_sample_config:
@@ -269,7 +274,9 @@ def process_arguments() -> Namespace:
         sys.exit(0)
     elif args.validate_config:
         from patroni.config import Config, ConfigParseError
-        from patroni.validator import schema
+        from patroni.validator import populate_validate_params, schema
+
+        populate_validate_params(ignore_listen_port=args.ignore_listen_port)
 
         try:
             Config(args.configfile, validator=schema)
