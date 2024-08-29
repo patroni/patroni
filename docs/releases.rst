@@ -63,7 +63,7 @@ Released 2024-08-29
 
 - Make ``wal_log_hints`` configurable (Paul_Kim)
 
-  Allows to avoid the overhead of ``wal_log_hints`` configuration being in case ``use_pg_rewind`` is set to ``off``.
+  Allows to avoid the overhead of ``wal_log_hints`` configuration being enabled in case ``use_pg_rewind`` is set to ``off``.
 
 - Log ``pg_basebackup`` command in ``DEBUG`` level (Waynerv)
 
