@@ -90,6 +90,10 @@ Released 2024-08-29
 
   Patroni will add an additional line to ``.pgpass`` file if ``host`` parameter specified starts with ``/`` character. This allows to cover a corner case when ``host`` matches the default socket directory path.
 
+- Fix logging issues (Waynerv)
+
+  Defined proper request URL in failsafe handling logs and fixed the order of timestamps in postmaster check log.
+
 
 Version 3.3.2
 -------------
