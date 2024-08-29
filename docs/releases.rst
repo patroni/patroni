@@ -3,6 +3,98 @@
 Release notes
 =============
 
+Version 4.0.0
+-------------
+
+Released 2024-08-29
+
+.. warning::
+   - This version completes work on getting rid of the "master" term, in favor of "primary". This means a couple of breaking changes, please read the release notes carefully. Upgrading to the Patroni 4+ will work reliably only if you run Patroni 3.1.0 or newer. Upgrading from an older version directly to 4+ is possible but may lead to unexpected behavior if the primary fails while the rest of the nodes are running on other Patroni versions.
+
+
+**Breaking changes**
+
+- The following breaking changes were introduced when getting rid of the non-inclusive "master" term in the Patroni code:
+
+  - On Kubernetes, Patroni by default will set ``role`` label to ``primary``. In case if you want to keep the old behavior and avoid downtime or lengthy complex migrations, you can configure parameters ``kubernetes.leader_label_value`` and ``kubernetes.standby_leader_label_value`` to ``master``. Read more :ref:`here <kubernetes_role_values>`.
+  - Patroni role is written to DCS as ``primary`` instead of ``master``.
+  - Patroni role returned by Patroni REST API has been changed from ``master`` to ``primary``.
+  - Patroni REST API no longer accepts ``role=master`` in requests to ``/switchover``, ``/failover``, ``/restart`` endpoints.
+  - ``/metrics`` REST API endpoint will no longer report ``patroni_master`` metric.
+  - ``patronictl`` no longer accepts ``--master`` option for any command. ``--leader`` or ``--primary`` options should be used instead.
+  - ``no_master`` option in the declarative configuration of custom replica creation methods is no longer treated as a special option, please use ``no_leader`` instead.
+  - ``patroni_wale_restore`` script doesn't accept ``--no_master`` option anymore.
+  - ``patroni_barman`` script doesn't accept ``--role=master`` option anymore.
+  - All callback scripts are executed with ``role=primary`` option passed instead of ``role=master``.
+
+- ``patronictl failover`` does not accept ``--leader`` option that was deprecated since Patroni 3.2.0.
+
+- User creation functionality (``bootstrap.users`` configuration section) deprecated since Patroni 3.2.0 has been removed.
+
+
+**New features**
+
+- Quorum-based failover (Ants Aasma, Alexander Kukushkin)
+
+  The feature implements quorum-based synchronous replication (available from PostgreSQL v10) which helps to reduce worst-case latencies, even during normal operation, as a higher latency of replicating to one standby can be compensated by other standbys. Patroni implements additional safeguards to prevent any user-visible data loss by choosing a failover candidate based on the latest transaction received.
+
+- Register Citus secondaries in ``pg_dist_node`` (Alexander Kukushkin)
+
+  Patroni now maintains the list of nodes with ``role==replica``, ``state==running`` and without ``noloadbalance`` :ref:`tag <tags_settings>` in ``pg_dist_node``.
+
+- Configurable retention of members' replication slots (Alexander Kukushkin)
+
+  Implements support of ``member_slots_ttl`` global configuration parameter that controls for how long member replication slots should be kept around when the member key is absent.
+
+- Make permissions of log files created by Patroni configurable (Alexander Kukushkin)
+
+  Allows to set specific permissions for log files created by Patroni. If not specified, permissions are set based on the current ``umask`` value.
+
+- Compatibility with PostgreSQL 17 beta3 (Alexander Kukushkin)
+
+  GUC's validator rules were extended. Patroni handles all the new auxiliary backends during shutdown and sets ``dbname`` in ``primary_conninfo``, as it is required for logical replication slots synchronization.
+
+- Implement ``--ignore-listen-port`` option for Patroni config validation (Sahil Naphade)
+
+  Make it possible to ignore already bound ports when running ``patroni --validate-config``.
+
+
+**Improvements**
+
+- Make ``wal_log_hints`` configurable (Paul_Kim)
+
+  Allows to avoid the overhead of ``wal_log_hints`` configuration being enabled in case ``use_pg_rewind`` is set to ``off``.
+
+- Log ``pg_basebackup`` command in ``DEBUG`` level (Waynerv)
+
+  Facilitates failed initialization debugging.
+
+
+**Bugfixes**
+
+- Advance permanent slots for cascading nodes while in failsafe (Alexander Kukushkin)
+
+  Ensure that slots for cascading replicas are properly advanced on the primary when failsafe mode is activated. It is done by extending replicas response on ``POST /failsafe`` REST API request with their ``xlog_location``.
+
+- Don't let the current node be chosen as synchronous (Alexander Kukushkin)
+
+  There may be "something" streaming from the current primary node with ``application_name`` that matches the name of the current primary. Patroni was not properly handling this situation, which could end up in the primary being declared as a synchronous node and consequently was blocking switchovers.
+
+- Ignore ``restapi.allowlist_include_members`` for POST /failsafe (Alexander Kukushkin)
+
+- Improve GUCs validation (Polina Bungina)
+
+  Due to additional validation through running ``postgres --describe-config`` command, it was previously not possible to set GUCs not listed there through Patroni configuration. This limitation is now removed.
+
+- Add line with ``localhost`` to ``.pgpass`` file when unix sockets are detected (Alexander Kukushkin)
+
+  Patroni will add an additional line to ``.pgpass`` file if ``host`` parameter specified starts with ``/`` character. This allows to cover a corner case when ``host`` matches the default socket directory path.
+
+- Fix logging issues (Waynerv)
+
+  Defined proper request URL in failsafe handling logs and fixed the order of timestamps in postmaster check log.
+
+
 Version 3.3.2
 -------------
 

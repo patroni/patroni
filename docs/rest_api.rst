@@ -103,7 +103,7 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
     $ curl -s http://localhost:8008/patroni | jq .
     {
       "state": "running",
-      "postmaster_start_time": "2024-08-18 11:03:37.966359+00:00",
+      "postmaster_start_time": "2024-08-28 19:39:26.352526+00:00",
       "role": "primary",
       "server_version": 160004,
       "xlog": {
@@ -147,7 +147,7 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
     $ curl -s http://localhost:8008/patroni  | jq .
     {
       "state": "running",
-      "postmaster_start_time": "2024-08-18 11:09:08.615242+00:00",
+      "postmaster_start_time": "2024-08-28 19:39:26.352526+00:00",
       "role": "replica",
       "server_version": 160004,
       "xlog": {
@@ -195,7 +195,7 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
     $ curl -s http://localhost:8008/patroni  | jq .
     {
       "state": "running",
-      "postmaster_start_time": "2024-08-18 11:09:08.615242+00:00",
+      "postmaster_start_time": "2024-08-28 19:39:26.352526+00:00",
       "role": "replica",
       "server_version": 160004,
       "xlog": {
@@ -241,7 +241,7 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
     $ curl -s http://localhost:8008/patroni  | jq .
     {
       "state": "running",
-      "postmaster_start_time": "2024-08-18 11:09:08.615242+00:00",
+      "postmaster_start_time": "2024-08-28 19:39:26.352526+00:00",
       "role": "replica",
       "server_version": 160004,
       "xlog": {
@@ -267,7 +267,7 @@ The ``GET /patroni`` is used by Patroni during the leader race. It also could be
         }
       ],
       "pause": true,
-      "dcs_last_seen": 1692356928,
+      "dcs_last_seen": 1724874295,
       "tags": {
         "clonefrom": true
       },
@@ -293,7 +293,7 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	patroni_postgres_running{scope="batman",name="patroni1"} 1
 	# HELP patroni_postmaster_start_time Epoch seconds since Postgres started.
 	# TYPE patroni_postmaster_start_time gauge
-	patroni_postmaster_start_time{scope="batman",name="patroni1"} 1657656955.179243
+	patroni_postmaster_start_time{scope="batman",name="patroni1"} 1724873966.352526
 	# HELP patroni_primary Value is 1 if this node is the leader, 0 otherwise.
 	# TYPE patroni_primary gauge
 	patroni_primary{scope="batman",name="patroni1"} 1
@@ -344,7 +344,7 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	patroni_postgres_timeline{scope="batman",name="patroni1"} 24
 	# HELP patroni_dcs_last_seen Epoch timestamp when DCS was last contacted successfully by Patroni.
 	# TYPE patroni_dcs_last_seen gauge
-	patroni_dcs_last_seen{scope="batman",name="patroni1"} 1677658321
+	patroni_dcs_last_seen{scope="batman",name="patroni1"} 1724874235
 	# HELP patroni_pending_restart Value is 1 if the node needs a restart, 0 otherwise.
 	# TYPE patroni_pending_restart gauge
 	patroni_pending_restart{scope="batman",name="patroni1"} 1
@@ -492,11 +492,20 @@ Let's check that the node processed this configuration. First of all it should s
 
 	$ curl -s http://localhost:8008/patroni | jq .
 	{
-	  "pending_restart": true,
 	  "database_system_identifier": "6287881213849985952",
-	  "postmaster_start_time": "2024-08-18 13:13:05.211 CEST",
+	  "postmaster_start_time": "2024-08-28 19:39:26.352526+00:00",
 	  "xlog": {
 	    "location": 2197818976
+	  },
+	  "timeline": 1,
+	  "dcs_last_seen": 1724874545,
+	  "database_system_identifier": "7408277255830290455",
+	  "pending_restart": true,
+	  "pending_restart_reason": {
+	    "max_connections": {
+	      "old_value": "100",
+	      "new_value": "101"
+	    }
 	  },
 	  "patroni": {
 	    "version": "4.0.0",
