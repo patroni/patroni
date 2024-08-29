@@ -1949,9 +1949,9 @@ Get version of ``patronictl`` and of all members of cluster ``batman``:
     $ patronictl -c postgres0.yml version batman
     patronictl version 4.0.0
 
-    postgresql0: Patroni 4.0.0 PostgreSQL 16.3
-    postgresql1: Patroni 4.0.0 PostgreSQL 16.3
-    postgresql2: Patroni 4.0.0 PostgreSQL 16.3
+    postgresql0: Patroni 4.0.0 PostgreSQL 16.4
+    postgresql1: Patroni 4.0.0 PostgreSQL 16.4
+    postgresql2: Patroni 4.0.0 PostgreSQL 16.4
 
 Get version of ``patronictl`` and of members ``postgresql1`` and ``postgresql2`` of cluster ``batman``:
 
@@ -1960,5 +1960,5 @@ Get version of ``patronictl`` and of members ``postgresql1`` and ``postgresql2``
     $ patronictl -c postgres0.yml version batman postgresql1 postgresql2
     patronictl version 4.0.0
 
-    postgresql1: Patroni 4.0.0 PostgreSQL 16.3
-    postgresql2: Patroni 4.0.0 PostgreSQL 16.3
+    postgresql1: Patroni 4.0.0 PostgreSQL 16.4
+    postgresql2: Patroni 4.0.0 PostgreSQL 16.4
