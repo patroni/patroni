@@ -238,7 +238,7 @@ Validate Patroni configuration
 
 .. code:: text
 
-   patroni --validate-config [configfile]
+   patroni --validate-config [configfile] [--ignore-listen-port | -i]
 
 Description
 """""""""""
@@ -250,3 +250,6 @@ Parameters
 
 ``configfile``
     Full path to the configuration file to check. If not given or file does not exist, will try to read from the ``PATRONI_CONFIG_VARIABLE`` environment variable or, if not set, from the :ref:`Patroni environment variables <environment>`.
+
+``--ignore-listen-port | -i``
+    Optional flag to ignore bind failures for ``listen`` ports that are already in use when validating the ``configfile``.
