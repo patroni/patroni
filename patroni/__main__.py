@@ -241,7 +241,7 @@ def process_arguments() -> Namespace:
       * ``--validate-config`` -- used to validate the Patroni configuration file
       * ``--generate-config`` -- used to generate Patroni configuration from a running PostgreSQL instance
       * ``--generate-sample-config`` -- used to generate a sample Patroni configuration
-      * ``--ignore-listen-port`` | ``-i`` -- used to ignore ``listen`` ports already in use.\
+      * ``--ignore-listen-port`` | ``-i`` -- used to ignore ``listen`` ports already in use.
           Can be used only with ``--validate-config``
 
     .. note::
