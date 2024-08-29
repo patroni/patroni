@@ -17,6 +17,17 @@ from .exceptions import ConfigParseError
 from .log import type_logformat
 from .utils import data_directory_is_empty, get_major_version, parse_int, split_host_port
 
+# Additional parameters to fine-tune validation process
+_validation_params: Dict[str, Any] = {}
+
+
+def populate_validate_params(ignore_listen_port: bool = False) -> None:
+    """Populate parameters used to fine-tune the validation of the Patroni config.
+
+    :param ignore_listen_port: ignore the bind failures for the ports marked as `listen`.
+    """
+    _validation_params['ignore_listen_port'] = ignore_listen_port
+
 
 def validate_log_field(field: Union[str, Dict[str, Any], Any]) -> bool:
     """Checks if log field is valid.
@@ -137,7 +148,8 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
             s = socket.socket(proto[0][0], socket.SOCK_STREAM)
             try:
                 if s.connect_ex((host, port)) == 0:
-                    if listen:
+                    # Do not raise an exception if ignore_listen_port is set to True.
+                    if listen and not _validation_params.get('ignore_listen_port', False):
                         raise ConfigParseError("Port {} is already in use.".format(port))
                 elif not listen:
                     raise ConfigParseError("{} is not reachable".format(host_port))

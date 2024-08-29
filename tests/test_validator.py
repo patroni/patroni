@@ -8,7 +8,7 @@ from io import StringIO
 from unittest.mock import Mock, mock_open, patch
 
 from patroni.dcs import dcs_modules
-from patroni.validator import Directory, schema, Schema
+from patroni.validator import Directory, populate_validate_params, schema, Schema
 
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 config = {
@@ -400,3 +400,38 @@ class TestValidator(unittest.TestCase):
         errors = schema(c)
         output = "\n".join(errors)
         self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
+    @patch('socket.socket.connect_ex', Mock(return_value=0))
+    def test_bound_port_checks_without_ignore(self, mock_out, mock_err):
+        # When ignore_listen_port is False (default case), an error should be raised if the ports are already bound.
+        c = copy.deepcopy(config)
+        c['restapi']['listen'] = "127.0.0.1:8000"
+        c['postgresql']['listen'] = "127.0.0.1:9000"
+        c['raft']['self_addr'] = "127.0.0.2:9200"
+
+        populate_validate_params(ignore_listen_port=False)
+
+        errors = schema(c)
+        output = "\n".join(errors)
+
+        self.assertEqual(['postgresql.bin_dir', 'postgresql.listen',
+                          'raft.bind_addr', 'restapi.listen'],
+                         parse_output(output))
+
+    @patch('socket.socket.connect_ex', Mock(return_value=0))
+    def test_bound_port_checks_with_ignore(self, mock_out, mock_err):
+        c = copy.deepcopy(config)
+        c['restapi']['listen'] = "127.0.0.1:8000"
+        c['postgresql']['listen'] = "127.0.0.1:9000"
+        c['raft']['self_addr'] = "127.0.0.2:9200"
+        c['raft']['bind_addr'] = "127.0.0.1:9300"
+
+        # Case: When ignore_listen_port is True, error should NOT be raised
+        # even if the ports are already bound.
+        populate_validate_params(ignore_listen_port=True)
+
+        errors = schema(c)
+        output = "\n".join(errors)
+
+        self.assertEqual(['postgresql.bin_dir'],
+                         parse_output(output))
