@@ -1170,8 +1170,9 @@ class Cluster(NamedTuple('Cluster',
                 # `max` is only a fallback so we take the LSN from the slot when there is no feedback from the member.
                 lsn = max(member.lsn or 0, lsn)
             ret[slot_name] = {'type': 'physical', 'lsn': lsn}
+        slot_name = slot_name_from_member_name(name)
         ret.update({slot: {'type': 'physical'} for slot in self.status.retain_slots
-                    if slot not in ret and slot != name})
+                    if slot not in ret and slot != slot_name})
 
         if len(ret) < len(members):
             # Find which names are conflicting for a nicer error message

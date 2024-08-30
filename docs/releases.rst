@@ -3,6 +3,18 @@
 Release notes
 =============
 
+Version 4.0.1
+-------------
+
+Released 2024-08-30
+
+**Bugfix**
+
+- Patroni was creating unnecessary replication slots for itself (Alexander Kukushkin)
+
+  It was happening if ``name`` contains upper-case or special characters.
+
+
 Version 4.0.0
 -------------
 
