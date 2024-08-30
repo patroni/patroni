@@ -12,7 +12,7 @@ Released 2024-08-30
 
 - Patroni was creating unnecessary replication slots for itself (Alexander Kukushkin)
 
-  It was happening if ``name`` contains upper case or sepcial characters.
+  It was happening if ``name`` contains upper-case or special characters.
 
 
 Version 4.0.0
