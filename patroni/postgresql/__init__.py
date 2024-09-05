@@ -230,7 +230,7 @@ class Postgresql(object):
                 ", " + ("(SELECT pg_catalog.json_agg(s.*) FROM (SELECT slot_name, slot_type as type, datoid::bigint, "
                         "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint"
                         " AS confirmed_flush_lsn, pg_catalog.pg_wal_lsn_diff(restart_lsn, '0/0')::bigint"
-                        " AS restart_lsn FROM pg_catalog.pg_get_replication_slots()) AS s)"
+                        " AS restart_lsn, xmin FROM pg_catalog.pg_get_replication_slots()) AS s)"
                         if self._should_query_slots and self.can_advance_slots else "NULL") + extra
             extra = (", CASE WHEN latest_end_lsn IS NULL THEN NULL ELSE received_tli END,"
                      " slot_name, conninfo, status, {0} FROM pg_catalog.pg_stat_get_wal_receiver()").format(extra)
