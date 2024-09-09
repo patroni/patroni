@@ -1112,7 +1112,8 @@ class TestPostgresql(BaseTestPostgresql):
         file1_attrs = {'is_file.return_value': True, 'is_dir.return_value': False}
         file1_mock = MagicMock(**file1_attrs)
         file1_mock.name = '__init__.py'
-        file2_attrs = {'is_file.return_value': False, 'is_dir.return_value': True, 'iterdir.return_value': []}
+        file2_attrs = {'is_file.return_value': False, 'is_dir.return_value': True,
+                       'iterdir.side_effect':  PermissionError(13, 'Permission denied')}
         file2_mock = MagicMock(**file2_attrs)
         file2_mock.name = '__pycache__'
         file3_attrs = {'is_file.return_value': True, 'is_dir.return_value': False}
@@ -1126,9 +1127,11 @@ class TestPostgresql(BaseTestPostgresql):
         dir_mock = MagicMock(**dir_attrs)
         dir_mock.iterdir.return_value = [file1_mock, file2_mock, file3_mock, file4_mock]
         with patch('patroni.postgresql.available_parameters.conf_dir', dir_mock), \
+             patch('patroni.postgresql.available_parameters.logger.debug') as mock_debug, \
              patch('patroni.postgresql.available_parameters.logger.info') as mock_info, \
              patch('patroni.postgresql.validator.logger.warning') as mock_warning:
             _load_postgres_gucs_validators()
+            self.assertEqual(mock_debug.call_args[0][0], "Can't list directory %s: %r")
             mock_info.assert_called_once_with('Ignored a non-YAML file found under `%s` '
                                               'directory: `%s`.', 'available_parameters', file4_mock)
             mock_warning.assert_called_once()
