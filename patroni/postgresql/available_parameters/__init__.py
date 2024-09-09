@@ -42,7 +42,10 @@ def _traversable_walk(tvbs: Iterator[PathLikeObj]) -> Iterator[PathLikeObj]:
         if tvb.is_file():
             yield tvb
         elif tvb.is_dir():
-            yield from _traversable_walk(tvb.iterdir())
+            try:
+                yield from _traversable_walk(tvb.iterdir())
+            except Exception as e:
+                logger.debug("Can't list directory %s: %r", tvb, e)
 
 
 def _filter_and_sort_files(files: Iterator[PathLikeObj]) -> Iterator[PathLikeObj]:
