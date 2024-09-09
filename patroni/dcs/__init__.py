@@ -1161,7 +1161,7 @@ class Cluster(NamedTuple('Cluster',
             """Check whether provided *member* should replicate from the current node when it is running as a replica.
 
             ..note::
-                We only consider members with replicatefrom tag that matches out name and always exclude the leader.
+                We only consider members with ``replicatefrom`` tag that matches our name and always exclude the leader.
 
             :param member: a :class:`Member` object.
 

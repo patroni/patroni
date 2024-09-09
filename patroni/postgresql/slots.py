@@ -377,8 +377,12 @@ class SlotsHandler:
         for name, value in slots.items():
             if value['type'] != 'physical':
                 continue
-            # First we wan to detect physical replication slots that are not
+            # First we want to detect physical replication slots that are not
             # expected to be active but have NOT NULL xmin value and drop them.
+            # As the slot is not expected to be active, nothing would be consuming this
+            # slot, consequently no hot-standby feedback messages would be received
+            # by Postgres regarding this slot. In that case, the `xmin` value would never
+            # change, which would prevent Postgres from advancing the xmin horizon.
             if self._postgresql.can_advance_slots and name in self._replication_slots and\
                     self._replication_slots[name]['type'] == 'physical':
                 self._copy_items(self._replication_slots[name], value, ('restart_lsn', 'xmin'))
