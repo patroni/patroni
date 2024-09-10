@@ -81,3 +81,7 @@ Feature: permanent slots
     Then postgres1 has a physical replication slot named test_physical after 10 seconds
     And postgres1 has a physical replication slot named postgres0 after 10 seconds
     And postgres1 has a physical replication slot named postgres3 after 10 seconds
+    When I start postgres0
+    Then postgres0 role is the replica after 20 seconds
+    And physical replication slot named postgres1 on postgres0 has no xmin value after 10 seconds
+    And physical replication slot named postgres2 on postgres0 has no xmin value after 10 seconds

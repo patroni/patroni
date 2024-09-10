@@ -1068,7 +1068,7 @@ class Cluster(NamedTuple('Cluster',
 
                 if value['type'] == 'physical':
                     # Don't try to create permanent physical replication slot for yourself
-                    if slot_name != slot_name_from_member_name(name):
+                    if slot_name not in slots and slot_name != slot_name_from_member_name(name):
                         slots[slot_name] = value
                     continue
 
@@ -1146,17 +1146,40 @@ class Cluster(NamedTuple('Cluster',
         # also exlude members with disabled WAL streaming
         members = filter(lambda m: m.name != name and not m.nostream, self.members)
 
+        def leader_filter(member: Member) -> bool:
+            """Check whether provided *member* should replicate from the current node when it is running as a leader.
+
+            :param member: a :class:`Member` object.
+
+            :returns: ``True`` if provided member should replicate from the current node, ``False`` otherwise.
+            """
+            return member.replicatefrom is None or\
+                member.replicatefrom == name or\
+                not self.has_member(member.replicatefrom)
+
+        def replica_filter(member: Member) -> bool:
+            """Check whether provided *member* should replicate from the current node when it is running as a replica.
+
+            ..note::
+                We only consider members with ``replicatefrom`` tag that matches our name and always exclude the leader.
+
+            :param member: a :class:`Member` object.
+
+            :returns: ``True`` if provided member should replicate from the current node, ``False`` otherwise.
+            """
+            return member.replicatefrom == name and member.name != self.leader_name
+
+        # In case when retention of replication slots is possible the `expected_active` function
+        # will be used to figure out whether the replication slot is expected to be active.
+        # Otherwise it will be used to find replication slots that should exist on a current node.
+        expected_active = leader_filter if role in ('primary', 'standby_leader') else replica_filter
+
         if can_advance_slots and global_config.member_slots_ttl > 0:
             # if the node does only cascading and can't become the leader, we
             # want only to have slots for members that could connect to it.
             members = [m for m in members if not nofailover or m.replicatefrom == name]
-        elif role in ('primary', 'standby_leader'):  # PostgreSQL is older than 11
-            # on the leader want to have slots only for the nodes that are supposed to be replicating from it.
-            members = [m for m in members if m.replicatefrom is None
-                       or m.replicatefrom == name or not self.has_member(m.replicatefrom)]
         else:
-            # only manage slots for replicas that replicate from this one, except for the leader among them
-            members = [m for m in members if m.replicatefrom == name and m.name != self.leader_name]
+            members = [m for m in members if expected_active(m)]
 
         slots: Dict[str, int] = self.slots
         ret: Dict[str, Dict[str, Any]] = {}
@@ -1169,7 +1192,7 @@ class Cluster(NamedTuple('Cluster',
                 # reported by the member to advance replication slot LSN.
                 # `max` is only a fallback so we take the LSN from the slot when there is no feedback from the member.
                 lsn = max(member.lsn or 0, lsn)
-            ret[slot_name] = {'type': 'physical', 'lsn': lsn}
+            ret[slot_name] = {'type': 'physical', 'lsn': lsn, 'expected_active': expected_active(member)}
         slot_name = slot_name_from_member_name(name)
         ret.update({slot: {'type': 'physical'} for slot in self.status.retain_slots
                     if slot not in ret and slot != slot_name})
