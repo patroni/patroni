@@ -93,6 +93,26 @@ def has_physical_replication_slot(context, pg_name, slot_name, time_limit):
     assert False, f"Physical slot {slot_name} doesn't exist after {time_limit} seconds"
 
 
+@step('physical replication slot named {slot_name} on {pg_name:w} has no xmin value after {time_limit:d} seconds')
+def physical_slot_no_xmin(context, pg_name, slot_name, time_limit):
+    time_limit *= context.timeout_multiplier
+    max_time = time.time() + int(time_limit)
+    query = "SELECT xmin FROM pg_catalog.pg_replication_slots WHERE slot_type = 'physical'"
+    f" AND slot_name = '{slot_name}'"
+    exists = False
+    while time.time() < max_time:
+        try:
+            row = context.pctl.query(pg_name, query).fetchone()
+            exists = bool(row)
+            if exists and row[0] is None:
+                return
+        except Exception:
+            pass
+        time.sleep(1)
+    assert False, f"Physical slot {slot_name} doesn't exist after {time_limit} seconds" if not exists \
+        else f"Physical slot {slot_name} has xmin value after {time_limit} seconds"
+
+
 @step('"{name}" key in DCS has {subkey:w} in {key:w}')
 def dcs_key_contains(context, name, subkey, key):
     response = json.loads(context.dcs_ctl.query(name))

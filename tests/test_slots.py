@@ -109,16 +109,16 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.p.reset_cluster_info_state(None)
             mock_query.return_value = [(
                 1, 0, 0, 0, 0, 0, 0, 0, 0, None, None,
-                [{"slot_name": "ls", "type": "logical", "datoid": 5, "plugin": "b",
+                [{"slot_name": "ls", "type": "logical", "datoid": 5, "plugin": "b", "xmin": 105,
                   "confirmed_flush_lsn": 12345, "catalog_xmin": 105, "restart_lsn": 12344},
-                 {"slot_name": "blabla", "type": "physical", "datoid": None, "plugin": None,
+                 {"slot_name": "blabla", "type": "physical", "datoid": None, "plugin": None, "xmin": 105,
                   "confirmed_flush_lsn": None, "catalog_xmin": 105, "restart_lsn": 12344}])]
             self.assertEqual(self.p.slots(), {'ls': 12345, 'blabla': 12344})
 
             self.p.reset_cluster_info_state(None)
             mock_query.return_value = [(
                 1, 0, 0, 0, 0, 0, 0, 0, 0, None, None,
-                [{"slot_name": "ls", "type": "logical", "datoid": 6, "plugin": "b",
+                [{"slot_name": "ls", "type": "logical", "datoid": 6, "plugin": "b", "xmin": 105,
                   "confirmed_flush_lsn": 12345, "catalog_xmin": 105}])]
             self.assertEqual(self.p.slots(), {})
 
@@ -147,7 +147,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             {'foo': {'type': 'logical', 'database': 'a', 'plugin': 'b'}, 'bar': {'type': 'physical'}})
         self.assertEqual(
             cluster._get_members_slots(self.p.name, 'primary'),
-            {'test_4': {'type': 'physical'}})
+            {'test_4': {'type': 'physical', 'expected_active': True}})
 
         # nostream node must not have slot on primary
         self.p.name = nostream_node.name
@@ -162,7 +162,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         # check cascade member-slot existence on nostream node
         self.assertEqual(
             cluster._get_members_slots(nostream_node.name, 'replica'),
-            {'test_3': {'type': 'physical'}})
+            {'test_3': {'type': 'physical', 'expected_active': True}})
 
         # cascade also does not entitled to have logical slot on itself ...
         self.p.name = cascade_node.name
@@ -216,7 +216,8 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.cluster.status.slots['ls'] = 12346
         with patch.object(SlotsHandler, 'check_logical_slots_readiness', Mock(return_value=False)):
             self.assertEqual(self.s.sync_replication_slots(self.cluster, self.tags), [])
-        with patch.object(SlotsHandler, '_query', Mock(return_value=[('ls', 'logical', 499, 'b', 'a', 5, 100, 500)])), \
+        with patch.object(SlotsHandler, '_query', Mock(return_value=[('ls', 'logical', 1, 499, 'b',
+                                                                      'a', 5, 100, 500)])), \
                 patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError)), \
                 patch.object(SlotsAdvanceThread, 'schedule', Mock(return_value=(True, ['ls']))), \
                 patch.object(psycopg.OperationalError, 'diag') as mock_diag:
@@ -287,18 +288,63 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.s.schedule_advance_slots({'foo': {'bar': 100}})
             self.s._advance.sync_slots()
 
+    def test_advance_physical_primary(self):
+        self.p.name = self.me.name
+        config = ClusterConfig(1, {'slots': {'test_1': {'type': 'physical'}}}, 1)
+        cluster = Cluster(True, config, self.leader, Status(0, {}),
+                          [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
+        self.other.data['xlog_location'] = 12346
+        global_config.update(cluster)
+
+        # Should advance permanent physical slot on the primary for a node that is cascading from the other node
+        with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('test_1', 'physical', None, 12345, None, None,
+                                                                      None, None, None)], Exception])) as mock_query, \
+                patch('patroni.postgresql.slots.logger.error') as mock_error:
+            self.s.sync_replication_slots(cluster, self.tags)
+            self.assertEqual(mock_query.call_args[0],
+                             ("SELECT pg_catalog.pg_replication_slot_advance(%s, %s)", "test_1", '0/303A'))
+            self.assertEqual(mock_error.call_args[0][0],
+                             "Error while advancing replication slot %s to position '%s': %r")
+
+        # Should drop permanent physical slot on the primary for a node
+        # that is cascading from the other mnode if given slot has xmin set
+        with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('test_1', 'physical', 1, 12345, None, None,
+                                                                      None, None, None)], Exception])) as mock_query:
+            self.s.sync_replication_slots(cluster, self.tags)
+            self.assertTrue(mock_query.call_args[0][0].startswith('WITH slots AS (SELECT slot_name, active'))
+
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
+    @patch.object(Postgresql, 'role', PropertyMock(return_value='replica'))
     def test_advance_physical_slots(self):
-        config = ClusterConfig(1, {'slots': {'blabla': {'type': 'physical'}, 'leader': None}}, 1)
+        config = ClusterConfig(1, {'slots': {'blabla': {'type': 'physical'}}}, 1)
         cluster = Cluster(True, config, self.leader, Status(0, {'blabla': 12346}),
                           [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
         global_config.update(cluster)
         self.s.sync_replication_slots(cluster, self.tags)
-        with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('blabla', 'physical', 12345, None, None, None,
-                                                                      None, None)], Exception])) as mock_query, \
+        with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('blabla', 'physical', None, 12345, None, None,
+                                                                      None, None, None)], Exception])) as mock_query, \
                 patch('patroni.postgresql.slots.logger.error') as mock_error:
             self.s.sync_replication_slots(cluster, self.tags)
             self.assertEqual(mock_query.call_args[0],
                              ("SELECT pg_catalog.pg_replication_slot_advance(%s, %s)", "blabla", '0/303A'))
             self.assertEqual(mock_error.call_args[0][0],
                              "Error while advancing replication slot %s to position '%s': %r")
+
+        with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('blabla', 'physical', 1, 12345, None, None,
+                                                                      None, None, None)], Exception])), \
+                patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(False, True))):
+            self.s._schedule_load_slots = True
+            self.s.sync_replication_slots(cluster, self.tags)
+
+        with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('blabla', 'physical', 1, 12345, None, None,
+                                                                      None, None, None)], Exception])), \
+                patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(True, False))), \
+                patch('patroni.postgresql.slots.logger.warning') as mock_warning:
+            self.s.sync_replication_slots(cluster, self.tags)
+            self.assertEqual(mock_warning.call_args_list[-1][0],
+                             ("Unable to drop replication slot '%s', slot is active", 'blabla'))
+
+        with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('blabla', 'physical', 1, 12345, None, None,
+                                                                      None, None, None)], Exception])), \
+                patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(False, False))):
+            self.s.sync_replication_slots(cluster, self.tags)

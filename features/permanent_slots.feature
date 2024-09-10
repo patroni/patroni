@@ -7,12 +7,13 @@ Feature: permanent slots
     Then I receive a response code 200
     And Response on GET http://127.0.0.1:8008/config contains slots after 10 seconds
     When I start postgres1
-    And I start postgres2
+    And I configure and start postgres2 with a tag nofailover true
     And I configure and start postgres3 with a tag replicatefrom postgres2
     Then postgres0 has a physical replication slot named test_physical after 10 seconds
     And postgres0 has a physical replication slot named postgres1 after 10 seconds
     And postgres0 has a physical replication slot named postgres2 after 10 seconds
     And postgres2 has a physical replication slot named postgres3 after 10 seconds
+    And postgres2 does not have a replication slot named test_physical
 
   @slot-advance
   Scenario: check that logical permanent slots are created
@@ -24,10 +25,9 @@ Feature: permanent slots
   Scenario: check that permanent slots are created on replicas
     Given postgres1 has a logical replication slot named test_logical with the test_decoding plugin after 10 seconds
     Then Logical slot test_logical is in sync between postgres0 and postgres1 after 10 seconds
-    And Logical slot test_logical is in sync between postgres0 and postgres2 after 10 seconds
     And Logical slot test_logical is in sync between postgres0 and postgres3 after 10 seconds
     And postgres1 has a physical replication slot named test_physical after 2 seconds
-    And postgres2 has a physical replication slot named test_physical after 2 seconds
+    And postgres2 does not have a replication slot named test_logical
     And postgres3 has a physical replication slot named test_physical after 2 seconds
 
   @slot-advance
@@ -35,9 +35,9 @@ Feature: permanent slots
     Given postgres0 has a physical replication slot named postgres3 after 2 seconds
     And postgres1 has a physical replication slot named postgres0 after 2 seconds
     And postgres1 has a physical replication slot named postgres3 after 2 seconds
-    And postgres2 has a physical replication slot named postgres0 after 2 seconds
+    And postgres2 does not have a replication slot named postgres0
+    And postgres2 does not have a replication slot named postgres1
     And postgres2 has a physical replication slot named postgres3 after 2 seconds
-    And postgres2 has a physical replication slot named postgres1 after 2 seconds
     And postgres1 does not have a replication slot named postgres2
     And postgres3 does not have a replication slot named postgres2
 
@@ -48,11 +48,8 @@ Feature: permanent slots
     And I get all changes from physical slot test_physical on postgres0
     Then Logical slot test_logical is in sync between postgres0 and postgres1 after 10 seconds
     And Physical slot test_physical is in sync between postgres0 and postgres1 after 10 seconds
-    And Logical slot test_logical is in sync between postgres0 and postgres2 after 10 seconds
-    And Physical slot test_physical is in sync between postgres0 and postgres2 after 10 seconds
     And Logical slot test_logical is in sync between postgres0 and postgres3 after 10 seconds
     And Physical slot test_physical is in sync between postgres0 and postgres3 after 10 seconds
-    And Physical slot postgres1 is in sync between postgres0 and postgres2 after 10 seconds
     And Physical slot postgres3 is in sync between postgres2 and postgres0 after 20 seconds
     And Physical slot postgres3 is in sync between postgres2 and postgres1 after 10 seconds
     And postgres1 does not have a replication slot named postgres2
@@ -73,3 +70,7 @@ Feature: permanent slots
     Then postgres1 has a physical replication slot named test_physical after 10 seconds
     And postgres1 has a physical replication slot named postgres0 after 10 seconds
     And postgres1 has a physical replication slot named postgres3 after 10 seconds
+    When I start postgres0
+    Then postgres0 role is the replica after 20 seconds
+    And physical replication slot named postgres1 on postgres0 has no xmin value after 10 seconds
+    And physical replication slot named postgres2 on postgres0 has no xmin value after 10 seconds
