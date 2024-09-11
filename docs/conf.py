@@ -289,13 +289,15 @@ def env_get_outdated(app, env, added, changed, removed):
     Remove the items listed in `docs_to_remove` from known pages.
     """
     to_remove = set()
-    for doc in env.found_docs:
-        if _to_be_removed(doc):
-            to_remove.add(doc)
+    if hasattr(env, 'found_docs'):
+        for doc in env.found_docs:
+            if _to_be_removed(doc):
+                to_remove.add(doc)
     added.difference_update(to_remove)
     changed.difference_update(to_remove)
     removed.update(to_remove)
-    env.project.docnames.difference_update(to_remove)
+    if hasattr(env, 'project'):
+        env.project.docnames.difference_update(to_remove)
     return []
 
 
