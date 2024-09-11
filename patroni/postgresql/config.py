@@ -365,8 +365,9 @@ class ConfigHandler(object):
         keep_values = {k: self._server_parameters[k] for k in exclude}
         server_parameters = CaseInsensitiveDict({r[0]: r[1] for r in self._postgresql.query(
             "SELECT name, pg_catalog.current_setting(name) FROM pg_catalog.pg_settings"
-            " WHERE (source IN ('command line', 'environment variable') OR sourcefile = %s)"
-            " AND pg_catalog.lower(name) != ALL(%s)", self._postgresql_conf, exclude)})
+            " WHERE (source IN ('command line', 'environment variable') OR sourcefile = %s"
+            " OR pg_catalog.lower(name) = ANY(%s)) AND pg_catalog.lower(name) != ALL(%s)",
+            self._postgresql_conf, [n.lower() for n in self.CMDLINE_OPTIONS.keys()], exclude)})
         recovery_params = CaseInsensitiveDict({k: server_parameters.pop(k) for k in self._RECOVERY_PARAMETERS
                                                if k in server_parameters})
         # We also want to load current settings of recovery parameters, including primary_conninfo
