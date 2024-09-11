@@ -1066,54 +1066,29 @@ def data_directory_is_empty(data_dir: str) -> bool:
 
 def apply_keepalive_limit(option: str, value: int) -> int:
     """
-    Adjusts the keepalive option value to ensure it falls within the acceptable range for the current operating system.
+    Adjusts the keepalive option value to ensure it does not exceed the maximum allowed value for the current platform.
 
     :param option: The TCP keepalive option name.
         Possible values are "TCP_USER_TIMEOUT", "TCP_KEEPIDLE", "TCP_KEEPINTVL", and "TCP_KEEPCNT".
     :param value: The desired value for the keepalive option.
 
     Returns:
-    :returns: The adjusted value that falls within the acceptable range for the specified keepalive option.
+    :returns: The adjusted value for the keepalive option, ensuring it does not exceed the platform-specific maximum.
     """
-    min_possible_value = 1
+    max_of_options = {
+        'linux': {'TCP_USER_TIMEOUT': 2147483647, 'TCP_KEEPIDLE': 32767, 'TCP_KEEPINTVL': 32767, 'TCP_KEEPCNT': 127},
+        'darwin': {'TCP_KEEPIDLE': 32767, 'TCP_KEEPINTVL': 32767, 'TCP_KEEPCNT': 127},
+    }
     max_possible_value = None
     if sys.platform.startswith('linux'):
-        if option == "TCP_USER_TIMEOUT":
-            max_possible_value = 2147483647
-        if option == "TCP_KEEPIDLE":
-            max_possible_value = 32767
-        if option == "TCP_KEEPINTVL":
-            max_possible_value = 32767
-        if option == "TCP_KEEPCNT":
-            max_possible_value = 127
+        max_possible_value = max_of_options['linux'].get(option)
 
     if sys.platform.startswith('darwin'):
-        if option == "TCP_KEEPIDLE":
-            max_possible_value = 4294967
-        if option == "TCP_KEEPINTVL":
-            max_possible_value = 4294967
-        if option == "TCP_KEEPCNT":
-            max_possible_value = 2147483647
-
-    if sys.platform.startswith('win32'):
-        if option == "TCP_KEEPIDLE":
-            max_possible_value = 2147483647
-        if option == "TCP_KEEPINTVL":
-            max_possible_value = 2147483647
-        if option == "TCP_KEEPCNT":
-            max_possible_value = 255
+        max_possible_value = max_of_options['darwin'].get(option)
 
     if max_possible_value is not None and value > max_possible_value:
-        logger.debug(
-            '%s changed from %d to %d.', option, value, max_possible_value
-        )
+        logger.debug('%s changed from %d to %d.', option, value, max_possible_value)
         value = max_possible_value
-
-    if min_possible_value > value:
-        logger.debug(
-            '%s changed from %d to %d.', option, value, min_possible_value
-        )
-        value = min_possible_value
 
     return value
 
@@ -1127,7 +1102,7 @@ def keepalive_intvl(timeout: int, idle: int, cnt: int = 3) -> int:
 
     :returns: the value to be used as ``TCP_KEEPINTVL``.
     """
-    intvl = int(float(timeout - idle) / cnt)
+    intvl = max(1, int(float(timeout - idle) / cnt))
     return apply_keepalive_limit('TCP_KEEPINTVL', intvl)
 
 
