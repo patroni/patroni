@@ -144,7 +144,7 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
         for host in hosts:
             # Check if "socket.IF_INET" or "socket.IF_INET6" is being used and instantiate a socket with the identified
             # protocol
-            proto = socket.getaddrinfo(host, "", 0, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
+            proto = socket.getaddrinfo(host, None, 0, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
             s = socket.socket(proto[0][0], socket.SOCK_STREAM)
             try:
                 if s.connect_ex((host, port)) == 0:
