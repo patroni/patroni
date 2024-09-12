@@ -1066,30 +1066,29 @@ def data_directory_is_empty(data_dir: str) -> bool:
 
 def apply_keepalive_limit(option: str, value: int) -> int:
     """
-    Adjusts the keepalive option value to ensure it does not exceed the maximum allowed value for the current platform.
+    Ensures provided *value* for keepalive *option* does not exceed the maximum allowed value for the current platform.
 
-    :param option: The TCP keepalive option name.
-        Possible values are "TCP_USER_TIMEOUT", "TCP_KEEPIDLE", "TCP_KEEPINTVL", and "TCP_KEEPCNT".
+    :param option: The TCP keepalive option name. Possible values are:
+
+            * ``TCP_USER_TIMEOUT``;
+            * ``TCP_KEEPIDLE``;
+            * ``TCP_KEEPINTVL``;
+            * ``TCP_KEEPCNT``.
+
     :param value: The desired value for the keepalive option.
 
-    Returns:
-    :returns: The adjusted value for the keepalive option, ensuring it does not exceed the platform-specific maximum.
+    :returns: maybe adjusted value.
     """
     max_of_options = {
         'linux': {'TCP_USER_TIMEOUT': 2147483647, 'TCP_KEEPIDLE': 32767, 'TCP_KEEPINTVL': 32767, 'TCP_KEEPCNT': 127},
-        'darwin': {'TCP_KEEPIDLE': 32767, 'TCP_KEEPINTVL': 32767, 'TCP_KEEPCNT': 127},
+        'darwin': {'TCP_KEEPIDLE': 4294967, 'TCP_KEEPINTVL': 4294967, 'TCP_KEEPCNT': 2147483647},
     }
     max_possible_value = None
-    if sys.platform.startswith('linux'):
-        max_possible_value = max_of_options['linux'].get(option)
-
-    if sys.platform.startswith('darwin'):
-        max_possible_value = max_of_options['darwin'].get(option)
-
+    platform = 'linux' if sys.platform.startswith('linux') else sys.platform
+    max_possible_value = max_of_options.get(platform, {}).get(option)
     if max_possible_value is not None and value > max_possible_value:
         logger.debug('%s changed from %d to %d.', option, value, max_possible_value)
         value = max_possible_value
-
     return value
 
 
@@ -1131,10 +1130,13 @@ def keepalive_socket_options(timeout: int, idle: int, cnt: int = 3) -> Iterator[
                 * ``TCP_KEEPCNT``.
     """
     yield (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+    if not (sys.platform.startswith('linux') or sys.platform.startswith('darwin')):
+        return
+
     TCP_USER_TIMEOUT = getattr(socket, 'TCP_USER_TIMEOUT', None)
     if TCP_USER_TIMEOUT is not None:
-        timeout = apply_keepalive_limit('TCP_USER_TIMEOUT', int(timeout * 1000))
-        yield (socket.SOL_TCP, TCP_USER_TIMEOUT, timeout)
+        yield (socket.SOL_TCP, TCP_USER_TIMEOUT, apply_keepalive_limit('TCP_USER_TIMEOUT', int(timeout * 1000)))
     # The socket constants from MacOS netinet/tcp.h are not exported by python's
     # socket module, therefore we are using 0x10, 0x101, 0x102 constants.
     TCP_KEEPIDLE = getattr(socket, 'TCP_KEEPIDLE', 0x10 if sys.platform.startswith('darwin') else None)
