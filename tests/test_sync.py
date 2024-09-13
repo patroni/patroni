@@ -128,9 +128,9 @@ class TestSync(BaseTestPostgresql):
         self.assertEqual(value_in_conf(), "synchronous_standby_names = 'ANY 1 (*)'")
 
         mock_reload.reset_mock()
-        self.s.set_synchronous_standby_names(['a', 'b'], 1)
+        self.s.set_synchronous_standby_names(['any', 'b'], 1)
         mock_reload.assert_called()
-        self.assertEqual(value_in_conf(), "synchronous_standby_names = 'ANY 1 (a,b)'")
+        self.assertEqual(value_in_conf(), "synchronous_standby_names = 'ANY 1 (\"any\",b)'")
 
         mock_reload.reset_mock()
         self.s.set_synchronous_standby_names(['a', 'b'], 3)
