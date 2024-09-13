@@ -1063,6 +1063,33 @@ def data_directory_is_empty(data_dir: str) -> bool:
     return all(os.name != 'nt' and (n.startswith('.') or n == 'lost+found') for n in os.listdir(data_dir))
 
 
+def apply_keepalive_limit(option: str, value: int) -> int:
+    """
+    Ensures provided *value* for keepalive *option* does not exceed the maximum allowed value for the current platform.
+
+    :param option: The TCP keepalive option name. Possible values are:
+
+            * ``TCP_USER_TIMEOUT``;
+            * ``TCP_KEEPIDLE``;
+            * ``TCP_KEEPINTVL``;
+            * ``TCP_KEEPCNT``.
+
+    :param value: The desired value for the keepalive option.
+
+    :returns: maybe adjusted value.
+    """
+    max_of_options = {
+        'linux': {'TCP_USER_TIMEOUT': 2147483647, 'TCP_KEEPIDLE': 32767, 'TCP_KEEPINTVL': 32767, 'TCP_KEEPCNT': 127},
+        'darwin': {'TCP_KEEPIDLE': 4294967, 'TCP_KEEPINTVL': 4294967, 'TCP_KEEPCNT': 2147483647},
+    }
+    platform = 'linux' if sys.platform.startswith('linux') else sys.platform
+    max_possible_value = max_of_options.get(platform, {}).get(option)
+    if max_possible_value is not None and value > max_possible_value:
+        logger.debug('%s changed from %d to %d.', option, value, max_possible_value)
+        value = max_possible_value
+    return value
+
+
 def keepalive_intvl(timeout: int, idle: int, cnt: int = 3) -> int:
     """Calculate the value to be used as ``TCP_KEEPINTVL`` based on *timeout*, *idle*, and *cnt*.
 
@@ -1072,7 +1099,8 @@ def keepalive_intvl(timeout: int, idle: int, cnt: int = 3) -> int:
 
     :returns: the value to be used as ``TCP_KEEPINTVL``.
     """
-    return max(1, int(float(timeout - idle) / cnt))
+    intvl = max(1, int(float(timeout - idle) / cnt))
+    return apply_keepalive_limit('TCP_KEEPINTVL', intvl)
 
 
 def keepalive_socket_options(timeout: int, idle: int, cnt: int = 3) -> Iterator[Tuple[int, int, int]]:
@@ -1104,13 +1132,14 @@ def keepalive_socket_options(timeout: int, idle: int, cnt: int = 3) -> Iterator[
     if not (sys.platform.startswith('linux') or sys.platform.startswith('darwin')):
         return
 
-    if sys.platform.startswith('linux'):
-        yield (socket.SOL_TCP, 18, int(timeout * 1000))  # TCP_USER_TIMEOUT
-
+    TCP_USER_TIMEOUT = getattr(socket, 'TCP_USER_TIMEOUT', None)
+    if TCP_USER_TIMEOUT is not None:
+        yield (socket.SOL_TCP, TCP_USER_TIMEOUT, apply_keepalive_limit('TCP_USER_TIMEOUT', int(timeout * 1000)))
     # The socket constants from MacOS netinet/tcp.h are not exported by python's
     # socket module, therefore we are using 0x10, 0x101, 0x102 constants.
     TCP_KEEPIDLE = getattr(socket, 'TCP_KEEPIDLE', 0x10 if sys.platform.startswith('darwin') else None)
     if TCP_KEEPIDLE is not None:
+        idle = apply_keepalive_limit('TCP_KEEPIDLE', idle)
         yield (socket.IPPROTO_TCP, TCP_KEEPIDLE, idle)
     TCP_KEEPINTVL = getattr(socket, 'TCP_KEEPINTVL', 0x101 if sys.platform.startswith('darwin') else None)
     if TCP_KEEPINTVL is not None:
@@ -1118,6 +1147,7 @@ def keepalive_socket_options(timeout: int, idle: int, cnt: int = 3) -> Iterator[
         yield (socket.IPPROTO_TCP, TCP_KEEPINTVL, intvl)
     TCP_KEEPCNT = getattr(socket, 'TCP_KEEPCNT', 0x102 if sys.platform.startswith('darwin') else None)
     if TCP_KEEPCNT is not None:
+        cnt = apply_keepalive_limit('TCP_KEEPCNT', cnt)
         yield (socket.IPPROTO_TCP, TCP_KEEPCNT, cnt)
 
 
