@@ -1,10 +1,11 @@
+import sys
 import unittest
 
 from unittest.mock import Mock, patch
 
 from patroni.exceptions import PatroniException
-from patroni.utils import enable_keepalive, get_major_version, get_postgres_version, \
-    polling_loop, Retry, RetryFailedError, unquote, validate_directory
+from patroni.utils import apply_keepalive_limit, enable_keepalive, get_major_version, \
+    get_postgres_version, polling_loop, Retry, RetryFailedError, unquote, validate_directory
 
 
 class TestUtils(unittest.TestCase):
@@ -42,6 +43,11 @@ class TestUtils(unittest.TestCase):
             for platform in ('linux2', 'darwin', 'other'):
                 with patch('sys.platform', platform):
                     self.assertIsNone(enable_keepalive(Mock(), 10, 5))
+
+    def test_apply_keepalive_limit(self):
+        for platform in ('linux2', 'darwin'):
+            with patch('sys.platform', platform):
+                self.assertLess(apply_keepalive_limit('TCP_KEEPIDLE', sys.maxsize), sys.maxsize)
 
     def test_unquote(self):
         self.assertEqual(unquote('value'), 'value')
