@@ -85,9 +85,9 @@ class TestSync(BaseTestPostgresql):
         mock_reload.assert_not_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = 'n1'")
 
-        self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1', 'n2']))
+        self.s.set_synchronous_standby_names(CaseInsensitiveSet(['any', 'n2']))
         mock_reload.assert_called()
-        self.assertEqual(value_in_conf(), "synchronous_standby_names = '2 (n1,n2)'")
+        self.assertEqual(value_in_conf(), "synchronous_standby_names = '2 (\"any\",n2)'")
 
         mock_reload.reset_mock()
         self.s.set_synchronous_standby_names(CaseInsensitiveSet([]))

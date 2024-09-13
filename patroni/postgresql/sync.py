@@ -8,7 +8,8 @@ from typing import Collection, List, NamedTuple, Tuple, TYPE_CHECKING
 from .. import global_config
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Cluster
-from ..psycopg import quote_ident as _quote_ident
+from ..psycopg import quote_ident
+
 if TYPE_CHECKING:  # pragma: no cover
     from . import Postgresql
 
@@ -30,9 +31,14 @@ SYNC_REP_PARSER_RE = re.compile(r"""
         """, re.X)
 
 
-def quote_ident(value: str) -> str:
-    """Very simplified version of `psycopg` :func:`quote_ident` function."""
-    return value if SYNC_STANDBY_NAME_RE.match(value) else _quote_ident(value)
+def quote_standby_name(value: str) -> str:
+    """Quote provided *value* if it is nenecessary.
+
+    :param value: name of a synchronous standby.
+
+    :returns: a quoted value if it is required or the original one.
+    """
+    return value if SYNC_STANDBY_NAME_RE.match(value) and value.lower() not in ('first', 'any') else quote_ident(value)
 
 
 class _SSN(NamedTuple):
@@ -329,7 +335,7 @@ END;$$""")
         if has_asterisk:
             sync = ['*']
         else:
-            sync = [quote_ident(x) for x in sync]
+            sync = [quote_standby_name(x) for x in sync]
 
         if self._postgresql.supports_multiple_sync and len(sync) > 1:
             sync_param = '{0} ({1})'.format(len(sync), ','.join(sync))
