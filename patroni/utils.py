@@ -1083,7 +1083,6 @@ def apply_keepalive_limit(option: str, value: int) -> int:
         'linux': {'TCP_USER_TIMEOUT': 2147483647, 'TCP_KEEPIDLE': 32767, 'TCP_KEEPINTVL': 32767, 'TCP_KEEPCNT': 127},
         'darwin': {'TCP_KEEPIDLE': 4294967, 'TCP_KEEPINTVL': 4294967, 'TCP_KEEPCNT': 2147483647},
     }
-    max_possible_value = None
     platform = 'linux' if sys.platform.startswith('linux') else sys.platform
     max_possible_value = max_of_options.get(platform, {}).get(option)
     if max_possible_value is not None and value > max_possible_value:
