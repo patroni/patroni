@@ -9,7 +9,7 @@ from behave import register_type, step, then
 import patroni.psycopg as pg
 
 
-@parse.with_pattern(r'[A-Za-z][A-Za-z0-9_\-]*[A-Za-z0-9]')
+@parse.with_pattern(r'[a-z][a-z0-9_\-]*[a-z0-9]')
 def parse_name(text):
     return text
 
