@@ -11,8 +11,8 @@ from dateutil import tz
 tzutc = tz.tzutc()
 
 
-@step('{name:w} is a leader in a group {group:d} after {time_limit:d} seconds')
-@then('{name:w} is a leader in a group {group:d} after {time_limit:d} seconds')
+@step('{name:name} is a leader in a group {group:d} after {time_limit:d} seconds')
+@then('{name:name} is a leader in a group {group:d} after {time_limit:d} seconds')
 def is_a_group_leader(context, name, group, time_limit):
     time_limit *= context.timeout_multiplier
     max_time = time.time() + int(time_limit)
@@ -40,12 +40,12 @@ def check_group_member(context, name, group, key, value, time_limit):
                    " after {5} seconds").format(name, group, key, value, response, time_limit)
 
 
-@step('I start {name:w} in citus group {group:d}')
+@step('I start {name:name} in citus group {group:d}')
 def start_citus(context, name, group):
     return context.pctl.start(name, custom_config={"citus": {"database": "postgres", "group": int(group)}})
 
 
-@step('{name1:w} is registered in the {name2:w} as the {role:w} in group {group:d} after {time_limit:d} seconds')
+@step('{name1:name} is registered in the {name2:name} as the {role:w} in group {group:d} after {time_limit:d} seconds')
 def check_registration(context, name1, name2, role, group, time_limit):
     time_limit *= context.timeout_multiplier
     max_time = time.time() + int(time_limit)
@@ -65,13 +65,13 @@ def check_registration(context, name1, name2, role, group, time_limit):
     assert False, "Node {0} is not registered in pg_dist_node on the node {1}".format(name1, name2)
 
 
-@step('I create a distributed table on {name:w}')
+@step('I create a distributed table on {name:name}')
 def create_distributed_table(context, name):
     context.pctl.query(name, 'CREATE TABLE public.d(id int not null)')
     context.pctl.query(name, "SELECT create_distributed_table('public.d', 'id')")
 
 
-@step('I cleanup a distributed table on {name:w}')
+@step('I cleanup a distributed table on {name:name}')
 def cleanup_distributed_table(context, name):
     context.pctl.query(name, 'TRUNCATE public.d')
 
@@ -87,7 +87,7 @@ def insert_thread(query_func, context):
         context.thread_stop_event.wait(0.01)
 
 
-@step('I start a thread inserting data on {name:w}')
+@step('I start a thread inserting data on {name:name}')
 def start_insert_thread(context, name):
     context.thread_stop_event = Event()
     context.insert_counter = 0
@@ -110,13 +110,13 @@ def stop_insert_thread(context):
     assert not context.thread.is_alive(), "Thread is still alive"
 
 
-@step("a distributed table on {name:w} has expected rows")
+@step("a distributed table on {name:name} has expected rows")
 def count_rows(context, name):
     rows = context.pctl.query(name, "SELECT COUNT(*) FROM public.d").fetchone()[0]
     assert rows == context.insert_counter, "Distributed table doesn't have expected amount of rows"
 
 
-@step("there is a transaction in progress on {name:w} changing pg_dist_node after {time_limit:d} seconds")
+@step("there is a transaction in progress on {name:name} changing pg_dist_node after {time_limit:d} seconds")
 def check_transaction(context, name, time_limit):
     time_limit *= context.timeout_multiplier
     max_time = time.time() + int(time_limit)

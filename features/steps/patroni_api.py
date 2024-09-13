@@ -28,8 +28,8 @@ register_type(url=parse_url)
 # just rely on the database availability, since there is
 # a short gap between the time PostgreSQL becomes available
 # and Patroni assuming the leader role.
-@step('{name:w} is a leader after {time_limit:d} seconds')
-@then('{name:w} is a leader after {time_limit:d} seconds')
+@step('{name:name} is a leader after {time_limit:d} seconds')
+@then('{name:name} is a leader after {time_limit:d} seconds')
 def is_a_leader(context, name, time_limit):
     time_limit *= context.timeout_multiplier
     max_time = time.time() + int(time_limit)
@@ -97,7 +97,7 @@ def do_run(context, cmd):
     context.response = response.decode('utf-8').strip()
 
 
-@then('I receive a response {component:w} {data}')
+@then('I receive a response {component:name} {data}')
 def check_response(context, component, data):
     if component == 'code':
         assert context.status_code == int(data), \
@@ -116,7 +116,7 @@ def check_response(context, component, data):
         assert str(context.response[component]) == str(data), "{0} does not contain {1}".format(component, data)
 
 
-@step('I issue a scheduled switchover from {from_host:w} to {to_host:w} in {in_seconds:d} seconds')
+@step('I issue a scheduled switchover from {from_host:name} to {to_host:name} in {in_seconds:d} seconds')
 def scheduled_switchover(context, from_host, to_host, in_seconds):
     context.execute_steps(u"""
         Given I run patronictl.py switchover batman --primary {0} --candidate {1} --scheduled "{2}" --force
@@ -130,13 +130,13 @@ def scheduled_restart(context, url, in_seconds, data):
     context.execute_steps(u"""Given I issue a POST request to {0}/restart with {1}""".format(url, json.dumps(data)))
 
 
-@step('I {action:w} {tag:w} tag in {pg_name:w} config')
+@step('I {action:w} {tag:w} tag in {pg_name:name} config')
 def add_bool_tag_to_config(context, action, tag, pg_name):
     value = action == 'set'
     context.pctl.add_tag_to_config(pg_name, tag, value)
 
 
-@step('I add tag {tag:w} {value:w} to {pg_name:w} config')
+@step('I add tag {tag:w} {value:w} to {pg_name:name} config')
 def add_tag_to_config(context, tag, value, pg_name):
     context.pctl.add_tag_to_config(pg_name, tag, value)
 

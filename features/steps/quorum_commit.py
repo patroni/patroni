@@ -36,7 +36,7 @@ def _parse_synchronous_standby_names(value):
     return expected_num, expected_value
 
 
-@then('synchronous_standby_names on {name:2} is set to "{value}" after {time_limit:d} seconds')
+@then("synchronous_standby_names on {name:2} is set to '{value}' after {time_limit:d} seconds")
 def check_synchronous_standby_names(context, name, value, time_limit):
     time_limit *= context.timeout_multiplier
     max_time = time.time() + int(time_limit)
