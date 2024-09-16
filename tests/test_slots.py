@@ -321,7 +321,8 @@ class TestSlotsHandler(BaseTestPostgresql):
                 patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(True, False))), \
                 patch('patroni.postgresql.slots.logger.warning') as mock_warning:
             self.s.sync_replication_slots(cluster, self.tags)
-            self.assertEqual(mock_warning.call_args_list[-1][0], ("Unable to drop replication slot '%s', slot is active", 'test_1'))
+            self.assertEqual(mock_warning.call_args_list[-1][0],
+                             ("Unable to drop replication slot '%s', slot is active", 'test_1'))
 
         with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('test_1', 'physical', 1, 12345, None, None,
                                                                       None, None, None)], Exception])), \

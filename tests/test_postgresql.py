@@ -1113,7 +1113,7 @@ class TestPostgresql(BaseTestPostgresql):
         file1_mock = MagicMock(**file1_attrs)
         file1_mock.name = '__init__.py'
         file2_attrs = {'is_file.return_value': False, 'is_dir.return_value': True,
-                       'iterdir.side_effect':  PermissionError(13, 'Permission denied')}
+                       'iterdir.side_effect': PermissionError(13, 'Permission denied')}
         file2_mock = MagicMock(**file2_attrs)
         file2_mock.name = '__pycache__'
         file3_attrs = {'is_file.return_value': True, 'is_dir.return_value': False}

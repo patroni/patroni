@@ -88,6 +88,7 @@ class _Lint(_Command):
 
     def aux_directories(self):
         for dir_name in ('tests', 'features'):
+            yield dir_name
             for root, dirs, files in os.walk(dir_name):
                 for name in dirs:
                     yield os.path.join(root, name)
