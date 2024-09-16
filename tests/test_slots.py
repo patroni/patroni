@@ -314,7 +314,7 @@ class TestSlotsHandler(BaseTestPostgresql):
                              "Error while advancing replication slot %s to position '%s': %r")
 
         # Should drop permanent physical slot on the primary for a node
-        # that is cascading from the other mnode if given slot has xmin set
+        # that is cascading from the other node if given slot has xmin set
         with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('test_1', 'physical', 1, 12345, None, None,
                                                                       None, None, None)], Exception])) as mock_query:
             self.s.sync_replication_slots(cluster, self.tags)

@@ -1036,7 +1036,7 @@ class Cluster(NamedTuple('Cluster',
 
         return slots
 
-    def _merge_permanent_slots(self, slots: Dict[str, Dict[str, str]], permanent_slots: Dict[str, Any],
+    def _merge_permanent_slots(self, slots: Dict[str, Dict[str, Any]], permanent_slots: Dict[str, Any],
                                name: str, role: str, can_advance_slots: bool) -> List[str]:
         """Merge replication *slots* for members with *permanent_slots*.
 
