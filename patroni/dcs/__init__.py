@@ -1195,7 +1195,7 @@ class Cluster(NamedTuple('Cluster',
             ret[slot_name] = {'type': 'physical', 'lsn': lsn, 'expected_active': expected_active(member)}
         slot_name = slot_name_from_member_name(name)
         ret.update({slot: {'type': 'physical'} for slot in self.status.retain_slots
-                    if slot not in ret and slot != slot_name})
+                    if not nofailover and slot not in ret and slot != slot_name})
 
         if len(ret) < len(members):
             # Find which names are conflicting for a nicer error message
