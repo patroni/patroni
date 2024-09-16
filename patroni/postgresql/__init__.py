@@ -1075,15 +1075,11 @@ class Postgresql(object):
                 return row[1] if row else None
         except Exception:
             logger.exception('Can not fetch local timeline and lsn from replication connection')
-            return None
 
     def replica_cached_timeline(self, primary_timeline: Optional[int]) -> Optional[int]:
         if not self._cached_replica_timeline or not primary_timeline\
                 or self._cached_replica_timeline != primary_timeline:
             self._cached_replica_timeline = self.get_replica_timeline()
-        if self._cached_replica_timeline is None:
-            logger.warning("replica_cached_timeline is None, returning 0 instead.")
-            return 0
         return self._cached_replica_timeline
 
     def get_primary_timeline(self) -> int:
