@@ -2,17 +2,27 @@ import json
 
 from time import sleep, time
 
-from behave import step, then
+import parse
+
+from behave import register_type, step, then
 
 import patroni.psycopg as pg
 
 
-@step('I start {name:w}')
+@parse.with_pattern(r'[a-z][a-z0-9_\-]*[a-z0-9]')
+def parse_name(text):
+    return text
+
+
+register_type(name=parse_name)
+
+
+@step('I start {name:name}')
 def start_patroni(context, name):
     return context.pctl.start(name)
 
 
-@step('I start duplicate {name:w} on port {port:d}')
+@step('I start duplicate {name:name} on port {port:d}')
 def start_duplicate_patroni(context, name, port):
     config = {
         "name": name,
@@ -28,22 +38,22 @@ def start_duplicate_patroni(context, name, port):
             "No error was raised by duplicate start of {0} ".format(name)
 
 
-@step('I shut down {name:w}')
+@step('I shut down {name:name}')
 def stop_patroni(context, name):
     return context.pctl.stop(name, timeout=60)
 
 
-@step('I kill {name:w}')
+@step('I kill {name:name}')
 def kill_patroni(context, name):
     return context.pctl.stop(name, kill=True)
 
 
-@step('I shut down postmaster on {name:w}')
+@step('I shut down postmaster on {name:name}')
 def stop_postgres(context, name):
     return context.pctl.stop(name, postgres=True)
 
 
-@step('I kill postmaster on {name:w}')
+@step('I kill postmaster on {name:name}')
 def kill_postgres(context, name):
     return context.pctl.stop(name, kill=True, postgres=True)
 
@@ -53,7 +63,7 @@ def get_wal_name(context, pg_name):
     return 'xlog' if int(version) / 10000 < 10 else 'wal'
 
 
-@step('I add the table {table_name:w} to {pg_name:w}')
+@step('I add the table {table_name:w} to {pg_name:name}')
 def add_table(context, table_name, pg_name):
     # parse the configuration file and get the port
     try:
@@ -63,7 +73,7 @@ def add_table(context, table_name, pg_name):
         assert False, "Error creating table {0} on {1}: {2}".format(table_name, pg_name, e)
 
 
-@step('I {action:w} wal replay on {pg_name:w}')
+@step('I {action:w} wal replay on {pg_name:name}')
 def toggle_wal_replay(context, action, pg_name):
     # pause or resume the wal replay process
     try:
@@ -72,7 +82,7 @@ def toggle_wal_replay(context, action, pg_name):
         assert False, "Error during {0} wal recovery on {1}: {2}".format(action, pg_name, e)
 
 
-@step('I {action:w} table on {pg_name:w}')
+@step('I {action:w} table on {pg_name:name}')
 def crdr_mytest(context, action, pg_name):
     try:
         if (action == "create"):
@@ -83,7 +93,7 @@ def crdr_mytest(context, action, pg_name):
         assert False, "Error {0} table mytest on {1}: {2}".format(action, pg_name, e)
 
 
-@step('I load data on {pg_name:w}')
+@step('I load data on {pg_name:name}')
 def initiate_load(context, pg_name):
     # perform dummy load
     try:
@@ -92,7 +102,7 @@ def initiate_load(context, pg_name):
         assert False, "Error loading test data on {0}: {1}".format(pg_name, e)
 
 
-@then('Table {table_name:w} is present on {pg_name:w} after {max_replication_delay:d} seconds')
+@then('Table {table_name:w} is present on {pg_name:name} after {max_replication_delay:d} seconds')
 def table_is_present_on(context, table_name, pg_name, max_replication_delay):
     max_replication_delay *= context.timeout_multiplier
     for _ in range(int(max_replication_delay)):
@@ -104,15 +114,15 @@ def table_is_present_on(context, table_name, pg_name, max_replication_delay):
             "Table {0} is not present on {1} after {2} seconds".format(table_name, pg_name, max_replication_delay)
 
 
-@then('{pg_name:w} role is the {pg_role:w} after {max_promotion_timeout:d} seconds')
+@then('{pg_name:name} role is the {pg_role:w} after {max_promotion_timeout:d} seconds')
 def check_role(context, pg_name, pg_role, max_promotion_timeout):
     max_promotion_timeout *= context.timeout_multiplier
     assert context.pctl.check_role_has_changed_to(pg_name, pg_role, timeout=int(max_promotion_timeout)), \
         "{0} role didn't change to {1} after {2} seconds".format(pg_name, pg_role, max_promotion_timeout)
 
 
-@step('replication works from {primary:w} to {replica:w} after {time_limit:d} seconds')
-@then('replication works from {primary:w} to {replica:w} after {time_limit:d} seconds')
+@step('replication works from {primary:name} to {replica:name} after {time_limit:d} seconds')
+@then('replication works from {primary:name} to {replica:name} after {time_limit:d} seconds')
 def replication_works(context, primary, replica, time_limit):
     context.execute_steps(u"""
         When I add the table test_{0} to {1}
