@@ -3,6 +3,67 @@
 Release notes
 =============
 
+
+Version 3.3.3
+-------------
+
+Released 2024-09-17
+
+**Improvements**
+
+- Compatibility with PostgreSQL 17 beta3 (Alexander Kukushkin)
+
+  GUC's validator rules were extended. Patroni handles all the new auxiliary backends during shutdown and sets ``dbname`` in ``primary_conninfo``, as it is required for logical replication slots synchronization.
+
+**Bugfixes**
+
+- Advance permanent slots for cascading nodes while in failsafe (Alexander Kukushkin)
+
+  Ensure that slots for cascading replicas are properly advanced on the primary when failsafe mode is activated. It is done by extending replicas response on ``POST /failsafe`` REST API request with their ``xlog_location``.
+
+- Don't let the current node be chosen as synchronous (Alexander Kukushkin)
+
+  There may be "something" streaming from the current primary node with ``application_name`` that matches the name of the current primary. Patroni was not properly handling this situation, which could end up in the primary being declared as a synchronous node and consequently was blocking switchovers.
+
+- Ignore ``restapi.allowlist_include_members`` for POST /failsafe (Alexander Kukushkin)
+
+- Add line with ``localhost`` to ``.pgpass`` file when unix sockets are detected (Alexander Kukushkin)
+
+  Patroni will add an additional line to ``.pgpass`` file if ``host`` parameter specified starts with ``/`` character. This allows to cover a corner case when ``host`` matches the default socket directory path.
+
+- Fix logging issues (Waynerv)
+
+  Defined proper request URL in failsafe handling logs and fixed the order of timestamps in postmaster check log.
+
+- Handle exceptions while discovering configuration validation files (Alexander Kukushkin)
+
+  Skip directories for which Patroni does not have sufficient permissions to perform list operations.
+
+- Make sure inactive hot physical replication slots don't hold ``xmin`` (Alexander Kukushkin, Polina Bungina)
+
+  Since version 3.2.0 Patroni creates physical replication slots for all members on replicas and periodically moves them forward using ``pg_replication_slot_advance()`` function. However if for any reason ``hot_standby_feedback`` is enabled and the primary is demoted to replica, the now inactive slots have ``NOT NULL`` ``xmin`` value propagated back to the new primary. This results in ``xmin`` horizon not being moved forward and vacuum not being able to clean up dead tuples. With this fix, Patroni recreates the physical replication slots that are supposed to be inactive but have ``NOT NULL`` ``xmin`` value.
+
+- Fix unhandled ``DCSError`` during the startup phase (Waynerv)
+
+  Ensure DCS connectivity before trying to check the uniqueness of the node name.
+
+- Explicitly include ``CMDLINE_OPTIONS`` GUCs when querying ``pg_settings`` (Alexander Kukushkin)
+
+  Make sure all GUCs that are passed to postmaster as command line parameters are restored when Patroni is joining a running standby. This is a follow-up for the bug fixed in Patroni 3.2.2.
+
+- Fix bug in ``synchronous_standby_names`` quotting logic (Alexander Kukushkin)
+
+  According to PostgreSQL documentation, ``ANY`` and ``FIRST`` keywords are supposed to be double-quoted, which Patroni did not do before.
+
+- Fix keepalive connection out-of-range issue (hadizamani021)
+
+  Ensure that ``keepalive`` option value calculated based on the ``ttl`` set does not exceed the maximum allowed value for the current platform.
+
+- Fix ``patroni_postgres_timeline`` value in ``/metrics`` (Brian Hartford)
+
+  Make sure Patroni API ``/metrics`` endpoint returns ``0`` for ``patroni_postgres_timeline`` if an exception occured while connecting to PostgreSQL.
+
+
 Version 3.3.2
 -------------
 
