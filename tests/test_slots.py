@@ -328,3 +328,17 @@ class TestSlotsHandler(BaseTestPostgresql):
                                                                       None, None, None)], Exception])), \
                 patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(False, False))):
             self.s.sync_replication_slots(cluster, self.tags)
+
+    @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
+    @patch.object(Postgresql, 'role', PropertyMock(return_value='replica'))
+    @patch.object(TestTags, 'tags', PropertyMock(return_value={'nofailover': True}))
+    def test_slots_nofailover_tag(self):
+        self.p.name = self.leadermem.name
+        cluster = Cluster(True, ClusterConfig(1, {}, 1), self.leader,
+                          Status(0, {}, [self.leadermem.name, self.other.name, self.me.name]),
+                          [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
+        global_config.update(cluster)
+        with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('test_1', 'physical', 1, 12345, None, None,
+                                                                      None, None, None)], Exception])) as mock_query:
+            self.s.sync_replication_slots(cluster, self.tags)
+            self.assertTrue(mock_query.call_args[0][0].startswith('SELECT slot_name, slot_type, xmin, '))

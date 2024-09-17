@@ -1116,16 +1116,23 @@ class Cluster(NamedTuple('Cluster',
 
     def _get_members_slots(self, name: str, role: str, nofailover: bool,
                            can_advance_slots: bool) -> Dict[str, Dict[str, Any]]:
-        """Get physical replication slots configuration for members that sourcing from this node.
+        """Get physical replication slots configuration for a given member.
 
-        If the ``replicatefrom`` tag is set on the member - we should not create the replication slot for it on
-        the current primary, because that member would replicate from elsewhere. We still create the slot if
-        the ``replicatefrom`` destination member is currently not a member of the cluster (fallback to the
-        primary), or if ``replicatefrom`` destination member happens to be the current primary.
+        There are following situations possible:
 
-        If the ``nostream`` tag is set on the member - we should not create the replication slot for it on
-        the current primary or any other member even if ``replicatefrom`` is set, because ``nostream`` disables
-        WAL streaming.
+            * If the ``nostream`` tag is set on the member - we should not have the replication slot for it
+              on the current primary or any other member even if ``replicatefrom`` is set, because
+              ``nostream`` disables WAL streaming.
+
+            * PostgreSQL is 11 and newer and configuration allows retention of member replication slots. In this case
+              we want to have replication slots for every member except the case when we have ``nofailover`` tag set.
+
+            * PostgreSQL is older than 11 or configuration doesn't allow member slots retention. In this case we want:
+
+                * On primary have replication slots for all members that don't have ``replicatefrom`` tag pointing
+                  to the existing member.
+
+                * On replica node have replication slots only for members which ``replicatefrom`` tag pointing to us.
 
         Will log an error if:
 
@@ -1195,7 +1202,7 @@ class Cluster(NamedTuple('Cluster',
             ret[slot_name] = {'type': 'physical', 'lsn': lsn, 'expected_active': expected_active(member)}
         slot_name = slot_name_from_member_name(name)
         ret.update({slot: {'type': 'physical'} for slot in self.status.retain_slots
-                    if slot not in ret and slot != slot_name})
+                    if not nofailover and slot not in ret and slot != slot_name})
 
         if len(ret) < len(members):
             # Find which names are conflicting for a nicer error message

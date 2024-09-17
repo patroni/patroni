@@ -7,12 +7,13 @@ Feature: permanent slots
     Then I receive a response code 200
     And Response on GET http://127.0.0.1:8008/config contains slots after 10 seconds
     When I start postgres-1
-    And I start postgres-2
+    And I configure and start postgres-2 with a tag nofailover true
     And I configure and start postgres-3 with a tag replicatefrom postgres-2
     Then postgres-0 has a physical replication slot named test_physical after 10 seconds
     And postgres-0 has a physical replication slot named postgres_1 after 10 seconds
     And postgres-0 has a physical replication slot named postgres_2 after 10 seconds
     And postgres-2 has a physical replication slot named postgres_3 after 10 seconds
+    And postgres-2 does not have a replication slot named test_physical
 
   @slot-advance
   Scenario: check that logical permanent slots are created
@@ -24,10 +25,9 @@ Feature: permanent slots
   Scenario: check that permanent slots are created on replicas
     Given postgres-1 has a logical replication slot named test_logical with the test_decoding plugin after 10 seconds
     Then Logical slot test_logical is in sync between postgres-0 and postgres-1 after 10 seconds
-    And Logical slot test_logical is in sync between postgres-0 and postgres-2 after 10 seconds
     And Logical slot test_logical is in sync between postgres-0 and postgres-3 after 10 seconds
     And postgres-1 has a physical replication slot named test_physical after 2 seconds
-    And postgres-2 has a physical replication slot named test_physical after 2 seconds
+    And postgres-2 does not have a replication slot named test_logical
     And postgres-3 has a physical replication slot named test_physical after 2 seconds
 
   @slot-advance
@@ -36,9 +36,9 @@ Feature: permanent slots
     And postgres-1 has a physical replication slot named postgres_0 after 2 seconds
     And postgres-1 has a physical replication slot named postgres_2 after 2 seconds
     And postgres-1 has a physical replication slot named postgres_3 after 2 seconds
-    And postgres-2 has a physical replication slot named postgres_0 after 2 seconds
+    And postgres-2 does not have a replication slot named postgres_0
+    And postgres-2 does not have a replication slot named postgres_1
     And postgres-2 has a physical replication slot named postgres_3 after 2 seconds
-    And postgres-2 has a physical replication slot named postgres_1 after 2 seconds
     And postgres-3 has a physical replication slot named postgres_0 after 2 seconds
     And postgres-3 has a physical replication slot named postgres_1 after 2 seconds
     And postgres-3 has a physical replication slot named postgres_2 after 2 seconds
@@ -50,11 +50,8 @@ Feature: permanent slots
     And I get all changes from physical slot test_physical on postgres-0
     Then Logical slot test_logical is in sync between postgres-0 and postgres-1 after 10 seconds
     And Physical slot test_physical is in sync between postgres-0 and postgres-1 after 10 seconds
-    And Logical slot test_logical is in sync between postgres-0 and postgres-2 after 10 seconds
-    And Physical slot test_physical is in sync between postgres-0 and postgres-2 after 10 seconds
     And Logical slot test_logical is in sync between postgres-0 and postgres-3 after 10 seconds
     And Physical slot test_physical is in sync between postgres-0 and postgres-3 after 10 seconds
-    And Physical slot postgres_1 is in sync between postgres-0 and postgres-2 after 10 seconds
     And Physical slot postgres_1 is in sync between postgres-0 and postgres-3 after 10 seconds
     And Physical slot postgres_3 is in sync between postgres-2 and postgres-0 after 20 seconds
     And Physical slot postgres_3 is in sync between postgres-2 and postgres-1 after 10 seconds
@@ -69,7 +66,7 @@ Feature: permanent slots
 
   @slot-advance
   Scenario: check that only non-permanent member slots are written to the retain_slots in /status key
-    And "status" key in DCS has postgres_0 in retain_slots
+    Given "status" key in DCS has postgres_0 in retain_slots
     And "status" key in DCS has postgres_1 in retain_slots
     And "status" key in DCS has postgres_2 in retain_slots
     And "status" key in DCS does not have postgres_3 in retain_slots
