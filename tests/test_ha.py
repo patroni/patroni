@@ -584,14 +584,16 @@ class TestHa(PostgresInit):
         self.ha.patroni.request.return_value.status = 200
         with patch('patroni.ha.logger.info') as mock_logger:
             ret = self.ha.call_failsafe_member({}, member)
-            self.assertEqual(mock_logger.call_args_list[0][0], ('Got response from %s %s: %s', 'test', 'http://localhost:8011/failsafe', 'Accepted'))
+            self.assertEqual(mock_logger.call_args_list[0][0],
+                             ('Got response from %s %s: %s', 'test', 'http://localhost:8011/failsafe', 'Accepted'))
             self.assertTrue(ret.accepted)
 
         e = Exception('request failed')
         self.ha.patroni.request.side_effect = e
         with patch('patroni.ha.logger.warning') as mock_logger:
             ret = self.ha.call_failsafe_member({}, member)
-            self.assertEqual(mock_logger.call_args_list[0][0], ('Request failed to %s: POST %s (%s)', 'test', 'http://localhost:8011/failsafe', e))
+            self.assertEqual(mock_logger.call_args_list[0][0],
+                             ('Request failed to %s: POST %s (%s)', 'test', 'http://localhost:8011/failsafe', e))
             self.assertFalse(ret.accepted)
 
     @patch('time.sleep', Mock())

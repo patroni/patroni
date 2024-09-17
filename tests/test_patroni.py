@@ -106,7 +106,6 @@ class TestPatroni(unittest.TestCase):
         self.p.apply_dynamic_configuration(cluster)
         self.assertEqual(self.p.config._dynamic_configuration['ttl'], 40)
 
-
     @patch('sys.argv', ['patroni.py', 'postgres0.yml'])
     @patch('time.sleep', Mock(side_effect=SleepException))
     @patch.object(etcd.Client, 'delete', Mock())
@@ -320,4 +319,3 @@ class TestPatroni(unittest.TestCase):
             result = self.p.ensure_dcs_access()
             self.assertEqual(result, None)
             self.assertEqual(mock_logger.call_count, 2)
-

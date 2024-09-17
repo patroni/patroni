@@ -1028,7 +1028,7 @@ class Cluster(NamedTuple('Cluster',
         permanent_slots: Dict[str, Any] = self._get_permanent_slots(postgresql, member, role)
 
         disabled_permanent_logical_slots: List[str] = self._merge_permanent_slots(
-            slots, permanent_slots, name, postgresql.can_advance_slots)
+            slots, permanent_slots, name, role, postgresql.can_advance_slots)
 
         if disabled_permanent_logical_slots and show_error:
             logger.error("Permanent logical replication slots supported by Patroni only starting from PostgreSQL 11. "
@@ -1036,8 +1036,8 @@ class Cluster(NamedTuple('Cluster',
 
         return slots
 
-    def _merge_permanent_slots(self, slots: Dict[str, Dict[str, str]], permanent_slots: Dict[str, Any], name: str,
-                               can_advance_slots: bool) -> List[str]:
+    def _merge_permanent_slots(self, slots: Dict[str, Dict[str, Any]], permanent_slots: Dict[str, Any],
+                               name: str, role: str, can_advance_slots: bool) -> List[str]:
         """Merge replication *slots* for members with *permanent_slots*.
 
         Perform validation of configured permanent slot name, skipping invalid names.
@@ -1047,12 +1047,17 @@ class Cluster(NamedTuple('Cluster',
 
         :param slots: Slot names with existing attributes if known.
         :param name: name of this node.
+        :param role: role of the node -- ``primary``, ``standby_leader`` or ``replica``.
         :param permanent_slots: dictionary containing slot name key and slot information values.
         :param can_advance_slots: ``True`` if ``pg_replication_slot_advance()`` function is available,
                                   ``False`` otherwise.
 
         :returns: List of disabled permanent, logical slot names, if postgresql version < 11.
         """
+        name = slot_name_from_member_name(name)
+        topology = {slot_name_from_member_name(m.name): m.replicatefrom and slot_name_from_member_name(m.replicatefrom)
+                    for m in self.members}
+
         disabled_permanent_logical_slots: List[str] = []
 
         for slot_name, value in permanent_slots.items():
@@ -1068,8 +1073,14 @@ class Cluster(NamedTuple('Cluster',
 
                 if value['type'] == 'physical':
                     # Don't try to create permanent physical replication slot for yourself
-                    if slot_name not in slots and slot_name != slot_name_from_member_name(name):
-                        slots[slot_name] = value
+                    if slot_name not in slots and slot_name != name:
+                        # On the leader we expected to have permanent slots active, except the case when it is a slot
+                        # for a cascading replica. Lets consider a configuration with C being a permanent slot. In this
+                        # case we should have the following: A(B: active, C: inactive) <- B (C: active) <- C
+                        # We don't consider the same situation on node B, because if node C doesn't exists, we will not
+                        # be able to know its `replicatefrom` tag value.
+                        expected_active = not topology.get(slot_name) and role in ('primary', 'standby_leader')
+                        slots[slot_name] = {**value, 'expected_active': expected_active}
                     continue
 
                 if self.is_logical_slot(value):
@@ -1116,16 +1127,23 @@ class Cluster(NamedTuple('Cluster',
 
     def _get_members_slots(self, name: str, role: str, nofailover: bool,
                            can_advance_slots: bool) -> Dict[str, Dict[str, Any]]:
-        """Get physical replication slots configuration for members that sourcing from this node.
+        """Get physical replication slots configuration for a given member.
 
-        If the ``replicatefrom`` tag is set on the member - we should not create the replication slot for it on
-        the current primary, because that member would replicate from elsewhere. We still create the slot if
-        the ``replicatefrom`` destination member is currently not a member of the cluster (fallback to the
-        primary), or if ``replicatefrom`` destination member happens to be the current primary.
+        There are following situations possible:
 
-        If the ``nostream`` tag is set on the member - we should not create the replication slot for it on
-        the current primary or any other member even if ``replicatefrom`` is set, because ``nostream`` disables
-        WAL streaming.
+            * If the ``nostream`` tag is set on the member - we should not have the replication slot for it
+              on the current primary or any other member even if ``replicatefrom`` is set, because
+              ``nostream`` disables WAL streaming.
+
+            * PostgreSQL is 11 and newer and configuration allows retention of member replication slots. In this case
+              we want to have replication slots for every member except the case when we have ``nofailover`` tag set.
+
+            * PostgreSQL is older than 11 or configuration doesn't allow member slots retention. In this case we want:
+
+                * On primary have replication slots for all members that don't have ``replicatefrom`` tag pointing
+                  to the existing member.
+
+                * On replica node have replication slots only for members which ``replicatefrom`` tag pointing to us.
 
         Will log an error if:
 
@@ -1195,7 +1213,7 @@ class Cluster(NamedTuple('Cluster',
             ret[slot_name] = {'type': 'physical', 'lsn': lsn, 'expected_active': expected_active(member)}
         slot_name = slot_name_from_member_name(name)
         ret.update({slot: {'type': 'physical'} for slot in self.status.retain_slots
-                    if slot not in ret and slot != slot_name})
+                    if not nofailover and slot not in ret and slot != slot_name})
 
         if len(ret) < len(members):
             # Find which names are conflicting for a nicer error message
@@ -1221,7 +1239,7 @@ class Cluster(NamedTuple('Cluster',
                                                                            postgresql.can_advance_slots)
         permanent_slots: Dict[str, Any] = self._get_permanent_slots(postgresql, member, role)
         slots = deepcopy(members_slots)
-        self._merge_permanent_slots(slots, permanent_slots, postgresql.name, postgresql.can_advance_slots)
+        self._merge_permanent_slots(slots, permanent_slots, postgresql.name, role, postgresql.can_advance_slots)
         return len(slots) > len(members_slots) or any(self.is_physical_slot(v) for v in permanent_slots.values())
 
     def maybe_filter_permanent_slots(self, postgresql: 'Postgresql', slots: Dict[str, int]) -> Dict[str, int]:
