@@ -37,12 +37,18 @@ etcd:
 #  - 127.0.0.1:2223
 #  - 127.0.0.1:2224
 
+# Enables multisite mode
 multisite:
-  namespace: /multisite/
+  name: site1 # Name for the site
+  namespace: /multisite/ # Optional, helpful when testing with a single etcd
+  # Same settings as normal DCS
   etcd:
     host: 127.0.0.1:2379
+  # How other site standby leaders can connect to the primary on this site.
+  # Right now direct member to member connections are not supported.
   host: 192.168.2.124
   port: 5432
+  # Multisite failover timeouts
   ttl: 90
   retry_timeout: 40
 
