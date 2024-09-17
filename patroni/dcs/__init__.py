@@ -1010,8 +1010,8 @@ class Cluster(NamedTuple('Cluster',
 
         return slots
 
-    def _merge_permanent_slots(self, slots: Dict[str, Dict[str, Any]], permanent_slots: Dict[str, Any], name: str,
-                               role: str, can_advance_slots: bool) -> List[str]:
+    def _merge_permanent_slots(self, slots: Dict[str, Dict[str, Any]], permanent_slots: Dict[str, Any],
+                               name: str, role: str, can_advance_slots: bool) -> List[str]:
         """Merge replication *slots* for members with *permanent_slots*.
 
         Perform validation of configured permanent slot name, skipping invalid names.
@@ -1021,7 +1021,7 @@ class Cluster(NamedTuple('Cluster',
 
         :param slots: Slot names with existing attributes if known.
         :param name: name of this node.
-        :param role: role of the node -- ``primary``, ``standby_leader`` or ``replica``.
+        :param role: role of the node -- ``master``, ``primary``, ``standby_leader`` or ``replica``.
         :param permanent_slots: dictionary containing slot name key and slot information values.
         :param can_advance_slots: ``True`` if ``pg_replication_slot_advance()`` function is available,
                                   ``False`` otherwise.
@@ -1031,6 +1031,7 @@ class Cluster(NamedTuple('Cluster',
         name = slot_name_from_member_name(name)
         topology = {slot_name_from_member_name(m.name): m.replicatefrom and slot_name_from_member_name(m.replicatefrom)
                     for m in self.members}
+
         disabled_permanent_logical_slots: List[str] = []
 
         for slot_name, value in permanent_slots.items():
@@ -1052,7 +1053,8 @@ class Cluster(NamedTuple('Cluster',
                         # case we should have the following: A(B: active, C: inactive) <- B (C: active) <- C
                         # We don't consider the same situation on node B, because if node C doesn't exists, we will not
                         # be able to know its `replicatefrom` tag value.
-                        expected_active = not topology.get(slot_name) and role in ('primary', 'standby_leader')
+                        expected_active = not topology.get(slot_name) and \
+                            role in ('master', 'primary', 'standby_leader')
                         slots[slot_name] = {**value, 'expected_active': expected_active}
                     continue
 
