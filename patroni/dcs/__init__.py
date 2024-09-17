@@ -1028,7 +1028,7 @@ class Cluster(NamedTuple('Cluster',
         permanent_slots: Dict[str, Any] = self._get_permanent_slots(postgresql, member, role)
 
         disabled_permanent_logical_slots: List[str] = self._merge_permanent_slots(
-            slots, permanent_slots, name, postgresql.can_advance_slots)
+            slots, permanent_slots, name, role, postgresql.can_advance_slots)
 
         if disabled_permanent_logical_slots and show_error:
             logger.error("Permanent logical replication slots supported by Patroni only starting from PostgreSQL 11. "
@@ -1036,8 +1036,8 @@ class Cluster(NamedTuple('Cluster',
 
         return slots
 
-    def _merge_permanent_slots(self, slots: Dict[str, Dict[str, str]], permanent_slots: Dict[str, Any], name: str,
-                               can_advance_slots: bool) -> List[str]:
+    def _merge_permanent_slots(self, slots: Dict[str, Dict[str, Any]], permanent_slots: Dict[str, Any],
+                               name: str, role: str, can_advance_slots: bool) -> List[str]:
         """Merge replication *slots* for members with *permanent_slots*.
 
         Perform validation of configured permanent slot name, skipping invalid names.
@@ -1047,12 +1047,17 @@ class Cluster(NamedTuple('Cluster',
 
         :param slots: Slot names with existing attributes if known.
         :param name: name of this node.
+        :param role: role of the node -- ``primary``, ``standby_leader`` or ``replica``.
         :param permanent_slots: dictionary containing slot name key and slot information values.
         :param can_advance_slots: ``True`` if ``pg_replication_slot_advance()`` function is available,
                                   ``False`` otherwise.
 
         :returns: List of disabled permanent, logical slot names, if postgresql version < 11.
         """
+        name = slot_name_from_member_name(name)
+        topology = {slot_name_from_member_name(m.name): m.replicatefrom and slot_name_from_member_name(m.replicatefrom)
+                    for m in self.members}
+
         disabled_permanent_logical_slots: List[str] = []
 
         for slot_name, value in permanent_slots.items():
@@ -1068,8 +1073,14 @@ class Cluster(NamedTuple('Cluster',
 
                 if value['type'] == 'physical':
                     # Don't try to create permanent physical replication slot for yourself
-                    if slot_name not in slots and slot_name != slot_name_from_member_name(name):
-                        slots[slot_name] = value
+                    if slot_name not in slots and slot_name != name:
+                        # On the leader we expected to have permanent slots active, except the case when it is a slot
+                        # for a cascading replica. Lets consider a configuration with C being a permanent slot. In this
+                        # case we should have the following: A(B: active, C: inactive) <- B (C: active) <- C
+                        # We don't consider the same situation on node B, because if node C doesn't exists, we will not
+                        # be able to know its `replicatefrom` tag value.
+                        expected_active = not topology.get(slot_name) and role in ('primary', 'standby_leader')
+                        slots[slot_name] = {**value, 'expected_active': expected_active}
                     continue
 
                 if self.is_logical_slot(value):
@@ -1228,7 +1239,7 @@ class Cluster(NamedTuple('Cluster',
                                                                            postgresql.can_advance_slots)
         permanent_slots: Dict[str, Any] = self._get_permanent_slots(postgresql, member, role)
         slots = deepcopy(members_slots)
-        self._merge_permanent_slots(slots, permanent_slots, postgresql.name, postgresql.can_advance_slots)
+        self._merge_permanent_slots(slots, permanent_slots, postgresql.name, role, postgresql.can_advance_slots)
         return len(slots) > len(members_slots) or any(self.is_physical_slot(v) for v in permanent_slots.values())
 
     def maybe_filter_permanent_slots(self, postgresql: 'Postgresql', slots: Dict[str, int]) -> Dict[str, int]:

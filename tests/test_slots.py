@@ -295,7 +295,33 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.s.schedule_advance_slots({'foo': {'bar': 100}})
             self.s._advance.sync_slots()
 
+    def test_advance_physical_primary(self):
+        self.p.name = self.me.name
+        config = ClusterConfig(1, {'member_slots_ttl': 0, 'slots': {'test_1': {'type': 'physical'}}}, 1)
+        cluster = Cluster(True, config, self.leader, Status(0, {}, []),
+                          [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
+        self.other.data['xlog_location'] = 12346
+        global_config.update(cluster)
+
+        # Should advance permanent physical slot on the primary for a node that is cascading from the other node
+        with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('test_1', 'physical', None, 12345, None, None,
+                                                                      None, None, None)], Exception])) as mock_query, \
+                patch('patroni.postgresql.slots.logger.error') as mock_error:
+            self.s.sync_replication_slots(cluster, self.tags)
+            self.assertEqual(mock_query.call_args[0],
+                             ("SELECT pg_catalog.pg_replication_slot_advance(%s, %s)", "test_1", '0/303A'))
+            self.assertEqual(mock_error.call_args[0][0],
+                             "Error while advancing replication slot %s to position '%s': %r")
+
+        # Should drop permanent physical slot on the primary for a node
+        # that is cascading from the other node if given slot has xmin set
+        with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('test_1', 'physical', 1, 12345, None, None,
+                                                                      None, None, None)], Exception])) as mock_query:
+            self.s.sync_replication_slots(cluster, self.tags)
+            self.assertTrue(mock_query.call_args[0][0].startswith('WITH slots AS (SELECT slot_name, active'))
+
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
+    @patch.object(Postgresql, 'role', PropertyMock(return_value='replica'))
     def test_advance_physical_slots(self):
         config = ClusterConfig(1, {'slots': {'blabla': {'type': 'physical'}, 'leader': None}}, 1)
         cluster = Cluster(True, config, self.leader, Status(0, {'blabla': 12346}, []),
