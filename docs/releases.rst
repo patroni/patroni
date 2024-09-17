@@ -6,7 +6,7 @@ Release notes
 Version 4.0.2
 -------------
 
-Released 2024-09-16
+Released 2024-09-17
 
 **Bugfix**
 
