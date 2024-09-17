@@ -3,6 +3,38 @@
 Release notes
 =============
 
+Version 4.0.2
+-------------
+
+Released 2024-09-17
+
+**Bugfix**
+
+- Handle exceptions while discovering configuration validation files (Alexander Kukushkin)
+
+  Skip directories for which Patroni does not have sufficient permissions to perform list operations.
+
+- Make sure inactive hot physical replication slots don't hold ``xmin`` (Alexander Kukushkin, Polina Bungina)
+
+  Since version 3.2.0 Patroni creates physical replication slots for all members on replicas and periodically moves them forward using ``pg_replication_slot_advance()`` function. However if for any reason ``hot_standby_feedback`` is enabled and the primary is demoted to replica, the now inactive slots have ``NOT NULL`` ``xmin`` value propagated back to the new primary. This results in ``xmin`` horizon not being moved forward and vacuum not being able to clean up dead tuples. With this fix, Patroni recreates the physical replication slots that are supposed to be inactive but have ``NOT NULL`` ``xmin`` value.
+
+- Fix unhandled ``DCSError`` during the startup phase (Waynerv)
+
+  Ensure DCS connectivity before trying to check the uniqueness of the node name.
+
+- Explicitly include ``CMDLINE_OPTIONS`` GUCs when querying ``pg_settings`` (Alexander Kukushkin)
+
+  Make sure all GUCs that are passed to postmaster as command line parameters are restored when Patroni is joining a running standby. This is a follow-up for the bug fixed in Patroni 3.2.2.
+
+- Fix bug in ``synchronous_standby_names`` quotting logic (Alexander Kukushkin)
+
+  According to PostgreSQL documentation, ``ANY`` and ``FIRST`` keywords are supposed to be double-quoted, which Patroni did not do before.
+
+- Fix keepalive connection out-of-range issue (hadizamani021)
+
+  Ensure that ``keepalive`` option value calculated based on the ``ttl`` set does not exceed the maximum allowed value for the current platform.
+
+
 Version 4.0.1
 -------------
 
