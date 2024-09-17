@@ -15,6 +15,7 @@ bootstrap:
       pg_hba:
       - host all all 0.0.0.0/0 md5
       - host replication ${PATRONI_REPLICATION_USERNAME} ${PATRONI_KUBERNETES_POD_IP}/16 md5
+      - host replication ${PATRONI_REPLICATION_USERNAME} 127.0.0.1/32 md5
   initdb:
   - auth-host: md5
   - auth-local: trust
