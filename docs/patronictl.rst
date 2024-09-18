@@ -320,7 +320,6 @@ Synopsis
     failover
       [ CLUSTER_NAME ]
       [ --group CITUS_GROUP ]
-      [ { --leader | --primary } LEADER_NAME ]
       --candidate CANDIDATE_NAME
       [ --force ]
 
@@ -358,16 +357,6 @@ Parameters
     Perform a failover in the given Citus group.
 
     ``CITUS_GROUP`` is the ID of the Citus group.
-
-``--leader`` / ``--primary``
-    Indicate who is the expected leader at failover time.
-
-    If given, a switchover is performed instead of a failover.
-
-    ``LEADER_NAME`` should match the name of the current leader in the cluster.
-
-    .. warning::
-        This argument is deprecated and will be removed in a future release.
 
 ``--candidate``
     The node to be promoted on failover.
@@ -1065,7 +1054,7 @@ Run a SQL command as ``postgres`` user, and take password from ``libpq`` environ
 
 .. code:: bash
 
-    $ PGPASSWORD=zalando patronictl -c postgres0.yml query batman -U postgres -c "SELECT now()"
+    $ PGPASSWORD=patroni patronictl -c postgres0.yml query batman -U postgres -c "SELECT now()"
     now
     2023-09-12 18:11:37.639500+00:00
 
@@ -1951,25 +1940,25 @@ Get version of ``patronictl`` only:
 .. code:: bash
 
     $ patronictl -c postgres0.yml version
-    patronictl version 3.1.0
+    patronictl version 4.0.0
 
 Get version of ``patronictl`` and of all members of cluster ``batman``:
 
 .. code:: bash
 
     $ patronictl -c postgres0.yml version batman
-    patronictl version 3.1.0
+    patronictl version 4.0.0
 
-    postgresql0: Patroni 3.1.0 PostgreSQL 15.2
-    postgresql1: Patroni 3.1.0 PostgreSQL 15.2
-    postgresql2: Patroni 3.1.0 PostgreSQL 15.2
+    postgresql0: Patroni 4.0.0 PostgreSQL 16.4
+    postgresql1: Patroni 4.0.0 PostgreSQL 16.4
+    postgresql2: Patroni 4.0.0 PostgreSQL 16.4
 
 Get version of ``patronictl`` and of members ``postgresql1`` and ``postgresql2`` of cluster ``batman``:
 
 .. code:: bash
 
     $ patronictl -c postgres0.yml version batman postgresql1 postgresql2
-    patronictl version 3.1.0
+    patronictl version 4.0.0
 
-    postgresql1: Patroni 3.1.0 PostgreSQL 15.2
-    postgresql2: Patroni 3.1.0 PostgreSQL 15.2
+    postgresql1: Patroni 4.0.0 PostgreSQL 16.4
+    postgresql2: Patroni 4.0.0 PostgreSQL 16.4

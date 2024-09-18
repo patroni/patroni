@@ -13,11 +13,12 @@ from argparse import Namespace
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from patroni import MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
-from patroni.daemon import AbstractPatroniDaemon, abstract_main, get_base_arg_parser
+from patroni.daemon import abstract_main, AbstractPatroniDaemon, get_base_arg_parser
 from patroni.tags import Tags
 
 if TYPE_CHECKING:  # pragma: no cover
     from .config import Config
+    from .dcs import Cluster
 
 logger = logging.getLogger(__name__)
 
@@ -64,12 +65,13 @@ class Patroni(AbstractPatroniDaemon, Tags):
         self.dcs = get_dcs(self.config)
         self.request = PatroniRequest(self.config, True)
 
-        self.ensure_unique_name()
+        cluster = self.ensure_dcs_access()
+        self.ensure_unique_name(cluster)
 
         self.watchdog = Watchdog(self.config)
-        self.load_dynamic_configuration()
+        self.apply_dynamic_configuration(cluster)
 
-        self.postgresql = Postgresql(self.config['postgresql'])
+        self.postgresql = Postgresql(self.config['postgresql'], self.dcs.mpp)
         self.api = RestApiServer(self, self.config['restapi'])
         self.ha = Ha(self)
 
@@ -82,40 +84,49 @@ class Patroni(AbstractPatroniDaemon, Tags):
         self.next_run = time.time()
         self.scheduled_restart: Dict[str, Any] = {}
 
-    def load_dynamic_configuration(self) -> None:
-        """Load Patroni dynamic configuration.
+    def ensure_dcs_access(self, sleep_time: int = 5) -> 'Cluster':
+        """Continuously attempt to retrieve cluster from DCS with delay.
 
-        Load dynamic configuration from the DCS, if `/config` key is available in the DCS, otherwise fall back to
+        :param sleep_time: seconds to wait between retry attempts after dcs connection raise :exc:`DCSError`.
+
+        :returns: a PostgreSQL or MPP implementation of :class:`Cluster`.
+        """
+        from patroni.exceptions import DCSError
+
+        while True:
+            try:
+                return self.dcs.get_cluster()
+            except DCSError:
+                logger.warning('Can not get cluster from dcs')
+                time.sleep(sleep_time)
+
+    def apply_dynamic_configuration(self, cluster: 'Cluster') -> None:
+        """Apply Patroni dynamic configuration.
+
+        Apply dynamic configuration from the DCS, if `/config` key is available in the DCS, otherwise fall back to
         ``bootstrap.dcs`` section from the configuration file.
-
-        If the DCS connection fails returning the exception :class:`~patroni.exceptions.DCSError` an attempt will be
-        remade every 5 seconds.
 
         .. note::
             This method is called only once, at the time when Patroni is started.
-        """
-        from patroni.exceptions import DCSError
-        while True:
-            try:
-                cluster = self.dcs.get_cluster()
-                if cluster and cluster.config and cluster.config.data:
-                    if self.config.set_dynamic_configuration(cluster.config):
-                        self.dcs.reload_config(self.config)
-                        self.watchdog.reload_config(self.config)
-                elif not self.config.dynamic_configuration and 'bootstrap' in self.config:
-                    if self.config.set_dynamic_configuration(self.config['bootstrap']['dcs']):
-                        self.dcs.reload_config(self.config)
-                        self.watchdog.reload_config(self.config)
-                break
-            except DCSError:
-                logger.warning('Can not get cluster from dcs')
-                time.sleep(5)
 
-    def ensure_unique_name(self) -> None:
-        """A helper method to prevent splitbrain from operator naming error."""
+        :param cluster: a PostgreSQL or MPP implementation of :class:`Cluster`.
+        """
+        if cluster and cluster.config and cluster.config.data:
+            if self.config.set_dynamic_configuration(cluster.config):
+                self.dcs.reload_config(self.config)
+                self.watchdog.reload_config(self.config)
+        elif not self.config.dynamic_configuration and 'bootstrap' in self.config:
+            if self.config.set_dynamic_configuration(self.config['bootstrap']['dcs']):
+                self.dcs.reload_config(self.config)
+                self.watchdog.reload_config(self.config)
+
+    def ensure_unique_name(self, cluster: 'Cluster') -> None:
+        """A helper method to prevent splitbrain from operator naming error.
+
+        :param cluster: a PostgreSQL or MPP implementation of :class:`Cluster`.
+        """
         from patroni.dcs import Member
 
-        cluster = self.dcs.get_cluster()
         if not cluster:
             return
         member = cluster.get_member(self.config['name'], False)
@@ -252,6 +263,8 @@ def process_arguments() -> Namespace:
       * ``--validate-config`` -- used to validate the Patroni configuration file
       * ``--generate-config`` -- used to generate Patroni configuration from a running PostgreSQL instance
       * ``--generate-sample-config`` -- used to generate a sample Patroni configuration
+      * ``--ignore-listen-port`` | ``-i`` -- used to ignore ``listen`` ports already in use.
+          Can be used only with ``--validate-config``
 
     .. note::
         If running with ``--generate-config``, ``--generate-sample-config`` or ``--validate-flag`` will exit
@@ -270,6 +283,9 @@ def process_arguments() -> Namespace:
                        help='Generate a Patroni yaml configuration file for a running instance')
     parser.add_argument('--dsn', help='Optional DSN string of the instance to be used as a source \
                                     for config generation. Superuser connection is required.')
+    parser.add_argument('--ignore-listen-port', '-i', action='store_true',
+                        help='Ignore `listen` ports already in use.\
+                              Can only be used with --validate-config')
     args = parser.parse_args()
 
     if args.generate_sample_config:
@@ -279,8 +295,10 @@ def process_arguments() -> Namespace:
         generate_config(args.configfile, False, args.dsn)
         sys.exit(0)
     elif args.validate_config:
-        from patroni.validator import schema
         from patroni.config import Config, ConfigParseError
+        from patroni.validator import populate_validate_params, schema
+
+        populate_validate_params(ignore_listen_port=args.ignore_listen_port)
 
         try:
             Config(args.configfile, validator=schema)

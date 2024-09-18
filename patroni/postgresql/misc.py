@@ -57,6 +57,24 @@ def postgres_major_version_to_int(pg_version: str) -> int:
     return postgres_version_to_int(pg_version + '.0')
 
 
+def get_major_from_minor_version(version: int) -> int:
+    """Extract major PostgreSQL version from the provided full version.
+
+    :param version: integer representation of PostgreSQL full version (major + minor).
+
+    :returns: integer representation of the PostgreSQL major version.
+
+    :Example:
+
+        >>> get_major_from_minor_version(100012)
+        100000
+
+        >>> get_major_from_minor_version(90313)
+        90300
+    """
+    return version // 100 * 100
+
+
 def parse_lsn(lsn: str) -> int:
     t = lsn.split('/')
     return int(t[0], 16) * 0x100000000 + int(t[1], 16)

@@ -1,14 +1,18 @@
 import select
 import unittest
 
+from unittest.mock import Mock, patch, PropertyMock
+
 from kazoo.client import KazooClient
-from kazoo.exceptions import NoNodeError, NodeExistsError
+from kazoo.exceptions import NodeExistsError, NoNodeError
 from kazoo.handlers.threading import SequentialThreadingHandler
 from kazoo.protocol.states import KeeperState, WatchedEvent, ZnodeStat
 from kazoo.retry import RetryFailedError
-from mock import Mock, PropertyMock, patch
+
+from patroni.dcs import get_dcs
 from patroni.dcs.zookeeper import Cluster, PatroniKazooClient, \
     PatroniSequentialThreadingHandler, ZooKeeper, ZooKeeperError
+from patroni.postgresql.mpp import get_mpp
 
 
 class MockKazooClient(Mock):
@@ -50,7 +54,8 @@ class MockKazooClient(Mock):
         elif path.endswith('/initialize'):
             return (b'foo', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
         elif path.endswith('/status'):
-            return (b'{"optime":500,"slots":{"ls":1234567}}', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
+            return (b'{"optime":500,"slots":{"ls":1234567},"retain_slots":["postgresql0"]}',
+                    ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
         elif path.endswith('/failsafe'):
             return (b'{a}', ZnodeStat(0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0))
         return (b'', ZnodeStat(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
@@ -148,9 +153,9 @@ class TestZooKeeper(unittest.TestCase):
 
     @patch('patroni.dcs.zookeeper.PatroniKazooClient', MockKazooClient)
     def setUp(self):
-        self.zk = ZooKeeper({'hosts': ['localhost:2181'], 'scope': 'test',
-                             'name': 'foo', 'ttl': 30, 'retry_timeout': 10, 'loop_wait': 10,
-                             'set_acls': {'CN=principal2': ['ALL']}})
+        self.zk = get_dcs({'scope': 'test', 'name': 'foo', 'ttl': 30, 'retry_timeout': 10, 'loop_wait': 10,
+                           'zookeeper': {'hosts': ['localhost:2181'], 'set_acls': {'CN=principal2': ['ALL']}}})
+        self.assertIsInstance(self.zk, ZooKeeper)
 
     def test_reload_config(self):
         self.zk.reload_config({'ttl': 20, 'retry_timeout': 10, 'loop_wait': 10})
@@ -164,30 +169,47 @@ class TestZooKeeper(unittest.TestCase):
 
     def test__cluster_loader(self):
         self.zk._base_path = self.zk._base_path.replace('test', 'bla')
-        self.zk._cluster_loader(self.zk.client_path(''))
+        self.zk._postgresql_cluster_loader(self.zk.client_path(''))
         self.zk._base_path = self.zk._base_path = '/broken'
-        self.zk._cluster_loader(self.zk.client_path(''))
+        self.zk._postgresql_cluster_loader(self.zk.client_path(''))
         self.zk._base_path = self.zk._base_path = '/legacy'
-        self.zk._cluster_loader(self.zk.client_path(''))
+        self.zk._postgresql_cluster_loader(self.zk.client_path(''))
         self.zk._base_path = self.zk._base_path = '/no_node'
-        self.zk._cluster_loader(self.zk.client_path(''))
+        self.zk._postgresql_cluster_loader(self.zk.client_path(''))
 
     def test_get_cluster(self):
         cluster = self.zk.get_cluster()
-        self.assertEqual(cluster.last_lsn, 500)
+        self.assertEqual(cluster.status.last_lsn, 500)
 
     def test__get_citus_cluster(self):
-        self.zk._citus_group = '0'
+        self.zk._mpp = get_mpp({'citus': {'group': 0, 'database': 'postgres'}})
         for _ in range(0, 2):
             cluster = self.zk.get_cluster()
             self.assertIsInstance(cluster, Cluster)
             self.assertIsInstance(cluster.workers[1], Cluster)
 
-    @patch('patroni.dcs.zookeeper.logger.error')
-    @patch.object(ZooKeeper, '_cluster_loader', Mock(side_effect=Exception))
+    @patch('patroni.dcs.logger.error')
+    def test_get_mpp_coordinator(self, mock_logger):
+        self.assertIsInstance(self.zk.get_mpp_coordinator(), Cluster)
+        with patch.object(ZooKeeper, '_postgresql_cluster_loader', Mock(side_effect=Exception)):
+            self.assertIsNone(self.zk.get_mpp_coordinator())
+            mock_logger.assert_called_once()
+            self.assertEqual(mock_logger.call_args[0][0], 'Failed to load %s coordinator cluster from %s: %r')
+            self.assertEqual(mock_logger.call_args[0][1], 'Null')
+            self.assertEqual(mock_logger.call_args[0][2], 'ZooKeeper')
+            self.assertIsInstance(mock_logger.call_args[0][3], ZooKeeperError)
+
+    @patch('patroni.dcs.logger.error')
     def test_get_citus_coordinator(self, mock_logger):
-        self.assertIsNone(self.zk.get_citus_coordinator())
-        mock_logger.assert_called_once()
+        self.zk._mpp = get_mpp({'citus': {'group': 0, 'database': 'postgres'}})
+        self.assertIsInstance(self.zk.get_mpp_coordinator(), Cluster)
+        with patch.object(ZooKeeper, '_postgresql_cluster_loader', Mock(side_effect=Exception)):
+            self.assertIsNone(self.zk.get_mpp_coordinator())
+            mock_logger.assert_called_once()
+            self.assertEqual(mock_logger.call_args[0][0], 'Failed to load %s coordinator cluster from %s: %r')
+            self.assertEqual(mock_logger.call_args[0][1], 'Citus')
+            self.assertEqual(mock_logger.call_args[0][2], 'ZooKeeper')
+            self.assertIsInstance(mock_logger.call_args[0][3], ZooKeeperError)
 
     def test_delete_leader(self):
         self.assertTrue(self.zk.delete_leader(self.zk.get_cluster().leader))
@@ -238,15 +260,15 @@ class TestZooKeeper(unittest.TestCase):
             self.zk.take_leader()
 
     def test_update_leader(self):
-        leader = self.zk.get_cluster().leader
-        self.assertFalse(self.zk.update_leader(leader, 12345))
+        cluster = self.zk.get_cluster()
+        self.assertFalse(self.zk.update_leader(cluster, 12345))
         with patch.object(MockKazooClient, 'delete', Mock(side_effect=RetryFailedError)):
-            self.assertRaises(ZooKeeperError, self.zk.update_leader, leader, 12345)
+            self.assertRaises(ZooKeeperError, self.zk.update_leader, cluster, 12345)
         with patch.object(MockKazooClient, 'delete', Mock(side_effect=NoNodeError)):
-            self.assertTrue(self.zk.update_leader(leader, 12345, failsafe={'foo': 'bar'}))
+            self.assertTrue(self.zk.update_leader(cluster, 12345, failsafe={'foo': 'bar'}))
             with patch.object(MockKazooClient, 'create', Mock(side_effect=[RetryFailedError, Exception])):
-                self.assertRaises(ZooKeeperError, self.zk.update_leader, leader, 12345)
-                self.assertFalse(self.zk.update_leader(leader, 12345))
+                self.assertRaises(ZooKeeperError, self.zk.update_leader, cluster, 12345)
+                self.assertFalse(self.zk.update_leader(cluster, 12345))
 
     @patch.object(Cluster, 'min_version', PropertyMock(return_value=(2, 0)))
     def test_write_leader_optime(self):

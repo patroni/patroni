@@ -1,12 +1,13 @@
 import subprocess
 import unittest
 
+from threading import current_thread
+from unittest.mock import Mock, mock_open, patch, PropertyMock
+
 import patroni.psycopg as psycopg
 
-from mock import Mock, PropertyMock, patch, mock_open
 from patroni.scripts import wale_restore
-from patroni.scripts.wale_restore import WALERestore, main as _main, get_major_version
-from threading import current_thread
+from patroni.scripts.wale_restore import get_major_version, main as _main, WALERestore
 
 from . import MockConnect, psycopg_connect
 

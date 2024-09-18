@@ -1,37 +1,32 @@
 """Abstract classes for Distributed Configuration Store."""
 import abc
 import datetime
-import importlib
-import inspect
 import json
 import logging
-import os
-import pkgutil
 import re
-import sys
 import time
+
 from collections import defaultdict
 from copy import deepcopy
 from random import randint
 from threading import Event, Lock
-from types import ModuleType
-from typing import Any, Callable, Collection, Dict, List, NamedTuple, Optional, Set, Tuple, Union, TYPE_CHECKING, \
-    Type, Iterator
-from urllib.parse import urlparse, urlunparse, parse_qsl
+from typing import Any, Callable, Collection, Dict, Iterator, List, \
+    NamedTuple, Optional, Set, Tuple, Type, TYPE_CHECKING, Union
+from urllib.parse import parse_qsl, urlparse, urlunparse
 
 import dateutil.parser
 
+from .. import global_config
+from ..dynamic_loader import iter_classes, iter_modules
 from ..exceptions import PatroniFatalException
-from ..utils import deep_compare, uri
 from ..tags import Tags
-from ..utils import parse_int
+from ..utils import deep_compare, parse_int, uri
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
+    from ..postgresql import Postgresql
+    from ..postgresql.mpp import AbstractMPP
 
-SLOT_ADVANCE_AVAILABLE_VERSION = 110000
-CITUS_COORDINATOR_GROUP_ID = 0
-citus_group_re = re.compile('^(0|[1-9][0-9]*)$')
 slot_name_re = re.compile('^[a-z0-9_]{1,63}$')
 logger = logging.getLogger(__name__)
 
@@ -87,28 +82,11 @@ def parse_connection_string(value: str) -> Tuple[str, Union[str, None]]:
 def dcs_modules() -> List[str]:
     """Get names of DCS modules, depending on execution environment.
 
-    .. note::
-        If being packaged with PyInstaller, modules aren't discoverable dynamically by scanning source directory because
-        :class:`importlib.machinery.FrozenImporter` doesn't implement :func:`iter_modules`. But it is still possible to
-        find all potential DCS modules by iterating through ``toc``, which contains list of all "frozen" resources.
-
     :returns: list of known module names with absolute python module path namespace, e.g. ``patroni.dcs.etcd``.
     """
-    dcs_dirname = os.path.dirname(__file__)
-    module_prefix = __package__ + '.'
-
-    if getattr(sys, 'frozen', False):
-        toc: Set[str] = set()
-        # dcs_dirname may contain a dot, which causes pkgutil.iter_importers()
-        # to misinterpret the path as a package name. This can be avoided
-        # altogether by not passing a path at all, because PyInstaller's
-        # FrozenImporter is a singleton and registered as top-level finder.
-        for importer in pkgutil.iter_importers():
-            if hasattr(importer, 'toc'):
-                toc |= getattr(importer, 'toc')
-        return [module for module in toc if module.startswith(module_prefix) and module.count('.') == 2]
-
-    return [module_prefix + name for _, name, is_pkg in pkgutil.iter_modules([dcs_dirname]) if not is_pkg]
+    if TYPE_CHECKING:  # pragma: no cover
+        assert isinstance(__package__, str)
+    return iter_modules(__package__)
 
 
 def iter_dcs_classes(
@@ -122,44 +100,18 @@ def iter_dcs_classes(
     :param config: configuration information with possible DCS names as keys. If given, only attempt to import DCS
                    modules defined in the configuration. Else, if ``None``, attempt to import any supported DCS module.
 
-    :yields: a tuple containing the module ``name`` and the imported DCS class object.
+    :returns: an iterator of tuples, each containing the module ``name`` and the imported DCS class object.
     """
-    for mod_name in dcs_modules():
-        name = mod_name.rpartition('.')[2]
-        if config is None or name in config:
-
-            try:
-                module = importlib.import_module(mod_name)
-                dcs_module = find_dcs_class_in_module(module)
-                if dcs_module:
-                    yield name, dcs_module
-
-            except ImportError:
-                logger.log(logging.DEBUG if config is not None else logging.INFO,
-                           'Failed to import %s', mod_name)
-
-
-def find_dcs_class_in_module(module: ModuleType) -> Optional[Type['AbstractDCS']]:
-    """Try to find the implementation of :class:`AbstractDCS` interface in *module* matching the *module* name.
-
-    :param module: Imported DCS module.
-
-    :returns: class with a name matching the name of *module* that implements :class:`AbstractDCS` or ``None`` if not
-              found.
-    """
-    module_name = module.__name__.rpartition('.')[2]
-    return next(
-        (obj for obj_name, obj in module.__dict__.items()
-         if (obj_name.lower() == module_name
-             and inspect.isclass(obj) and issubclass(obj, AbstractDCS))),
-        None)
+    if TYPE_CHECKING:  # pragma: no cover
+        assert isinstance(__package__, str)
+    return iter_classes(__package__, AbstractDCS, config)
 
 
 def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
     """Attempt to load a Distributed Configuration Store from known available implementations.
 
     .. note::
-        Using the list of available DCS classes returned by :func:`iter_dcs_classes` attempt to dynamically
+        Using the list of available DCS classes returned by :func:`iter_classes` attempt to dynamically
         instantiate the class that implements a DCS using the abstract class :class:`AbstractDCS`.
 
         Basic top-level configuration parameters retrieved from *config* are propagated to the DCS specific config
@@ -180,14 +132,13 @@ def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
             p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
                                    'patronictl', 'ttl', 'retry_timeout')
             if p in config})
-        # From citus section we only need "group" parameter, but will propagate everything just in case.
-        if isinstance(config.get('citus'), dict):
-            config[name].update(config['citus'])
-        return dcs_class(config[name])
 
-    raise PatroniFatalException(
-        f"Can not find suitable configuration of distributed configuration store\n"
-        f"Available implementations: {', '.join(sorted([n for n, _ in iter_dcs_classes()]))}")
+        from patroni.postgresql.mpp import get_mpp
+        return dcs_class(config[name], get_mpp(config))
+
+    available_implementations = ', '.join(sorted([n for n, _ in iter_dcs_classes()]))
+    raise PatroniFatalException("Can not find suitable configuration of distributed configuration store\n"
+                                f"Available implementations: {available_implementations}")
 
 
 _Version = Union[int, str]
@@ -308,6 +259,19 @@ class Member(Tags, NamedTuple('Member',
             if 'username' in auth:
                 ret['user'] = ret.pop('username')
         return ret
+
+    def get_endpoint_url(self, endpoint: Optional[str] = None) -> str:
+        """Get URL from member :attr:`~Member.api_url` and endpoint.
+
+        :param endpoint: URL path of REST API.
+
+        :returns: full URL for this REST API.
+        """
+        url = self.api_url or ''
+        if endpoint:
+            scheme, netloc, _, _, _, _ = urlparse(url)
+            url = urlunparse((scheme, netloc, endpoint, '', '', ''))
+        return url
 
     @property
     def api_url(self) -> Optional[str]:
@@ -591,24 +555,6 @@ class ClusterConfig(NamedTuple):
             modify_version = 0
         return ClusterConfig(version, data, version if modify_version is None else modify_version)
 
-    @property
-    def permanent_slots(self) -> Dict[str, Any]:
-        """Dictionary of permanent slots information looked up from :attr:`~ClusterConfig.data`."""
-        return (self.data.get('permanent_replication_slots')
-                or self.data.get('permanent_slots')
-                or self.data.get('slots')
-                or {})
-
-    @property
-    def ignore_slots_matchers(self) -> List[Dict[str, Any]]:
-        """The value for ``ignore_slots`` from :attr:`~ClusterConfig.data` if defined or an empty list."""
-        return self.data.get('ignore_slots') or []
-
-    @property
-    def max_timelines_history(self) -> int:
-        """The value for ``max_timelines_history`` from :attr:`~ClusterConfig.data` if defined or ``0``."""
-        return self.data.get('max_timelines_history', 0)
-
 
 class SyncState(NamedTuple):
     """Immutable object (namedtuple) which represents last observed synchronous replication state.
@@ -616,18 +562,22 @@ class SyncState(NamedTuple):
     :ivar version: modification version of a synchronization key in a Configuration Store.
     :ivar leader: reference to member that was leader.
     :ivar sync_standby: synchronous standby list (comma delimited) which are last synchronized to leader.
+    :ivar quorum: if the node from :attr:`~SyncState.sync_standby` list is doing a leader race it should
+                  see at least :attr:`~SyncState.quorum` other nodes from the
+                  :attr:`~SyncState.sync_standby` + :attr:`~SyncState.leader` list.
     """
 
     version: Optional[_Version]
     leader: Optional[str]
     sync_standby: Optional[str]
+    quorum: int
 
     @staticmethod
     def from_node(version: Optional[_Version], value: Union[str, Dict[str, Any], None]) -> 'SyncState':
         """Factory method to parse *value* as synchronisation state information.
 
         :param version: optional *version* number for the object.
-        :param value: (optionally JSON serialised) sychronisation state information
+        :param value: (optionally JSON serialised) synchronisation state information
 
         :returns: constructed :class:`SyncState` object.
 
@@ -655,7 +605,9 @@ class SyncState(NamedTuple):
             if value and isinstance(value, str):
                 value = json.loads(value)
             assert isinstance(value, dict)
-            return SyncState(version, value.get('leader'), value.get('sync_standby'))
+            leader = value.get('leader')
+            quorum = value.get('quorum')
+            return SyncState(version, leader, value.get('sync_standby'), int(quorum) if leader and quorum else 0)
         except (AssertionError, TypeError, ValueError):
             return SyncState.empty(version)
 
@@ -667,7 +619,7 @@ class SyncState(NamedTuple):
 
         :returns: empty synchronisation state object.
         """
-        return SyncState(version, None, None)
+        return SyncState(version, None, None, 0)
 
     @property
     def is_empty(self) -> bool:
@@ -685,9 +637,16 @@ class SyncState(NamedTuple):
         return list(filter(lambda a: a, [s.strip() for s in value.split(',')]))
 
     @property
-    def members(self) -> List[str]:
+    def voters(self) -> List[str]:
         """:attr:`~SyncState.sync_standby` as list or an empty list if undefined or object considered ``empty``."""
         return self._str_to_list(self.sync_standby) if not self.is_empty and self.sync_standby else []
+
+    @property
+    def members(self) -> List[str]:
+        """:attr:`~SyncState.sync_standby` and :attr:`~SyncState.leader` as list
+           or an empty list if object considered ``empty``.
+        """
+        return [] if not self.leader else [self.leader] + self.voters
 
     def matches(self, name: Optional[str], check_leader: bool = False) -> bool:
         """Checks if node is presented in the /sync state.
@@ -702,7 +661,7 @@ class SyncState(NamedTuple):
                   the sync state.
 
         :Example:
-            >>> s = SyncState(1, 'foo', 'bar,zoo')
+            >>> s = SyncState(1, 'foo', 'bar,zoo', 0)
 
             >>> s.matches('foo')
             False
@@ -793,9 +752,11 @@ class Status(NamedTuple):
 
     :ivar last_lsn: :class:`int` object containing position of last known leader LSN.
     :ivar slots: state of permanent replication slots on the primary in the format: ``{"slot_name": int}``.
+    :ivar retain_slots: list physical replication slots for members that exist in the cluster.
     """
     last_lsn: int
     slots: Optional[Dict[str, int]]
+    retain_slots: List[str]
 
     @staticmethod
     def empty() -> 'Status':
@@ -803,13 +764,20 @@ class Status(NamedTuple):
 
         :returns: empty :class:`Status` object.
         """
-        return Status(0, None)
+        return Status(0, None, [])
+
+    def is_empty(self):
+        """Validate definition of all attributes of this :class:`Status` instance.
+
+        :returns: ``True`` if all attributes of the current :class:`Status` are unpopulated.
+        """
+        return self.last_lsn == 0 and self.slots is None and not self.retain_slots
 
     @staticmethod
     def from_node(value: Union[str, Dict[str, Any], None]) -> 'Status':
         """Factory method to parse *value* as :class:`Status` object.
 
-        :param value: JSON serialized string
+        :param value: JSON serialized string or :class:`dict` object.
 
         :returns: constructed :class:`Status` object.
         """
@@ -820,7 +788,7 @@ class Status(NamedTuple):
             return Status.empty()
 
         if isinstance(value, int):  # legacy
-            return Status(value, None)
+            return Status(value, None, [])
 
         if not isinstance(value, dict):
             return Status.empty()
@@ -839,7 +807,16 @@ class Status(NamedTuple):
         if not isinstance(slots, dict):
             slots = None
 
-        return Status(last_lsn, slots)
+        retain_slots: Union[str, List[str], None] = value.get('retain_slots')
+        if isinstance(retain_slots, str):
+            try:
+                retain_slots = json.loads(retain_slots)
+            except Exception:
+                retain_slots = []
+        if not isinstance(retain_slots, list):
+            retain_slots = []
+
+        return Status(last_lsn, slots, retain_slots)
 
 
 class Cluster(NamedTuple('Cluster',
@@ -853,7 +830,7 @@ class Cluster(NamedTuple('Cluster',
                           ('history', Optional[TimelineHistory]),
                           ('failsafe', Optional[Dict[str, str]]),
                           ('workers', Dict[int, 'Cluster'])])):
-    """Immutable object (namedtuple) which represents PostgreSQL or Citus cluster.
+    """Immutable object (namedtuple) which represents PostgreSQL or MPP cluster.
 
     .. note::
         We are using an old-style attribute declaration here because otherwise it is not possible to override `__new__`
@@ -870,8 +847,8 @@ class Cluster(NamedTuple('Cluster',
     :ivar sync: reference to :class:`SyncState` object, last observed synchronous replication state.
     :ivar history: reference to `TimelineHistory` object.
     :ivar failsafe: failsafe topology. Node is allowed to become the leader only if its name is found in this list.
-    :ivar workers: dictionary of workers of the Citus cluster, optional. Each key is an :class:`int` representing
-                   the group, and the corresponding value is a :class:`Cluster` instance.
+    :ivar workers: dictionary of workers of the MPP cluster, optional. Each key representing the group and the
+                   corresponding value is a :class:`Cluster` instance.
     """
 
     def __new__(cls, *args: Any, **kwargs: Any):
@@ -881,14 +858,13 @@ class Cluster(NamedTuple('Cluster',
         return super(Cluster, cls).__new__(cls, *args, **kwargs)
 
     @property
-    def last_lsn(self) -> int:
-        """Last known leader LSN."""
-        return self.status.last_lsn
+    def slots(self) -> Dict[str, int]:
+        """State of permanent replication slots on the primary in the format: ``{"slot_name": int}``.
 
-    @property
-    def slots(self) -> Optional[Dict[str, int]]:
-        """State of permanent replication slots on the primary in the format: ``{"slot_name": int}``."""
-        return self.status.slots
+        .. note::
+            We are trying to be foolproof here and for values that can't be parsed to :class:`int` will return ``0``.
+        """
+        return {k: parse_int(v) or 0 for k, v in (self.status.slots or {}).items()}
 
     @staticmethod
     def empty() -> 'Cluster':
@@ -900,9 +876,9 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: ``True`` if all attributes of the current :class:`Cluster` are unpopulated.
         """
-        return all((self.initialize is None, self.config is None, self.leader is None, self.last_lsn == 0,
+        return all((self.initialize is None, self.config is None, self.leader is None, self.status.is_empty(),
                     self.members == [], self.failover is None, self.sync.version is None,
-                    self.history is None, self.slots is None, self.failsafe is None, self.workers == {}))
+                    self.history is None, self.failsafe is None, self.workers == {}))
 
     def __len__(self) -> int:
         """Implement ``len`` function capability.
@@ -916,7 +892,8 @@ class Cluster(NamedTuple('Cluster',
 
            >>> assert bool(cluster) is False
 
-           >>> cluster = Cluster(None, None, None, Status(0, None), [1, 2, 3], None, SyncState.empty(), None, None, {})
+           >>> status = Status(0, None, [])
+           >>> cluster = Cluster(None, None, None, status, [1, 2, 3], None, SyncState.empty(), None, None, {})
            >>> len(cluster)
            1
 
@@ -980,7 +957,9 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: ``True`` if *value* is a physical replication slot, otherwise ``False``.
         """
-        return not value or isinstance(value, dict) and value.get('type', 'physical') == 'physical'
+        return not value \
+            or (isinstance(value, dict) and not Cluster.is_logical_slot(value)
+                and value.get('type', 'physical') == 'physical')
 
     @staticmethod
     def is_logical_slot(value: Union[Any, Dict[str, Any]]) -> bool:
@@ -997,17 +976,18 @@ class Cluster(NamedTuple('Cluster',
     @property
     def __permanent_slots(self) -> Dict[str, Union[Dict[str, Any], Any]]:
         """Dictionary of permanent replication slots with their known LSN."""
-        ret: Dict[str, Union[Dict[str, Any], Any]] = deepcopy(self.config.permanent_slots if self.config else {})
+        ret: Dict[str, Union[Dict[str, Any], Any]] = global_config.permanent_slots
 
-        members: Dict[str, int] = {slot_name_from_member_name(m.name): m.lsn or 0 for m in self.members}
-        slots: Dict[str, int] = {k: parse_int(v) or 0 for k, v in (self.slots or {}).items()}
+        members: Dict[str, int] = {slot_name_from_member_name(m.name): m.lsn or 0
+                                   for m in self.members if m.replicatefrom}
+        slots: Dict[str, int] = self.slots
         for name, value in list(ret.items()):
             if not value:
                 value = ret[name] = {}
             if isinstance(value, dict):
-                # for permanent physical slots we want to get MAX LSN from the `Cluster.slots` and from the
-                # member with the matching name. It is necessary because we may have the replication slot on
-                # the primary that is streaming from the other standby node using the `replicatefrom` tag.
+                # For permanent physical slots we want to get MAX LSN from the `Cluster.slots` and from the
+                # member that does cascading replication with the matching name (see `replicatefrom` tag).
+                # It is necessary because we may have the permanent replication slot on the primary for this node.
                 lsn = max(members.get(name, 0) if self.is_physical_slot(value) else 0, slots.get(name, 0))
                 if lsn:
                     value['lsn'] = lsn
@@ -1017,7 +997,7 @@ class Cluster(NamedTuple('Cluster',
         return ret
 
     @property
-    def __permanent_physical_slots(self) -> Dict[str, Any]:
+    def permanent_physical_slots(self) -> Dict[str, Any]:
         """Dictionary of permanent ``physical`` replication slots."""
         return {name: value for name, value in self.__permanent_slots.items() if self.is_physical_slot(value)}
 
@@ -1026,36 +1006,30 @@ class Cluster(NamedTuple('Cluster',
         """Dictionary of permanent ``logical`` replication slots."""
         return {name: value for name, value in self.__permanent_slots.items() if self.is_logical_slot(value)}
 
-    @property
-    def use_slots(self) -> bool:
-        """``True`` if cluster is configured to use replication slots."""
-        return bool(self.config and (self.config.data.get('postgresql') or {}).get('use_slots', True))
-
-    def get_replication_slots(self, my_name: str, role: str, nofailover: bool, major_version: int, *,
-                              is_standby_cluster: bool = False, show_error: bool = False) -> Dict[str, Dict[str, Any]]:
+    def get_replication_slots(self, postgresql: 'Postgresql', member: Tags, *,
+                              role: Optional[str] = None, show_error: bool = False) -> Dict[str, Dict[str, Any]]:
         """Lookup configured slot names in the DCS, report issues found and merge with permanent slots.
 
         Will log an error if:
 
             * Any logical slots are disabled, due to version compatibility, and *show_error* is ``True``.
 
-        :param my_name: name of this node.
-        :param role: role of this node.
-        :param nofailover: ``True`` if this node is tagged to not be a failover candidate.
-        :param major_version: postgresql major version.
-        :param is_standby_cluster: ``True`` if it is known that this is a standby cluster. We pass the value from
-                                   the outside because we want to protect from the ``/config`` key removal.
+        :param postgresql: reference to :class:`Postgresql` object.
+        :param member: reference to an object implementing :class:`Tags` interface.
+        :param role: role of the node, if not set will be taken from *postgresql*.
         :param show_error: if ``True`` report error if any disabled logical slots or conflicting slot names are found.
 
         :returns: final dictionary of slot names, after merging with permanent slots and performing sanity checks.
         """
-        slots: Dict[str, Dict[str, str]] = self._get_members_slots(my_name, role)
-        permanent_slots: Dict[str, Any] = self._get_permanent_slots(is_standby_cluster=is_standby_cluster,
-                                                                    role=role, nofailover=nofailover,
-                                                                    major_version=major_version)
+        name = member.name if isinstance(member, Member) else postgresql.name
+        role = role or postgresql.role
+
+        slots: Dict[str, Dict[str, Any]] = self._get_members_slots(name, role,
+                                                                   member.nofailover, postgresql.can_advance_slots)
+        permanent_slots: Dict[str, Any] = self._get_permanent_slots(postgresql, member, role)
 
         disabled_permanent_logical_slots: List[str] = self._merge_permanent_slots(
-            slots, permanent_slots, my_name, major_version)
+            slots, permanent_slots, name, role, postgresql.can_advance_slots)
 
         if disabled_permanent_logical_slots and show_error:
             logger.error("Permanent logical replication slots supported by Patroni only starting from PostgreSQL 11. "
@@ -1063,8 +1037,8 @@ class Cluster(NamedTuple('Cluster',
 
         return slots
 
-    def _merge_permanent_slots(self, slots: Dict[str, Dict[str, str]], permanent_slots: Dict[str, Any], my_name: str,
-                               major_version: int) -> List[str]:
+    def _merge_permanent_slots(self, slots: Dict[str, Dict[str, Any]], permanent_slots: Dict[str, Any],
+                               name: str, role: str, can_advance_slots: bool) -> List[str]:
         """Merge replication *slots* for members with *permanent_slots*.
 
         Perform validation of configured permanent slot name, skipping invalid names.
@@ -1073,17 +1047,23 @@ class Cluster(NamedTuple('Cluster',
         Type is assumed to be ``physical`` if there are no attributes stored as the slot value.
 
         :param slots: Slot names with existing attributes if known.
-        :param my_name: name of this node.
+        :param name: name of this node.
+        :param role: role of the node -- ``primary``, ``standby_leader`` or ``replica``.
         :param permanent_slots: dictionary containing slot name key and slot information values.
-        :param major_version: postgresql major version.
+        :param can_advance_slots: ``True`` if ``pg_replication_slot_advance()`` function is available,
+                                  ``False`` otherwise.
 
         :returns: List of disabled permanent, logical slot names, if postgresql version < 11.
         """
+        name = slot_name_from_member_name(name)
+        topology = {slot_name_from_member_name(m.name): m.replicatefrom and slot_name_from_member_name(m.replicatefrom)
+                    for m in self.members}
+
         disabled_permanent_logical_slots: List[str] = []
 
-        for name, value in permanent_slots.items():
-            if not slot_name_re.match(name):
-                logger.error("Invalid permanent replication slot name '%s'", name)
+        for slot_name, value in permanent_slots.items():
+            if not slot_name_re.match(slot_name):
+                logger.error("Invalid permanent replication slot name '%s'", slot_name)
                 logger.error("Slot name may only contain lower case letters, numbers, and the underscore chars")
                 continue
 
@@ -1094,88 +1074,149 @@ class Cluster(NamedTuple('Cluster',
 
                 if value['type'] == 'physical':
                     # Don't try to create permanent physical replication slot for yourself
-                    if name != slot_name_from_member_name(my_name):
-                        slots[name] = value
+                    if slot_name not in slots and slot_name != name:
+                        # On the leader we expected to have permanent slots active, except the case when it is a slot
+                        # for a cascading replica. Lets consider a configuration with C being a permanent slot. In this
+                        # case we should have the following: A(B: active, C: inactive) <- B (C: active) <- C
+                        # We don't consider the same situation on node B, because if node C doesn't exists, we will not
+                        # be able to know its `replicatefrom` tag value.
+                        expected_active = not topology.get(slot_name) and role in ('primary', 'standby_leader')
+                        slots[slot_name] = {**value, 'expected_active': expected_active}
                     continue
 
                 if self.is_logical_slot(value):
-                    if major_version < SLOT_ADVANCE_AVAILABLE_VERSION:
-                        disabled_permanent_logical_slots.append(name)
-                    elif name in slots:
+                    if not can_advance_slots:
+                        disabled_permanent_logical_slots.append(slot_name)
+                    elif slot_name in slots:
                         logger.error("Permanent logical replication slot {'%s': %s} is conflicting with"
-                                     " physical replication slot for cluster member", name, value)
+                                     " physical replication slot for cluster member", slot_name, value)
                     else:
-                        slots[name] = value
+                        slots[slot_name] = value
                     continue
 
-            logger.error("Bad value for slot '%s' in permanent_slots: %s", name, permanent_slots[name])
+            logger.error("Bad value for slot '%s' in permanent_slots: %s", slot_name, permanent_slots[slot_name])
         return disabled_permanent_logical_slots
 
-    def _get_permanent_slots(self, *, is_standby_cluster: bool, role: str,
-                             nofailover: bool, major_version: int) -> Dict[str, Any]:
+    def _get_permanent_slots(self, postgresql: 'Postgresql', tags: Tags, role: str) -> Dict[str, Any]:
         """Get configured permanent replication slots.
 
         .. note::
             Permanent replication slots are only considered if ``use_slots`` configuration is enabled.
             A node that is not supposed to become a leader (*nofailover*) will not have permanent replication slots.
+            Also node with disabled streaming (*nostream*) and its cascading followers must not have permanent
+            logical slots due to lack of feedback from node to primary, which makes them unsafe to use.
 
             In a standby cluster we only support physical replication slots.
 
             The returned dictionary for a non-standby cluster always contains permanent logical replication slots in
             order to show a warning if they are not supported by PostgreSQL before v11.
 
-        :param is_standby_cluster: ``True`` if it is known that this is a standby cluster. We pass the value from
-                                   the outside because we want to protect from the ``/config`` key removal.
-        :param role: role of this node -- ``primary``, ``standby_leader`` or ``replica``.
-        :param nofailover: ``True`` if this node is tagged to not be a failover candidate.
-        :param major_version: postgresql major version.
+        :param postgresql: reference to :class:`Postgresql` object.
+        :param tags: reference to an object implementing :class:`Tags` interface.
+        :param role: role of the node -- ``primary``, ``standby_leader`` or ``replica``.
 
         :returns: dictionary of permanent slot names mapped to attributes.
         """
-        if not self.use_slots or nofailover:
+        if not global_config.use_slots or tags.nofailover:
             return {}
 
-        if is_standby_cluster:
-            return self.__permanent_physical_slots \
-                if major_version >= SLOT_ADVANCE_AVAILABLE_VERSION or role == 'standby_leader' else {}
+        if global_config.is_standby_cluster or self.get_slot_name_on_primary(postgresql.name, tags) is None:
+            return self.permanent_physical_slots if postgresql.can_advance_slots or role == 'standby_leader' else {}
 
-        return self.__permanent_slots if major_version >= SLOT_ADVANCE_AVAILABLE_VERSION\
-            or role in ('master', 'primary') else self.__permanent_logical_slots
+        return self.__permanent_slots if postgresql.can_advance_slots or role == 'primary' \
+            else self.__permanent_logical_slots
 
-    def _get_members_slots(self, my_name: str, role: str) -> Dict[str, Dict[str, str]]:
-        """Get physical replication slots configuration for members that sourcing from this node.
+    def _get_members_slots(self, name: str, role: str, nofailover: bool,
+                           can_advance_slots: bool) -> Dict[str, Dict[str, Any]]:
+        """Get physical replication slots configuration for a given member.
 
-        If the ``replicatefrom`` tag is set on the member - we should not create the replication slot for it on
-        the current primary, because that member would replicate from elsewhere. We still create the slot if
-        the ``replicatefrom`` destination member is currently not a member of the cluster (fallback to the
-        primary), or if ``replicatefrom`` destination member happens to be the current primary.
+        There are following situations possible:
+
+            * If the ``nostream`` tag is set on the member - we should not have the replication slot for it
+              on the current primary or any other member even if ``replicatefrom`` is set, because
+              ``nostream`` disables WAL streaming.
+
+            * PostgreSQL is 11 and newer and configuration allows retention of member replication slots. In this case
+              we want to have replication slots for every member except the case when we have ``nofailover`` tag set.
+
+            * PostgreSQL is older than 11 or configuration doesn't allow member slots retention. In this case we want:
+
+                * On primary have replication slots for all members that don't have ``replicatefrom`` tag pointing
+                  to the existing member.
+
+                * On replica node have replication slots only for members which ``replicatefrom`` tag pointing to us.
 
         Will log an error if:
 
             * Conflicting slot names between members are found
 
-        :param my_name: name of this node.
-        :param role: role of this node, if this is a ``primary`` or ``standby_leader`` return list of members
-                     replicating from this node. If not then return a list of members replicating as cascaded
-                     replicas from this node.
+        :param name: name of this node.
+        :param role: role of this node, ``primary``, ``standby_leader``, or ``replica``.
+        :param nofailover: ``True`` if this node is tagged to not be a failover candidate, ``False`` otherwise.
+        :param can_advance_slots: ``True`` if ``pg_replication_slot_advance()`` function is available,
+                                  ``False`` otherwise.
 
         :returns: dictionary of physical replication slots that should exist on a given node.
         """
-        if not self.use_slots:
+        if not global_config.use_slots:
             return {}
 
-        # we always want to exclude the member with our name from the list
-        members = filter(lambda m: m.name != my_name, self.members)
+        # we always want to exclude the member with our name from the list,
+        # also exlude members with disabled WAL streaming
+        members = filter(lambda m: m.name != name and not m.nostream, self.members)
 
-        if role in ('master', 'primary', 'standby_leader'):
-            members = [m for m in members if m.replicatefrom is None
-                       or m.replicatefrom == my_name or not self.has_member(m.replicatefrom)]
+        def leader_filter(member: Member) -> bool:
+            """Check whether provided *member* should replicate from the current node when it is running as a leader.
+
+            :param member: a :class:`Member` object.
+
+            :returns: ``True`` if provided member should replicate from the current node, ``False`` otherwise.
+            """
+            return member.replicatefrom is None or\
+                member.replicatefrom == name or\
+                not self.has_member(member.replicatefrom)
+
+        def replica_filter(member: Member) -> bool:
+            """Check whether provided *member* should replicate from the current node when it is running as a replica.
+
+            ..note::
+                We only consider members with ``replicatefrom`` tag that matches our name and always exclude the leader.
+
+            :param member: a :class:`Member` object.
+
+            :returns: ``True`` if provided member should replicate from the current node, ``False`` otherwise.
+            """
+            return member.replicatefrom == name and member.name != self.leader_name
+
+        # In case when retention of replication slots is possible the `expected_active` function
+        # will be used to figure out whether the replication slot is expected to be active.
+        # Otherwise it will be used to find replication slots that should exist on a current node.
+        expected_active = leader_filter if role in ('primary', 'standby_leader') else replica_filter
+
+        if can_advance_slots and global_config.member_slots_ttl > 0:
+            # if the node does only cascading and can't become the leader, we
+            # want only to have slots for members that could connect to it.
+            members = [m for m in members if not nofailover or m.replicatefrom == name]
         else:
-            # only manage slots for replicas that replicate from this one, except for the leader among them
-            members = [m for m in members if m.replicatefrom == my_name and m.name != self.leader_name]
+            members = [m for m in members if expected_active(m)]
 
-        slots = {slot_name_from_member_name(m.name): {'type': 'physical'} for m in members}
-        if len(slots) < len(members):
+        slots: Dict[str, int] = self.slots
+        ret: Dict[str, Dict[str, Any]] = {}
+        for member in members:
+            slot_name = slot_name_from_member_name(member.name)
+            lsn = slots.get(slot_name, 0)
+            if member.replicatefrom:
+                # `/status` key is maintained by the leader, but `member` may be connected to some other node.
+                # In that case, the slot in the leader is inactive and doesn't advance, so we use the LSN
+                # reported by the member to advance replication slot LSN.
+                # `max` is only a fallback so we take the LSN from the slot when there is no feedback from the member.
+                lsn = max(member.lsn or 0, lsn)
+            ret[slot_name] = {'type': 'physical', 'lsn': lsn, 'expected_active': expected_active(member)}
+        slot_name = slot_name_from_member_name(name)
+        ret.update({slot: {'type': 'physical'} for slot in self.status.retain_slots
+                    if not nofailover and slot not in ret and slot != slot_name})
+
+        if len(ret) < len(members):
             # Find which names are conflicting for a nicer error message
             slot_conflicts: Dict[str, List[str]] = defaultdict(list)
             for member in members:
@@ -1183,86 +1224,87 @@ class Cluster(NamedTuple('Cluster',
             logger.error("Following cluster members share a replication slot name: %s",
                          "; ".join(f"{', '.join(v)} map to {k}"
                                    for k, v in slot_conflicts.items() if len(v) > 1))
-        return slots
+        return ret
 
-    def has_permanent_slots(self, my_name: str, *, is_standby_cluster: bool = False, nofailover: bool = False,
-                            major_version: int = SLOT_ADVANCE_AVAILABLE_VERSION) -> bool:
-        """Check if the given member node has permanent replication slots configured.
+    def has_permanent_slots(self, postgresql: 'Postgresql', member: Tags) -> bool:
+        """Check if our node has permanent replication slots configured.
 
-        :param my_name: name of the member node to check.
-        :param is_standby_cluster: ``True`` if it is known that this is a standby cluster. We pass the value from
-                                   the outside because we want to protect from the ``/config`` key removal.
-        :param nofailover: ``True`` if this node is tagged to not be a failover candidate.
-        :param major_version: postgresql major version.
-
+        :param postgresql: reference to :class:`Postgresql` object.
+        :param member: reference to an object implementing :class:`Tags` interface for
+                       the node that we are checking permanent logical replication slots for.
         :returns: ``True`` if there are permanent replication slots configured, otherwise ``False``.
         """
         role = 'replica'
-        members_slots: Dict[str, Dict[str, str]] = self._get_members_slots(my_name, role)
-        permanent_slots: Dict[str, Any] = self._get_permanent_slots(is_standby_cluster=is_standby_cluster,
-                                                                    role=role, nofailover=nofailover,
-                                                                    major_version=major_version)
+        members_slots: Dict[str, Dict[str, str]] = self._get_members_slots(postgresql.name, role,
+                                                                           member.nofailover,
+                                                                           postgresql.can_advance_slots)
+        permanent_slots: Dict[str, Any] = self._get_permanent_slots(postgresql, member, role)
         slots = deepcopy(members_slots)
-        self._merge_permanent_slots(slots, permanent_slots, my_name, major_version)
+        self._merge_permanent_slots(slots, permanent_slots, postgresql.name, role, postgresql.can_advance_slots)
         return len(slots) > len(members_slots) or any(self.is_physical_slot(v) for v in permanent_slots.values())
 
-    def filter_permanent_slots(self, slots: Dict[str, int], is_standby_cluster: bool,
-                               major_version: int) -> Dict[str, int]:
+    def maybe_filter_permanent_slots(self, postgresql: 'Postgresql', slots: Dict[str, int]) -> Dict[str, int]:
         """Filter out all non-permanent slots from provided *slots* dict.
 
-        :param slots: slot names with LSN values
-        :param is_standby_cluster: ``True`` if it is known that this is a standby cluster. We pass the value from
-                                   the outside because we want to protect from the ``/config`` key removal.
-        :param major_version: postgresql major version.
+        .. note::
+             In case if retention of replication slots for members is enabled we will not do
+             any filtering, because we need to publish LSN values for members replication slots,
+             so that other nodes can use them to advance LSN, like they do it for permanent slots.
 
+        :param postgresql: reference to :class:`Postgresql` object.
+        :param slots: slot names with LSN values.
         :returns: a :class:`dict` object that contains only slots that are known to be permanent.
         """
-        if major_version < SLOT_ADVANCE_AVAILABLE_VERSION:
-            return {}  # for legacy PostgreSQL we don't support permanent slots on standby nodes
+        if global_config.member_slots_ttl > 0:
+            return slots
 
-        permanent_slots: Dict[str, Any] = self._get_permanent_slots(is_standby_cluster=is_standby_cluster,
-                                                                    role='replica',
-                                                                    nofailover=False,
-                                                                    major_version=major_version)
+        permanent_slots: Dict[str, Any] = self._get_permanent_slots(postgresql, RemoteMember('', {}), 'replica')
         members_slots = {slot_name_from_member_name(m.name) for m in self.members}
 
         return {name: value for name, value in slots.items() if name in permanent_slots
                 and (self.is_physical_slot(permanent_slots[name])
                      or self.is_logical_slot(permanent_slots[name]) and name not in members_slots)}
 
-    def _has_permanent_logical_slots(self, my_name: str, nofailover: bool) -> bool:
+    def _has_permanent_logical_slots(self, postgresql: 'Postgresql', member: Tags) -> bool:
         """Check if the given member node has permanent ``logical`` replication slots configured.
 
-        :param my_name: name of the member node to check.
-        :param nofailover: ``True`` if this node is tagged to not be a failover candidate.
+        :param postgresql: reference to a :class:`Postgresql` object.
+        :param member: reference to an object implementing :class:`Tags` interface for
+                       the node that we are checking permanent logical replication slots for.
 
         :returns: ``True`` if any detected replications slots are ``logical``, otherwise ``False``.
         """
-        slots = self.get_replication_slots(my_name, 'replica', nofailover, SLOT_ADVANCE_AVAILABLE_VERSION).values()
+        slots = self.get_replication_slots(postgresql, member, role='replica').values()
         return any(v for v in slots if v.get("type") == "logical")
 
-    def should_enforce_hot_standby_feedback(self, my_name: str, nofailover: bool) -> bool:
+    def should_enforce_hot_standby_feedback(self, postgresql: 'Postgresql', member: Tags) -> bool:
         """Determine whether ``hot_standby_feedback`` should be enabled for the given member.
 
         The ``hot_standby_feedback`` must be enabled if the current replica has ``logical`` slots,
         or it is working as a cascading replica for the other node that has ``logical`` slots.
 
-        :param my_name: name of the member node to check.
-        :param nofailover: ``True`` if this node is tagged to not be a failover candidate.
+        :param postgresql: reference to a :class:`Postgresql` object.
+        :param member: reference to an object implementing :class:`Tags` interface for
+                       the node that we are checking permanent logical replication slots for.
 
         :returns: ``True`` if this node or any member replicating from this node has
                   permanent logical slots, otherwise ``False``.
         """
-        if self._has_permanent_logical_slots(my_name, nofailover):
+        if self._has_permanent_logical_slots(postgresql, member):
             return True
 
-        if self.use_slots:
-            members = [m for m in self.members if m.replicatefrom == my_name and m.name != self.leader_name]
-            return any(self.should_enforce_hot_standby_feedback(m.name, m.nofailover) for m in members)
+        if global_config.use_slots:
+            name = member.name if isinstance(member, Member) else postgresql.name
+
+            if not self.get_slot_name_on_primary(name, member):
+                return False
+
+            members = [m for m in self.members if m.replicatefrom == name and m.name != self.leader_name]
+            return any(self.should_enforce_hot_standby_feedback(postgresql, m) for m in members)
         return False
 
-    def get_my_slot_name_on_primary(self, my_name: str, replicatefrom: Optional[str]) -> str:
-        """Canonical slot name for physical replication.
+    def get_slot_name_on_primary(self, name: str, tags: Tags) -> Optional[str]:
+        """Get the name of physical replication slot for this node on the primary.
 
         .. note::
             P <-- I <-- L
@@ -1270,14 +1312,23 @@ class Cluster(NamedTuple('Cluster',
             In case of cascading replication we have to check not our physical slot, but slot of the replica that
             connects us to the primary.
 
-        :param my_name: the member node name that is replicating.
-        :param replicatefrom: the Intermediate member name that is configured to replicate for cascading replication.
+        :param name: name of the member node to check.
+        :param tags: reference to an object implementing :class:`Tags` interface.
 
-        :returns: The slot name that is in use for physical replication on this no`de.
+        :returns: the slot name on the primary that is in use for physical replication on this node.
         """
-        m = self.get_member(replicatefrom, False) if replicatefrom else None
-        return self.get_my_slot_name_on_primary(m.name, m.replicatefrom) \
-            if isinstance(m, Member) else slot_name_from_member_name(my_name)
+        seen_nodes: Set[str] = set()
+        while True:
+            seen_nodes.add(name)
+            if tags.nostream:
+                return None
+            replicatefrom = self.get_member(tags.replicatefrom, False) \
+                if tags.replicatefrom and tags.replicatefrom != name else None
+            if not isinstance(replicatefrom, Member):
+                return slot_name_from_member_name(name)
+            if replicatefrom.name in seen_nodes:
+                return None
+            name, tags = replicatefrom.name, replicatefrom
 
     @property
     def timeline(self) -> int:
@@ -1352,11 +1403,11 @@ class AbstractDCS(abc.ABC):
     Functional methods that are critical in their timing, required to complete within ``retry_timeout`` period in order
     to prevent the DCS considered inaccessible, each perform construction of complex data objects:
 
-        * :meth:`~AbstractDCS._cluster_loader`:
+        * :meth:`~AbstractDCS._postgresql_cluster_loader`:
             method which processes the structure of data stored in the DCS used to build the :class:`Cluster` object
             with all relevant associated data.
-        * :meth:`~AbstractDCS._citus_cluster_loader`:
-            Similar to above but specifically representing Citus group and workers information.
+        * :meth:`~AbstractDCS._mpp_cluster_loader`:
+            Similar to above but specifically representing MPP group and workers information.
         * :meth:`~AbstractDCS._load_cluster`:
             main method for calling specific ``loader`` method to build the :class:`Cluster` object representing the
             state and topology of the cluster.
@@ -1425,15 +1476,16 @@ class AbstractDCS(abc.ABC):
     _SYNC = 'sync'
     _FAILSAFE = 'failsafe'
 
-    def __init__(self, config: Dict[str, Any]) -> None:
-        """Prepare DCS paths, Citus group ID, initial values for state information and processing dependencies.
+    def __init__(self, config: Dict[str, Any], mpp: 'AbstractMPP') -> None:
+        """Prepare DCS paths, MPP object, initial values for state information and processing dependencies.
 
-        :ivar config: :class:`dict`, reference to config section of selected DCS.
-                      i.e.: ``zookeeper`` for zookeeper, ``etcd`` for etcd, etc...
+        :param config: :class:`dict`, reference to config section of selected DCS.
+                       i.e.: ``zookeeper`` for zookeeper, ``etcd`` for etcd, etc...
+        :param mpp: an object implementing :class:`AbstractMPP` interface.
         """
+        self._mpp = mpp
         self._name = config['name']
         self._base_path = re.sub('/+', '/', '/'.join(['', config.get('namespace', 'service'), config['scope']]))
-        self._citus_group = str(config['group']) if isinstance(config.get('group'), int) else None
         self._set_loop_wait(config.get('loop_wait', 10))
 
         self._ctl = bool(config.get('patronictl', False))
@@ -1442,9 +1494,15 @@ class AbstractDCS(abc.ABC):
         self._cluster_thread_lock = Lock()
         self._last_lsn: int = 0
         self._last_seen: int = 0
-        self._last_status: Dict[str, Any] = {}
+        self._last_status: Dict[str, Any] = {'retain_slots': []}
+        self._last_retain_slots: Dict[str, float] = {}
         self._last_failsafe: Optional[Dict[str, str]] = {}
         self.event = Event()
+
+    @property
+    def mpp(self) -> 'AbstractMPP':
+        """Get the effective underlying MPP, if any has been configured."""
+        return self._mpp
 
     def client_path(self, path: str) -> str:
         """Construct the absolute key name from appropriate parts for the DCS type.
@@ -1454,8 +1512,8 @@ class AbstractDCS(abc.ABC):
         :returns: absolute key name for the current Patroni cluster.
         """
         components = [self._base_path]
-        if self._citus_group:
-            components.append(self._citus_group)
+        if self._mpp.is_enabled():
+            components.append(str(self._mpp.group))
         components.append(path.lstrip('/'))
         return '/'.join(components)
 
@@ -1556,22 +1614,21 @@ class AbstractDCS(abc.ABC):
         return self._last_seen
 
     @abc.abstractmethod
-    def _cluster_loader(self, path: Any) -> Cluster:
-        """Load and build the :class:`Cluster` object from DCS, which represents a single Patroni or Citus cluster.
+    def _postgresql_cluster_loader(self, path: Any) -> Cluster:
+        """Load and build the :class:`Cluster` object from DCS, which represents a single PostgreSQL cluster.
 
-        :param path: the path in DCS where to load Cluster(s) from.
+        :param path: the path in DCS where to load :class:`Cluster` from.
 
         :returns: :class:`Cluster` instance.
         """
 
     @abc.abstractmethod
-    def _citus_cluster_loader(self, path: Any) -> Dict[int, Cluster]:
-        """Load and build all Patroni clusters from a single Citus cluster.
+    def _mpp_cluster_loader(self, path: Any) -> Dict[int, Cluster]:
+        """Load and build all PostgreSQL clusters from a single MPP cluster.
 
         :param path: the path in DCS where to load Cluster(s) from.
 
-        :returns: all Citus groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values or a
-                  :class:`Cluster` object representing the coordinator with filled `Cluster.workers` attribute.
+        :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
         """
 
     @abc.abstractmethod
@@ -1586,13 +1643,14 @@ class AbstractDCS(abc.ABC):
             the :meth:`~AbstractDCS.get_cluster` method.
 
         :param path: the path in DCS where to load Cluster(s) from.
-        :param loader: one of :meth:`~AbstractDCS._cluster_loader` or :meth:`~AbstractDCS._citus_cluster_loader`.
+        :param loader: one of :meth:`~AbstractDCS._postgresql_cluster_loader` or
+                       :meth:`~AbstractDCS._mpp_cluster_loader`.
 
         :raise: :exc:`~DCSError` in case of communication problems with DCS. If the current node was running as a
                 primary and exception raised, instance would be demoted.
         """
 
-    def __get_patroni_cluster(self, path: Optional[str] = None) -> Cluster:
+    def __get_postgresql_cluster(self, path: Optional[str] = None) -> Cluster:
         """Low level method to load a :class:`Cluster` object from DCS.
 
         :param path: optional client path in DCS backend to load from.
@@ -1601,42 +1659,43 @@ class AbstractDCS(abc.ABC):
         """
         if path is None:
             path = self.client_path('')
-        cluster = self._load_cluster(path, self._cluster_loader)
+        cluster = self._load_cluster(path, self._postgresql_cluster_loader)
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(cluster, Cluster)
         return cluster
 
-    def is_citus_coordinator(self) -> bool:
-        """:class:`Cluster` instance has a Citus Coordinator group ID.
+    def is_mpp_coordinator(self) -> bool:
+        """:class:`Cluster` instance has a Coordinator group ID.
 
-        :returns: ``True`` if the given node is running as Citus Coordinator (``group=0``).
+        :returns: ``True`` if the given node is running as the MPP Coordinator.
         """
-        return self._citus_group == str(CITUS_COORDINATOR_GROUP_ID)
+        return self._mpp.is_coordinator()
 
-    def get_citus_coordinator(self) -> Optional[Cluster]:
-        """Load the Patroni cluster for the Citus Coordinator.
+    def get_mpp_coordinator(self) -> Optional[Cluster]:
+        """Load the PostgreSQL cluster for the MPP Coordinator.
 
-          .. note::
-              This method is only executed on the worker nodes (``group!=0``) to find the coordinator.
+        .. note::
+            This method is only executed on the worker nodes to find the coordinator.
 
-        :returns: Select :class:`Cluster` instance associated with the Citus Coordinator group ID.
+        :returns: Select :class:`Cluster` instance associated with the MPP Coordinator group ID.
         """
         try:
-            return self.__get_patroni_cluster(f'{self._base_path}/{CITUS_COORDINATOR_GROUP_ID}/')
+            return self.__get_postgresql_cluster(f'{self._base_path}/{self._mpp.coordinator_group_id}/')
         except Exception as e:
-            logger.error('Failed to load Citus coordinator cluster from %s: %r', self.__class__.__name__, e)
+            logger.error('Failed to load %s coordinator cluster from %s: %r',
+                         self._mpp.type, self.__class__.__name__, e)
         return None
 
-    def _get_citus_cluster(self) -> Cluster:
-        """Load Citus cluster from DCS.
+    def _get_mpp_cluster(self) -> Cluster:
+        """Load MPP cluster from DCS.
 
-        :returns: A Citus :class:`Cluster` instance for the coordinator with workers clusters in the `Cluster.workers`
+        :returns: A MPP :class:`Cluster` instance for the coordinator with workers clusters in the `Cluster.workers`
                   dict.
         """
-        groups = self._load_cluster(self._base_path + '/', self._citus_cluster_loader)
+        groups = self._load_cluster(self._base_path + '/', self._mpp_cluster_loader)
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(groups, dict)
-        cluster = groups.pop(CITUS_COORDINATOR_GROUP_ID, Cluster.empty())
+        cluster = groups.pop(self._mpp.coordinator_group_id, Cluster.empty())
         cluster.workers.update(groups)
         return cluster
 
@@ -1647,25 +1706,26 @@ class AbstractDCS(abc.ABC):
             Stores copy of time, status and failsafe values for comparison in DCS update decisions.
             Caching is required to avoid overhead placed upon the REST API.
 
-            Returns either a Citus or Patroni implementation of :class:`Cluster` depending on availability.
+            Returns either a PostgreSQL or MPP implementation of :class:`Cluster` depending on availability.
 
         :returns:
         """
         try:
-            cluster = self._get_citus_cluster() if self.is_citus_coordinator() else self.__get_patroni_cluster()
+            cluster = self._get_mpp_cluster() if self.is_mpp_coordinator() else self.__get_postgresql_cluster()
         except Exception:
             self.reset_cluster()
             raise
 
-        self._last_seen = int(time.time())
-        self._last_status = {self._OPTIME: cluster.last_lsn}
-        if cluster.slots:
-            self._last_status['slots'] = cluster.slots
-        self._last_failsafe = cluster.failsafe
-
         with self._cluster_thread_lock:
             self._cluster = cluster
             self._cluster_valid_till = time.time() + self.ttl
+
+            self._last_seen = int(time.time())
+            self._last_status = {self._OPTIME: cluster.status.last_lsn, 'retain_slots': cluster.status.retain_slots}
+            if cluster.status.slots:
+                self._last_status['slots'] = cluster.status.slots
+            self._last_failsafe = cluster.failsafe
+
             return cluster
 
     @property
@@ -1721,6 +1781,14 @@ class AbstractDCS(abc.ABC):
 
         :param value: JSON serializable dictionary with current WAL LSN and ``confirmed_flush_lsn`` of permanent slots.
         """
+        # This method is always called with ``optime`` key, rest of the keys are optional.
+        # In case if we know old values (stored in self._last_status), we will copy them over.
+        for name in ('slots', 'retain_slots'):
+            if name not in value and self._last_status.get(name):
+                value[name] = self._last_status[name]
+        # if the key is present, but the value is None, we will not write such pair.
+        value = {k: v for k, v in value.items() if v is not None}
+
         if not deep_compare(self._last_status, value) and self._write_status(json.dumps(value, separators=(',', ':'))):
             self._last_status = value
         cluster = self.cluster
@@ -1752,6 +1820,53 @@ class AbstractDCS(abc.ABC):
         """Stored value of :attr:`~AbstractDCS._last_failsafe`."""
         return self._last_failsafe
 
+    def _build_retain_slots(self, cluster: Cluster, slots: Optional[Dict[str, int]]) -> Optional[List[str]]:
+        """Handle retention policy of physical replication slots for cluster members.
+
+        When the member key is missing we want to keep its replication slot for a while, so that WAL segments
+        will not be already absent when it comes back online. It is being solved by storing the list of
+        replication slots representing members in the ``retain_slots`` field of the ``/status`` key.
+
+        This method handles retention policy by keeping the list of such replication slots in memory
+        and removing names when they were observed longer than ``member_slots_ttl`` ago.
+
+        :param cluster: :class:`Cluster` object with information about the current cluster state.
+        :param slots: slot names with LSN values that exist on the leader node and consists
+                      of slots for cluster members and permanent replication slots.
+
+        :returns: the list of replication slots to be written to ``/status`` key or ``None``.
+        """
+        timestamp = time.time()
+
+        # DCS is a source of truth, therefore we take missing values from there
+        self._last_retain_slots.update({name: timestamp for name in self._last_status['retain_slots']
+                                        if (not slots or name not in slots) and name not in self._last_retain_slots})
+
+        if slots:  # if slots is not empty it implies we are running v11+
+            members: Set[str] = set()
+            found_self = False
+            for member in cluster.members:
+                found_self = member.name == self._name
+                if not member.nostream:
+                    members.add(slot_name_from_member_name(member.name))
+            if not found_self:
+                # It could be that the member key for our node is not in DCS and we can't check tags.nostream.
+                # In this case our name will falsely appear in `retain_slots`, but only temporary.
+                members.add(slot_name_from_member_name(self._name))
+
+            permanent_slots = cluster.permanent_physical_slots
+            # we want to have in ``retain_slots`` only non-permanent member slots
+            self._last_retain_slots.update({name: timestamp for name in slots
+                                            if name in members and name not in permanent_slots})
+        # retention
+        for name, value in list(self._last_retain_slots.items()):
+            if value + global_config.member_slots_ttl <= timestamp:
+                logger.info("Replication slot '%s' for absent cluster member is expired after %d sec.",
+                            name, global_config.member_slots_ttl)
+                del self._last_retain_slots[name]
+
+        return list(sorted(self._last_retain_slots.keys())) or None
+
     @abc.abstractmethod
     def _update_leader(self, leader: Leader) -> bool:
         """Update ``leader`` key (or session) ttl.
@@ -1769,24 +1884,25 @@ class AbstractDCS(abc.ABC):
         """
 
     def update_leader(self,
-                      leader: Leader,
+                      cluster: Cluster,
                       last_lsn: Optional[int],
                       slots: Optional[Dict[str, int]] = None,
                       failsafe: Optional[Dict[str, str]] = None) -> bool:
-        """Update ``leader`` key (or session) ttl and optime/leader.
+        """Update ``leader`` key (or session) ttl, ``/status``, and ``/failsafe`` keys.
 
-        :param leader: :class:`Leader` object with information about the leader.
+        :param cluster: :class:`Cluster` object with information about the current cluster state.
         :param last_lsn: absolute WAL LSN in bytes.
         :param slots: dictionary with permanent slots ``confirmed_flush_lsn``.
         :param failsafe: if defined dictionary passed to :meth:`~AbstractDCS.write_failsafe`.
 
         :returns: ``True`` if ``leader`` key (or session) has been updated successfully.
         """
-        ret = self._update_leader(leader)
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(cluster.leader, Leader)
+        ret = self._update_leader(cluster.leader)
         if ret and last_lsn:
-            status: Dict[str, Any] = {self._OPTIME: last_lsn}
-            if slots:
-                status['slots'] = slots
+            status: Dict[str, Any] = {self._OPTIME: last_lsn, 'slots': slots or None,
+                                      'retain_slots': self._build_retain_slots(cluster, slots)}
             self.write_status(status)
 
         if ret and failsafe is not None:
@@ -1937,18 +2053,23 @@ class AbstractDCS(abc.ABC):
         """
 
     @staticmethod
-    def sync_state(leader: Optional[str], sync_standby: Optional[Collection[str]]) -> Dict[str, Any]:
+    def sync_state(leader: Optional[str], sync_standby: Optional[Collection[str]],
+                   quorum: Optional[int]) -> Dict[str, Any]:
         """Build ``sync_state`` dictionary.
 
         :param leader: name of the leader node that manages ``/sync`` key.
         :param sync_standby: collection of currently known synchronous standby node names.
+        :param quorum: if the node from :attr:`~SyncState.sync_standby` list is doing a leader race it should
+                       see at least :attr:`~SyncState.quorum` other nodes from the
+                       :attr:`~SyncState.sync_standby` + :attr:`~SyncState.leader` list
 
         :returns: dictionary that later could be serialized to JSON or saved directly to DCS.
         """
-        return {'leader': leader, 'sync_standby': ','.join(sorted(sync_standby)) if sync_standby else None}
+        return {'leader': leader, 'quorum': quorum,
+                'sync_standby': ','.join(sorted(sync_standby)) if sync_standby else None}
 
     def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
-                         version: Optional[Any] = None) -> Optional[SyncState]:
+                         quorum: Optional[int], version: Optional[Any] = None) -> Optional[SyncState]:
         """Write the new synchronous state to DCS.
 
         Calls :meth:`~AbstractDCS.sync_state` to build a dictionary and then calls DCS specific
@@ -1957,10 +2078,13 @@ class AbstractDCS(abc.ABC):
         :param leader: name of the leader node that manages ``/sync`` key.
         :param sync_standby: collection of currently known synchronous standby node names.
         :param version: for conditional update of the key/object.
+        :param quorum: if the node from :attr:`~SyncState.sync_standby` list is doing a leader race it should
+                       see at least :attr:`~SyncState.quorum` other nodes from the
+                       :attr:`~SyncState.sync_standby` + :attr:`~SyncState.leader` list
 
         :returns: the new :class:`SyncState` object or ``None``.
         """
-        sync_value = self.sync_state(leader, sync_standby)
+        sync_value = self.sync_state(leader, sync_standby, quorum)
         ret = self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), version)
         if not isinstance(ret, bool):
             return SyncState.from_node(ret, sync_value)

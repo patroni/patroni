@@ -5,10 +5,11 @@ import time
 
 from typing import Any, Callable, Dict, List, Union
 
-from . import Cluster
-from .zookeeper import ZooKeeper
+from ..postgresql.mpp import AbstractMPP
 from ..request import get as requests_get
 from ..utils import uri
+from . import Cluster
+from .zookeeper import ZooKeeper
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +67,10 @@ class ExhibitorEnsembleProvider(object):
 
 class Exhibitor(ZooKeeper):
 
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
         interval = config.get('poll_interval', 300)
         self._ensemble_provider = ExhibitorEnsembleProvider(config['hosts'], config['port'], poll_interval=interval)
-        super(Exhibitor, self).__init__({**config, 'hosts': self._ensemble_provider.zookeeper_hosts})
+        super(Exhibitor, self).__init__({**config, 'hosts': self._ensemble_provider.zookeeper_hosts}, mpp)
 
     def _load_cluster(
             self, path: str, loader: Callable[[str], Union[Cluster, Dict[int, Cluster]]]

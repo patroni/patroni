@@ -1,16 +1,18 @@
 import ctypes
-import patroni.watchdog.linux as linuxwd
+import os
 import sys
 import unittest
-import os
 
-from mock import patch, Mock, PropertyMock
+from unittest.mock import Mock, patch, PropertyMock
+
+import patroni.watchdog.linux as linuxwd
+
 from patroni.watchdog import Watchdog, WatchdogError
 from patroni.watchdog.base import NullWatchdog
 from patroni.watchdog.linux import LinuxWatchdogDevice
 
 
-class MockDevice(object):
+class MockDevice:
     def __init__(self, fd, filename, flag):
         self.fd = fd
         self.filename = filename

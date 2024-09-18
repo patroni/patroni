@@ -1,16 +1,21 @@
-import etcd
-import urllib3.util.connection
 import socket
 import unittest
 
+from unittest.mock import Mock, patch, PropertyMock
+
+import etcd
+import urllib3.util.connection
+
 from dns.exception import DNSException
-from mock import Mock, PropertyMock, patch
-from patroni.dcs.etcd import AbstractDCS, EtcdClient, Cluster, Etcd, EtcdError, DnsCachingResolver
-from patroni.exceptions import DCSError
-from patroni.utils import Retry
 from urllib3.exceptions import ReadTimeoutError
 
-from . import SleepException, MockResponse, requests_get
+from patroni.dcs import get_dcs
+from patroni.dcs.etcd import AbstractDCS, Cluster, DnsCachingResolver, Etcd, EtcdClient, EtcdError
+from patroni.exceptions import DCSError
+from patroni.postgresql.mpp import get_mpp
+from patroni.utils import Retry
+
+from . import MockResponse, requests_get, SleepException
 
 
 def etcd_watch(self, key, index=None, timeout=None, recursive=None):
@@ -72,7 +77,8 @@ def etcd_read(self, key, **kwargs):
                      "modifiedIndex": 20730, "createdIndex": 20730}],
                  "modifiedIndex": 1581, "createdIndex": 1581},
                 {"key": "/service/batman5/failsafe", "value": '{', "modifiedIndex": 1582, "createdIndex": 1582},
-                {"key": "/service/batman5/status", "value": '{"optime":2164261704,"slots":{"ls":12345}}',
+                {"key": "/service/batman5/status",
+                 "value": '{"optime":2164261704,"slots":{"ls":12345},"retain_slots":["postgresql0","postgresql1"]}',
                  "modifiedIndex": 1582, "createdIndex": 1582}], "modifiedIndex": 1581, "createdIndex": 1581}}
     if key == '/service/legacy/':
         response['node']['nodes'].pop()
@@ -138,8 +144,9 @@ class TestClient(unittest.TestCase):
     @patch.object(EtcdClient, '_get_machines_list',
                   Mock(return_value=['http://localhost:2379', 'http://localhost:4001']))
     def setUp(self):
-        self.etcd = Etcd({'namespace': '/patroni/', 'ttl': 30, 'retry_timeout': 3,
-                          'srv': 'test', 'scope': 'test', 'name': 'foo'})
+        self.etcd = get_dcs({'namespace': '/patroni/', 'ttl': 30, 'retry_timeout': 3,
+                             'etcd': {'srv': 'test'}, 'scope': 'test', 'name': 'foo'})
+        self.assertIsInstance(self.etcd, Etcd)
         self.client = self.etcd._client
         self.client.http.request = http_request
         self.client.http.request_encode_body = http_request
@@ -235,7 +242,7 @@ class TestEtcd(unittest.TestCase):
                   Mock(return_value=['http://localhost:2379', 'http://localhost:4001']))
     def setUp(self):
         self.etcd = Etcd({'namespace': '/patroni/', 'ttl': 30, 'retry_timeout': 10,
-                          'host': 'localhost:2379', 'scope': 'test', 'name': 'foo'})
+                          'host': 'localhost:2379', 'scope': 'test', 'name': 'foo'}, get_mpp({}))
 
     def test_base_path(self):
         self.assertEqual(self.etcd._base_path, '/patroni/test')
@@ -270,7 +277,7 @@ class TestEtcd(unittest.TestCase):
         self.assertRaises(EtcdError, self.etcd.get_cluster)
 
     def test__get_citus_cluster(self):
-        self.etcd._citus_group = '0'
+        self.etcd._mpp = get_mpp({'citus': {'group': 0, 'database': 'postgres'}})
         cluster = self.etcd.get_cluster()
         self.assertIsInstance(cluster, Cluster)
         self.assertIsInstance(cluster.workers[1], Cluster)
@@ -298,15 +305,15 @@ class TestEtcd(unittest.TestCase):
         self.etcd.write_leader_optime('0')
 
     def test_update_leader(self):
-        leader = self.etcd.get_cluster().leader
-        self.assertTrue(self.etcd.update_leader(leader, None, failsafe={'foo': 'bar'}))
+        cluster = self.etcd.get_cluster()
+        self.assertTrue(self.etcd.update_leader(cluster, None, failsafe={'foo': 'bar'}))
         with patch.object(etcd.Client, 'write',
                           Mock(side_effect=[etcd.EtcdConnectionFailed, etcd.EtcdClusterIdChanged, Exception])):
-            self.assertRaises(EtcdError, self.etcd.update_leader, leader, None)
-            self.assertFalse(self.etcd.update_leader(leader, None))
-            self.assertRaises(EtcdError, self.etcd.update_leader, leader, None)
+            self.assertRaises(EtcdError, self.etcd.update_leader, cluster, None)
+            self.assertFalse(self.etcd.update_leader(cluster, None))
+            self.assertRaises(EtcdError, self.etcd.update_leader, cluster, None)
         with patch.object(etcd.Client, 'write', Mock(side_effect=etcd.EtcdKeyNotFound)):
-            self.assertFalse(self.etcd.update_leader(leader, None))
+            self.assertFalse(self.etcd.update_leader(cluster, None))
 
     def test_initialize(self):
         self.assertFalse(self.etcd.initialize())
@@ -341,7 +348,7 @@ class TestEtcd(unittest.TestCase):
         self.assertTrue(self.etcd.watch(None, 1))
 
     def test_sync_state(self):
-        self.assertIsNone(self.etcd.write_sync_state('leader', None))
+        self.assertIsNone(self.etcd.write_sync_state('leader', None, 0))
         self.assertFalse(self.etcd.delete_sync_state())
 
     def test_set_history_value(self):

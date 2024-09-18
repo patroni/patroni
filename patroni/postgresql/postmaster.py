@@ -1,16 +1,17 @@
 import logging
 import multiprocessing
 import os
-import psutil
 import re
 import signal
 import subprocess
 import sys
 
 from multiprocessing.connection import Connection
-from typing import Dict, Optional, List
+from typing import Dict, List, Optional
 
-from patroni import PATRONI_ENV_PREFIX, KUBERNETES_ENV_PREFIX
+import psutil
+
+from patroni import KUBERNETES_ENV_PREFIX, PATRONI_ENV_PREFIX
 
 # avoid spawning the resource tracker process
 if sys.version_info >= (3, 8):  # pragma: no cover
@@ -69,7 +70,7 @@ class PostmasterProcess(psutil.Process):
             start_time = int(self._postmaster_pid.get('start_time', 0))
             if start_time and abs(self.create_time() - start_time) > 3:
                 logger.info('Process %s is not postmaster, too much difference between PID file start time %s and '
-                            'process start time %s', self.pid, self.create_time(), start_time)
+                            'process start time %s', self.pid, start_time, self.create_time())
                 return False
         except ValueError:
             logger.warning('Garbage start time value in pid file: %r', self._postmaster_pid.get('start_time'))
@@ -176,11 +177,15 @@ class PostmasterProcess(psutil.Process):
             return not self.is_running()
 
     def wait_for_user_backends_to_close(self, stop_timeout: Optional[float]) -> None:
-        # These regexps are cross checked against versions PostgreSQL 9.1 .. 15
+        # These regexps are cross checked against versions PostgreSQL 9.1 .. 17
         aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:(?:archiver|startup|autovacuum launcher|autovacuum worker|"
                                  "checkpointer|logger|stats collector|wal receiver|wal writer|writer)(?: process  )?|"
                                  "walreceiver|wal sender process|walsender|walwriter|background writer|"
-                                 "logical replication launcher|logical replication worker for|bgworker:) ")
+                                 "logical replication launcher|logical replication worker for subscription|"
+                                 "logical replication tablesync worker for subscription|"
+                                 "logical replication parallel apply worker for subscription|"
+                                 "logical replication apply worker for subscription|"
+                                 "slotsync worker|walsummarizer|bgworker:) ")
 
         try:
             children = self.children()

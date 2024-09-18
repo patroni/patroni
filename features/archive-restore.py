@@ -1,6 +1,6 @@
 #!/usr/bin/env python
-import os
 import argparse
+import os
 import shutil
 
 if __name__ == "__main__":

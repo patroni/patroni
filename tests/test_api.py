@@ -1,24 +1,24 @@
 import datetime
 import json
-import unittest
 import socket
+import unittest
 
 from http.server import HTTPServer
 from io import BytesIO as IO
-from mock import Mock, PropertyMock, patch
 from socketserver import ThreadingMixIn
+from unittest.mock import Mock, patch, PropertyMock
 
+from patroni import global_config
 from patroni.api import RestApiHandler, RestApiServer
-from patroni.config import GlobalConfig
 from patroni.dcs import ClusterConfig, Member
 from patroni.exceptions import PostgresConnectionException
 from patroni.ha import _MemberStatus
+from patroni.postgresql.config import get_param_diff
 from patroni.psycopg import OperationalError
 from patroni.utils import RetryFailedError, tzutc
 
 from . import MockConnect, psycopg_connect
 from .test_ha import get_cluster_initialized_without_leader
-
 
 future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)
 postmaster_start_time = datetime.datetime.now(tzutc)
@@ -54,13 +54,13 @@ class MockPostgresql:
     major_version = 90600
     sysid = 'dummysysid'
     scope = 'dummy'
-    pending_restart = True
+    pending_restart_reason = {}
     wal_name = 'wal'
     lsn_name = 'lsn'
     wal_flush = '_flush'
     POSTMASTER_START_TIME = 'pg_catalog.pg_postmaster_start_time()'
     TL_LSN = 'CASE WHEN pg_catalog.pg_is_in_recovery()'
-    citus_handler = Mock()
+    mpp_handler = Mock()
 
     @staticmethod
     def postmaster_start_time():
@@ -148,16 +148,9 @@ class MockLogger(object):
     records_lost = 1
 
 
-class MockConfig(object):
-
-    def get_global_config(self, _):
-        return GlobalConfig({})
-
-
 class MockPatroni(object):
 
     ha = MockHa()
-    config = MockConfig()
     postgresql = ha.state_handler
     dcs = Mock()
     logger = MockLogger()
@@ -209,9 +202,9 @@ class TestRestApiHandler(unittest.TestCase):
     _authorization = '\nAuthorization: Basic dGVzdDp0ZXN0'
 
     def test_do_GET(self):
-        MockPatroni.dcs.cluster.last_lsn = 20
-        MockPatroni.dcs.cluster.sync.members = [MockPostgresql.name]
-        with patch.object(GlobalConfig, 'is_synchronous_mode', PropertyMock(return_value=True)):
+        MockPostgresql.pending_restart_reason = {'max_connections': get_param_diff('200', '100')}
+        MockPatroni.dcs.cluster.status.last_lsn = 20
+        with patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /replica')
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M')
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=10MB')
@@ -228,13 +221,17 @@ class TestRestApiHandler(unittest.TestCase):
                           Mock(return_value={'role': 'replica', 'sync_standby': True})):
             MockRestApiServer(RestApiHandler, 'GET /synchronous')
             MockRestApiServer(RestApiHandler, 'GET /read-only-sync')
+        with patch.object(RestApiHandler, 'get_postgresql_status',
+                          Mock(return_value={'role': 'replica', 'quorum_standby': True})):
+            MockRestApiServer(RestApiHandler, 'GET /quorum')
+            MockRestApiServer(RestApiHandler, 'GET /read-only-quorum')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
-            MockPatroni.dcs.cluster.sync.members = []
             MockRestApiServer(RestApiHandler, 'GET /asynchronous')
         with patch.object(MockHa, 'is_leader', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /replica')
             MockRestApiServer(RestApiHandler, 'GET /read-only-sync')
-            with patch.object(GlobalConfig, 'is_standby_cluster', Mock(return_value=True)):
+            MockRestApiServer(RestApiHandler, 'GET /read-only-quorum')
+            with patch.object(global_config.__class__, 'is_standby_cluster', Mock(return_value=True)):
                 MockRestApiServer(RestApiHandler, 'GET /standby_leader')
         MockPatroni.dcs.cluster = None
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'primary'})):
@@ -244,8 +241,8 @@ class TestRestApiHandler(unittest.TestCase):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /primary'))
         with patch.object(RestApiServer, 'query', Mock(return_value=[('', 1, '', '', '', '', False, None, None, '')])):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
-        with patch.object(GlobalConfig, 'is_standby_cluster', Mock(return_value=True)), \
-                patch.object(GlobalConfig, 'is_paused', Mock(return_value=True)):
+        with patch.object(global_config.__class__, 'is_standby_cluster', Mock(return_value=True)), \
+                patch.object(global_config.__class__, 'is_paused', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /standby_leader')
 
         # test tags
@@ -475,7 +472,7 @@ class TestRestApiHandler(unittest.TestCase):
                 request = make_request(role='primary', postgres_version='9.5.2')
                 MockRestApiServer(RestApiHandler, request)
 
-        with patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)):
+        with patch.object(global_config.__class__, 'is_paused', PropertyMock(return_value=True)):
             MockRestApiServer(RestApiHandler, make_request(schedule='2016-08-42 12:45TZ+1', role='primary'))
             # Valid timeout
             MockRestApiServer(RestApiHandler, make_request(timeout='60s'))
@@ -537,7 +534,7 @@ class TestRestApiHandler(unittest.TestCase):
 
         # Switchover in pause mode
         with patch.object(RestApiHandler, 'write_response') as response_mock, \
-             patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)):
+             patch.object(global_config.__class__, 'is_paused', PropertyMock(return_value=True)):
             MockRestApiServer(RestApiHandler, request)
             response_mock.assert_called_with(
                 400, 'Switchover is possible only to a specific candidate in a paused state')
@@ -546,7 +543,8 @@ class TestRestApiHandler(unittest.TestCase):
         for is_synchronous_mode, response in (
                 (True, 'switchover is not possible: can not find sync_standby'),
                 (False, 'switchover is not possible: cluster does not have members except leader')):
-            with patch.object(GlobalConfig, 'is_synchronous_mode', PropertyMock(return_value=is_synchronous_mode)), \
+            with patch.object(global_config.__class__, 'is_synchronous_mode',
+                              PropertyMock(return_value=is_synchronous_mode)), \
                  patch.object(RestApiHandler, 'write_response') as response_mock:
                 MockRestApiServer(RestApiHandler, request)
                 response_mock.assert_called_with(412, response)
@@ -571,7 +569,8 @@ class TestRestApiHandler(unittest.TestCase):
         cluster.sync.matches.return_value = False
         for is_synchronous_mode, response in (
                 (True, 'candidate name does not match with sync_standby'), (False, 'candidate does not exists')):
-            with patch.object(GlobalConfig, 'is_synchronous_mode', PropertyMock(return_value=is_synchronous_mode)), \
+            with patch.object(global_config.__class__, 'is_synchronous_mode',
+                              PropertyMock(return_value=is_synchronous_mode)), \
                  patch.object(RestApiHandler, 'write_response') as response_mock:
                 MockRestApiServer(RestApiHandler, request)
                 response_mock.assert_called_with(412, response)
@@ -632,7 +631,7 @@ class TestRestApiHandler(unittest.TestCase):
 
         # Schedule in paused mode
         with patch.object(RestApiHandler, 'write_response') as response_mock, \
-             patch.object(GlobalConfig, 'is_paused', PropertyMock(return_value=True)):
+             patch.object(global_config.__class__, 'is_paused', PropertyMock(return_value=True)):
             dcs.manual_failover.return_value = False
             MockRestApiServer(RestApiHandler, request)
             response_mock.assert_called_with(400, "Can't schedule switchover in the paused state")
@@ -675,6 +674,12 @@ class TestRestApiHandler(unittest.TestCase):
     @patch.object(MockHa, 'is_leader', Mock(return_value=True))
     def test_do_POST_citus(self):
         post = 'POST /citus HTTP/1.0' + self._authorization + '\nContent-Length: '
+        MockRestApiServer(RestApiHandler, post + '0\n\n')
+        MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
+
+    @patch.object(MockHa, 'is_leader', Mock(return_value=True))
+    def test_do_POST_mpp(self):
+        post = 'POST /mpp HTTP/1.0' + self._authorization + '\nContent-Length: '
         MockRestApiServer(RestApiHandler, post + '0\n\n')
         MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
 

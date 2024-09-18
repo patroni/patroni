@@ -9,13 +9,66 @@ import os
 import shutil
 import socket
 
-from typing import Any, Dict, Union, Iterator, List, Optional as OptionalType, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Iterator, List, Optional as OptionalType, Tuple, TYPE_CHECKING, Union
 
-from .collections import CaseInsensitiveSet
-
+from .collections import CaseInsensitiveSet, EMPTY_DICT
 from .dcs import dcs_modules
 from .exceptions import ConfigParseError
-from .utils import parse_int, split_host_port, data_directory_is_empty, get_major_version
+from .log import type_logformat
+from .utils import data_directory_is_empty, get_major_version, parse_int, split_host_port
+
+# Additional parameters to fine-tune validation process
+_validation_params: Dict[str, Any] = {}
+
+
+def populate_validate_params(ignore_listen_port: bool = False) -> None:
+    """Populate parameters used to fine-tune the validation of the Patroni config.
+
+    :param ignore_listen_port: ignore the bind failures for the ports marked as `listen`.
+    """
+    _validation_params['ignore_listen_port'] = ignore_listen_port
+
+
+def validate_log_field(field: Union[str, Dict[str, Any], Any]) -> bool:
+    """Checks if log field is valid.
+
+    :param field: A log field to be validated.
+
+    :returns: ``True`` if the field is either a string or a dictionary with exactly one key
+              that has string value, ``False`` otherwise.
+    """
+    if isinstance(field, str):
+        return True
+    elif isinstance(field, dict):
+        return len(field) == 1 and isinstance(next(iter(field.values())), str)
+    return False
+
+
+def validate_log_format(logformat: type_logformat) -> bool:
+    """Checks if log format is valid.
+
+    :param logformat: A log format to be validated.
+
+    :returns: ``True`` if the log format is either a string or a list of valid log fields.
+
+    :raises:
+        :exc:`~patroni.exceptions.ConfigParseError`:
+            * If the logformat is not a string or a list; or
+            * If the logformat is an empty list; or
+            * If the log format is a list and it with values that don't pass validation using
+              :func:`validate_log_field`.
+    """
+    if isinstance(logformat, str):
+        return True
+    elif isinstance(logformat, list):
+        if len(logformat) == 0:
+            raise ConfigParseError('should contain at least one item')
+        if not all(map(validate_log_field, logformat)):
+            raise ConfigParseError('each item should be a string or a dictionary with string values')
+
+        return True
+    else:
+        raise ConfigParseError('Should be a string or a list')
 
 
 def data_directory_empty(data_dir: str) -> bool:
@@ -91,11 +144,12 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
         for host in hosts:
             # Check if "socket.IF_INET" or "socket.IF_INET6" is being used and instantiate a socket with the identified
             # protocol
-            proto = socket.getaddrinfo(host, "", 0, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
+            proto = socket.getaddrinfo(host, None, 0, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
             s = socket.socket(proto[0][0], socket.SOCK_STREAM)
             try:
                 if s.connect_ex((host, port)) == 0:
-                    if listen:
+                    # Do not raise an exception if ignore_listen_port is set to True.
+                    if listen and not _validation_params.get('ignore_listen_port', False):
                         raise ConfigParseError("Port {} is already in use.".format(port))
                 elif not listen:
                     raise ConfigParseError("{} is not reachable".format(host_port))
@@ -202,7 +256,7 @@ def get_bin_name(bin_name: str) -> str:
     """
     if TYPE_CHECKING:  # pragma: no cover
         assert isinstance(schema.data, dict)
-    return (schema.data.get('postgresql', {}).get('bin_name', {}) or {}).get(bin_name, bin_name)
+    return (schema.data.get('postgresql', {}).get('bin_name', {}) or EMPTY_DICT).get(bin_name, bin_name)
 
 
 def validate_data_dir(data_dir: str) -> bool:
@@ -937,6 +991,21 @@ validate_etcd = {
 schema = Schema({
     "name": str,
     "scope": str,
+    Optional("log"): {
+        Optional("type"): EnumValidator(('plain', 'json'), case_sensitive=True, raise_assert=True),
+        Optional("level"): EnumValidator(('DEBUG', 'INFO', 'WARN', 'WARNING', 'ERROR', 'FATAL', 'CRITICAL'),
+                                         case_sensitive=True, raise_assert=True),
+        Optional("traceback_level"): EnumValidator(('DEBUG', 'ERROR'), raise_assert=True),
+        Optional("format"): validate_log_format,
+        Optional("dateformat"): str,
+        Optional("static_fields"): dict,
+        Optional("max_queue_size"): int,
+        Optional("dir"): str,
+        Optional("file_num"): int,
+        Optional("file_size"): int,
+        Optional("mode"): IntValidator(min=0, max=511, expected_type=int, raise_assert=True),
+        Optional("loggers"): dict
+    },
     Optional("ctl"): {
         Optional("insecure"): bool,
         Optional("cacert"): str,
@@ -971,6 +1040,7 @@ schema = Schema({
             Optional("retry_timeout"): IntValidator(min=3, raise_assert=True),
             Optional("maximum_lag_on_failover"): IntValidator(min=0, raise_assert=True),
             Optional("maximum_lag_on_syncnode"): IntValidator(min=-1, raise_assert=True),
+            Optional('member_slots_ttl'): IntValidator(min=0, base_unit='s', raise_assert=True),
             Optional("postgresql"): {
                 Optional("parameters"): {
                     Optional("max_connections"): IntValidator(1, 262143, raise_assert=True),
@@ -1050,7 +1120,8 @@ schema = Schema({
             Optional("key"): str,
             Optional("key_password"): str,
             Optional("verify"): bool,
-            Optional("set_acls"): dict
+            Optional("set_acls"): dict,
+            Optional("auth_data"): dict,
         },
         "kubernetes": {
             "labels": {},
@@ -1114,6 +1185,7 @@ schema = Schema({
         Optional("clonefrom"): bool,
         Optional("noloadbalance"): bool,
         Optional("replicatefrom"): str,
-        Optional("nosync"): bool
+        Optional("nosync"): bool,
+        Optional("nostream"): bool
     }
 })

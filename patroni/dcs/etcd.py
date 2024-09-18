@@ -1,31 +1,36 @@
 from __future__ import absolute_import
+
 import abc
-import etcd
 import json
 import logging
 import os
-import urllib3.util.connection
 import random
 import socket
 import time
 
 from collections import defaultdict
 from copy import deepcopy
-from dns.exception import DNSException
-from dns import resolver
 from http.client import HTTPException
 from queue import Queue
 from threading import Thread
-from typing import Any, Callable, Collection, Dict, List, Optional, Union, Tuple, Type, TYPE_CHECKING
+from typing import Any, Callable, Collection, Dict, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 from urllib.parse import urlparse
-from urllib3 import Timeout
-from urllib3.exceptions import HTTPError, ReadTimeoutError, ProtocolError
 
-from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, \
-    TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
+import etcd
+import urllib3.util.connection
+
+from dns import resolver
+from dns.exception import DNSException
+from urllib3 import Timeout
+from urllib3.exceptions import HTTPError, ProtocolError, ReadTimeoutError
+
 from ..exceptions import DCSError
+from ..postgresql.mpp import AbstractMPP
 from ..request import get as requests_get
 from ..utils import Retry, RetryFailedError, split_host_port, uri, USER_AGENT
+from . import AbstractDCS, catch_return_false_exception, Cluster, ClusterConfig, \
+    Failover, Leader, Member, ReturnFalseException, Status, SyncState, TimelineHistory
+
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
 
@@ -470,9 +475,9 @@ class EtcdClient(AbstractEtcdClientWithFailover):
 
 class AbstractEtcd(AbstractDCS):
 
-    def __init__(self, config: Dict[str, Any], client_cls: Type[AbstractEtcdClientWithFailover],
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP, client_cls: Type[AbstractEtcdClientWithFailover],
                  retry_errors_cls: Union[Type[Exception], Tuple[Type[Exception], ...]]) -> None:
-        super(AbstractEtcd, self).__init__(config)
+        super(AbstractEtcd, self).__init__(config, mpp)
         self._retry = Retry(deadline=config['retry_timeout'], max_delay=1, max_tries=-1,
                             retry_exceptions=retry_errors_cls)
         self._ttl = int(config.get('ttl') or 30)
@@ -645,8 +650,8 @@ def catch_etcd_errors(func: Callable[..., Any]) -> Any:
 
 class Etcd(AbstractEtcd):
 
-    def __init__(self, config: Dict[str, Any]) -> None:
-        super(Etcd, self).__init__(config, EtcdClient, (etcd.EtcdLeaderElectionInProgress, EtcdRaftInternal))
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
+        super(Etcd, self).__init__(config, mpp, EtcdClient, (etcd.EtcdLeaderElectionInProgress, EtcdRaftInternal))
         self.__do_not_watch = False
 
     @property
@@ -709,7 +714,13 @@ class Etcd(AbstractEtcd):
 
         return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
-    def _cluster_loader(self, path: str) -> Cluster:
+    def _postgresql_cluster_loader(self, path: str) -> Cluster:
+        """Load and build the :class:`Cluster` object from DCS, which represents a single PostgreSQL cluster.
+
+        :param path: the path in DCS where to load :class:`Cluster` from.
+
+        :returns: :class:`Cluster` instance.
+        """
         try:
             result = self.retry(self._client.read, path, recursive=True, quorum=self._ctl)
         except etcd.EtcdKeyNotFound:
@@ -717,7 +728,13 @@ class Etcd(AbstractEtcd):
         nodes = {node.key[len(result.key):].lstrip('/'): node for node in result.leaves}
         return self._cluster_from_nodes(result.etcd_index, nodes)
 
-    def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+    def _mpp_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+        """Load and build all PostgreSQL clusters from a single MPP cluster.
+
+        :param path: the path in DCS where to load Cluster(s) from.
+
+        :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
+        """
         try:
             result = self.retry(self._client.read, path, recursive=True, quorum=self._ctl)
         except etcd.EtcdKeyNotFound:
@@ -726,7 +743,7 @@ class Etcd(AbstractEtcd):
         clusters: Dict[int, Dict[str, etcd.EtcdResult]] = defaultdict(dict)
         for node in result.leaves:
             key = node.key[len(result.key):].lstrip('/').split('/', 1)
-            if len(key) == 2 and citus_group_re.match(key[0]):
+            if len(key) == 2 and self._mpp.group_re.match(key[0]):
                 clusters[int(key[0])][key[1]] = node
         return {group: self._cluster_from_nodes(result.etcd_index, nodes) for group, nodes in clusters.items()}
 

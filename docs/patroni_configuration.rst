@@ -62,7 +62,6 @@ There are some other Postgres parameters controlled by Patroni:
 - **port** - is set either from ``postgresql.listen`` or from ``PATRONI_POSTGRESQL_LISTEN`` environment variable
 - **cluster_name** - is set either from ``scope`` or from ``PATRONI_SCOPE`` environment variable
 - **hot_standby: on**
-- **wal_log_hints: on** - for Postgres 9.4 and newer.
 
 To be on the safe side parameters from the above lists are not written into ``postgresql.conf``, but passed as a list of arguments to the ``pg_ctl start`` which gives them the highest precedence, even above `ALTER SYSTEM <https://www.postgresql.org/docs/current/static/sql-altersystem.html>`__
 
@@ -239,7 +238,7 @@ Validate Patroni configuration
 
 .. code:: text
 
-   patroni --validate-config [configfile]
+   patroni --validate-config [configfile] [--ignore-listen-port | -i]
 
 Description
 """""""""""
@@ -251,3 +250,6 @@ Parameters
 
 ``configfile``
     Full path to the configuration file to check. If not given or file does not exist, will try to read from the ``PATRONI_CONFIG_VARIABLE`` environment variable or, if not set, from the :ref:`Patroni environment variables <environment>`.
+
+``--ignore-listen-port | -i``
+    Optional flag to ignore bind failures for ``listen`` ports that are already in use when validating the ``configfile``.

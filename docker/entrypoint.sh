@@ -13,6 +13,8 @@ readonly PATRONI_NAMESPACE="${PATRONI_NAMESPACE%/}"
 DOCKER_IP=$(hostname --ip-address)
 readonly DOCKER_IP
 
+export DUMB_INIT_SETSID=0
+
 case "$1" in
     haproxy)
         haproxy -f /etc/haproxy/haproxy.cfg -p /var/run/haproxy.pid -D
@@ -36,7 +38,7 @@ EOT
         exec dumb-init "$@"
         ;;
     etcd)
-        exec "$@" -advertise-client-urls "http://$DOCKER_IP:2379"
+        exec "$@" --auto-compaction-retention=1 -advertise-client-urls "http://$DOCKER_IP:2379"
         ;;
     zookeeper)
         exec /usr/share/zookeeper/bin/zkServer.sh start-foreground
@@ -72,4 +74,4 @@ export PATRONI_SUPERUSER_SSLKEY="${PATRONI_SUPERUSER_SSLKEY:-$PGSSLKEY}"
 export PATRONI_SUPERUSER_SSLCERT="${PATRONI_SUPERUSER_SSLCERT:-$PGSSLCERT}"
 export PATRONI_SUPERUSER_SSLROOTCERT="${PATRONI_SUPERUSER_SSLROOTCERT:-$PGSSLROOTCERT}"
 
-exec python3 /patroni.py postgres0.yml
+exec dumb-init python3 /patroni.py postgres0.yml

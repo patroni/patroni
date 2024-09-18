@@ -1,35 +1,35 @@
 import datetime
 import os
-import psutil
 import re
 import subprocess
 import time
 
 from copy import deepcopy
-from mock import Mock, MagicMock, PropertyMock, patch, mock_open
+from pathlib import Path
+from threading import current_thread, Thread
+from unittest.mock import MagicMock, Mock, mock_open, patch, PropertyMock
+
+import psutil
 
 import patroni.psycopg as psycopg
 
+from patroni import global_config
 from patroni.async_executor import CriticalTask
-from patroni.collections import CaseInsensitiveSet
-from patroni.config import GlobalConfig
+from patroni.collections import CaseInsensitiveDict
 from patroni.dcs import RemoteMember
-from patroni.exceptions import PostgresConnectionException, PatroniException
-from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
+from patroni.exceptions import PatroniException, PostgresConnectionException
+from patroni.postgresql import Postgresql, STATE_NO_RESPONSE, STATE_REJECT
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
-from patroni.postgresql.config import _false_validator
+from patroni.postgresql.config import _false_validator, get_param_diff
 from patroni.postgresql.postmaster import PostmasterProcess
-from patroni.postgresql.validator import (ValidatorFactoryNoType, ValidatorFactoryInvalidType,
-                                          ValidatorFactoryInvalidSpec, ValidatorFactory, InvalidGucValidatorsFile,
-                                          _get_postgres_guc_validators, _read_postgres_gucs_validators_file,
-                                          _load_postgres_gucs_validators, Bool, Integer, Real, Enum, EnumBool, String)
+from patroni.postgresql.validator import _get_postgres_guc_validators, _load_postgres_gucs_validators, \
+    _read_postgres_gucs_validators_file, Bool, Enum, EnumBool, Integer, InvalidGucValidatorsFile, \
+    Real, String, transform_postgresql_parameter_value, ValidatorFactory, ValidatorFactoryInvalidSpec, \
+    ValidatorFactoryInvalidType, ValidatorFactoryNoType
 from patroni.utils import RetryFailedError
-from threading import Thread, current_thread
 
-from . import (BaseTestPostgresql, MockCursor, MockPostmaster, psycopg_connect, mock_available_gucs,
-               GET_PG_SETTINGS_RESULT)
-
+from . import BaseTestPostgresql, GET_PG_SETTINGS_RESULT, MockCursor, MockPostmaster, psycopg_connect
 
 mtime_ret = {}
 
@@ -98,8 +98,8 @@ Data page checksum version:           0
 
 
 @patch('subprocess.call', Mock(return_value=0))
+@patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
 @patch('patroni.psycopg.connect', psycopg_connect)
-@patch.object(Postgresql, 'available_gucs', mock_available_gucs)
 class TestPostgresql(BaseTestPostgresql):
 
     @patch('subprocess.call', Mock(return_value=0))
@@ -107,7 +107,6 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
-    @patch.object(Postgresql, 'available_gucs', mock_available_gucs)
     def setUp(self):
         super(TestPostgresql, self).setUp()
         self.p.config.write_postgresql_conf()
@@ -263,6 +262,10 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.config.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo'})
         self.p.config.write_pgpass({'host': 'localhost', 'port': '5432', 'user': 'foo', 'password': 'bar'})
 
+    def test__pgpass_content(self):
+        pgpass = self.p.config._pgpass_content({'host': '/tmp', 'port': '5432', 'user': 'foo', 'password': 'bar'})
+        self.assertEqual(pgpass, "/tmp:5432:*:foo:bar\nlocalhost:5432:*:foo:bar\n")
+
     def test_checkpoint(self):
         with patch.object(MockCursor, 'fetchone', Mock(return_value=(True, ))):
             self.assertEqual(self.p.checkpoint({'user': 'postgres'}), 'is_in_recovery=true')
@@ -293,7 +296,7 @@ class TestPostgresql(BaseTestPostgresql):
             mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '1'
             self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
             mock_get_pg_settings.return_value['primary_conninfo'][1] = 'host=1 target_session_attrs=read-write'\
-                + ' passfile=' + re.sub(r'([\'\\ ])', r'\\\1', self.p.config._pgpass)
+                + ' dbname=postgres passfile=' + re.sub(r'([\'\\ ])', r'\\\1', self.p.config._pgpass)
             mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '0'
             self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
             self.p.config.write_recovery_conf({'standby_mode': 'on', 'primary_conninfo': conninfo.copy()})
@@ -363,7 +366,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, 'start', Mock())
     def test_follow(self):
         self.p.call_nowait(CallbackAction.ON_START)
-        m = RemoteMember('1', {'restore_command': '2', 'primary_slot_name': 'foo', 'conn_kwargs': {'host': 'bar'}})
+        m = RemoteMember('1', {'restore_command': '2', 'primary_slot_name': 'foo', 'conn_kwargs': {'host': 'foo,bar'}})
         self.p.follow(m)
         with patch.object(Postgresql, 'ensure_major_version_is_known', Mock(return_value=False)):
             self.assertIsNone(self.p.follow(m))
@@ -530,9 +533,16 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertEqual(self.p.controldata(), {})
 
     @patch('patroni.postgresql.Postgresql._version_file_exists', Mock(return_value=True))
-    @patch('subprocess.check_output', MagicMock(return_value=0, side_effect=pg_controldata_string))
     def test_sysid(self):
-        self.assertEqual(self.p.sysid, "6200971513092291716")
+        with patch('subprocess.check_output', Mock(return_value=0, side_effect=pg_controldata_string)):
+            self.assertEqual(self.p.sysid, "6200971513092291716")
+
+    def test_pg_version(self):
+        self.assertEqual(self.p.config.pg_version, 99999)  # server_version
+        with patch.object(Postgresql, 'server_version', PropertyMock(side_effect=AttributeError)):
+            self.assertEqual(self.p.config.pg_version, 140000)  # PG_VERSION==14, postgres --version == 12.1
+            with patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 14.1")):
+                self.assertEqual(self.p.config.pg_version, 140001)
 
     @patch('os.path.isfile', Mock(return_value=True))
     @patch('shutil.copy', Mock(side_effect=IOError))
@@ -571,7 +581,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.reload_config(config)
         mock_info.assert_called_once_with('No PostgreSQL configuration items changed, nothing to reload.')
         mock_warning.assert_not_called()
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
         mock_info.reset_mock()
 
@@ -579,7 +589,7 @@ class TestPostgresql(BaseTestPostgresql):
         config['parameters']['archive_cleanup_command'] = 'blabla'
         self.p.reload_config(config)
         mock_info.assert_called_once_with('No PostgreSQL configuration items changed, nothing to reload.')
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
         mock_info.reset_mock()
 
@@ -587,7 +597,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.config._config['parameters']['wal_buffers'] = '512'
         self.p.reload_config(config)
         mock_info.assert_called_once_with('No PostgreSQL configuration items changed, nothing to reload.')
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
         mock_info.reset_mock()
         config = deepcopy(self.p.config._config)
@@ -597,51 +607,60 @@ class TestPostgresql(BaseTestPostgresql):
         config['pg_ident'] = ['']
         self.p.reload_config(config)
         mock_info.assert_called_once_with('Reloading PostgreSQL configuration.')
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
         mock_info.reset_mock()
 
         # Postmaster parameter change (pending_restart)
         init_max_worker_processes = config['parameters']['max_worker_processes']
         config['parameters']['max_worker_processes'] *= 2
-        with patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[GET_PG_SETTINGS_RESULT, [(1,)]])):
+        new_max_worker_processes = config['parameters']['max_worker_processes']
+        # stale reason to be removed
+        self.p._pending_restart_reason = CaseInsensitiveDict({'max_connections': get_param_diff('200', '100')})
+
+        with patch.object(Postgresql, 'get_guc_value', Mock(return_value=str(new_max_worker_processes))), \
+             patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[
+                 GET_PG_SETTINGS_RESULT, [('max_worker_processes', str(init_max_worker_processes), None, 'integer')]])):
             self.p.reload_config(config)
-            self.assertEqual(mock_info.call_args_list[0][0], ('Changed %s from %s to %s (restart might be required)',
-                                                              'max_worker_processes', str(init_max_worker_processes),
-                                                              config['parameters']['max_worker_processes']))
+            self.assertEqual(mock_info.call_args_list[0][0],
+                             ("Changed %s from '%s' to '%s' (restart might be required)", 'max_worker_processes',
+                              str(init_max_worker_processes), config['parameters']['max_worker_processes']))
             self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
-            self.assertEqual(self.p.pending_restart, True)
+            self.assertEqual(self.p.pending_restart_reason,
+                             CaseInsensitiveDict({'max_worker_processes': get_param_diff(init_max_worker_processes,
+                                                                                         new_max_worker_processes)}))
 
         mock_info.reset_mock()
 
         # Reset to the initial value without restart
         config['parameters']['max_worker_processes'] = init_max_worker_processes
         self.p.reload_config(config)
-        self.assertEqual(mock_info.call_args_list[0][0], ('Changed %s from %s to %s', 'max_worker_processes',
+        self.assertEqual(mock_info.call_args_list[0][0], ("Changed %s from '%s' to '%s'", 'max_worker_processes',
                                                           init_max_worker_processes * 2,
-                                                          str(config['parameters']['max_worker_processes'])))
+                                                          config['parameters']['max_worker_processes']))
         self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
         mock_info.reset_mock()
 
         # User-defined parameter changed (removed)
         config['parameters'].pop('f.oo')
         self.p.reload_config(config)
-        self.assertEqual(mock_info.call_args_list[0][0], ('Changed %s from %s to %s', 'f.oo', 'bar', None))
+        self.assertEqual(mock_info.call_args_list[0][0], ("Changed %s from '%s' to '%s'", 'f.oo', 'bar', None))
         self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
         mock_info.reset_mock()
 
         # Non-postmaster parameter change
-        config['parameters']['autovacuum'] = 'off'
+        config['parameters']['vacuum_cost_delay'] = 2.5
         self.p.reload_config(config)
-        self.assertEqual(mock_info.call_args_list[0][0], ("Changed %s from %s to %s", 'autovacuum', 'on', 'off'))
+        self.assertEqual(mock_info.call_args_list[0][0],
+                         ("Changed %s from '%s' to '%s'", 'vacuum_cost_delay', '200ms', 2.5))
         self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
-        self.assertEqual(self.p.pending_restart, False)
+        self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
-        config['parameters']['autovacuum'] = 'on'
+        config['parameters']['vacuum_cost_delay'] = 200
         mock_info.reset_mock()
 
         # Remove invalid parameter
@@ -654,13 +673,35 @@ class TestPostgresql(BaseTestPostgresql):
         mock_warning.reset_mock()
         mock_info.reset_mock()
 
-        # Non-empty result (outside changes) and exception while querying pending_restart parameters
-        with patch('patroni.postgresql.Postgresql._query',
-                   Mock(side_effect=[GET_PG_SETTINGS_RESULT, [(1,)], GET_PG_SETTINGS_RESULT, Exception])):
+        # Non-empty result (outside changes)
+        with patch.object(Postgresql, 'get_guc_value', Mock(side_effect=['73', None, ''])), \
+             patch('patroni.postgresql.Postgresql._query',
+                   Mock(side_effect=[GET_PG_SETTINGS_RESULT, [('shared_buffers', '128MB', '8kB', 'integer')]] * 3)):
+            # pg_settings shared_buffers (current value) == 128MB (16384)
+            # Patroni config shared_buffers == 42MB (should not end up in the restart reason diff)
+            # get_guc_value (will be used after restart) == 73 (584kB)
+            config['parameters']['shared_buffers'] = '42MB'
             self.p.reload_config(config, True)
-            self.assertEqual(mock_info.call_args_list[0][0], ('Reloading PostgreSQL configuration.',))
-            self.assertEqual(self.p.pending_restart, True)
+            self.assertEqual(mock_info.call_args_list[0][0],
+                             ("Changed %s from '%s' to '%s' (restart might be required)",
+                              'shared_buffers', '128MB', '42MB'))
+            self.assertEqual(mock_info.call_args_list[1][0], ('Reloading PostgreSQL configuration.',))
+            self.assertEqual(mock_info.call_args_list[2][0], ("PostgreSQL configuration parameters requiring restart"
+                                                              " (%s) seem to be changed bypassing Patroni config."
+                                                              " Setting 'Pending restart' flag", 'shared_buffers'))
+            self.assertEqual(self.p.pending_restart_reason,
+                             CaseInsensitiveDict({'shared_buffers': get_param_diff('128MB', '584kB')}))
 
+            self.p.reload_config(config, True)
+            self.assertEqual(self.p.pending_restart_reason,
+                             CaseInsensitiveDict({'shared_buffers': get_param_diff('128MB', '?')}))
+
+            self.p.reload_config(config, True)
+            self.assertEqual(self.p.pending_restart_reason,
+                             CaseInsensitiveDict({'shared_buffers': get_param_diff('128MB', '')}))
+
+        # Exception while querying pending_restart parameters
+        with patch('patroni.postgresql.Postgresql._query', Mock(side_effect=[GET_PG_SETTINGS_RESULT, Exception])):
             # Invalid values, just to increase silly coverage in postgresql.validator.
             # One day we will have proper tests there.
             config['parameters']['autovacuum'] = 'of'  # Bool.transform()
@@ -775,12 +816,12 @@ class TestPostgresql(BaseTestPostgresql):
 
     def test_get_server_parameters(self):
         config = {'parameters': {'wal_level': 'hot_standby', 'max_prepared_transactions': 100}, 'listen': '0'}
-        self.p._global_config = GlobalConfig({'synchronous_mode': True})
-        self.p.config.get_server_parameters(config)
-        self.p._global_config = GlobalConfig({'synchronous_mode': True, 'synchronous_mode_strict': True})
-        self.p.config.get_server_parameters(config)
-        self.p.config.set_synchronous_standby_names('foo')
-        self.assertTrue(str(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
+        with patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True)):
+            self.p.config.get_server_parameters(config)
+            with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
+                self.p.config.get_server_parameters(config)
+                self.p.config.set_synchronous_standby_names('foo')
+                self.assertTrue(str(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
 
     @patch('time.sleep', Mock())
     def test__wait_for_connection_close(self):
@@ -818,7 +859,7 @@ class TestPostgresql(BaseTestPostgresql):
              patch.object(Bootstrap, 'keep_existing_recovery_conf', PropertyMock(return_value=True)):
             self.p.cancellable.cancel()
             self.assertFalse(self.p.start())
-            self.assertFalse(self.p.pending_restart)
+            self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
             mock_logger.warning.assert_called_once()
             self.assertEqual(mock_logger.warning.call_args[0],
                              ('%s is missing from pg_controldata output', 'max_prepared_xacts setting'))
@@ -831,7 +872,14 @@ class TestPostgresql(BaseTestPostgresql):
             self.p.config.write_recovery_conf({'pause_at_recovery_target': 'false'})
             self.assertFalse(self.p.start())
             mock_logger.warning.assert_not_called()
-            self.assertTrue(self.p.pending_restart)
+            self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict({
+                'max_wal_senders': get_param_diff('10', '5')
+            }))
+            mock_logger.info.assert_called_once()
+            self.assertEqual(mock_logger.info.call_args[0],
+                             ("%s value in pg_controldata: %d, in the global configuration: %d."
+                              " pg_controldata value will be used. Setting 'Pending restart' flag",
+                              'max_wal_senders', 10, 5))
 
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.path.isfile', Mock(return_value=False))
@@ -857,6 +905,32 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=True))
     def test_handle_parameter_change(self):
         self.p.handle_parameter_change()
+
+    @patch('patroni.postgresql.validator.logger.warning')
+    def test_transform_postgresql_parameter_value(self, mock_warning):
+        not_none_values = (
+            ('foo.bar', 'foo', 160003),  # name, value, version
+            ("allow_in_place_tablespaces", 'true', 130008),
+            ("restrict_nonsystem_relation_kind", 'view', 160005)
+        )
+        for i in not_none_values:
+            self.assertIsNotNone(
+                transform_postgresql_parameter_value(i[2], i[0], i[1])
+            )
+
+        none_values = (
+            ("archive_cleanup_command", 'foo', 160003, False),  # name, value, version, unexpected param
+            ("allow_in_place_tablespaces", 'true', 130005, True),
+            ("restrict_nonsystem_relation_kind", 'view', 160001, True),
+        )
+        for i in none_values:
+            self.assertIsNone(
+                transform_postgresql_parameter_value(i[2], i[0], i[1])
+            )
+            if i[3]:
+                mock_warning.assert_called_once_with(
+                    'Removing unexpected parameter=%s value=%s from the config', i[0], i[1])
+            mock_warning.reset_mock()
 
     def test_validator_factory(self):
         # validator with no type
@@ -1026,7 +1100,7 @@ class TestPostgresql(BaseTestPostgresql):
     def test__read_postgres_gucs_validators_file(self):
         # raise exception
         with self.assertRaises(InvalidGucValidatorsFile) as exc:
-            _read_postgres_gucs_validators_file('random_file.yaml')
+            _read_postgres_gucs_validators_file(Path('random_file.yaml'))
         self.assertEqual(
             str(exc.exception),
             "Unexpected issue while reading parameters file `random_file.yaml`: `[Errno 2] No such file or directory: "
@@ -1035,17 +1109,35 @@ class TestPostgresql(BaseTestPostgresql):
 
     def test__load_postgres_gucs_validators(self):
         # log messages
-        with patch('os.walk', Mock(return_value=iter([('.', [], ['file.txt', 'random.yaml'])]))), \
-             patch('patroni.postgresql.validator.logger.info') as mock_info, \
+        file1_attrs = {'is_file.return_value': True, 'is_dir.return_value': False}
+        file1_mock = MagicMock(**file1_attrs)
+        file1_mock.name = '__init__.py'
+        file2_attrs = {'is_file.return_value': False, 'is_dir.return_value': True,
+                       'iterdir.side_effect': PermissionError(13, 'Permission denied')}
+        file2_mock = MagicMock(**file2_attrs)
+        file2_mock.name = '__pycache__'
+        file3_attrs = {'is_file.return_value': True, 'is_dir.return_value': False}
+        file3_mock = MagicMock(**file3_attrs)
+        file3_mock.name = file3_mock.__str__.return_value = 'random.yaml'
+        file3_mock.open.side_effect = FileNotFoundError('[Errno 2] No such file or directory: random.yaml')
+        file4_attrs = {'is_file.return_value': True, 'is_dir.return_value': False}
+        file4_mock = MagicMock(**file4_attrs)
+        file4_mock.name = 'file.txt'
+        dir_attrs = {'name': 'available_parameters', 'is_file.return_value': False, 'is_dir.return_value': True}
+        dir_mock = MagicMock(**dir_attrs)
+        dir_mock.iterdir.return_value = [file1_mock, file2_mock, file3_mock, file4_mock]
+        with patch('patroni.postgresql.available_parameters.conf_dir', dir_mock), \
+             patch('patroni.postgresql.available_parameters.logger.debug') as mock_debug, \
+             patch('patroni.postgresql.available_parameters.logger.info') as mock_info, \
              patch('patroni.postgresql.validator.logger.warning') as mock_warning:
             _load_postgres_gucs_validators()
-            mock_info.assert_called_once_with('Ignored a non-YAML file found under `available_parameters` directory: '
-                                              '`%s`.', os.path.join('.', 'file.txt'))
+            self.assertEqual(mock_debug.call_args[0][0], "Can't list directory %s: %r")
+            mock_info.assert_called_once_with('Ignored a non-YAML file found under `%s` '
+                                              'directory: `%s`.', 'available_parameters', file4_mock)
             mock_warning.assert_called_once()
             self.assertIn(
-                "Unexpected issue while reading parameters file `{0}`: `[Errno 2] No such file or "
-                "directory:".format(os.path.join('.', 'random.yaml')),
-                mock_warning.call_args[0][0]
+                "Unexpected issue while reading parameters file `random.yaml`: `[Errno 2] No such file or "
+                "directory:", mock_warning.call_args[0][0]
             )
 
 
@@ -1061,12 +1153,6 @@ class TestPostgresql2(BaseTestPostgresql):
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     def setUp(self):
         super(TestPostgresql2, self).setUp()
-
-    @patch('subprocess.check_output', Mock(return_value='\n'.join(mock_available_gucs.return_value).encode('utf-8')))
-    def test_available_gucs(self):
-        gucs = self.p.available_gucs
-        self.assertIsInstance(gucs, CaseInsensitiveSet)
-        self.assertEqual(gucs, mock_available_gucs.return_value)
 
     def test_cluster_info_query(self):
         self.assertIn('diff(pg_catalog.pg_current_wal_flush_lsn(', self.p.cluster_info_query)

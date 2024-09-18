@@ -4,9 +4,10 @@ import shlex
 import tempfile
 import time
 
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
 
 from ..async_executor import CriticalTask
+from ..collections import EMPTY_DICT
 from ..dcs import Leader, Member, RemoteMember
 from ..psycopg import quote_ident, quote_literal
 from ..utils import deep_compare, unquote
@@ -100,10 +101,11 @@ class Bootstrap(object):
                     user_options.append('--{0}'.format(opt))
                 elif isinstance(opt, dict):
                     keys = list(opt.keys())
-                    if len(keys) != 1 or not isinstance(opt[keys[0]], str) or not option_is_allowed(keys[0]):
+                    if len(keys) == 1 and isinstance(opt[keys[0]], str) and option_is_allowed(keys[0]):
+                        user_options.append('--{0}={1}'.format(keys[0], unquote(opt[keys[0]])))
+                    else:
                         error_handler('Error when parsing {0} key-value option {1}: only one key-value is allowed'
                                       ' and value should be a string'.format(tool, opt[keys[0]]))
-                    user_options.append('--{0}={1}'.format(keys[0], unquote(opt[keys[0]])))
                 else:
                     error_handler('Error when parsing {0} option {1}: value should be string value'
                                   ' or a single key-value pair'.format(tool, opt))
@@ -145,7 +147,7 @@ class Bootstrap(object):
 
         # make sure there is no trigger file or postgres will be automatically promoted
         trigger_file = self._postgresql.config.triggerfile_good_name
-        trigger_file = (self._postgresql.config.get('recovery_conf') or {}).get(trigger_file) or 'promote'
+        trigger_file = (self._postgresql.config.get('recovery_conf') or EMPTY_DICT).get(trigger_file) or 'promote'
         trigger_file = os.path.abspath(os.path.join(self._postgresql.data_dir, trigger_file))
         if os.path.exists(trigger_file):
             os.unlink(trigger_file)
@@ -214,15 +216,13 @@ class Bootstrap(object):
         cmd = config.get('post_bootstrap') or config.get('post_init')
         if cmd:
             r = self._postgresql.connection_pool.conn_kwargs
-            connstring = self._postgresql.config.format_dsn(r, True)
-            if 'host' not in r:
-                # https://www.postgresql.org/docs/current/static/libpq-pgpass.html
-                # A host name of localhost matches both TCP (host name localhost) and Unix domain socket
-                # (pghost empty or the default socket directory) connections coming from the local machine.
-                r['host'] = 'localhost'  # set it to localhost to write into pgpass
 
-            env = self._postgresql.config.write_pgpass(r)
+            # https://www.postgresql.org/docs/current/static/libpq-pgpass.html
+            # A host name of localhost matches both TCP (host name localhost) and Unix domain socket
+            # (pghost empty or the default socket directory) connections coming from the local machine.
+            env = self._postgresql.config.write_pgpass({'host': 'localhost', **r})
             env['PGOPTIONS'] = '-c synchronous_commit=local -c statement_timeout=0'
+            connstring = self._postgresql.config.format_dsn({**r, 'password': None})
 
             try:
                 ret = self._postgresql.cancellable.call(shlex.split(cmd) + [connstring], env=env)
@@ -256,7 +256,7 @@ class Bootstrap(object):
             r = clone_member.conn_kwargs(self._postgresql.config.replication)
             # add the credentials to connect to the replica origin to pgpass.
             env = self._postgresql.config.write_pgpass(r)
-            connstring = self._postgresql.config.format_dsn(r, True)
+            connstring = self._postgresql.config.format_dsn({**r, 'password': None})
         else:
             connstring = ''
             env = os.environ.copy()
@@ -301,7 +301,7 @@ class Bootstrap(object):
                                           "datadir": self._postgresql.data_dir,
                                           "connstring": connstring})
                 else:
-                    for param in ('no_params', 'no_master', 'no_leader', 'keep_data'):
+                    for param in ('no_params', 'no_leader', 'keep_data'):
                         method_config.pop(param, None)
                 params = ["--{0}={1}".format(arg, val) for arg, val in method_config.items()]
                 try:
@@ -332,6 +332,13 @@ class Bootstrap(object):
         not_allowed_options = ('pgdata', 'format', 'wal-method', 'xlog-method', 'gzip',
                                'version', 'compress', 'dbname', 'host', 'port', 'username', 'password')
         user_options = self.process_user_options('basebackup', options, not_allowed_options, logger.error)
+        cmd = [
+            self._postgresql.pgcommand("pg_basebackup"),
+            "--pgdata=" + self._postgresql.data_dir,
+            "-X",
+            "stream",
+            "--dbname=" + conn_url,
+        ] + user_options
 
         for bbfailures in range(0, maxfailures):
             if self._postgresql.cancellable.is_cancelled:
@@ -339,9 +346,8 @@ class Bootstrap(object):
             if not self._postgresql.data_directory_empty():
                 self._postgresql.remove_data_directory()
             try:
-                ret = self._postgresql.cancellable.call([self._postgresql.pgcommand('pg_basebackup'),
-                                                         '--pgdata=' + self._postgresql.data_dir, '-X', 'stream',
-                                                         '--dbname=' + conn_url] + user_options, env=env)
+                logger.debug('calling: %r', cmd)
+                ret = self._postgresql.cancellable.call(cmd, env=env)
                 if ret == 0:
                     break
                 else:
@@ -438,11 +444,8 @@ END;$$""".format(f, quote_ident(rewind['username'], postgresql.connection()))
                         postgresql.query(sql)
 
                 if config.get('users'):
-                    logger.warning('User creation via "bootstrap.users" will be removed in v4.0.0')
-
-                for name, value in (config.get('users') or {}).items():
-                    if all(name != a.get('username') for a in (superuser, replication, rewind)):
-                        self.create_or_update_role(name, value.get('password'), value.get('options', []))
+                    logger.error('User creation is not be supported starting from v4.0.0. '
+                                 'Please use "boostrap.post_bootstrap" script to create users.')
 
                 # We were doing a custom bootstrap instead of running initdb, therefore we opened trust
                 # access from certain addresses to be able to reach cluster and change password
@@ -463,15 +466,15 @@ END;$$""".format(f, quote_ident(rewind['username'], postgresql.connection()))
                         postgresql.restart()
                     else:
                         postgresql.config.replace_pg_hba()
-                        if postgresql.pending_restart:
+                        if postgresql.pending_restart_reason:
                             postgresql.restart()
                         else:
                             postgresql.reload()
                             time.sleep(1)  # give a time to postgres to "reload" configuration files
                             postgresql.connection().close()  # close connection to reconnect with a new password
                 else:  # initdb
-                    # We may want create database and extension for citus
-                    self._postgresql.citus_handler.bootstrap()
+                    # We may want create database and extension for some MPP clusters
+                    self._postgresql.mpp_handler.bootstrap()
         except Exception:
             logger.exception('post_bootstrap')
             task.complete(False)

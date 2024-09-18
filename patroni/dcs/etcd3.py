@@ -1,25 +1,29 @@
 from __future__ import absolute_import
+
 import base64
-import etcd
 import json
 import logging
 import os
 import socket
 import sys
 import time
-import urllib3
 
 from collections import defaultdict
 from enum import IntEnum
-from urllib3.exceptions import ReadTimeoutError, ProtocolError
 from threading import Condition, Lock, Thread
 from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
-from . import ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, \
-    TimelineHistory, catch_return_false_exception, citus_group_re
-from .etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors, DnsCachingResolver, Retry
+import etcd
+import urllib3
+
+from urllib3.exceptions import ProtocolError, ReadTimeoutError
+
 from ..exceptions import DCSError, PatroniException
+from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, enable_keepalive, iter_response_objects, RetryFailedError, USER_AGENT
+from . import catch_return_false_exception, Cluster, ClusterConfig, \
+    Failover, Leader, Member, Status, SyncState, TimelineHistory
+from .etcd import AbstractEtcd, AbstractEtcdClientWithFailover, catch_etcd_errors, DnsCachingResolver, Retry
 
 logger = logging.getLogger(__name__)
 
@@ -197,12 +201,6 @@ def build_range_request(key: str, range_end: Union[bytes, str, None] = None) -> 
     return fields
 
 
-class ReAuthenticateMode(IntEnum):
-    NOT_REQUIRED = 0
-    REQUIRED = 1
-    WITHOUT_WATCHER_RESTART = 2
-
-
 def _handle_auth_errors(func: Callable[..., Any]) -> Any:
     def wrapper(self: 'Etcd3Client', *args: Any, **kwargs: Any) -> Any:
         return self.handle_auth_errors(func, *args, **kwargs)
@@ -214,7 +212,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     ERROR_CLS = Etcd3Error
 
     def __init__(self, config: Dict[str, Any], dns_resolver: DnsCachingResolver, cache_ttl: int = 300) -> None:
-        self._reauthenticate_reason = ReAuthenticateMode.NOT_REQUIRED
+        self._reauthenticate = False
         self._token = None
         self._cluster_version: Tuple[int, ...] = tuple()
         super(Etcd3Client, self).__init__({**config, 'version_prefix': '/v3beta'}, dns_resolver, cache_ttl)
@@ -293,7 +291,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         fields['retry'] = retry
         return self.api_execute(self.version_prefix + method, self._MPOST, fields)
 
-    def authenticate(self, *, restart_watcher: bool = True, retry: Optional[Retry] = None) -> bool:
+    def authenticate(self, *, retry: Optional[Retry] = None) -> bool:
         if self._use_proxies and not self._cluster_version:
             kwargs = self._prepare_common_parameters(1)
             self._ensure_version_prefix(self._base_uri, **kwargs)
@@ -315,20 +313,18 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
 
     def handle_auth_errors(self: 'Etcd3Client', func: Callable[..., Any], *args: Any,
                            retry: Optional[Retry] = None, **kwargs: Any) -> Any:
+        reauthenticated = False
         exc = None
         while True:
-            if self._reauthenticate_reason:
+            if self._reauthenticate:
                 if self.username and self.password:
-                    self.authenticate(
-                        restart_watcher=self._reauthenticate_reason != ReAuthenticateMode.WITHOUT_WATCHER_RESTART,
-                        retry=retry)
-                    self._reauthenticate_reason = ReAuthenticateMode.NOT_REQUIRED
-                    if retry:
-                        retry.ensure_deadline(0)
+                    self.authenticate(retry=retry)
+                    self._reauthenticate = False
                 else:
                     msg = 'Username or password not set, authentication is not possible'
                     logger.fatal(msg)
                     raise exc or Etcd3Exception(msg)
+                reauthenticated = True
 
             try:
                 return func(self, *args, retry=retry, **kwargs)
@@ -346,11 +342,12 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
             except AuthOldRevision as e:
                 logger.error('Auth token is for old revision of auth store')
                 exc = e
-            self._reauthenticate_reason = ReAuthenticateMode.WITHOUT_WATCHER_RESTART \
-                if isinstance(exc, AuthOldRevision) else ReAuthenticateMode.REQUIRED
-            if not retry:
+            self._reauthenticate = True
+            if retry:
+                logger.error('retry = %s', retry)
+                retry.ensure_deadline(0.5, exc)
+            elif reauthenticated:
                 raise exc
-            retry.ensure_deadline(0.5, exc)
 
     @_handle_auth_errors
     def range(self, key: str, range_end: Union[bytes, str, None] = None, serializable: bool = True,
@@ -602,12 +599,6 @@ class PatroniEtcd3Client(Etcd3Client):
         super(PatroniEtcd3Client, self).set_base_uri(value)
         self._restart_watcher()
 
-    def authenticate(self, *, restart_watcher: bool = True, retry: Optional[Retry] = None) -> bool:
-        ret = super(PatroniEtcd3Client, self).authenticate(restart_watcher=restart_watcher, retry=retry)
-        if ret and restart_watcher:
-            self._restart_watcher()
-        return ret
-
     def _wait_cache(self, timeout: float) -> None:
         stop_time = time.time() + timeout
         while self._kv_cache and not self._kv_cache.is_ready():
@@ -671,8 +662,9 @@ class PatroniEtcd3Client(Etcd3Client):
 
 class Etcd3(AbstractEtcd):
 
-    def __init__(self, config: Dict[str, Any]) -> None:
-        super(Etcd3, self).__init__(config, PatroniEtcd3Client, (DeadlineExceeded, Unavailable, FailedPrecondition))
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
+        super(Etcd3, self).__init__(config, mpp, PatroniEtcd3Client,
+                                    (DeadlineExceeded, Unavailable, FailedPrecondition))
         self.__do_not_watch = False
         self._lease = None
         self._last_lease_refresh = 0
@@ -731,7 +723,11 @@ class Etcd3(AbstractEtcd):
 
     @property
     def cluster_prefix(self) -> str:
-        return self._base_path + '/' if self.is_citus_coordinator() else self.client_path('')
+        """Construct the cluster prefix for the cluster.
+
+        :returns: path in the DCS under which we store information about this Patroni cluster.
+        """
+        return self._base_path + '/' if self.is_mpp_coordinator() else self.client_path('')
 
     @staticmethod
     def member(node: Dict[str, str]) -> Member:
@@ -785,18 +781,30 @@ class Etcd3(AbstractEtcd):
 
         return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
 
-    def _cluster_loader(self, path: str) -> Cluster:
+    def _postgresql_cluster_loader(self, path: str) -> Cluster:
+        """Load and build the :class:`Cluster` object from DCS, which represents a single PostgreSQL cluster.
+
+        :param path: the path in DCS where to load :class:`Cluster` from.
+
+        :returns: :class:`Cluster` instance.
+        """
         nodes = {node['key'][len(path):]: node
                  for node in self._client.get_cluster(path)
                  if node['key'].startswith(path)}
         return self._cluster_from_nodes(nodes)
 
-    def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+    def _mpp_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+        """Load and build all PostgreSQL clusters from a single MPP cluster.
+
+        :param path: the path in DCS where to load Cluster(s) from.
+
+        :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
+        """
         clusters: Dict[int, Dict[str, Dict[str, Any]]] = defaultdict(dict)
         path = self._base_path + '/'
         for node in self._client.get_cluster(path):
             key = node['key'][len(path):].split('/', 1)
-            if len(key) == 2 and citus_group_re.match(key[0]):
+            if len(key) == 2 and self._mpp.group_re.match(key[0]):
                 clusters[int(key[0])][key[1]] = node
         return {group: self._cluster_from_nodes(nodes) for group, nodes in clusters.items()}
 
@@ -848,14 +856,16 @@ class Etcd3(AbstractEtcd):
         try:
             return _retry(self._client.put, self.leader_path, self._name, self._lease, create_revision='0')
         except LeaseNotFound:
-            logger.error('Our lease disappeared from Etcd. Will try to get a new one and retry attempt')
             self._lease = None
-            retry.ensure_deadline(0)
+            if not retry.ensure_deadline(0):
+                logger.error('Our lease disappeared from Etcd. Deadline exceeded, giving up')
+                return False
+
+            logger.error('Our lease disappeared from Etcd. Will try to get a new one and retry attempt')
 
             _retry(self._do_refresh_lease)
 
             retry.ensure_deadline(1, Etcd3Error('_do_attempt_to_acquire_leader timeout'))
-
             return _retry(self._client.put, self.leader_path, self._name, self._lease, create_revision='0')
 
     @catch_return_false_exception

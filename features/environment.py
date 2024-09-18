@@ -1,9 +1,8 @@
 import abc
 import datetime
 import glob
-import os
 import json
-import psutil
+import os
 import re
 import shutil
 import signal
@@ -13,11 +12,14 @@ import sys
 import tempfile
 import threading
 import time
+
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+import psutil
 import yaml
 
 import patroni.psycopg as psycopg
 
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from patroni.request import PatroniRequest
 
 
@@ -256,10 +258,18 @@ class PatroniController(AbstractController):
                         'parameters': {
                             'wal_keep_segments': 100,
                             'archive_mode': 'on',
-                            'archive_command': (PatroniPoolController.ARCHIVE_RESTORE_SCRIPT
-                                                + ' --mode archive '
-                                                + '--dirname {} --filename %f --pathname %p').format(
-                                                    os.path.join(self._work_directory, 'data', 'wal_archive'))
+                            'archive_command':
+                                (PatroniPoolController.ARCHIVE_RESTORE_SCRIPT
+                                 + ' --mode archive '
+                                 + '--dirname {} --filename %f --pathname %p').format(
+                                     os.path.join(self._work_directory, 'data',
+                                                  f'wal_archive{str(self._citus_group or "")}')).replace('\\', '/'),
+                            'restore_command':
+                                (PatroniPoolController.ARCHIVE_RESTORE_SCRIPT
+                                 + ' --mode restore '
+                                 + '--dirname {} --filename %f --pathname %p').format(
+                                     os.path.join(self._work_directory, 'data',
+                                                  f'wal_archive{str(self._citus_group or "")}')).replace('\\', '/')
                         }
                     }
                 }
@@ -490,6 +500,7 @@ class AbstractEtcdController(AbstractDcsController):
 
     def _is_running(self):
         from patroni.dcs.etcd import DnsCachingResolver
+
         # if etcd is running, but we didn't start it
         try:
             self._client = self._client_cls({'host': 'localhost', 'port': 2379, 'retry_timeout': 30,
@@ -885,7 +896,7 @@ class PatroniPoolController(object):
                     .format(os.path.join(self.patroni_path, 'data', 'wal_archive_clone').replace('\\', '/'))
                 },
                 'authentication': {
-                    'superuser': {'password': 'zalando1'},
+                    'superuser': {'password': 'patroni1'},
                     'replication': {'password': 'rep-pass1'}
                 }
             }
@@ -917,7 +928,7 @@ class PatroniPoolController(object):
             },
             'postgresql': {
                 'authentication': {
-                    'superuser': {'password': 'zalando2'},
+                    'superuser': {'password': 'patroni2'},
                     'replication': {'password': 'rep-pass2'}
                 }
             }
@@ -928,11 +939,6 @@ class PatroniPoolController(object):
         custom_config = {
             'scope': cluster_name,
             'postgresql': {
-                'recovery_conf': {
-                    'restore_command': (self.ARCHIVE_RESTORE_SCRIPT + ' --mode restore '
-                                        + '--dirname {} --filename %f --pathname %p')
-                    .format(os.path.join(self.patroni_path, 'data', 'wal_archive').replace('\\', '/'))
-                },
                 'create_replica_methods': ['no_leader_bootstrap'],
                 'no_leader_bootstrap': self.backup_restore_config({'no_leader': '1'})
             }

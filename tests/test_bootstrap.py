@@ -1,21 +1,22 @@
 import os
 import sys
 
-from mock import Mock, PropertyMock, patch
+from unittest.mock import Mock, patch, PropertyMock
 
 from patroni.async_executor import CriticalTask
+from patroni.collections import CaseInsensitiveDict
 from patroni.postgresql import Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
-from patroni.postgresql.config import ConfigHandler
+from patroni.postgresql.config import ConfigHandler, get_param_diff
 
-from . import psycopg_connect, BaseTestPostgresql, mock_available_gucs
+from . import BaseTestPostgresql, psycopg_connect
 
 
 @patch('subprocess.call', Mock(return_value=0))
+@patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
 @patch('patroni.psycopg.connect', psycopg_connect)
 @patch('os.rename', Mock())
-@patch.object(Postgresql, 'available_gucs', mock_available_gucs)
 class TestBootstrap(BaseTestPostgresql):
 
     @patch('patroni.postgresql.CallbackExecutor', Mock())
@@ -91,9 +92,20 @@ class TestBootstrap(BaseTestPostgresql):
         mock_cancellable_subprocess_call.return_value = 1
         self.assertEqual(self.b.create_replica(self.leader), 1)
 
+    @patch.object(CancellableSubprocess, 'call', Mock(return_value=0))
+    @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=True))
     def test_basebackup(self):
-        self.p.cancellable.cancel()
-        self.b.basebackup(None, None, {'foo': 'bar'})
+        with patch('patroni.postgresql.bootstrap.logger.debug') as mock_debug:
+            self.p.cancellable.cancel()
+            self.b.basebackup("", None, {'foo': 'bar'})
+            mock_debug.assert_not_called()
+
+            self.p.cancellable.reset_is_cancelled()
+            self.b.basebackup("", None, {'foo': 'bar'})
+            mock_debug.assert_called_with(
+                'calling: %r',
+                ['pg_basebackup', f'--pgdata={self.p.data_dir}', '-X', 'stream', '--dbname=', '--foo=bar'],
+            )
 
     def test__initdb(self):
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': [{'pgdata': 'bar'}]})
@@ -142,6 +154,16 @@ class TestBootstrap(BaseTestPostgresql):
                     (), error_handler
                 ),
                 ["--key=value with spaces"])
+            # not allowed options in list of dicts/strs are filtered out
+            self.assertEqual(
+                self.b.process_user_options(
+                    'pg_basebackup',
+                    [{'checkpoint': 'fast'}, {'dbname': 'dbname=postgres'}, 'gzip', {'label': 'standby'}, 'verbose'],
+                    ('dbname', 'verbose'),
+                    print
+                ),
+                ['--checkpoint=fast', '--gzip', '--label=standby'],
+            )
 
     @patch.object(CancellableSubprocess, 'call', Mock())
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
@@ -153,7 +175,7 @@ class TestBootstrap(BaseTestPostgresql):
         with patch('subprocess.call', Mock(return_value=1)):
             self.assertFalse(self.b.bootstrap({}))
 
-        config = {'users': {'replicator': {'password': 'rep-pass', 'options': ['replication']}}}
+        config = {}
 
         with patch.object(Postgresql, 'is_running', Mock(return_value=False)), \
                 patch.object(Postgresql, 'get_major_version', Mock(return_value=140000)), \
@@ -231,12 +253,17 @@ class TestBootstrap(BaseTestPostgresql):
             self.assertFalse(task.result)
 
         self.p.config._config.pop('pg_hba')
-        self.b.post_bootstrap({}, task)
-        self.assertTrue(task.result)
+        with patch('patroni.postgresql.bootstrap.logger.error', new_callable=Mock()) as mock_logger:
+            self.b.post_bootstrap({'users': 1}, task)
+            self.assertEqual(mock_logger.call_args_list[0][0][0],
+                             'User creation is not be supported starting from v4.0.0. '
+                             'Please use "boostrap.post_bootstrap" script to create users.')
+            self.assertTrue(task.result)
 
         self.b.bootstrap(config)
-        with patch.object(Postgresql, 'pending_restart', PropertyMock(return_value=True)), \
-                patch.object(Postgresql, 'restart', Mock()) as mock_restart:
+        with patch.object(Postgresql, 'pending_restart_reason',
+                          PropertyMock(CaseInsensitiveDict({'max_connections': get_param_diff('200', '100')}))), \
+             patch.object(Postgresql, 'restart', Mock()) as mock_restart:
             self.b.post_bootstrap({}, task)
             mock_restart.assert_called_once()
 

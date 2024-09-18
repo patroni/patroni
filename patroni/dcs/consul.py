@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+
 import json
 import logging
 import os
@@ -6,19 +7,23 @@ import re
 import socket
 import ssl
 import time
-import urllib3
 
 from collections import defaultdict
-from consul import ConsulException, NotFound, base
 from http.client import HTTPException
-from urllib3.exceptions import HTTPError
-from urllib.parse import urlencode, urlparse, quote
-from typing import Any, Callable, Dict, List, Mapping, NamedTuple, Optional, Union, Tuple, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Mapping, NamedTuple, Optional, Tuple, TYPE_CHECKING, Union
+from urllib.parse import quote, urlencode, urlparse
 
-from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, \
-    TimelineHistory, ReturnFalseException, catch_return_false_exception, citus_group_re
+import urllib3
+
+from consul import base, ConsulException, NotFound
+from urllib3.exceptions import HTTPError
+
 from ..exceptions import DCSError
+from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port, uri, USER_AGENT
+from . import AbstractDCS, catch_return_false_exception, Cluster, ClusterConfig, \
+    Failover, Leader, Member, ReturnFalseException, Status, SyncState, TimelineHistory
+
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
 
@@ -232,8 +237,8 @@ def service_name_from_scope_name(scope_name: str) -> str:
 
 class Consul(AbstractDCS):
 
-    def __init__(self, config: Dict[str, Any]) -> None:
-        super(Consul, self).__init__(config)
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
+        super(Consul, self).__init__(config, mpp)
         self._base_path = self._base_path[1:]
         self._scope = config['scope']
         self._session = None
@@ -419,7 +424,13 @@ class Consul(AbstractDCS):
     def _consistency(self) -> str:
         return 'consistent' if self._ctl else self._client.consistency
 
-    def _cluster_loader(self, path: str) -> Cluster:
+    def _postgresql_cluster_loader(self, path: str) -> Cluster:
+        """Load and build the :class:`Cluster` object from DCS, which represents a single PostgreSQL cluster.
+
+        :param path: the path in DCS where to load :class:`Cluster` from.
+
+        :returns: :class:`Cluster` instance.
+        """
         _, results = self.retry(self._client.kv.get, path, recurse=True, consistency=self._consistency)
         if results is None:
             return Cluster.empty()
@@ -430,12 +441,19 @@ class Consul(AbstractDCS):
 
         return self._cluster_from_nodes(nodes)
 
-    def _citus_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+    def _mpp_cluster_loader(self, path: str) -> Dict[int, Cluster]:
+        """Load and build all PostgreSQL clusters from a single MPP cluster.
+
+        :param path: the path in DCS where to load Cluster(s) from.
+
+        :returns: all MPP groups as :class:`dict`, with group IDs as keys and :class:`Cluster` objects as values.
+        """
+        results: Optional[List[Dict[str, Any]]]
         _, results = self.retry(self._client.kv.get, path, recurse=True, consistency=self._consistency)
-        clusters: Dict[int, Dict[str, Cluster]] = defaultdict(dict)
+        clusters: Dict[int, Dict[str, Dict[str, Any]]] = defaultdict(dict)
         for node in results or []:
             key = node['Key'][len(path):].split('/', 1)
-            if len(key) == 2 and citus_group_re.match(key[0]):
+            if len(key) == 2 and self._mpp.group_re.match(key[0]):
                 node['Value'] = (node['Value'] or b'').decode('utf-8')
                 clusters[int(key[0])][key[1]] = node
         return {group: self._cluster_from_nodes(nodes) for group, nodes in clusters.items()}
@@ -514,9 +532,7 @@ class Consul(AbstractDCS):
             check['TLSServerName'] = self._service_check_tls_server_name
         tags = self._service_tags[:]
         tags.append(role)
-        if role == 'master':
-            tags.append('primary')
-        elif role == 'primary':
+        if role == 'primary':
             tags.append('master')
         self._previous_loop_service_tags = self._service_tags
         self._previous_loop_token = self._client.token
@@ -535,7 +551,7 @@ class Consul(AbstractDCS):
             return self.deregister_service(params['service_id'])
 
         self._previous_loop_register_service = self._register_service
-        if role in ['master', 'primary', 'replica', 'standby-leader']:
+        if role in ['primary', 'replica', 'standby-leader']:
             if state != 'running':
                 return
             return self.register_service(service_name, **params)
@@ -564,14 +580,17 @@ class Consul(AbstractDCS):
         try:
             return retry(self._client.kv.put, self.leader_path, self._name, acquire=self._session)
         except InvalidSession:
-            logger.error('Our session disappeared from Consul. Will try to get a new one and retry attempt')
             self._session = None
-            retry.ensure_deadline(0)
+
+            if not retry.ensure_deadline(0):
+                logger.error('Our session disappeared from Consul. Deadline exceeded, giving up')
+                return False
+
+            logger.error('Our session disappeared from Consul. Will try to get a new one and retry attempt')
 
             retry(self._do_refresh_session)
 
             retry.ensure_deadline(1, ConsulError('_do_attempt_to_acquire_leader timeout'))
-
             return retry(self._client.kv.put, self.leader_path, self._name, acquire=self._session)
 
     @catch_return_false_exception

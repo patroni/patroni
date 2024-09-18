@@ -9,7 +9,7 @@ def callbacks(context, name):
             for c in ('on_start', 'on_stop', 'on_restart', 'on_role_change')}
 
 
-@step('I start {name:w} in a cluster {cluster_name:w}')
+@step('I start {name:name} in a cluster {cluster_name:w}')
 def start_patroni(context, name, cluster_name):
     return context.pctl.start(name, custom_config={
         "scope": cluster_name,
@@ -20,7 +20,7 @@ def start_patroni(context, name, cluster_name):
     })
 
 
-@step('I start {name:w} in a standby cluster {cluster_name:w} as a clone of {name2:w}')
+@step('I start {name:name} in a standby cluster {cluster_name:w} as a clone of {name2:name}')
 def start_patroni_standby_cluster(context, name, cluster_name, name2):
     # we need to remove patroni.dynamic.json in order to "bootstrap" standby cluster with existing PGDATA
     os.unlink(os.path.join(context.pctl._processes[name]._data_dir, 'patroni.dynamic.json'))
@@ -49,7 +49,7 @@ def start_patroni_standby_cluster(context, name, cluster_name, name2):
     return context.pctl.start(name)
 
 
-@step('{pg_name1:w} is replicating from {pg_name2:w} after {timeout:d} seconds')
+@step('{pg_name1:name} is replicating from {pg_name2:name} after {timeout:d} seconds')
 def check_replication_status(context, pg_name1, pg_name2, timeout):
     bound_time = time.time() + timeout * context.timeout_multiplier
 

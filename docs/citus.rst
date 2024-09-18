@@ -34,6 +34,8 @@ There are only a few simple rules you need to follow:
 
 After that you just need to start Patroni and it will handle the rest:
 
+0. Patroni will set ``bootstrap.dcs.synchronous_mode`` to :ref:`quorum <quorum_mode>`
+   if it is not explicitly set to any other value.
 1. ``citus`` extension will be automatically added to ``shared_preload_libraries``.
 2. If ``max_prepared_transactions`` isn't explicitly set in the global
    :ref:`dynamic configuration <dynamic_configuration>` Patroni will
@@ -77,36 +79,36 @@ It results in two major differences in :ref:`patronictl` behaviour when
 An example of :ref:`patronictl_list` output for the Citus cluster::
 
     postgres@coord1:~$ patronictl list demo
-    + Citus cluster: demo ----------+--------------+---------+----+-----------+
-    | Group | Member  | Host        | Role         | State   | TL | Lag in MB |
-    +-------+---------+-------------+--------------+---------+----+-----------+
-    |     0 | coord1  | 172.27.0.10 | Replica      | running |  1 |         0 |
-    |     0 | coord2  | 172.27.0.6  | Sync Standby | running |  1 |         0 |
-    |     0 | coord3  | 172.27.0.4  | Leader       | running |  1 |           |
-    |     1 | work1-1 | 172.27.0.8  | Sync Standby | running |  1 |         0 |
-    |     1 | work1-2 | 172.27.0.2  | Leader       | running |  1 |           |
-    |     2 | work2-1 | 172.27.0.5  | Sync Standby | running |  1 |         0 |
-    |     2 | work2-2 | 172.27.0.7  | Leader       | running |  1 |           |
-    +-------+---------+-------------+--------------+---------+----+-----------+
+    + Citus cluster: demo ----------+----------------+---------+----+-----------+
+    | Group | Member  | Host        | Role           | State   | TL | Lag in MB |
+    +-------+---------+-------------+----------------+---------+----+-----------+
+    |     0 | coord1  | 172.27.0.10 | Replica        | running |  1 |         0 |
+    |     0 | coord2  | 172.27.0.6  | Quorum Standby | running |  1 |         0 |
+    |     0 | coord3  | 172.27.0.4  | Leader         | running |  1 |           |
+    |     1 | work1-1 | 172.27.0.8  | Quorum Standby | running |  1 |         0 |
+    |     1 | work1-2 | 172.27.0.2  | Leader         | running |  1 |           |
+    |     2 | work2-1 | 172.27.0.5  | Quorum Standby | running |  1 |         0 |
+    |     2 | work2-2 | 172.27.0.7  | Leader         | running |  1 |           |
+    +-------+---------+-------------+----------------+---------+----+-----------+
 
 If we add the ``--group`` option, the output will change to::
 
     postgres@coord1:~$ patronictl list demo --group 0
-    + Citus cluster: demo (group: 0, 7179854923829112860) -----------+
-    | Member | Host        | Role         | State   | TL | Lag in MB |
-    +--------+-------------+--------------+---------+----+-----------+
-    | coord1 | 172.27.0.10 | Replica      | running |  1 |         0 |
-    | coord2 | 172.27.0.6  | Sync Standby | running |  1 |         0 |
-    | coord3 | 172.27.0.4  | Leader       | running |  1 |           |
-    +--------+-------------+--------------+---------+----+-----------+
+    + Citus cluster: demo (group: 0, 7179854923829112860) -+-----------+
+    | Member | Host        | Role           | State   | TL | Lag in MB |
+    +--------+-------------+----------------+---------+----+-----------+
+    | coord1 | 172.27.0.10 | Replica        | running |  1 |         0 |
+    | coord2 | 172.27.0.6  | Quorum Standby | running |  1 |         0 |
+    | coord3 | 172.27.0.4  | Leader         | running |  1 |           |
+    +--------+-------------+----------------+---------+----+-----------+
 
     postgres@coord1:~$ patronictl list demo --group 1
-    + Citus cluster: demo (group: 1, 7179854923881963547) -----------+
-    | Member  | Host       | Role         | State   | TL | Lag in MB |
-    +---------+------------+--------------+---------+----+-----------+
-    | work1-1 | 172.27.0.8 | Sync Standby | running |  1 |         0 |
-    | work1-2 | 172.27.0.2 | Leader       | running |  1 |           |
-    +---------+------------+--------------+---------+----+-----------+
+    + Citus cluster: demo (group: 1, 7179854923881963547) -+-----------+
+    | Member  | Host       | Role           | State   | TL | Lag in MB |
+    +---------+------------+----------------+---------+----+-----------+
+    | work1-1 | 172.27.0.8 | Quorum Standby | running |  1 |         0 |
+    | work1-2 | 172.27.0.2 | Leader         | running |  1 |           |
+    +---------+------------+----------------+---------+----+-----------+
 
 Citus worker switchover
 -----------------------
@@ -122,30 +124,30 @@ new primary worker node is ready to accept read-write queries.
 An example of :ref:`patronictl_switchover` on the worker cluster::
 
     postgres@coord1:~$ patronictl switchover demo
-    + Citus cluster: demo ----------+--------------+---------+----+-----------+
-    | Group | Member  | Host        | Role         | State   | TL | Lag in MB |
-    +-------+---------+-------------+--------------+---------+----+-----------+
-    |     0 | coord1  | 172.27.0.10 | Replica      | running |  1 |         0 |
-    |     0 | coord2  | 172.27.0.6  | Sync Standby | running |  1 |         0 |
-    |     0 | coord3  | 172.27.0.4  | Leader       | running |  1 |           |
-    |     1 | work1-1 | 172.27.0.8  | Leader       | running |  1 |           |
-    |     1 | work1-2 | 172.27.0.2  | Sync Standby | running |  1 |         0 |
-    |     2 | work2-1 | 172.27.0.5  | Sync Standby | running |  1 |         0 |
-    |     2 | work2-2 | 172.27.0.7  | Leader       | running |  1 |           |
-    +-------+---------+-------------+--------------+---------+----+-----------+
+    + Citus cluster: demo ----------+----------------+---------+----+-----------+
+    | Group | Member  | Host        | Role           | State   | TL | Lag in MB |
+    +-------+---------+-------------+----------------+---------+----+-----------+
+    |     0 | coord1  | 172.27.0.10 | Replica        | running |  1 |         0 |
+    |     0 | coord2  | 172.27.0.6  | Quorum Standby | running |  1 |         0 |
+    |     0 | coord3  | 172.27.0.4  | Leader         | running |  1 |           |
+    |     1 | work1-1 | 172.27.0.8  | Leader         | running |  1 |           |
+    |     1 | work1-2 | 172.27.0.2  | Quorum Standby | running |  1 |         0 |
+    |     2 | work2-1 | 172.27.0.5  | Quorum Standby | running |  1 |         0 |
+    |     2 | work2-2 | 172.27.0.7  | Leader         | running |  1 |           |
+    +-------+---------+-------------+----------------+---------+----+-----------+
     Citus group: 2
     Primary [work2-2]:
     Candidate ['work2-1'] []:
-    When should the switchover take place (e.g. 2022-12-22T08:02 )  [now]:
+    When should the switchover take place (e.g. 2024-08-26T08:02 )  [now]:
     Current cluster topology
-    + Citus cluster: demo (group: 2, 7179854924063375386) -----------+
-    | Member  | Host       | Role         | State   | TL | Lag in MB |
-    +---------+------------+--------------+---------+----+-----------+
-    | work2-1 | 172.27.0.5 | Sync Standby | running |  1 |         0 |
-    | work2-2 | 172.27.0.7 | Leader       | running |  1 |           |
-    +---------+------------+--------------+---------+----+-----------+
+    + Citus cluster: demo (group: 2, 7179854924063375386) -+-----------+
+    | Member  | Host       | Role           | State   | TL | Lag in MB |
+    +---------+------------+----------------+---------+----+-----------+
+    | work2-1 | 172.27.0.5 | Quorum Standby | running |  1 |         0 |
+    | work2-2 | 172.27.0.7 | Leader         | running |  1 |           |
+    +---------+------------+----------------+---------+----+-----------+
     Are you sure you want to switchover cluster demo, demoting current primary work2-2? [y/N]: y
-    2022-12-22 07:02:40.33003 Successfully switched over to "work2-1"
+    2024-08-26 07:02:40.33003 Successfully switched over to "work2-1"
     + Citus cluster: demo (group: 2, 7179854924063375386) ------+
     | Member  | Host       | Role    | State   | TL | Lag in MB |
     +---------+------------+---------+---------+----+-----------+
@@ -154,31 +156,40 @@ An example of :ref:`patronictl_switchover` on the worker cluster::
     +---------+------------+---------+---------+----+-----------+
 
     postgres@coord1:~$ patronictl list demo
-    + Citus cluster: demo ----------+--------------+---------+----+-----------+
-    | Group | Member  | Host        | Role         | State   | TL | Lag in MB |
-    +-------+---------+-------------+--------------+---------+----+-----------+
-    |     0 | coord1  | 172.27.0.10 | Replica      | running |  1 |         0 |
-    |     0 | coord2  | 172.27.0.6  | Sync Standby | running |  1 |         0 |
-    |     0 | coord3  | 172.27.0.4  | Leader       | running |  1 |           |
-    |     1 | work1-1 | 172.27.0.8  | Leader       | running |  1 |           |
-    |     1 | work1-2 | 172.27.0.2  | Sync Standby | running |  1 |         0 |
-    |     2 | work2-1 | 172.27.0.5  | Leader       | running |  2 |           |
-    |     2 | work2-2 | 172.27.0.7  | Sync Standby | running |  2 |         0 |
-    +-------+---------+-------------+--------------+---------+----+-----------+
+    + Citus cluster: demo ----------+----------------+---------+----+-----------+
+    | Group | Member  | Host        | Role           | State   | TL | Lag in MB |
+    +-------+---------+-------------+----------------+---------+----+-----------+
+    |     0 | coord1  | 172.27.0.10 | Replica        | running |  1 |         0 |
+    |     0 | coord2  | 172.27.0.6  | Quorum Standby | running |  1 |         0 |
+    |     0 | coord3  | 172.27.0.4  | Leader         | running |  1 |           |
+    |     1 | work1-1 | 172.27.0.8  | Leader         | running |  1 |           |
+    |     1 | work1-2 | 172.27.0.2  | Quorum Standby | running |  1 |         0 |
+    |     2 | work2-1 | 172.27.0.5  | Leader         | running |  2 |           |
+    |     2 | work2-2 | 172.27.0.7  | Quorum Standby | running |  2 |         0 |
+    +-------+---------+-------------+----------------+---------+----+-----------+
 
 And this is how it looks on the coordinator side::
 
     # The worker primary notifies the coordinator that it is going to execute "pg_ctl stop".
-    2022-12-22 07:02:38,636 DEBUG: query("BEGIN")
-    2022-12-22 07:02:38,636 DEBUG: query("SELECT pg_catalog.citus_update_node(3, '172.27.0.7-demoted', 5432, true, 10000)")
+    2024-08-26 07:02:38,636 DEBUG: query(BEGIN, ())
+    2024-08-26 07:02:38,636 DEBUG: query(SELECT pg_catalog.citus_update_node(%s, %s, %s, true, %s), (3, '172.19.0.7-demoted', 5432, 10000))
     # From this moment all application traffic on the coordinator to the worker group 2 is paused.
 
+    # The old worker primary is assiged as a secondary. 
+    2024-08-26 07:02:40,084 DEBUG: query(SELECT pg_catalog.citus_update_node(%s, %s, %s, true, %s), (7, '172.19.0.7', 5432, 10000))
+
     # The future worker primary notifies the coordinator that it acquired the leader lock in DCS and about to run "pg_ctl promote".
-    2022-12-22 07:02:40,085 DEBUG: query("SELECT pg_catalog.citus_update_node(3, '172.27.0.5', 5432)")
+    2024-08-26 07:02:40,085 DEBUG: query(SELECT pg_catalog.citus_update_node(%s, %s, %s, true, %s), (3, '172.19.0.5', 5432, 10000))
 
     # The new worker primary just finished promote and notifies coordinator that it is ready to accept read-write traffic.
-    2022-12-22 07:02:41,485 DEBUG: query("COMMIT")
+    2024-08-26 07:02:41,485 DEBUG: query(COMMIT, ())
     # From this moment the application traffic on the coordinator to the worker group 2 is unblocked.
+
+Secondary nodes
+---------------
+
+Starting from Patroni v4.0.0 Citus secondary nodes without ``noloadbalance`` :ref:`tag <tags_settings>` are also registered in ``pg_dist_node``.
+However, to use secondary nodes for read-only queries applications need to change `citus.use_secondary_nodes <https://docs.citusdata.com/en/latest/develop/api_guc.html#citus-use-secondary-nodes-enum>`__ GUC.
 
 Peek into DCS
 -------------
@@ -335,7 +346,7 @@ new Kubernetes objects ConfigMaps or Endpoints, it automatically puts the
 You can find a complete example of Patroni deployment on Kubernetes with Citus
 support in the `kubernetes`__ folder of the Patroni repository.
 
-__ https://github.com/zalando/patroni/tree/master/kubernetes
+__ https://github.com/patroni/patroni/tree/master/kubernetes
 
 There are two important files for you:
 

@@ -1,11 +1,15 @@
+import io
 import os
 import sys
 import unittest
-import io
 
 from copy import deepcopy
-from mock import MagicMock, Mock, patch
-from patroni.config import Config, ConfigParseError, GlobalConfig
+from unittest.mock import MagicMock, Mock, patch
+
+from patroni import global_config
+from patroni.config import ClusterConfig, Config, ConfigParseError
+
+from .test_ha import get_cluster_initialized_with_only_leader
 
 
 class TestConfig(unittest.TestCase):
@@ -31,8 +35,10 @@ class TestConfig(unittest.TestCase):
             'PATRONI_NAMESPACE': '/patroni/',
             'PATRONI_SCOPE': 'batman2',
             'PATRONI_LOGLEVEL': 'ERROR',
+            'PATRONI_LOG_FORMAT': '["message", {"levelname": "level"}]',
             'PATRONI_LOG_LOGGERS': 'patroni.postmaster: WARNING, urllib3: DEBUG',
             'PATRONI_LOG_FILE_NUM': '5',
+            'PATRONI_LOG_MODE': '0123',
             'PATRONI_CITUS_DATABASE': 'citus',
             'PATRONI_CITUS_GROUP': '0',
             'PATRONI_CITUS_HOST': '0',
@@ -68,7 +74,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_RAFT_PARTNER_ADDRS': "'host1:1234','host2:1234'",
             'PATRONI_foo_HOSTS': '[host1,host2',  # Exception in parse_list
             'PATRONI_SUPERUSER_USERNAME': 'postgres',
-            'PATRONI_SUPERUSER_PASSWORD': 'zalando',
+            'PATRONI_SUPERUSER_PASSWORD': 'patroni',
             'PATRONI_REPLICATION_USERNAME': 'replicator',
             'PATRONI_REPLICATION_PASSWORD': 'rep-pass',
             'PATRONI_admin_PASSWORD': 'admin',
@@ -76,6 +82,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_POSTGRESQL_BIN_POSTGRES': 'sergtsop'
         })
         config = Config('postgres0.yml')
+        self.assertEqual(config.local_configuration['log']['mode'], 0o123)
         with patch.object(Config, '_load_config_file', Mock(return_value={'restapi': {}})):
             with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
                 config.reload_local_configuration()
@@ -155,12 +162,10 @@ class TestConfig(unittest.TestCase):
     @patch('patroni.config.logger')
     def test__validate_failover_tags(self, mock_logger, mock_get):
         """Ensures that only one of `nofailover` or `failover_priority` can be provided"""
-        config = Config("postgres0.yml")
-
         # Providing one of `nofailover` or `failover_priority` is fine
         for single_param in ({"nofailover": True}, {"failover_priority": 1}, {"failover_priority": 0}):
             mock_get.side_effect = [single_param] * 2
-            self.assertIsNone(config._validate_failover_tags())
+            self.assertIsNone(self.config._validate_failover_tags())
             mock_logger.warning.assert_not_called()
 
         # Providing both `nofailover` and `failover_priority` is fine if consistent
@@ -170,7 +175,7 @@ class TestConfig(unittest.TestCase):
             {"nofailover": "False", "failover_priority": 0}
         ):
             mock_get.side_effect = [consistent_state] * 2
-            self.assertIsNone(config._validate_failover_tags())
+            self.assertIsNone(self.config._validate_failover_tags())
             mock_logger.warning.assert_not_called()
 
         # Providing both inconsistently should log a warning
@@ -181,7 +186,7 @@ class TestConfig(unittest.TestCase):
             {"nofailover": "", "failover_priority": 0}
         ):
             mock_get.side_effect = [inconsistent_state] * 2
-            self.assertIsNone(config._validate_failover_tags())
+            self.assertIsNone(self.config._validate_failover_tags())
             mock_logger.warning.assert_called_once_with(
                 'Conflicting configuration between nofailover: %s and failover_priority: %s.'
                 + ' Defaulting to nofailover: %s',
@@ -240,4 +245,6 @@ class TestConfig(unittest.TestCase):
     def test_global_config_is_synchronous_mode(self):
         # we should ignore synchronous_mode setting in a standby cluster
         config = {'standby_cluster': {'host': 'some_host'}, 'synchronous_mode': True}
-        self.assertFalse(GlobalConfig(config).is_synchronous_mode)
+        cluster = get_cluster_initialized_with_only_leader(cluster_config=ClusterConfig(1, config, 1))
+        test_config = global_config.from_cluster(cluster)
+        self.assertFalse(test_config.is_synchronous_mode)
