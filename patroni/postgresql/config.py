@@ -121,13 +121,15 @@ def parse_dsn(value: str) -> Optional[Dict[str, str]]:
 
     >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,[::1]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
     >>> r == {'application_name': 'mya/pp', 'dbname': 'db/sdf', 'host': ',::1', 'sslmode': 'require',\
-              'password': 'pass', 'port': '/123,', 'user': 'u/se', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
+              'password': 'pass', 'port': '/123,', 'user': 'u/se', 'gssencmode': 'prefer',\
+              'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}
     True
     >>> r = parse_dsn(" host = 'host' dbname = db\\\\ name requiressl=1 ")
     >>> r == {'dbname': 'db name', 'host': 'host', 'sslmode': 'require',\
-              'gssencmode': 'prefer', 'channel_binding': 'prefer'}
+              'gssencmode': 'prefer', 'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}
     True
-    >>> parse_dsn('requiressl = 0\\\\') == {'sslmode': 'prefer', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
+    >>> parse_dsn('requiressl = 0\\\\') == {'sslmode': 'prefer', 'gssencmode': 'prefer',\
+                                            'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}
     True
     >>> parse_dsn("host=a foo = '") is None
     True
@@ -151,6 +153,7 @@ def parse_dsn(value: str) -> Optional[Dict[str, str]]:
             ret.setdefault('sslmode', 'prefer')
         ret.setdefault('gssencmode', 'prefer')
         ret.setdefault('channel_binding', 'prefer')
+        ret.setdefault('sslnegotiation', 'postgres')
     return ret
 
 
@@ -587,6 +590,8 @@ class ConfigHandler(object):
             ret.setdefault('gssencmode', 'prefer')
         if self._postgresql.major_version >= 130000:
             ret.setdefault('channel_binding', 'prefer')
+        if self._postgresql.major_version >= 170000:
+            ret.setdefault('sslnegotiation', 'postgres')
         if self._krbsrvname:
             ret['krbsrvname'] = self._krbsrvname
         if not ret.get('dbname'):
@@ -607,7 +612,7 @@ class ConfigHandler(object):
         keywords = ('dbname', 'user', 'passfile' if params.get('passfile') else 'password', 'host', 'port',
                     'sslmode', 'sslcompression', 'sslcert', 'sslkey', 'sslpassword', 'sslrootcert', 'sslcrl',
                     'sslcrldir', 'application_name', 'krbsrvname', 'gssencmode', 'channel_binding',
-                    'target_session_attrs')
+                    'target_session_attrs', 'sslnegotiation')
 
         def escape(value: Any) -> str:
             return re.sub(r'([\'\\ ])', r'\\\1', str(value))
