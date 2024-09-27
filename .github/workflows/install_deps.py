@@ -46,7 +46,7 @@ def install_packages(what):
     packages['exhibitor'] = packages['zookeeper']
     packages = packages.get(what, [])
     ver = versions.get(what)
-    if float(ver) >= 15:
+    if 15 <= float(ver) < 17:
         packages += ['postgresql-{0}-citus-12.1'.format(ver)]
     subprocess.call(['sudo', 'apt-get', 'update', '-y'])
     return subprocess.call(['sudo', 'apt-get', 'install', '-y', 'postgresql-' + ver, 'expect-dev'] + packages)
