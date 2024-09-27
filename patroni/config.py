@@ -34,7 +34,8 @@ _AUTH_ALLOWED_PARAMETERS = (
     'sslcrl',
     'sslcrldir',
     'gssencmode',
-    'channel_binding'
+    'channel_binding',
+    'sslnegotiation'
 )
 
 

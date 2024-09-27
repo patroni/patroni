@@ -29,7 +29,7 @@ def mock_open(*args, **kwargs):
 
 @patch('patroni.psycopg.connect', psycopg_connect)
 @patch('builtins.open', MagicMock())
-@patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 16.2"))
+@patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 17.0"))
 @patch('psutil.Process.exe', Mock(return_value='/bin/dir/from/running/postgres'))
 @patch('psutil.Process.__init__', Mock(return_value=None))
 @patch('patroni.config_generator.get_address', Mock(return_value=(HOSTNAME, IP)))
@@ -128,7 +128,8 @@ class TestGenerateConfig(unittest.TestCase):
                         'password': 'qwerty',
                         'channel_binding': 'prefer',
                         'gssencmode': 'prefer',
-                        'sslmode': 'prefer'
+                        'sslmode': 'prefer',
+                        'sslnegotiation': 'postgres'
                     },
                     'replication': {
                         'username': NO_VALUE_MSG,
@@ -177,7 +178,7 @@ class TestGenerateConfig(unittest.TestCase):
                                              '--version'])
 
     @patch('os.makedirs', Mock())
-    def test_generate_sample_config_16(self):
+    def test_generate_sample_config_17(self):
         conf = {
             'bootstrap': {
                 'dcs': {
@@ -213,7 +214,7 @@ class TestGenerateConfig(unittest.TestCase):
 
     @patch('os.makedirs', Mock())
     @patch('sys.stdout')
-    def test_generate_config_running_instance_16(self, mock_sys_stdout):
+    def test_generate_config_running_instance_17(self, mock_sys_stdout):
         self._set_running_instance_config_vals()
 
         with patch('builtins.open', Mock(side_effect=self._get_running_instance_open_res())), \
@@ -226,11 +227,13 @@ class TestGenerateConfig(unittest.TestCase):
 
     @patch('os.makedirs', Mock())
     @patch('sys.stdout')
-    def test_generate_config_running_instance_16_connect_from_env(self, mock_sys_stdout):
+    def test_generate_config_running_instance_17_connect_from_env(self, mock_sys_stdout):
         self._set_running_instance_config_vals()
         # su auth params and connect host from env
         os.environ['PGCHANNELBINDING'] = \
             self.config['postgresql']['authentication']['superuser']['channel_binding'] = 'disable'
+        os.environ['PGSSLNEGOTIATION'] = \
+            self.config['postgresql']['authentication']['superuser']['sslnegotiation'] = 'direct'
 
         conf = {
             'scope': 'my_cluster',
@@ -265,7 +268,7 @@ class TestGenerateConfig(unittest.TestCase):
 
         with patch('builtins.open', Mock(side_effect=self._get_running_instance_open_res())), \
              patch('sys.argv', ['patroni.py', '--generate-config']), \
-             patch.object(MockConnect, 'server_version', PropertyMock(return_value=160000)), \
+             patch.object(MockConnect, 'server_version', PropertyMock(return_value=170000)), \
              self.assertRaises(SystemExit) as e:
             _main()
         self.assertEqual(e.exception.code, 0)

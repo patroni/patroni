@@ -39,7 +39,8 @@ _AUTH_ALLOWED_PARAMETERS_MAPPING = {
     'sslcrl': 'PGSSLCRL',
     'sslcrldir': 'PGSSLCRLDIR',
     'gssencmode': 'PGGSSENCMODE',
-    'channel_binding': 'PGCHANNELBINDING'
+    'channel_binding': 'PGCHANNELBINDING',
+    'sslnegotiation': 'PGSSLNEGOTIATION'
 }
 NO_VALUE_MSG = '#FIXME'
 

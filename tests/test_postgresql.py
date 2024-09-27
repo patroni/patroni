@@ -364,6 +364,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=False))
     @patch.object(Postgresql, 'start', Mock())
+    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=170000))
     def test_follow(self):
         self.p.call_nowait(CallbackAction.ON_START)
         m = RemoteMember('1', {'restore_command': '2', 'primary_slot_name': 'foo', 'conn_kwargs': {'host': 'foo,bar'}})
@@ -1169,5 +1170,5 @@ class TestPostgresql2(BaseTestPostgresql):
         self.p.config.load_current_server_parameters()
         self.assertTrue(all(self.p.config._server_parameters[name] == value for name, value in keep_values.items()))
         self.assertEqual(dict(self.p.config._recovery_params),
-                         {'primary_conninfo': {'host': 'a', 'port': '5433', 'passfile': '/blabla',
-                          'gssencmode': 'prefer', 'sslmode': 'prefer', 'channel_binding': 'prefer'}})
+                         {'primary_conninfo': {'host': 'a', 'port': '5433', 'passfile': '/blabla', 'sslmode': 'prefer',
+                          'gssencmode': 'prefer', 'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}})
