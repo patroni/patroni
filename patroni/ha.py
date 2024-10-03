@@ -281,7 +281,13 @@ class Ha(object):
 
     def is_standby_cluster(self) -> bool:
         """:returns: `True` if global configuration has a valid "standby_cluster" section."""
-        return global_config.is_standby_cluster
+        return self.patroni.multisite.is_active and not self.patroni.multisite.is_leader_site() \
+            or global_config.is_standby_cluster
+
+    def get_standby_cluster_config(self):
+        if self.patroni.multisite.is_active:
+            return self.patroni.multisite.get_active_standby_config()
+        return global_config.get_standby_cluster_config()
 
     def is_leader(self) -> bool:
         """:returns: `True` if the current node is the leader, based on expiration set when it last held the key."""
@@ -555,7 +561,7 @@ class Ha(object):
             return ret or 'trying to bootstrap {0}'.format(msg)
 
         # no leader, but configuration may allowed replica creation using backup tools
-        create_replica_methods = global_config.get_standby_cluster_config().get('create_replica_methods', []) \
+        create_replica_methods = self.get_standby_cluster_config().get('create_replica_methods', []) \
             if self.is_standby_cluster() else None
         can_bootstrap = self.state_handler.can_create_replica_without_replication_connection(create_replica_methods)
         concurrent_bootstrap = self.cluster.initialize == ""
@@ -730,7 +736,7 @@ class Ha(object):
             for param in params:  # It is highly unlikely to happen, but we want to protect from the case
                 node_to_follow.data.pop(param, None)  # when above-mentioned params came from outside.
             if self.is_standby_cluster():
-                standby_config = global_config.get_standby_cluster_config()
+                standby_config = self.get_standby_cluster_config()
                 node_to_follow.data.update({p: standby_config[p] for p in params if standby_config.get(p)})
 
         return node_to_follow
@@ -2391,7 +2397,7 @@ class Ha(object):
         config or cluster.config.data.
         """
         data: Dict[str, Any] = {}
-        cluster_params = global_config.get_standby_cluster_config()
+        cluster_params = self.get_standby_cluster_config()
 
         if cluster_params:
             data.update({k: v for k, v in cluster_params.items() if k in RemoteMember.ALLOWED_KEYS})

@@ -225,7 +225,7 @@ class MultisiteController(Thread, AbstractSiteController):
                         self._disconnected_operation()
                         self._check_transition(leader=False, note="Released multisite leader status on request")
                         return
-                    if self.dcs.update_leader(cluster.leader, None):
+                    if self.dcs.update_leader(cluster, None):
                         logger.info("Updated multisite leader lease")
                         # Make sure we are disabled from standby mode
                         self._standby_config = None
