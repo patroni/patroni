@@ -89,7 +89,8 @@ class MultisiteController(Thread, AbstractSiteController):
         if msconfig.get('update_crd'):
             self._state_updater = KubernetesStateManagement(msconfig.get('update_crd'),
                                                             msconfig.get('crd_uid'),
-                                                            reporter=self.name) #  Use pod name?
+                                                            reporter=self.name, #  Use pod name?
+                                                            crd_api=msconfig.get('crd_api', 'acid.zalan.do/v1'))
         else:
             self._state_updater = None
 
@@ -321,10 +322,11 @@ class MultisiteController(Thread, AbstractSiteController):
 
 
 class KubernetesStateManagement:
-    def __init__(self, crd_name, crd_uid, reporter):
+    def __init__(self, crd_name, crd_uid, reporter, crd_api):
         self.crd_namespace, self.crd_name = (['default'] + crd_name.rsplit('.', 1))[-2:]
         self.crd_uid = crd_uid
         self.reporter = reporter
+        self.crd_api_group, self.crd_api_version = crd_api.rsplit('/', 1)
 
         # TODO: handle config loading when main DCS is not Kubernetes based
         #apiclient = k8s_client.ApiClient(False)
@@ -374,7 +376,7 @@ class KubernetesStateManagement:
 
     @catch_kubernetes_errors
     def update_crd_state(self, update):
-        self._customobj_api.patch_namespaced_custom_object_status('acid.zalan.do', 'v1', self.crd_namespace,
+        self._customobj_api.patch_namespaced_custom_object_status(self.crd_api_group, self.crd_api_version, self.crd_namespace,
                                                     'postgresqls', self.crd_name + '/status', update,
                                                      field_manager='patroni')
 
