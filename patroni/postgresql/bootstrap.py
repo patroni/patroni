@@ -4,7 +4,7 @@ import shlex
 import tempfile
 import time
 
-from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Callable, cast, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
 
 from ..async_executor import CriticalTask
 from ..collections import EMPTY_DICT
@@ -33,8 +33,7 @@ class Bootstrap(object):
         return self._running_custom_bootstrap and self._keep_existing_recovery_conf
 
     @staticmethod
-    def process_user_options(tool: str,
-                             options: Union[Any, Dict[str, str], List[Union[str, Dict[str, Any]]]],
+    def process_user_options(tool: str, options: Any,
                              not_allowed_options: Tuple[str, ...],
                              error_handler: Callable[[str], None]) -> List[str]:
         """Format *options* in a list or dictionary format into command line long form arguments.
@@ -92,20 +91,21 @@ class Bootstrap(object):
             return ret
 
         if isinstance(options, dict):
-            for key, val in options.items():
+            for key, val in cast(Dict[str, str], options).items():
                 if key and val:
                     user_options.append('--{0}={1}'.format(key, unquote(val)))
         elif isinstance(options, list):
-            for opt in options:
+            for opt in cast(List[Any], options):
                 if isinstance(opt, str) and option_is_allowed(opt):
                     user_options.append('--{0}'.format(opt))
                 elif isinstance(opt, dict):
-                    keys = list(opt.keys())
-                    if len(keys) == 1 and isinstance(opt[keys[0]], str) and option_is_allowed(keys[0]):
-                        user_options.append('--{0}={1}'.format(keys[0], unquote(opt[keys[0]])))
+                    args = cast(Dict[str, Any], opt)
+                    keys = list(args.keys())
+                    if len(keys) == 1 and isinstance(args[keys[0]], str) and option_is_allowed(keys[0]):
+                        user_options.append('--{0}={1}'.format(keys[0], unquote(args[keys[0]])))
                     else:
                         error_handler('Error when parsing {0} key-value option {1}: only one key-value is allowed'
-                                      ' and value should be a string'.format(tool, opt[keys[0]]))
+                                      ' and value should be a string'.format(tool, args[keys[0]]))
                 else:
                     error_handler('Error when parsing {0} option {1}: value should be string value'
                                   ' or a single key-value pair'.format(tool, opt))

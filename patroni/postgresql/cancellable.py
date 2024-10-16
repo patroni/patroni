@@ -2,7 +2,7 @@ import logging
 import subprocess
 
 from threading import Lock
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import psutil
 
@@ -76,7 +76,7 @@ class CancellableSubprocess(CancellableExecutor):
         super(CancellableSubprocess, self).__init__()
         self._is_cancelled = False
 
-    def call(self, *args: Any, **kwargs: Union[Any, Dict[str, str]]) -> Optional[int]:
+    def call(self, *args: Any, **kwargs: Any) -> Optional[int]:
         for s in ('stdin', 'stdout', 'stderr'):
             kwargs.pop(s, None)
 
