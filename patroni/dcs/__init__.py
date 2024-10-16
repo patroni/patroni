@@ -1199,12 +1199,13 @@ class Cluster(NamedTuple('Cluster',
         else:
             members = [m for m in members if expected_active(m)]
 
+        leader_patroni_version = self.leader and self.leader.member.patroni_version
         slots: Dict[str, int] = self.slots
         ret: Dict[str, Dict[str, Any]] = {}
         for member in members:
             slot_name = slot_name_from_member_name(member.name)
             lsn = slots.get(slot_name, 0)
-            if member.replicatefrom:
+            if member.replicatefrom or leader_patroni_version and leader_patroni_version < (4, 0, 0):
                 # `/status` key is maintained by the leader, but `member` may be connected to some other node.
                 # In that case, the slot in the leader is inactive and doesn't advance, so we use the LSN
                 # reported by the member to advance replication slot LSN.
