@@ -26,7 +26,7 @@ from .slots import SlotsHandler
 from .sync import SyncHandler
 from .. import global_config, psycopg
 from ..async_executor import CriticalTask
-from ..collections import CaseInsensitiveDict, EMPTY_DICT
+from ..collections import CaseInsensitiveDict, CaseInsensitiveSet, EMPTY_DICT
 from ..dcs import Cluster, Leader, Member
 from ..exceptions import PostgresConnectionException
 from ..utils import Retry, RetryFailedError, polling_loop, data_directory_is_empty, parse_int
@@ -117,6 +117,8 @@ class Postgresql(object):
 
         # Last known running process
         self._postmaster_proc = None
+
+        self._available_gucs = None
 
         if self.is_running():
             # If we found postmaster process we need to figure out whether postgres is accepting connections
@@ -236,6 +238,13 @@ class Postgresql(object):
             extra = "0, NULL, NULL, NULL, NULL, NULL, NULL" + extra
 
         return ("SELECT " + self.TL_LSN + ", {3}").format(self.wal_name, self.lsn_name, self.wal_flush, extra)
+
+    @property
+    def available_gucs(self) -> CaseInsensitiveSet:
+        """GUCs available in this Postgres server."""
+        if not self._available_gucs:
+            self._available_gucs = self._get_gucs()
+        return self._available_gucs
 
     def _version_file_exists(self) -> bool:
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
@@ -629,6 +638,7 @@ class Postgresql(object):
             if self._postmaster_proc.is_running():
                 return self._postmaster_proc
             self._postmaster_proc = None
+            self._available_gucs = None
 
         # we noticed that postgres was restarted, force syncing of replication slots and check of logical slots
         self.slots_handler.schedule()
@@ -1348,3 +1358,13 @@ class Postgresql(object):
         self.slots_handler.schedule()
         self.mpp_handler.schedule_cache_rebuild()
         self._sysid = ''
+
+    def _get_gucs(self) -> CaseInsensitiveSet:
+        """Get all available GUCs based on ``postgres --describe-config`` output.
+
+        :returns: all available GUCs in the local Postgres server.
+        """
+        cmd = [self.pgcommand('postgres'), '--describe-config']
+        return CaseInsensitiveSet({
+            line.split('\t')[0] for line in subprocess.check_output(cmd).decode('utf-8').strip().split('\n')
+        })

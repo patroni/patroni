@@ -13,7 +13,7 @@ import patroni.psycopg as psycopg
 
 from patroni import global_config
 from patroni.async_executor import CriticalTask
-from patroni.collections import CaseInsensitiveDict
+from patroni.collections import CaseInsensitiveDict, CaseInsensitiveSet
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PostgresConnectionException, PatroniException
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
@@ -29,8 +29,8 @@ from patroni.postgresql.validator import (ValidatorFactoryNoType, ValidatorFacto
 from patroni.utils import RetryFailedError
 from threading import Thread, current_thread
 
-from . import BaseTestPostgresql, MockCursor, MockPostmaster, psycopg_connect, GET_PG_SETTINGS_RESULT
-
+from . import (BaseTestPostgresql, MockCursor, MockPostmaster, psycopg_connect, mock_available_gucs,
+               GET_PG_SETTINGS_RESULT)
 
 mtime_ret = {}
 
@@ -101,6 +101,7 @@ Data page checksum version:           0
 @patch('subprocess.call', Mock(return_value=0))
 @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
 @patch('patroni.psycopg.connect', psycopg_connect)
+@patch.object(Postgresql, 'available_gucs', mock_available_gucs)
 class TestPostgresql(BaseTestPostgresql):
 
     @patch('subprocess.call', Mock(return_value=0))
@@ -108,6 +109,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
+    @patch.object(Postgresql, 'available_gucs', mock_available_gucs)
     def setUp(self):
         super(TestPostgresql, self).setUp()
         self.p.config.write_postgresql_conf()
@@ -913,11 +915,12 @@ class TestPostgresql(BaseTestPostgresql):
         not_none_values = (
             ('foo.bar', 'foo', 160003),  # name, value, version
             ("allow_in_place_tablespaces", 'true', 130008),
-            ("restrict_nonsystem_relation_kind", 'view', 160005)
+            ("restrict_nonsystem_relation_kind", 'view', 160005),
+            ('fork_specific_param', 'no_validation_file', 170001),
         )
         for i in not_none_values:
             self.assertIsNotNone(
-                transform_postgresql_parameter_value(i[2], i[0], i[1])
+                transform_postgresql_parameter_value(i[2], i[0], i[1], mock_available_gucs.return_value)
             )
 
         none_values = (
@@ -927,7 +930,7 @@ class TestPostgresql(BaseTestPostgresql):
         )
         for i in none_values:
             self.assertIsNone(
-                transform_postgresql_parameter_value(i[2], i[0], i[1])
+                transform_postgresql_parameter_value(i[2], i[0], i[1], mock_available_gucs.return_value)
             )
             if i[3]:
                 mock_warning.assert_called_once_with(
@@ -1155,6 +1158,12 @@ class TestPostgresql2(BaseTestPostgresql):
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     def setUp(self):
         super(TestPostgresql2, self).setUp()
+
+    @patch('subprocess.check_output', Mock(return_value='\n'.join(mock_available_gucs.return_value).encode('utf-8')))
+    def test_available_gucs(self):
+        gucs = self.p.available_gucs
+        self.assertIsInstance(gucs, CaseInsensitiveSet)
+        self.assertEqual(gucs, mock_available_gucs.return_value)
 
     def test_cluster_info_query(self):
         self.assertIn('diff(pg_catalog.pg_current_wal_flush_lsn(', self.p.cluster_info_query)
