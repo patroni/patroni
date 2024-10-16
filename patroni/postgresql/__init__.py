@@ -655,6 +655,7 @@ class Postgresql(object):
             if self._postmaster_proc.is_running():
                 return self._postmaster_proc
             self._postmaster_proc = None
+            self._available_gucs = None
 
         # we noticed that postgres was restarted, force syncing of replication slots and check of logical slots
         self.slots_handler.schedule()
