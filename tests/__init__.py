@@ -3,7 +3,7 @@ import os
 import shutil
 import unittest
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, PropertyMock
 
 import urllib3
 
@@ -19,6 +19,15 @@ from patroni.utils import RetryFailedError, tzutc
 class SleepException(Exception):
     pass
 
+
+mock_available_gucs = PropertyMock(return_value={
+    'cluster_name', 'constraint_exclusion', 'force_parallel_mode', 'hot_standby', 'listen_addresses', 'max_connections',
+    'max_locks_per_transaction', 'max_prepared_transactions', 'max_replication_slots', 'max_stack_depth',
+    'max_wal_senders', 'max_worker_processes', 'port', 'search_path', 'shared_preload_libraries',
+    'stats_temp_directory', 'synchronous_standby_names', 'track_commit_timestamp', 'unix_socket_directories',
+    'vacuum_cost_delay', 'vacuum_cost_limit', 'wal_keep_size', 'wal_level', 'wal_log_hints', 'zero_damaged_pages',
+    'autovacuum', 'wal_segment_size', 'wal_block_size', 'shared_buffers', 'wal_buffers', 'fork_specific_param',
+})
 
 GET_PG_SETTINGS_RESULT = [
     ('wal_segment_size', '2048', '8kB', 'integer', 'internal'),
