@@ -4,7 +4,7 @@ import select
 import socket
 import time
 
-from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Callable, cast, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
 
 from kazoo.client import KazooClient, KazooRetry, KazooState
 from kazoo.exceptions import ConnectionClosedError, NodeExistsError, NoNodeError, SessionExpiredError
@@ -180,7 +180,8 @@ class ZooKeeper(AbstractDCS):
         return int(self._client._session_timeout / 1000.0)
 
     def set_retry_timeout(self, retry_timeout: int) -> None:
-        retry = self._client.retry if isinstance(self._client.retry, KazooRetry) else self._client._retry
+        old_kazoo = isinstance(self._client.retry, KazooRetry)  # pyright: ignore [reportUnnecessaryIsInstance]
+        retry = cast(KazooRetry, self._client.retry) if old_kazoo else self._client._retry
         retry.deadline = retry_timeout
 
     def get_node(

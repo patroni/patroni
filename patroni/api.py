@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import ip_address, ip_network, IPv4Network, IPv6Network
 from socketserver import ThreadingMixIn
 from threading import Thread
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Callable, cast, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
 from urllib.parse import parse_qs, urlparse
 
 import dateutil.parser
@@ -71,8 +71,8 @@ def check_access(*args: Any, **kwargs: Any) -> Callable[..., Any]:
     """
     allowlist_check_members = kwargs.get('allowlist_check_members', True)
 
-    def inner_decorator(func: Callable[..., None]) -> Callable[..., None]:
-        def wrapper(self: 'RestApiHandler', *args: Any, **kwargs: Any) -> None:
+    def inner_decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def wrapper(self: 'RestApiHandler', *args: Any, **kwargs: Any) -> Any:
             if self.server.check_access(self, allowlist_check_members=allowlist_check_members):
                 return func(self, *args, **kwargs)
 
@@ -698,9 +698,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers.get('content-length') or 0)
             if content_length == 0 and body_is_optional:
                 return {}
-            request: Union[Dict[str, Any], Any] = json.loads(self.rfile.read(content_length).decode('utf-8'))
+            request = json.loads(self.rfile.read(content_length).decode('utf-8'))
             if isinstance(request, dict) and (request or body_is_optional):
-                return request
+                return cast(Dict[str, Any], request)
         except Exception:
             logger.exception('Bad request')
         self.send_error(400)
@@ -1723,12 +1723,11 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         :returns: serial number of the certificate configured through ``restapi.certfile`` setting.
         """
-        if self.__ssl_options.get('certfile'):
+        certfile: Optional[str] = self.__ssl_options.get('certfile')
+        if certfile:
             import ssl
             try:
-                crt: Dict[str, Any] = ssl._ssl._test_decode_cert(self.__ssl_options['certfile'])  # pyright: ignore
-                if TYPE_CHECKING:  # pragma: no cover
-                    assert isinstance(crt, dict)
+                crt = cast(Dict[str, Any], ssl._ssl._test_decode_cert(certfile))  # pyright: ignore
                 return crt.get('serialNumber')
             except ssl.SSLError as e:
                 logger.error('Failed to get serial number from certificate %s: %r', self.__ssl_options['certfile'], e)

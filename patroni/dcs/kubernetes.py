@@ -648,7 +648,7 @@ class ObjectCache(Thread):
         with self._object_cache_lock:
             return self._object_cache.get(name)
 
-    def _process_event(self, event: Dict[str, Union[Any, Dict[str, Union[Any, Dict[str, Any]]]]]) -> None:
+    def _process_event(self, event: Dict[str, Any]) -> None:
         ev_type = event['type']
         obj = event['object']
         name = obj['metadata']['name']

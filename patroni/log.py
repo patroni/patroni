@@ -12,7 +12,7 @@ from io import TextIOWrapper
 from logging.handlers import RotatingFileHandler
 from queue import Full, Queue
 from threading import Lock, Thread
-from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union
+from typing import Any, cast, Dict, List, Optional, TYPE_CHECKING, Union
 
 from .file_perm import pg_perm
 from .utils import deep_compare, parse_int
@@ -358,6 +358,7 @@ class PatroniLogger(Thread):
             jsonformat = logformat
             rename_fields = {}
         elif isinstance(logformat, list):
+            logformat = cast(List[Any], logformat)
             log_fields: List[str] = []
             rename_fields: Dict[str, str] = {}
 
@@ -365,6 +366,7 @@ class PatroniLogger(Thread):
                 if isinstance(field, str):
                     log_fields.append(field)
                 elif isinstance(field, dict):
+                    field = cast(Dict[str, Any], field)
                     for original_field, renamed_field in field.items():
                         if isinstance(renamed_field, str):
                             log_fields.append(original_field)

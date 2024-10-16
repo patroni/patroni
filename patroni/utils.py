@@ -25,7 +25,7 @@ import time
 from collections import OrderedDict
 from json import JSONDecoder
 from shlex import split
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
+from typing import Any, Callable, cast, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
 from dateutil import tz
 from urllib3.response import HTTPResponse
@@ -79,7 +79,7 @@ def get_conversion_table(base_unit: str) -> Dict[str, Dict[str, Union[int, float
     return OrderedDict()
 
 
-def deep_compare(obj1: Dict[Any, Union[Any, Dict[Any, Any]]], obj2: Dict[Any, Union[Any, Dict[Any, Any]]]) -> bool:
+def deep_compare(obj1: Dict[Any, Any], obj2: Dict[Any, Any]) -> bool:
     """Recursively compare two dictionaries to check if they are equal in terms of keys and values.
 
     .. note::
@@ -112,14 +112,14 @@ def deep_compare(obj1: Dict[Any, Union[Any, Dict[Any, Any]]], obj2: Dict[Any, Un
 
     for key, value in obj1.items():
         if isinstance(value, dict):
-            if not (isinstance(obj2[key], dict) and deep_compare(value, obj2[key])):
+            if not (isinstance(obj2[key], dict) and deep_compare(cast(Dict[Any, Any], value), obj2[key])):
                 return False
         elif str(value) != str(obj2[key]):
             return False
     return True
 
 
-def patch_config(config: Dict[Any, Union[Any, Dict[Any, Any]]], data: Dict[Any, Union[Any, Dict[Any, Any]]]) -> bool:
+def patch_config(config: Dict[Any, Any], data: Dict[Any, Any]) -> bool:
     """Update and append to dictionary *config* from overrides in *data*.
 
     .. note::
@@ -142,7 +142,7 @@ def patch_config(config: Dict[Any, Union[Any, Dict[Any, Any]]], data: Dict[Any, 
         elif name in config:
             if isinstance(value, dict):
                 if isinstance(config[name], dict):
-                    if patch_config(config[name], value):
+                    if patch_config(config[name], cast(Dict[Any, Any], value)):
                         is_changed = True
                 else:
                     config[name] = value
@@ -156,7 +156,7 @@ def patch_config(config: Dict[Any, Union[Any, Dict[Any, Any]]], data: Dict[Any, 
     return is_changed
 
 
-def parse_bool(value: Any) -> Union[bool, None]:
+def parse_bool(value: Any) -> Optional[bool]:
     """Parse a given value to a :class:`bool` object.
 
     .. note::
@@ -186,7 +186,7 @@ def parse_bool(value: Any) -> Union[bool, None]:
         return False
 
 
-def strtol(value: Any, strict: Optional[bool] = True) -> Tuple[Union[int, None], str]:
+def strtol(value: Any, strict: Optional[bool] = True) -> Tuple[Optional[int], str]:
     """Extract the long integer part from the beginning of a string that represents a configuration value.
 
     As most as possible close equivalent of ``strtol(3)`` C function (with base=0), which is used by postgres to parse
@@ -240,7 +240,7 @@ def strtol(value: Any, strict: Optional[bool] = True) -> Tuple[Union[int, None],
     return (None if strict else 1), value
 
 
-def strtod(value: Any) -> Tuple[Union[float, None], str]:
+def strtod(value: Any) -> Tuple[Optional[float], str]:
     """Extract the double precision part from the beginning of a string that reprensents a configuration value.
 
     As most as possible close equivalent of ``strtod(3)`` C function, which is used by postgres to parse parameter
