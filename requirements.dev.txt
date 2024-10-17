@@ -1,3 +1,4 @@
+psycopg2-binary==2.9.9; sys_platform == "darwin"
 psycopg2-binary
 behave
 coverage
