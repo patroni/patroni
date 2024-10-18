@@ -3,4 +3,5 @@ sphinx_rtd_theme>1
 sphinxcontrib-apidoc
 sphinx-github-style<1.0.3
 psycopg[binary]
+psycopg2-binary==2.9.9; sys_platform == "darwin"
 psycopg2-binary
