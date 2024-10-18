@@ -3,12 +3,43 @@
 Release notes
 =============
 
+Version 4.0.3
+-------------
+
+Released 2024-10-18
+
+**Bugfixes**
+
+- Disable ``pgaudit`` when creating users not to expose password (kviset)
+
+  Patroni was logging ``superuser``, ``replication``, and ``rewind`` passwords on their creation when ``pgaudit`` extension was enabled.
+
+- Fix issue with mixed setups: primary on pre-Patroni v4 and replicas on v4+ (Alexander Kukushkin)
+
+  Use ``xlog_location`` extracted from ``/members`` key instead of trying to get a member's slot position from ``/status`` key if Patroni version running on the leader is pre-4.0.0. Not doing so has been causing WALs accumulation on replicas.
+
+- Do not ignore valid PostgreSQL GUCs that don't have Patroni validator (Polina Bungina)
+
+  Still check against ``postgres --describe-config`` if a GUC does not have a Patroni validator but is, in fact, a valid GUC.
+
+
+**Improvements**
+
+- Recheck annotations on 409 status code when reading leader object in K8s (Alexander Kukushkin)
+
+  Avoid an additional update if ``PATCH`` request was canceled by Patroni, while the request successfully updated the target.
+
+- Add support of ``sslnegotiation`` client-side connection option (Alexander Kukushkin)
+
+  ``sslnegotiation`` was added to the final PostgreSQL 17 release.
+
+
 Version 4.0.2
 -------------
 
 Released 2024-09-17
 
-**Bugfix**
+**Bugfixes**
 
 - Handle exceptions while discovering configuration validation files (Alexander Kukushkin)
 
