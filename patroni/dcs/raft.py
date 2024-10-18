@@ -255,7 +255,7 @@ class KVStoreTTL(DynMemberSyncObj):
                         self.__limb.pop(key)
                 self._expire(key, value, callback=callback)
 
-    def get(self, key: str, recursive: bool = False) -> Union[None, Dict[str, Any], Dict[str, Dict[str, Any]]]:
+    def get(self, key: str, recursive: bool = False) -> Optional[Dict[str, Any]]:
         if not recursive:
             return self.__data.get(key)
         return {k: v for k, v in self.__data.items() if k.startswith(key)}

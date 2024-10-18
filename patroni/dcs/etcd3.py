@@ -150,8 +150,7 @@ errStringToClientError = {getattr(s, 'error'): s for s in Etcd3ClientError.get_s
 errCodeToClientError = {getattr(s, 'code'): s for s in Etcd3ClientError.__subclasses__()}
 
 
-def _raise_for_data(data: Union[bytes, str, Dict[str, Union[Any, Dict[str, Any]]]],
-                    status_code: Optional[int] = None) -> Etcd3ClientError:
+def _raise_for_data(data: Union[bytes, str, Dict[str, Any]], status_code: Optional[int] = None) -> Etcd3ClientError:
     try:
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(data, dict)

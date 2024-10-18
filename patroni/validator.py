@@ -9,7 +9,7 @@ import os
 import shutil
 import socket
 
-from typing import Any, Dict, Iterator, List, Optional as OptionalType, Tuple, TYPE_CHECKING, Union
+from typing import Any, cast, Dict, Iterator, List, Optional as OptionalType, Tuple, TYPE_CHECKING, Union
 
 from .collections import CaseInsensitiveSet, EMPTY_DICT
 from .dcs import dcs_modules
@@ -29,7 +29,7 @@ def populate_validate_params(ignore_listen_port: bool = False) -> None:
     _validation_params['ignore_listen_port'] = ignore_listen_port
 
 
-def validate_log_field(field: Union[str, Dict[str, Any], Any]) -> bool:
+def validate_log_field(field: Any) -> bool:
     """Checks if log field is valid.
 
     :param field: A log field to be validated.
@@ -40,6 +40,7 @@ def validate_log_field(field: Union[str, Dict[str, Any], Any]) -> bool:
     if isinstance(field, str):
         return True
     elif isinstance(field, dict):
+        field = cast(Dict[str, Any], field)
         return len(field) == 1 and isinstance(next(iter(field.values())), str)
     return False
 
@@ -61,6 +62,7 @@ def validate_log_format(logformat: type_logformat) -> bool:
     if isinstance(logformat, str):
         return True
     elif isinstance(logformat, list):
+        logformat = cast(List[Any], logformat)
         if len(logformat) == 0:
             raise ConfigParseError('should contain at least one item')
         if not all(map(validate_log_field, logformat)):
@@ -254,9 +256,8 @@ def get_bin_name(bin_name: str) -> str:
 
     :returns: value of ``postgresql.bin_name[*bin_name*]``, if present, otherwise *bin_name*.
     """
-    if TYPE_CHECKING:  # pragma: no cover
-        assert isinstance(schema.data, dict)
-    return (schema.data.get('postgresql', {}).get('bin_name', {}) or EMPTY_DICT).get(bin_name, bin_name)
+    data = cast(Dict[Any, Any], schema.data)
+    return (data.get('postgresql', {}).get('bin_name', {}) or EMPTY_DICT).get(bin_name, bin_name)
 
 
 def validate_data_dir(data_dir: str) -> bool:
@@ -295,9 +296,8 @@ def validate_data_dir(data_dir: str) -> bool:
             if not os.path.isdir(os.path.join(data_dir, waldir)):
                 raise ConfigParseError("data dir for the cluster is not empty, but doesn't contain"
                                        " \"{}\" directory".format(waldir))
-            if TYPE_CHECKING:  # pragma: no cover
-                assert isinstance(schema.data, dict)
-            bin_dir = schema.data.get("postgresql", {}).get("bin_dir", None)
+            data = cast(Dict[Any, Any], schema.data)
+            bin_dir = data.get("postgresql", {}).get("bin_dir", None)
             major_version = get_major_version(bin_dir, get_bin_name('postgres'))
             if pgversion != major_version:
                 raise ConfigParseError("data_dir directory postgresql version ({}) doesn't match with "
@@ -332,9 +332,8 @@ def validate_binary_name(bin_name: str) -> bool:
     """
     if not bin_name:
         raise ConfigParseError("is an empty string")
-    if TYPE_CHECKING:  # pragma: no cover
-        assert isinstance(schema.data, dict)
-    bin_dir = schema.data.get('postgresql', {}).get('bin_dir', None)
+    data = cast(Dict[Any, Any], schema.data)
+    bin_dir = data.get('postgresql', {}).get('bin_dir', None)
     if not shutil.which(bin_name, path=bin_dir):
         raise ConfigParseError(f"does not contain '{bin_name}' in '{bin_dir or '$PATH'}'")
     return True
@@ -674,7 +673,7 @@ class Schema(object):
                 errors.append(str(i))
         return errors
 
-    def validate(self, data: Union[Dict[Any, Any], Any]) -> Iterator[Result]:
+    def validate(self, data: Any) -> Iterator[Result]:
         """Perform all validations from the schema against the given configuration.
 
         It first checks that *data* argument type is compliant with the type of ``validator`` attribute.
@@ -703,9 +702,9 @@ class Schema(object):
                          "is not {}".format(_get_type_name(self.validator)), level=1, data=self.data)
         elif callable(self.validator):
             if hasattr(self.validator, "expected_type"):
-                if not isinstance(data, self.validator.expected_type):
-                    yield Result(False, "is not {}"
-                                 .format(_get_type_name(self.validator.expected_type)), level=1, data=self.data)
+                expected_type = getattr(self.validator, 'expected_type')
+                if not isinstance(data, expected_type):
+                    yield Result(False, "is not {}".format(_get_type_name(expected_type)), level=1, data=self.data)
                     return
             try:
                 self.validator(data)
@@ -715,41 +714,38 @@ class Schema(object):
         elif isinstance(self.validator, dict):
             if not isinstance(self.data, dict):
                 yield Result(isinstance(self.data, dict), "is not a dictionary", level=1, data=self.data)
-        elif isinstance(self.validator, list):
-            if not isinstance(self.data, list):
-                yield Result(isinstance(self.data, list), "is not a list", level=1, data=self.data)
-                return
-        yield from self.iter()
-
-    def iter(self) -> Iterator[Result]:
-        """Iterate over ``validator``, if it is an iterable object, to validate the corresponding entries in ``data``.
-
-        Only :class:`dict`, :class:`list`, :class:`Directory` and :class:`Or` objects are considered iterable objects.
-
-        :yields: objects with the error message related to the failure, if any check fails.
-        """
-        if isinstance(self.validator, dict):
-            if not isinstance(self.data, dict):
-                yield Result(False, "is not a dictionary.", level=1)
             else:
                 yield from self.iter_dict()
         elif isinstance(self.validator, list):
-            if len(self.data) == 0:
-                yield Result(False, "is an empty list", data=self.data)
-            if self.validator:
-                for key, value in enumerate(self.data):
-                    # Although the value in the configuration (`data`) is expected to contain 1 or more entries, only
-                    # the first validator defined in `validator` property list will be used. It is only defined as a
-                    # `list` in `validator` so this logic can understand that the value in `data` attribute should be a
-                    # `list`. For example: "pg_hba": [str] in `validator` attribute defines that "pg_hba" in `data`
-                    # attribute should contain a list with one or more `str` entries.
-                    for v in Schema(self.validator[0]).validate(value):
-                        yield Result(v.status, v.error,
-                                     path=(str(key) + ("." + v.path if v.path else "")), level=v.level, data=value)
-        elif isinstance(self.validator, Directory) and isinstance(self.data, str):
-            yield from self.validator.validate(self.data)
+            if not isinstance(self.data, list):
+                yield Result(isinstance(self.data, list), "is not a list", level=1, data=self.data)
+            else:
+                yield from self.iter_list()
         elif isinstance(self.validator, Or):
             yield from self.iter_or()
+        elif isinstance(self.validator, Directory) and isinstance(self.data, str):
+            yield from self.validator.validate(self.data)
+
+    def iter_list(self) -> Iterator[Result]:
+        """Iterate over a ``data`` object and perform validations using the first element of the ``validator``.
+
+        :yields: objects with the error message related to the failure, if any check fails.
+        """
+        data = cast(List[Any], self.data)
+        if len(data) == 0:
+            yield Result(False, "is an empty list", data=data)
+
+        validators = cast(List[Any], self.validator)
+        if len(validators):
+            for key, value in enumerate(data):
+                # Although the value in the configuration (`data`) is expected to contain 1 or more entries, only
+                # the first validator defined in `validator` property list will be used. It is only defined as a
+                # `list` in `validator` so this logic can understand that the value in `data` attribute should be a
+                # `list`. For example: "pg_hba": [str] in `validator` attribute defines that "pg_hba" in `data`
+                # attribute should contain a list with one or more `str` entries.
+                for v in Schema(validators[0]).validate(value):
+                    yield Result(v.status, v.error,
+                                 path=(str(key) + ("." + v.path if v.path else "")), level=v.level, data=value)
 
     def iter_dict(self) -> Iterator[Result]:
         """Iterate over a :class:`dict` based ``validator`` to validate the corresponding entries in ``data``.
@@ -758,27 +754,26 @@ class Schema(object):
         """
         # One key in `validator` attribute (`key` variable) can be mapped to one or more keys in `data` attribute (`d`
         # variable), depending on the `key` type.
-        if TYPE_CHECKING:  # pragma: no cover
-            assert isinstance(self.validator, dict)
-            assert isinstance(self.data, dict)
-        for key in self.validator.keys():
+        data = cast(Dict[Any, Any], self.data)
+        validators = cast(Dict[Any, Any], self.validator)
+        for key in validators.keys():
             if isinstance(key, AtMostOne) and len(list(self._data_key(key))) > 1:
                 yield Result(False, f"Multiple of {key.args} provided")
                 continue
             for d in self._data_key(key):
-                if d not in self.data and not isinstance(key, Optional):
+                if d not in data and not isinstance(key, Optional):
                     yield Result(False, "is not defined.", path=d)
-                elif d not in self.data and isinstance(key, Optional) and key.default is None:
+                elif d not in data and isinstance(key, Optional) and key.default is None:
                     continue
                 else:
-                    if d not in self.data and isinstance(key, Optional):
-                        self.data[d] = key.default
-                    validator = self.validator[key]
-                    if isinstance(key, (Or, AtMostOne)) and isinstance(self.validator[key], Case):
-                        validator = self.validator[key]._schema[d]
+                    if d not in data and isinstance(key, Optional):
+                        data[d] = key.default
+                    validator = validators[key]
+                    if isinstance(key, (Or, AtMostOne)) and isinstance(validators[key], Case):
+                        validator = validators[key]._schema[d]
                     # In this loop we may be calling a new `Schema` either over an intermediate node in the tree, or
                     # over a leaf node. In the latter case the recursive calls in the given path will finish.
-                    for v in Schema(validator).validate(self.data[d]):
+                    for v in Schema(validator).validate(data[d]):
                         yield Result(v.status, v.error,
                                      path=(d + ("." + v.path if v.path else "")), level=v.level, data=v.data)
 
@@ -818,22 +813,24 @@ class Schema(object):
 
         :yields: keys that should be used to access corresponding value in the ``data`` attribute.
         """
-        # If the key was defined as a `str` object in `validator` attribute, then it is already the final key to access
-        # the `data` dictionary.
-        if isinstance(self.data, dict) and isinstance(key, str):
-            yield key
+        data = cast(Dict[Any, Any], self.data)
+
         # If the key was defined as an `Optional` object in `validator` attribute, then its name is the key to access
         # the `data` dictionary.
-        elif isinstance(key, Optional):
+        if isinstance(key, Optional):
             yield key.name
-        # If the key was defined as an `Or` object in `validator` attribute, then each of its values are the keys to
-        # access the `data` dictionary.
-        elif isinstance(key, Or) and isinstance(self.data, dict):
-            # At least one of the `Or` entries should be available in the `data` dictionary. If we find at least one of
-            # them in `data`, then we return all found entries so the caller method can validate them all.
-            if any([item in self.data for item in key.args]):
+        # If the key was defined as a `str` object in `validator` attribute, then it is already the final key
+        # to access the `data` dictionary.
+        elif isinstance(key, str):
+            yield key
+        # If the key was defined as an `Or` object in `validator` attribute, then each of its values are
+        # the keys to access the `data` dictionary.
+        elif isinstance(key, Or):
+            # At least one of the `Or` entries should be available in the `data` dictionary. If we find at least
+            # one of them in `data`, then we return all found entries so the caller method can validate them all.
+            if any([item in data for item in key.args]):
                 for item in key.args:
-                    if item in self.data:
+                    if item in data:
                         yield item
             # If none of the `Or` entries is available in the `data` dictionary, then we return all entries so the
             # caller method will issue errors that they are all absent.
@@ -842,11 +839,11 @@ class Schema(object):
                     yield item
         # If the key was defined as a `AtMostOne` object in `validator` attribute, then each of its values
         # are the keys to access the `data` dictionary.
-        elif isinstance(key, AtMostOne) and isinstance(self.data, dict):
+        elif isinstance(key, AtMostOne):  # pyright: ignore [reportUnnecessaryIsInstance]
             # Yield back all of the entries from the `data` dictionary, each will be validated and then counted
             # to inform us if we've provided too many
             for item in key.args:
-                if item in self.data:
+                if item in data:
                     yield item
 
 

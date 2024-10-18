@@ -3,7 +3,7 @@ import logging
 import random
 import time
 
-from typing import Any, Callable, Dict, List, Union
+from typing import Any, Callable, cast, Dict, List, Union
 
 from ..postgresql.mpp import AbstractMPP
 from ..request import get as requests_get
@@ -41,8 +41,9 @@ class ExhibitorEnsembleProvider(object):
 
         if isinstance(json, dict) and 'servers' in json and 'port' in json:
             self._next_poll = time.time() + self._poll_interval
-            servers: List[str] = json['servers']
-            zookeeper_hosts = ','.join([h + ':' + str(json['port']) for h in sorted(servers)])
+            servers: List[str] = cast(Dict[str, Any], json)['servers']
+            port = str(cast(Dict[str, Any], json)['port'])
+            zookeeper_hosts = ','.join([h + ':' + port for h in sorted(servers)])
             if self._zookeeper_hosts != zookeeper_hosts:
                 logger.info('ZooKeeper connection string has changed: %s => %s', self._zookeeper_hosts, zookeeper_hosts)
                 self._zookeeper_hosts = zookeeper_hosts
@@ -50,7 +51,7 @@ class ExhibitorEnsembleProvider(object):
                 return True
         return False
 
-    def _query_exhibitors(self, exhibitors: List[str]) -> Union[Dict[str, Any], Any]:
+    def _query_exhibitors(self, exhibitors: List[str]) -> Any:
         random.shuffle(exhibitors)
         for host in exhibitors:
             try:
