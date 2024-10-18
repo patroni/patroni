@@ -4,6 +4,33 @@ Release notes
 =============
 
 
+Version 3.3.4
+-------------
+
+Released 2024-10-18
+
+**Bugfixes**
+
+- Disable ``pgaudit`` when creating users not to expose password (kviset)
+
+  Patroni was logging ``superuser``, ``replication``, and ``rewind`` passwords on their creation when ``pgaudit`` extension was enabled.
+
+- Improve GUCs validation (Polina Bungina)
+
+  Do not ignore GUCs that are not listed in the ``postgres --describe-config`` command's output but have a Patroni validator.
+
+
+**Improvements**
+
+- Full compatibility with PostgreSQL 17 (Alexander Kukushkin)
+
+  Add support of ``sslnegotiation`` client-side connection option, extend GUCs validator rules, implement handling of all the new auxiliary backends during shutdown, and set ``dbname`` in ``primary_conninfo``, as it is required for logical replication slots synchronization.
+
+- Recheck annotations on 409 status code when reading leader object in K8s (Alexander Kukushkin)
+
+  Avoid an additional update if ``PATCH`` request was canceled by Patroni, while the request successfully updated the target.
+
+
 Version 3.3.3
 -------------
 
@@ -13,7 +40,8 @@ Released 2024-09-17
 
 - Compatibility with PostgreSQL 17 beta3 (Alexander Kukushkin)
 
-  GUC's validator rules were extended. Patroni handles all the new auxiliary backends during shutdown and sets ``dbname`` in ``primary_conninfo``, as it is required for logical replication slots synchronization.
+  GUC's validator rules were extended.
+
 
 **Bugfixes**
 
