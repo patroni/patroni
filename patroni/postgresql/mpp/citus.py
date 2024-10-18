@@ -4,7 +4,7 @@ import time
 
 from threading import Condition, Event, Thread
 from urllib.parse import urlparse
-from typing import Any, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
+from typing import Any, cast, Dict, List, Optional, Union, Tuple, TYPE_CHECKING
 
 from . import AbstractMPP, AbstractMPPHandler
 from ...dcs import Cluster
@@ -71,7 +71,7 @@ class Citus(AbstractMPP):
     group_re = re.compile('^(0|[1-9][0-9]*)$')
 
     @staticmethod
-    def validate_config(config: Union[Any, Dict[str, Union[str, int]]]) -> bool:
+    def validate_config(config: Any) -> bool:
         """Check whether provided config is good for a given MPP.
 
         :param config: configuration of ``citus`` MPP section.
@@ -79,8 +79,8 @@ class Citus(AbstractMPP):
         :returns: ``True`` is config passes validation, otherwise ``False``.
         """
         return isinstance(config, dict) \
-            and isinstance(config.get('database'), str) \
-            and parse_int(config.get('group')) is not None
+            and isinstance(cast(Dict[str, Any], config).get('database'), str) \
+            and parse_int(cast(Dict[str, Any], config).get('group')) is not None
 
     @property
     def group(self) -> int:

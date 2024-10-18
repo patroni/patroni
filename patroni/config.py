@@ -9,7 +9,7 @@ import yaml
 
 from collections import defaultdict
 from copy import deepcopy
-from typing import Any, Callable, Collection, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import Any, Callable, cast, Collection, Dict, List, Optional, Union, TYPE_CHECKING
 
 from . import PATRONI_ENV_PREFIX
 from .collections import CaseInsensitiveDict, EMPTY_DICT
@@ -712,8 +712,8 @@ class Config(object):
         config = self._safe_copy_dynamic_configuration(dynamic_configuration)
         for name, value in local_configuration.items():
             if name == 'citus':  # remove invalid citus configuration
-                if isinstance(value, dict) and isinstance(value.get('group'), int)\
-                        and isinstance(value.get('database'), str):
+                if isinstance(value, dict) and isinstance(cast(Dict[str, Any], value).get('group'), int) \
+                        and isinstance(cast(Dict[str, Any], value).get('database'), str):
                     config[name] = value
             elif name == 'postgresql':
                 for name, value in (value or {}).items():
