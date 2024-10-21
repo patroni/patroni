@@ -15,7 +15,7 @@ from urllib.parse import quote, urlencode, urlparse
 
 import urllib3
 
-from consul import base, ConsulException, NotFound
+from consul import base, Check, ConsulException, NotFound
 from urllib3.exceptions import HTTPError
 
 from ..exceptions import DCSError
@@ -526,8 +526,8 @@ class Consul(AbstractDCS):
         api_parts = api_parts._replace(path='/{0}'.format(role))
         conn_url: str = data['conn_url']
         conn_parts = urlparse(conn_url)
-        check = base.Check.http(api_parts.geturl(), self._service_check_interval,
-                                deregister='{0}s'.format(self._client.http.ttl * 10))
+        check = Check.http(api_parts.geturl(), self._service_check_interval,
+                           deregister='{0}s'.format(self._client.http.ttl * 10))
         if self._service_check_tls_server_name is not None:
             check['TLSServerName'] = self._service_check_tls_server_name
         tags = self._service_tags[:]
