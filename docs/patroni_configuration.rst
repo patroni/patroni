@@ -49,8 +49,8 @@ Some of the PostgreSQL parameters **must hold the same values on the primary and
 
 For the parameters below, PostgreSQL does not require equal values among the primary and all the replicas. However, considering the possibility of a replica to become the primary at any time, it doesn't really make sense to set them differently; therefore, **Patroni restricts setting their values to the** :ref:`dynamic configuration <dynamic_configuration>`.
 
-- **max_wal_senders**: 5
-- **max_replication_slots**: 5
+- **max_wal_senders**: 10
+- **max_replication_slots**: 10
 - **wal_keep_segments**: 8
 - **wal_keep_size**: 128MB
 
