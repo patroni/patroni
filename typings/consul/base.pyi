@@ -1,9 +1,6 @@
 from typing import Any, Dict, List, Optional, Tuple
 class ConsulException(Exception): ...
 class NotFound(ConsulException): ...
-class Check:
-    @classmethod
-    def http(klass, url: str, interval: str, timeout: Optional[str] = None, deregister: Optional[str] = None) -> Dict[str, str]: ...
 class Consul:
     http: Any
     agent: 'Consul.Agent'
