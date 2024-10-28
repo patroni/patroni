@@ -15,7 +15,7 @@ from urllib.parse import quote, urlencode, urlparse
 
 import urllib3
 
-from consul import base, ConsulException, NotFound
+from consul import base, Check, ConsulException, NotFound
 from urllib3.exceptions import HTTPError
 
 from ..exceptions import DCSError
@@ -181,7 +181,7 @@ class ConsulClient(base.Consul):
         self.token = kwargs.get('token')
         super(ConsulClient, self).__init__(*args, **kwargs)
 
-    def http_connect(self, *args: Any, **kwargs: Any) -> HTTPClient:
+    def connect(self, *args: Any, **kwargs: Any) -> HTTPClient:
         kwargs.update(dict(zip(['host', 'port', 'scheme', 'verify'], args)))
         if self._cert:
             kwargs['cert'] = self._cert
@@ -191,8 +191,8 @@ class ConsulClient(base.Consul):
             kwargs['token'] = self.token
         return HTTPClient(**kwargs)
 
-    def connect(self, *args: Any, **kwargs: Any) -> HTTPClient:
-        return self.http_connect(*args, **kwargs)
+    def http_connect(self, *args: Any, **kwargs: Any) -> HTTPClient:
+        return self.connect(*args, **kwargs)  # pragma: no cover
 
     def reload_config(self, config: Dict[str, Any]) -> None:
         self.http.token = self.token = config.get('token')
@@ -526,8 +526,8 @@ class Consul(AbstractDCS):
         api_parts = api_parts._replace(path='/{0}'.format(role))
         conn_url: str = data['conn_url']
         conn_parts = urlparse(conn_url)
-        check = base.Check.http(api_parts.geturl(), self._service_check_interval,
-                                deregister='{0}s'.format(self._client.http.ttl * 10))
+        check = Check.http(api_parts.geturl(), self._service_check_interval,
+                           deregister='{0}s'.format(self._client.http.ttl * 10))
         if self._service_check_tls_server_name is not None:
             check['TLSServerName'] = self._service_check_tls_server_name
         tags = self._service_tags[:]

@@ -3,7 +3,7 @@ boto3
 PyYAML
 kazoo>=1.3.1
 python-etcd>=0.4.3,<0.5
-python-consul>=0.7.1
+py-consul>=1.1.1
 click>=4.1
 prettytable>=0.7
 python-dateutil
