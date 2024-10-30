@@ -15,6 +15,7 @@ from patroni.exceptions import DCSError, PatroniFatalException, PostgresConnecti
 from patroni.ha import _MemberStatus, Ha
 from patroni.postgresql import Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
+from patroni.postgresql.callback_executor import CallbackAction
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.postmaster import PostmasterProcess
@@ -1105,11 +1106,14 @@ class TestHa(PostgresInit):
     @patch.object(Rewind, 'check_leader_is_not_in_recovery', true)
     @patch('os.listdir', Mock(return_value=[]))
     @patch('patroni.postgresql.rewind.fsync_dir', Mock())
-    def test_post_recover(self):
+    @patch.object(Postgresql, 'call_nowait')
+    def test_post_recover(self, mock_call_nowait):
         self.p.is_running = false
         self.ha.has_lock = true
         self.p.set_role('primary')
         self.assertEqual(self.ha.post_recover(), 'removed leader key after trying and failing to start postgres')
+        self.assertEqual(self.p.role, 'demoted')
+        mock_call_nowait.assert_called_once_with(CallbackAction.ON_ROLE_CHANGE)
         self.ha.has_lock = false
         self.assertEqual(self.ha.post_recover(), 'failed to start postgres')
         leader = Leader(0, 0, Member(0, 'l', 2, {"version": "1.6", "conn_url": "postgres://a", "role": "primary"}))

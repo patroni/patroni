@@ -24,3 +24,11 @@ Feature: recovery
     When I kill postmaster on postgres-0
     Then postgres-1 is a leader after 10 seconds
     And postgres-1 role is the primary after 10 seconds
+
+  Scenario: check immediate failover when master_start_timeout<>0
+    Given I issue a PATCH request to http://127.0.0.1:8008/config with {"master_start_timeout": 1}
+    Then I receive a response code 200
+    When I ensure postgres-1 fails to start after a failure
+    When I kill postmaster on postgres-1
+    Then postgres-0 is a leader after 10 seconds
+    And there is a postgres-1_cb.log with "on_role_change demoted batman" in postgres-1 data directory

@@ -1964,6 +1964,7 @@ class Ha(object):
             if self.has_lock():
                 if self.state_handler.role in ('primary', 'standby_leader'):
                     self.state_handler.set_role('demoted')
+                    self.state_handler.call_nowait(CallbackAction.ON_ROLE_CHANGE)
                 self._delete_leader()
                 return 'removed leader key after trying and failing to start postgres'
             return 'failed to start postgres'
