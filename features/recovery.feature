@@ -25,7 +25,7 @@ Feature: recovery
     Then postgres-1 is a leader after 10 seconds
     And postgres-1 role is the primary after 10 seconds
 
-  Scenario: check failed primary recovery with master_start_timeout<>0
+  Scenario: check crashed primary demotes after failed attempt to start
     Given I issue a PATCH request to http://127.0.0.1:8009/config with {"master_start_timeout": null}
     Then I receive a response code 200
     And postgres-0 role is the replica after 10 seconds
