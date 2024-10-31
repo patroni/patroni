@@ -24,3 +24,12 @@ Feature: recovery
     When I kill postmaster on postgres0
     Then postgres1 is a leader after 10 seconds
     And postgres1 role is the primary after 10 seconds
+
+  Scenario: check crashed primary demotes after failed attempt to start
+    Given I issue a PATCH request to http://127.0.0.1:8009/config with {"master_start_timeout": null}
+    Then I receive a response code 200
+    And postgres0 role is the replica after 10 seconds
+    When I ensure postgres1 fails to start after a failure
+    When I kill postmaster on postgres1
+    Then postgres0 is a leader after 10 seconds
+    And there is a postgres1_cb.log with "on_role_change demoted batman" in postgres1 data directory
