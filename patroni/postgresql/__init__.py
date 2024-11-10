@@ -302,7 +302,7 @@ class Postgresql(object):
     def pg_isready(self) -> str:
         """Runs pg_isready to see if PostgreSQL is accepting connections.
 
-        :returns: 'ok' if PostgreSQL is up, 'reject' if starting up, 'no_resopnse' if not up."""
+        :returns: 'ok' if PostgreSQL is up, 'reject' if starting up, 'no_response' if not up."""
 
         r = self.connection_pool.conn_kwargs
         cmd = [self.pgcommand('pg_isready'), '-p', r['port'], '-d', self._database]
@@ -540,7 +540,7 @@ class Postgresql(object):
         """Figure out the replication state from input parameters.
 
         .. note::
-            This method could be only called when Postgres is up, running and queries are successfuly executed.
+            This method could be only called when Postgres is up, running and queries are successfully executed.
 
         :is_primary: `True` is postgres is not running in recovery
         :receiver_state: value from `pg_stat_get_wal_receiver.state` or None if Postgres is older than 9.6
@@ -830,7 +830,7 @@ class Postgresql(object):
                 cur.execute('CHECKPOINT')
         except psycopg.Error:
             logger.exception('Exception during CHECKPOINT')
-            return 'not accessible or not healty'
+            return 'not accessible or not healthy'
 
     def stop(self, mode: str = 'fast', block_callbacks: bool = False, checkpoint: Optional[bool] = None,
              on_safepoint: Optional[Callable[..., Any]] = None, on_shutdown: Optional[Callable[[int, int], Any]] = None,

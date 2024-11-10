@@ -1050,7 +1050,7 @@ class Kubernetes(AbstractDCS):
         return False
 
     def __target_ref(self, leader_ip: str, latest_subsets: List[K8sObject], pod: K8sObject) -> K8sObject:
-        # we want to re-use existing target_ref if possible
+        # we want to reuse existing target_ref if possible
         empty_addresses: List[K8sObject] = []
         for subset in latest_subsets:
             for address in subset.addresses or empty_addresses:

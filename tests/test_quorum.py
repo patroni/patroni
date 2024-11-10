@@ -264,7 +264,7 @@ class QuorumTest(unittest.TestCase):
         self.check_state_transitions(leader=leader, quorum=2, voters=set('bcde'),
                                      numsync=2, sync=set('bcde'), numsync_confirmed=2, active=set('bcd'),
                                      sync_wanted=3, leader_wanted=leader, expected=[
-            # node e removed from sync wth replication factor increase
+            # node e removed from sync with replication factor increase
             ('sync', leader, 3, set('bcd')),
             # node e removed from voters with quorum decrease
             ('quorum', leader, 1, set('bcd')),

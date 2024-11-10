@@ -1587,7 +1587,7 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.ha.watch(0)
 
-    def test_wakup(self):
+    def test_wakeup(self):
         self.ha.wakeup()
 
     def test_shutdown(self):

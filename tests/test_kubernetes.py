@@ -504,7 +504,7 @@ class TestCacheBuilder(BaseTestKubernetes):
             {'type': 'DELETED', 'object': {'metadata': {
                 'name': self.k.config_path, 'resourceVersion': '3'}}}
         ) + '\n' + json.dumps(
-            {'type': 'MDIFIED', 'object': {'metadata': {'name': self.k.config_path}}}
+            {'type': 'MODIFIED', 'object': {'metadata': {'name': self.k.config_path}}}
         ) + '\n').encode('utf-8'), b'{"object":{', b'"code":410}}\n']
         self.k._kinds._build_cache()
 

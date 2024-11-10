@@ -112,7 +112,7 @@ class PgDistGroup(Set[PgDistNode]):
         """Creates a :class:`PgDistGroup` object based on given arguments.
 
         :param groupid: the groupid from "pg_dist_node".
-        :param nodes: a collection of :class:`PgDistNode` objects that belog to a *groupid*.
+        :param nodes: a collection of :class:`PgDistNode` objects that belong to a *groupid*.
         """
         self.failover = False
         self.groupid = groupid
@@ -315,7 +315,7 @@ class PgDistTask(PgDistGroup):
         """Create a :class:`PgDistTask` object based on given arguments.
 
         :param groupid: the groupid from "pg_dist_node".
-        :param nodes: a collection of :class:`PgDistNode` objects that belog to a *groupid*.
+        :param nodes: a collection of :class:`PgDistNode` objects that belong to a *groupid*.
         :param event: an "event" that resulted in creating this task.
         :param timeout: a transaction timeout if the task resulted in starting a transaction.
         :param cooldown: the cooldown value for ``citus_update_node()`` UDF call.
@@ -460,7 +460,7 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
 
         We can't always rely on REST API calls from worker nodes in order
         to maintain `pg_dist_node`, therefore at least once per heartbeat
-        loop we make sure that workes registered in `self._pg_dist_group`
+        loop we make sure that works registered in `self._pg_dist_group`
         cache are matching the cluster view from DCS by creating tasks
         the same way as it is done from the REST API."""
 
@@ -554,7 +554,7 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
             Read access to `self._in_flight` isn't protected because we know it can't be changed outside of our thread.
 
         :param task: reference to a :class:`PgDistTask` object that represents a row to be updated/created.
-        :returns: ``True`` if the row was succesfully created/updated or transaction in progress
+        :returns: ``True`` if the row was successfully created/updated or transaction in progress
             was committed as an indicator that the `self._pg_dist_group` cache should be updated,
             or, if the new transaction was opened, this method returns `False`.
         """

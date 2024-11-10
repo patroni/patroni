@@ -608,7 +608,7 @@ class Ha(object):
             - postgres was running as ``replica`` wasn't ``shut down in recovery`` (cleanly)
               and we need to run ``pg_rewind`` to join back to the cluster.
 
-          - ``pg_rewind`` is executed if it is necessary, or optinally, the data directory could
+          - ``pg_rewind`` is executed if it is necessary, or optionally, the data directory could
              be removed if it is allowed by configuration.
 
           - after ``crash recovery`` and/or ``pg_rewind`` are executed, postgres is started in recovery.
@@ -1225,7 +1225,7 @@ class Ha(object):
 
         members = [RemoteMember(name, {'api_url': url})
                    for name, url in failsafe.items() if name != self.state_handler.name]
-        if not members:  # A sinlge node cluster
+        if not members:  # A single node cluster
             return True
         pool = ThreadPool(len(members))
         call_failsafe_member = functools.partial(self.call_failsafe_member, data)
@@ -2389,7 +2389,7 @@ class Ha(object):
 
         :param exclude_failover_candidate: if ``True``, exclude :attr:`failover.candidate` from the candidates.
 
-        :returns: a list of :class:`Member` ojects or an empty list if there is no candidate available.
+        :returns: a list of :class:`Member` objects or an empty list if there is no candidate available.
         """
         failover = self.cluster.failover
         exclude = [self.state_handler.name] + ([failover.candidate] if failover and exclude_failover_candidate else [])

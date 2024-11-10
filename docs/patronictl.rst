@@ -78,7 +78,7 @@ This is the synopsis for running a command from the ``patronictl``:
     - Things written in uppercase represent a literal that should be given a value to.
 
     We will use this same syntax when describing ``patronictl`` sub-commands in the following sub-sections.
-    Also, when describing sub-commands in the following sub-sections, the commands' synposis should be seen as a replacement for the ``SUBCOMMAND`` in the above synopsis.
+    Also, when describing sub-commands in the following sub-sections, the commands' synopsis should be seen as a replacement for the ``SUBCOMMAND`` in the above synopsis.
 
 In the following sub-sections you can find a description of each command implemented by ``patronictl``. For sake of example, we will use the configuration files present in the GitHub repository of Patroni (files ``postgres0.yml``, ``postgres1.yml`` and ``postgres2.yml``).
 
@@ -224,7 +224,7 @@ Parameters
 
     ``PG_CONFIG`` is the name of the Postgres configuration to be set.
 
-    ``PG_VALUE`` is the value for ``PG_CONFIG``. If it is ``nulll``, then ``PG_CONFIG`` will be removed from the dynamic configuration.
+    ``PG_VALUE`` is the value for ``PG_CONFIG``. If it is ``null``, then ``PG_CONFIG`` will be removed from the dynamic configuration.
 
 ``--apply``
     Apply dynamic configuration from the given file.
@@ -1427,7 +1427,7 @@ Parameters
 ``--scheduled``
     Schedule a restart to occur at the given timestamp.
 
-    ``TIMESTAMP`` is the timestamp when the restart should occur. Specify it in unambiguous format, preferrably with time zone. You can also use the literal ``now`` for the restart to be executed immediately.
+    ``TIMESTAMP`` is the timestamp when the restart should occur. Specify it in unambiguous format, preferably with time zone. You can also use the literal ``now`` for the restart to be executed immediately.
 
 ``--force``
     Flag to skip confirmation prompts when requesting the restart operations.
@@ -1665,7 +1665,7 @@ Parameters
 ``--scheduled``
     Schedule a switchover to occur at the given timestamp.
 
-    ``TIMESTAMP`` is the timestamp when the switchover should occur. Specify it in unambiguous format, preferrably with time zone. You can also use the literal ``now`` for the switchover to be executed immediately.
+    ``TIMESTAMP`` is the timestamp when the switchover should occur. Specify it in unambiguous format, preferably with time zone. You can also use the literal ``now`` for the switchover to be executed immediately.
 
 ``--force``
     Flag to skip confirmation prompts when performing the switchover.
