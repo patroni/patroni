@@ -135,7 +135,7 @@ class TestPgBackupApi(unittest.TestCase):
         mock_op_status.__getitem__.assert_called_once_with("some status")
 
         # malformed response
-        mock_get_request.return_value = {"status": "some status"}
+        mock_get_request.return_value = {"statuss": "some status"}
 
         with self.assertRaises(RetriesExceeded) as exc:
             self.api.get_operation_status(BARMAN_SERVER, "some_id")
