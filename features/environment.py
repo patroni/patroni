@@ -1129,7 +1129,7 @@ def before_feature(context, feature):
 
 def after_feature(context, feature):
     """ send SIGCONT to a dcs if necessary,
-    stop all patronis remove their data directory and cleanup the keys in etcd """
+    stop all Patronis remove their data directory and cleanup the keys in etcd """
     context.dcs_ctl.stop_outage()
     context.pctl.stop_all()
     data = os.path.join(context.pctl.patroni_path, 'data')
