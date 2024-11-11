@@ -332,6 +332,10 @@ def is_citus_cluster() -> bool:
     return click.get_current_context().obj['__mpp'].is_enabled()
 
 
+# Cache DCS instances for given scope and group
+__dcs_cache: Dict[Tuple[str, Optional[int]], AbstractDCS] = {}
+
+
 def get_dcs(scope: str, group: Optional[int]) -> AbstractDCS:
     """Get the DCS object.
 
@@ -345,6 +349,8 @@ def get_dcs(scope: str, group: Optional[int]) -> AbstractDCS:
     :raises:
         :class:`PatroniCtlException`: if not suitable DCS configuration could be found.
     """
+    if (scope, group) in __dcs_cache:
+        return __dcs_cache[(scope, group)]
     config = _get_configuration()
     config.update({'scope': scope, 'patronictl': True})
     if group is not None:
@@ -355,6 +361,7 @@ def get_dcs(scope: str, group: Optional[int]) -> AbstractDCS:
         if is_citus_cluster() and group is None:
             dcs.is_mpp_coordinator = lambda: True
         click.get_current_context().obj['__mpp'] = dcs.mpp
+        __dcs_cache[(scope, group)] = dcs
         return dcs
     except PatroniException as e:
         raise PatroniCtlException(str(e))

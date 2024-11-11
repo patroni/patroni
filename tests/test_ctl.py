@@ -249,8 +249,8 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.dynamic_loader.iter_modules', Mock(return_value=['patroni.dcs.dummy', 'patroni.dcs.etcd']))
     def test_get_dcs(self):
         with click.Context(click.Command('list')) as ctx:
-            ctx.obj = {'__config': {'dummy': {}}, '__mpp': get_mpp({})}
-            self.assertRaises(PatroniCtlException, get_dcs, 'dummy', 0)
+            ctx.obj = {'__config': {'dummy2': {}}, '__mpp': get_mpp({})}
+            self.assertRaises(PatroniCtlException, get_dcs, 'dummy2', 0)
 
     @patch('patroni.psycopg.connect', psycopg_connect)
     @patch('patroni.ctl.query_member', Mock(return_value=([['mock column']], None)))
