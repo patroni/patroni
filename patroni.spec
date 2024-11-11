@@ -23,7 +23,7 @@ def resources():
 a = Analysis(['patroni/__main__.py'],
              pathex=[],
              binaries=None,
-             data=resources(),
+             datas=resources(),
              hiddenimports=hiddenimports(),
              hookspath=[],
              runtime_hooks=[],
