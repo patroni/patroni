@@ -1182,3 +1182,16 @@ class TestPostgresql2(BaseTestPostgresql):
         self.assertEqual(dict(self.p.config._recovery_params),
                          {'primary_conninfo': {'host': 'a', 'port': '5433', 'passfile': '/blabla', 'sslmode': 'prefer',
                           'gssencmode': 'prefer', 'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}})
+
+    def test_format_dsn(self):
+        params = {'host': '1', 'port': 2, 'gssencmode': 'prefer',
+                  'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}
+        self.p._major_version = 100000
+        self.assertEqual(self.p.config.format_dsn(params), 'host=1 port=2')
+        self.p._major_version = 120000
+        self.assertEqual(self.p.config.format_dsn(params), 'host=1 port=2 gssencmode=prefer')
+        self.p._major_version = 130000
+        self.assertEqual(self.p.config.format_dsn(params), 'host=1 port=2 gssencmode=prefer channel_binding=prefer')
+        self.p._major_version = 170000
+        self.assertEqual(self.p.config.format_dsn(params),
+                         'host=1 port=2 gssencmode=prefer channel_binding=prefer sslnegotiation=postgres')
