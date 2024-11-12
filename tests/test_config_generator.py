@@ -336,7 +336,7 @@ class TestGenerateConfig(unittest.TestCase):
                 _main()
             self.assertIn('Failed to read pg_ident.conf', e.exception.code)
 
-            # 9. Failed PG connecttion
+            # 9. Failed PG connection
             from . import psycopg
             with patch('patroni.psycopg.connect', side_effect=psycopg.Error), \
                  self.assertRaises(SystemExit) as e:

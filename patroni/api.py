@@ -1129,7 +1129,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             data = 'Switchover is possible only to a specific candidate in a paused state'
 
         if action == 'failover' and leader:
-            logger.warning('received failover request with leader specifed - performing switchover instead')
+            logger.warning('received failover request with leader specified - performing switchover instead')
             action = 'switchover'
 
         if not data and leader == candidate:

@@ -234,7 +234,7 @@ class TestValidator(unittest.TestCase):
         self.assertEqual(['consul.host', 'etcd.host', 'postgresql.bin_dir', 'postgresql.data_dir', 'postgresql.listen',
                           'raft.bind_addr', 'raft.self_addr', 'restapi.connect_address'], parse_output(output))
 
-    def test_bin_dir_is_empty_string_excutables_in_path(self, mock_out, mock_err):
+    def test_bin_dir_is_empty_string_executables_in_path(self, mock_out, mock_err):
         binaries.extend(required_binaries)
         c = copy.deepcopy(config)
         c["postgresql"]["bin_dir"] = ""
@@ -258,7 +258,7 @@ class TestValidator(unittest.TestCase):
         self.assertEqual(['raft.bind_addr', 'raft.self_addr'], parse_output(output))
 
     @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
-    def test_pg_version_missmatch(self, mock_out, mock_err):
+    def test_pg_version_mismatch(self, mock_out, mock_err):
         directories.append(config["postgresql"]["data_dir"])
         directories.append(config["postgresql"]["bin_dir"])
         directories.append(os.path.join(config["postgresql"]["data_dir"], "pg_wal"))

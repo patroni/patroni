@@ -56,7 +56,7 @@ patronictl
 ----------
 
 Coordinator and worker clusters are physically different PostgreSQL/Patroni
-clusters that are just logically groupped together using the
+clusters that are just logically grouped together using the
 `Citus <https://github.com/citusdata/citus>`__ database extension to
 PostgreSQL. Therefore in most cases it is not possible to manage them as a
 single entity.

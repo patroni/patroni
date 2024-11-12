@@ -74,7 +74,7 @@ class NamedConnection:
                 return cursor.fetchall() if cursor.rowcount and cursor.rowcount > 0 else []
         except psycopg.Error as exc:
             if cursor and cursor.connection.closed == 0:
-                # When connected via unix socket, psycopg2 can't recoginze 'connection lost' and leaves
+                # When connected via unix socket, psycopg2 can't recognize 'connection lost' and leaves
                 # `self._connection.closed == 0`, but the generic exception is raised. It doesn't make
                 # sense to continue with existing connection and we will close it, to avoid its reuse.
                 if type(exc) in (psycopg.DatabaseError, psycopg.OperationalError):

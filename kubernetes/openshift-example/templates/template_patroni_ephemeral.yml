@@ -310,7 +310,7 @@ parameters:
   name: PATRONI_SUPERUSER_USERNAME
   value: postgres
 - description: Password of the superuser account for initialization.
-  displayName: Superuser Passsword
+  displayName: Superuser Password
   name: PATRONI_SUPERUSER_PASSWORD
   value: postgres
 - description: Username of the replication account for initialization.
@@ -318,7 +318,7 @@ parameters:
   name: PATRONI_REPLICATION_USERNAME
   value: postgres
 - description: Password of the replication account for initialization.
-  displayName: Repication Passsword
+  displayName: Repication Password
   name: PATRONI_REPLICATION_PASSWORD
   value: postgres
 - description: Service account name used for pods and rolebindings to form a cluster in the project. 

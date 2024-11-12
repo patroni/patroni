@@ -1128,7 +1128,7 @@ class Cluster(NamedTuple('Cluster',
             return {}
 
         # we always want to exclude the member with our name from the list,
-        # also exlude members with disabled WAL streaming
+        # also exclude members with disabled WAL streaming
         members = filter(lambda m: m.name != name and not m.nostream, self.members)
 
         if role in ('master', 'primary', 'standby_leader'):

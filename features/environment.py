@@ -1120,12 +1120,12 @@ def before_feature(context, feature):
     elif feature.name == 'citus':
         lib = subprocess.check_output(['pg_config', '--pkglibdir']).decode('utf-8').strip()
         if not os.path.exists(os.path.join(lib, 'citus.so')):
-            return feature.skip("Citus extenstion isn't available")
+            return feature.skip("Citus extension isn't available")
     context.pctl.create_and_set_output_directory(feature.name)
 
 
 def after_feature(context, feature):
-    """ send SIGCONT to a dcs if neccessary,
+    """ send SIGCONT to a dcs if necessary,
     stop all Patronis remove their data directory and cleanup the keys in etcd """
     context.dcs_ctl.stop_outage()
     context.pctl.stop_all()

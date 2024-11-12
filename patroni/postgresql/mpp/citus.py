@@ -166,7 +166,7 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
 
         We can't always rely on REST API calls from worker nodes in order
         to maintain `pg_dist_node`, therefore at least once per heartbeat
-        loop we make sure that workes registered in `self._pg_dist_node`
+        loop we make sure that works registered in `self._pg_dist_node`
         cache are matching the cluster view from DCS by creating tasks
         the same way as it is done from the REST API."""
 
@@ -247,7 +247,7 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
             Read access to `self._in_flight` isn't protected because we know it can't be changed outside of our thread.
 
         :param task: reference to a :class:`PgDistNode` object that represents a row to be updated/created.
-        :returns: `True` if the row was succesfully created/updated or transaction in progress
+        :returns: `True` if the row was successfully created/updated or transaction in progress
             was committed as an indicator that the `self._pg_dist_node` cache should be updated,
             or, if the new transaction was opened, this method returns `False`.
         """

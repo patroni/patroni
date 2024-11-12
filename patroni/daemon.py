@@ -132,7 +132,7 @@ class AbstractPatroniDaemon(abc.ABC):
         """Run the daemon process.
 
         Start the logger thread and keep running execution cycles until a SIGTERM is eventually received. Also reload
-        configuration uppon receiving SIGHUP.
+        configuration upon receiving SIGHUP.
         """
         self.logger.start()
         while not self.received_sigterm:

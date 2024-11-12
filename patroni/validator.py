@@ -427,7 +427,7 @@ class Or(object):
 
 
 class AtMostOne(object):
-    """Mark that at most one option from a :class:`Case` can be suplied.
+    """Mark that at most one option from a :class:`Case` can be supplied.
 
     Represents a list of possible configuration options in a given scope, where at most one can actually
     be provided.

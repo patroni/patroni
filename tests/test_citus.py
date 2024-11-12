@@ -87,7 +87,7 @@ class TestCitus(BaseTestPostgresql):
         self.c.add_task('after_promote', 1, 'postgres://host2:5432/postgres')
         with patch.object(CitusHandler, 'process_task') as mock_process_task:
             self.c.process_tasks()
-            # process_task() shouln't be called because pick_task double checks with _pg_dist_node
+            # process_task() shouldn't be called because pick_task double checks with _pg_dist_node
             mock_process_task.assert_not_called()
 
     def test_process_task(self):

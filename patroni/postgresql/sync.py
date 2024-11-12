@@ -92,27 +92,27 @@ def parse_sync_standby_names(value: str) -> _SSN:
     >>> parse_sync_standby_names('1')  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
         ...
-    ValueError: Unparseable synchronous_standby_names value
+    ValueError: Unparsable synchronous_standby_names value
 
     >>> parse_sync_standby_names('a,')  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
         ...
-    ValueError: Unparseable synchronous_standby_names value
+    ValueError: Unparsable synchronous_standby_names value
 
     >>> parse_sync_standby_names('ANY 4("a" b,"c c")')  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
         ...
-    ValueError: Unparseable synchronous_standby_names value
+    ValueError: Unparsable synchronous_standby_names value
 
     >>> parse_sync_standby_names('FIRST 4("a",)')  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
         ...
-    ValueError: Unparseable synchronous_standby_names value
+    ValueError: Unparsable synchronous_standby_names value
 
     >>> parse_sync_standby_names('2 (,)')  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
         ...
-    ValueError: Unparseable synchronous_standby_names value
+    ValueError: Unparsable synchronous_standby_names value
     """
     tokens = [(m.lastgroup, m.group(0), m.start())
               for m in SYNC_REP_PARSER_RE.finditer(value)
@@ -142,10 +142,10 @@ def parse_sync_standby_names(value: str) -> _SSN:
     for i, (a_type, a_value, a_pos) in enumerate(synclist):
         if i % 2 == 1:  # odd elements are supposed to be commas
             if len(synclist) == i + 1:  # except the last token
-                raise ValueError("Unparseable synchronous_standby_names value %r: Unexpected token %s %r at %d" %
+                raise ValueError("Unparsable synchronous_standby_names value %r: Unexpected token %s %r at %d" %
                                  (value, a_type, a_value, a_pos))
             elif a_type != 'comma':
-                raise ValueError("Unparseable synchronous_standby_names value %r: ""Got token %s %r while"
+                raise ValueError("Unparsable synchronous_standby_names value %r: ""Got token %s %r while"
                                  " expecting comma at %d" % (value, a_type, a_value, a_pos))
         elif a_type in {'ident', 'first', 'any'}:
             members.add(a_value)
@@ -155,7 +155,7 @@ def parse_sync_standby_names(value: str) -> _SSN:
         elif a_type == 'dquot':
             members.add(a_value[1:-1].replace('""', '"'))
         else:
-            raise ValueError("Unparseable synchronous_standby_names value %r: Unexpected token %s %r at %d" %
+            raise ValueError("Unparsable synchronous_standby_names value %r: Unexpected token %s %r at %d" %
                              (value, a_type, a_value, a_pos))
     return _SSN(sync_type, has_star, num, members)
 
@@ -183,7 +183,7 @@ class _ReplicaList(List[_Replica]):
 
     Values are reverse ordered by ``_Replica.sync_state`` and ``_Replica.lsn``.
     That is, first there will be replicas that have ``sync_state`` == ``sync``, even if they are not
-    the most up-to-date in term of write/flush/replay LSN. It helps to keep the result of chosing new
+    the most up-to-date in term of write/flush/replay LSN. It helps to keep the result of choosing new
     synchronous nodes consistent in case if a synchronous standby member is slowed down OR async node
     is receiving changes faster than the sync member. Such cases would trigger sync standby member
     swapping, but only if lag on this member is exceeding a threshold (``maximum_lag_on_syncnode``).
@@ -346,7 +346,7 @@ END;$$""")
                 and self._postgresql.state == 'running' and self._postgresql.is_primary()) or has_asterisk:
             return
 
-        time.sleep(0.1)  # Usualy it takes 1ms to reload postgresql.conf, but we will give it 100ms
+        time.sleep(0.1)  # Usually it takes 1ms to reload postgresql.conf, but we will give it 100ms
 
         # Reset internal cache to query fresh values
         self._postgresql.reset_cluster_info_state(None)

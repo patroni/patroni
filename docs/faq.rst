@@ -187,7 +187,7 @@ I have ``use_slots`` enabled in my Patroni configuration, but when a cluster mem
 
     Patroni will create the permanent physical slots on all nodes, and make sure to not remove the slots, as well as to advance the slots' LSN on all nodes according to the LSN that has been consumed by the member.
 
-    Later, if you decide to remove the corresponding member, it's **your responsability** to adjust the permanent slots configuration, otherwise Patroni will keep the slots around forever.
+    Later, if you decide to remove the corresponding member, it's **your responsibility** to adjust the permanent slots configuration, otherwise Patroni will keep the slots around forever.
 
     **Note:** on Patroni older than ``3.2.0`` you could still have member slots configured as permanent physical slots, however they would be managed only on the current leader. That is, in case of failover/switchover these slots would be created on the new leader, but that wouldn't guarantee that it had all WAL segments for the absent node.
 
