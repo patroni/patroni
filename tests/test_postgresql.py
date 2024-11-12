@@ -274,7 +274,7 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertEqual(self.p.checkpoint({'user': 'postgres'}), 'is_in_recovery=true')
         with patch.object(MockCursor, 'execute', Mock(return_value=None)):
             self.assertIsNone(self.p.checkpoint())
-        self.assertEqual(self.p.checkpoint(timeout=10), 'not accessible or not healty')
+        self.assertEqual(self.p.checkpoint(timeout=10), 'not accessible or not healthy')
 
     @patch('patroni.postgresql.config.mtime', mock_mtime)
     @patch('patroni.postgresql.config.ConfigHandler._get_pg_settings')

@@ -301,7 +301,7 @@ def ctl(ctx: click.Context, config_file: str, dcs_url: Optional[str], insecure: 
     .. note::
         Besides *dcs_url* and *insecure*, which are used to override DCS configuration section and ``ctl.insecure``
         setting, you can also override the value of ``log.level``, by default ``WARNING``, through either of these
-        environemnt variables:
+        environment variables:
             * ``LOGLEVEL``
             * ``PATRONI_LOGLEVEL``
             * ``PATRONI_LOG_LEVEL``
@@ -310,7 +310,7 @@ def ctl(ctx: click.Context, config_file: str, dcs_url: Optional[str], insecure: 
     :param config_file: path to the configuration file.
     :param dcs_url: the DCS URL in the format ``DCS://HOST:PORT``, e.g. ``etcd3://random.com:2399``. If given override
         whatever DCS is set in the configuration file.
-    :param insecure: if ``True`` allow SSL connections without client certiticates. Override what is configured through
+    :param insecure: if ``True`` allow SSL connections without client certificates. Override what is configured through
         ``ctl.insecure` in the configuration file.
     """
     level = 'WARNING'
@@ -965,7 +965,7 @@ def check_response(response: urllib3.response.HTTPResponse, member_name: str,
     :param action_name: action associated with the *response*.
     :param silent_success: if a status message should be skipped upon a successful *response*.
 
-    :returns: ``True`` if the response indicates a sucessful operation (HTTP status < ``400``), ``False`` otherwise.
+    :returns: ``True`` if the response indicates a successful operation (HTTP status < ``400``), ``False`` otherwise.
     """
     if response.status >= 400:
         click.echo('Failed: {0} for member {1}, status code={2}, ({3})'.format(
@@ -1429,7 +1429,7 @@ def generate_topology(level: int, member: Dict[str, Any],
               + postgresql2
 
     :param level: the current level being inspected in the *topology*.
-    :param member: information about the current member being inspected in *level* of *topology*. Should countain at
+    :param member: information about the current member being inspected in *level* of *topology*. Should contain at
         least this key:
         * ``name``: name of the node, according to ``name`` configuration;
 
@@ -1456,7 +1456,7 @@ def generate_topology(level: int, member: Dict[str, Any],
 def topology_sort(members: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
     """Sort *members* according to their level in the replication topology tree.
 
-    :param members: list of members in the cluster. Each item should countain at least these keys:
+    :param members: list of members in the cluster. Each item should contain at least these keys:
 
         * ``name``: name of the node, according to ``name`` configuration;
         * ``role``: ``leader``, ``standby_leader`` or ``replica``.
@@ -2023,7 +2023,7 @@ def invoke_editor(before_editing: str, cluster_name: str) -> Tuple[str, Dict[str
 
     .. note::
         Requires an editor program, and uses first found among:
-            * Program given by ``EDITOR`` environemnt variable; or
+            * Program given by ``EDITOR`` environment variable; or
             * ``editor``; or
             * ``vi``.
 

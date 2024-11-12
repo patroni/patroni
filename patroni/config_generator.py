@@ -54,7 +54,7 @@ def get_address() -> Tuple[str, str]:
     :returns: tuple consisting of the hostname returned by :func:`~socket.gethostname`
         and the first element in the sorted list of the addresses returned by :func:`~socket.getaddrinfo`.
         Sorting guarantees it will prefer IPv4.
-        If an exception occured, hostname and ip values are equal to :data:`~patroni.config_generator.NO_VALUE_MSG`.
+        If an exception occurred, hostname and ip values are equal to :data:`~patroni.config_generator.NO_VALUE_MSG`.
     """
     hostname = None
     try:
@@ -229,7 +229,7 @@ class AbstractConfigGenerator(abc.ABC):
 class SampleConfigGenerator(AbstractConfigGenerator):
     """Object representing the generated sample Patroni config.
 
-    Sane defults are used based on the gathered PG version.
+    Sane defaults are used based on the gathered PG version.
     """
 
     @property
@@ -314,7 +314,7 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
 
     @property
     def _required_pg_params(self) -> List[str]:
-        """PG configuration prameters that have to be always present in the generated config.
+        """PG configuration parameters that have to be always present in the generated config.
 
         :returns: list of the parameter names.
         """
@@ -330,7 +330,7 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
             :exc:`~patroni.exceptions.PatroniException`: if:
 
                 * pid could not be obtained from the ``postmaster.pid`` file; or
-                * :exc:`OSError` occured during ``postmaster.pid`` file handling; or
+                * :exc:`OSError` occurred during ``postmaster.pid`` file handling; or
                 * the obtained postmaster pid doesn't exist.
         """
         postmaster_pid = None
@@ -353,7 +353,7 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
         """Get cursor for the PG connection established based on the stored information.
 
         :raises:
-            :exc:`~patroni.exceptions.PatroniException`: if :exc:`psycopg.Error` occured.
+            :exc:`~patroni.exceptions.PatroniException`: if :exc:`psycopg.Error` occurred.
         """
         try:
             conn = psycopg.connect(dsn=self.dsn,
@@ -439,7 +439,7 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
             are located outside of ``PGDATA`` and Patroni doesn't have write permissions for them.
 
         :raises:
-            :exc:`~patroni.exceptions.PatroniException`: if :exc:`OSError` occured during the conf files handling.
+            :exc:`~patroni.exceptions.PatroniException`: if :exc:`OSError` occurred during the conf files handling.
         """
         default_hba_path = os.path.join(self.config['postgresql']['data_dir'], 'pg_hba.conf')
         if self.config['postgresql']['parameters']['hba_file'] == default_hba_path:

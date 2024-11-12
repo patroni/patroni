@@ -682,7 +682,7 @@ class Consul(AbstractDCS):
     def set_sync_state_value(self, value: str, version: Optional[int] = None) -> Union[int, bool]:
         retry = self._retry.copy()
         ret = retry(self._client.kv.put, self.sync_path, value, cas=version)
-        if ret:  # We have no other choise, only read after write :(
+        if ret:  # We have no other choice, only read after write :(
             if not retry.ensure_deadline(0.5):
                 return False
             _, ret = self.retry(self._client.kv.get, self.sync_path, consistency='consistent')

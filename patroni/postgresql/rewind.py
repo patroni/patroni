@@ -99,7 +99,7 @@ class Rewind(object):
                     return 'leader has not run a checkpoint yet'
         except Exception:
             logger.exception('Exception when working with leader')
-            return 'not accessible or not healty'
+            return 'not accessible or not healthy'
 
     def _get_checkpoint_end(self, timeline: int, lsn: int) -> int:
         """Get the end of checkpoint record from WAL.
@@ -317,7 +317,7 @@ class Rewind(object):
     def checkpoint_after_promote(self) -> bool:
         return self._state == REWIND_STATUS.CHECKPOINT
 
-    def _buid_archiver_command(self, command: str, wal_filename: str) -> str:
+    def _build_archiver_command(self, command: str, wal_filename: str) -> str:
         """Replace placeholders in the given archiver command's template.
         Applicable for archive_command and restore_command.
         Can also be used for archive_cleanup_command and recovery_end_command,
@@ -346,7 +346,7 @@ class Rewind(object):
         return cmd
 
     def _fetch_missing_wal(self, restore_command: str, wal_filename: str) -> bool:
-        cmd = self._buid_archiver_command(restore_command, wal_filename)
+        cmd = self._build_archiver_command(restore_command, wal_filename)
 
         logger.info('Trying to fetch the missing wal: %s', cmd)
         return self._postgresql.cancellable.call(shlex.split(cmd)) == 0
@@ -385,9 +385,9 @@ class Rewind(object):
         # skip fsync, as postgres --single or pg_rewind will anyway run it
         for wal in sorted(wals_to_archive):
             old_name = os.path.join(status_dir, wal + '.ready')
-            # wal file might have alredy been archived
+            # wal file might have already been archived
             if os.path.isfile(old_name) and os.path.isfile(os.path.join(self._postgresql.wal_dir, wal)):
-                cmd = self._buid_archiver_command(archive_cmd, wal)
+                cmd = self._build_archiver_command(archive_cmd, wal)
                 # it is the author of archive_command, who is responsible
                 # for not overriding the WALs already present in archive
                 logger.info('Trying to archive %s: %s', wal, cmd)
@@ -509,7 +509,7 @@ class Rewind(object):
                 if not self.can_rewind:  # It is possible that the previous attempt damaged pg_control file!
                     self._state = REWIND_STATUS.FAILED
             else:
-                logger.error('Failed to rewind from healty primary: %s', leader.name)
+                logger.error('Failed to rewind from healthy primary: %s', leader.name)
                 self._state = REWIND_STATUS.FAILED
 
             if self.failed:

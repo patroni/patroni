@@ -63,7 +63,7 @@ class TestAWSConnection(unittest.TestCase):
         self.assertFalse(conn.on_role_change("primary"))
 
     @patch.object(botocore.awsrequest.AWSResponse, 'text', PropertyMock(return_value='boo'))
-    def test_aws_bizare_response(self):
+    def test_aws_bizarre_response(self):
         conn = AWSConnection('test')
         self.assertFalse(conn.aws_available())
 
