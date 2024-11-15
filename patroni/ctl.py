@@ -44,15 +44,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
     from psycopg2 import cursor
 
-try:  # pragma: no cover
-    from ydiff import markup_to_pager  # pyright: ignore [reportMissingModuleSource]
-    try:
-        from ydiff import PatchStream  # pyright: ignore [reportMissingModuleSource]
-    except ImportError:
-        PatchStream = iter
-except ImportError:  # pragma: no cover
-    from cdiff import markup_to_pager, PatchStream  # pyright: ignore [reportMissingModuleSource]
-
 from . import global_config
 from .config import Config
 from .dcs import AbstractDCS, Cluster, get_dcs as _get_dcs, Member
@@ -1889,27 +1880,15 @@ def show_diff(before_editing: str, after_editing: str) -> None:
     unified_diff = difflib.unified_diff(listify(before_editing), listify(after_editing))
 
     if sys.stdout.isatty():
-        buf = io.StringIO()
-        for line in unified_diff:
-            buf.write(str(line))
-        buf.seek(0)
-
-        class opts:
-            side_by_side = False
-            width = 80
-            tab_width = 8
-            wrap = True
-            pager = next(
-                (
-                    os.path.basename(p)
-                    for p in (os.environ.get('PAGER'), "less", "more")
-                    if p is not None and bool(shutil.which(p))
-                ),
-                None,
-            )
-            pager_options = None
-
-        if opts.pager is None:
+        pager = next(
+            (
+                os.path.basename(p)
+                for p in (os.environ.get('PAGER'), "less", "more")
+                if p is not None and bool(shutil.which(p))
+            ),
+            None,
+        )
+        if pager is None:
             raise PatroniCtlException(
                 'No pager could be found. Either set PAGER environment variable with '
                 'your pager or install either "less" or "more" in the host.'
@@ -1918,10 +1897,14 @@ def show_diff(before_editing: str, after_editing: str) -> None:
         # if we end up selecting "less" as "pager" then we set "pager" attribute
         # to "None". "less" is the default pager for "ydiff" module, and that
         # module adds some command-line options to "less" when "pager" is "None"
-        if opts.pager == 'less':
-            opts.pager = None
+        if pager == 'less':
+            pager = None
 
-        markup_to_pager(PatchStream(buf), opts)
+        ydiff = ['ydiff', '--unified', '--width', '80']
+        if pager:
+            ydiff += ['--pager', pager]
+        with subprocess.Popen(ydiff, stdin=subprocess.PIPE, text=True) as proc:
+            proc.communicate(input=''.join(unified_diff))
     else:
         for line in unified_diff:
             click.echo(line.rstrip('\n'))
