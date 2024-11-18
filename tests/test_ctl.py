@@ -9,7 +9,14 @@ import click
 import etcd
 
 from click.testing import CliRunner
-from prettytable import ALL, PrettyTable
+from prettytable import PrettyTable
+
+try:
+    from prettytable import HRuleStyle
+    hrule_all = HRuleStyle.ALL
+except ImportError:
+    from prettytable import ALL as hrule_all
+
 from urllib3 import PoolManager
 
 from patroni import global_config
@@ -747,7 +754,7 @@ class TestCtl(unittest.TestCase):
 class TestPatronictlPrettyTable(unittest.TestCase):
 
     def setUp(self):
-        self.pt = PatronictlPrettyTable(' header', ['foo', 'bar'], hrules=ALL)
+        self.pt = PatronictlPrettyTable(' header', ['foo', 'bar'], hrules=hrule_all)
 
     def test__get_hline(self):
         expected = '+-----+-----+'
