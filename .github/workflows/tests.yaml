@@ -188,6 +188,23 @@ jobs:
       with:
         version: 1.1.385
 
+  ydiff:
+    name: Test compatibility with the latest version of ydiff
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.12
+    - name: Install dependencies
+      run: python .github/workflows/install_deps.py
+    - name: Update ydiff
+      run: python -m pip install -U ydiff
+    - name: Run tests
+      run: python -m pytest tests/test_ctl.py -v
+
   docs:
     runs-on: ubuntu-latest
     steps:

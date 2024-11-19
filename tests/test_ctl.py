@@ -689,6 +689,17 @@ class TestCtl(unittest.TestCase):
         show_diff(b"foo:\n  bar: \xc3\xb6\xc3\xb6\n".decode('utf-8'),
                   b"foo:\n  bar: \xc3\xbc\xc3\xbc\n".decode('utf-8'))
 
+    @patch('subprocess.Popen')
+    @patch('os.environ.get', Mock(return_value='cat'))
+    @patch('sys.stdout.isatty', Mock(return_value=True))
+    @patch('shutil.which', Mock(return_value='cat'))
+    def test_show_diff_pager(self, mock_popen):
+        show_diff("foo:\n  bar: 1\n", "foo:\n  bar: 2\n")
+        self.assertEqual(mock_popen.return_value.stdin.write.call_count, 6)
+        self.assertIn(b' bar: ', mock_popen.return_value.stdin.write.call_args_list[5][0][0])
+        self.assertIn(b' bar: ', mock_popen.return_value.stdin.write.call_args_list[4][0][0])
+        self.assertIn(b' foo:', mock_popen.return_value.stdin.write.call_args_list[3][0][0])
+
     @patch('subprocess.call', return_value=1)
     def test_invoke_editor(self, mock_subprocess_call):
         os.environ.pop('EDITOR', None)
