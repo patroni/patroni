@@ -1910,12 +1910,13 @@ def show_diff(before_editing: str, after_editing: str) -> None:
     unified_diff = difflib.unified_diff(listify(before_editing), listify(after_editing))
 
     if sys.stdout.isatty():
-        buf = io.StringIO()
+        buf = io.BytesIO()
         for line in unified_diff:
-            buf.write(str(line))
+            buf.write(line.encode('utf-8'))
         buf.seek(0)
 
         class opts:
+            theme = 'default'
             side_by_side = False
             width = 80
             tab_width = 8
