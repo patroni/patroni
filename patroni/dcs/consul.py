@@ -181,7 +181,7 @@ class ConsulClient(base.Consul):
         self.token = kwargs.get('token')
         super(ConsulClient, self).__init__(*args, **kwargs)
 
-    def connect(self, *args: Any, **kwargs: Any) -> HTTPClient:
+    def http_connect(self, *args: Any, **kwargs: Any) -> HTTPClient:
         kwargs.update(dict(zip(['host', 'port', 'scheme', 'verify'], args)))
         if self._cert:
             kwargs['cert'] = self._cert
@@ -191,8 +191,8 @@ class ConsulClient(base.Consul):
             kwargs['token'] = self.token
         return HTTPClient(**kwargs)
 
-    def http_connect(self, *args: Any, **kwargs: Any) -> HTTPClient:
-        return self.connect(*args, **kwargs)  # pragma: no cover
+    def connect(self, *args: Any, **kwargs: Any) -> HTTPClient:
+        return self.http_connect(*args, **kwargs)  # pragma: no cover
 
     def reload_config(self, config: Dict[str, Any]) -> None:
         self.http.token = self.token = config.get('token')
