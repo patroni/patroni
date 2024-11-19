@@ -1,6 +1,10 @@
+from enum import IntEnum
 from typing import Any, Dict, List
-FRAME = 1
-ALL = 1
+class HRuleStyle(IntEnum):
+    FRAME = 0
+    ALL = 1
+FRAME = HRuleStyle.FRAME
+ALL = HRuleStyle.ALL
 class PrettyTable:
     def __init__(self, *args: str, **kwargs: Any) -> None: ...
     def _stringify_hrule(self, options: Dict[str, Any], where: str = '') -> str: ...

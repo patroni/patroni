@@ -14,7 +14,14 @@ from patroni.postgresql.config import get_param_diff
 from patroni.postgresql.mpp import get_mpp
 from patroni.psycopg import OperationalError
 from patroni.utils import tzutc
-from prettytable import PrettyTable, ALL
+
+from prettytable import PrettyTable
+try:
+    from prettytable import HRuleStyle
+    hrule_all = HRuleStyle.ALL
+except ImportError:
+    from prettytable import ALL as hrule_all
+
 from unittest import mock
 from unittest.mock import patch, Mock, PropertyMock
 from urllib3 import PoolManager
@@ -750,7 +757,7 @@ class TestCtl(unittest.TestCase):
 class TestPatronictlPrettyTable(unittest.TestCase):
 
     def setUp(self):
-        self.pt = PatronictlPrettyTable(' header', ['foo', 'bar'], hrules=ALL)
+        self.pt = PatronictlPrettyTable(' header', ['foo', 'bar'], hrules=hrule_all)
 
     def test__get_hline(self):
         expected = '+-----+-----+'

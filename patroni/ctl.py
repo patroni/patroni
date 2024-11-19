@@ -34,7 +34,15 @@ import yaml
 
 from collections import defaultdict
 from contextlib import contextmanager
-from prettytable import ALL, FRAME, PrettyTable
+
+from prettytable import PrettyTable
+try:  # pragma: no cover
+    from prettytable import HRuleStyle
+    hrule_all = HRuleStyle.ALL
+    hrule_frame = HRuleStyle.FRAME
+except ImportError:  # pragma: no cover
+    from prettytable import ALL as hrule_all, FRAME as hrule_frame
+
 from urllib.parse import urlparse
 from typing import Any, Dict, Iterator, List, Optional, Union, Tuple, TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover
@@ -434,7 +442,7 @@ def print_output(columns: Optional[List[str]], rows: List[List[Any]], alignment:
         else:
             # If any value is multi-line, then add horizontal between all table rows while printing to get a clear
             # visual separation of rows.
-            hrules = ALL if any(any(isinstance(c, str) and '\n' in c for c in r) for r in rows) else FRAME
+            hrules = hrule_all if any(any(isinstance(c, str) and '\n' in c for c in r) for r in rows) else hrule_frame
             table = PatronictlPrettyTable(header, columns, hrules=hrules)
             table.align = 'l'
             for k, v in (alignment or {}).items():
