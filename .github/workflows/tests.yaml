@@ -186,7 +186,7 @@ jobs:
 
     - uses: jakebailey/pyright-action@v2
       with:
-        version: 1.1.385
+        version: 1.1.389
 
   ydiff:
     name: Test compatibility with the latest version of ydiff
