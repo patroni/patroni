@@ -16,11 +16,11 @@ Released 2024-11-22
 
 - Add compatibility with the ``prettytable>=3.12.0`` module (Alexander Kukushkin)
 
-  Get rid of deprecation warnings.
+  Address deprecation warnings.
 
 - Compatibility with the ``ydiff==1.4.2`` module (Alexander Kukushkin)
 
-  Fix compatibility issues for the latest version, constrain version in ``requirements.txt`` and introduce latest version compatibility test.
+  Fix compatibility issues for the latest version, constrain version in ``requirements.txt``, and introduce latest version compatibility test.
 
 **Bugfixes**
 
