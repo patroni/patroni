@@ -70,6 +70,7 @@ config = {
     "kubernetes": {
         "namespace": "string",
         "labels": {},
+        'bootstrap_labels': {'foo': 'bar'},
         "scope_label": "string",
         "role_label": "string",
         "use_endpoints": False,

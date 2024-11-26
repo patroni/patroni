@@ -54,6 +54,8 @@ class AbstractController(abc.ABC):
         self._log = open(os.path.join(self._output_dir, self._name + '.log'), 'a')
         self._handle = self._start()
 
+        if max_wait_limit < 0:
+            return
         max_wait_limit *= self._context.timeout_multiplier
         for _ in range(max_wait_limit):
             assert self._has_started(), "Process {0} is not running after being started".format(self._name)
@@ -218,6 +220,8 @@ class PatroniController(AbstractController):
             'host replication replicator all md5',
             'host all all all md5'
         ]
+        if isinstance(self._context.dcs_ctl, KubernetesController):
+            config['kubernetes'] = {'bootstrap_labels': {'foo': 'bar'}}
 
         if self._context.postgres_supports_ssl and self._context.certfile:
             config['postgresql']['parameters'].update({
@@ -657,6 +661,11 @@ class KubernetesController(AbstractExternalDcsController):
             except Exception:
                 break
 
+    def pod_labels(self, name):
+        pod = self._api.read_namespaced_pod(name, self._namespace)
+        print(pod.metadata.labels)
+        return pod.metadata.labels or {}
+
     def query(self, key, scope='batman', group=None):
         if key.startswith('members/'):
             pod = self._api.read_namespaced_pod(key[8:], self._namespace)
@@ -870,15 +879,18 @@ class PatroniPoolController(object):
         os.makedirs(feature_dir)
         self._output_dir = feature_dir
 
-    def clone(self, from_name, cluster_name, to_name):
+    def clone(self, from_name, cluster_name, to_name, long_running=False):
         f = self._processes[from_name]
+        max_wait_limit = -1 if long_running else 10
+
         custom_config = {
             'scope': cluster_name,
             'bootstrap': {
                 'method': 'pg_basebackup',
                 'pg_basebackup': {
                     'command': " ".join(self.BACKUP_SCRIPT
-                                        + ['--walmethod=stream', '--dbname="{0}"'.format(f.backup_source)])
+                                        + ['--walmethod=stream', f'--dbname="{f.backup_source}"',
+                                           f'--sleep {5 if long_running else 0}'])
                 },
                 'dcs': {
                     'postgresql': {
@@ -901,12 +913,13 @@ class PatroniPoolController(object):
                 }
             }
         }
-        self.start(to_name, custom_config=custom_config)
+        self.start(to_name, custom_config=custom_config, max_wait_limit=max_wait_limit)
 
-    def backup_restore_config(self, params=None):
+    def backup_restore_config(self, params=None, long_running=False):
         return {
             'command': (self.BACKUP_RESTORE_SCRIPT
-                        + ' --sourcedir=' + os.path.join(self.patroni_path, 'data', 'basebackup')).replace('\\', '/'),
+                        + ' --sourcedir=' + os.path.join(self.patroni_path, 'data', 'basebackup')
+                        + f' --sleep {5 if long_running else 0}').replace('\\', '/'),
             'test-argument': 'test-value',  # test config mapping approach on custom bootstrap/replica creation
             **(params or {}),
         }
@@ -1162,3 +1175,5 @@ def before_scenario(context, scenario):
         scenario.skip('it is not possible to control state of {0} from tests'.format(context.dcs_ctl.name()))
     if 'reject-duplicate-name' in scenario.effective_tags and context.dcs_ctl.name() == 'raft':
         scenario.skip('Flaky test with Raft')
+    if scenario.filename.endswith('bootstrap_labels.feature') and not isinstance(context.dcs_ctl, KubernetesController):
+        scenario.skip()

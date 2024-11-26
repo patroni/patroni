@@ -760,6 +760,8 @@ class Kubernetes(AbstractDCS):
         self._follower_label_value = config.get('follower_label_value', 'replica')
         self._standby_leader_label_value = config.get('standby_leader_label_value', 'primary')
         self._tmp_role_label = config.get('tmp_role_label')
+        self._bootstrap_labels: Dict[str, str] = {str(k): str(v)
+                                                  for k, v in (config.get('bootstrap_labels') or EMPTY_DICT).items()}
         self._ca_certs = os.environ.get('PATRONI_KUBERNETES_CACERT', config.get('cacert')) or SERVICE_CERT_FILENAME
         super(Kubernetes, self).__init__({**config, 'namespace': ''}, mpp)
         if self._mpp.is_enabled():
@@ -1336,8 +1338,13 @@ class Kubernetes(AbstractDCS):
             and deep_compare(data, member.data)
 
         if not ret:
-            metadata = {'namespace': self._namespace, 'name': self._name, 'labels': role_labels,
-                        'annotations': {'status': json.dumps(data, separators=(',', ':'))}}
+            metadata: Dict[str, Any] = {'namespace': self._namespace, 'name': self._name, 'labels': role_labels,
+                                        'annotations': {'status': json.dumps(data, separators=(',', ':'))}}
+            if self._bootstrap_labels:
+                if data['state'] in ('initializing new cluster', 'running custom bootstrap script', 'creating replica'):
+                    metadata['labels'].update(self._bootstrap_labels)
+                else:
+                    metadata['labels'].update({k: None for k, _ in self._bootstrap_labels.items()})
             body = k8s_client.V1Pod(metadata=k8s_client.V1ObjectMeta(**metadata))
             ret = self._api.patch_namespaced_pod(self._name, self._namespace, body)
             if ret:
