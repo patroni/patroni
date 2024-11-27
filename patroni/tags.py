@@ -90,12 +90,12 @@ class Tags(abc.ABC):
 
     @property
     def nofailover(self) -> bool:
-        """Common logic for obtaining the value of ``nofailover`` from ``tags`` if defined."""
+        """``True`` if node configuration doesn't allow it to become primary, ``False`` otherwise."""
         return self._bool_tag('nofailover', 'failover_priority')
 
     @property
     def failover_priority(self) -> int:
-        """Common logic for obtaining the value of ``failover_priority`` from ``tags`` if defined."""
+        """Value of ``failover_priority`` from ``tags`` if defined, otherwise derived from ``nofailover``."""
         return self._priority_tag('nofailover', 'failover_priority')
 
     @property
@@ -105,16 +105,12 @@ class Tags(abc.ABC):
 
     @property
     def nosync(self) -> bool:
-        """Common logic for obtaining the value of ``nosync`` from ``tags`` if defined."""
+        """``True`` if node configuration doesn't allow it to become synchronous, ``False`` otherwise."""
         return self._bool_tag('nosync', 'sync_priority')
 
     @property
     def sync_priority(self) -> int:
-        """Common logic for obtaining the value of ``sync_priority`` from ``tags`` if defined.
-
-        If ``nosync`` is defined as ``True``, this will return ``0``. Otherwise, it will return the value of
-        ``sync_priority``, defaulting to ``1`` if it's not defined or invalid.
-        """
+        """Value of ``sync_priority`` from ``tags`` if defined, otherwise derived from ``nosync``."""
         return self._priority_tag('nosync', 'sync_priority')
 
     @property
