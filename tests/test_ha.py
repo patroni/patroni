@@ -99,12 +99,13 @@ def get_cluster_initialized_with_leader_and_failsafe():
 
 def get_node_status(reachable=True, in_recovery=True, dcs_last_seen=0,
                     timeline=2, wal_position=10, nofailover=False,
-                    watchdog_failed=False, failover_priority=1):
+                    watchdog_failed=False, failover_priority=1, sync_priority=1):
     def fetch_node_status(e):
         tags = {}
         if nofailover:
             tags['nofailover'] = True
         tags['failover_priority'] = failover_priority
+        tags['sync_priority'] = sync_priority
         return _MemberStatus(e, reachable, in_recovery, wal_position,
                              {'tags': tags, 'watchdog_failed': watchdog_failed,
                               'dcs_last_seen': dcs_last_seen, 'timeline': timeline})
@@ -156,6 +157,7 @@ zookeeper:
         self.watchdog = Watchdog(self.config)
         self.request = lambda *args, **kwargs: requests_get(args[0].api_url, *args[1:], **kwargs)
         self.failover_priority = 1
+        self.sync_priority = 1
 
 
 def run_async(self, func, args=()):
@@ -1572,7 +1574,7 @@ class TestHa(PostgresInit):
 
     def test_effective_tags(self):
         self.ha._disable_sync = True
-        self.assertEqual(self.ha.get_effective_tags(), {'foo': 'bar', 'nosync': True})
+        self.assertEqual(self.ha.get_effective_tags(), {'foo': 'bar', 'nosync': True, 'sync_priority': 0})
         self.ha._disable_sync = False
         self.assertEqual(self.ha.get_effective_tags(), {'foo': 'bar'})
 

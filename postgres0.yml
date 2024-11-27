@@ -133,7 +133,7 @@ postgresql:
 
 tags:
     # failover_priority: 1
+    # sync_priority: 1
     noloadbalance: false
     clonefrom: false
-    nosync: false
     nostream: false

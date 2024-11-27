@@ -115,6 +115,7 @@ postgresql:
     unix_socket_directories: '..'  # parent directory of data_dir
 tags:
     # failover_priority: 1
+    # sync_priority: 1
     noloadbalance: false
     clonefrom: false
 #    replicatefrom: postgresql1

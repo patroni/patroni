@@ -147,7 +147,7 @@ class Config(object):
         self._cache_file = os.path.join(self._data_dir, self.__CACHE_FILENAME)
         if validator:  # patronictl uses validator=None
             self._load_cache()  # we don't want to load anything from local cache for ctl
-            self._validate_failover_tags()  # irrelevant for ctl
+            self._validate_contradictory_tags()  # irrelevant for ctl
         self._cache_needs_saving = False
 
     @property
@@ -359,7 +359,7 @@ class Config(object):
                     new_configuration = self._build_effective_configuration(self._dynamic_configuration, configuration)
                     self._local_configuration = configuration
                     self.__effective_configuration = new_configuration
-                    self._validate_failover_tags()
+                    self._validate_contradictory_tags()
                     return True
                 else:
                     logger.info('No local configuration items changed.')
@@ -798,25 +798,31 @@ class Config(object):
         """
         return deepcopy(self.__effective_configuration)
 
-    def _validate_failover_tags(self) -> None:
-        """Check ``nofailover``/``failover_priority`` config and warn user if it's contradictory.
+    def _validate_contradictory_tags(self) -> None:
+        """Check boolean/priority tags' config and warn user if it's contradictory.
 
         .. note::
-          To preserve sanity (and backwards compatibility) the ``nofailover`` tag will still exist. A contradictory
-          configuration is one where ``nofailover`` is ``True`` but ``failover_priority > 0``, or where
-          ``nofailover`` is ``False``, but ``failover_priority <= 0``. Essentially, ``nofailover`` and
-          ``failover_priority`` are communicating different things.
+          To preserve sanity (and backwards compatibility) the ``nofailover``/``nosync`` tag will still exist.
+          A contradictory configuration is one where ``nofailover``/``nosync`` is ``True`` but
+          ``failover_priority > 0``/``sync_priority > 0``, or where ``nofailover``/``nosync`` is ``False``,
+          but ``failover_priority <= 0``/``sync_priority <= 0``. Essentially, ``nofailover``/``nosync`` and
+          ``failover_priority``/``sync_priority`` are communicating different things.
           This checks for this edge case (which is a misconfiguration on the part of the user) and warns them.
-          The behaviour is as if ``failover_priority`` were not provided (i.e ``nofailover`` is the
-          bedrock source of truth)
+          The behaviour is as if ``failover_priority``/``sync_priority`` were not provided
+          (i.e ``nofailover``/``nosync`` is the bedrock source of truth).
         """
         tags = self.get('tags', {})
-        if 'nofailover' not in tags:
-            return
-        nofailover_tag = tags.get('nofailover')
-        failover_priority_tag = parse_int(tags.get('failover_priority'))
-        if failover_priority_tag is not None \
-                and (bool(nofailover_tag) is True and failover_priority_tag > 0
-                     or bool(nofailover_tag) is False and failover_priority_tag <= 0):
-            logger.warning('Conflicting configuration between nofailover: %s and failover_priority: %s. '
-                           'Defaulting to nofailover: %s', nofailover_tag, failover_priority_tag, nofailover_tag)
+
+        def validate_tag(bool_name: str, priority_name: str) -> None:
+            if bool_name not in tags:
+                return
+            bool_tag = tags.get(bool_name)
+            priority_tag = parse_int(tags.get(priority_name))
+            if priority_tag is not None \
+                    and (bool(bool_tag) is True and priority_tag > 0
+                         or bool(bool_tag) is False and priority_tag <= 0):
+                logger.warning('Conflicting configuration between %s: %s and %s: %s. Defaulting to %s: %s',
+                               bool_name, bool_tag, priority_name, priority_tag, bool_name, bool_tag)
+
+        validate_tag('nofailover', 'failover_priority')
+        validate_tag('nosync', 'sync_priority')

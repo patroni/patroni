@@ -1182,7 +1182,10 @@ schema = Schema({
         Optional("clonefrom"): bool,
         Optional("noloadbalance"): bool,
         Optional("replicatefrom"): str,
-        Optional("nosync"): bool,
+        AtMostOne("nosync", "sync_priority"): Case({
+            "nosync": bool,
+            "sync_priority": IntValidator(min=0, expected_type=int, raise_assert=True),
+        }),
         Optional("nostream"): bool
     }
 })
