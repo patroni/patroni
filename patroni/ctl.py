@@ -1104,7 +1104,6 @@ def restart(cluster_name: str, group: Optional[int], member_names: List[str],
                                  type=str, default='now')
 
     scheduled_at = parse_scheduled(scheduled)
-    confirm_members_action(members, force, 'restart', scheduled_at)
 
     if p_any:
         random.shuffle(members)
@@ -1117,6 +1116,9 @@ def restart(cluster_name: str, group: Optional[int], member_names: List[str],
     content: Dict[str, Any] = {}
     if pending:
         content['restart_pending'] = True
+        members = [m for m in members if m.data.get('pending_restart', False)]
+
+    confirm_members_action(members, force, 'restart', scheduled_at)
 
     if version:
         try:
