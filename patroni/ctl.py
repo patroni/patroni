@@ -711,7 +711,7 @@ def get_members(cluster: Cluster, cluster_name: str, member_names: List[str], ro
 
 
 def confirm_members_action(members: List[Member], force: bool, action: str,
-                           scheduled_at: Optional[datetime.datetime] = None) -> None:
+                           scheduled_at: Optional[datetime.datetime] = None, pending: Optional[bool] = None) -> None:
     """Ask for confirmation if *action* should be taken by *members*.
 
     :param members: list of member which will take the *action*.
@@ -729,9 +729,11 @@ def confirm_members_action(members: List[Member], force: bool, action: str,
         :class:`PatroniCtlException`: if the user aborted the *action*.
     """
     if scheduled_at:
+        extra = ' The list of nodes to be restarted might change if you change configuration before the scheduled time.'
         if not force:
-            confirm = click.confirm('Are you sure you want to schedule {0} of members {1} at {2}?'
-                                    .format(action, ', '.join([m.name for m in members]), scheduled_at))
+            confirm = click.confirm('Are you sure you want to schedule {0} of members {1} at {2}?{3}'
+                                    .format(action, ', '.join([m.name for m in members]), scheduled_at,
+                                            extra if pending else ''))
             if not confirm:
                 raise PatroniCtlException('Aborted scheduled {0}'.format(action))
     else:
