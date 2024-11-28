@@ -1116,7 +1116,7 @@ def restart(cluster_name: str, group: Optional[int], member_names: List[str],
         random.shuffle(members)
         members = members[:1]
 
-    confirm_members_action(members, force, 'restart', scheduled_at)
+    confirm_members_action(members, force, 'restart', scheduled_at, pending)
 
     if version is None and not force:
         version = click.prompt('Restart if the PostgreSQL version is less than provided (e.g. 9.5.2) ',
