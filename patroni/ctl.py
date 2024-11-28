@@ -1105,10 +1105,6 @@ def restart(cluster_name: str, group: Optional[int], member_names: List[str],
 
     scheduled_at = parse_scheduled(scheduled)
 
-    if version is None and not force:
-        version = click.prompt('Restart if the PostgreSQL version is less than provided (e.g. 9.5.2) ',
-                               type=str, default='')
-
     content: Dict[str, Any] = {}
     if pending:
         content['restart_pending'] = True
@@ -1119,6 +1115,10 @@ def restart(cluster_name: str, group: Optional[int], member_names: List[str],
         members = members[:1]
 
     confirm_members_action(members, force, 'restart', scheduled_at)
+
+    if version is None and not force:
+        version = click.prompt('Restart if the PostgreSQL version is less than provided (e.g. 9.5.2) ',
+                               type=str, default='')
 
     if version:
         try:
