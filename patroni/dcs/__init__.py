@@ -998,7 +998,9 @@ class Cluster(NamedTuple('Cluster',
     @property
     def permanent_physical_slots(self) -> Dict[str, Any]:
         """Dictionary of permanent ``physical`` replication slots."""
-        return {name: value for name, value in self.__permanent_slots.items() if self.is_physical_slot(value)}
+        return {name: value for name, value in self.__permanent_slots.items() if self.is_physical_slot(value)
+                and ((global_config.is_standby_cluster and value.get('cluster_type') != 'primary')
+                or (not global_config.is_standby_cluster and value.get('cluster_type') != 'standby'))}
 
     @property
     def __permanent_logical_slots(self) -> Dict[str, Any]:

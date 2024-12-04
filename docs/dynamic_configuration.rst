@@ -61,9 +61,10 @@ In order to change the dynamic configuration you can use either :ref:`patronictl
 
    -  **my\_slot\_name**: the name of the permanent replication slot. If the permanent slot name matches with the name of the current node it will not be created on this node. If you add a permanent physical replication slot which name matches the name of a Patroni member, Patroni will ensure that the slot that was created is not removed even if the corresponding member becomes unresponsive, situation which would normally result in the slot's removal by Patroni. Although this can be useful in some situations, such as when you want replication slots used by members to persist during temporary failures or when importing existing members to a new Patroni cluster (see :ref:`Convert a Standalone to a Patroni Cluster <existing_data>` for details), caution should be exercised by the operator that these clashes in names are not persisted in the DCS, when the slot is no longer required, due to its effect on normal functioning of Patroni.
 
-      -  **type**: slot type. Could be ``physical`` or ``logical``. If the slot is logical, you have to additionally define ``database`` and ``plugin``.
+      -  **type**: slot type. Could be ``physical`` or ``logical``. If the slot is logical, you have to additionally define ``database`` and ``plugin``. If the slot is physical, you can optionally define ``cluster_type``.
       -  **database**: the database name where logical slots should be created.
       -  **plugin**: the plugin name for the logical slot.
+      -  **cluster_type**: the type of cluster (``primary`` or ``standby``) the slot should only be created on, otherwise it will not be created or an already existing slot will be dropped.
 
 -  **ignore\_slots**: list of sets of replication slot properties for which Patroni should ignore matching slots. This configuration/feature/etc. is useful when some replication slots are managed outside of Patroni. Any subset of matching properties will cause a slot to be ignored.
 
