@@ -55,7 +55,6 @@ Example session:
     2024-08-26 09:04:34,938 INFO: establishing a new patroni heartbeat connection to postgres
     2024-08-26 09:04:34,992 INFO: running post_bootstrap
     2024-08-26 09:04:35,004 WARNING: User creation via "bootstrap.users" will be removed in v4.0.0
-    2024-08-26 09:04:35,009 WARNING: Could not activate Linux watchdog device: Can't open watchdog device: [Errno 2] No such file or directory: '/dev/watchdog'
     2024-08-26 09:04:35,189 INFO: initialized a new cluster
     2024-08-26 09:04:35,328 INFO: no action. I am (patroni1), the leader with the lock
     2024-08-26 09:04:43,824 INFO: establishing a new patroni restapi connection to postgres
@@ -172,7 +171,7 @@ Example session:
     2024-08-26 08:21:18,202 INFO: running post_bootstrap
     2024-08-26 08:21:19.048 UTC [53] LOG:  starting maintenance daemon on database 16385 user 10
     2024-08-26 08:21:19.048 UTC [53] CONTEXT:  Citus maintenance daemon for database 16385 user 10
-    2024-08-26 08:21:19,058 WARNING: Could not activate Linux watchdog device: Can't open watchdog device: [Errno 2] No such file or directory: '/dev/watchdog'
+    2024-08-26 08:21:19,058 DEBUG: Could not activate Linux watchdog device: Can't open watchdog device: [Errno 2] No such file or directory: '/dev/watchdog'
     2024-08-26 08:21:19.250 UTC [37] LOG:  checkpoint starting: immediate force wait
     2024-08-26 08:21:19,275 INFO: initialized a new cluster
     2024-08-26 08:21:22.946 UTC [37] LOG:  checkpoint starting: immediate force wait
