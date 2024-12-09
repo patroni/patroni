@@ -314,6 +314,8 @@ class Bootstrap(object):
                     else:
                         logger.error('Error creating replica using method %s: %s exited with code=%s',
                                      replica_method, cmd, ret)
+                        if not method_config.get('keep_data', False):
+                            self._postgresql.remove_data_directory()
                 except Exception:
                     logger.exception('Error creating replica using method %s', replica_method)
                     ret = 1
@@ -341,10 +343,10 @@ class Bootstrap(object):
         ] + user_options
 
         for bbfailures in range(0, maxfailures):
-            if self._postgresql.cancellable.is_cancelled:
-                break
             if not self._postgresql.data_directory_empty():
                 self._postgresql.remove_data_directory()
+            if self._postgresql.cancellable.is_cancelled:
+                break
             try:
                 logger.debug('calling: %r', cmd)
                 ret = self._postgresql.cancellable.call(cmd, env=env)
