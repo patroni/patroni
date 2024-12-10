@@ -711,7 +711,7 @@ def get_members(cluster: Cluster, cluster_name: str, member_names: List[str], ro
 
 
 def confirm_members_action(members: List[Member], force: bool, action: str,
-                           scheduled_at: Optional[datetime.datetime] = None) -> None:
+                           scheduled_at: Optional[datetime.datetime] = None, pending: Optional[bool] = None) -> None:
     """Ask for confirmation if *action* should be taken by *members*.
 
     :param members: list of member which will take the *action*.
@@ -730,8 +730,13 @@ def confirm_members_action(members: List[Member], force: bool, action: str,
     """
     if scheduled_at:
         if not force:
-            confirm = click.confirm('Are you sure you want to schedule {0} of members {1} at {2}?'
-                                    .format(action, ', '.join([m.name for m in members]), scheduled_at))
+            if pending:
+                confirm = click.confirm('The nodes needing a restart will be identified at the scheduled time, and '
+                                        'might be different from the ones showing pending restart right now. '
+                                        'Is this fine?')
+            else:
+                confirm = click.confirm('Are you sure you want to schedule {0} of members {1} at {2}?'
+                                        .format(action, ', '.join([m.name for m in members]), scheduled_at))
             if not confirm:
                 raise PatroniCtlException('Aborted scheduled {0}'.format(action))
     else:
@@ -1104,19 +1109,24 @@ def restart(cluster_name: str, group: Optional[int], member_names: List[str],
                                  type=str, default='now')
 
     scheduled_at = parse_scheduled(scheduled)
-    confirm_members_action(members, force, 'restart', scheduled_at)
+
+    content: Dict[str, Any] = {}
+    if pending:
+        content['restart_pending'] = True
+        # For scheduled restarts we don't filter the members now. If they really need a restart might change
+        # until the scheduled time.
+        if not scheduled_at:
+            members = [m for m in members if m.data.get('pending_restart', False)]
 
     if p_any:
         random.shuffle(members)
         members = members[:1]
 
+    confirm_members_action(members, force, 'restart', scheduled_at, pending)
+
     if version is None and not force:
         version = click.prompt('Restart if the PostgreSQL version is less than provided (e.g. 9.5.2) ',
                                type=str, default='')
-
-    content: Dict[str, Any] = {}
-    if pending:
-        content['restart_pending'] = True
 
     if version:
         try:
