@@ -202,6 +202,12 @@ class TestPatroni(unittest.TestCase):
         tags = {'nofailover': True, 'failover_priority': 1}
         self.assertEqual(self.p._filter_tags(tags), tags)
 
+        tags = {'nosync': False, 'sync_priority': 0}
+        self.assertEqual(self.p._filter_tags(tags), tags)
+
+        tags = {'nosync': True, 'sync_priority': 1}
+        self.assertEqual(self.p._filter_tags(tags), tags)
+
     def test_noloadbalance(self):
         self.p.tags['noloadbalance'] = True
         self.assertTrue(self.p.noloadbalance)

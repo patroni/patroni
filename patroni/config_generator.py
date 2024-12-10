@@ -126,6 +126,7 @@ class AbstractConfigGenerator(abc.ABC):
             },
             'tags': {
                 'failover_priority': 1,
+                'sync_priority': 1,
                 'noloadbalance': False,
                 'clonefrom': True,
                 'nosync': False,

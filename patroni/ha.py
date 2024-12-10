@@ -410,6 +410,7 @@ class Ha(object):
         # _disable_sync could be modified concurrently, but we don't care as attribute get and set are atomic.
         if self._disable_sync > 0:
             tags['nosync'] = True
+            tags['sync_priority'] = 0
         return tags
 
     def notify_mpp_coordinator(self, event: str) -> None:
