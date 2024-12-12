@@ -2110,6 +2110,7 @@ class Ha(object):
                 return 'Unexpected exception raised, please report it as a BUG'
 
     def shutdown(self) -> None:
+        self._async_executor.cancel()
         if self.is_paused():
             logger.info('Leader key is not deleted and Postgresql is not stopped due paused state')
             self.watchdog.disable()
