@@ -648,7 +648,7 @@ class ObjectCache(Thread):
         with self._object_cache_lock:
             return self._object_cache.get(name)
 
-    def _process_event(self, event: Dict[str, Union[Any, Dict[str, Union[Any, Dict[str, Any]]]]]) -> None:
+    def _process_event(self, event: Dict[str, Any]) -> None:
         ev_type = event['type']
         obj = event['object']
         name = obj['metadata']['name']
@@ -1050,7 +1050,7 @@ class Kubernetes(AbstractDCS):
         return False
 
     def __target_ref(self, leader_ip: str, latest_subsets: List[K8sObject], pod: K8sObject) -> K8sObject:
-        # we want to re-use existing target_ref if possible
+        # we want to reuse existing target_ref if possible
         empty_addresses: List[K8sObject] = []
         for subset in latest_subsets:
             for address in subset.addresses or empty_addresses:
@@ -1215,14 +1215,19 @@ class Kubernetes(AbstractDCS):
 
         self._kinds.set(self.leader_path, kind)
 
-        if not retry.ensure_deadline(0.5):
-            return False
-
         kind_annotations = kind and kind.metadata.annotations or EMPTY_DICT
         kind_resource_version = kind and kind.metadata.resource_version
 
         # There is different leader or resource_version in cache didn't change
         if kind and (kind_annotations.get(self._LEADER) != self._name or kind_resource_version == resource_version):
+            return False
+
+        # We can get 409 because we do at least one retry, and the first update might have succeeded,
+        # therefore we will check if annotations on the read object match expectations.
+        if all(kind_annotations.get(k) == v for k, v in annotations.items()):
+            return True
+
+        if not retry.ensure_deadline(0.5):
             return False
 
         return bool(_run_and_handle_exceptions(self._patch_or_create, self.leader_path, annotations,

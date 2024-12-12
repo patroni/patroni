@@ -422,14 +422,18 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         self.assertFalse(self.k.update_leader(cluster, '123'))
         mock_patch.side_effect = RetryFailedError('')
         self.assertRaises(KubernetesError, self.k.update_leader, cluster, '123')
-        mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
+        mock_patch.side_effect = [k8s_client.rest.ApiException(409, ''),
+                                  k8s_client.rest.ApiException(409, ''), mock_namespaced_kind()]
+        mock_read.return_value.metadata.resource_version = '2'
         with patch('time.time', Mock(side_effect=[0, 0, 100, 200, 0, 0, 0, 0, 0, 100, 200])):
             self.assertFalse(self.k.update_leader(cluster, '123'))
             self.assertFalse(self.k.update_leader(cluster, '123'))
+        mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
         self.assertFalse(self.k.update_leader(cluster, '123'))
         mock_patch.side_effect = [k8s_client.rest.ApiException(409, ''), mock_namespaced_kind()]
-        mock_read.return_value.metadata.resource_version = '2'
-        self.assertIsNotNone(self.k._update_leader_with_retry({}, '1', []))
+        self.assertTrue(self.k._update_leader_with_retry({}, '1', []))
+        mock_patch.side_effect = [k8s_client.rest.ApiException(409, ''), mock_namespaced_kind()]
+        self.assertIsNotNone(self.k._update_leader_with_retry({'foo': 'bar'}, '1', []))
         mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
         mock_read.side_effect = RetryFailedError('')
         self.assertRaises(KubernetesError, self.k.update_leader, cluster, '123')

@@ -10,8 +10,8 @@ from collections import defaultdict
 from copy import deepcopy
 from random import randint
 from threading import Event, Lock
-from typing import Any, Callable, Collection, Dict, Iterator, List, \
-    NamedTuple, Optional, Set, Tuple, Type, TYPE_CHECKING, Union
+from typing import Any, Callable, cast, Collection, Dict, Iterator, \
+    List, NamedTuple, Optional, Set, Tuple, Type, TYPE_CHECKING, Union
 from urllib.parse import parse_qsl, urlparse, urlunparse
 
 import dateutil.parser
@@ -219,7 +219,7 @@ class Member(Tags, NamedTuple('Member',
 
         return None
 
-    def conn_kwargs(self, auth: Union[Any, Dict[str, Any], None] = None) -> Dict[str, Any]:
+    def conn_kwargs(self, auth: Optional[Any] = None) -> Dict[str, Any]:
         """Give keyword arguments used for PostgreSQL connection settings.
 
         :param auth: Authentication properties - can be defined as anything supported by the ``psycopg2`` or
@@ -255,7 +255,7 @@ class Member(Tags, NamedTuple('Member',
 
         # apply any remaining authentication parameters
         if auth and isinstance(auth, dict):
-            ret.update({k: v for k, v in auth.items() if v is not None})
+            ret.update({k: v for k, v in cast(Dict[str, Any], auth).items() if v is not None})
             if 'username' in auth:
                 ret['user'] = ret.pop('username')
         return ret
@@ -950,7 +950,7 @@ class Cluster(NamedTuple('Cluster',
         return candidates[randint(0, len(candidates) - 1)] if candidates else self.leader
 
     @staticmethod
-    def is_physical_slot(value: Union[Any, Dict[str, Any]]) -> bool:
+    def is_physical_slot(value: Any) -> bool:
         """Check whether provided configuration is for permanent physical replication slot.
 
         :param value: configuration of the permanent replication slot.
@@ -958,11 +958,11 @@ class Cluster(NamedTuple('Cluster',
         :returns: ``True`` if *value* is a physical replication slot, otherwise ``False``.
         """
         return not value \
-            or (isinstance(value, dict) and not Cluster.is_logical_slot(value)
-                and value.get('type', 'physical') == 'physical')
+            or (isinstance(value, dict) and not Cluster.is_logical_slot(cast(Dict[str, Any], value))
+                and cast(Dict[str, Any], value).get('type', 'physical') == 'physical')
 
     @staticmethod
-    def is_logical_slot(value: Union[Any, Dict[str, Any]]) -> bool:
+    def is_logical_slot(value: Any) -> bool:
         """Check whether provided configuration is for permanent logical replication slot.
 
         :param value: configuration of the permanent replication slot.
@@ -970,8 +970,8 @@ class Cluster(NamedTuple('Cluster',
         :returns: ``True`` if *value* is a logical replication slot, otherwise ``False``.
         """
         return isinstance(value, dict) \
-            and value.get('type', 'logical') == 'logical' \
-            and bool(value.get('database') and value.get('plugin'))
+            and cast(Dict[str, Any], value).get('type', 'logical') == 'logical' \
+            and bool(cast(Dict[str, Any], value).get('database') and cast(Dict[str, Any], value).get('plugin'))
 
     @property
     def __permanent_slots(self) -> Dict[str, Union[Dict[str, Any], Any]]:
@@ -993,7 +993,7 @@ class Cluster(NamedTuple('Cluster',
                     value['lsn'] = lsn
                 else:
                     # Don't let anyone set 'lsn' in the global configuration :)
-                    value.pop('lsn', None)
+                    value.pop('lsn', None)  # pyright: ignore [reportUnknownMemberType]
         return ret
 
     @property
@@ -1067,8 +1067,9 @@ class Cluster(NamedTuple('Cluster',
                 logger.error("Slot name may only contain lower case letters, numbers, and the underscore chars")
                 continue
 
-            value = deepcopy(value) if value else {'type': 'physical'}
-            if isinstance(value, dict):
+            tmp = deepcopy(value) if value else {'type': 'physical'}
+            if isinstance(tmp, dict):
+                value = cast(Dict[str, Any], tmp)
                 if 'type' not in value:
                     value['type'] = 'logical' if value.get('database') and value.get('plugin') else 'physical'
 
@@ -1162,7 +1163,7 @@ class Cluster(NamedTuple('Cluster',
             return {}
 
         # we always want to exclude the member with our name from the list,
-        # also exlude members with disabled WAL streaming
+        # also exclude members with disabled WAL streaming
         members = filter(lambda m: m.name != name and not m.nostream, self.members)
 
         def leader_filter(member: Member) -> bool:
@@ -1200,12 +1201,13 @@ class Cluster(NamedTuple('Cluster',
         else:
             members = [m for m in members if expected_active(m)]
 
+        leader_patroni_version = self.leader and self.leader.member.patroni_version
         slots: Dict[str, int] = self.slots
         ret: Dict[str, Dict[str, Any]] = {}
         for member in members:
             slot_name = slot_name_from_member_name(member.name)
             lsn = slots.get(slot_name, 0)
-            if member.replicatefrom:
+            if member.replicatefrom or leader_patroni_version and leader_patroni_version < (4, 0, 0):
                 # `/status` key is maintained by the leader, but `member` may be connected to some other node.
                 # In that case, the slot in the leader is inactive and doesn't advance, so we use the LSN
                 # reported by the member to advance replication slot LSN.

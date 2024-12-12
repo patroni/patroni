@@ -58,7 +58,7 @@ patronictl
 ----------
 
 Coordinator and worker clusters are physically different PostgreSQL/Patroni
-clusters that are just logically groupped together using the
+clusters that are just logically grouped together using the
 `Citus <https://github.com/citusdata/citus>`__ database extension to
 PostgreSQL. Therefore in most cases it is not possible to manage them as a
 single entity.
@@ -175,7 +175,7 @@ And this is how it looks on the coordinator side::
     2024-08-26 07:02:38,636 DEBUG: query(SELECT pg_catalog.citus_update_node(%s, %s, %s, true, %s), (3, '172.19.0.7-demoted', 5432, 10000))
     # From this moment all application traffic on the coordinator to the worker group 2 is paused.
 
-    # The old worker primary is assiged as a secondary. 
+    # The old worker primary is assigned as a secondary. 
     2024-08-26 07:02:40,084 DEBUG: query(SELECT pg_catalog.citus_update_node(%s, %s, %s, true, %s), (7, '172.19.0.7', 5432, 10000))
 
     # The future worker primary notifies the coordinator that it acquired the leader lock in DCS and about to run "pg_ctl promote".

@@ -121,13 +121,15 @@ def parse_dsn(value: str) -> Optional[Dict[str, str]]:
 
     >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,[::1]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
     >>> r == {'application_name': 'mya/pp', 'dbname': 'db/sdf', 'host': ',::1', 'sslmode': 'require',\
-              'password': 'pass', 'port': '/123,', 'user': 'u/se', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
+              'password': 'pass', 'port': '/123,', 'user': 'u/se', 'gssencmode': 'prefer',\
+              'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}
     True
     >>> r = parse_dsn(" host = 'host' dbname = db\\\\ name requiressl=1 ")
     >>> r == {'dbname': 'db name', 'host': 'host', 'sslmode': 'require',\
-              'gssencmode': 'prefer', 'channel_binding': 'prefer'}
+              'gssencmode': 'prefer', 'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}
     True
-    >>> parse_dsn('requiressl = 0\\\\') == {'sslmode': 'prefer', 'gssencmode': 'prefer', 'channel_binding': 'prefer'}
+    >>> parse_dsn('requiressl = 0\\\\') == {'sslmode': 'prefer', 'gssencmode': 'prefer',\
+                                            'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}
     True
     >>> parse_dsn("host=a foo = '") is None
     True
@@ -151,6 +153,7 @@ def parse_dsn(value: str) -> Optional[Dict[str, str]]:
             ret.setdefault('sslmode', 'prefer')
         ret.setdefault('gssencmode', 'prefer')
         ret.setdefault('channel_binding', 'prefer')
+        ret.setdefault('sslnegotiation', 'postgres')
     return ret
 
 
@@ -276,7 +279,7 @@ def get_param_diff(old_value: Any, new_value: Any,
     """Get a dictionary representing a single PG parameter's value diff.
 
     :param old_value: current :class:`str` parameter value.
-    :param new_value: :class:`str` value of the paramater after a restart.
+    :param new_value: :class:`str` value of the parameter after a restart.
     :param vartype: the target type to parse old/new_value. See ``vartype`` argument of
         :func:`~patroni.utils.maybe_convert_from_base_unit`.
     :param unit: unit of *old/new_value*. See ``base_unit`` argument of
@@ -373,7 +376,7 @@ class ConfigHandler(object):
         # We also want to load current settings of recovery parameters, including primary_conninfo
         # and primary_slot_name, otherwise patronictl restart will update postgresql.conf
         # and remove them, what in the worst case will cause another restart.
-        # We are doing it only for PostgresSQL v12 onwards, because older version still have recovery.conf
+        # We are doing it only for PostgreSQL v12 onwards, because older version still have recovery.conf
         if not self._postgresql.is_primary() and self._postgresql.major_version >= 120000:
             # primary_conninfo is expected to be a dict, therefore we need to parse it
             recovery_params['primary_conninfo'] = parse_dsn(recovery_params.pop('primary_conninfo', '')) or {}
@@ -508,7 +511,7 @@ class ConfigHandler(object):
             f.writeline("include '{0}'\n".format(ConfigWriter.escape(include)))
             version = self.pg_version
             for name, value in sorted((configuration).items()):
-                value = transform_postgresql_parameter_value(version, name, value)
+                value = transform_postgresql_parameter_value(version, name, value, self._postgresql.available_gucs)
                 if value is not None and\
                         (name != 'hba_file' or not self._postgresql.bootstrap.running_custom_bootstrap):
                     f.write_param(name, value)
@@ -587,6 +590,8 @@ class ConfigHandler(object):
             ret.setdefault('gssencmode', 'prefer')
         if self._postgresql.major_version >= 130000:
             ret.setdefault('channel_binding', 'prefer')
+        if self._postgresql.major_version >= 170000:
+            ret.setdefault('sslnegotiation', 'postgres')
         if self._krbsrvname:
             ret['krbsrvname'] = self._krbsrvname
         if not ret.get('dbname'):
@@ -607,12 +612,15 @@ class ConfigHandler(object):
         keywords = ('dbname', 'user', 'passfile' if params.get('passfile') else 'password', 'host', 'port',
                     'sslmode', 'sslcompression', 'sslcert', 'sslkey', 'sslpassword', 'sslrootcert', 'sslcrl',
                     'sslcrldir', 'application_name', 'krbsrvname', 'gssencmode', 'channel_binding',
-                    'target_session_attrs')
+                    'target_session_attrs', 'sslnegotiation')
 
         def escape(value: Any) -> str:
             return re.sub(r'([\'\\ ])', r'\\\1', str(value))
 
-        return ' '.join('{0}={1}'.format(kw, escape(params[kw])) for kw in keywords if params.get(kw) is not None)
+        key_ver = {'target_session_attrs': 100000, 'gssencmode': 120000, 'channel_binding': 130000,
+                   'sslpassword': 130000, 'sslcrldir': 140000, 'sslnegotiation': 170000}
+        return ' '.join('{0}={1}'.format(kw, escape(params[kw])) for kw in keywords
+                        if params.get(kw) is not None and self._postgresql.major_version >= key_ver.get(kw, 0))
 
     def _write_recovery_params(self, fd: ConfigWriter, recovery_params: CaseInsensitiveDict) -> None:
         if self._postgresql.major_version >= 90500:
@@ -629,7 +637,8 @@ class ConfigHandler(object):
                     self._passfile_mtime = mtime(self._pgpass)
                 value = self.format_dsn(value)
             else:
-                value = transform_recovery_parameter_value(self._postgresql.major_version, name, value)
+                value = transform_recovery_parameter_value(self._postgresql.major_version, name, value,
+                                                           self._postgresql.available_gucs)
                 if value is None:
                     continue
             fd.write_param(name, value)
@@ -867,7 +876,7 @@ class ConfigHandler(object):
                                   and not self._postgresql.cb_called
                                   and not self._postgresql.is_starting())}
 
-        def record_missmatch(mtype: bool) -> None:
+        def record_mismatch(mtype: bool) -> None:
             required['restart' if mtype else 'reload'] += 1
 
         wanted_recovery_params = self.build_recovery_params(member)
@@ -880,16 +889,16 @@ class ConfigHandler(object):
                 continue
             if param == 'recovery_min_apply_delay':
                 if not compare_values('integer', 'ms', value[0], wanted_recovery_params.get(param, 0)):
-                    record_missmatch(value[1])
+                    record_mismatch(value[1])
             elif param == 'standby_mode':
                 if not compare_values('bool', None, value[0], wanted_recovery_params.get(param, 'on')):
-                    record_missmatch(value[1])
+                    record_mismatch(value[1])
             elif param == 'primary_conninfo':
                 if not self._check_primary_conninfo(value[0], wanted_recovery_params.get('primary_conninfo', {})):
-                    record_missmatch(value[1])
+                    record_mismatch(value[1])
             elif (param != 'primary_slot_name' or wanted_recovery_params.get('primary_conninfo')) \
                     and str(value[0]) != str(wanted_recovery_params.get(param, '')):
-                record_missmatch(value[1])
+                record_mismatch(value[1])
         return required['restart'] + required['reload'] > 0, required['restart'] > 0
 
     @staticmethod
@@ -1021,7 +1030,7 @@ class ConfigHandler(object):
         if parameters.get('wal_level') == ('hot_standby' if self._postgresql.major_version >= 90600 else 'replica'):
             parameters['wal_level'] = 'replica' if self._postgresql.major_version >= 90600 else 'hot_standby'
 
-        # Try to recalcualte wal_keep_segments <-> wal_keep_size assuming that typical wal_segment_size is 16MB.
+        # Try to recalculate wal_keep_segments <-> wal_keep_size assuming that typical wal_segment_size is 16MB.
         # The real segment size could be estimated from pg_control, but we don't really care, because the only goal of
         # this exercise is improving cross version compatibility and user must set the correct parameter in the config.
         if self._postgresql.major_version >= 130000:
@@ -1075,7 +1084,7 @@ class ConfigHandler(object):
             ``postgresql.parameters.unix_socket_directories``, we omit a ``host`` in connection parameters relying
             on the ability of ``libpq`` to connect via some default unix socket directory.
 
-            If unix sockets are not requested we "switch" to TCP, prefering to use ``localhost`` if it is possible
+            If unix sockets are not requested we "switch" to TCP, preferring to use ``localhost`` if it is possible
             to deduce that Postgres is listening on a local interface address.
 
             Otherwise we just used the first address specified in the ``listen_addresses`` GUC.

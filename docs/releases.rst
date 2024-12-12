@@ -3,12 +3,77 @@
 Release notes
 =============
 
+Version 4.0.4
+-------------
+
+Released 2024-11-22
+
+**Stability improvements**
+
+- Add compatibility with the ``py-consul`` module (Alexander Kukushkin)
+
+  ``python-consul`` module is unmaintained for a long time, while ``py-consul`` is the official replacement. Backward compatibility with python-consul is retained.
+
+- Add compatibility with the ``prettytable>=3.12.0`` module (Alexander Kukushkin)
+
+  Address deprecation warnings.
+
+- Compatibility with the ``ydiff==1.4.2`` module (Alexander Kukushkin)
+
+  Fix compatibility issues for the latest version, constrain version in ``requirements.txt``, and introduce latest version compatibility test.
+
+**Bugfixes**
+
+- Run ``on_role_change`` callback after a failed primary recovery (Polina Bungina, Alexander Kukushkin)
+
+  Additionally run ``on_role_change`` callback for a primary that failed to start after a crash to increase chances the callback is executed, even if the further start as a replica fails.
+
+- Fix a thread leak in ``patronictl list -W`` (Alexander Kukushkin)
+
+  Cache DCS instance object to avoid thread leak.
+
+- Ensure only supported parameters are written to the connection string (Alexander Kukushkin)
+
+  Patroni used to pass parameters introduced in newer versions to the connection string, which had been leading to connection errors.
+
+
+Version 4.0.3
+-------------
+
+Released 2024-10-18
+
+**Bugfixes**
+
+- Disable ``pgaudit`` when creating users not to expose password (kviset)
+
+  Patroni was logging ``superuser``, ``replication``, and ``rewind`` passwords on their creation when ``pgaudit`` extension was enabled.
+
+- Fix issue with mixed setups: primary on pre-Patroni v4 and replicas on v4+ (Alexander Kukushkin)
+
+  Use ``xlog_location`` extracted from ``/members`` key instead of trying to get a member's slot position from ``/status`` key if Patroni version running on the leader is pre-4.0.0. Not doing so has been causing WALs accumulation on replicas.
+
+- Do not ignore valid PostgreSQL GUCs that don't have Patroni validator (Polina Bungina)
+
+  Still check against ``postgres --describe-config`` if a GUC does not have a Patroni validator but is, in fact, a valid GUC.
+
+
+**Improvements**
+
+- Recheck annotations on 409 status code when reading leader object in K8s (Alexander Kukushkin)
+
+  Avoid an additional update if ``PATCH`` request was canceled by Patroni, while the request successfully updated the target.
+
+- Add support of ``sslnegotiation`` client-side connection option (Alexander Kukushkin)
+
+  ``sslnegotiation`` was added to the final PostgreSQL 17 release.
+
+
 Version 4.0.2
 -------------
 
 Released 2024-09-17
 
-**Bugfix**
+**Bugfixes**
 
 - Handle exceptions while discovering configuration validation files (Alexander Kukushkin)
 
@@ -505,7 +570,7 @@ Released 2023-09-20
 
 - Don't rely on ``pg_stat_wal_receiver`` when deciding on ``pg_rewind`` (Alexander Kukushkin)
 
-  It could happen that ``received_tli`` reported by ``pg_stat_wal_recevier`` is ahead of the actual replayed timeline, while the timeline reported by ``DENTIFY_SYSTEM`` via replication connection is always correct.
+  It could happen that ``received_tli`` reported by ``pg_stat_wal_receiver`` is ahead of the actual replayed timeline, while the timeline reported by ``DENTIFY_SYSTEM`` via replication connection is always correct.
 
 
 Version 3.1.0
@@ -1565,7 +1630,7 @@ This version enhances compatibility with PostgreSQL 13, adds support of multiple
 
   Replicas are waiting for checkpoint indication via member key of the leader in DCS. The key is normally updated only once per HA loop. Without waking the main thread up, replicas will have to wait up to ``loop_wait`` seconds longer than necessary.
 
-- Use of ``pg_stat_wal_recevier`` view on 9.6+ (Alexander Kukushkin)
+- Use of ``pg_stat_wal_receiver`` view on 9.6+ (Alexander Kukushkin)
 
   The view contains up-to-date values of ``primary_conninfo`` and ``primary_slot_name``, while the contents of ``recovery.conf`` could be stale.
 
@@ -2750,7 +2815,7 @@ In addition to using Endpoints, Patroni supports ConfigMaps. You can find more i
 
   This object identifies a running postmaster process via pid and start time and simplifies detection (and resolution) of situations when the postmaster was restarted behind our back or when postgres directory disappeared from the file system.
 
-- Minimize the amount of SELECT's issued by Patroni on every loop of HA cylce (Alexander Kukushkin)
+- Minimize the amount of SELECT's issued by Patroni on every loop of HA cycle (Alexander Kukushkin)
 
   On every iteration of HA loop Patroni needs to know recovery status and absolute wal position. From now on Patroni will run only single SELECT to get this information instead of two on the replica and three on the master.
 
@@ -2774,7 +2839,7 @@ In addition to using Endpoints, Patroni supports ConfigMaps. You can find more i
 
 - Improve ``patronictl reinit`` (Alexander Kukushkin)
 
-  Sometimes ``patronictl reinit`` refused to proceed when Patroni was busy with other actions, namely trying to start postgres. `patronictl` didn't provide any commands to cancel such long running actions and the only (dangerous) workarond was removing a data directory manually. The new implementation of `reinit` forcefully cancells other long-running actions before proceeding with reinit.
+  Sometimes ``patronictl reinit`` refused to proceed when Patroni was busy with other actions, namely trying to start postgres. `patronictl` didn't provide any commands to cancel such long running actions and the only (dangerous) workarond was removing a data directory manually. The new implementation of `reinit` forcefully cancels other long-running actions before proceeding with reinit.
 
 - Implement ``--wait`` flag in ``patronictl pause`` and ``patronictl resume`` (Alexander Kukushkin)
 
@@ -2803,7 +2868,7 @@ In addition to using Endpoints, Patroni supports ConfigMaps. You can find more i
 
 - Add new /sync and /async endpoints (Alexander Kukushkin, Oleksii Kliukin)
 
- Those endpoints (also accessible as /synchronous and /asynchronous) return 200 only for synchronous and asynchronous replicas correspondingly (exclusing those marked as `noloadbalance`).
+ Those endpoints (also accessible as /synchronous and /asynchronous) return 200 only for synchronous and asynchronous replicas correspondingly (excluding those marked as `noloadbalance`).
 
 **Allow multiple hosts for Etcd**
 
@@ -2984,7 +3049,7 @@ at the end.
   Allow custom bootstrap scripts instead of ``initdb`` when initializing the very first node in the cluster.
   The bootstrap command receives the name of the cluster and the path to the data directory. The resulting cluster can
   be configured to perform recovery, making it possible to bootstrap from a backup and do point in time recovery. Refer
-  to the :ref:`documentaton page <custom_bootstrap>` for more detailed description of this feature.
+  to the :ref:`documentation page <custom_bootstrap>` for more detailed description of this feature.
 
 **Smarter pg_rewind support**
 

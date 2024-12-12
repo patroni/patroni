@@ -15,7 +15,7 @@ import patroni.psycopg as psycopg
 
 from patroni import global_config
 from patroni.async_executor import CriticalTask
-from patroni.collections import CaseInsensitiveDict
+from patroni.collections import CaseInsensitiveDict, CaseInsensitiveSet
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PatroniException, PostgresConnectionException
 from patroni.postgresql import Postgresql, STATE_NO_RESPONSE, STATE_REJECT
@@ -29,7 +29,8 @@ from patroni.postgresql.validator import _get_postgres_guc_validators, _load_pos
     ValidatorFactoryInvalidType, ValidatorFactoryNoType
 from patroni.utils import RetryFailedError
 
-from . import BaseTestPostgresql, GET_PG_SETTINGS_RESULT, MockCursor, MockPostmaster, psycopg_connect
+from . import BaseTestPostgresql, GET_PG_SETTINGS_RESULT, \
+    mock_available_gucs, MockCursor, MockPostmaster, psycopg_connect
 
 mtime_ret = {}
 
@@ -100,6 +101,7 @@ Data page checksum version:           0
 @patch('subprocess.call', Mock(return_value=0))
 @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
 @patch('patroni.psycopg.connect', psycopg_connect)
+@patch.object(Postgresql, 'available_gucs', mock_available_gucs)
 class TestPostgresql(BaseTestPostgresql):
 
     @patch('subprocess.call', Mock(return_value=0))
@@ -107,6 +109,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
+    @patch.object(Postgresql, 'available_gucs', mock_available_gucs)
     def setUp(self):
         super(TestPostgresql, self).setUp()
         self.p.config.write_postgresql_conf()
@@ -271,7 +274,7 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertEqual(self.p.checkpoint({'user': 'postgres'}), 'is_in_recovery=true')
         with patch.object(MockCursor, 'execute', Mock(return_value=None)):
             self.assertIsNone(self.p.checkpoint())
-        self.assertEqual(self.p.checkpoint(timeout=10), 'not accessible or not healty')
+        self.assertEqual(self.p.checkpoint(timeout=10), 'not accessible or not healthy')
 
     @patch('patroni.postgresql.config.mtime', mock_mtime)
     @patch('patroni.postgresql.config.ConfigHandler._get_pg_settings')
@@ -364,6 +367,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=False))
     @patch.object(Postgresql, 'start', Mock())
+    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=170000))
     def test_follow(self):
         self.p.call_nowait(CallbackAction.ON_START)
         m = RemoteMember('1', {'restore_command': '2', 'primary_slot_name': 'foo', 'conn_kwargs': {'host': 'foo,bar'}})
@@ -911,11 +915,12 @@ class TestPostgresql(BaseTestPostgresql):
         not_none_values = (
             ('foo.bar', 'foo', 160003),  # name, value, version
             ("allow_in_place_tablespaces", 'true', 130008),
-            ("restrict_nonsystem_relation_kind", 'view', 160005)
+            ("restrict_nonsystem_relation_kind", 'view', 160005),
+            ('fork_specific_param', 'no_validation_file', 170001),
         )
         for i in not_none_values:
             self.assertIsNotNone(
-                transform_postgresql_parameter_value(i[2], i[0], i[1])
+                transform_postgresql_parameter_value(i[2], i[0], i[1], mock_available_gucs.return_value)
             )
 
         none_values = (
@@ -925,7 +930,7 @@ class TestPostgresql(BaseTestPostgresql):
         )
         for i in none_values:
             self.assertIsNone(
-                transform_postgresql_parameter_value(i[2], i[0], i[1])
+                transform_postgresql_parameter_value(i[2], i[0], i[1], mock_available_gucs.return_value)
             )
             if i[3]:
                 mock_warning.assert_called_once_with(
@@ -1154,6 +1159,12 @@ class TestPostgresql2(BaseTestPostgresql):
     def setUp(self):
         super(TestPostgresql2, self).setUp()
 
+    @patch('subprocess.check_output', Mock(return_value='\n'.join(mock_available_gucs.return_value).encode('utf-8')))
+    def test_available_gucs(self):
+        gucs = self.p.available_gucs
+        self.assertIsInstance(gucs, CaseInsensitiveSet)
+        self.assertEqual(gucs, mock_available_gucs.return_value)
+
     def test_cluster_info_query(self):
         self.assertIn('diff(pg_catalog.pg_current_wal_flush_lsn(', self.p.cluster_info_query)
         self.p._major_version = 90600
@@ -1169,5 +1180,28 @@ class TestPostgresql2(BaseTestPostgresql):
         self.p.config.load_current_server_parameters()
         self.assertTrue(all(self.p.config._server_parameters[name] == value for name, value in keep_values.items()))
         self.assertEqual(dict(self.p.config._recovery_params),
-                         {'primary_conninfo': {'host': 'a', 'port': '5433', 'passfile': '/blabla',
-                          'gssencmode': 'prefer', 'sslmode': 'prefer', 'channel_binding': 'prefer'}})
+                         {'primary_conninfo': {'host': 'a', 'port': '5433', 'passfile': '/blabla', 'sslmode': 'prefer',
+                          'gssencmode': 'prefer', 'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}})
+
+    def test_format_dsn(self):
+        params = {'host': '1', 'port': 2, 'target_session_attrs': 'read-write', 'gssencmode': 'prefer',
+                  'channel_binding': 'prefer', 'sslpassword': 'pwd', 'sslcrldir': '/', 'sslnegotiation': 'postgres'}
+        self.p._major_version = 90600
+        self.assertEqual(self.p.config.format_dsn(params), 'host=1 port=2')
+        self.p._major_version = 100000
+        self.assertEqual(self.p.config.format_dsn(params), 'host=1 port=2 target_session_attrs=read-write')
+        self.p._major_version = 120000
+        self.assertEqual(self.p.config.format_dsn(params),
+                         'host=1 port=2 gssencmode=prefer target_session_attrs=read-write')
+        self.p._major_version = 130000
+        self.assertEqual(self.p.config.format_dsn(params),
+                         'host=1 port=2 sslpassword=pwd gssencmode=prefer '
+                         'channel_binding=prefer target_session_attrs=read-write')
+        self.p._major_version = 140000
+        self.assertEqual(self.p.config.format_dsn(params),
+                         'host=1 port=2 sslpassword=pwd sslcrldir=/ gssencmode=prefer '
+                         'channel_binding=prefer target_session_attrs=read-write')
+        self.p._major_version = 170000
+        self.assertEqual(self.p.config.format_dsn(params),
+                         'host=1 port=2 sslpassword=pwd sslcrldir=/ gssencmode=prefer channel_binding=prefer '
+                         'target_session_attrs=read-write sslnegotiation=postgres')

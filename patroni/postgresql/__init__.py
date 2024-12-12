@@ -17,7 +17,7 @@ from psutil import TimeoutExpired
 
 from .. import global_config, psycopg
 from ..async_executor import CriticalTask
-from ..collections import CaseInsensitiveDict, EMPTY_DICT
+from ..collections import CaseInsensitiveDict, CaseInsensitiveSet, EMPTY_DICT
 from ..dcs import Cluster, Leader, Member, slot_name_from_member_name
 from ..exceptions import PostgresConnectionException
 from ..tags import Tags
@@ -245,6 +245,13 @@ class Postgresql(object):
 
         return ("SELECT " + self.TL_LSN + ", {3}").format(self.wal_name, self.lsn_name, self.wal_flush, extra)
 
+    @property
+    def available_gucs(self) -> CaseInsensitiveSet:
+        """GUCs available in this Postgres server."""
+        if not self._available_gucs:
+            self._available_gucs = self._get_gucs()
+        return self._available_gucs
+
     def _version_file_exists(self) -> bool:
         return not self.data_directory_empty() and os.path.isfile(self._version_file)
 
@@ -295,7 +302,7 @@ class Postgresql(object):
     def pg_isready(self) -> str:
         """Runs pg_isready to see if PostgreSQL is accepting connections.
 
-        :returns: 'ok' if PostgreSQL is up, 'reject' if starting up, 'no_resopnse' if not up."""
+        :returns: 'ok' if PostgreSQL is up, 'reject' if starting up, 'no_response' if not up."""
 
         r = self.connection_pool.conn_kwargs
         cmd = [self.pgcommand('pg_isready'), '-p', r['port'], '-d', self._database]
@@ -533,7 +540,7 @@ class Postgresql(object):
         """Figure out the replication state from input parameters.
 
         .. note::
-            This method could be only called when Postgres is up, running and queries are successfuly executed.
+            This method could be only called when Postgres is up, running and queries are successfully executed.
 
         :is_primary: `True` is postgres is not running in recovery
         :receiver_state: value from `pg_stat_get_wal_receiver.state` or None if Postgres is older than 9.6
@@ -648,6 +655,7 @@ class Postgresql(object):
             if self._postmaster_proc.is_running():
                 return self._postmaster_proc
             self._postmaster_proc = None
+            self._available_gucs = None
 
         # we noticed that postgres was restarted, force syncing of replication slots and check of logical slots
         self.slots_handler.schedule()
@@ -822,7 +830,7 @@ class Postgresql(object):
                 cur.execute('CHECKPOINT')
         except psycopg.Error:
             logger.exception('Exception during CHECKPOINT')
-            return 'not accessible or not healty'
+            return 'not accessible or not healthy'
 
     def stop(self, mode: str = 'fast', block_callbacks: bool = False, checkpoint: Optional[bool] = None,
              on_safepoint: Optional[Callable[..., Any]] = None, on_shutdown: Optional[Callable[[int, int], Any]] = None,
@@ -1367,3 +1375,13 @@ class Postgresql(object):
         self.slots_handler.schedule()
         self.mpp_handler.schedule_cache_rebuild()
         self._sysid = ''
+
+    def _get_gucs(self) -> CaseInsensitiveSet:
+        """Get all available GUCs based on ``postgres --describe-config`` output.
+
+        :returns: all available GUCs in the local Postgres server.
+        """
+        cmd = [self.pgcommand('postgres'), '--describe-config']
+        return CaseInsensitiveSet({
+            line.split('\t')[0] for line in subprocess.check_output(cmd).decode('utf-8').strip().split('\n')
+        })

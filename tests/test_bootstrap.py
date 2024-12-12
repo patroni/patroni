@@ -10,13 +10,14 @@ from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.config import ConfigHandler, get_param_diff
 
-from . import BaseTestPostgresql, psycopg_connect
+from . import BaseTestPostgresql, mock_available_gucs, psycopg_connect
 
 
 @patch('subprocess.call', Mock(return_value=0))
 @patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 12.1"))
 @patch('patroni.psycopg.connect', psycopg_connect)
 @patch('os.rename', Mock())
+@patch.object(Postgresql, 'available_gucs', mock_available_gucs)
 class TestBootstrap(BaseTestPostgresql):
 
     @patch('patroni.postgresql.CallbackExecutor', Mock())
@@ -257,7 +258,7 @@ class TestBootstrap(BaseTestPostgresql):
             self.b.post_bootstrap({'users': 1}, task)
             self.assertEqual(mock_logger.call_args_list[0][0][0],
                              'User creation is not be supported starting from v4.0.0. '
-                             'Please use "boostrap.post_bootstrap" script to create users.')
+                             'Please use "bootstrap.post_bootstrap" script to create users.')
             self.assertTrue(task.result)
 
         self.b.bootstrap(config)

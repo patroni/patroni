@@ -8,7 +8,7 @@ import sys
 import types
 
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union
+from typing import Any, cast, Dict, List, Optional, TYPE_CHECKING
 
 from .collections import EMPTY_DICT
 from .utils import parse_bool, parse_int
@@ -121,7 +121,7 @@ class GlobalConfig(types.ModuleType):
         """``True`` if at least one synchronous node is required."""
         return self.check_mode('synchronous_mode_strict')
 
-    def get_standby_cluster_config(self) -> Union[Dict[str, Any], Any]:
+    def get_standby_cluster_config(self) -> Any:
         """Get ``standby_cluster`` configuration.
 
         :returns: a copy of ``standby_cluster`` configuration.
@@ -133,7 +133,7 @@ class GlobalConfig(types.ModuleType):
         """``True`` if global configuration has a valid ``standby_cluster`` section."""
         config = self.get_standby_cluster_config()
         return isinstance(config, dict) and\
-            bool(config.get('host') or config.get('port') or config.get('restore_command'))
+            any(cast(Dict[str, Any], config).get(p) for p in ('host', 'port', 'restore_command'))
 
     def get_int(self, name: str, default: int = 0, base_unit: Optional[str] = None) -> int:
         """Gets current value of *name* from the global configuration and try to return it as :class:`int`.

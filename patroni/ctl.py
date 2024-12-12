@@ -38,7 +38,14 @@ import dateutil.tz
 import urllib3
 import yaml
 
-from prettytable import ALL, FRAME, PrettyTable
+from prettytable import PrettyTable
+
+try:  # pragma: no cover
+    from prettytable import HRuleStyle
+    hrule_all = HRuleStyle.ALL
+    hrule_frame = HRuleStyle.FRAME
+except ImportError:  # pragma: no cover
+    from prettytable import ALL as hrule_all, FRAME as hrule_frame
 
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
@@ -301,7 +308,7 @@ def ctl(ctx: click.Context, config_file: str, dcs_url: Optional[str], insecure: 
     .. note::
         Besides *dcs_url* and *insecure*, which are used to override DCS configuration section and ``ctl.insecure``
         setting, you can also override the value of ``log.level``, by default ``WARNING``, through either of these
-        environemnt variables:
+        environment variables:
             * ``LOGLEVEL``
             * ``PATRONI_LOGLEVEL``
             * ``PATRONI_LOG_LEVEL``
@@ -310,7 +317,7 @@ def ctl(ctx: click.Context, config_file: str, dcs_url: Optional[str], insecure: 
     :param config_file: path to the configuration file.
     :param dcs_url: the DCS URL in the format ``DCS://HOST:PORT``, e.g. ``etcd3://random.com:2399``. If given override
         whatever DCS is set in the configuration file.
-    :param insecure: if ``True`` allow SSL connections without client certiticates. Override what is configured through
+    :param insecure: if ``True`` allow SSL connections without client certificates. Override what is configured through
         ``ctl.insecure` in the configuration file.
     """
     level = 'WARNING'
@@ -332,6 +339,10 @@ def is_citus_cluster() -> bool:
     return click.get_current_context().obj['__mpp'].is_enabled()
 
 
+# Cache DCS instances for given scope and group
+__dcs_cache: Dict[Tuple[str, Optional[int]], AbstractDCS] = {}
+
+
 def get_dcs(scope: str, group: Optional[int]) -> AbstractDCS:
     """Get the DCS object.
 
@@ -345,6 +356,8 @@ def get_dcs(scope: str, group: Optional[int]) -> AbstractDCS:
     :raises:
         :class:`PatroniCtlException`: if not suitable DCS configuration could be found.
     """
+    if (scope, group) in __dcs_cache:
+        return __dcs_cache[(scope, group)]
     config = _get_configuration()
     config.update({'scope': scope, 'patronictl': True})
     if group is not None:
@@ -355,6 +368,7 @@ def get_dcs(scope: str, group: Optional[int]) -> AbstractDCS:
         if is_citus_cluster() and group is None:
             dcs.is_mpp_coordinator = lambda: True
         click.get_current_context().obj['__mpp'] = dcs.mpp
+        __dcs_cache[(scope, group)] = dcs
         return dcs
     except PatroniException as e:
         raise PatroniCtlException(str(e))
@@ -430,7 +444,7 @@ def print_output(columns: Optional[List[str]], rows: List[List[Any]], alignment:
         else:
             # If any value is multi-line, then add horizontal between all table rows while printing to get a clear
             # visual separation of rows.
-            hrules = ALL if any(any(isinstance(c, str) and '\n' in c for c in r) for r in rows) else FRAME
+            hrules = hrule_all if any(any(isinstance(c, str) and '\n' in c for c in r) for r in rows) else hrule_frame
             table = PatronictlPrettyTable(header, columns, hrules=hrules)
             table.align = 'l'
             for k, v in (alignment or {}).items():
@@ -958,7 +972,7 @@ def check_response(response: urllib3.response.HTTPResponse, member_name: str,
     :param action_name: action associated with the *response*.
     :param silent_success: if a status message should be skipped upon a successful *response*.
 
-    :returns: ``True`` if the response indicates a sucessful operation (HTTP status < ``400``), ``False`` otherwise.
+    :returns: ``True`` if the response indicates a successful operation (HTTP status < ``400``), ``False`` otherwise.
     """
     if response.status >= 400:
         click.echo('Failed: {0} for member {1}, status code={2}, ({3})'.format(
@@ -1422,7 +1436,7 @@ def generate_topology(level: int, member: Dict[str, Any],
               + postgresql2
 
     :param level: the current level being inspected in the *topology*.
-    :param member: information about the current member being inspected in *level* of *topology*. Should countain at
+    :param member: information about the current member being inspected in *level* of *topology*. Should contain at
         least this key:
         * ``name``: name of the node, according to ``name`` configuration;
 
@@ -1449,7 +1463,7 @@ def generate_topology(level: int, member: Dict[str, Any],
 def topology_sort(members: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
     """Sort *members* according to their level in the replication topology tree.
 
-    :param members: list of members in the cluster. Each item should countain at least these keys:
+    :param members: list of members in the cluster. Each item should contain at least these keys:
 
         * ``name``: name of the node, according to ``name`` configuration;
         * ``role``: ``leader``, ``standby_leader`` or ``replica``.
@@ -1894,12 +1908,13 @@ def show_diff(before_editing: str, after_editing: str) -> None:
     unified_diff = difflib.unified_diff(listify(before_editing), listify(after_editing))
 
     if sys.stdout.isatty():
-        buf = io.StringIO()
+        buf = io.BytesIO()
         for line in unified_diff:
-            buf.write(str(line))
+            buf.write(line.encode('utf-8'))
         buf.seek(0)
 
         class opts:
+            theme = 'default'
             side_by_side = False
             width = 80
             tab_width = 8
@@ -2028,7 +2043,7 @@ def invoke_editor(before_editing: str, cluster_name: str) -> Tuple[str, Dict[str
 
     .. note::
         Requires an editor program, and uses first found among:
-            * Program given by ``EDITOR`` environemnt variable; or
+            * Program given by ``EDITOR`` environment variable; or
             * ``editor``; or
             * ``vi``.
 

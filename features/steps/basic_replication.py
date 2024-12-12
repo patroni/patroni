@@ -136,8 +136,8 @@ def check_patroni_log(context, message_list, level, node, timeout):
     message_list = json.loads(message_list)
 
     for _ in range(int(timeout)):
-        messsages_of_level = context.pctl.read_patroni_log(node, level)
-        if any(any(message in line for line in messsages_of_level) for message in message_list):
+        messages_of_level = context.pctl.read_patroni_log(node, level)
+        if any(any(message in line for line in messages_of_level) for message in message_list):
             break
         sleep(1)
     else:

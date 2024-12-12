@@ -3,7 +3,7 @@ import re
 import time
 
 from threading import Condition, Event, Thread
-from typing import Any, Collection, Dict, Iterator, List, Optional, Set, Tuple, TYPE_CHECKING, Union
+from typing import Any, cast, Collection, Dict, Iterator, List, Optional, Set, Tuple, TYPE_CHECKING, Union
 from urllib.parse import urlparse
 
 from ...dcs import Cluster
@@ -112,7 +112,7 @@ class PgDistGroup(Set[PgDistNode]):
         """Creates a :class:`PgDistGroup` object based on given arguments.
 
         :param groupid: the groupid from "pg_dist_node".
-        :param nodes: a collection of :class:`PgDistNode` objects that belog to a *groupid*.
+        :param nodes: a collection of :class:`PgDistNode` objects that belong to a *groupid*.
         """
         self.failover = False
         self.groupid = groupid
@@ -315,7 +315,7 @@ class PgDistTask(PgDistGroup):
         """Create a :class:`PgDistTask` object based on given arguments.
 
         :param groupid: the groupid from "pg_dist_node".
-        :param nodes: a collection of :class:`PgDistNode` objects that belog to a *groupid*.
+        :param nodes: a collection of :class:`PgDistNode` objects that belong to a *groupid*.
         :param event: an "event" that resulted in creating this task.
         :param timeout: a transaction timeout if the task resulted in starting a transaction.
         :param cooldown: the cooldown value for ``citus_update_node()`` UDF call.
@@ -359,7 +359,7 @@ class Citus(AbstractMPP):
     group_re = re.compile('^(0|[1-9][0-9]*)$')
 
     @staticmethod
-    def validate_config(config: Union[Any, Dict[str, Union[str, int]]]) -> bool:
+    def validate_config(config: Any) -> bool:
         """Check whether provided config is good for a given MPP.
 
         :param config: configuration of ``citus`` MPP section.
@@ -367,8 +367,8 @@ class Citus(AbstractMPP):
         :returns: ``True`` is config passes validation, otherwise ``False``.
         """
         return isinstance(config, dict) \
-            and isinstance(config.get('database'), str) \
-            and parse_int(config.get('group')) is not None
+            and isinstance(cast(Dict[str, Any], config).get('database'), str) \
+            and parse_int(cast(Dict[str, Any], config).get('group')) is not None
 
     @property
     def group(self) -> int:
@@ -460,7 +460,7 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
 
         We can't always rely on REST API calls from worker nodes in order
         to maintain `pg_dist_node`, therefore at least once per heartbeat
-        loop we make sure that workes registered in `self._pg_dist_group`
+        loop we make sure that works registered in `self._pg_dist_group`
         cache are matching the cluster view from DCS by creating tasks
         the same way as it is done from the REST API."""
 
@@ -554,7 +554,7 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
             Read access to `self._in_flight` isn't protected because we know it can't be changed outside of our thread.
 
         :param task: reference to a :class:`PgDistTask` object that represents a row to be updated/created.
-        :returns: ``True`` if the row was succesfully created/updated or transaction in progress
+        :returns: ``True`` if the row was successfully created/updated or transaction in progress
             was committed as an indicator that the `self._pg_dist_group` cache should be updated,
             or, if the new transaction was opened, this method returns `False`.
         """

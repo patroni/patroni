@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterator, List, MutableMapping, Optional, Tuple, T
 
 import yaml
 
-from ..collections import CaseInsensitiveDict
+from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..exceptions import PatroniException
 from ..utils import parse_bool, parse_int, parse_real
 from .available_parameters import get_validator_files, PathLikeObj
@@ -412,8 +412,9 @@ _load_postgres_gucs_validators()
 
 
 def _transform_parameter_value(validators: MutableMapping[str, Tuple[_Transformable, ...]],
-                               version: int, name: str, value: Any) -> Optional[Any]:
-    """Validate *value* of GUC *name* for Postgres *version* using defined *validators*.
+                               version: int, name: str, value: Any,
+                               available_gucs: CaseInsensitiveSet) -> Optional[Any]:
+    """Validate *value* of GUC *name* for Postgres *version* using defined *validators* and *available_gucs*.
 
     :param validators: a dictionary of all GUCs across all Postgres versions. Each key is the name of a Postgres GUC,
         and the corresponding value is a variable length tuple of :class:`_Transformable`. Each item is a validation
@@ -422,30 +423,37 @@ def _transform_parameter_value(validators: MutableMapping[str, Tuple[_Transforma
     :param version: Postgres version to validate the GUC against.
     :param name: name of the Postgres GUC.
     :param value: value of the Postgres GUC.
-
-        * Disallow writing GUCs to ``postgresql.conf`` (or ``recovery.conf``) that does not exist in Postgres *version*;
-        * Avoid ignoring GUC *name* if it does not have a validator in *validators*, but is a valid GUC in Postgres
-          *version*.
+    :param available_gucs: a set of all GUCs available in Postgres *version*. Each item is the name of a Postgres
+        GUC. Used to avoid ignoring GUC *name* if it does not have a validator in *validators*, but is a valid GUC
+        in Postgres *version*.
 
     :returns: the return value may be one among:
 
         * *value* transformed to the expected format for GUC *name* in Postgres *version*, if *name* has a validator
           in *validators* for the corresponding Postgres *version*; or
-        * ``None`` if *name* does not have a validator in *validators*.
+        * ``None`` if *name* does not have a validator in *validators* and is not present in *available_gucs*.
     """
     for validator in validators.get(name, ()) or ():
         if version >= validator.version_from and\
                 (validator.version_till is None or version < validator.version_till):
             return validator.transform(name, value)
+    # Ideally we should have a validator in *validators*. However, if none is available, we will not discard a
+    # setting that exists in Postgres *version*, but rather allow the value with no validation.
+    if name in available_gucs:
+        return value
     logger.warning('Removing unexpected parameter=%s value=%s from the config', name, value)
 
 
-def transform_postgresql_parameter_value(version: int, name: str, value: Any) -> Optional[Any]:
-    """Validate *value* of GUC *name* for Postgres *version* using ``parameters``.
+def transform_postgresql_parameter_value(version: int, name: str, value: Any,
+                                         available_gucs: CaseInsensitiveSet) -> Optional[Any]:
+    """Validate *value* of GUC *name* for Postgres *version* using ``parameters`` and *available_gucs*.
 
     :param version: Postgres version to validate the GUC against.
     :param name: name of the Postgres GUC.
     :param value: value of the Postgres GUC.
+    :param available_gucs: a set of all GUCs available in Postgres *version*. Each item is the name of a Postgres
+        GUC. Used to avoid ignoring GUC *name* if it does not have a validator in ``parameters``, but is a valid GUC in
+        Postgres *version*.
 
     :returns: The return value may be one among:
 
@@ -460,17 +468,28 @@ def transform_postgresql_parameter_value(version: int, name: str, value: Any) ->
         return value
     if name in recovery_parameters:
         return None
-    return _transform_parameter_value(parameters, version, name, value)
+    return _transform_parameter_value(parameters, version, name, value, available_gucs)
 
 
-def transform_recovery_parameter_value(version: int, name: str, value: Any) -> Optional[Any]:
-    """Validate *value* of GUC *name* for Postgres *version* using ``recovery_parameters``.
+def transform_recovery_parameter_value(version: int, name: str, value: Any,
+                                       available_gucs: CaseInsensitiveSet) -> Optional[Any]:
+    """Validate *value* of GUC *name* for Postgres *version* using ``recovery_parameters`` and *available_gucs*.
 
     :param version: Postgres version to validate the recovery GUC against.
     :param name: name of the Postgres recovery GUC.
     :param value: value of the Postgres recovery GUC.
+    :param available_gucs: a set of all GUCs available in Postgres *version*. Each item is the name of a Postgres
+        GUC. Used to avoid ignoring GUC *name* if it does not have a validator in ``parameters``, but is a valid GUC in
+        Postgres *version*.
 
     :returns: *value* transformed to the expected format for recovery GUC *name* in Postgres *version* using validators
         defined in ``recovery_parameters``. It can also return ``None``. See :func:`_transform_parameter_value`.
     """
-    return _transform_parameter_value(recovery_parameters, version, name, value)
+    # Recovery settings are not present in ``postgres --describe-config`` output of Postgres <= 11. In that case we
+    # just pass down the list of settings defined in Patroni validators so :func:`_transform_parameter_value` will not
+    # discard the recovery GUCs when running Postgres <= 11.
+    # NOTE: At the moment this change was done Postgres 11 was almost EOL, and had been likely extensively used with
+    # Patroni, so we should be able to rely solely on Patroni validators as the source of truth.
+    return _transform_parameter_value(
+        recovery_parameters, version, name, value,
+        available_gucs if version >= 120000 else CaseInsensitiveSet(recovery_parameters.keys()))
