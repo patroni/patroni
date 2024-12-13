@@ -1502,16 +1502,14 @@ def get_cluster_service_info(cluster: Dict[str, Any]) -> List[str]:
     """
     service_info: List[str] = []
 
-    leader_name = cluster['leader']['name'] if cluster.get('leader') else None
-    for m in cluster['members']:
-        if m['name'] == leader_name:
-            try:
-                response = request_patroni(m, endpoint="multisite")
-                msdata = json.loads(response.data.decode('utf-8'))
-                if 'status' in msdata:
-                    service_info.append(f"Multisite {msdata['status']}")
-            except Exception:
-                pass
+
+
+    if 'multisite' in cluster:
+        info = f"Multisite {cluster['multisite']['name'] or ''} is {cluster['multisite']['status'].lower()}"
+        standby_config = cluster['multisite'].get('standby_config', {})
+        if standby_config and standby_config.get('host'):
+            info += f", replicating from {standby_config['host']}:{standby_config.get('port', 5432)}"
+        service_info.append(info)
 
     if cluster.get('pause'):
         service_info.append('Maintenance mode: on')

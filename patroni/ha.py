@@ -507,6 +507,9 @@ class Ha(object):
             if self.is_paused():
                 data['pause'] = True
 
+            if self.patroni.multisite.is_active:
+                data['multisite'] = self.patroni.multisite.status()
+
             ret = self.dcs.touch_member(data)
             if ret:
                 new_state = (data['state'], data['role'])

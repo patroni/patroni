@@ -6,7 +6,7 @@ from threading import Thread, Event
 import time
 import six
 
-from .dcs import Member
+from .dcs import Member, Cluster
 from .dcs.kubernetes import catch_kubernetes_errors, Kubernetes
 from .exceptions import DCSError
 
@@ -59,7 +59,7 @@ class AbstractSiteController(object):
 class SingleSiteController(AbstractSiteController):
     """Do nothing controller for single site operation."""
     def status(self):
-        return "Leader"
+        return {"status": "Leader", "active": False}
 
 class MultisiteController(Thread, AbstractSiteController):
     is_active = True
@@ -117,7 +117,12 @@ class MultisiteController(Thread, AbstractSiteController):
         self._dcs_error = None
 
     def status(self):
-        return "Leader" if self._has_leader else "Standby"
+        return {
+            "status": "Leader" if self._has_leader or self._standby_config is None else "Standby",
+            "active": True,
+            "name": self.name,
+            "standby_config": self.get_active_standby_config(),
+        }
 
     def get_active_standby_config(self):
         return self._standby_config
@@ -317,7 +322,7 @@ class MultisiteController(Thread, AbstractSiteController):
             else:
                 self.dcs.set_history_value(json.dumps([{'last_leader': self.name, 'switches': 0}]))
 
-    def _check_for_failover(self, cluster):
+    def _check_for_failover(self, cluster: Cluster):
         if cluster.failover and cluster.failover.target_site:
             if cluster.failover.target_site == self.name:
                 logger.info("Cleaning up failover key targeting us")

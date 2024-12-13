@@ -680,7 +680,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.write_response(200, '\n'.join(metrics)+'\n', content_type='text/plain')
 
     def do_GET_multisite(self):
-        self._write_json_response(200, {"status": self.server.patroni.multisite.status()})
+        self._write_json_response(200, self.server.patroni.multisite.status())
 
     def _read_json_content(self, body_is_optional: bool = False) -> Optional[Dict[Any, Any]]:
         """Read JSON from HTTP request body.
@@ -1401,6 +1401,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
         if self.server.patroni.ha.failsafe_is_active():
             result['failsafe_mode_is_active'] = True
         result['dcs_last_seen'] = self.server.patroni.dcs.last_seen
+
+        if self.server.patroni.multisite.is_active:
+            result['multisite'] = self.server.patroni.multisite.status()
+
         return result
 
     def handle_one_request(self) -> None:

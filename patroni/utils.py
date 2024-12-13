@@ -950,9 +950,17 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
 
     ret: Dict[str, Any] = {'members': []}
     sync_role = 'quorum_standby' if config.is_quorum_commit_mode else 'sync_standby'
+    multisite_active = False
+    multisite_info = {'status': 'leaderless'}
     for m in cluster.members:
+        multisite = m.data.get('multisite', {})
+        multisite_active = multisite_active or multisite.get('active', False)
         if m.name == leader_name:
-            role = 'standby_leader' if config.is_standby_cluster else 'leader'
+            multisite_standby = multisite.get('status') == 'Standby'
+            multisite_info['status'] = multisite.get('status')
+            multisite_info['name'] = multisite.get('name')
+            multisite_info['standby_config'] = multisite.get('standby_config', {})
+            role = 'standby_leader' if config.is_standby_cluster or multisite_standby else 'leader'
         elif config.is_synchronous_mode and cluster.sync.matches(m.name):
             role = sync_role
         else:
@@ -984,6 +992,8 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
     ret['members'].sort(key=cmp)
     if config.is_paused:
         ret['pause'] = True
+    if multisite_active:
+        ret['multisite'] = multisite_info
     if cluster.failover and cluster.failover.scheduled_at:
         ret['scheduled_switchover'] = {'at': cluster.failover.scheduled_at.isoformat()}
         if cluster.failover.leader:
