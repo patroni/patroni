@@ -1948,6 +1948,7 @@ class AbstractDCS(abc.ABC):
         :param leader: value to set for ``leader``.
         :param candidate: value to set for ``member``.
         :param scheduled_at: value converted to ISO date format for ``scheduled_at``.
+        :param target_site: multisite site name to fail over to
         :param version: for conditional update of the key/object.
 
         :returns: ``True`` if successfully committed to DCS.

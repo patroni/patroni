@@ -221,7 +221,7 @@ class MultisiteController(Thread, AbstractSiteController):
                     self._disconnected_operation()
                     self._check_transition(leader=False, note="Lost multisite leader status")
                     # Try to get new leader
-                    cluster = self.dcs.get_cluster(force=True)
+                    cluster = self.dcs.get_cluster()
                     if cluster.leader and cluster.leader.name != self.name:
                         self._set_standby_config(cluster.leader.member)
             else:
