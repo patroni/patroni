@@ -129,7 +129,7 @@ def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
     for name, dcs_class in iter_dcs_classes(config):
         # Propagate some parameters from top level of config if defined to the DCS specific config section.
         config[name].update({
-            p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
+            p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait', 'multisite',
                                    'patronictl', 'ttl', 'retry_timeout')
             if p in config})
 
