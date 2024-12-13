@@ -1491,6 +1491,7 @@ class AbstractDCS(abc.ABC):
         self._set_loop_wait(config.get('loop_wait', 10))
 
         self._ctl = bool(config.get('patronictl', False))
+        self._multisite = bool(config.get('multisite', False))
         self._cluster: Optional[Cluster] = None
         self._cluster_valid_till: float = 0
         self._cluster_thread_lock = Lock()

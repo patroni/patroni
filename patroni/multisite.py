@@ -72,14 +72,21 @@ class MultisiteController(Thread, AbstractSiteController):
         msconfig = config['multisite']
 
         from .dcs import get_dcs
+
+        # Multisite configuration inherits values from main configuration
         inherited_keys = ['name', 'scope', 'namespace', 'loop_wait', 'ttl', 'retry_timeout']
         for key in inherited_keys:
             if key not in msconfig and key in config:
                 msconfig[key] = config[key]
 
+        msconfig.setdefault('observe_interval', config.get('loop_wait'))
+
         # TODO: fetch default host/port from postgresql section
         if 'host' not in msconfig or 'port' not in msconfig:
             raise Exception("Missing host or port from multisite configuration")
+
+        # Disable etcd3 lease ownership detection warning
+        msconfig['multisite'] = True
 
         self.config = msconfig
 
@@ -118,7 +125,10 @@ class MultisiteController(Thread, AbstractSiteController):
     def resolve_leader(self):
         """Try to become leader, update active config correspondingly.
 
-        Returns error message encountered when unable to resolve"""
+        Must be called from Patroni main thread. After a successful return get_active_standby_config() will
+        return a value corresponding to a multisite status that was active after start of the call.
+
+        Returns error message encountered when unable to resolve leader status."""
         self._leader_resolved.clear()
         self._heartbeat.set()
         self._leader_resolved.wait()
@@ -128,7 +138,7 @@ class MultisiteController(Thread, AbstractSiteController):
         """Notify multisite mechanism that this site has a properly operating cluster mechanism.
 
         Need to send out an async lease update. If that fails to complete within safety margin of ttl running
-        out then we need to
+        out then we need to demote.
         """
         logger.info("Triggering multisite hearbeat")
         self._heartbeat.set()
@@ -180,6 +190,7 @@ class MultisiteController(Thread, AbstractSiteController):
     def _resolve_multisite_leader(self):
         logger.info("Running multisite consensus.")
         try:
+            # Refresh the latest known state
             cluster = self.dcs.get_cluster()
             self._dcs_error = None
 
@@ -245,7 +256,8 @@ class MultisiteController(Thread, AbstractSiteController):
                         self._failover_target = None
                         self._failover_timeout = None
                     if self._set_standby_config(cluster.leader.member):
-                        # Wake up anyway to notice that we need to replicate from new leader
+                        # Wake up anyway to notice that we need to replicate from new leader. For the other case
+                        # _check_transition() handles the wake.
                         if not self._has_leader:
                             self.on_change()
                         note = f"Lost leader lock to {lock_owner}" if self._has_leader else f"Current leader {lock_owner}"
@@ -266,6 +278,31 @@ class MultisiteController(Thread, AbstractSiteController):
                 self.touch_member()
             except DCSError as e:
                 pass
+
+    def _observe_leader(self):
+        """
+        Observe multisite state and make sure
+
+        """
+        try:
+            cluster = self.dcs.get_cluster()
+
+            if cluster.is_unlocked():
+                logger.info("Multisite has no leader")
+                self._disconnected_operation()
+            else:
+                # There is a leader cluster
+                lock_owner = cluster.leader and cluster.leader.name
+                # The leader is us
+                if lock_owner == self.name:
+                    logger.info("Multisite leader is us")
+                    self._standby_config = None
+                else:
+                    logger.info(f"Multisite leader is {lock_owner}")
+                    self._set_standby_config(cluster.leader.member)
+        except DCSError as e:
+            # On replicas we need to know the multisite status only for rewinding.
+            logger.warning(f"Error accessing multisite DCS: {e}")
 
     def _update_history(self, cluster):
         if cluster.history and cluster.history.lines and isinstance(cluster.history.lines[0], dict):
@@ -306,14 +343,18 @@ class MultisiteController(Thread, AbstractSiteController):
         self.dcs.touch_member(data)
 
     def run(self):
-        self._heartbeat.wait()
+        self._observe_leader()
+        while not self._heartbeat.wait(self.config['observe_interval']):
+            # Keep track of who is the leader even when we are not the primary node to be able to rewind from them
+            self._observe_leader()
         while not self.stop_requested:
             self._resolve_multisite_leader()
             self._heartbeat.clear()
             self._leader_resolved.set()
             if self._state_updater:
                 self._state_updater.store_updates()
-            self._heartbeat.wait()
+            while not self._heartbeat.wait(self.config['observe_interval']):
+                self._observe_leader()
 
     def shutdown(self):
         self.stop_requested = True
