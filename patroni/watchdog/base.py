@@ -140,10 +140,8 @@ class Watchdog(object):
             self.impl.open()
             actual_timeout = self._set_timeout()
         except WatchdogError as e:
-            if self.config.mode == MODE_REQUIRED:
-                logger.warning("Could not activate %s: %s", self.impl.describe(), e)
-            else:
-                logger.debug("Could not activate %s: %s", self.impl.describe(), e)
+            log = logger.warning if self.config.mode == MODE_REQUIRED else logger.debug
+            log("Could not activate %s: %s", self.impl.describe(), e)
             self.impl = NullWatchdog()
             actual_timeout = self.impl.get_timeout()
 
