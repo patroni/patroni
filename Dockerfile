@@ -7,7 +7,7 @@ ARG PGDATA=$PGHOME/data
 ARG LC_ALL=C.UTF-8
 ARG LANG=C.UTF-8
 
-FROM postgres:$PG_MAJOR as builder
+FROM postgres:$PG_MAJOR AS builder
 
 ARG PGHOME
 ARG PGDATA
