@@ -395,14 +395,14 @@ class PatroniLogger(Thread):
         try:
             try:
                 from pythonjsonlogger import json as jsonlogger  # pyright: ignore
-            except ImportError:
-                from pythonjsonlogger import jsonlogger  # pyright: ignore
+            except ImportError:  # pragma: no cover
+                from pythonjsonlogger import jsonlogger
                 if hasattr(jsonlogger, 'RESERVED_ATTRS') \
-                        and 'taskName' not in jsonlogger.RESERVED_ATTRS:  # pragma: no cover
+                        and 'taskName' not in jsonlogger.RESERVED_ATTRS:  # pyright: ignore [reportPrivateImportUsage]
                     # compatibility with python 3.12, that added a new attribute to LogRecord
-                    jsonlogger.RESERVED_ATTRS += ('taskName',)  # pyright: ignore [reportAttributeAccessIssue]
+                    jsonlogger.RESERVED_ATTRS += ('taskName',)  # pyright: ignore
 
-            return jsonlogger.JsonFormatter(
+            return jsonlogger.JsonFormatter(  # pyright: ignore [reportPrivateImportUsage]
                 jsonformat,
                 dateformat,
                 rename_fields=rename_fields,
