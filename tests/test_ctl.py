@@ -404,6 +404,7 @@ class TestCtl(unittest.TestCase):
         mock_post.return_value.status = 200
         result = self.runner.invoke(ctl, ctl_args, input='y')
         assert result.exit_code == 0
+        assert 'might be different from the ones' in result.output
 
         # get restart with the non-200 return code
         # normal restart, the schedule is actually parsed, but not validated in patronictl
