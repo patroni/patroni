@@ -158,6 +158,35 @@ class TestConfig(unittest.TestCase):
     def test_invalid_path(self):
         self.assertRaises(ConfigParseError, Config, 'postgres0')
 
+    @patch('os.path.exists', Mock(return_value=True))
+    @patch('os.path.isfile', Mock(side_effect=lambda fname: fname != 'postgres0'))
+    @patch('os.path.isdir', Mock(return_value=True))
+    @patch('os.listdir', Mock(return_value=['00-empty.yml', '00-base.yml']))
+    @patch('patroni.config.logger')
+    def test_invalid_empty_config_file(self, mock_logger):
+        def open_mock(fname, *args, **kwargs):
+            if fname.endswith('00-base.yml'):
+                return io.StringIO(
+                    u'''
+                    test: True
+                    test2:
+                      child-1: somestring
+                      child-2: 5
+                      child-3: False
+                    test3: True
+                    test4:
+                     - abc: 3
+                     - abc: 4
+                    ''')
+            elif fname.endswith('00-empty.yml'):
+                return io.StringIO(u'''---''')
+
+        with patch('builtins.open', MagicMock(side_effect=open_mock)):
+            self.assertRaises(ConfigParseError, Config, 'postgres0')
+            mock_logger.error.assert_called_once_with(
+                '%s does not contain a dict',
+                'postgres0\\00-empty.yml' if sys.platform == 'win32' else 'postgres0/00-empty.yml')
+
     @patch.object(Config, 'get')
     @patch('patroni.config.logger')
     def test__validate_tags(self, mock_logger, mock_get):
