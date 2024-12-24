@@ -13,7 +13,7 @@ env:
 
 jobs:
   unit:
-    runs-on: ${{ matrix.os }}-latest
+    runs-on: ${{ fromJson('{"ubuntu":"ubuntu-22.04","windows":"windows-latest","macos":"macos-latest"}')[matrix.os] }}
     strategy:
       fail-fast: false
       matrix:
@@ -93,7 +93,7 @@ jobs:
       run: python -m coveralls --service=github
 
   behave:
-    runs-on: ${{ matrix.os }}-latest
+    runs-on: ${{ fromJson('{"ubuntu":"ubuntu-22.04","windows":"windows-latest","macos":"macos-latest"}')[matrix.os] }}
     env:
       DCS: ${{ matrix.dcs }}
       ETCDVERSION: 3.4.23
@@ -186,7 +186,7 @@ jobs:
 
     - uses: jakebailey/pyright-action@v2
       with:
-        version: 1.1.389
+        version: 1.1.391
 
   ydiff:
     name: Test compatibility with the latest version of ydiff

@@ -360,13 +360,16 @@ class PatroniLogger(Thread):
             _LOGGER.warning('Expected log format to be a string or a list, but got "%s"', _type(logformat))
 
         try:
-            from pythonjsonlogger import jsonlogger
-            if hasattr(jsonlogger, 'RESERVED_ATTRS') \
-                    and 'taskName' not in jsonlogger.RESERVED_ATTRS:  # pyright: ignore [reportUnnecessaryContains]
-                # compatibility with python 3.12, that added a new attribute to LogRecord
-                jsonlogger.RESERVED_ATTRS += ('taskName',)
+            try:
+                from pythonjsonlogger import json as jsonlogger  # pyright: ignore
+            except ImportError:  # pragma: no cover
+                from pythonjsonlogger import jsonlogger
+                if hasattr(jsonlogger, 'RESERVED_ATTRS') \
+                        and 'taskName' not in jsonlogger.RESERVED_ATTRS:  # pyright: ignore [reportPrivateImportUsage]
+                    # compatibility with python 3.12, that added a new attribute to LogRecord
+                    jsonlogger.RESERVED_ATTRS += ('taskName',)  # pyright: ignore
 
-            return jsonlogger.JsonFormatter(
+            return jsonlogger.JsonFormatter(  # pyright: ignore [reportPrivateImportUsage]
                 jsonformat,
                 dateformat,
                 rename_fields=rename_fields,
