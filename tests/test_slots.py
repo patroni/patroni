@@ -355,6 +355,13 @@ class TestSlotsHandler(BaseTestPostgresql):
                 patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(False, False))):
             self.s.sync_replication_slots(cluster, self.tags)
 
+        with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('test_1', 'physical', 1, 12345, None, None,
+                                                                      None, None, None)], Exception])), \
+                patch.object(Cluster, 'is_unlocked', Mock(return_value=True)), \
+                patch.object(SlotsHandler, 'drop_replication_slot') as mock_drop:
+            self.s.sync_replication_slots(cluster, self.tags)
+            mock_drop.assert_not_called()
+
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     @patch.object(Postgresql, 'role', PropertyMock(return_value='replica'))
     @patch.object(TestTags, 'tags', PropertyMock(return_value={'nofailover': True}))
