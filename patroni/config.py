@@ -188,6 +188,7 @@ class Config(object):
 
         :raises:
             :class:`ConfigParseError`: if *path* is invalid.
+            :class:`ConfigParseError`: if *path* does not contain dict (empty file or no mapping values).
         """
         if os.path.isfile(path):
             files = [path]
@@ -202,7 +203,10 @@ class Config(object):
         for fname in files:
             with open(fname) as f:
                 config = yaml.safe_load(f)
-                patch_config(overall_config, config)
+                if not isinstance(config, dict):
+                    logger.error('%s does not contain a dict', fname)
+                    raise ConfigParseError(f'invalid config file {fname}')
+                patch_config(overall_config, cast(Dict[Any, Any], config))
         return overall_config
 
     def _load_config_file(self) -> Dict[str, Any]:
