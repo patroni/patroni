@@ -196,7 +196,8 @@ class TestConsul(unittest.TestCase):
                 self.assertTrue(self.c.update_leader(cluster, 12345, failsafe={'foo': 'bar'}))
             with patch.object(KV, 'put', Mock(side_effect=ConsulException)):
                 self.assertFalse(self.c.update_leader(cluster, 12345))
-            with patch('time.time', Mock(side_effect=[0, 0, 0, 0, 100, 200, 300])):
+            mock_time = Mock(side_effect=[0, 0, 0, 0, 100, 200, 300])
+            with patch('time.time', mock_time), patch('time.time_ns', mock_time):
                 self.assertRaises(ConsulError, self.c.update_leader, cluster, 12345)
         with patch('time.time', Mock(side_effect=[0, 100, 200, 300])):
             self.assertRaises(ConsulError, self.c.update_leader, cluster, 12345)
