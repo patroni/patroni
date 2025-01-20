@@ -372,6 +372,8 @@ class SlotsHandler:
 
         :param slots: A dictionary mapping slot name to slot attributes. This method only considers a slot
                       if the value is a dictionary with the key ``type`` and a value of ``physical``.
+        :param clean_inactive_physical_slots: whether replication slots with ``xmin`` and not expected
+                                              to be active should be dropped.
         """
         immediately_reserve = ', true' if self._postgresql.major_version >= 90600 else ''
         for name, value in slots.items():
