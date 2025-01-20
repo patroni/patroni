@@ -2065,9 +2065,10 @@ def invoke_editor(before_editing: str, cluster_name: str) -> Tuple[str, Dict[str
     if not editor_cmd:
         raise PatroniCtlException('EDITOR environment variable is not set. editor or vi are not available')
 
+    safe_cluster_name = cluster_name.replace("/", "_")
     with temporary_file(contents=before_editing.encode('utf-8'),
                         suffix='.yaml',
-                        prefix='{0}-config-'.format(cluster_name)) as tmpfile:
+                        prefix='{0}-config-'.format(safe_cluster_name)) as tmpfile:
         ret = subprocess.call([editor_cmd, tmpfile])
         if ret:
             raise PatroniCtlException("Editor exited with return code {0}".format(ret))
