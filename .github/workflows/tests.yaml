@@ -79,6 +79,18 @@ jobs:
     - name: Run tests and flake8
       run: python .github/workflows/run_tests.py
 
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.13
+      if: matrix.os != 'macos'
+    - name: Install dependencies
+      run: python .github/workflows/install_deps.py
+      if: matrix.os != 'macos'
+    - name: Run tests and flake8
+      run: python .github/workflows/run_tests.py
+      if: matrix.os != 'macos'
+
     - name: Combine coverage
       run: python .github/workflows/run_tests.py combine
 
@@ -102,7 +114,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu]
-        python-version: [3.7, 3.12]
+        python-version: [3.7, 3.13]
         dcs: [etcd, etcd3, consul, exhibitor, kubernetes, raft]
         include:
         - os: macos
@@ -194,10 +206,10 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Python 3.12
+    - name: Set up Python 3.13
       uses: actions/setup-python@v5
       with:
-        python-version: 3.12
+        python-version: 3.13
     - name: Install dependencies
       run: python .github/workflows/install_deps.py
     - name: Update ydiff
