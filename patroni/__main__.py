@@ -78,6 +78,8 @@ class Patroni(AbstractPatroniDaemon, Tags):
         self.next_run = time.time()
         self.scheduled_restart: Dict[str, Any] = {}
 
+        self.previous_heartbeat_msg = ''
+
     def ensure_dcs_access(self, sleep_time: int = 5) -> 'Cluster':
         """Continuously attempt to retrieve cluster from DCS with delay.
 
@@ -209,7 +211,13 @@ class Patroni(AbstractPatroniDaemon, Tags):
         the change and cache the new dynamic configuration values in ``patroni.dynamic.json`` file under Postgres data
         directory.
         """
-        logger.info(self.ha.run_cycle())
+        msg = self.ha.run_cycle()
+
+        suppress_duplicate_logs = self.config.get('log', {}).get('suppress_duplicate_hb_logs', False)
+        if not msg == self.previous_heartbeat_msg or not suppress_duplicate_logs:
+            logger.info(msg)
+
+        self.previous_heartbeat_msg = msg
 
         if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
                 and self.config.set_dynamic_configuration(self.dcs.cluster.config):

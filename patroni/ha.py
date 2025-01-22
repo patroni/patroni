@@ -263,6 +263,8 @@ class Ha(object):
         # used only in backoff after failing a pre_promote script
         self._released_leader_key_timestamp = 0
 
+        self.previous_lock_owner = ''
+
         # Initialize global config
         global_config.update(None, self.patroni.config.dynamic_configuration)
 
@@ -400,8 +402,14 @@ class Ha(object):
 
     def has_lock(self, info: bool = True) -> bool:
         lock_owner = self.cluster.leader and self.cluster.leader.name
+
         if info:
-            logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
+            suppress_duplicate_logs = self.patroni.config.get('log', {}).get('suppress_duplicate_hb_logs', False)
+            if not lock_owner == self.previous_lock_owner or not suppress_duplicate_logs:
+                logger.info('Lock owner: %s; I am %s', lock_owner, self.state_handler.name)
+
+        self.previous_lock_owner = lock_owner
+
         return lock_owner == self.state_handler.name
 
     def get_effective_tags(self) -> Dict[str, Any]:
