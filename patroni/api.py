@@ -473,7 +473,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         leader_optime = cluster.status.last_lsn
 
-        mode = 'write' if self.path_query.get('mode') == 'write' else 'apply'
+        mode = 'write' if self.path_query.get('mode', [None])[0] == 'write' else 'apply'
         location = 'received_location' if mode == 'write' else 'replayed_location'
         lag = leader_optime - postgres.get('xlog', {}).get(location, 0)
 
