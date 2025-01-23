@@ -517,6 +517,7 @@ class PatroniLogger(Thread):
             self._root_logger.removeHandler(self._proxy_handler)
 
         prev_record = None
+        prev_hb_msg = ''
 
         while True:
             self._close_old_handlers()
@@ -535,14 +536,24 @@ class PatroniLogger(Thread):
                     prev_record, record = record, None
                 else:
                     if prev_record and prev_record.thread == record.thread:
-                        if not (record.msg.startswith('no action. ') or record.msg.startswith('PAUSE: no action')):
+                        if not self.isHeartBeat(record):
                             self.log_handler.handle(prev_record)
                         prev_record = None
 
             if record:
-                self.log_handler.handle(record)
+                if self.isHeartBeat(record):
+                    config = self._config or {}
+                    suppress_duplicate_logs = config.get('suppress_duplicate_hb_logs', False)
+                    if not record.msg == prev_hb_msg or not suppress_duplicate_logs:
+                        self.log_handler.handle(record)
+                    prev_hb_msg = record.msg
+                else:
+                    self.log_handler.handle(record)
 
             self._queue_handler.queue.task_done()
+
+    def isHeartBeat(self, record: logging.LogRecord) -> bool:
+        return record.msg.startswith('no action. ') or record.msg.startswith('PAUSE: no action')
 
     def shutdown(self) -> None:
         """Shut down the logger thread."""
