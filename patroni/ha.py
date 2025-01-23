@@ -2239,6 +2239,8 @@ class Ha(object):
         finally:
             if not dcs_failed:
                 if self.is_leader():
+                    if self._failsafe.is_active():
+                        logger.info('DCS recovered, failsafe mode ending and we remain the leader')
                     self._failsafe.set_is_active(0)
                 self.touch_member()
 
