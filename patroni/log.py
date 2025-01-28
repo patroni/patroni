@@ -536,20 +536,20 @@ class PatroniLogger(Thread):
                     prev_record, record = record, None
                 else:
                     if prev_record and prev_record.thread == record.thread:
-                        if not self._is_heartbeat_msg(record):
+                        if self._is_heartbeat_msg(record):
+                            config = self._config or {}
+                            deduplicate_heartbeat_logs = config.get('deduplicate_heartbeat_logs', False)
+                            if record.msg == prev_hb_msg and deduplicate_heartbeat_logs:
+                                record = None
+                            else:
+                                prev_hb_msg = record.msg
+                        else:
                             self.log_handler.handle(prev_record)
+                            prev_hb_msg = None
                         prev_record = None
 
             if record:
-                if self._is_heartbeat_msg(record):
-                    config = self._config or {}
-                    deduplicate_heartbeat_logs = config.get('deduplicate_heartbeat_logs', False)
-                    if record.msg != prev_hb_msg or not deduplicate_heartbeat_logs:
-                        self.log_handler.handle(record)
-                    prev_hb_msg = record.msg
-                else:
-                    self.log_handler.handle(record)
-                    prev_hb_msg = ''
+                self.log_handler.handle(record)
 
             self._queue_handler.queue.task_done()
 
