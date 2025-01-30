@@ -135,9 +135,10 @@ class Rewind(object):
                 # Message format depends on the major version:
                 # * expected at least -- starting from v16
                 # * wanted -- before v16
+                # * nothing (end of message) 9.5 and older
                 # We will simply check all possible combinations.
-                for pattern in (': expected at least ', ': wanted '):
-                    j = err[0].find(pattern, i)
+                for pattern in (': expected at least ', ': wanted ', '\n'):
+                    j = (err[0] + '\n').find(pattern, i)
                     if j > -1:
                         try:
                             return parse_lsn(err[0][i:j])
