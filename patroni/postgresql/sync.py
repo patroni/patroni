@@ -408,7 +408,7 @@ END;$$""")
         else:
             sync_param = next(iter(sync), None)
 
-        if global_config.is_quorum_commit_mode and sync or self._postgresql.supports_multiple_sync and len(sync) > 1:
+        if self._postgresql.supports_multiple_sync and (global_config.is_quorum_commit_mode and sync or len(sync) > 1):
             prefix = 'ANY ' if global_config.is_quorum_commit_mode and self._postgresql.supports_quorum_commit else ''
             sync_param = f'{prefix}{num} ({sync_param})'
 

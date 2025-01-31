@@ -155,6 +155,17 @@ class TestSync(BaseTestPostgresql):
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = '3 (a,b)'")
 
+        self.p._major_version = 90501
+        mock_reload.reset_mock()
+        self.s.set_synchronous_standby_names([], 1)
+        mock_reload.assert_called()
+        self.assertEqual(value_in_conf(), "synchronous_standby_names = '*'")
+
+        mock_reload.reset_mock()
+        self.s.set_synchronous_standby_names(['a-1'], 1)
+        mock_reload.assert_called()
+        self.assertEqual(value_in_conf(), "synchronous_standby_names = '\"a-1\"'")
+
     @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
     def test_do_not_prick_yourself(self):
         self.p.name = self.leadermem.name
