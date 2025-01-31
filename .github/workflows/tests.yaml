@@ -154,7 +154,7 @@ jobs:
       with:
         name: behave-${{ matrix.os }}-${{ matrix.dcs }}-${{ matrix.python-version }}-logs
         path: |
-          features/output/*_failed/*postgres?.*
+          features/output/*_failed/*postgres-?.*
           features/output/*.log
         if-no-files-found: error
         retention-days: 5

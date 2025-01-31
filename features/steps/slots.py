@@ -99,8 +99,8 @@ def has_physical_replication_slot(context, pg_name, slot_name, time_limit):
 def physical_slot_no_xmin(context, pg_name, slot_name, time_limit):
     time_limit *= context.timeout_multiplier
     max_time = time.time() + int(time_limit)
-    query = "SELECT xmin FROM pg_catalog.pg_replication_slots WHERE slot_type = 'physical'"
-    f" AND slot_name = '{slot_name}'"
+    query = "SELECT xmin FROM pg_catalog.pg_replication_slots WHERE slot_type = 'physical'" +\
+        f" AND slot_name = '{slot_name}'"
     exists = False
     while time.time() < max_time:
         try:
