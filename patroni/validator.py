@@ -1001,7 +1001,8 @@ schema = Schema({
         Optional("file_num"): int,
         Optional("file_size"): int,
         Optional("mode"): IntValidator(min=0, max=511, expected_type=int, raise_assert=True),
-        Optional("loggers"): dict
+        Optional("loggers"): dict,
+        Optional("deduplicate_heartbeat_logs"): bool
     },
     Optional("ctl"): {
         Optional("insecure"): bool,

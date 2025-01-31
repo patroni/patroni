@@ -551,7 +551,8 @@ class Config(object):
                 ret['postgresql'].setdefault('bin_name', {})[binary] = value
 
         # parse all values retrieved from the environment as Python objects, according to the expected type
-        for first, second in (('restapi', 'allowlist_include_members'), ('ctl', 'insecure')):
+        for first, second in (('restapi', 'allowlist_include_members'), ('ctl', 'insecure'),
+                              ('log', 'deduplicate_heartbeat_logs')):
             value = ret.get(first, {}).pop(second, None)
             if value:
                 value = parse_bool(value)

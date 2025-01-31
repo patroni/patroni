@@ -555,6 +555,12 @@ class PatroniLogger(Thread):
 
     @staticmethod
     def _is_heartbeat_msg(record: logging.LogRecord) -> bool:
+        """Checks if the given record contains a heartbeat message.
+
+        :param record: the record to check.
+
+        :returns: ``True`` if the record contains a heartbeat message, ``False`` otherwise.
+        """
         return record.msg.startswith('no action. ') or record.msg.startswith('PAUSE: no action')
 
     def shutdown(self) -> None:
