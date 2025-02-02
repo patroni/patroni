@@ -1136,7 +1136,7 @@ def before_feature(context, feature):
         lib = subprocess.check_output(['pg_config', '--pkglibdir']).decode('utf-8').strip()
         if not os.path.exists(os.path.join(lib, 'citus.so')):
             return feature.skip("Citus extension isn't available")
-    elif feature.name == 'bootstrap_labels' and not isinstance(context.dcs_ctl, KubernetesController):
+    elif feature.name == 'bootstrap labels' and context.dcs_ctl.name() != 'kubernetes':
         feature.skip()
     context.pctl.create_and_set_output_directory(feature.name)
 
