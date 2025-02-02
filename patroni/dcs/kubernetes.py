@@ -1327,24 +1327,25 @@ class Kubernetes(AbstractDCS):
             role = None
             tmp_role = None
 
-        role_labels = {self._role_label: role}
+        updated_labels = {self._role_label: role}
         if self._tmp_role_label:
-            role_labels[self._tmp_role_label] = tmp_role
+            updated_labels[self._tmp_role_label] = tmp_role
+
+        if self._bootstrap_labels:
+            if data['state'] in ('initializing new cluster', 'running custom bootstrap script', 'creating replica'):
+                updated_labels.update(self._bootstrap_labels)
+            else:
+                updated_labels.update({k: None for k, _ in self._bootstrap_labels.items()})
 
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         pod_labels = member and member.data.pop('pod_labels', None)
         ret = member and pod_labels is not None\
-            and all(pod_labels.get(k) == v for k, v in role_labels.items())\
+            and all(pod_labels.get(k) == v for k, v in updated_labels.items())\
             and deep_compare(data, member.data)
 
         if not ret:
-            metadata: Dict[str, Any] = {'namespace': self._namespace, 'name': self._name, 'labels': role_labels,
+            metadata: Dict[str, Any] = {'namespace': self._namespace, 'name': self._name, 'labels': updated_labels,
                                         'annotations': {'status': json.dumps(data, separators=(',', ':'))}}
-            if self._bootstrap_labels:
-                if data['state'] in ('initializing new cluster', 'running custom bootstrap script', 'creating replica'):
-                    metadata['labels'].update(self._bootstrap_labels)
-                else:
-                    metadata['labels'].update({k: None for k, _ in self._bootstrap_labels.items()})
             body = k8s_client.V1Pod(metadata=k8s_client.V1ObjectMeta(**metadata))
             ret = self._api.patch_namespaced_pod(self._name, self._namespace, body)
             if ret:

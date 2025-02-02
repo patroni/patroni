@@ -663,7 +663,6 @@ class KubernetesController(AbstractExternalDcsController):
 
     def pod_labels(self, name):
         pod = self._api.read_namespaced_pod(name, self._namespace)
-        print(pod.metadata.labels)
         return pod.metadata.labels or {}
 
     def query(self, key, scope='batman', group=None):
@@ -881,7 +880,7 @@ class PatroniPoolController(object):
 
     def clone(self, from_name, cluster_name, to_name, long_running=False):
         f = self._processes[from_name]
-        max_wait_limit = -1 if long_running else 10
+        max_wait_limit = -1 if long_running else 40
 
         custom_config = {
             'scope': cluster_name,
@@ -1137,6 +1136,8 @@ def before_feature(context, feature):
         lib = subprocess.check_output(['pg_config', '--pkglibdir']).decode('utf-8').strip()
         if not os.path.exists(os.path.join(lib, 'citus.so')):
             return feature.skip("Citus extension isn't available")
+    elif feature.name == 'bootstrap_labels' and not isinstance(context.dcs_ctl, KubernetesController):
+        feature.skip()
     context.pctl.create_and_set_output_directory(feature.name)
 
 
@@ -1175,5 +1176,3 @@ def before_scenario(context, scenario):
         scenario.skip('it is not possible to control state of {0} from tests'.format(context.dcs_ctl.name()))
     if 'reject-duplicate-name' in scenario.effective_tags and context.dcs_ctl.name() == 'raft':
         scenario.skip('Flaky test with Raft')
-    if scenario.filename.endswith('bootstrap_labels.feature') and not isinstance(context.dcs_ctl, KubernetesController):
-        scenario.skip()
