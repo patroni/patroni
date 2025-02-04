@@ -1042,8 +1042,8 @@ class Postgresql(object):
                     data = filter(lambda e: ':' in e, data.decode('utf-8').splitlines())
                     # pg_controldata output depends on major version. Some of parameters are prefixed by 'Current '
                     return {k.replace('Current ', '', 1): v.strip() for k, v in map(lambda e: e.split(':', 1), data)}
-            except subprocess.CalledProcessError:
-                logger.exception("Error when calling pg_controldata")
+            except Exception as e:
+                logger.error("Error when calling pg_controldata: %r", e)
         return {}
 
     def waldump(self, timeline: Union[int, str], lsn: str, limit: int) -> Tuple[Optional[bytes], Optional[bytes]]:
