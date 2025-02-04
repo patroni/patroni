@@ -93,6 +93,17 @@ class TestPatroniLogger(unittest.TestCase):
         logger.shutdown()
         self.assertEqual(logger.records_lost, 0)
 
+    def test_deduplicate_heartbeat_logs(self):
+        logger = PatroniLogger()
+        logger.reload_config({'level': 'INFO', 'deduplicate_heartbeat_logs': True})
+        logger.start()
+        _LOG.info('Lock owner: ')
+        _LOG.info('no action. I am (patroni2), a secondary, and following a leader (patroni3)')
+        _LOG.info('Lock owner: ')
+        _LOG.info('no action. I am (patroni2), a secondary, and following a leader (patroni3)')
+        logger.shutdown()
+        self.assertEqual(logger.records_lost, 0)
+
     def test_json_list_format(self):
         config = {
             'type': 'json',
