@@ -345,11 +345,11 @@ class Ha(object):
 
     def acquire_lock(self) -> bool:
         try:
-            ret = self.dcs.attempt_to_acquire_leader()
+            ret = self.dcs.acquire_leader_lock()
         except DCSError:
             raise
         except Exception:
-            logger.exception('Unexpected exception raised from attempt_to_acquire_leader, please report it as a BUG')
+            logger.exception('Unexpected exception raised from acquire_leader_lock, please report it as a BUG')
             ret = False
         self.set_is_leader(ret)
         return ret
