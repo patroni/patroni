@@ -144,7 +144,7 @@ class MockCursor(object):
         elif sql.startswith('WITH slots AS (SELECT slot_name, active'):
             self.results = [(False, True)] if self.rowcount == 1 else []
         elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):
-            self.results = [(1, 2, 1, 0, False, 1, 1, None, None, 'streaming', '',
+            self.results = [(1, 2, 1, 0, False, 1, 1, 1, None, None, 'streaming', '',
                              [{"slot_name": "ls", "confirmed_flush_lsn": 12345, "restart_lsn": 12344}],
                              'on', 'n1', None)]
         elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
