@@ -38,9 +38,6 @@ jobs:
     - name: Run tests and flake8
       run: python .github/workflows/run_tests.py
 
-  post-unit:
-    needs: unit
-    steps:
     - name: Combine coverage
       run: python .github/workflows/run_tests.py combine
 
