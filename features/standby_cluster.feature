@@ -13,9 +13,7 @@ Feature: standby cluster
     When I start postgres0
     Then "members/postgres0" key in DCS has state=running after 10 seconds
     And replication works from postgres1 to postgres0 after 15 seconds
-    When I issue a GET request to http://127.0.0.1:8008/patroni
-    Then I receive a response code 200
-    And I receive a response replication_state streaming
+    And Response on GET http://127.0.0.1:8008/patroni contains replication_state=streaming after 10 seconds
     And "members/postgres0" key in DCS has replication_state=streaming after 10 seconds
 
   @slot-advance
@@ -35,9 +33,7 @@ Feature: standby cluster
     Then postgres1 is a leader of batman1 after 10 seconds
     When I add the table foo to postgres0
     Then table foo is present on postgres1 after 20 seconds
-    When I issue a GET request to http://127.0.0.1:8009/patroni
-    Then I receive a response code 200
-    And I receive a response replication_state streaming
+    And Response on GET http://127.0.0.1:8009/patroni contains replication_state=streaming after 10 seconds
     And I sleep for 3 seconds
     When I issue a GET request to http://127.0.0.1:8009/primary
     Then I receive a response code 503
@@ -49,9 +45,7 @@ Feature: standby cluster
     Then postgres2 role is the replica after 24 seconds
     And postgres2 is replicating from postgres1 after 10 seconds
     And table foo is present on postgres2 after 20 seconds
-    When I issue a GET request to http://127.0.0.1:8010/patroni
-    Then I receive a response code 200
-    And I receive a response replication_state streaming
+    And Response on GET http://127.0.0.1:8010/patroni contains replication_state=streaming after 10 seconds
     And postgres1 does not have a replication slot named test_logical
 
   Scenario: check switchover
