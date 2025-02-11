@@ -745,9 +745,11 @@ class Postgresql(object):
         # patroni.
         self.connection_pool.close()
 
+        state = 'starting after custom bootstrap' if self.bootstrap.running_custom_bootstrap else 'starting'
+
         if self.is_running():
             logger.error('Cannot start PostgreSQL because one is already running.')
-            self.set_state('starting')
+            self.set_state(state)
             return True
 
         if not block_callbacks:
@@ -755,7 +757,7 @@ class Postgresql(object):
 
         self.set_role(role or self.get_postgres_role_from_data_directory())
 
-        self.set_state('starting')
+        self.set_state(state)
         self.set_pending_restart_reason(CaseInsensitiveDict())
 
         try:

@@ -329,6 +329,9 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
         self.k.touch_member({'role': 'replica', 'state': 'running custom bootstrap script'})
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], 'bar')
 
+        self.k.touch_member({'role': 'replica', 'state': 'starting after custom bootstrap'})
+        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], 'bar')
+
         self.k.touch_member({'state': 'stopped', 'role': 'primary'})
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], None)
 

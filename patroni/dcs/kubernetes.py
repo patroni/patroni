@@ -1332,7 +1332,9 @@ class Kubernetes(AbstractDCS):
             updated_labels[self._tmp_role_label] = tmp_role
 
         if self._bootstrap_labels:
-            if data['state'] in ('initializing new cluster', 'running custom bootstrap script', 'creating replica'):
+            if data['state'] in ('initializing new cluster',
+                                 'running custom bootstrap script', 'starting after custom bootstrap',
+                                 'creating replica'):
                 updated_labels.update(self._bootstrap_labels)
             else:
                 updated_labels.update({k: None for k, _ in self._bootstrap_labels.items()})
