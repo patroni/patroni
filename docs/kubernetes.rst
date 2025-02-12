@@ -40,16 +40,24 @@ Customize role label
 By default, Patroni will set corresponding labels on the pod it runs in based on node's role, such as ``role=primary``.
 The key and value of label can be customized by `kubernetes.role_label`, `kubernetes.leader_label_value`, `kubernetes.follower_label_value` and `kubernetes.standby_leader_label_value`.
 
-Note that if you migrate from default role labels to custom ones, you can reduce downtime by following migration steps:
+The default role label based on Patroni versions:
 
-1. Add a temporary label using original role value for the pod with `kubernetes.tmp_role_label` (like ``tmp_role``). Once pods are restarted they will get following labels set by Patroni:
+* Patroni 3.x: default value is `master`. Migration can be performed from `master` to `primary`.
+* Patroni 4.x: default value is changed to `primary`. To preserve the old behavior, set `kubernetes.leader_label_value` to `master`.
+  For migration from `master` to `primary` in this version, instead of changing `kubernetes.leader_label_value`, one can just omit it (see step 3 in the example below).
+
+Note that if you migrate from previous role labels to new ones, i.e. from `master` to `primary`, you can reduce downtime by following migration steps:
+
+1. Retain the current value of the environment variable `kubernetes.leader_label_value`` as the old label (`master`).
+   Add a temporary label using original role value for the pod with `kubernetes.tmp_role_label`, i.e. set to `tmp_role`.
+   Once pods are restarted they will get following labels set by Patroni:
 
   .. code:: YAML
 
     labels:
       cluster-name: foo
-      role: primary
-      tmp_role: primary
+      role: master
+      tmp_role: master
 
 2. After all pods have been updated, modify the service selector to select the temporary label.
 
@@ -57,7 +65,7 @@ Note that if you migrate from default role labels to custom ones, you can reduce
 
     selector:
       cluster-name: foo
-      tmp_role: primary
+      tmp_role: master
 
 3. Add your custom role label (e.g., set `kubernetes.leader_label_value=primary`). Once pods are restarted they will get following new labels set by Patroni:
 
@@ -66,7 +74,7 @@ Note that if you migrate from default role labels to custom ones, you can reduce
     labels:
       cluster-name: foo
       role: primary
-      tmp_role: primary
+      tmp_role: master
 
 4. After all pods have been updated again, modify the service selector to use new role value.
 
