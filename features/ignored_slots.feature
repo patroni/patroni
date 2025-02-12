@@ -6,11 +6,10 @@ Feature: ignored slots
     When I issue a PATCH request to http://127.0.0.1:8009/config with {"ignore_slots": [{"name": "unmanaged_slot_0", "database": "postgres", "plugin": "test_decoding", "type": "logical"}, {"name": "unmanaged_slot_1", "database": "postgres", "plugin": "test_decoding"}, {"name": "unmanaged_slot_2", "database": "postgres"}, {"name": "unmanaged_slot_3"}], "postgresql": {"parameters": {"wal_level": "logical"}}}
     Then I receive a response code 200
     And Response on GET http://127.0.0.1:8009/config contains ignore_slots after 10 seconds
+    And Response on GET http://127.0.0.1:8009/patroni contains pending_restart after 10 seconds
     # Make sure the wal_level has been changed.
-    When I shut down postgres-1
-    And I start postgres-1
-    Then postgres-1 is a leader after 10 seconds
-    And "members/postgres-1" key in DCS has role=primary after 10 seconds
+    When I run patronictl.py restart batman postgres-1 --force
+    Then "members/postgres-1" key in DCS has role=primary after 10 seconds
     # Make sure Patroni has finished telling Postgres it should be accepting writes.
     And postgres-1 role is the primary after 20 seconds
     # 1. Create our test logical replication slot.
@@ -59,3 +58,9 @@ Feature: ignored slots
     And postgres-1 has a logical replication slot named unmanaged_slot_1 with the test_decoding plugin after 2 seconds
     And postgres-1 has a logical replication slot named unmanaged_slot_2 with the test_decoding plugin after 2 seconds
     And postgres-1 has a logical replication slot named unmanaged_slot_3 with the test_decoding plugin after 2 seconds
+
+  @pg170000
+  Scenario: check that logical slots with failover are not removed by Patroni
+    Given I create a logical failover slot test17 on postgres-1 with the pgoutput plugin
+    When I run patronictl.py restart batman postgres-1 --force
+    Then postgres-1 has a logical replication slot named test17 with the pgoutput plugin after 2 seconds
