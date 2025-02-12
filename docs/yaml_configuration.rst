@@ -178,7 +178,7 @@ Kubernetes
 -  **namespace**: (optional) Kubernetes namespace where Patroni pod is running. Default value is `default`.
 -  **labels**: Labels in format ``{label1: value1, label2: value2}``. These labels will be used to find existing objects (Pods and either Endpoints or ConfigMaps) associated with the current cluster. Also Patroni will set them on every object (Endpoint or ConfigMap) it creates.
 -  **scope\_label**: (optional) name of the label containing cluster name. Default value is `cluster-name`.
--  **bootstrap\_labels**: (optional) Labels in format ``{label1: value1, label2: value2}``. These labels will be assigned to a Patroni pod when its state is either ``initializing new cluster``, ``running custom bootstrap script`` or ``creating replica``.
+-  **bootstrap\_labels**: (optional) Labels in format ``{label1: value1, label2: value2}``. These labels will be assigned to a Patroni pod when its state is either ``initializing new cluster``, ``running custom bootstrap script``, ``starting after custom bootstrap`` or ``creating replica``.
 -  **role\_label**: (optional) name of the label containing role (`primary`, `replica`, or other custom value). Patroni will set this label on the pod it runs in. Default value is ``role``.
 -  **leader\_label\_value**: (optional) value of the pod label when Postgres role is ``primary``. Default value is ``primary``.
 -  **follower\_label\_value**: (optional) value of the pod label when Postgres role is ``replica``. Default value is ``replica``.
