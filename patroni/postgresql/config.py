@@ -190,6 +190,7 @@ def parse_dsn(value: str) -> Optional[Dict[str, str]]:
         ret.setdefault('gssencmode', 'prefer')
         ret.setdefault('channel_binding', 'prefer')
         ret.setdefault('sslnegotiation', 'postgres')
+    logger.error('parse_dsn("%s") -> %s', value, ret)
     return ret
 
 
@@ -862,7 +863,10 @@ class ConfigHandler(object):
             else:
                 return False
 
-        return all(str(primary_conninfo.get(p)) == str(v) for p, v in wanted_primary_conninfo.items() if v is not None)
+        ret = all(str(primary_conninfo.get(p)) == str(v) for p, v in wanted_primary_conninfo.items() if v is not None)
+        if not ret:
+            logger.error('_check_primary_conninfo "%s" != "%s"', primary_conninfo, wanted_primary_conninfo)
+        return ret
 
     def check_recovery_conf(self, member: Union[Leader, Member, None]) -> Tuple[bool, bool]:
         """Returns a tuple. The first boolean element indicates that recovery params don't match

@@ -163,4 +163,7 @@ def parse_conninfo(value: str, fallback: Callable[[str], Optional[Dict[str, str]
     try:
         return fallback(value) if _legacy else _parse_conninfo(value)
     except Exception:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception('failed to parse "%s"', value)
         return None
