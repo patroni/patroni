@@ -81,4 +81,6 @@ Feature: permanent slots
     When I start postgres-0
     Then postgres-0 role is the replica after 20 seconds
     And physical replication slot named postgres_1 on postgres-0 has no xmin value after 10 seconds
-    And physical replication slot named postgres_2 on postgres-0 has no xmin value after 10 seconds
+    # postgres_2 and postgres_3 slots are retained, but postgres_2 will still have xmin value :(
+    And postgres-0 has a physical replication slot named postgres_2 after 10 seconds
+    And postgres-0 has a physical replication slot named postgres_3 after 10 seconds

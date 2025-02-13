@@ -36,6 +36,10 @@ Log
 
    -  **patroni.postmaster: WARNING**
    -  **urllib3: DEBUG**
+-  **deduplicate_heartbeat_logs**: If set to ``true``, successive heartbeat logs that are identical shall not be output. Default value is ``false``.
+
+.. warning::
+   The time the HA loop executes at can be very valuable information in diagnosing failovers due to resource exhaustion and similar problems. When ``deduplicate_heartbeat_logs`` is set to ``true`` there will be no log generated for the HA loop execution (unless the leader changes) and hence this potentially useful information will not be available from the logs.
 
 Here is an example of how to config patroni to log in json format.
 

@@ -541,7 +541,8 @@ class Config(object):
         _set_section_values('postgresql', ['listen', 'connect_address', 'proxy_address',
                                            'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
         _set_section_values('log', ['type', 'level', 'traceback_level', 'format', 'dateformat', 'static_fields',
-                                    'max_queue_size', 'dir', 'mode', 'file_size', 'file_num', 'loggers'])
+                                    'max_queue_size', 'dir', 'mode', 'file_size', 'file_num', 'loggers',
+                                    'deduplicate_heartbeat_logs'])
         _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs', 'password', 'bind_addr'])
 
         for binary in ('pg_ctl', 'initdb', 'pg_controldata', 'pg_basebackup', 'postgres', 'pg_isready', 'pg_rewind'):
@@ -550,7 +551,8 @@ class Config(object):
                 ret['postgresql'].setdefault('bin_name', {})[binary] = value
 
         # parse all values retrieved from the environment as Python objects, according to the expected type
-        for first, second in (('restapi', 'allowlist_include_members'), ('ctl', 'insecure')):
+        for first, second in (('restapi', 'allowlist_include_members'), ('ctl', 'insecure'),
+                              ('log', 'deduplicate_heartbeat_logs')):
             value = ret.get(first, {}).pop(second, None)
             if value:
                 value = parse_bool(value)
