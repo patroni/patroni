@@ -4,12 +4,13 @@ This module is able to handle both :mod:`pyscopg2` and :mod:`psycopg`, and it ex
 :mod:`psycopg2` takes precedence. :mod:`psycopg` will only be used if :mod:`psycopg2` is either absent or older than
 ``2.5.4``.
 """
-from typing import Any, Optional, TYPE_CHECKING, Union
+from typing import Any, Callable, Dict, Optional, TYPE_CHECKING, Union
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Connection
     from psycopg2 import connection, cursor
 
-__all__ = ['connect', 'quote_ident', 'quote_literal', 'DatabaseError', 'Error', 'OperationalError', 'ProgrammingError']
+__all__ = ['connect', 'parse_conninfo', 'quote_ident', 'quote_literal',
+           'DatabaseError', 'Error', 'OperationalError', 'ProgrammingError']
 
 _legacy = False
 try:
@@ -21,9 +22,20 @@ try:
     from psycopg2.extensions import adapt
 
     try:
-        from psycopg2.extensions import quote_ident as _quote_ident
+        from psycopg2.extensions import parse_dsn, quote_ident as _quote_ident
+
+        def _parse_conninfo(conninfo: str, **kwargs: Any) -> Any:
+            """Wraps :func:`parse_dsn` function.
+
+            Exists only to please pyright.
+            """
+            return parse_dsn(conninfo)
     except ImportError:
         _legacy = True
+
+        def _parse_conninfo(conninfo: str, **kwargs: Any) -> Any:
+            """Return ``None`` and rely on fallback."""
+            return None
 
     def quote_literal(value: Any, conn: Optional[Any] = None) -> str:
         """Quote *value* as a SQL literal.
@@ -46,6 +58,7 @@ except ImportError:
 
     from psycopg import connect as __connect  # pyright: ignore [reportUnknownVariableType]
     from psycopg import sql, Error, DatabaseError, OperationalError, ProgrammingError
+    from psycopg.conninfo import conninfo_to_dict as _parse_conninfo
 
     def __get_parameter_status(self: 'Connection[Any]', param_name: str) -> Optional[str]:
         """Helper function to be injected into :class:`Connection` object.
@@ -134,3 +147,18 @@ def quote_ident(value: Any, conn: Optional[Union['cursor', 'connection', 'Connec
     if _legacy or conn is None:
         return '"{0}"'.format(value.replace('"', '""'))
     return _quote_ident(value, conn)
+
+
+def parse_conninfo(value: str, fallback: Callable[[str], Optional[Dict[str, str]]]) -> Optional[Dict[str, str]]:
+    """Parse connection string.
+
+    :param value: value to parse.
+    :param fallback: a function to use if we have only very old ``psycopg2``, which doesn't expose :func:`parse_dsn`.
+
+    :returns: a :class:`dict` object, or ``None`` if failed to parse.
+    """
+    try:
+        ret = _parse_conninfo(value)
+    except Exception:
+        ret = None
+    return ret or fallback(value)
