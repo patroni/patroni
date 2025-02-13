@@ -36,8 +36,8 @@ try:
         _legacy = True
 
         def _parse_conninfo(conninfo: str, **kwargs: Any) -> Any:
-            """Exists only to please ``pyright``."""
-            pass
+            """Return ``None`` and rely on fallback."""
+            return None
 
     def quote_literal(value: Any, conn: Optional[Any] = None) -> str:
         """Quote *value* as a SQL literal.
@@ -161,9 +161,7 @@ def parse_conninfo(value: str, fallback: Callable[[str], Optional[Dict[str, str]
     :returns: a :class:`dict` object, or ``None`` if failed to parse.
     """
     try:
-        return fallback(value) if _legacy else _parse_conninfo(value)
+        ret = _parse_conninfo(value)
     except Exception:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.exception('failed to parse "%s"', value)
-        return None
+        ret = None
+    return ret or fallback(value)

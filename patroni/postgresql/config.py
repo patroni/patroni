@@ -182,6 +182,9 @@ def parse_dsn(value: str) -> Optional[Dict[str, str]]:
     >>> parse_dsn('requiressl = 0\\\\') == {'sslmode': 'prefer', 'gssencmode': 'prefer',\
                                             'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}
     True
+    >>> parse_dsn('foo=bar') == {'foo': 'bar', 'sslmode': 'prefer', 'gssencmode': 'prefer',\
+                                 'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}
+    True
     """
     ret = parse_conninfo(value, _conninfo_parse)
 
@@ -190,7 +193,6 @@ def parse_dsn(value: str) -> Optional[Dict[str, str]]:
         ret.setdefault('gssencmode', 'prefer')
         ret.setdefault('channel_binding', 'prefer')
         ret.setdefault('sslnegotiation', 'postgres')
-    logger.error('parse_dsn("%s") -> %s', value, ret)
     return ret
 
 
@@ -863,10 +865,7 @@ class ConfigHandler(object):
             else:
                 return False
 
-        ret = all(str(primary_conninfo.get(p)) == str(v) for p, v in wanted_primary_conninfo.items() if v is not None)
-        if not ret:
-            logger.error('_check_primary_conninfo "%s" != "%s"', primary_conninfo, wanted_primary_conninfo)
-        return ret
+        return all(str(primary_conninfo.get(p)) == str(v) for p, v in wanted_primary_conninfo.items() if v is not None)
 
     def check_recovery_conf(self, member: Union[Leader, Member, None]) -> Tuple[bool, bool]:
         """Returns a tuple. The first boolean element indicates that recovery params don't match
