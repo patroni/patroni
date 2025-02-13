@@ -188,6 +188,7 @@ class Config(object):
 
         :raises:
             :class:`ConfigParseError`: if *path* is invalid.
+            :class:`ConfigParseError`: if *path* does not contain dict (empty file or no mapping values).
         """
         if os.path.isfile(path):
             files = [path]
@@ -202,7 +203,10 @@ class Config(object):
         for fname in files:
             with open(fname) as f:
                 config = yaml.safe_load(f)
-                patch_config(overall_config, config)
+                if not isinstance(config, dict):
+                    logger.error('%s does not contain a dict', fname)
+                    raise ConfigParseError(f'invalid config file {fname}')
+                patch_config(overall_config, cast(Dict[Any, Any], config))
         return overall_config
 
     def _load_config_file(self) -> Dict[str, Any]:
@@ -537,7 +541,8 @@ class Config(object):
         _set_section_values('postgresql', ['listen', 'connect_address', 'proxy_address',
                                            'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
         _set_section_values('log', ['type', 'level', 'traceback_level', 'format', 'dateformat', 'static_fields',
-                                    'max_queue_size', 'dir', 'mode', 'file_size', 'file_num', 'loggers'])
+                                    'max_queue_size', 'dir', 'mode', 'file_size', 'file_num', 'loggers',
+                                    'deduplicate_heartbeat_logs'])
         _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs', 'password', 'bind_addr'])
 
         for binary in ('pg_ctl', 'initdb', 'pg_controldata', 'pg_basebackup', 'postgres', 'pg_isready', 'pg_rewind'):
@@ -546,7 +551,8 @@ class Config(object):
                 ret['postgresql'].setdefault('bin_name', {})[binary] = value
 
         # parse all values retrieved from the environment as Python objects, according to the expected type
-        for first, second in (('restapi', 'allowlist_include_members'), ('ctl', 'insecure')):
+        for first, second in (('restapi', 'allowlist_include_members'), ('ctl', 'insecure'),
+                              ('log', 'deduplicate_heartbeat_logs')):
             value = ret.get(first, {}).pop(second, None)
             if value:
                 value = parse_bool(value)

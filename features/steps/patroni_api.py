@@ -160,9 +160,24 @@ def check_http_response(context, url, value, timeout, negate=False):
     if context.certfile:
         url = url.replace('http://', 'https://')
     timeout *= context.timeout_multiplier
+    if '=' in value:
+        key, val = value.split('=', 1)
+    else:
+        key, val = value, None
     for _ in range(int(timeout)):
         r = context.request_executor.request('GET', url)
-        if (value in r.data.decode('utf-8')) != negate:
+        data = r.data.decode('utf-8')
+        if val is not None:
+            try:
+                data = json.loads(data)
+                if negate:
+                    if key not in data or data[key] != val:
+                        break
+                elif key in data and data[key] == val:
+                    break
+            except Exception:
+                pass
+        elif (value in r.data.decode('utf-8')) != negate:
             break
         time.sleep(1)
     else:

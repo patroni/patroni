@@ -27,7 +27,7 @@ def main():
 
         version = versions.get(what)
         path = '/usr/lib/postgresql/{0}/bin:.'.format(version)
-        unbuffer = ['timeout', '900', 'unbuffer']
+        unbuffer = ['timeout', '1200', 'unbuffer']
     else:
         if sys.platform == 'darwin':
             version = os.environ.get('PGVERSION', '16.1-1')
