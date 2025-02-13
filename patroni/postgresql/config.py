@@ -17,6 +17,7 @@ from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException, PostgresConnectionException
 from ..file_perm import pg_perm
 from ..postgresql.misc import get_major_from_minor_version, postgres_version_to_int
+from ..psycopg import parse_conninfo
 from ..utils import compare_values, get_postgres_version, is_subpath, \
     maybe_convert_from_base_unit, parse_bool, parse_int, split_host_port, uri, validate_directory
 from ..validator import EnumValidator, IntValidator
@@ -30,7 +31,17 @@ logger = logging.getLogger(__name__)
 PARAMETER_RE = re.compile(r'([a-z_]+)\s*=\s*')
 
 
-def conninfo_uri_parse(dsn: str) -> Dict[str, str]:
+def _conninfo_uri_parse(dsn: str) -> Dict[str, str]:
+    """
+    >>> r = _conninfo_uri_parse('postgresql://u%2Fse:pass@:%2f123/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
+    >>> r == {'application_name': 'mya/pp', 'dbname': 'db/sdf', 'sslmode': 'require',\
+              'password': 'pass', 'port': '/123', 'user': 'u/se'}
+    True
+    >>> r = _conninfo_uri_parse('postgresql://u%2Fse:pass@[::1]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
+    >>> r == {'application_name': 'mya/pp', 'dbname': 'db/sdf', 'host': '::1', 'sslmode': 'require',\
+              'password': 'pass', 'user': 'u/se'}
+    True
+    """
     ret: Dict[str, str] = {}
     r = urlparse(dsn)
     if r.username:
@@ -52,9 +63,9 @@ def conninfo_uri_parse(dsn: str) -> Dict[str, str]:
             host = tmp[0]
         hosts.append(host)
         ports.append(tmp[1] if len(tmp) == 2 else '')
-    if hosts:
+    if any(map(len, hosts)):
         ret['host'] = ','.join(hosts)
-    if ports:
+    if any(map(len, ports)):
         ret['port'] = ','.join(ports)
     ret = {name: unquote(value) for name, value in ret.items()}
     ret.update({name: value for name, value in parse_qsl(r.query)})
@@ -84,7 +95,20 @@ def read_param_value(value: str) -> Union[Tuple[None, None], Tuple[str, int]]:
     return (None, None) if is_quoted else (ret, i)
 
 
-def conninfo_parse(dsn: str) -> Optional[Dict[str, str]]:
+def _conninfo_dsn_parse(dsn: str) -> Optional[Dict[str, str]]:
+    """
+    >>> r = _conninfo_dsn_parse(" host = 'host' dbname = db\\\\ name requiressl=1 ")
+    >>> r == {'dbname': 'db name', 'host': 'host', 'requiressl': '1'}
+    True
+    >>> _conninfo_dsn_parse('requiressl = 0\\\\') == {'requiressl': '0'}
+    True
+    >>> _conninfo_dsn_parse("host=a foo = '") is None
+    True
+    >>> _conninfo_dsn_parse("host=a foo = ") is None
+    True
+    >>> _conninfo_dsn_parse("1") is None
+    True
+    """
     ret: Dict[str, str] = {}
     length = len(dsn)
     i = 0
@@ -111,17 +135,44 @@ def conninfo_parse(dsn: str) -> Optional[Dict[str, str]]:
     return ret
 
 
-def parse_dsn(value: str) -> Optional[Dict[str, str]]:
+def _conninfo_parse(value: str) -> Optional[Dict[str, str]]:
     """
     Very simple equivalent of `psycopg2.extensions.parse_dsn` introduced in 2.7.0.
-    We are not using psycopg2 function in order to remain compatible with 2.5.4+.
-    There are a few minor differences though, this function sets the `sslmode`, 'gssencmode',
-    and `channel_binding` to `prefer` if they are not present in the connection string.
+    Exists just for compatibility with 2.5.4+.
+
+    >>> r = _conninfo_parse('postgresql://foo/postgres')
+    >>> r == {'dbname': 'postgres', 'host': 'foo'}
+    True
+    >>> r = _conninfo_parse(" host = 'host' dbname = db\\\\ name requiressl=1 ")
+    >>> r == {'dbname': 'db name', 'host': 'host', 'sslmode': 'require'}
+    True
+    >>> _conninfo_parse('requiressl = 0\\\\') == {'sslmode': 'prefer'}
+    True
+    """
+
+    if value.startswith('postgres://') or value.startswith('postgresql://'):
+        ret = _conninfo_uri_parse(value)
+    else:
+        ret = _conninfo_dsn_parse(value)
+
+    if ret and 'sslmode' not in ret:  # allow sslmode to take precedence over requiressl
+        requiressl = ret.pop('requiressl', None)
+        if requiressl == '1':
+            ret['sslmode'] = 'require'
+        elif requiressl is not None:
+            ret['sslmode'] = 'prefer'
+    return ret
+
+
+def parse_dsn(value: str) -> Optional[Dict[str, str]]:
+    """
+    Compatibility layer on top of function from psycopg2/psycopg3, which parses connection strings.
+    In this function sets the `sslmode`, 'gssencmode', and `channel_binding` to `prefer`
+    and `sslnegotiation` to `postgres` if they are not present in the connection string.
     This is necessary to simplify comparison of the old and the new values.
 
-    >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,[::1]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
-    >>> r == {'application_name': 'mya/pp', 'dbname': 'db/sdf', 'host': ',::1', 'sslmode': 'require',\
-              'password': 'pass', 'port': '/123,', 'user': 'u/se', 'gssencmode': 'prefer',\
+    >>> r = parse_dsn('postgresql://foo/postgres')
+    >>> r == {'dbname': 'postgres', 'host': 'foo', 'sslmode': 'prefer', 'gssencmode': 'prefer',\
               'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}
     True
     >>> r = parse_dsn(" host = 'host' dbname = db\\\\ name requiressl=1 ")
@@ -131,26 +182,14 @@ def parse_dsn(value: str) -> Optional[Dict[str, str]]:
     >>> parse_dsn('requiressl = 0\\\\') == {'sslmode': 'prefer', 'gssencmode': 'prefer',\
                                             'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}
     True
-    >>> parse_dsn("host=a foo = '") is None
-    True
-    >>> parse_dsn("host=a foo = ") is None
-    True
-    >>> parse_dsn("1") is None
+    >>> parse_dsn('foo=bar') == {'foo': 'bar', 'sslmode': 'prefer', 'gssencmode': 'prefer',\
+                                 'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}
     True
     """
-    if value.startswith('postgres://') or value.startswith('postgresql://'):
-        ret = conninfo_uri_parse(value)
-    else:
-        ret = conninfo_parse(value)
+    ret = parse_conninfo(value, _conninfo_parse)
 
     if ret:
-        if 'sslmode' not in ret:  # allow sslmode to take precedence over requiressl
-            requiressl = ret.pop('requiressl', None)
-            if requiressl == '1':
-                ret['sslmode'] = 'require'
-            elif requiressl is not None:
-                ret['sslmode'] = 'prefer'
-            ret.setdefault('sslmode', 'prefer')
+        ret.setdefault('sslmode', 'prefer')
         ret.setdefault('gssencmode', 'prefer')
         ret.setdefault('channel_binding', 'prefer')
         ret.setdefault('sslnegotiation', 'postgres')
