@@ -760,6 +760,8 @@ class Kubernetes(AbstractDCS):
         self._follower_label_value = config.get('follower_label_value', 'replica')
         self._standby_leader_label_value = config.get('standby_leader_label_value', 'primary')
         self._tmp_role_label = config.get('tmp_role_label')
+        self._bootstrap_labels: Dict[str, str] = {str(k): str(v)
+                                                  for k, v in (config.get('bootstrap_labels') or EMPTY_DICT).items()}
         self._ca_certs = os.environ.get('PATRONI_KUBERNETES_CACERT', config.get('cacert')) or SERVICE_CERT_FILENAME
         super(Kubernetes, self).__init__({**config, 'namespace': ''}, mpp)
         if self._mpp.is_enabled():
@@ -1325,19 +1327,27 @@ class Kubernetes(AbstractDCS):
             role = None
             tmp_role = None
 
-        role_labels = {self._role_label: role}
+        updated_labels = {self._role_label: role}
         if self._tmp_role_label:
-            role_labels[self._tmp_role_label] = tmp_role
+            updated_labels[self._tmp_role_label] = tmp_role
+
+        if self._bootstrap_labels:
+            if data['state'] in ('initializing new cluster',
+                                 'running custom bootstrap script', 'starting after custom bootstrap',
+                                 'creating replica'):
+                updated_labels.update(self._bootstrap_labels)
+            else:
+                updated_labels.update({k: None for k, _ in self._bootstrap_labels.items()})
 
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         pod_labels = member and member.data.pop('pod_labels', None)
         ret = member and pod_labels is not None\
-            and all(pod_labels.get(k) == v for k, v in role_labels.items())\
+            and all(pod_labels.get(k) == v for k, v in updated_labels.items())\
             and deep_compare(data, member.data)
 
         if not ret:
-            metadata = {'namespace': self._namespace, 'name': self._name, 'labels': role_labels,
-                        'annotations': {'status': json.dumps(data, separators=(',', ':'))}}
+            metadata: Dict[str, Any] = {'namespace': self._namespace, 'name': self._name, 'labels': updated_labels,
+                                        'annotations': {'status': json.dumps(data, separators=(',', ':'))}}
             body = k8s_client.V1Pod(metadata=k8s_client.V1ObjectMeta(**metadata))
             ret = self._api.patch_namespaced_pod(self._name, self._namespace, body)
             if ret:

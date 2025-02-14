@@ -182,11 +182,12 @@ Kubernetes
 -  **namespace**: (optional) Kubernetes namespace where Patroni pod is running. Default value is `default`.
 -  **labels**: Labels in format ``{label1: value1, label2: value2}``. These labels will be used to find existing objects (Pods and either Endpoints or ConfigMaps) associated with the current cluster. Also Patroni will set them on every object (Endpoint or ConfigMap) it creates.
 -  **scope\_label**: (optional) name of the label containing cluster name. Default value is `cluster-name`.
+-  **bootstrap\_labels**: (optional) Labels in format ``{label1: value1, label2: value2}``. These labels will be assigned to a Patroni pod when its state is either ``initializing new cluster``, ``running custom bootstrap script``, ``starting after custom bootstrap`` or ``creating replica``.
 -  **role\_label**: (optional) name of the label containing role (`primary`, `replica`, or other custom value). Patroni will set this label on the pod it runs in. Default value is ``role``.
 -  **leader\_label\_value**: (optional) value of the pod label when Postgres role is ``primary``. Default value is ``primary``.
 -  **follower\_label\_value**: (optional) value of the pod label when Postgres role is ``replica``. Default value is ``replica``.
 -  **standby\_leader\_label\_value**: (optional) value of the pod label when Postgres role is ``standby_leader``. Default value is ``primary``.
--  **tmp_\role\_label**: (optional) name of the temporary label containing role (`primary` or `replica`). Value of this label will always use the default of corresponding role. Set only when necessary.
+-  **tmp\_role\_label**: (optional) name of the temporary label containing role (`primary` or `replica`). Value of this label will always use the default of corresponding role. Set only when necessary.
 -  **use\_endpoints**: (optional) if set to true, Patroni will use Endpoints instead of ConfigMaps to run leader elections and keep cluster state.
 -  **pod\_ip**: (optional) IP address of the pod Patroni is running in. This value is required when `use_endpoints` is enabled and is used to populate the leader endpoint subsets when the pod's PostgreSQL is promoted.
 -  **ports**: (optional) if the Service object has the name for the port, the same name must appear in the Endpoint object, otherwise service won't work. For example, if your service is defined as ``{Kind: Service, spec: {ports: [{name: postgresql, port: 5432, targetPort: 5432}]}}``, then you have to set ``kubernetes.ports: [{"name": "postgresql", "port": 5432}]`` and Patroni will use it for updating subsets of the leader Endpoint. This parameter is used only if `kubernetes.use_endpoints` is set.
