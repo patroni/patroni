@@ -32,6 +32,10 @@ Log
 -  **PATRONI\_LOG\_FILE\_NUM**: The number of application logs to retain.
 -  **PATRONI\_LOG\_FILE\_SIZE**: Size of patroni.log file (in bytes) that triggers a log rolling.
 -  **PATRONI\_LOG\_LOGGERS**: Redefine logging level per python module. Example ``PATRONI_LOG_LOGGERS="{patroni.postmaster: WARNING, urllib3: DEBUG}"``
+-  **PATRONI\_LOG\_DEDUPLICATE\_HEARTBEAT\_LOGS**: If set to ``true``, successive heartbeat logs that are identical shall not be output. Default value is ``false``.
+
+.. warning::
+   The time the HA loop executes at can be very valuable information in diagnosing failovers due to resource exhaustion and similar problems. When ``PATRONI_LOG_DEDUPLICATE_HEARTBEAT_LOGS`` is set to ``true`` there will be no log generated for the HA loop execution (unless the leader changes) and hence this potentially useful information will not be available from the logs.
 
 Citus
 -----
