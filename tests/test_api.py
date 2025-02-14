@@ -32,7 +32,7 @@ class MockConnection:
 
     @staticmethod
     def query(sql, *params):
-        return [(postmaster_start_time, 0, '', 0, '', False, postmaster_start_time, 0, 'streaming', None, 0,
+        return [(postmaster_start_time, 0, '', 0, '', False, postmaster_start_time, 1, 'streaming', None, 0,
                  '[{"application_name":"walreceiver","client_addr":"1.2.3.4",'
                  + '"state":"streaming","sync_state":"async","sync_priority":0}]')]
 
