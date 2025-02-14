@@ -1153,11 +1153,18 @@ def after_feature(context, feature):
 
 
 def before_scenario(context, scenario):
-    if 'slot-advance' in scenario.effective_tags:
-        for p in context.pctl._processes.values():
-            if p._conn and p._conn.server_version < 110000:
-                scenario.skip('pg_replication_slot_advance() is not supported on {0}'.format(p._conn.server_version))
-                break
+    for tag in scenario.effective_tags:
+        if tag.startswith('pg') and 6 < len(tag) < 9:
+            try:
+                ver = int(tag[2:])
+            except Exception:
+                ver = 0
+            if not ver:
+                continue
+            for p in context.pctl._processes.values():
+                if p._conn and p._conn.server_version < ver:
+                    scenario.skip('not supported on {0}'.format(p._conn.server_version))
+                    break
     if 'dcs-failsafe' in scenario.effective_tags and not context.dcs_ctl._handle:
         scenario.skip('it is not possible to control state of {0} from tests'.format(context.dcs_ctl.name()))
     if 'reject-duplicate-name' in scenario.effective_tags and context.dcs_ctl.name() == 'raft':
