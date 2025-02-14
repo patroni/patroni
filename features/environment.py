@@ -880,8 +880,6 @@ class PatroniPoolController(object):
 
     def clone(self, from_name, cluster_name, to_name, long_running=False):
         f = self._processes[from_name]
-        max_wait_limit = -1 if long_running else 40
-
         custom_config = {
             'scope': cluster_name,
             'bootstrap': {
@@ -912,7 +910,10 @@ class PatroniPoolController(object):
                 }
             }
         }
-        self.start(to_name, custom_config=custom_config, max_wait_limit=max_wait_limit)
+        kwargs = {'custom_config': custom_config}
+        if long_running:
+            kwargs['max_wait_limit'] = -1
+        self.start(to_name, **kwargs)
 
     def backup_restore_config(self, params=None, long_running=False):
         return {
@@ -1137,7 +1138,7 @@ def before_feature(context, feature):
         if not os.path.exists(os.path.join(lib, 'citus.so')):
             return feature.skip("Citus extension isn't available")
     elif feature.name == 'bootstrap labels' and context.dcs_ctl.name() != 'kubernetes':
-        feature.skip()
+        feature.skip("Tested only on Kubernetes")
     context.pctl.create_and_set_output_directory(feature.name)
 
 
