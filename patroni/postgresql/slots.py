@@ -273,10 +273,13 @@ class SlotsHandler:
             pg_wal_lsn_diff = f"pg_catalog.pg_{self._postgresql.wal_name}_{self._postgresql.lsn_name}_diff"
             extra = f", catalog_xmin, {pg_wal_lsn_diff}(confirmed_flush_lsn, '0/0')::bigint" \
                 if self._postgresql.major_version >= 100000 else ""
-            skip_temp_slots = ' WHERE NOT temporary' if self._postgresql.major_version >= 100000 else ''
+            filter_columns = tuple(fltr for fltr, major in (('temporary', 100000), ('failover', 170000))
+                                   if self._postgresql.major_version >= major)
+            where_filter = ' AND '.join(map(lambda col: f'NOT {col}', filter_columns))
+            where_condition = f' WHERE {where_filter}' if where_filter else ''
             for r in self._query("SELECT slot_name, slot_type, xmin, "
                                  f"{pg_wal_lsn_diff}(restart_lsn, '0/0')::bigint, plugin, database, datoid{extra}"
-                                 f" FROM pg_catalog.pg_replication_slots{skip_temp_slots}"):
+                                 f" FROM pg_catalog.pg_replication_slots{where_condition}"):
                 value = {'type': r[1]}
                 if r[1] == 'logical':
                     value.update(plugin=r[4], database=r[5], datoid=r[6])
@@ -694,11 +697,13 @@ class SlotsHandler:
         copy_slots: Dict[str, Dict[str, Any]] = {}
         with self._get_leader_connection_cursor(leader) as cur:
             try:
+                filter_failover = ' NOT failover AND' if self._postgresql.major_version >= 170000 else ''
                 cur.execute("SELECT slot_name, slot_type, datname, plugin, catalog_xmin, "
                             "pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint, "
                             "pg_catalog.pg_read_binary_file('pg_replslot/' || slot_name || '/state')"
                             " FROM pg_catalog.pg_get_replication_slots() JOIN pg_catalog.pg_database ON datoid = oid"
-                            " WHERE NOT pg_catalog.pg_is_in_recovery() AND slot_name = ANY(%s)", (create_slots,))
+                            f" WHERE{filter_failover} NOT pg_catalog.pg_is_in_recovery()"
+                            " AND slot_name = ANY(%s)", (create_slots,))
 
                 for r in cur:
                     if r[0] in slots:  # slot_name is defined in the global configuration
