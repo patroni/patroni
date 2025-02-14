@@ -174,6 +174,13 @@ class QuorumTest(unittest.TestCase):
                                      sync_wanted=1, leader_wanted=leader, expected=[
             ('quorum', leader, 0, set('b')),
         ])
+        # Node c joined, resulting in quorum increase and then disconnected before quorum was reduced
+        self.check_state_transitions(leader=leader, quorum=1, voters=set('bc'),
+                                     numsync=2, sync=set('bc'), numsync_confirmed=1, active=set('b'),
+                                     sync_wanted=2, leader_wanted=leader, expected=[
+            ('quorum', leader, 0, set('b')),
+            ('sync', leader, 1, set('b')),
+        ])
 
         # Node c is available transition to larger quorum set.
         self.check_state_transitions(leader=leader, quorum=1, voters=set('bc'),

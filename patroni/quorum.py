@@ -290,19 +290,20 @@ class QuorumStateResolver:
         assert self.voters == self.sync
 
         safety_margin = self.quorum + min(self.numsync, self.numsync_confirmed) - len(self.voters | self.sync)
+        quorum = len(self.sync) - self.numsync
         if safety_margin > 0:  # In the middle of changing replication factor.
             if self.numsync > self.sync_wanted:
                 numsync = max(self.sync_wanted, len(self.voters) - self.quorum)
                 logger.debug('Case 3: replication factor %d is bigger than needed %d', self.numsync, numsync)
                 yield from self.sync_update(numsync, self.sync)
             else:
-                quorum = len(self.sync) - self.numsync
                 logger.debug('Case 4: quorum %d is bigger than needed %d', self.quorum, quorum)
                 yield from self.quorum_update(quorum, self.voters)
         else:
             safety_margin = self.quorum + self.numsync - len(self.voters | self.sync)
             if self.numsync == self.sync_wanted and safety_margin > 0 and self.numsync > self.numsync_confirmed:
-                yield from self.quorum_update(len(self.sync) - self.numsync, self.voters)
+                logger.debug('Case 5: quorum %d is bigger than needed %d', self.quorum, quorum)
+                yield from self.quorum_update(quorum, self.voters, adjust_quorum=not (self.sync - self.active))
 
     def __remove_gone_nodes(self) -> Iterator[Transition]:
         """Remove inactive nodes from ``synchronous_standby_names`` and from ``/sync`` key.
