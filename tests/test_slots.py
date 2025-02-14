@@ -109,7 +109,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         with patch.object(Postgresql, '_query') as mock_query:
             self.p.reset_cluster_info_state(None)
             mock_query.return_value = [(
-                1, 0, 0, 0, 0, 0, 0, 0, 0, None, None,
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, None, None,
                 [{"slot_name": "ls", "type": "logical", "datoid": 5, "plugin": "b", "xmin": 105,
                   "confirmed_flush_lsn": 12345, "catalog_xmin": 105, "restart_lsn": 12344},
                  {"slot_name": "blabla", "type": "physical", "datoid": None, "plugin": None, "xmin": 105,
@@ -118,7 +118,7 @@ class TestSlotsHandler(BaseTestPostgresql):
 
             self.p.reset_cluster_info_state(None)
             mock_query.return_value = [(
-                1, 0, 0, 0, 0, 0, 0, 0, 0, None, None,
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, None, None,
                 [{"slot_name": "ls", "type": "logical", "datoid": 6, "plugin": "b", "xmin": 105,
                   "confirmed_flush_lsn": 12345, "catalog_xmin": 105}])]
             self.assertEqual(self.p.slots(), {'postgresql0': 0})
