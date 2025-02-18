@@ -275,6 +275,11 @@ class QuorumStateResolver:
             logger.debug("Case 2: synchronous_standby_names %s is a superset of DCS state %s", self.sync, self.voters)
             # Case 2: sync is superset of voters nodes. In the middle of changing replication factor (sync).
             # Add to voters nodes that are already synced and active
+            remove_from_sync = self.sync - self.active
+            if remove_from_sync:
+                yield from self.sync_update(
+                    numsync=min(self.numsync, len(self.sync) - len(remove_from_sync)),
+                    sync=CaseInsensitiveSet(self.sync - remove_from_sync))
             add_to_voters = (self.sync - self.voters) & self.active
             if add_to_voters:
                 voters = CaseInsensitiveSet(self.voters | add_to_voters)

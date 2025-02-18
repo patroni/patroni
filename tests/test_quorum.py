@@ -460,6 +460,16 @@ class QuorumTest(unittest.TestCase):
             ('sync', leader, 1, set('cd')),
         ])
 
+        # node d quickly joined and disconnected, and than node e joined instead
+        self.check_state_transitions(leader=leader, quorum=1, voters=set('b'),
+                                     numsync=3, sync=set('bcd'), numsync_confirmed=1, active=set('bce'),
+                                     sync_wanted=3, leader_wanted=leader, expected=[
+            ('sync', leader, 2, set('bc')),
+            ('quorum', leader, 1, set('bc')),
+            ('sync', leader, 3, set('bce')),
+            ('quorum', leader, 2, set('bce')),
+        ])
+
     def test_empty_ssn(self):
         # Beginning stat: 'a' in the primary, 1 of bc in sync
         # a fails, c gets quorum votes and promotes
