@@ -1265,8 +1265,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
             * ``state``: Postgres state among ``stopping``, ``stopped``, ``stop failed``, ``crashed``, ``running``,
               ``starting``, ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``,
-              ``initdb failed``, ``running custom bootstrap script``, ``custom bootstrap failed``,
-              ``creating replica``, or ``unknown``;
+              ``initdb failed``, ``running custom bootstrap script``, ``starting after custom bootstrap``,
+              ``custom bootstrap failed``, ``creating replica``, or ``unknown``;
             * ``postmaster_start_time``: ``pg_postmaster_start_time()``;
             * ``role``: ``replica`` or ``primary`` based on ``pg_is_in_recovery()`` output;
             * ``server_version``: Postgres version without periods, e.g. ``150002`` for Postgres ``15.2``;
