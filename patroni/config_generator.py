@@ -59,8 +59,10 @@ def get_address() -> Tuple[str, str]:
     hostname = None
     try:
         hostname = socket.gethostname()
-        return hostname, sorted(socket.getaddrinfo(hostname, 0, socket.AF_UNSPEC, socket.SOCK_STREAM, 0),
-                                key=lambda x: x[0])[0][4][0]
+        # Filter out unexpected results when python is compiled with --disable-ipv6 and running on IPv6 system.
+        addrs = [(a[0], a[4][0]) for a in socket.getaddrinfo(hostname, 0, socket.AF_UNSPEC, socket.SOCK_STREAM, 0)
+                 if isinstance(a[4][0], str)]
+        return hostname, sorted(addrs, key=lambda x: x[0])[0][1]
     except Exception as err:
         logging.warning('Failed to obtain address: %r', err)
         return NO_VALUE_MSG, NO_VALUE_MSG

@@ -593,7 +593,8 @@ class ConfigHandler(object):
             if 'host' in self.local_replication_address and not self.local_replication_address['host'].startswith('/'):
                 addresses.update({sa[0] + '/32': 'host' for _, _, _, _, sa in socket.getaddrinfo(
                                   self.local_replication_address['host'], self.local_replication_address['port'],
-                                  0, socket.SOCK_STREAM, socket.IPPROTO_TCP)})
+                                  0, socket.SOCK_STREAM, socket.IPPROTO_TCP) if isinstance(sa[0], str)})
+                # Filter out unexpected results when python is compiled with --disable-ipv6 and running on IPv6 system.
 
             with self.config_writer(self._pg_hba_conf) as f:
                 for address, t in addresses.items():
