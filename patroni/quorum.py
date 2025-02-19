@@ -188,7 +188,7 @@ class QuorumStateResolver:
         old_leader = self.leader
         if leader is not None:  # Change of leader was requested
             self.leader = leader
-        elif self.numsync_confirmed == 0:
+        elif self.numsync_confirmed == 0 and not self.voters:
             # If there are no nodes that known to caught up with the primary we want to reset quorum/voters in /sync key
             quorum = 0
             voters = CaseInsensitiveSet()
@@ -276,10 +276,11 @@ class QuorumStateResolver:
             # Case 2: sync is superset of voters nodes. In the middle of changing replication factor (sync).
             # Add to voters nodes that are already synced and active
             remove_from_sync = self.sync - self.active
-            if remove_from_sync:
-                yield from self.sync_update(
-                    numsync=min(self.numsync, len(self.sync) - len(remove_from_sync)),
-                    sync=CaseInsensitiveSet(self.sync - remove_from_sync))
+            sync = CaseInsensitiveSet(self.sync - remove_from_sync)
+            # If sync will not become empty after removing dead nodes - remove them.
+            # However, do it carefully, between sync and voters should remain common nodes!
+            if remove_from_sync and sync and (not self.voters or sync & self.voters):
+                yield from self.sync_update(min(self.numsync, len(self.sync) - len(remove_from_sync)), sync)
             add_to_voters = (self.sync - self.voters) & self.active
             if add_to_voters:
                 voters = CaseInsensitiveSet(self.voters | add_to_voters)
@@ -295,20 +296,19 @@ class QuorumStateResolver:
         assert self.voters == self.sync
 
         safety_margin = self.quorum + min(self.numsync, self.numsync_confirmed) - len(self.voters | self.sync)
-        quorum = len(self.sync) - self.numsync
         if safety_margin > 0:  # In the middle of changing replication factor.
             if self.numsync > self.sync_wanted:
                 numsync = max(self.sync_wanted, len(self.voters) - self.quorum)
                 logger.debug('Case 3: replication factor %d is bigger than needed %d', self.numsync, numsync)
                 yield from self.sync_update(numsync, self.sync)
             else:
+                quorum = len(self.sync) - self.numsync
                 logger.debug('Case 4: quorum %d is bigger than needed %d', self.quorum, quorum)
                 yield from self.quorum_update(quorum, self.voters)
         else:
             safety_margin = self.quorum + self.numsync - len(self.voters | self.sync)
             if self.numsync == self.sync_wanted and safety_margin > 0 and self.numsync > self.numsync_confirmed:
-                logger.debug('Case 5: quorum %d is bigger than needed %d', self.quorum, quorum)
-                yield from self.quorum_update(quorum, self.voters, adjust_quorum=not (self.sync - self.active))
+                yield from self.quorum_update(len(self.sync) - self.numsync, self.voters)
 
     def __remove_gone_nodes(self) -> Iterator[Transition]:
         """Remove inactive nodes from ``synchronous_standby_names`` and from ``/sync`` key.
@@ -329,7 +329,7 @@ class QuorumStateResolver:
                 remove = CaseInsensitiveSet(sorted(to_remove, reverse=True)[:can_reduce_quorum_by])
                 sync = CaseInsensitiveSet(self.sync - remove)
                 # when removing nodes from sync we can safely increase numsync if requested
-                numsync = min(self.sync_wanted, len(sync)) if self.sync_wanted > self.numsync else self.numsync
+                numsync = min(self.sync_wanted if self.sync_wanted > self.numsync else self.numsync, len(sync))
                 yield from self.sync_update(numsync, sync)
                 voters = CaseInsensitiveSet(self.voters - remove)
                 to_remove &= self.sync
