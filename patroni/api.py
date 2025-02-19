@@ -1582,13 +1582,16 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if hostname in ('', '*'):
             hostname = None
 
-        info = socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
+        # Filter out unexpected results when python is compiled with --disable-ipv6 and running on IPv6 system.
+        info = [(a[0], a[4][0], a[4][1])
+                for a in socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
+                if isinstance(a[4][0], str) and isinstance(a[4][1], int)]
         # in case dual stack is not supported we want IPv4 to be preferred over IPv6
         info.sort(key=lambda x: x[0] == socket.AF_INET, reverse=not dual_stack)
 
         self.address_family = info[0][0]
         try:
-            HTTPServer.__init__(self, info[0][-1][:2], RestApiHandler)
+            HTTPServer.__init__(self, (info[0][1], info[0][2]), RestApiHandler)
         except socket.error:
             logger.error(
                 "Couldn't start a service on '%s:%s', please check your `restapi.listen` configuration", hostname, port)

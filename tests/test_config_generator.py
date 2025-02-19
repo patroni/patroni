@@ -350,7 +350,10 @@ class TestGenerateConfig(unittest.TestCase):
             self.assertIn('Unexpected exception', e.exception.code)
 
     def test_get_address(self):
-        with patch('socket.getaddrinfo', Mock(side_effect=Exception)), \
+        with patch('socket.getaddrinfo', Mock(side_effect=[[(2, 1, 6, '', ('127.0.0.1', 0))],
+                                                           Exception])), \
+             patch('socket.gethostname', Mock(return_value='foo')), \
              patch('logging.warning') as mock_warning:
+            self.assertEqual(get_address(), ('foo', '127.0.0.1'))
             self.assertEqual(get_address(), (NO_VALUE_MSG, NO_VALUE_MSG))
             self.assertIn('Failed to obtain address: %r', mock_warning.call_args_list[0][0])
