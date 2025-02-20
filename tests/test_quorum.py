@@ -1,3 +1,4 @@
+import itertools
 import unittest
 
 from typing import List, Set, Tuple
@@ -7,14 +8,23 @@ from patroni.quorum import QuorumError, QuorumStateResolver
 
 class QuorumTest(unittest.TestCase):
 
+    def setUp(self):
+        self.nesting = 0
+        self.failures = []
+
+    def tearDown(self):
+        self.assertEqual(self.failures, [])
+
     def check_state_transitions(self, leader: str, quorum: int, voters: Set[str], numsync: int, sync: Set[str],
                                 numsync_confirmed: int, active: Set[str], sync_wanted: int, leader_wanted: str,
                                 expected: List[Tuple[str, str, int, Set[str]]]) -> None:
+        self.nesting += 1
         kwargs = {
             'leader': leader, 'quorum': quorum, 'voters': voters,
             'numsync': numsync, 'sync': sync, 'numsync_confirmed': numsync_confirmed,
             'active': active, 'sync_wanted': sync_wanted, 'leader_wanted': leader_wanted
         }
+        state = {k: v for k, v in kwargs.items()}
         result = list(QuorumStateResolver(**kwargs))
         self.assertEqual(result, expected)
 
@@ -23,9 +33,64 @@ class QuorumTest(unittest.TestCase):
             if result[0][0] == 'sync':
                 kwargs.update(numsync=result[0][2], sync=result[0][3])
             else:
-                kwargs.update(leader=result[0][1], quorum=result[0][2], voters=result[0][3])
+                kwargs.update(quorum=result[0][2], voters=result[0][3])
             kwargs['expected'] = expected[1:]
             self.check_state_transitions(**kwargs)
+        self.nesting -= 1
+
+        # Now we want to automatically check interruped states, emulating situation when new nodes joined and gone away.
+        # We are not going to compare exact state transitions, but rather check that they will not produce exceptions.
+        if self.nesting > 0 or not active > sync:
+            return
+
+        for e in expected:
+            if e[0] == 'restart' or e[1] != state['leader']:
+                return
+            if e[0] == 'sync':
+                state.update(numsync=e[2], sync=e[3])
+            else:
+                state.update(quorum=e[2], voters=e[3])
+        safety_margin = state['quorum'] + state['numsync'] - len(state['voters'] | state['sync'])
+
+        # we are only interested in non-steady cases, when quorum is higher than required by numsync
+        if safety_margin == 0:
+            return
+
+        # prepare initial state
+        state = {k: v for k, v in kwargs.items() if k != 'expected'}
+
+        def combinations(a):
+            for r in range(0, len(a) + 1):
+                for c in itertools.combinations(a, r):
+                    yield set(c)
+
+        for e in expected:
+            if e[0] == 'sync':
+                state.update(numsync=e[2], sync=e[3])
+            else:
+                state.update(quorum=e[2], voters=e[3])
+
+            for a in combinations(sync):
+                # we will check cases with reverting back to active being subsets of sync nodes
+                state['active'] = a
+                for c in range(0, len(state['active']) + 1):
+                    # in addition to that we want to consider cases with numsync_confirmed having different values
+                    state['numsync_confirmed'] = c
+                    try:
+                        result = list(QuorumStateResolver(**state))
+                    except Exception as e:
+                        self.failures.append(e)
+
+                    # besides, we want to make a difference between voters being empty and non-empty
+                    if state['voters']:
+                        voters = state['voters']
+                        quorum = state['quorum']
+                        state.update(voters=set(), quorum=0)
+                        try:
+                            result = list(QuorumStateResolver(**state))
+                        except Exception as e:
+                            self.failures.append(e)
+                        state.update(voters=voters, quorum=quorum)
 
     def test_1111(self):
         leader = 'a'
