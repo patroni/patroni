@@ -310,12 +310,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         path = '/primary' if self.path == '/' else self.path
         response = self.get_postgresql_status()
+        latest_end_lsn = response.pop('latest_end_lsn', 0)
 
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
         config = global_config.from_cluster(cluster)
 
-        leader_optime = cluster and cluster.status.last_lsn
+        leader_optime = max(cluster and cluster.status.last_lsn or 0, latest_end_lsn)
         replayed_location = response.get('xlog', {}).get('replayed_location', 0)
         max_replica_lag = parse_int(self.path_query.get('lag', [sys.maxsize])[0], 'B')
         if max_replica_lag is None:
@@ -474,6 +475,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Postgres.
         """
         response = self.get_postgresql_status(True)
+        response.pop('latest_end_lsn', None)
         self._write_status_response(200, response)
 
     def do_GET_cluster(self) -> None:
@@ -1263,11 +1265,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
             * ``state``: Postgres state among ``stopping``, ``stopped``, ``stop failed``, ``crashed``, ``running``,
               ``starting``, ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``,
-              ``initdb failed``, ``running custom bootstrap script``, ``custom bootstrap failed``,
-              ``creating replica``, or ``unknown``;
+              ``initdb failed``, ``running custom bootstrap script``, ``starting after custom bootstrap``,
+              ``custom bootstrap failed``, ``creating replica``, or ``unknown``;
             * ``postmaster_start_time``: ``pg_postmaster_start_time()``;
             * ``role``: ``replica`` or ``primary`` based on ``pg_is_in_recovery()`` output;
             * ``server_version``: Postgres version without periods, e.g. ``150002`` for Postgres ``15.2``;
+            * ``latest_end_lsn``: latest_end_lsn value from ``pg_stat_get_wal_receiver()``, only on replica nodes;
             * ``xlog``: dictionary. Its structure depends on ``role``:
 
                 * If ``primary``:
@@ -1307,15 +1310,18 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
             if postgresql.state not in ('running', 'restarting', 'starting'):
                 raise RetryFailedError('')
-            replication_state = ('(pg_catalog.pg_stat_get_wal_receiver()).status'
-                                 if postgresql.major_version >= 90600 else 'NULL') + ", " +\
-                ("pg_catalog.current_setting('restore_command')" if postgresql.major_version >= 120000 else "NULL")
+            replication_state = ("pg_catalog.pg_{0}_{1}_diff(wr.latest_end_lsn, '0/0')::bigint, wr.status"
+                                 if postgresql.major_version >= 90600 else "NULL, NULL") + ", " +\
+                ("pg_catalog.current_setting('restore_command')" if postgresql.major_version >= 120000 else "NULL") +\
+                ", " + ("pg_catalog.pg_wal_lsn_diff(wr.written_lsn, '0/0')::bigint"
+                        if postgresql.major_version >= 130000 else "NULL")
             stmt = ("SELECT " + postgresql.POSTMASTER_START_TIME + ", " + postgresql.TL_LSN + ","
                     " pg_catalog.pg_last_xact_replay_timestamp(), " + replication_state + ","
-                    " pg_catalog.array_to_json(pg_catalog.array_agg(pg_catalog.row_to_json(ri))) "
+                    " (SELECT pg_catalog.array_to_json(pg_catalog.array_agg(pg_catalog.row_to_json(ri))) "
                     "FROM (SELECT (SELECT rolname FROM pg_catalog.pg_authid WHERE oid = usesysid) AS usename,"
                     " application_name, client_addr, w.state, sync_state, sync_priority"
-                    " FROM pg_catalog.pg_stat_get_wal_senders() w, pg_catalog.pg_stat_get_activity(pid)) AS ri")
+                    " FROM pg_catalog.pg_stat_get_wal_senders() w, pg_catalog.pg_stat_get_activity(pid)) AS ri)") +\
+                (" FROM pg_catalog.pg_stat_get_wal_receiver() AS wr" if postgresql.major_version >= 90600 else "")
 
             row = self.query(stmt.format(postgresql.wal_name, postgresql.lsn_name,
                                          postgresql.wal_flush), retry=retry)[0]
@@ -1325,7 +1331,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 'role': 'replica' if row[1] == 0 else 'primary',
                 'server_version': postgresql.server_version,
                 'xlog': ({
-                    'received_location': row[4] or row[3],
+                    'received_location': row[10] or row[4] or row[3],
                     'replayed_location': row[3],
                     'replayed_timestamp': row[6],
                     'paused': row[5]} if row[1] == 0 else {
@@ -1347,12 +1353,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     if not cluster or cluster.is_unlocked() or not cluster.leader else cluster.leader.timeline
                 result['timeline'] = postgresql.replica_cached_timeline(leader_timeline)
 
-            replication_state = postgresql.replication_state_from_parameters(row[1] > 0, row[7], row[8])
+            if row[7]:
+                result['latest_end_lsn'] = row[7]
+
+            replication_state = postgresql.replication_state_from_parameters(row[1] > 0, row[8], row[9])
             if replication_state:
                 result['replication_state'] = replication_state
 
-            if row[9]:
-                result['replication'] = row[9]
+            if row[11]:
+                result['replication'] = row[11]
 
         except (psycopg.Error, RetryFailedError, PostgresConnectionException):
             state = postgresql.state

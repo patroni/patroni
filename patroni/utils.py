@@ -925,7 +925,8 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
             * ``role``: ``leader``, ``standby_leader``, ``sync_standby``, ``quorum_standby``, or ``replica``;
             * ``state``: ``stopping``, ``stopped``, ``stop failed``, ``crashed``, ``running``, ``starting``,
                 ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``, ``initdb failed``,
-                ``running custom bootstrap script``, ``custom bootstrap failed``, or ``creating replica``;
+                ``running custom bootstrap script``, ``starting after custom bootstrap``, ``custom bootstrap failed``,
+                or ``creating replica``;
             * ``api_url``: REST API URL based on ``restapi->connect_address`` configuration;
             * ``host``: PostgreSQL host based on ``postgresql->connect_address``;
             * ``port``: PostgreSQL port based on ``postgresql->connect_address``;

@@ -144,7 +144,7 @@ class MockCursor(object):
         elif sql.startswith('WITH slots AS (SELECT slot_name, active'):
             self.results = [(False, True)] if self.rowcount == 1 else []
         elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):
-            self.results = [(1, 2, 1, 0, False, 1, 1, None, None, 'streaming', '',
+            self.results = [(1, 2, 1, 0, False, 1, 1, 1, None, None, 'streaming', '',
                              [{"slot_name": "ls", "confirmed_flush_lsn": 12345, "restart_lsn": 12344}],
                              'on', 'n1', None)]
         elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
@@ -252,7 +252,8 @@ class PostgresInit(unittest.TestCase):
     @patch.object(ConfigHandler, 'replace_pg_ident', Mock())
     @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='primary'))
     def setUp(self):
-        data_dir = os.path.join('data', 'test0')
+        self._tmp_dir = 'data'
+        data_dir = os.path.join(self._tmp_dir, 'test0')
         config = {'name': 'postgresql0', 'scope': 'batman', 'data_dir': data_dir,
                   'config_dir': data_dir, 'retry_timeout': 10,
                   'krbsrvname': 'postgres', 'pgpass': os.path.join(data_dir, 'pgpass0'),
@@ -293,3 +294,6 @@ class BaseTestPostgresql(PostgresInit):
     def tearDown(self):
         if os.path.exists(self.p.data_dir):
             shutil.rmtree(self.p.data_dir)
+
+        if not os.listdir(self._tmp_dir):
+            shutil.rmtree(self._tmp_dir)
