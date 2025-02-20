@@ -4,6 +4,65 @@ Release notes
 =============
 
 
+Version 3.3.6
+-------------
+
+Released 2025-02-20
+
+**Stability improvements**
+
+- Compatibility with ``python-json-logger>=3.1`` (Alexander Kukushkin)
+
+  Get rid of the warnings produced by the old API usage.
+
+- Compatibility with Python 3.13 (Alexander Kukushkin)
+
+  Run tests against Python 3.13.
+
+- Compatibility with ``pyinstaller>=4.4`` (Joe Jensen)
+
+  Fall back to the default ``iter_modules`` if ``pyinstaller`` ``toc`` attribute is not present.
+
+- Fix issues with PostgreSQL 9.5 support (Alexander Kukushkin)
+
+  - Properly handle ``pg_rewind`` output format.
+  - Consider ``synchronous_standby_names`` format not supporting "num" specification.
+
+- Compatibility with the latest changes in ``urlparse`` (Alexander Kukushkin)
+
+  ``urlparse`` doesn't accept multiple hosts with ``[]`` character in URL anymore. To mitigate the problem, switch to the native wrappers of ``PQconninfoParse()`` from ``libpq``, when it is possible, and use our implementation only for older ``psycopg2`` versions that are linked with an outdated version of ``libpq``.
+
+
+**Bugfixes**
+
+- Show only the members to be restarted upon restart confirmation (András Váczi)
+
+  Previously, when doing ``patronictl restart <clustername> --pending``, the confirmation listed all members, regardless of whether their restart is pending.
+
+- Cancel long-running jobs on Patroni stop and remove data directory on replica bootstrap failure (Alexander Kukushkin)
+
+  Previously, Patroni could be doing replica bootstrap, while ``pg_basebackup`` / ``wal-g`` / ``pgBackRest`` / ``barman`` or similar keep running.
+
+- Properly handle cluster names with a slash in ``patronictl edit-config`` (Antoni Mur)
+
+  Replace a forward slash in ``cluster_name`` with an underscore.
+
+- Avoid dropping physical slots too early (Alexander Kukushkin)
+
+  Postpone removal of physical replication slots containing ``xmin`` after a failover: on the new primary -- until this member is promoted, on replicas -- until there is a leader in the cluster.
+
+- Handle all exceptions raised by subprocess in ``controldata()`` (Alexander Kukushkin)
+
+  Patroni was not properly handling all exceptions possibly raised when calling ``pg_controldata`` utility.
+
+
+**Improvements**
+
+- Improve error on am empty or non-dictionary configuration file (Julian)
+
+  Throw a more explicit exception when validating if Patroni configuration file contains a valid ``Mapping`` object.
+
+
 Version 3.3.5
 -------------
 
