@@ -74,23 +74,23 @@ class QuorumTest(unittest.TestCase):
                 # we will check cases with reverting back to active being subsets of sync nodes
                 state['active'] = a
                 for c in range(0, len(state['active']) + 1):
-                    # in adding to that we want to consider cases with numsync_confirmed having different values
+                    # in addition to that we want to consider cases with numsync_confirmed having different values
                     state['numsync_confirmed'] = c
                     try:
                         result = list(QuorumStateResolver(**state))
                     except Exception as e:
                         self.failures.append(e)
 
-                    # besides, we want to make a different between voters being empty and non-empty
+                    # besides, we want to make a difference between voters being empty and non-empty
                     if state['voters']:
-                        state['voters'] = set()
-                        state['quorum'] = 0
+                        voters = state['voters']
+                        quorum = state['quorum']
+                        state.update(voters=set(), quorum=0)
                         try:
                             result = list(QuorumStateResolver(**state))
                         except Exception as e:
                             self.failures.append(e)
-                        state['voters'] = voters
-                        state['quorum'] = quorum
+                        state.update(voters=voters, quorum=quorum)
 
     def test_1111(self):
         leader = 'a'
