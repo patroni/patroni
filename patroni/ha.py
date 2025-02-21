@@ -241,6 +241,10 @@ class Ha(object):
         self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
         self.watchdog = patroni.watchdog
 
+        # When the time exceeds create_replication_ddl and the stream replication is still normally established,
+        # the stream replication state is treated as abnormal.
+        self._create_replication_ddl = time.time() + global_config.create_replication_timeout
+
         # Each member publishes various pieces of information to the DCS using touch_member. This lock protects
         # the state and publishing procedure to have consistent ordering and avoid publishing stale values.
         self._member_state_lock = RLock()
@@ -2202,6 +2206,40 @@ class Ha(object):
                     self.state_handler.set_state('crashed')
                 # try to start dead postgres
                 return self.recover()
+
+            # check replication state on standby node and handle error
+            update_replication_ddl = False
+            if self.cluster.is_unlocked():
+                # the current cluster has no leader, just update ddl
+                logger.debug("The current cluster has no leader, so no need to worry about the replication")
+                update_replication_ddl = True
+            elif self.is_paused():
+                # the node is paused, just update ddl
+                logger.debug("The current node is paused, so no need to worry about the replication")
+                update_replication_ddl = True
+            elif self.has_lock(False):
+                # the node is leader, just update ddl
+                logger.debug("The current node is leader, so no need to worry about the replication")
+                update_replication_ddl = True
+            elif not self.state_handler.is_healthy():
+                # the standby node is not healthy, just update ddl
+                logger.debug("The postmaster process is not healthy, so no need to worry about the replication")
+                update_replication_ddl = True
+            elif self.state_handler.is_replication_ok():
+                # standby node replication state is healthy, just update ddl
+                logger.debug("The replication state is ok")
+                update_replication_ddl = True
+            elif self._create_replication_ddl < time.time():
+                # standby node replication state is not healthy, and the time exceeds ddl.
+                # update ddl after handling the replication error.
+                logger.warning("Failed to create replication, try to fix it.")
+                update_replication_ddl = self.state_handler.handle_replication_failed()
+            else:
+                # replication is not healthy but the time not exceeds ddl. so nothing to do, just wait.
+                logger.debug("The replication state is not ok, wait the time exceeds ddl")
+            #update create_replication_ddl if necessary
+            if update_replication_ddl:
+                self._create_replication_ddl = time.time() + global_config.create_replication_timeout
 
             if self.cluster.is_unlocked():
                 ret = self.process_unhealthy_cluster()

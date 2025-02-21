@@ -241,5 +241,16 @@ class GlobalConfig(types.ModuleType):
         """
         return self.get_int('member_slots_ttl', 1800, base_unit='s')
 
+    @property
+    def create_replication_timeout(self) -> int:
+        """Currently configured value of ``create_replication_timeout`` from the global configuration.
+
+        Assume ``300`` if it is not set or invalid means 5 minutes.
+        """
+        default = 300
+        res = self.get_int('create_replication_timeout', default)
+        if res < 60 or res > 3600:
+            res = default
+        return res
 
 sys.modules[__name__] = GlobalConfig()
