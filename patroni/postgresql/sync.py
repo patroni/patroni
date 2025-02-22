@@ -8,6 +8,7 @@ from typing import Collection, List, NamedTuple, Optional, TYPE_CHECKING
 from .. import global_config
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Cluster
+from ..postgresql.misc import PostgresqlState
 from ..psycopg import quote_ident
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -413,7 +414,8 @@ END;$$""")
             sync_param = f'{prefix}{num} ({sync_param})'
 
         if not (self._postgresql.config.set_synchronous_standby_names(sync_param)
-                and self._postgresql.state == 'running' and self._postgresql.is_primary()) or has_asterisk:
+                and self._postgresql.state == PostgresqlState.RUNNING
+                and self._postgresql.is_primary()) or has_asterisk:
             return
 
         time.sleep(0.1)  # Usually it takes 1ms to reload postgresql.conf, but we will give it 100ms
