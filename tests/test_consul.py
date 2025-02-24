@@ -9,6 +9,7 @@ from consul import ConsulException, NotFound
 from patroni.dcs import get_dcs
 from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulClient, ConsulError, \
     ConsulInternalError, HTTPClient, InvalidSession, InvalidSessionTTL, RetryFailedError
+from patroni.postgresql.misc import PostgresqlState
 from patroni.postgresql.mpp import get_mpp
 
 from . import SleepException
@@ -256,16 +257,16 @@ class TestConsul(unittest.TestCase):
     @patch.object(Agent.Service, 'register', Mock(side_effect=(False, True, True, True)))
     @patch.object(Agent.Service, 'deregister', Mock(return_value=True))
     def test_update_service(self):
-        d = {'role': 'replica', 'api_url': 'http://a/t', 'conn_url': 'pg://c:1', 'state': 'running'}
+        d = {'role': 'replica', 'api_url': 'http://a/t', 'conn_url': 'pg://c:1', 'state': PostgresqlState.RUNNING}
         self.assertIsNone(self.c.update_service({}, {}))
         self.assertFalse(self.c.update_service({}, d))
         self.assertTrue(self.c.update_service(d, d))
         self.assertIsNone(self.c.update_service(d, d))
-        d['state'] = 'stopped'
+        d['state'] = PostgresqlState.STOPPED
         self.assertTrue(self.c.update_service(d, d, force=True))
-        d['state'] = 'unknown'
+        d['state'] = PostgresqlState.STARTING
         self.assertIsNone(self.c.update_service({}, d))
-        d['state'] = 'running'
+        d['state'] = PostgresqlState.RUNNING
         d['role'] = 'bla'
         self.assertIsNone(self.c.update_service({}, d))
         d['role'] = 'primary'
@@ -280,7 +281,8 @@ class TestConsul(unittest.TestCase):
 
         self.c.refresh_session = Mock(return_value=False)
 
-        d = {'role': 'replica', 'api_url': 'http://a/t', 'conn_url': 'pg://c:1', 'state': 'running'}
+        d = {'role': 'replica', 'api_url': 'http://a/t',
+             'conn_url': 'pg://c:1', 'state': PostgresqlState.RUNNING}
 
         # Changing register_service from True to False calls deregister()
         self.c.reload_config({'consul': {'register_service': False}, 'loop_wait': 10, 'ttl': 30, 'retry_timeout': 10})

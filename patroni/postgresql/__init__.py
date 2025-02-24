@@ -9,6 +9,7 @@ import time
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime
+from enum import Enum
 from threading import current_thread, Lock
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
 
@@ -27,7 +28,7 @@ from .callback_executor import CallbackAction, CallbackExecutor
 from .cancellable import CancellableSubprocess
 from .config import ConfigHandler, mtime
 from .connection import ConnectionPool, get_connection_cursor
-from .misc import parse_history, parse_lsn, postgres_major_version_to_int
+from .misc import parse_history, parse_lsn, postgres_major_version_to_int, PostgresqlState
 from .mpp import AbstractMPP
 from .postmaster import PostmasterProcess
 from .slots import SlotsHandler
@@ -39,12 +40,14 @@ if TYPE_CHECKING:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
-STATE_RUNNING = 'running'
-STATE_REJECT = 'rejecting connections'
-STATE_NO_RESPONSE = 'not responding'
-STATE_UNKNOWN = 'unknown'
-
 STOP_POLLING_INTERVAL = 1
+
+
+class PgIsReadyState(str, Enum):
+    RUNNING = 'running'
+    REJECT = 'rejecting connections'
+    NO_RESPONSE = 'not responding'
+    UNKNOWN = 'unknown'
 
 
 @contextmanager
@@ -76,7 +79,7 @@ class Postgresql(object):
         self._major_version = self.get_major_version()
 
         self._state_lock = Lock()
-        self.set_state('stopped')
+        self.set_state(PostgresqlState.STOPPED)
 
         self._pending_restart_reason = CaseInsensitiveDict()
         self.connection_pool = ConnectionPool()
@@ -123,10 +126,10 @@ class Postgresql(object):
 
         if self.is_running():
             # If we found postmaster process we need to figure out whether postgres is accepting connections
-            self.set_state('starting')
+            self.set_state(PostgresqlState.STARTING)
             self.check_startup_state_changed()
 
-        if self.state == 'running':  # we are "joining" already running postgres
+        if self.state == PostgresqlState.RUNNING:  # we are "joining" already running postgres
             # we know that PostgreSQL is accepting connections and can read some GUC's from pg_settings
             self.config.load_current_server_parameters()
 
@@ -320,11 +323,11 @@ class Postgresql(object):
             cmd.extend(['-U', r['user']])
 
         ret = subprocess.call(cmd)
-        return_codes = {0: STATE_RUNNING,
-                        1: STATE_REJECT,
-                        2: STATE_NO_RESPONSE,
-                        3: STATE_UNKNOWN}
-        return return_codes.get(ret, STATE_UNKNOWN)
+        return_codes = {0: PgIsReadyState.RUNNING,
+                        1: PgIsReadyState.REJECT,
+                        2: PgIsReadyState.NO_RESPONSE,
+                        3: PgIsReadyState.UNKNOWN}
+        return return_codes.get(ret, PgIsReadyState.UNKNOWN)
 
     def reload_config(self, config: Dict[str, Any], sighup: bool = False) -> None:
         self.config.reload_config(config, sighup)
@@ -388,7 +391,7 @@ class Postgresql(object):
         try:
             return self._connection.query(sql, *params)
         except PostgresConnectionException as exc:
-            if self.state == 'restarting':
+            if self.state == PostgresqlState.RESTARTING:
                 raise RetryFailedError('cluster is being restarted') from exc
             raise
 
@@ -489,8 +492,8 @@ class Postgresql(object):
                 self._cluster_info_state = cluster_info_state
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
-                if not self.is_starting() and self.pg_isready() == STATE_REJECT:
-                    self.set_state('starting')
+                if not self.is_starting() and self.pg_isready() == PgIsReadyState.REJECT:
+                    self.set_state(PostgresqlState.STARTING)
 
         if 'error' in self._cluster_info_state:
             raise PostgresConnectionException(self._cluster_info_state['error'])
@@ -700,11 +703,11 @@ class Postgresql(object):
             self._role = value
 
     @property
-    def state(self) -> str:
+    def state(self) -> PostgresqlState:
         with self._state_lock:
             return self._state
 
-    def set_state(self, value: str) -> None:
+    def set_state(self, value: PostgresqlState) -> None:
         with self._state_lock:
             self._state = value
             self._state_entry_timestamp = time.time()
@@ -713,7 +716,7 @@ class Postgresql(object):
         return time.time() - self._state_entry_timestamp
 
     def is_starting(self) -> bool:
-        return self.state in ('starting', 'starting after custom bootstrap')
+        return self.state in (PostgresqlState.STARTING, PostgresqlState.BOOTSTRAP_STARTING)
 
     def wait_for_port_open(self, postmaster: PostmasterProcess, timeout: float) -> bool:
         """Waits until PostgreSQL opens ports."""
@@ -723,12 +726,12 @@ class Postgresql(object):
 
             if not postmaster.is_running():
                 logger.error('postmaster is not running')
-                self.set_state('start failed')
+                self.set_state(PostgresqlState.START_FAILED)
                 return False
 
             isready = self.pg_isready()
-            if isready != STATE_NO_RESPONSE:
-                if isready not in [STATE_REJECT, STATE_RUNNING]:
+            if isready != PgIsReadyState.NO_RESPONSE:
+                if isready not in [PgIsReadyState.REJECT, PgIsReadyState.RUNNING]:
                     logger.warning("Can't determine PostgreSQL startup status, assuming running")
                 return True
 
@@ -751,8 +754,8 @@ class Postgresql(object):
         # patroni.
         self.connection_pool.close()
 
-        state = 'starting after custom bootstrap' if self.bootstrap.running_custom_bootstrap else 'starting'
-
+        state = (PostgresqlState.BOOTSTRAP_STARTING if self.bootstrap.running_custom_bootstrap
+                 else PostgresqlState.STARTING)
         if self.is_running():
             logger.error('Cannot start PostgreSQL because one is already running.')
             self.set_state(state)
@@ -862,12 +865,12 @@ class Postgresql(object):
             # block_callbacks is used during restart to avoid
             # running start/stop callbacks in addition to restart ones
             if not block_callbacks:
-                self.set_state('stopped')
+                self.set_state(PostgresqlState.STOPPED)
                 if pg_signaled:
                     self.call_nowait(CallbackAction.ON_STOP)
         else:
             logger.warning('pg_ctl stop failed')
-            self.set_state('stop failed')
+            self.set_state(PostgresqlState.STOP_FAILED)
         return success
 
     def _do_stop(self, mode: str, block_callbacks: bool, checkpoint: bool,
@@ -883,7 +886,7 @@ class Postgresql(object):
             self.checkpoint(timeout=stop_timeout)
 
         if not block_callbacks:
-            self.set_state('stopping')
+            self.set_state(PostgresqlState.STOPPING)
 
         # invoke user-directed before stop script
         self._before_stop()
@@ -979,22 +982,22 @@ class Postgresql(object):
         """
         ready = self.pg_isready()
 
-        if ready == STATE_REJECT:
+        if ready == PgIsReadyState.REJECT:
             return False
-        elif ready == STATE_NO_RESPONSE:
+        elif ready == PgIsReadyState.NO_RESPONSE:
             ret = not self.is_running()
             if ret:
-                self.set_state('start failed')
+                self.set_state(PostgresqlState.START_FAILED)
                 self.slots_handler.schedule(False)  # TODO: can remove this?
                 self.config.save_configuration_files(True)  # TODO: maybe remove this?
             return ret
         else:
-            if ready != STATE_RUNNING:
+            if ready != PgIsReadyState.RUNNING:
                 # Bad configuration or unexpected OS error. No idea of PostgreSQL status.
                 # Let the main loop of run cycle clean up the mess.
                 logger.warning("%s status returned from pg_isready",
-                               "Unknown" if ready == STATE_UNKNOWN else "Invalid")
-            self.set_state('running')
+                               "Unknown" if ready == PgIsReadyState.UNKNOWN else "Invalid")
+            self.set_state(PostgresqlState.RUNNING)
             self.slots_handler.schedule()
             self.config.save_configuration_files(True)
             # TODO: __cb_pending can be None here after PostgreSQL restarts on its own. Do we want to call the callback?
@@ -1018,7 +1021,7 @@ class Postgresql(object):
                 return None
             time.sleep(1)
 
-        return self.state == 'running'
+        return self.state == PostgresqlState.RUNNING
 
     def restart(self, timeout: Optional[float] = None, task: Optional[CriticalTask] = None,
                 block_callbacks: bool = False, role: Optional[str] = None,
@@ -1031,13 +1034,14 @@ class Postgresql(object):
 
         :returns: True when restart was successful and timeout did not expire when waiting.
         """
-        self.set_state('restarting')
+        self.set_state(PostgresqlState.RESTARTING)
         if not block_callbacks:
             self.__cb_pending = CallbackAction.ON_RESTART
         ret = self.stop(block_callbacks=True, before_shutdown=before_shutdown)\
             and self.start(timeout, task, True, role, after_start)
         if not ret and not self.is_starting():
-            self.set_state('restart failed ({0})'.format(self.state))
+            self.set_state(PostgresqlState.RESTART_FAILED)
+            logger.warning('restart failed (%r)', self.state)
         return ret
 
     def is_healthy(self) -> bool:
@@ -1059,7 +1063,7 @@ class Postgresql(object):
     def controldata(self) -> Dict[str, str]:
         """ return the contents of pg_controldata, or non-True value if pg_controldata call failed """
         # Don't try to call pg_controldata during backup restore
-        if self._version_file_exists() and self.state != 'creating replica':
+        if self._version_file_exists() and self.state != PostgresqlState.CREATING_REPLICA:
             try:
                 env = {**os.environ, 'LANG': 'C', 'LC_ALL': 'C'}
                 data = subprocess.check_output([self.pgcommand('pg_controldata'), self._data_dir], env=env)

@@ -9,6 +9,7 @@ from patroni.postgresql import Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.config import ConfigHandler, get_param_diff
+from patroni.postgresql.misc import PostgresqlState
 
 from . import BaseTestPostgresql, mock_available_gucs, psycopg_connect
 
@@ -269,7 +270,7 @@ class TestBootstrap(BaseTestPostgresql):
             mock_restart.assert_called_once()
 
         self.b.bootstrap(config)
-        self.p.set_state('stopped')
+        self.p.set_state(PostgresqlState.STOPPED)
         self.p.reload_config({'authentication': {'superuser': {'username': 'p', 'password': 'p'},
                                                  'replication': {'username': 'r', 'password': 'r'},
                                                  'rewind': {'username': 'rw', 'password': 'rw'}},
