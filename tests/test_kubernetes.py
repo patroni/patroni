@@ -442,7 +442,7 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
                                   k8s_client.rest.ApiException(409, ''), mock_namespaced_kind()]
         mock_read.return_value.metadata.resource_version = '2'
         mock_time = Mock(side_effect=[0, 0, 100, 200, 0, 0, 0, 0, 0, 100, 200])
-        with patch('time.time', mock_time), patch('time.time_ns', mock_time):
+        with patch('time.time', mock_time), patch('time.time_ns', mock_time, create=True):
             self.assertFalse(self.k.update_leader(cluster, '123'))
             self.assertFalse(self.k.update_leader(cluster, '123'))
         mock_patch.side_effect = k8s_client.rest.ApiException(409, '')

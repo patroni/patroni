@@ -1349,7 +1349,7 @@ class Ha(object):
         elif not candidates:
             logger.warning('%s: candidates list is empty', action)
 
-        ret = False
+        quorum_votes = -1
         cluster_timeline = self.cluster.timeline
         for st in self.fetch_nodes_statuses(candidates):
             not_allowed_reason = st.failover_limitation()
@@ -1362,8 +1362,10 @@ class Ha(object):
                 logger.info('Timeline %s of member %s is behind the cluster timeline %s',
                             st.timeline, st.member.name, cluster_timeline)
             else:
-                ret = True
-        return ret
+                quorum_votes += 1
+
+        # In case of quorum replication we need to make sure that there is enough healthy synchronous replicas!
+        return quorum_votes >= (self.cluster.sync.quorum if self.quorum_commit_mode_is_active() else 0)
 
     def manual_failover_process_no_leader(self) -> Optional[bool]:
         """Handles manual failover/switchover when the old leader already stepped down.
@@ -2397,11 +2399,8 @@ class Ha(object):
         exclude = [self.state_handler.name] + ([failover.candidate] if failover and exclude_failover_candidate else [])
 
         def is_eligible(node: Member) -> bool:
-            # If quorum commit is requested we want to check all nodes (even not voters),
-            # because they could get enough votes and reach necessary quorum + 1.
             # in synchronous mode we allow failover (not switchover!) to async node
-            if self.sync_mode_is_active()\
-                    and not (self.is_quorum_commit_mode() or self.cluster.sync.matches(node.name))\
+            if self.sync_mode_is_active() and not self.cluster.sync.matches(node.name)\
                     and not (failover and not failover.leader):
                 return False
             # Don't spend time on "nofailover" nodes checking.
