@@ -52,7 +52,7 @@ cleans up after itself and releases the initialize lock to give another node the
 If a ``recovery_conf`` block is defined in the same section as the custom bootstrap method, Patroni will generate a
 ``recovery.conf`` before starting the newly bootstrapped instance (or set the recovery settings on Postgres configuration if
 running PostgreSQL >= 12).
-Typically, such recovery configuration should contain at least one of the ``recovery_target_*`` parameters, together with the ``recovery_target_timeline`` set to ``promote``.
+Typically, such recovery configuration should contain at least one of the ``recovery_target_*`` parameters, together with the ``recovery_target_action`` set to ``promote``.
 
 If ``keep_existing_recovery_conf`` is defined and set to ``True``, Patroni will not remove the existing ``recovery.conf`` file if it exists (PostgreSQL <= 11).
 Similarly, in that case Patroni will not remove the existing ``recovery.signal`` or ``standby.signal`` if either exists, nor will it override the configured recovery settings (PostgreSQL >= 12).
