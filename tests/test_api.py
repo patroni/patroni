@@ -330,9 +330,14 @@ class TestRestApiHandler(unittest.TestCase):
                                           'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag&tag_key6=RandomTag2')
 
     def test_do_OPTIONS(self):
+        if MockPatroni.dcs.cluster:
+           MockPatroni.dcs.cluster.status.last_lsn = 20
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0'))
 
     def test_do_HEAD(self):
+        if MockPatroni.dcs.cluster:
+           MockPatroni.dcs.cluster.status.last_lsn = 20
+
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'HEAD / HTTP/1.0'))
 
     @patch.object(MockPatroni, 'dcs')
