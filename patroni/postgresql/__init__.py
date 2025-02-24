@@ -121,6 +121,8 @@ class Postgresql(object):
 
         self._available_gucs = None
 
+        self._last_replayed_location = 0
+
         if self.is_running():
             # If we found postmaster process we need to figure out whether postgres is accepting connections
             self.set_state('starting')
@@ -583,6 +585,13 @@ class Postgresql(object):
             logger.warning('Failed to determine PostgreSQL state from the connection, falling back to cached role')
             return bool(self.is_running() and self.role == 'primary')
 
+    def is_standby_really(self) -> bool:
+        try:
+            return not bool(self._cluster_info_state_get('timeline'))
+        except PostgresConnectionException:
+            logger.warning('Failed to determine PostgreSQL state from the connection')
+            return False
+
     def replay_paused(self) -> bool:
         return self._cluster_info_state_get('replay_paused') or False
 
@@ -1044,6 +1053,41 @@ class Postgresql(object):
         if not self.is_running():
             logger.warning('Postgresql is not running.')
             return False
+        return True
+
+    def is_replication_ok(self) -> bool:
+        if self.pg_isready() != STATE_RUNNING:
+            logger.debug("Postgresql may not running, so no need to worry about the replication")
+            return True
+
+        self.reset_cluster_info_state(None)
+
+        if not self.is_standby_really():
+            logger.debug("The current node may not a standby, so no need to worry about the replication")
+            return True
+
+        replayed_location = self.replayed_location() or 0
+        if self._last_replayed_location != replayed_location:
+            logger.debug("The replayed location has changed, so no need to worry about the replication")
+            self._last_replayed_location = replayed_location
+            return True
+
+        if self.replication_state() == 'streaming':
+            return True
+
+        return False
+
+    @property
+    def should_remove_data_directory_on_creating_replication_failed(self) -> bool:
+        return bool(self.config.get('remove_data_directory_on_creating_replication_failed', False))
+
+    def handle_replication_failed(self) -> bool:
+        if not self.should_remove_data_directory_on_creating_replication_failed:
+            logger.warning("Can not remove data directory automatically because the parameter. Please repair it manually.")
+            return False
+
+        self.stop()
+        self.remove_data_directory()
         return True
 
     def get_guc_value(self, name: str) -> Optional[str]:
