@@ -161,6 +161,7 @@ class TestK8sConfig(unittest.TestCase):
 
 
 @patch('urllib3.PoolManager.request')
+@patch.object(K8sConfig, '_server', '', create=True)
 class TestApiClient(unittest.TestCase):
 
     @patch.object(K8sConfig, '_server', '', create=True)
