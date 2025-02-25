@@ -78,6 +78,8 @@ class TestPatroniLogger(unittest.TestCase):
             self.assertRaises(Exception, logger.shutdown)
         self.assertLessEqual(logger.queue_size, 2)  # "Failed to close the old log handler" could be still in the queue
         self.assertEqual(logger.records_lost, 0)
+        del config['log']['traceback_level']
+        logger.reload_config(config)
 
     def test_interceptor(self):
         logger = PatroniLogger()
