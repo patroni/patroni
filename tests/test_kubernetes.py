@@ -88,14 +88,6 @@ def mock_load_k8s_config(self, *args, **kwargs):
     self._server = 'http://localhost'
 
 
-config = {
-    "current-context": "local",
-    "contexts": [{"name": "local", "context": {"user": "local", "cluster": "local"}}],
-    "clusters": [{"name": "local", "cluster": {"server": "https://a:1/", "certificate-authority": "a"}}],
-    "users": [{"name": "local", "user": {"username": "a", "password": "b", "client-certificate": "c"}}]
-}
-
-
 class TestK8sConfig(unittest.TestCase):
 
     def test_load_incluster_config(self):
@@ -136,6 +128,12 @@ class TestK8sConfig(unittest.TestCase):
             self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer c')
 
     def test_load_kube_config(self):
+        config = {
+            "current-context": "local",
+            "contexts": [{"name": "local", "context": {"user": "local", "cluster": "local"}}],
+            "clusters": [{"name": "local", "cluster": {"server": "https://a:1/", "certificate-authority": "a"}}],
+            "users": [{"name": "local", "user": {"username": "a", "password": "b", "client-certificate": "c"}}]
+        }
         with patch('builtins.open', mock_open(read_data=json.dumps(config))):
             k8s_config.load_kube_config()
             self.assertEqual(k8s_config.server, 'https://a:1')
@@ -163,6 +161,7 @@ class TestK8sConfig(unittest.TestCase):
 
 
 @patch('urllib3.PoolManager.request')
+@patch.object(K8sConfig, '_server', '', create=True)
 class TestApiClient(unittest.TestCase):
 
     @patch.object(K8sConfig, '_server', '', create=True)
@@ -172,9 +171,6 @@ class TestApiClient(unittest.TestCase):
         self.mock_get_ep = MockResponse()
         self.mock_get_ep.content = '{"subsets":[{"ports":[{"name":"https","protocol":"TCP","port":443}],' +\
                                    '"addresses":[{"ip":"127.0.0.1"},{"ip":"127.0.0.2"}]}]}'
-
-        with patch('builtins.open', mock_open(read_data=json.dumps(config))):
-            k8s_config.load_kube_config()
 
     def test__do_http_request(self, mock_request):
         mock_request.side_effect = [self.mock_get_ep] + [socket.timeout]
