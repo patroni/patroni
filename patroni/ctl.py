@@ -175,6 +175,13 @@ class PatronictlPrettyTable(PrettyTable):
         self.__hline_num += 1
         return ret
 
+    def _validate_field_names(self, val: List[str]) -> None:
+        try:
+            super(PatronictlPrettyTable, self)._validate_field_names(val)
+        except ValueError as e:
+            if 'Field names must be unique' not in e.args:
+                raise e
+
     _hrule = property(_get_hline, _set_hline)
 
 
@@ -1535,7 +1542,10 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         * ``Role``: ``Leader``, ``Standby Leader``, ``Sync Standby`` or ``Replica``;
         * ``State``: one of :class:`~patroni.postgresql.misc.PostgresqlState`;
         * ``TL``: current timeline in Postgres;
-          ``Lag in MB``: replication lag.
+        * ``Receive LSN``: last received LSN ``pg_catalog.pg_last_(xlog|wal)_receive_(location|lsn)()``);
+        * ``Receive Lag``: lag of the receive LSN in MB;
+        * ``Replay LSN``: last replayed LSN (``pg_catalog.pg_last_(xlog|wal)_replay_(location|lsn)()``);
+        * ``Replay Lag``: lag of the replay LSN in MB.
 
     Besides that it may also have:
         * ``Group``: Citus group ID -- showed only if Citus is enabled.
@@ -1559,7 +1569,8 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
     logging.debug(cluster)
 
     initialize = {None: 'uninitialized', '': 'initializing'}.get(cluster.initialize, cluster.initialize)
-    columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'TL', 'Lag in MB']
+    columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'TL',
+               'Receive LSN', 'Receive Lag', 'Replay LSN', 'Replay Lag']
 
     clusters = {group or 0: cluster_as_json(cluster)}
 
@@ -1583,18 +1594,22 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         for member in sort(c['members']):
             logging.debug(member)
 
-            lag = member.get('lag', '')
-
             def format_diff(param: str, values: Dict[str, str], hide_long: bool):
                 full_diff = param + ': ' + values['old_value'] + '->' + values['new_value']
                 return full_diff if not hide_long or len(full_diff) <= 50 else param + ': [hidden - too long]'
             restart_reason = '\n'.join([format_diff(k, v, fmt in ('pretty', 'topology'))
                                         for k, v in member.get('pending_restart_reason', {}).items()]) or ''
 
+            receive_lag, replay_lag = member.get('received_lag', ''), member.get('replayed_lag', '')
+            receive_lsn, replay_lsn = member.get('received_lsn', ''), member.get('replayed_lsn', '')
+            receive_lag = round(receive_lag / 1024 / 1024) if isinstance(receive_lag, int) else receive_lag
+            replay_lag = round(replay_lag / 1024 / 1024) if isinstance(replay_lag, int) else replay_lag
+
             member.update(cluster=name, member=member['name'], group=g,
                           host=member.get('host', ''), tl=member.get('timeline', ''),
                           role=member['role'].replace('_', ' ').title(),
-                          lag_in_mb=round(lag / 1024 / 1024) if isinstance(lag, int) else lag,
+                          receive_lag=receive_lag, replay_lag=replay_lag,
+                          receive_lsn=receive_lsn, replay_lsn=replay_lsn,
                           pending_restart='*' if member.get('pending_restart') else '',
                           pending_restart_reason=restart_reason)
 
@@ -1617,7 +1632,10 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         title_details = f' ({initialize})'
 
     title = f' {title}: {name}{title_details} '
-    print_output(columns, rows, {'Group': 'r', 'Lag in MB': 'r', 'TL': 'r'}, fmt, title)
+    if fmt in ('pretty', 'topology'):
+        columns[columns.index('Replay Lag')] = columns[columns.index('Receive Lag')] = 'Lag'
+    print_output(columns, rows,
+                 {'Group': 'r', 'Receive LSN': 'r', 'Replay LSN': 'r', 'Lag': 'r', 'TL': 'r'}, fmt, title)
 
     if fmt not in ('pretty', 'topology'):  # Omit service info when using machine-readable formats
         return

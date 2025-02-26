@@ -130,7 +130,8 @@ class TestCtl(unittest.TestCase):
 
             with patch('click.echo') as mock_echo:
                 self.assertIsNone(output_members(cluster, name='abc', fmt='tsv'))
-                self.assertEqual(mock_echo.call_args[0][0], 'abc\tother\t\tReplica\trunning\t\tunknown')
+                self.assertEqual(mock_echo.call_args[0][0],
+                                 'abc\tother\t\tReplica\trunning\t\tunknown\tunknown\tunknown\tunknown')
 
     @patch('patroni.dcs.AbstractDCS.set_failover_value', Mock())
     def test_switchover(self):
