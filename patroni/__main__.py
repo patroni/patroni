@@ -12,8 +12,6 @@ import time
 from argparse import Namespace
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-import yaml
-
 from patroni import MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
 from patroni.daemon import abstract_main, AbstractPatroniDaemon, get_base_arg_parser
 from patroni.tags import Tags
@@ -302,6 +300,7 @@ def process_arguments() -> Namespace:
             sys.exit(e.value)
 
         if args.print:
+            import yaml
             yaml.safe_dump(config.local_configuration, sys.stdout, default_flow_style=False, allow_unicode=True)
         sys.exit()
 
