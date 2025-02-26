@@ -1538,7 +1538,10 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
           ``running custom bootstrap script``, ``starting after custom bootstrap``, ``custom bootstrap failed``,
           ``creating replica``, ``streaming``, ``in archive recovery``, and so on;
         * ``TL``: current timeline in Postgres;
-          ``Lag in MB``: replication lag.
+        * ``Receive LSN``: last received LSN ``pg_catalog.pg_last_(xlog|wal)_receive_(location|lsn)()``);
+        * ``Receive Lag``: lag of the receive LSN in MB;
+        * ``Replay LSN``: last replayed LSN (``pg_catalog.pg_last_(xlog|wal)_replay_(location|lsn)()``);
+        * ``Replay Lag``: lag of the replay LSN in MB.
 
     Besides that it may also have:
         * ``Group``: Citus group ID -- showed only if Citus is enabled.
@@ -1562,7 +1565,11 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
     logging.debug(cluster)
 
     initialize = {None: 'uninitialized', '': 'initializing'}.get(cluster.initialize, cluster.initialize)
-    columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'TL', 'Lag in MB']
+    if fmt in ('pretty', 'topology'):
+        columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'TL', 'Receive LSN | Lag', 'Replay LSN | Lag']
+    else:
+        columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'TL',
+                   'Receive LSN', 'Receive Lag', 'Replay LSN', 'Replay Lag']
 
     clusters = {group or 0: cluster_as_json(cluster)}
 
@@ -1586,18 +1593,24 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         for member in sort(c['members']):
             logging.debug(member)
 
-            lag = member.get('lag', '')
-
             def format_diff(param: str, values: Dict[str, str], hide_long: bool):
                 full_diff = param + ': ' + values['old_value'] + '->' + values['new_value']
                 return full_diff if not hide_long or len(full_diff) <= 50 else param + ': [hidden - too long]'
             restart_reason = '\n'.join([format_diff(k, v, fmt in ('pretty', 'topology'))
                                         for k, v in member.get('pending_restart_reason', {}).items()]) or ''
 
+            receive_lag, replay_lag = member.get('received_lag', ''), member.get('replayed_lag', '')
+            receive_lsn, replay_lsn = member.get('received_lsn', ''), member.get('replayed_lsn', '')
+            receive_lag = round(receive_lag / 1024 / 1024) if isinstance(receive_lag, int) else receive_lag
+            replay_lag = round(replay_lag / 1024 / 1024) if isinstance(replay_lag, int) else replay_lag
+
             member.update(cluster=name, member=member['name'], group=g,
                           host=member.get('host', ''), tl=member.get('timeline', ''),
                           role=member['role'].replace('_', ' ').title(),
-                          lag_in_mb=round(lag / 1024 / 1024) if isinstance(lag, int) else lag,
+                          receive_lsn_lag=receive_lsn + (12 - len(receive_lsn)) * ' ' + '| ' + str(receive_lag),
+                          replay_lsn_lag=replay_lsn + (11 - len(replay_lsn)) * ' ' + '| ' + str(replay_lag),
+                          receive_lag=receive_lag, replay_lag=replay_lag,
+                          receive_lsn=receive_lsn, replay_lsn=replay_lsn,
                           pending_restart='*' if member.get('pending_restart') else '',
                           pending_restart_reason=restart_reason)
 
@@ -1610,7 +1623,7 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
                     value += ' if version < {0}'.format(member['scheduled_restart']['postgres_version'])
                 member['scheduled_restart'] = value
 
-            rows.append([member.get(n.lower().replace(' ', '_'), '') for n in columns])
+            rows.append([member.get(n.lower().replace(' | ', '_').replace(' ', '_'), '') for n in columns])
 
     if is_citus_cluster():
         title = 'Citus cluster'
@@ -1620,7 +1633,8 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         title_details = f' ({initialize})'
 
     title = f' {title}: {name}{title_details} '
-    print_output(columns, rows, {'Group': 'r', 'Lag in MB': 'r', 'TL': 'r'}, fmt, title)
+    print_output(columns, rows,
+                 {'Group': 'r', 'Receive LSN | Lag': 'l', 'Replay LSN | Lag': 'l', 'TL': 'r'}, fmt, title)
 
     if fmt not in ('pretty', 'topology'):  # Omit service info when using machine-readable formats
         return
