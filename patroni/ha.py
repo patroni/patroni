@@ -1258,7 +1258,7 @@ class Ha(object):
         :param members: the list of nodes to check against
         :param check_replication_lag: whether to take the replication lag into account.
                                       If the lag exceeds configured threshold the node disqualifies itself.
-        :param leader: the old cluster leader, it will be used to ignore its failover_priority  value.
+        :param leader: the old cluster leader, it will be used to ignore its ``failover_priority`` value.
         :returns: ``True`` if the node is eligible to become the new leader. Since this method is executed
                   on multiple nodes independently it is possible that multiple nodes could count
                   themselves as the healthiest because they received/replayed up to the same LSN,
