@@ -254,7 +254,7 @@ def process_arguments() -> Namespace:
       * ``--generate-sample-config`` -- used to generate a sample Patroni configuration
       * ``--ignore-listen-port`` | ``-i`` -- used to ignore ``listen`` ports already in use.
           Can be used only with ``--validate-config``
-      * ``--print`` -- used to print out local configuration (incl. environment configuration overrides).
+      * ``--print`` | ``-p`` -- used to print out local configuration (incl. environment configuration overrides).
           Can be used only with ``--validate-config``
 
     .. note::
@@ -277,7 +277,7 @@ def process_arguments() -> Namespace:
     parser.add_argument('--ignore-listen-port', '-i', action='store_true',
                         help='Ignore `listen` ports already in use.\
                               Can only be used with --validate-config')
-    parser.add_argument('--print', action='store_true',
+    parser.add_argument('--print', '-p', action='store_true',
                         help='Print out local configuration (incl. environment configuration overrides).\
                               Can only be used with --validate-config')
     args = parser.parse_args()
