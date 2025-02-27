@@ -18,7 +18,7 @@ from patroni.async_executor import CriticalTask
 from patroni.collections import CaseInsensitiveDict, CaseInsensitiveSet
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PatroniException, PostgresConnectionException
-from patroni.postgresql import PgIsReadyState, Postgresql
+from patroni.postgresql import PgIsReadyStatus, Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
 from patroni.postgresql.config import _false_validator, get_param_diff
@@ -160,7 +160,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, 'pg_isready')
     @patch('patroni.postgresql.polling_loop', Mock(return_value=range(1)))
     def test_wait_for_port_open(self, mock_pg_isready):
-        mock_pg_isready.return_value = PgIsReadyState.NO_RESPONSE
+        mock_pg_isready.return_value = PgIsReadyStatus.NO_RESPONSE
         mock_postmaster = MockPostmaster()
         mock_postmaster.is_running.return_value = None
 
@@ -387,7 +387,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertRaises(PostgresConnectionException, self.p.query, 'RetryFailedError')
         self.assertRaises(psycopg.ProgrammingError, self.p.query, 'blabla')
 
-    @patch.object(Postgresql, 'pg_isready', Mock(return_value=PgIsReadyState.REJECT))
+    @patch.object(Postgresql, 'pg_isready', Mock(return_value=PgIsReadyStatus.REJECT))
     def test_is_primary(self):
         self.assertTrue(self.p.is_primary())
         self.p.reset_cluster_info_state(None)

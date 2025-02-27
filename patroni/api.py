@@ -1264,7 +1264,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         :returns: a dict with the status of Postgres/Patroni. The keys are:
 
-            * ``state``: one of :enum:``PostgresqlState`` or ``unknown``;
+            * ``state``: one of :class:`PostgresqlState` or ``unknown``;
             * ``postmaster_start_time``: ``pg_postmaster_start_time()``;
             * ``role``: ``replica`` or ``primary`` based on ``pg_is_in_recovery()`` output;
             * ``server_version``: Postgres version without periods, e.g. ``150002`` for Postgres ``15.2``;

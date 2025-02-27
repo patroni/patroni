@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 class PostgresqlState(str, Enum):
+    """Possible values of :attr:`Postgresql._state`."""
+
     INITDB = 'initializing new cluster'
     INITDB_FAILED = 'initdb failed'
     CUSTOM_BOOTSTRAP = 'running custom bootstrap script'
@@ -28,6 +30,7 @@ class PostgresqlState(str, Enum):
     CRASHED = 'crashed'
 
     def __repr__(self) -> str:
+        """Get a string representation of a :class:`PostgresqlState` member."""
         return self.value
 
 

@@ -43,7 +43,15 @@ logger = logging.getLogger(__name__)
 STOP_POLLING_INTERVAL = 1
 
 
-class PgIsReadyState(str, Enum):
+class PgIsReadyStatus(str, Enum):
+    """Possible PostgreSQL connection status pg_isready utility can report.
+
+    :cvar RUNNING: return code 0. PostgreSQL is accepting connections normally.
+    :cvar REJECT: return code 1. PostgreSQL is rejecting connections.
+    :cvar NO_RESPONSE: return code 2. There was no response to the connection attempt.
+    :cvar UNKNOWN: Return code 3. No connection attempt was made, something went wrong.
+    """
+
     RUNNING = 'running'
     REJECT = 'rejecting connections'
     NO_RESPONSE = 'not responding'
@@ -323,11 +331,11 @@ class Postgresql(object):
             cmd.extend(['-U', r['user']])
 
         ret = subprocess.call(cmd)
-        return_codes = {0: PgIsReadyState.RUNNING,
-                        1: PgIsReadyState.REJECT,
-                        2: PgIsReadyState.NO_RESPONSE,
-                        3: PgIsReadyState.UNKNOWN}
-        return return_codes.get(ret, PgIsReadyState.UNKNOWN)
+        return_codes = {0: PgIsReadyStatus.RUNNING,
+                        1: PgIsReadyStatus.REJECT,
+                        2: PgIsReadyStatus.NO_RESPONSE,
+                        3: PgIsReadyStatus.UNKNOWN}
+        return return_codes.get(ret, PgIsReadyStatus.UNKNOWN)
 
     def reload_config(self, config: Dict[str, Any], sighup: bool = False) -> None:
         self.config.reload_config(config, sighup)
@@ -492,7 +500,7 @@ class Postgresql(object):
                 self._cluster_info_state = cluster_info_state
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
-                if not self.is_starting() and self.pg_isready() == PgIsReadyState.REJECT:
+                if not self.is_starting() and self.pg_isready() == PgIsReadyStatus.REJECT:
                     self.set_state(PostgresqlState.STARTING)
 
         if 'error' in self._cluster_info_state:
@@ -730,8 +738,8 @@ class Postgresql(object):
                 return False
 
             isready = self.pg_isready()
-            if isready != PgIsReadyState.NO_RESPONSE:
-                if isready not in [PgIsReadyState.REJECT, PgIsReadyState.RUNNING]:
+            if isready != PgIsReadyStatus.NO_RESPONSE:
+                if isready not in [PgIsReadyStatus.REJECT, PgIsReadyStatus.RUNNING]:
                     logger.warning("Can't determine PostgreSQL startup status, assuming running")
                 return True
 
@@ -982,9 +990,9 @@ class Postgresql(object):
         """
         ready = self.pg_isready()
 
-        if ready == PgIsReadyState.REJECT:
+        if ready == PgIsReadyStatus.REJECT:
             return False
-        elif ready == PgIsReadyState.NO_RESPONSE:
+        elif ready == PgIsReadyStatus.NO_RESPONSE:
             ret = not self.is_running()
             if ret:
                 self.set_state(PostgresqlState.START_FAILED)
@@ -992,11 +1000,11 @@ class Postgresql(object):
                 self.config.save_configuration_files(True)  # TODO: maybe remove this?
             return ret
         else:
-            if ready != PgIsReadyState.RUNNING:
+            if ready != PgIsReadyStatus.RUNNING:
                 # Bad configuration or unexpected OS error. No idea of PostgreSQL status.
                 # Let the main loop of run cycle clean up the mess.
                 logger.warning("%s status returned from pg_isready",
-                               "Unknown" if ready == PgIsReadyState.UNKNOWN else "Invalid")
+                               "Unknown" if ready == PgIsReadyStatus.UNKNOWN else "Invalid")
             self.set_state(PostgresqlState.RUNNING)
             self.slots_handler.schedule()
             self.config.save_configuration_files(True)
