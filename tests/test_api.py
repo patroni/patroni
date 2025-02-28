@@ -18,6 +18,7 @@ from patroni.psycopg import OperationalError
 from patroni.utils import RetryFailedError, tzutc
 
 from . import MockConnect, psycopg_connect
+from .test_etcd import socket_getaddrinfo
 from .test_ha import get_cluster_initialized_without_leader
 
 future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)
@@ -711,6 +712,7 @@ class TestRestApiServer(unittest.TestCase):
                 patch.object(MockRestApiServer, 'server_close', Mock()):
             self.srv.reload_config({'listen': ':8008'})
 
+    @patch('socket.getaddrinfo', socket_getaddrinfo)
     @patch.object(MockPatroni, 'dcs')
     def test_check_access(self, mock_dcs):
         mock_dcs.cluster = get_cluster_initialized_without_leader()
