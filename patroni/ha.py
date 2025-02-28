@@ -1103,7 +1103,9 @@ class Ha(object):
         lag = self.cluster.status.last_lsn - wal_position
         return lag > global_config.maximum_lag_on_failover
 
-    def _is_healthiest_node(self, members: Collection[Member], check_replication_lag: bool = True) -> bool:
+    def _is_healthiest_node(self, members: Collection[Member],
+                            check_replication_lag: bool = True,
+                            leader: Optional[Leader] = None) -> bool:
         """This method tries to determine whether I am healthy enough to became a new leader candidate or not."""
 
         my_wal_position = self.state_handler.last_operation()
@@ -1124,6 +1126,12 @@ class Ha(object):
         # Prepare list of nodes to run check against
         members = [m for m in members if m.name != self.state_handler.name and not m.nofailover and m.api_url]
 
+        # we need to know the name of the former leader to ignore it if it has higher failover_priority
+        if self.sync_mode_is_active():
+            leader_name = self.cluster.sync.leader
+        else:
+            leader_name = leader and leader.name
+
         for st in self.fetch_nodes_statuses(members):
             if st.failover_limitation() is None:
                 if st.in_recovery is False:
@@ -1137,14 +1145,15 @@ class Ha(object):
                         return False
                     logger.info('Ignoring the former leader being ahead of us')
                 if my_wal_position == st.wal_position and self.patroni.failover_priority < st.failover_priority:
-                    # There's a higher priority non-lagging replica
-                    logger.info(
-                        '%s has equally tolerable WAL position and priority %s, while this node has priority %s',
-                        st.member.name,
-                        st.failover_priority,
-                        self.patroni.failover_priority,
-                    )
-                    return False
+                    if leader_name and leader_name == st.member.name:
+                        logger.info('Ignoring former leader %s having priority %s higher than this nodes %s priority',
+                                    leader_name, st.failover_priority, self.patroni.failover_priority)
+                    else:
+                        # There's a higher priority non-lagging replica
+                        logger.info(
+                            '%s has equally tolerable WAL position and priority %s, while this node has priority %s',
+                            st.member.name, st.failover_priority, self.patroni.failover_priority)
+                        return False
         return True
 
     def is_failover_possible(self, *, cluster_lsn: int = 0, exclude_failover_candidate: bool = False) -> bool:
@@ -1315,7 +1324,7 @@ class Ha(object):
             # run usual health check
             members = {m.name: m for m in all_known_members}
 
-        return self._is_healthiest_node(members.values())
+        return self._is_healthiest_node(members.values(), leader=self.old_cluster.leader)
 
     def _delete_leader(self, last_lsn: Optional[int] = None) -> None:
         self.set_is_leader(False)
