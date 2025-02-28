@@ -115,8 +115,6 @@ class Bootstrap(object):
         return user_options
 
     def _initdb(self, config: Any) -> bool:
-        # from ..postgresql.misc import PostgresqlState
-
         self._postgresql.set_state(PostgresqlState.INITDB)
         not_allowed_options = ('pgdata', 'nosync', 'pwfile', 'sync-only', 'version')
 
@@ -243,7 +241,6 @@ class Bootstrap(object):
             defined by the user.  this is a list, so we need to
             loop through all methods the user supplies
         """
-        # from ..postgresql.misc import PostgresqlState
 
         self._postgresql.set_state(PostgresqlState.CREATING_REPLICA)
         self._postgresql.schedule_sanity_checks_after_pause()

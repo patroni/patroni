@@ -2022,8 +2022,8 @@ class Ha(object):
         if not self.state_handler.check_for_startup() or self.is_paused():
             self.set_start_timeout(None)
             if self.is_paused():
-                self.state_handler.set_state(
-                    self.state_handler.is_running() and PostgresqlState.RUNNING or PostgresqlState.STOPPED)
+                self.state_handler.set_state(PostgresqlState.RUNNING if self.state_handler.is_running()
+                                             else PostgresqlState.STOPPED)
             return None
 
         # state_handler.state == 'starting' here

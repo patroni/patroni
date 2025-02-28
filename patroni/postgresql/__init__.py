@@ -44,7 +44,7 @@ STOP_POLLING_INTERVAL = 1
 
 
 class PgIsReadyStatus(str, Enum):
-    """Possible PostgreSQL connection status pg_isready utility can report.
+    """Possible PostgreSQL connection status ``pg_isready`` utility can report.
 
     :cvar RUNNING: return code 0. PostgreSQL is accepting connections normally.
     :cvar REJECT: return code 1. PostgreSQL is rejecting connections.
@@ -1048,8 +1048,8 @@ class Postgresql(object):
         ret = self.stop(block_callbacks=True, before_shutdown=before_shutdown)\
             and self.start(timeout, task, True, role, after_start)
         if not ret and not self.is_starting():
-            self.set_state(PostgresqlState.RESTART_FAILED)
             logger.warning('restart failed (%r)', self.state)
+            self.set_state(PostgresqlState.RESTART_FAILED)
         return ret
 
     def is_healthy(self) -> bool:

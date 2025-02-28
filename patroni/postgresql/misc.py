@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class PostgresqlState(str, Enum):
-    """Possible values of :attr:`Postgresql._state`."""
+    """Possible values of :attr:`Postgresql.state`."""
 
     INITDB = 'initializing new cluster'
     INITDB_FAILED = 'initdb failed'
