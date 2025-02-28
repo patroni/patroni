@@ -253,3 +253,6 @@ Parameters
 
 ``--ignore-listen-port | -i``
     Optional flag to ignore bind failures for ``listen`` ports that are already in use when validating the ``configfile``.
+
+``--print | -p``
+    Optional flag to print out local configuration (including environment configuration overrides) after it has been successfully validated.
