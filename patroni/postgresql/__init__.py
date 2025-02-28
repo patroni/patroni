@@ -9,7 +9,7 @@ import time
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime
-from enum import Enum
+from enum import IntEnum
 from threading import current_thread, Lock
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
 
@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 STOP_POLLING_INTERVAL = 1
 
 
-class PgIsReadyStatus(str, Enum):
+class PgIsReadyStatus(IntEnum):
     """Possible PostgreSQL connection status ``pg_isready`` utility can report.
 
     :cvar RUNNING: return code 0. PostgreSQL is accepting connections normally.
@@ -52,10 +52,10 @@ class PgIsReadyStatus(str, Enum):
     :cvar UNKNOWN: Return code 3. No connection attempt was made, something went wrong.
     """
 
-    RUNNING = 'running'
-    REJECT = 'rejecting connections'
-    NO_RESPONSE = 'not responding'
-    UNKNOWN = 'unknown'
+    RUNNING = 0
+    REJECT = 1
+    NO_RESPONSE = 2
+    UNKNOWN = 3
 
 
 @contextmanager
@@ -314,7 +314,7 @@ class Postgresql(object):
         initdb = [self.pgcommand('initdb')] + list(args) + [self.data_dir]
         return subprocess.call(initdb, **kwargs) == 0
 
-    def pg_isready(self) -> str:
+    def pg_isready(self) -> PgIsReadyStatus:
         """Runs pg_isready to see if PostgreSQL is accepting connections.
 
         :returns: 'ok' if PostgreSQL is up, 'reject' if starting up, 'no_response' if not up."""
@@ -331,11 +331,10 @@ class Postgresql(object):
             cmd.extend(['-U', r['user']])
 
         ret = subprocess.call(cmd)
-        return_codes = {0: PgIsReadyStatus.RUNNING,
-                        1: PgIsReadyStatus.REJECT,
-                        2: PgIsReadyStatus.NO_RESPONSE,
-                        3: PgIsReadyStatus.UNKNOWN}
-        return return_codes.get(ret, PgIsReadyStatus.UNKNOWN)
+        try:
+            return PgIsReadyStatus(ret)
+        except ValueError:
+            return PgIsReadyStatus.UNKNOWN
 
     def reload_config(self, config: Dict[str, Any], sighup: bool = False) -> None:
         self.config.reload_config(config, sighup)
