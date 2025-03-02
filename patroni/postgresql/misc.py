@@ -2,11 +2,36 @@ import errno
 import logging
 import os
 
+from enum import Enum
 from typing import Iterable, Tuple
 
 from ..exceptions import PostgresException
 
 logger = logging.getLogger(__name__)
+
+
+class PostgresqlState(str, Enum):
+    """Possible values of :attr:`Postgresql.state`."""
+
+    INITDB = 'initializing new cluster'
+    INITDB_FAILED = 'initdb failed'
+    CUSTOM_BOOTSTRAP = 'running custom bootstrap script'
+    CUSTOM_BOOTSTRAP_FAILED = 'custom bootstrap failed'
+    CREATING_REPLICA = 'creating replica'
+    RUNNING = 'running'
+    STARTING = 'starting'
+    BOOTSTRAP_STARTING = 'starting after custom bootstrap'
+    START_FAILED = 'start failed'
+    RESTARTING = 'restarting'
+    RESTART_FAILED = 'restart failed'
+    STOPPING = 'stopping'
+    STOPPED = 'stopped'
+    STOP_FAILED = 'stop failed'
+    CRASHED = 'crashed'
+
+    def __repr__(self) -> str:
+        """Get a string representation of a :class:`PostgresqlState` member."""
+        return self.value
 
 
 def postgres_version_to_int(pg_version: str) -> int:

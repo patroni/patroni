@@ -15,6 +15,7 @@ from patroni.dcs import get_dcs
 from patroni.dcs.kubernetes import Cluster, k8s_client, k8s_config, K8sConfig, K8sConnectionFailed, \
     K8sException, K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException, Retry, \
     RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
+from patroni.postgresql.misc import PostgresqlState
 from patroni.postgresql.mpp import get_mpp
 
 from . import MockResponse, SleepException
@@ -321,19 +322,19 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
         mock_patch_namespaced_pod.return_value.metadata.resource_version = '10'
 
         self.k._name = 'p-1'
-        self.k.touch_member({'role': 'replica', 'state': 'initializing new cluster'})
+        self.k.touch_member({'role': 'replica', 'state': PostgresqlState.INITDB})
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], 'bar')
 
-        self.k.touch_member({'state': 'running', 'role': 'replica'})
+        self.k.touch_member({'state': PostgresqlState.RUNNING, 'role': 'replica'})
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], None)
 
-        self.k.touch_member({'role': 'replica', 'state': 'running custom bootstrap script'})
+        self.k.touch_member({'role': 'replica', 'state': PostgresqlState.CUSTOM_BOOTSTRAP})
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], 'bar')
 
-        self.k.touch_member({'role': 'replica', 'state': 'starting after custom bootstrap'})
+        self.k.touch_member({'role': 'replica', 'state': PostgresqlState.BOOTSTRAP_STARTING})
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], 'bar')
 
-        self.k.touch_member({'state': 'stopped', 'role': 'primary'})
+        self.k.touch_member({'state': PostgresqlState.STOPPED, 'role': 'primary'})
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], None)
 
         self.k._role_label = 'isMaster'
@@ -342,23 +343,23 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
         self.k._standby_leader_label_value = 'false'
         self.k._tmp_role_label = 'tmp_role'
 
-        self.k.touch_member({'state': 'creating replica', 'role': 'replica'})
+        self.k.touch_member({'state': PostgresqlState.CREATING_REPLICA, 'role': 'replica'})
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], 'bar')
 
-        self.k.touch_member({'state': 'running', 'role': 'replica'})
+        self.k.touch_member({'state': PostgresqlState.RUNNING, 'role': 'replica'})
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], None)
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['isMaster'], 'false')
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['tmp_role'], 'replica')
         mock_patch_namespaced_pod.rest_mock()
 
         self.k._name = 'p-0'
-        self.k.touch_member({'state': 'running', 'role': 'standby_leader'})
+        self.k.touch_member({'state': PostgresqlState.RUNNING, 'role': 'standby_leader'})
         mock_patch_namespaced_pod.assert_called()
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['isMaster'], 'false')
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['tmp_role'], 'primary')
         mock_patch_namespaced_pod.rest_mock()
 
-        self.k.touch_member({'state': 'running', 'role': 'primary'})
+        self.k.touch_member({'state': PostgresqlState.RUNNING, 'role': 'primary'})
         mock_patch_namespaced_pod.assert_called()
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['isMaster'], 'true')
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['tmp_role'], 'primary')
@@ -494,7 +495,7 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         self.assertEqual(('create_config_service failed',), mock_logger_exception.call_args[0])
         mock_logger_exception.reset_mock()
 
-        self.k.touch_member({'state': 'running', 'role': 'replica'})
+        self.k.touch_member({'state': PostgresqlState.RUNNING, 'role': 'replica'})
         mock_logger_exception.assert_called_once()
         self.assertEqual(('create_config_service failed',), mock_logger_exception.call_args[0])
 

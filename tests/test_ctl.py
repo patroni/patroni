@@ -11,6 +11,8 @@ import etcd
 from click.testing import CliRunner
 from prettytable import PrettyTable
 
+from patroni.postgresql.misc import PostgresqlState
+
 try:
     from prettytable import HRuleStyle
     hrule_all = HRuleStyle.ALL
@@ -526,11 +528,11 @@ class TestCtl(unittest.TestCase):
         cluster = get_cluster_initialized_with_leader()
         cluster.members.append(Member(0, 'cascade', 28,
                                       {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5437/postgres',
-                                       'api_url': 'http://127.0.0.1:8012/patroni', 'state': 'running',
+                                       'api_url': 'http://127.0.0.1:8012/patroni', 'state': PostgresqlState.RUNNING,
                                        'tags': {'replicatefrom': 'other'}}))
         cluster.members.append(Member(0, 'wrong_cascade', 28,
                                       {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5438/postgres',
-                                       'api_url': 'http://127.0.0.1:8013/patroni', 'state': 'running',
+                                       'api_url': 'http://127.0.0.1:8013/patroni', 'state': PostgresqlState.RUNNING,
                                        'tags': {'replicatefrom': 'nonexistinghost'}}))
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=cluster)):
             result = self.runner.invoke(ctl, ['topology', 'dummy'])
