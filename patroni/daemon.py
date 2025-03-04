@@ -134,6 +134,11 @@ class AbstractPatroniDaemon(abc.ABC):
         Start the logger thread and keep running execution cycles until a SIGTERM is eventually received. Also reload
         configuration upon receiving SIGHUP.
         """
+        try:
+            from systemd import daemon
+            daemon.notify("READY=1")
+        except ImportError:
+            logger.info("Systemd integration is not supported")
         self.logger.start()
         while not self.received_sigterm:
             if self._received_sighup:
