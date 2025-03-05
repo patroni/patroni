@@ -62,6 +62,8 @@ aws
     `boto3` in order to use AWS callbacks
 jsonlogger
     `python-json-logger` module in order to enable :ref:`logging <log_settings>` in json format
+systemd
+    `systemd-python` in order to use sd_notify integration
 all
     all of the above (except psycopg family)
 psycopg
