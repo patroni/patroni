@@ -7,6 +7,7 @@ from __future__ import print_function
 
 import abc
 import argparse
+import logging
 import os
 import signal
 import sys
@@ -16,6 +17,8 @@ from typing import Any, Optional, Type, TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover
     from .config import Config
+
+logger = logging.getLogger(__name__)
 
 
 def get_base_arg_parser() -> argparse.ArgumentParser:
@@ -134,6 +137,11 @@ class AbstractPatroniDaemon(abc.ABC):
         Start the logger thread and keep running execution cycles until a SIGTERM is eventually received. Also reload
         configuration upon receiving SIGHUP.
         """
+        try:  # pragma: no cover
+            from systemd import daemon  # pyright: ignore
+            daemon.notify("READY=1")  # pyright: ignore
+        except ImportError:  # pragma: no cover
+            logger.info("Systemd integration is not supported")
         self.logger.start()
         while not self.received_sigterm:
             if self._received_sighup:
