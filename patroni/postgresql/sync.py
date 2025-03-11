@@ -8,8 +8,8 @@ from typing import Collection, List, NamedTuple, Optional, TYPE_CHECKING
 from .. import global_config
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Cluster
-from ..postgresql.misc import PostgresqlState
 from ..psycopg import quote_ident
+from .misc import PostgresqlState
 
 if TYPE_CHECKING:  # pragma: no cover
     from . import Postgresql

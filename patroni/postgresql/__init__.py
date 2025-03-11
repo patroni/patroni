@@ -317,7 +317,7 @@ class Postgresql(object):
     def pg_isready(self) -> PgIsReadyStatus:
         """Runs pg_isready to see if PostgreSQL is accepting connections.
 
-        :returns: 'ok' if PostgreSQL is up, 'reject' if starting up, 'no_response' if not up."""
+        :returns: one of :class:`PgIsReadyStatus` values."""
 
         r = self.connection_pool.conn_kwargs
         cmd = [self.pgcommand('pg_isready'), '-p', r['port'], '-d', self._database]

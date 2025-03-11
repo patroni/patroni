@@ -7,9 +7,9 @@ from typing import Any, cast, Collection, Dict, Iterator, List, Optional, Set, T
 from urllib.parse import urlparse
 
 from ...dcs import Cluster
-from ...postgresql.misc import PostgresqlState
 from ...psycopg import connect, ProgrammingError, quote_ident
 from ...utils import parse_int
+from ..misc import PostgresqlState
 from . import AbstractMPP, AbstractMPPHandler
 
 if TYPE_CHECKING:  # pragma: no cover

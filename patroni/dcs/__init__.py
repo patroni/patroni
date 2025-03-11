@@ -295,7 +295,7 @@ class Member(Tags, NamedTuple('Member',
 
     @property
     def is_running(self) -> bool:
-        """``True`` if the member :attr:`~Member.state` is ``PostgresqlState.RUNNING``."""
+        """``True`` if the member :attr:`~Member.state` is :class:`PostgresqlState.RUNNING`."""
         from ..postgresql.misc import PostgresqlState
 
         return self.state == PostgresqlState.RUNNING
