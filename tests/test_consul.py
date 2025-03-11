@@ -9,7 +9,7 @@ from consul import ConsulException, NotFound
 from patroni.dcs import get_dcs
 from patroni.dcs.consul import AbstractDCS, Cluster, Consul, ConsulClient, ConsulError, \
     ConsulInternalError, HTTPClient, InvalidSession, InvalidSessionTTL, RetryFailedError
-from patroni.postgresql.misc import PostgresqlState
+from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.mpp import get_mpp
 
 from . import SleepException
@@ -257,7 +257,8 @@ class TestConsul(unittest.TestCase):
     @patch.object(Agent.Service, 'register', Mock(side_effect=(False, True, True, True)))
     @patch.object(Agent.Service, 'deregister', Mock(return_value=True))
     def test_update_service(self):
-        d = {'role': 'replica', 'api_url': 'http://a/t', 'conn_url': 'pg://c:1', 'state': PostgresqlState.RUNNING}
+        d = {'role': PostgresqlRole.REPLICA, 'api_url': 'http://a/t', 'conn_url': 'pg://c:1',
+             'state': PostgresqlState.RUNNING}
         self.assertIsNone(self.c.update_service({}, {}))
         self.assertFalse(self.c.update_service({}, d))
         self.assertTrue(self.c.update_service(d, d))
@@ -269,7 +270,7 @@ class TestConsul(unittest.TestCase):
         d['state'] = PostgresqlState.RUNNING
         d['role'] = 'bla'
         self.assertIsNone(self.c.update_service({}, d))
-        d['role'] = 'primary'
+        d['role'] = PostgresqlRole.PRIMARY
         self.assertTrue(self.c.update_service({}, d))
 
     @patch.object(KV, 'put', Mock(side_effect=ConsulException))
@@ -281,7 +282,7 @@ class TestConsul(unittest.TestCase):
 
         self.c.refresh_session = Mock(return_value=False)
 
-        d = {'role': 'replica', 'api_url': 'http://a/t',
+        d = {'role': PostgresqlRole.REPLICA, 'api_url': 'http://a/t',
              'conn_url': 'pg://c:1', 'state': PostgresqlState.RUNNING}
 
         # Changing register_service from True to False calls deregister()

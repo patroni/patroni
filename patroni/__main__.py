@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from patroni import MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
 from patroni.daemon import abstract_main, AbstractPatroniDaemon, get_base_arg_parser
+from patroni.postgresql.misc import PostgresqlRole
 from patroni.tags import Tags
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -215,7 +216,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
                 and self.config.set_dynamic_configuration(self.dcs.cluster.config):
             self.reload_config()
 
-        if self.postgresql.role != 'uninitialized':
+        if self.postgresql.role != PostgresqlRole.UNINITIALIZED:
             self.config.save_cache()
 
         self.schedule_next_run()

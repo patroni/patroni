@@ -34,6 +34,18 @@ class PostgresqlState(str, Enum):
         return self.value
 
 
+class PostgresqlRole(str, Enum):
+    """Possible values of :attr:`Postgresql.role`."""
+
+    PRIMARY = 'primary'
+    MASTER = 'master'
+    STANDBY_LEADER = 'standby_leader'
+    REPLICA = 'replica'
+    DEMOTED = 'demoted'
+    UNINITIALIZED = 'uninitialized'
+    PROMOTED = 'promoted'
+
+
 def postgres_version_to_int(pg_version: str) -> int:
     """Convert the server_version to integer
 
