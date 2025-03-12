@@ -1247,7 +1247,7 @@ class ConfigHandler(object):
                     and config.get('pg_hba'):
                 hba_changed = self._config.get('pg_hba', []) != config['pg_hba']
 
-            if (not server_parameters.get('ident_file') or server_parameters['ident_file'] == self._pg_hba_conf) \
+            if (not server_parameters.get('ident_file') or server_parameters['ident_file'] == self._pg_ident_conf) \
                     and config.get('pg_ident'):
                 ident_changed = self._config.get('pg_ident', []) != config['pg_ident']
 
@@ -1266,13 +1266,13 @@ class ConfigHandler(object):
         proxy_addr = config.get('proxy_address')
         self._postgresql.proxy_url = uri('postgres', proxy_addr, self._postgresql.database) if proxy_addr else None
 
-        if conf_changed:
+        if conf_changed or sighup:
             self.write_postgresql_conf()
 
-        if hba_changed:
+        if hba_changed or sighup:
             self.replace_pg_hba()
 
-        if ident_changed:
+        if ident_changed or sighup:
             self.replace_pg_ident()
 
         if sighup or conf_changed or hba_changed or ident_changed:
