@@ -1533,7 +1533,7 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         * ``Member``: name of the Patroni node, as per ``name`` configuration;
         * ``Host``: hostname (or IP) and port, as per ``postgresql.listen`` configuration;
         * ``Role``: ``Leader``, ``Standby Leader``, ``Sync Standby`` or ``Replica``;
-        * ``State``: one of :class:`PostgresqlState`;
+        * ``State``: one of :class:`~patroni.postgresql.misc.PostgresqlState`;
         * ``TL``: current timeline in Postgres;
           ``Lag in MB``: replication lag.
 
