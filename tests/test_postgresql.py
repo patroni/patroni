@@ -18,10 +18,11 @@ from patroni.async_executor import CriticalTask
 from patroni.collections import CaseInsensitiveDict, CaseInsensitiveSet
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PatroniException, PostgresConnectionException
-from patroni.postgresql import Postgresql, STATE_NO_RESPONSE, STATE_REJECT
+from patroni.postgresql import PgIsReadyStatus, Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
 from patroni.postgresql.config import _false_validator, get_param_diff
+from patroni.postgresql.misc import PostgresqlState
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import _get_postgres_guc_validators, _load_postgres_gucs_validators, \
     _read_postgres_gucs_validators_file, Bool, Enum, EnumBool, Integer, InvalidGucValidatorsFile, \
@@ -159,7 +160,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, 'pg_isready')
     @patch('patroni.postgresql.polling_loop', Mock(return_value=range(1)))
     def test_wait_for_port_open(self, mock_pg_isready):
-        mock_pg_isready.return_value = STATE_NO_RESPONSE
+        mock_pg_isready.return_value = PgIsReadyStatus.NO_RESPONSE
         mock_postmaster = MockPostmaster()
         mock_postmaster.is_running.return_value = None
 
@@ -257,7 +258,7 @@ class TestPostgresql(BaseTestPostgresql):
     def test_restart(self):
         self.p.start = Mock(return_value=False)
         self.assertFalse(self.p.restart())
-        self.assertEqual(self.p.state, 'restart failed (restarting)')
+        self.assertEqual(self.p.state, PostgresqlState.RESTART_FAILED)
 
     @patch('os.chmod', Mock())
     @patch('builtins.open', MagicMock())
@@ -378,7 +379,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError))
     def test__query(self):
         self.assertRaises(PostgresConnectionException, self.p._query, 'blabla')
-        self.p._state = 'restarting'
+        self.p._state = PostgresqlState.RESTARTING
         self.assertRaises(RetryFailedError, self.p._query, 'blabla')
 
     def test_query(self):
@@ -386,7 +387,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertRaises(PostgresConnectionException, self.p.query, 'RetryFailedError')
         self.assertRaises(psycopg.ProgrammingError, self.p.query, 'blabla')
 
-    @patch.object(Postgresql, 'pg_isready', Mock(return_value=STATE_REJECT))
+    @patch.object(Postgresql, 'pg_isready', Mock(return_value=PgIsReadyStatus.REJECT))
     def test_is_primary(self):
         self.assertTrue(self.p.is_primary())
         self.p.reset_cluster_info_state(None)
@@ -744,33 +745,33 @@ class TestPostgresql(BaseTestPostgresql):
 
     def test_check_for_startup(self):
         with patch('subprocess.call', return_value=0):
-            self.p._state = 'starting'
+            self.p._state = PostgresqlState.STARTING
             self.assertFalse(self.p.check_for_startup())
-            self.assertEqual(self.p.state, 'running')
+            self.assertEqual(self.p.state, PostgresqlState.RUNNING)
 
         with patch('subprocess.call', return_value=1):
-            self.p._state = 'starting'
+            self.p._state = PostgresqlState.STARTING
             self.assertTrue(self.p.check_for_startup())
-            self.assertEqual(self.p.state, 'starting')
+            self.assertEqual(self.p.state, PostgresqlState.STARTING)
 
         with patch('subprocess.call', return_value=2):
-            self.p._state = 'starting'
+            self.p._state = PostgresqlState.STARTING
             self.assertFalse(self.p.check_for_startup())
-            self.assertEqual(self.p.state, 'start failed')
+            self.assertEqual(self.p.state, PostgresqlState.START_FAILED)
 
         with patch('subprocess.call', return_value=0):
-            self.p._state = 'running'
+            self.p._state = PostgresqlState.RUNNING
             self.assertFalse(self.p.check_for_startup())
-            self.assertEqual(self.p.state, 'running')
+            self.assertEqual(self.p.state, PostgresqlState.RUNNING)
 
         with patch('subprocess.call', return_value=127):
-            self.p._state = 'running'
+            self.p._state = PostgresqlState.RUNNING
             self.assertFalse(self.p.check_for_startup())
-            self.assertEqual(self.p.state, 'running')
+            self.assertEqual(self.p.state, PostgresqlState.RUNNING)
 
-            self.p._state = 'starting'
+            self.p._state = PostgresqlState.STARTING
             self.assertFalse(self.p.check_for_startup())
-            self.assertEqual(self.p.state, 'running')
+            self.assertEqual(self.p.state, PostgresqlState.RUNNING)
 
     def test_wait_for_startup(self):
         state = {'sleeps': 0, 'num_rejects': 0, 'final_return': 0}
@@ -793,21 +794,21 @@ class TestPostgresql(BaseTestPostgresql):
             with patch('time.sleep', side_effect=increment_sleeps):
                 self.p.time_in_state = Mock(side_effect=time_in_state)
 
-                self.p._state = 'stopped'
+                self.p._state = PostgresqlState.STOPPED
                 self.assertTrue(self.p.wait_for_startup())
                 self.assertEqual(state['sleeps'], 0)
 
-                self.p._state = 'starting'
+                self.p._state = PostgresqlState.STARTING
                 state['num_rejects'] = 5
                 self.assertTrue(self.p.wait_for_startup())
                 self.assertEqual(state['sleeps'], 5)
 
-                self.p._state = 'starting'
+                self.p._state = PostgresqlState.STARTING
                 state['sleeps'] = 0
                 state['final_return'] = 2
                 self.assertFalse(self.p.wait_for_startup())
 
-                self.p._state = 'starting'
+                self.p._state = PostgresqlState.STARTING
                 state['sleeps'] = 0
                 state['final_return'] = 0
                 self.assertFalse(self.p.wait_for_startup(timeout=2))
@@ -815,7 +816,7 @@ class TestPostgresql(BaseTestPostgresql):
 
         with patch.object(Postgresql, 'check_startup_state_changed', Mock(return_value=False)):
             self.p.cancellable.cancel()
-            self.p._state = 'starting'
+            self.p._state = PostgresqlState.STARTING
             self.assertIsNone(self.p.wait_for_startup())
 
     def test_get_server_parameters(self):

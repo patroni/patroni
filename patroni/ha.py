@@ -17,7 +17,7 @@ from .collections import CaseInsensitiveSet
 from .dcs import AbstractDCS, Cluster, Leader, Member, RemoteMember, Status, SyncState
 from .exceptions import DCSError, PatroniFatalException, PostgresConnectionException
 from .postgresql.callback_executor import CallbackAction
-from .postgresql.misc import postgres_version_to_int
+from .postgresql.misc import postgres_version_to_int, PostgresqlState
 from .postgresql.postmaster import PostmasterProcess
 from .postgresql.rewind import Rewind
 from .quorum import QuorumStateResolver
@@ -458,7 +458,8 @@ class Ha(object):
                 data['pending_restart'] = True
                 data['pending_restart_reason'] = dict(self.state_handler.pending_restart_reason)
             if self._async_executor.scheduled_action in (None, 'promote') \
-                    and data['state'] in ['running', 'restarting', 'starting']:
+                    and data['state'] in [PostgresqlState.RUNNING, PostgresqlState.RESTARTING,
+                                          PostgresqlState.STARTING]:
                 try:
                     timeline, wal_position, pg_control_timeline = self.state_handler.timeline_wal_position()
                     data['xlog_location'] = self._last_wal_lsn = wal_position
@@ -495,7 +496,7 @@ class Ha(object):
             ret = self.dcs.touch_member(data)
             if ret:
                 new_state = (data['state'], data['role'])
-                if self._last_state != new_state and new_state == ('running', 'primary'):
+                if self._last_state != new_state and new_state == (PostgresqlState.RUNNING, 'primary'):
                     self.notify_mpp_coordinator('after_promote')
                 self._last_state = new_state
             return ret
@@ -636,7 +637,7 @@ class Ha(object):
         if timeout\
                 and data.get('Database cluster state') in ('in production', 'in crash recovery',
                                                            'shutting down', 'shut down')\
-                and self.state_handler.state == 'crashed'\
+                and self.state_handler.state == PostgresqlState.CRASHED\
                 and self.state_handler.role == 'primary'\
                 and not self.state_handler.config.recovery_conf_exists():
             # We know 100% that we were running as a primary a few moments ago, therefore could just start postgres
@@ -1158,7 +1159,7 @@ class Ha(object):
 
         :returns: the reason why caller shouldn't continue as a primary or the current value of received/replayed LSN.
         """
-        if self.state_handler.state == 'running' and self.state_handler.role == 'primary':
+        if self.state_handler.state == PostgresqlState.RUNNING and self.state_handler.role == 'primary':
             return 'Running as a leader'
         self._failsafe.update(data)
         return self._last_wal_lsn
@@ -1898,7 +1899,7 @@ class Ha(object):
             elif res is None:
                 return (False, 'postgres is still starting')
             else:
-                return (False, 'restart failed')
+                return (False, PostgresqlState.RESTART_FAILED)
 
     def _do_reinitialize(self, cluster: Cluster) -> Optional[bool]:
         self.state_handler.stop('immediate', stop_timeout=self.patroni.config['retry_timeout'])
@@ -2035,7 +2036,8 @@ class Ha(object):
         if not self.state_handler.check_for_startup() or self.is_paused():
             self.set_start_timeout(None)
             if self.is_paused():
-                self.state_handler.set_state(self.state_handler.is_running() and 'running' or 'stopped')
+                self.state_handler.set_state(PostgresqlState.RUNNING if self.state_handler.is_running()
+                                             else PostgresqlState.STOPPED)
             return None
 
         # state_handler.state == 'starting' here
@@ -2201,7 +2203,7 @@ class Ha(object):
 
             if not self.state_handler.is_healthy():
                 if self.is_paused():
-                    self.state_handler.set_state('stopped')
+                    self.state_handler.set_state(PostgresqlState.STOPPED)
                     if self.has_lock():
                         self._delete_leader()
                         return 'removed leader lock because postgres is not running'
@@ -2214,8 +2216,8 @@ class Ha(object):
                             (self._rewind.is_needed and self._rewind.can_rewind_or_reinitialize_allowed):
                         return 'postgres is not running'
 
-                if self.state_handler.state in ('running', 'starting'):
-                    self.state_handler.set_state('crashed')
+                if self.state_handler.state in (PostgresqlState.RUNNING, PostgresqlState.STARTING):
+                    self.state_handler.set_state(PostgresqlState.CRASHED)
                 # try to start dead postgres
                 return self.recover()
 

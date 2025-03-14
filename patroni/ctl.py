@@ -64,7 +64,7 @@ from . import global_config
 from .config import Config
 from .dcs import AbstractDCS, Cluster, get_dcs as _get_dcs, Member
 from .exceptions import PatroniException
-from .postgresql.misc import postgres_version_to_int
+from .postgresql.misc import postgres_version_to_int, PostgresqlState
 from .postgresql.mpp import get_mpp
 from .request import PatroniRequest
 from .utils import cluster_as_json, patch_config, polling_loop
@@ -1210,7 +1210,7 @@ def reinit(cluster_name: str, group: Optional[int], member_names: List[str], for
         time.sleep(2)
         for member in wait_on_members:
             data = json.loads(request_patroni(member, 'get', 'patroni').data.decode('utf-8'))
-            if data.get('state') != 'creating replica':
+            if data.get('state') != PostgresqlState.CREATING_REPLICA:
                 click.echo('Reinitialize is completed on: {0}'.format(member.name))
                 wait_on_members.remove(member)
 
@@ -1533,10 +1533,7 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         * ``Member``: name of the Patroni node, as per ``name`` configuration;
         * ``Host``: hostname (or IP) and port, as per ``postgresql.listen`` configuration;
         * ``Role``: ``Leader``, ``Standby Leader``, ``Sync Standby`` or ``Replica``;
-        * ``State``: ``stopping``, ``stopped``, ``stop failed``, ``crashed``, ``running``, ``starting``,
-          ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``, ``initdb failed``,
-          ``running custom bootstrap script``, ``starting after custom bootstrap``, ``custom bootstrap failed``,
-          ``creating replica``, ``streaming``, ``in archive recovery``, and so on;
+        * ``State``: one of :class:`~patroni.postgresql.misc.PostgresqlState`;
         * ``TL``: current timeline in Postgres;
           ``Lag in MB``: replication lag.
 

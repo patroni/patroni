@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch, PropertyMock
 from patroni import global_config, psycopg
 from patroni.dcs import Cluster, ClusterConfig, Member, Status, SyncState
 from patroni.postgresql import Postgresql
-from patroni.postgresql.misc import fsync_dir
+from patroni.postgresql.misc import fsync_dir, PostgresqlState
 from patroni.postgresql.slots import SlotsAdvanceThread, SlotsHandler
 from patroni.tags import Tags
 
@@ -86,7 +86,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         """Test sync with a cascading replica so physical slots are present on a replica."""
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}}}, 1)
         cascading_replica = Member(0, 'test-2', 28, {
-            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+            'state': PostgresqlState.RUNNING, 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
             'tags': {'replicatefrom': 'postgresql0'}
         })
         cluster = Cluster(True, config, self.leader, Status(0, {'ls': 10}, []),
@@ -127,17 +127,17 @@ class TestSlotsHandler(BaseTestPostgresql):
         config = ClusterConfig(
             1, {'slots': {'foo': {'type': 'logical', 'database': 'a', 'plugin': 'b'}, 'bar': {'type': 'physical'}}}, 1)
         nostream_node = Member(0, 'test-2', 28, {
-            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+            'state': PostgresqlState.RUNNING, 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
             'tags': {'nostream': 'True'},
             'xlog_location': 10,
         })
         cascade_node = Member(0, 'test-3', 28, {
-            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+            'state': PostgresqlState.RUNNING, 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
             'tags': {'replicatefrom': 'test-2'},
             'xlog_location': 98
         })
         stream_node = Member(0, 'test-4', 28, {
-            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+            'state': PostgresqlState.RUNNING, 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
             'xlog_location': 99})
         cluster = Cluster(
             True, config, self.leader, Status(100, {'leader': 99, 'test_2': 98, 'test_3': 97, 'test_4': 98}, []),
@@ -193,11 +193,11 @@ class TestSlotsHandler(BaseTestPostgresql):
 
     def test_get_slot_name_on_primary(self):
         node1 = Member(0, 'node1', 28, {
-            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+            'state': PostgresqlState.RUNNING, 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
             'tags': {'replicatefrom': 'node2'}
         })
         node2 = Member(0, 'node2', 28, {
-            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+            'state': PostgresqlState.RUNNING, 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
             'tags': {'replicatefrom': 'node1'}
         })
         cluster = Cluster(True, None, self.leader, Status.empty(), [self.leadermem, node1, node2],
@@ -206,11 +206,11 @@ class TestSlotsHandler(BaseTestPostgresql):
 
     def test_should_enforce_hot_standby_feedback(self):
         node1 = Member(0, 'postgresql0', 28, {
-            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+            'state': PostgresqlState.RUNNING, 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
             'tags': {'replicatefrom': 'postgresql1'}
         })
         node2 = Member(0, 'postgresql1', 28, {
-            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
+            'state': PostgresqlState.RUNNING, 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
             'tags': {'replicatefrom': 'postgresql0'}
         })
         cluster = Cluster(True, None, self.leader, Status.empty(), [self.leadermem, node1, node2],

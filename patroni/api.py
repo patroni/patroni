@@ -30,7 +30,7 @@ from . import global_config, psycopg
 from .__main__ import Patroni
 from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
-from .postgresql.misc import postgres_version_to_int
+from .postgresql.misc import postgres_version_to_int, PostgresqlState
 from .utils import cluster_as_json, deep_compare, enable_keepalive, parse_bool, \
     parse_int, patch_config, Retry, RetryFailedError, split_host_port, tzutc, uri
 
@@ -324,7 +324,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         is_lagging = leader_optime and leader_optime > replayed_location + max_replica_lag
 
         replica_status_code = 200 if not patroni.noloadbalance and not is_lagging and \
-            response.get('role') == 'replica' and response.get('state') == 'running' else 503
+            response.get('role') == 'replica' and response.get('state') == PostgresqlState.RUNNING else 503
 
         if not cluster and response.get('pause'):
             leader_status_code = 200 if response.get('role') in ('primary', 'standby_leader') else 503
@@ -358,7 +358,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         elif 'read-only' in path and 'sync' not in path and 'quorum' not in path:
             status_code = 200 if 200 in (primary_status_code, standby_leader_status_code) else replica_status_code
         elif 'health' in path:
-            status_code = 200 if response.get('state') == 'running' else 503
+            status_code = 200 if response.get('state') == PostgresqlState.RUNNING else 503
         elif cluster:  # dcs is available
             is_quorum = response.get('quorum_standby')
             is_synchronous = response.get('sync_standby')
@@ -462,7 +462,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         patroni = self.server.patroni
         if patroni.ha.is_leader():
             status_code = 200
-        elif patroni.postgresql.state == 'running':
+        elif patroni.postgresql.state == PostgresqlState.RUNNING:
             status_code = 200 if patroni.dcs.cluster else 503
         else:
             status_code = 503
@@ -573,7 +573,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics.append("# HELP patroni_postgres_running Value is 1 if Postgres is running, 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_running gauge")
-        metrics.append("patroni_postgres_running{0} {1}".format(labels, int(postgres['state'] == 'running')))
+        metrics.append("patroni_postgres_running{0} {1}".format(
+            labels, int(postgres['state'] == PostgresqlState.RUNNING)))
 
         metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Postgres started.")
         metrics.append("# TYPE patroni_postmaster_start_time gauge")
@@ -889,7 +890,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             If it's not able to parse the request body, then the request is silently discarded.
         """
         status_code = 500
-        data = 'restart failed'
+        data = PostgresqlState.RESTART_FAILED
         request = self._read_json_content(body_is_optional=True)
         cluster = self.server.patroni.dcs.get_cluster()
         if request is None:
@@ -1263,10 +1264,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         :returns: a dict with the status of Postgres/Patroni. The keys are:
 
-            * ``state``: Postgres state among ``stopping``, ``stopped``, ``stop failed``, ``crashed``, ``running``,
-              ``starting``, ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``,
-              ``initdb failed``, ``running custom bootstrap script``, ``starting after custom bootstrap``,
-              ``custom bootstrap failed``, ``creating replica``, or ``unknown``;
+            * ``state``: one of :class:`~patroni.postgresql.misc.PostgresqlState` or ``unknown``;
             * ``postmaster_start_time``: ``pg_postmaster_start_time()``;
             * ``role``: ``replica`` or ``primary`` based on ``pg_is_in_recovery()`` output;
             * ``server_version``: Postgres version without periods, e.g. ``150002`` for Postgres ``15.2``;
@@ -1308,7 +1306,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         config = global_config.from_cluster(cluster)
         try:
 
-            if postgresql.state not in ('running', 'restarting', 'starting'):
+            if postgresql.state not in (PostgresqlState.RUNNING, PostgresqlState.RESTARTING,
+                                        PostgresqlState.STARTING):
                 raise RetryFailedError('')
             replication_state = ("pg_catalog.pg_{0}_{1}_diff(wr.latest_end_lsn, '0/0')::bigint, wr.status"
                                  if postgresql.major_version >= 90600 else "NULL, NULL") + ", " +\
@@ -1365,7 +1364,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         except (psycopg.Error, RetryFailedError, PostgresConnectionException):
             state = postgresql.state
-            if state == 'running':
+            if state == PostgresqlState.RUNNING:
                 logger.exception('get_postgresql_status')
                 state = 'unknown'
             result: Dict[str, Any] = {'state': state, 'role': postgresql.role}

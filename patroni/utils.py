@@ -923,10 +923,7 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
 
             * ``name``: the name of the host (unique in the cluster). The ``members`` list is sorted by this key;
             * ``role``: ``leader``, ``standby_leader``, ``sync_standby``, ``quorum_standby``, or ``replica``;
-            * ``state``: ``stopping``, ``stopped``, ``stop failed``, ``crashed``, ``running``, ``starting``,
-                ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``, ``initdb failed``,
-                ``running custom bootstrap script``, ``starting after custom bootstrap``, ``custom bootstrap failed``,
-                or ``creating replica``;
+            * ``state``: one of :class:`~patroni.postgresql.misc.PostgresqlState`;
             * ``api_url``: REST API URL based on ``restapi->connect_address`` configuration;
             * ``host``: PostgreSQL host based on ``postgresql->connect_address``;
             * ``port``: PostgreSQL port based on ``postgresql->connect_address``;

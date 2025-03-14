@@ -12,6 +12,7 @@ import patroni.psycopg as psycopg
 from patroni.dcs import Leader, Member
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
+from patroni.postgresql.misc import PostgresqlState
 from patroni.postgresql.mpp import get_mpp
 from patroni.utils import RetryFailedError, tzutc
 
@@ -283,13 +284,13 @@ class BaseTestPostgresql(PostgresInit):
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
 
-        self.leadermem = Member(0, 'leader', 28, {'xlog_location': 100, 'state': 'running',
+        self.leadermem = Member(0, 'leader', 28, {'xlog_location': 100, 'state': PostgresqlState.RUNNING,
                                                   'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
         self.leader = Leader(-1, 28, self.leadermem)
         self.other = Member(0, 'test-1', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
-                                              'state': 'running', 'tags': {'replicatefrom': 'leader'}})
+                                              'state': PostgresqlState.RUNNING, 'tags': {'replicatefrom': 'leader'}})
         self.me = Member(0, 'test0', 28, {
-            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres'})
+            'state': PostgresqlState.RUNNING, 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres'})
 
     def tearDown(self):
         if os.path.exists(self.p.data_dir):
