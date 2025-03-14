@@ -1379,7 +1379,10 @@ class Ha(object):
                 quorum_votes += 1
 
         # In case of quorum replication we need to make sure that there is enough healthy synchronous replicas!
-        return quorum_votes >= (self.cluster.sync.quorum if self.quorum_commit_mode_is_active() else 0)
+        # However, when failover candidate is set, we can ignore quorum requirements.
+        quorum = self.cluster.sync.quorum if self.quorum_commit_mode_is_active() and\
+            not (self.cluster.failover and self.cluster.failover.candidate) else 0
+        return quorum_votes >= quorum
 
     def manual_failover_process_no_leader(self) -> Optional[bool]:
         """Handles manual failover/switchover when the old leader already stepped down.
