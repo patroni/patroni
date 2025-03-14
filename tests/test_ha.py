@@ -1851,6 +1851,7 @@ class TestHa(PostgresInit):
         self.ha.fetch_node_status = get_node_status()
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo,other', 1),
                                                               failover=Failover(0, 'leader', 'other', None))
+        self.ha.cluster.members.append(Member(0, 'foo', 28, {'api_url': 'http://127.0.0.1:8011/patroni'}))
         # switchover when synchronous_mode = off
         self.assertTrue(self.ha.is_failover_possible())
 
@@ -1860,6 +1861,11 @@ class TestHa(PostgresInit):
             with patch.object(global_config.__class__, 'is_quorum_commit_mode', PropertyMock(return_value=True)):
                 # switchover to synchronous node when synchronous_mode = quorum
                 self.assertTrue(self.ha.is_failover_possible())  # success, despite the fact that quorum is low
+                # failover candidate is unhealthy, we are checking if there are other good candidates, but quorum is low
+                self.assertFalse(self.ha.is_failover_possible(exclude_failover_candidate=True))
+                # now we satisfy quorum requirements
+                with patch.object(SyncState, 'quorum', PropertyMock(return_value=0)):
+                    self.assertTrue(self.ha.is_failover_possible(exclude_failover_candidate=True))
 
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo,other', 1),
                                                               failover=Failover(0, '', 'foo', None))
