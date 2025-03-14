@@ -12,7 +12,7 @@ import time
 from argparse import Namespace
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from patroni import MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
+from patroni import global_config, MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
 from patroni.daemon import AbstractPatroniDaemon, abstract_main, get_base_arg_parser
 from patroni.tags import Tags
 
@@ -69,6 +69,9 @@ class Patroni(AbstractPatroniDaemon, Tags):
 
         self.watchdog = Watchdog(self.config)
         self.apply_dynamic_configuration(cluster)
+
+        # Initialize global config
+        global_config.update(None, self.config.dynamic_configuration)
 
         self.postgresql = Postgresql(self.config['postgresql'], self.dcs.mpp)
         self.api = RestApiServer(self, self.config['restapi'])

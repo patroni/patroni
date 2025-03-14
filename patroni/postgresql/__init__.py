@@ -82,6 +82,8 @@ class Postgresql(object):
         self._connection = self.connection_pool.get('heartbeat')
         self.mpp_handler = mpp.get_handler_impl(self)
         self._bin_dir = config.get('bin_dir') or ''
+        self._role_lock = Lock()
+        self.set_role('uninitialized')
         self.config = ConfigHandler(self, config)
         self.config.check_directories()
 
@@ -106,7 +108,6 @@ class Postgresql(object):
         self._is_leader_retry = Retry(max_tries=1, deadline=config['retry_timeout'] / 2.0, max_delay=1,
                                       retry_exceptions=PostgresConnectionException)
 
-        self._role_lock = Lock()
         self.set_role(self.get_postgres_role_from_data_directory())
         self._state_entry_timestamp = 0
 
