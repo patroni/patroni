@@ -20,7 +20,7 @@ from patroni.dcs.etcd import AbstractEtcdClientWithFailover
 from patroni.exceptions import DCSError
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
-from patroni.postgresql.misc import PostgresqlState
+from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 
 from . import psycopg_connect, SleepException
 from .test_etcd import etcd_read, etcd_write
@@ -163,7 +163,7 @@ class TestPatroni(unittest.TestCase):
     @patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.RUNNING))
     @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
     def test_run(self):
-        self.p.postgresql.set_role('replica')
+        self.p.postgresql.set_role(PostgresqlRole.REPLICA)
         self.p.sighup_handler()
         self.p.ha.dcs.watch = Mock(side_effect=SleepException)
         self.p.api.start = Mock()

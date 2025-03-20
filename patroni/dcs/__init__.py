@@ -25,6 +25,7 @@ from ..utils import deep_compare, parse_int, uri
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
     from ..postgresql import Postgresql
+    from ..postgresql.misc import PostgresqlRole
     from ..postgresql.mpp import AbstractMPP
 
 slot_name_re = re.compile('^[a-z0-9_]{1,63}$')
@@ -416,10 +417,13 @@ class Leader(NamedTuple):
 
             >>> Leader(1, '', Member.from_node(1, '', '', '{"version":"z"}')).checkpoint_after_promote
         """
+        from ..postgresql.misc import PostgresqlRole
+
         version = self.member.patroni_version
         # 1.5.6 is the last version which doesn't expose checkpoint_after_promote: false
         if version and version > (1, 5, 6):
-            return self.data.get('role') in ('master', 'primary') and 'checkpoint_after_promote' not in self.data
+            return self.data.get('role') in (PostgresqlRole.MASTER, PostgresqlRole.PRIMARY) \
+                and 'checkpoint_after_promote' not in self.data
         return None
 
 
@@ -1010,7 +1014,8 @@ class Cluster(NamedTuple('Cluster',
         return {name: value for name, value in self.__permanent_slots.items() if self.is_logical_slot(value)}
 
     def get_replication_slots(self, postgresql: 'Postgresql', member: Tags, *,
-                              role: Optional[str] = None, show_error: bool = False) -> Dict[str, Dict[str, Any]]:
+                              role: Optional['PostgresqlRole'] = None,
+                              show_error: bool = False) -> Dict[str, Dict[str, Any]]:
         """Lookup configured slot names in the DCS, report issues found and merge with permanent slots.
 
         Will log an error if:
@@ -1019,7 +1024,8 @@ class Cluster(NamedTuple('Cluster',
 
         :param postgresql: reference to :class:`Postgresql` object.
         :param member: reference to an object implementing :class:`Tags` interface.
-        :param role: role of the node, if not set will be taken from *postgresql*.
+        :param role: role of the node, if not set will be taken from *postgresql*
+            One of :class:`~patroni.postgresql.misc.PostgresqlRole` values.
         :param show_error: if ``True`` report error if any disabled logical slots or conflicting slot names are found.
 
         :returns: final dictionary of slot names, after merging with permanent slots and performing sanity checks.
@@ -1041,7 +1047,7 @@ class Cluster(NamedTuple('Cluster',
         return slots
 
     def _merge_permanent_slots(self, slots: Dict[str, Dict[str, Any]], permanent_slots: Dict[str, Any],
-                               name: str, role: str, can_advance_slots: bool) -> List[str]:
+                               name: str, role: 'PostgresqlRole', can_advance_slots: bool) -> List[str]:
         """Merge replication *slots* for members with *permanent_slots*.
 
         Perform validation of configured permanent slot name, skipping invalid names.
@@ -1051,13 +1057,15 @@ class Cluster(NamedTuple('Cluster',
 
         :param slots: Slot names with existing attributes if known.
         :param name: name of this node.
-        :param role: role of the node -- ``primary``, ``standby_leader`` or ``replica``.
+        :param role: role of the node. One of :class:`~patroni.postgresql.misc.PostgresqlRole` values.
         :param permanent_slots: dictionary containing slot name key and slot information values.
         :param can_advance_slots: ``True`` if ``pg_replication_slot_advance()`` function is available,
                                   ``False`` otherwise.
 
         :returns: List of disabled permanent, logical slot names, if postgresql version < 11.
         """
+        from ..postgresql.misc import PostgresqlRole
+
         name = slot_name_from_member_name(name)
         topology = {slot_name_from_member_name(m.name): m.replicatefrom and slot_name_from_member_name(m.replicatefrom)
                     for m in self.members}
@@ -1084,7 +1092,8 @@ class Cluster(NamedTuple('Cluster',
                         # case we should have the following: A(B: active, C: inactive) <- B (C: active) <- C
                         # We don't consider the same situation on node B, because if node C doesn't exists, we will not
                         # be able to know its `replicatefrom` tag value.
-                        expected_active = not topology.get(slot_name) and role in ('primary', 'standby_leader')
+                        expected_active = not topology.get(slot_name) and role in (PostgresqlRole.PRIMARY,
+                                                                                   PostgresqlRole.STANDBY_LEADER)
                         slots[slot_name] = {**value, 'expected_active': expected_active}
                     continue
 
@@ -1101,7 +1110,7 @@ class Cluster(NamedTuple('Cluster',
             logger.error("Bad value for slot '%s' in permanent_slots: %s", slot_name, permanent_slots[slot_name])
         return disabled_permanent_logical_slots
 
-    def _get_permanent_slots(self, postgresql: 'Postgresql', tags: Tags, role: str) -> Dict[str, Any]:
+    def _get_permanent_slots(self, postgresql: 'Postgresql', tags: Tags, role: 'PostgresqlRole') -> Dict[str, Any]:
         """Get configured permanent replication slots.
 
         .. note::
@@ -1117,20 +1126,23 @@ class Cluster(NamedTuple('Cluster',
 
         :param postgresql: reference to :class:`Postgresql` object.
         :param tags: reference to an object implementing :class:`Tags` interface.
-        :param role: role of the node -- ``primary``, ``standby_leader`` or ``replica``.
+        :param role: role of the node. One of :class:`~patroni.postgresql.misc.PostgresqlRole` values.
 
         :returns: dictionary of permanent slot names mapped to attributes.
         """
+        from ..postgresql.misc import PostgresqlRole
+
         if not global_config.use_slots or tags.nofailover:
             return {}
 
         if global_config.is_standby_cluster or self.get_slot_name_on_primary(postgresql.name, tags) is None:
-            return self.permanent_physical_slots if postgresql.can_advance_slots or role == 'standby_leader' else {}
+            return self.permanent_physical_slots\
+                if postgresql.can_advance_slots or role == PostgresqlRole.STANDBY_LEADER else {}
 
-        return self.__permanent_slots if postgresql.can_advance_slots or role == 'primary' \
+        return self.__permanent_slots if postgresql.can_advance_slots or role == PostgresqlRole.PRIMARY \
             else self.__permanent_logical_slots
 
-    def _get_members_slots(self, name: str, role: str, nofailover: bool,
+    def _get_members_slots(self, name: str, role: 'PostgresqlRole', nofailover: bool,
                            can_advance_slots: bool) -> Dict[str, Dict[str, Any]]:
         """Get physical replication slots configuration for a given member.
 
@@ -1162,6 +1174,8 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: dictionary of physical replication slots that should exist on a given node.
         """
+        from ..postgresql.misc import PostgresqlRole
+
         if not global_config.use_slots:
             return {}
 
@@ -1195,7 +1209,8 @@ class Cluster(NamedTuple('Cluster',
         # In case when retention of replication slots is possible the `expected_active` function
         # will be used to figure out whether the replication slot is expected to be active.
         # Otherwise it will be used to find replication slots that should exist on a current node.
-        expected_active = leader_filter if role in ('primary', 'standby_leader') else replica_filter
+        expected_active = leader_filter if role in (PostgresqlRole.PRIMARY, PostgresqlRole.STANDBY_LEADER) \
+            else replica_filter
 
         if can_advance_slots and global_config.member_slots_ttl > 0:
             # if the node does only cascading and can't become the leader, we
@@ -1239,7 +1254,9 @@ class Cluster(NamedTuple('Cluster',
                        the node that we are checking permanent logical replication slots for.
         :returns: ``True`` if there are permanent replication slots configured, otherwise ``False``.
         """
-        role = 'replica'
+        from ..postgresql.misc import PostgresqlRole
+
+        role = PostgresqlRole.REPLICA
         members_slots: Dict[str, Dict[str, str]] = self._get_members_slots(postgresql.name, role,
                                                                            member.nofailover,
                                                                            postgresql.can_advance_slots)
@@ -1260,10 +1277,13 @@ class Cluster(NamedTuple('Cluster',
         :param slots: slot names with LSN values.
         :returns: a :class:`dict` object that contains only slots that are known to be permanent.
         """
+        from ..postgresql.misc import PostgresqlRole
+
         if global_config.member_slots_ttl > 0:
             return slots
 
-        permanent_slots: Dict[str, Any] = self._get_permanent_slots(postgresql, RemoteMember('', {}), 'replica')
+        permanent_slots: Dict[str, Any] = self._get_permanent_slots(postgresql, RemoteMember('', {}),
+                                                                    PostgresqlRole.REPLICA)
         members_slots = {slot_name_from_member_name(m.name) for m in self.members}
 
         return {name: value for name, value in slots.items() if name in permanent_slots
@@ -1279,7 +1299,9 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: ``True`` if any detected replications slots are ``logical``, otherwise ``False``.
         """
-        slots = self.get_replication_slots(postgresql, member, role='replica').values()
+        from ..postgresql.misc import PostgresqlRole
+
+        slots = self.get_replication_slots(postgresql, member, role=PostgresqlRole.REPLICA).values()
         return any(v for v in slots if v.get("type") == "logical")
 
     def should_enforce_hot_standby_feedback(self, postgresql: 'Postgresql', member: Tags) -> bool:
