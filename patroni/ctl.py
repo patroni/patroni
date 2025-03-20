@@ -83,8 +83,8 @@ DCS_DEFAULTS: Dict[str, Dict[str, Any]] = {
 
 class CtlPostgresqlRole(str, Enum):
 
-    PRIMARY = 'primary'
     LEADER = 'leader'
+    PRIMARY = 'primary'
     STANDBY_LEADER = 'standby-leader'
     REPLICA = 'replica'
     STANDBY = 'standby'
@@ -524,22 +524,21 @@ def get_all_members(cluster: Cluster, group: Optional[int],
     if role in (CtlPostgresqlRole.LEADER, CtlPostgresqlRole.PRIMARY, CtlPostgresqlRole.STANDBY_LEADER):
         # In the DCS the members' role can be one among: ``primary``, ``master``, ``replica`` or ``standby_leader``.
         # ``primary`` and ``master`` are the same thing.
-        # role = {'standby-leader': 'standby_leader'}.get(role, role)
         for cluster in clusters.values():
-            if (cluster.leader is not None and cluster.leader.name
-                and (role == CtlPostgresqlRole.LEADER
-                     or (cluster.leader.data.get('role') not in (PostgresqlRole.PRIMARY, PostgresqlRole.MASTER)
-                         and role == CtlPostgresqlRole.STANDBY_LEADER)
-                     or (cluster.leader.data.get('role') != PostgresqlRole.STANDBY_LEADER
-                         and role == CtlPostgresqlRole.PRIMARY))):
+            if cluster.leader is not None and cluster.leader.name and\
+                (role == CtlPostgresqlRole.LEADER
+                 or cluster.leader.data.get('role') not in (PostgresqlRole.PRIMARY, PostgresqlRole.MASTER)
+                 and role == CtlPostgresqlRole.STANDBY_LEADER
+                 or cluster.leader.data.get('role') != PostgresqlRole.STANDBY_LEADER
+                 and role == CtlPostgresqlRole.PRIMARY):
                 yield cluster.leader.member
         return
 
     for cluster in clusters.values():
         leader_name = (cluster.leader.member.name if cluster.leader else None)
         for m in cluster.members:
-            if (role == CtlPostgresqlRole.ANY
-                    or role in (CtlPostgresqlRole.REPLICA, CtlPostgresqlRole.STANDBY) and m.name != leader_name):
+            if role == CtlPostgresqlRole.ANY or\
+                    role in (CtlPostgresqlRole.REPLICA, CtlPostgresqlRole.STANDBY) and m.name != leader_name:
                 yield m
 
 
@@ -635,10 +634,9 @@ def get_cursor(cluster: Cluster, group: Optional[int], connect_parameters: Dict[
     row = cursor.fetchone()
     in_recovery = not row or row[0]
 
-    if (in_recovery and role in (CtlPostgresqlRole.REPLICA,
-                                 CtlPostgresqlRole.STANDBY,
-                                 CtlPostgresqlRole.STANDBY_LEADER)
-            or not in_recovery and role == CtlPostgresqlRole.PRIMARY):
+    if in_recovery and\
+        role in (CtlPostgresqlRole.REPLICA, CtlPostgresqlRole.STANDBY, CtlPostgresqlRole.STANDBY_LEADER) or\
+            not in_recovery and role == CtlPostgresqlRole.PRIMARY:
         return cursor
 
     conn.close()

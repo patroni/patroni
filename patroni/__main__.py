@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from patroni import global_config, MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
 from patroni.daemon import abstract_main, AbstractPatroniDaemon, get_base_arg_parser
-from patroni.postgresql.misc import PostgresqlRole
 from patroni.tags import Tags
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -213,6 +212,8 @@ class Patroni(AbstractPatroniDaemon, Tags):
         the change and cache the new dynamic configuration values in ``patroni.dynamic.json`` file under Postgres data
         directory.
         """
+        from patroni.postgresql.misc import PostgresqlRole
+
         logger.info(self.ha.run_cycle())
 
         if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
