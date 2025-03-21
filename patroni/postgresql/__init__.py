@@ -1277,6 +1277,21 @@ class Postgresql(object):
         wal_position = self._wal_position(bool(timeline), wal_position, received_location, replayed_location)
         return timeline, wal_position, pg_control_timeline
 
+    def replica_wal_positions(self) -> Tuple[Optional[int], Optional[int]]:
+        """Get receive and replay LSN.
+
+        :returns: a tuple composed of 2 integers representing receive and replay LSN (if available).
+        """
+        # This method could be called from different threads (simultaneously with some other `_query` calls).
+        # If it is called not from main thread we will create a new cursor to execute statement.
+        if current_thread().ident == self.__thread_ident:
+            replayed_location = self.replayed_location()
+            received_location = self.received_location()
+        else:
+            _, _, replayed_location, received_location = self._query(self.cluster_info_query)[0][:4]
+
+        return received_location, replayed_location
+
     def postmaster_start_time(self) -> Optional[str]:
         try:
             sql = "SELECT " + self.POSTMASTER_START_TIME
