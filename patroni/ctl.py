@@ -1542,7 +1542,7 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         * ``Role``: ``Leader``, ``Standby Leader``, ``Sync Standby`` or ``Replica``;
         * ``State``: one of :class:`~patroni.postgresql.misc.PostgresqlState`;
         * ``TL``: current timeline in Postgres;
-        * ``Receive LSN``: last received LSN ``pg_catalog.pg_last_(xlog|wal)_receive_(location|lsn)()``);
+        * ``Receive LSN``: last received LSN (``pg_catalog.pg_last_(xlog|wal)_receive_(location|lsn)()``);
         * ``Receive Lag``: lag of the receive LSN in MB;
         * ``Replay LSN``: last replayed LSN (``pg_catalog.pg_last_(xlog|wal)_replay_(location|lsn)()``);
         * ``Replay Lag``: lag of the replay LSN in MB.
