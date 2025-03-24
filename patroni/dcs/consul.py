@@ -280,6 +280,8 @@ class Consul(AbstractDCS):
         self.__session_checks = config.get('checks', [])
         self._register_service = config.get('register_service', False)
         self._previous_loop_register_service = self._register_service
+        self._service_metadata = config.get('service_metadata', None)
+        self._previous_loop_service_metadata = self._service_metadata
         self._service_tags = sorted(config.get('service_tags', []))
         self._previous_loop_service_tags = self._service_tags
         if self._register_service:
@@ -306,6 +308,10 @@ class Consul(AbstractDCS):
 
         consul_config = config.get('consul', {})
         self._client.reload_config(consul_config)
+        
+        self._previous_loop_service_metadata = self._service_metadata
+        self._service_metadata: Dict[str, str] = consul_config.get('service_metadata', None)
+        
         self._previous_loop_service_tags = self._service_tags
         self._service_tags: List[str] = consul_config.get('service_tags', [])
         self._service_tags.sort()
@@ -531,6 +537,7 @@ class Consul(AbstractDCS):
                            deregister='{0}s'.format(self._client.http.ttl * 10))
         if self._service_check_tls_server_name is not None:
             check['TLSServerName'] = self._service_check_tls_server_name
+        metadata = self._service_metadata
         tags = self._service_tags[:]
         tags.append(role)
         if role == 'primary':
@@ -543,6 +550,7 @@ class Consul(AbstractDCS):
             'address': conn_parts.hostname,
             'port': conn_parts.port,
             'check': check,
+            'meta': metadata,
             'tags': tags,
             'enable_tag_override': True,
         }
@@ -572,6 +580,7 @@ class Consul(AbstractDCS):
 
         if (
             force or update or self._register_service != self._previous_loop_register_service
+            or self._service_metadata != self._previous_loop_service_metadata
             or self._service_tags != self._previous_loop_service_tags
             or self._client.token != self._previous_loop_token
         ):
