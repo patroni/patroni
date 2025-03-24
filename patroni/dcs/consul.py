@@ -19,7 +19,7 @@ from consul import base, Check, ConsulException, NotFound
 from urllib3.exceptions import HTTPError
 
 from ..exceptions import DCSError
-from ..postgresql.misc import PostgresqlState
+from ..postgresql.misc import PostgresqlRole, PostgresqlState
 from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, parse_bool, Retry, RetryFailedError, split_host_port, uri, USER_AGENT
 from . import AbstractDCS, catch_return_false_exception, Cluster, ClusterConfig, \
@@ -520,11 +520,12 @@ class Consul(AbstractDCS):
 
     def _update_service(self, data: Dict[str, Any]) -> Optional[bool]:
         service_name = self._service_name
-        role = data['role'].replace('_', '-')
+        role = data['role']
+        mod_role = role.replace('_', '-')
         state = data['state']
         api_url: str = data['api_url']
         api_parts = urlparse(api_url)
-        api_parts = api_parts._replace(path='/{0}'.format(role))
+        api_parts = api_parts._replace(path='/{0}'.format(mod_role))
         conn_url: str = data['conn_url']
         conn_parts = urlparse(conn_url)
         check = Check.http(api_parts.geturl(), self._service_check_interval,
@@ -532,9 +533,9 @@ class Consul(AbstractDCS):
         if self._service_check_tls_server_name is not None:
             check['TLSServerName'] = self._service_check_tls_server_name
         tags = self._service_tags[:]
-        tags.append(role)
-        if role == 'primary':
-            tags.append('master')
+        tags.append(mod_role)
+        if role == PostgresqlRole.PRIMARY:
+            tags.append(PostgresqlRole.MASTER)
         self._previous_loop_service_tags = self._service_tags
         self._previous_loop_token = self._client.token
 
@@ -552,7 +553,7 @@ class Consul(AbstractDCS):
             return self.deregister_service(params['service_id'])
 
         self._previous_loop_register_service = self._register_service
-        if role in ['primary', 'replica', 'standby-leader']:
+        if role in [PostgresqlRole.PRIMARY, PostgresqlRole.REPLICA, PostgresqlRole.STANDBY_LEADER]:
             if state != PostgresqlState.RUNNING:
                 return
             return self.register_service(service_name, **params)

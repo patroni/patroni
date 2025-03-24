@@ -212,13 +212,15 @@ class Patroni(AbstractPatroniDaemon, Tags):
         the change and cache the new dynamic configuration values in ``patroni.dynamic.json`` file under Postgres data
         directory.
         """
+        from patroni.postgresql.misc import PostgresqlRole
+
         logger.info(self.ha.run_cycle())
 
         if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
                 and self.config.set_dynamic_configuration(self.dcs.cluster.config):
             self.reload_config()
 
-        if self.postgresql.role != 'uninitialized':
+        if self.postgresql.role != PostgresqlRole.UNINITIALIZED:
             self.config.save_cache()
 
         self.schedule_next_run()

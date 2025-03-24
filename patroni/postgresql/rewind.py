@@ -14,7 +14,7 @@ from ..collections import EMPTY_DICT
 from ..dcs import Leader, RemoteMember
 from . import Postgresql
 from .connection import get_connection_cursor
-from .misc import format_lsn, fsync_dir, parse_history, parse_lsn
+from .misc import format_lsn, fsync_dir, parse_history, parse_lsn, PostgresqlRole
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +223,8 @@ class Rewind(object):
         if local_timeline is None or local_lsn is None:
             return
 
-        if isinstance(leader, Leader) and leader.member.data.get('role') not in ('master', 'primary'):
+        if isinstance(leader, Leader) and leader.member.data.get('role') not in (PostgresqlRole.MASTER,
+                                                                                 PostgresqlRole.PRIMARY):
             return
 
         # We want to use replication credentials when connecting to the "postgres" database in case if
