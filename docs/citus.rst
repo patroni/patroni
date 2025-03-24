@@ -79,36 +79,36 @@ It results in two major differences in :ref:`patronictl` behaviour when
 An example of :ref:`patronictl_list` output for the Citus cluster::
 
     postgres@coord1:~$ patronictl list demo
-    + Citus cluster: demo ----------+----------------+---------+----+-----------+
-    | Group | Member  | Host        | Role           | State   | TL | Lag in MB |
-    +-------+---------+-------------+----------------+---------+----+-----------+
-    |     0 | coord1  | 172.27.0.10 | Replica        | running |  1 |         0 |
-    |     0 | coord2  | 172.27.0.6  | Quorum Standby | running |  1 |         0 |
-    |     0 | coord3  | 172.27.0.4  | Leader         | running |  1 |           |
-    |     1 | work1-1 | 172.27.0.8  | Quorum Standby | running |  1 |         0 |
-    |     1 | work1-2 | 172.27.0.2  | Leader         | running |  1 |           |
-    |     2 | work2-1 | 172.27.0.5  | Quorum Standby | running |  1 |         0 |
-    |     2 | work2-2 | 172.27.0.7  | Leader         | running |  1 |           |
-    +-------+---------+-------------+----------------+---------+----+-----------+
+    + Citus cluster: demo ----------+----------------+---------+----+-------------+-----+------------+-----+
+    | Group | Member  | Host        | Role           | State   | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------+---------+-------------+----------------+---------+----+-------------+-----+------------+-----+
+    |     0 | coord1  | 172.27.0.10 | Replica        | running |  1 |   0/41C0368 |   0 |  0/41C0368 |   0 |
+    |     0 | coord2  | 172.27.0.6  | Quorum Standby | running |  1 |   0/41C0368 |   0 |  0/41C0368 |   0 |
+    |     0 | coord3  | 172.27.0.4  | Leader         | running |  1 |             |     |            |     |
+    |     1 | work1-1 | 172.27.0.8  | Quorum Standby | running |  1 |   0/31D3198 |   0 |  0/31D3198 |   0 |
+    |     1 | work1-2 | 172.27.0.2  | Leader         | running |  1 |             |     |            |     |
+    |     2 | work2-1 | 172.27.0.5  | Quorum Standby | running |  1 |   0/31CDFC0 |   0 |  0/31CDFC0 |   0 |
+    |     2 | work2-2 | 172.27.0.7  | Leader         | running |  1 |             |     |            |     |
+    +-------+---------+-------------+----------------+---------+----+-------------+-----+------------+-----+
 
 If we add the ``--group`` option, the output will change to::
 
     postgres@coord1:~$ patronictl list demo --group 0
-    + Citus cluster: demo (group: 0, 7179854923829112860) -+-----------+
-    | Member | Host        | Role           | State   | TL | Lag in MB |
-    +--------+-------------+----------------+---------+----+-----------+
-    | coord1 | 172.27.0.10 | Replica        | running |  1 |         0 |
-    | coord2 | 172.27.0.6  | Quorum Standby | running |  1 |         0 |
-    | coord3 | 172.27.0.4  | Leader         | running |  1 |           |
-    +--------+-------------+----------------+---------+----+-----------+
+    + Citus cluster: demo (group: 0, 7179854923829112860) -+-------------+-----+------------+-----+
+    | Member | Host        | Role           | State   | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +--------+-------------+----------------+---------+----+-------------+-----+------------+-----+
+    | coord1 | 172.27.0.10 | Replica        | running |  1 |   0/41C0368 |   0 |  0/41C0368 |   0 |
+    | coord2 | 172.27.0.6  | Quorum Standby | running |  1 |   0/41C0368 |   0 |  0/41C0368 |   0 |
+    | coord3 | 172.27.0.4  | Leader         | running |  1 |             |     |            |     |
+    +--------+-------------+----------------+---------+----+-------------+-----+------------+-----+
 
     postgres@coord1:~$ patronictl list demo --group 1
-    + Citus cluster: demo (group: 1, 7179854923881963547) -+-----------+
-    | Member  | Host       | Role           | State   | TL | Lag in MB |
-    +---------+------------+----------------+---------+----+-----------+
-    | work1-1 | 172.27.0.8 | Quorum Standby | running |  1 |         0 |
-    | work1-2 | 172.27.0.2 | Leader         | running |  1 |           |
-    +---------+------------+----------------+---------+----+-----------+
+    + Citus cluster: demo (group: 1, 7179854923881963547) -+-------------+-----+------------+-----+
+    | Member  | Host       | Role           | State   | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +---------+------------+----------------+---------+----+-------------+-----+------------+-----+
+    | work1-1 | 172.27.0.8 | Quorum Standby | running |  1 |   0/31D3198 |   0 |  0/31D3198 |   0 |
+    | work1-2 | 172.27.0.2 | Leader         | running |  1 |             |     |            |     |
+    +---------+------------+----------------+---------+----+-------------+-----+------------+-----+
 
 Citus worker switchover
 -----------------------
@@ -124,49 +124,49 @@ new primary worker node is ready to accept read-write queries.
 An example of :ref:`patronictl_switchover` on the worker cluster::
 
     postgres@coord1:~$ patronictl switchover demo
-    + Citus cluster: demo ----------+----------------+---------+----+-----------+
-    | Group | Member  | Host        | Role           | State   | TL | Lag in MB |
-    +-------+---------+-------------+----------------+---------+----+-----------+
-    |     0 | coord1  | 172.27.0.10 | Replica        | running |  1 |         0 |
-    |     0 | coord2  | 172.27.0.6  | Quorum Standby | running |  1 |         0 |
-    |     0 | coord3  | 172.27.0.4  | Leader         | running |  1 |           |
-    |     1 | work1-1 | 172.27.0.8  | Leader         | running |  1 |           |
-    |     1 | work1-2 | 172.27.0.2  | Quorum Standby | running |  1 |         0 |
-    |     2 | work2-1 | 172.27.0.5  | Quorum Standby | running |  1 |         0 |
-    |     2 | work2-2 | 172.27.0.7  | Leader         | running |  1 |           |
-    +-------+---------+-------------+----------------+---------+----+-----------+
+    + Citus cluster: demo ----------+----------------+---------+----+-------------+-----+------------+-----+
+    | Group | Member  | Host        | Role           | State   | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------+---------+-------------+----------------+---------+----+-------------+-----+------------+-----+
+    |     0 | coord1  | 172.27.0.10 | Replica        | running |  1 |   0/41C0368 |   0 |  0/41C0368 |   0 |
+    |     0 | coord2  | 172.27.0.6  | Quorum Standby | running |  1 |   0/41C0368 |   0 |  0/41C0368 |   0 |
+    |     0 | coord3  | 172.27.0.4  | Leader         | running |  1 |             |     |            |     |
+    |     1 | work1-1 | 172.27.0.8  | Leader         | running |  1 |             |     |            |     |
+    |     1 | work1-2 | 172.27.0.2  | Quorum Standby | running |  1 |   0/31D3198 |   0 |  0/31D3198 |   0 |
+    |     2 | work2-1 | 172.27.0.5  | Quorum Standby | running |  1 |   0/31CDFC0 |   0 |  0/31CDFC0 |   0 |
+    |     2 | work2-2 | 172.27.0.7  | Leader         | running |  1 |             |     |            |     |
+    +-------+---------+-------------+----------------+---------+----+-------------+-----+------------+-----+
     Citus group: 2
     Primary [work2-2]:
     Candidate ['work2-1'] []:
     When should the switchover take place (e.g. 2024-08-26T08:02 )  [now]:
     Current cluster topology
-    + Citus cluster: demo (group: 2, 7179854924063375386) -+-----------+
-    | Member  | Host       | Role           | State   | TL | Lag in MB |
-    +---------+------------+----------------+---------+----+-----------+
-    | work2-1 | 172.27.0.5 | Quorum Standby | running |  1 |         0 |
-    | work2-2 | 172.27.0.7 | Leader         | running |  1 |           |
-    +---------+------------+----------------+---------+----+-----------+
+    + Citus cluster: demo (group: 2, 7179854924063375386) -+-------------+-----+------------+-----+
+    | Member  | Host       | Role           | State   | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +---------+------------+----------------+---------+----+-------------+-----+------------+-----+
+    | work2-1 | 172.27.0.5 | Quorum Standby | running |  1 |   0/31CDFC0 |   0 |  0/31CDFC0 |   0 |
+    | work2-2 | 172.27.0.7 | Leader         | running |  1 |             |     |            |     |
+    +---------+------------+----------------+---------+----+-------------+-----+------------+-----+
     Are you sure you want to switchover cluster demo, demoting current primary work2-2? [y/N]: y
     2024-08-26 07:02:40.33003 Successfully switched over to "work2-1"
-    + Citus cluster: demo (group: 2, 7179854924063375386) ------+
-    | Member  | Host       | Role    | State   | TL | Lag in MB |
-    +---------+------------+---------+---------+----+-----------+
-    | work2-1 | 172.27.0.5 | Leader  | running |  1 |           |
-    | work2-2 | 172.27.0.7 | Replica | stopped |    |   unknown |
-    +---------+------------+---------+---------+----+-----------+
+    + Citus cluster: demo (group: 2, 7179854924063375386) --------+---------+------------+---------+
+    | Member  | Host       | Role    | State   | TL | Receive LSN |     Lag | Replay LSN |     Lag |
+    +---------+------------+---------+---------+----+-------------+---------+------------+---------+
+    | work2-1 | 172.27.0.5 | Leader  | running |  1 |             |         |            |         |
+    | work2-2 | 172.27.0.7 | Replica | stopped |    |     unknown | unknown |    unknown | unknown |
+    +---------+------------+---------+---------+----+-------------+---------+------------+---------+
 
     postgres@coord1:~$ patronictl list demo
-    + Citus cluster: demo ----------+----------------+---------+----+-----------+
-    | Group | Member  | Host        | Role           | State   | TL | Lag in MB |
-    +-------+---------+-------------+----------------+---------+----+-----------+
-    |     0 | coord1  | 172.27.0.10 | Replica        | running |  1 |         0 |
-    |     0 | coord2  | 172.27.0.6  | Quorum Standby | running |  1 |         0 |
-    |     0 | coord3  | 172.27.0.4  | Leader         | running |  1 |           |
-    |     1 | work1-1 | 172.27.0.8  | Leader         | running |  1 |           |
-    |     1 | work1-2 | 172.27.0.2  | Quorum Standby | running |  1 |         0 |
-    |     2 | work2-1 | 172.27.0.5  | Leader         | running |  2 |           |
-    |     2 | work2-2 | 172.27.0.7  | Quorum Standby | running |  2 |         0 |
-    +-------+---------+-------------+----------------+---------+----+-----------+
+    + Citus cluster: demo ----------+----------------+---------+----+-------------+-----+------------+-----+
+    | Group | Member  | Host        | Role           | State   | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------+---------+-------------+----------------+---------+----+-------------+-----+------------+-----+
+    |     0 | coord1  | 172.27.0.10 | Replica        | running |  1 |   0/41C0368 |   0 |  0/41C0368 |   0 |
+    |     0 | coord2  | 172.27.0.6  | Quorum Standby | running |  1 |   0/41C0368 |   0 |  0/41C0368 |   0 |
+    |     0 | coord3  | 172.27.0.4  | Leader         | running |  1 |             |     |            |     |
+    |     1 | work1-1 | 172.27.0.8  | Leader         | running |  1 |             |     |            |     |
+    |     1 | work1-2 | 172.27.0.2  | Quorum Standby | running |  1 |   0/31D3198 |   0 |  0/31D3198 |   0 |
+    |     2 | work2-1 | 172.27.0.5  | Leader         | running |  2 |             |     |            |     |
+    |     2 | work2-2 | 172.27.0.7  | Quorum Standby | running |  2 |   0/31CDFC0 |   0 |  0/31CDFC0 |   0 |
+    +-------+---------+-------------+----------------+---------+----+-------------+-----+------------+-----+
 
 And this is how it looks on the coordinator side::
 
