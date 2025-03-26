@@ -41,6 +41,7 @@ PostgreSQL parameters controlled by Patroni
 Some of the PostgreSQL parameters **must hold the same values on the primary and the replicas**. For those, **values set either in the local patroni configuration files or via the environment variables take no effect**. To alter or set their values one must change the shared configuration in the DCS. Below is the actual list of such parameters together with the default values:
 
 - **max_connections**: 100
+  Note: In Patroni, the lower setting of max_connections is set to 25.
 - **max_locks_per_transaction**: 64
 - **max_worker_processes**: 8
 - **max_prepared_transactions**: 0
