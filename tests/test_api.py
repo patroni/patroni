@@ -1,4 +1,5 @@
 import datetime
+import etcd
 import json
 import socket
 import unittest

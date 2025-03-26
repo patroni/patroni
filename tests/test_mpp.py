@@ -1,3 +1,5 @@
+import etcd
+
 from typing import Any
 
 from patroni.exceptions import PatroniException

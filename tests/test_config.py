@@ -1,3 +1,4 @@
+import etcd
 import io
 import os
 import sys
