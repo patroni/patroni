@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 import psutil
 
 from patroni.postgresql.callback_executor import CallbackExecutor
+from patroni.postgresql.misc import PostgresqlRole
 
 
 class TestCallbackExecutor(unittest.TestCase):
@@ -14,7 +15,7 @@ class TestCallbackExecutor(unittest.TestCase):
         mock_popen.return_value.children.return_value = []
         mock_popen.return_value.is_running.return_value = True
 
-        callback = ['test.sh', 'on_start', 'replica', 'foo']
+        callback = ['test.sh', 'on_start', PostgresqlRole.REPLICA, 'foo']
         ce = CallbackExecutor()
         ce._kill_children = Mock(side_effect=Exception)
         ce._invoke_excepthook = Mock()
@@ -38,5 +39,5 @@ class TestCallbackExecutor(unittest.TestCase):
         self.assertIsNone(ce.call(callback))
 
         mock_popen.side_effect = [Mock()]
-        self.assertIsNone(ce.call(['test.sh', 'on_reload', 'replica', 'foo']))
+        self.assertIsNone(ce.call(['test.sh', 'on_reload', PostgresqlRole.REPLICA, 'foo']))
         ce.join()

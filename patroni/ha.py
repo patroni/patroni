@@ -756,12 +756,12 @@ class Ha(object):
         if not self.is_paused():
             self.state_handler.handle_parameter_change()
 
-        role = (PostgresqlRole.STANDBY_LEADER
-                if isinstance(node_to_follow, RemoteMember) and self.has_lock(False) else PostgresqlRole.REPLICA)
+        role = PostgresqlRole.STANDBY_LEADER \
+            if isinstance(node_to_follow, RemoteMember) and self.has_lock(False) else PostgresqlRole.REPLICA
         # It might happen that leader key in the standby cluster references non-exiting member.
         # In this case it is safe to continue running without changing recovery.conf
-        if (self.is_standby_cluster() and role == PostgresqlRole.REPLICA
-                and not (node_to_follow and node_to_follow.conn_url)):
+        if self.is_standby_cluster() and role == PostgresqlRole.REPLICA \
+                and not (node_to_follow and node_to_follow.conn_url):
             return 'continue following the old known standby leader'
         else:
             change_required, restart_required = self.state_handler.config.check_recovery_conf(node_to_follow)

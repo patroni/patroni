@@ -1319,8 +1319,8 @@ class Kubernetes(AbstractDCS):
     def touch_member(self, data: Dict[str, Any]) -> bool:
         cluster = self.cluster
         if cluster and cluster.leader and cluster.leader.name == self._name:
-            role = (self._standby_leader_label_value
-                    if data['role'] == PostgresqlRole.STANDBY_LEADER else self._leader_label_value)
+            role = self._standby_leader_label_value \
+                if data['role'] == PostgresqlRole.STANDBY_LEADER else self._leader_label_value
             tmp_role = 'primary'
         elif data['state'] == PostgresqlState.RUNNING and data['role'] != PostgresqlRole.PRIMARY:
             role = {'replica': self._follower_label_value}.get(data['role'], data['role'])

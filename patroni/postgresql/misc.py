@@ -45,6 +45,10 @@ class PostgresqlRole(str, Enum):
     UNINITIALIZED = 'uninitialized'
     PROMOTED = 'promoted'
 
+    def __repr__(self) -> str:
+        """Get a string representation of a :class:`PostgresqlRole` member."""
+        return self.value
+
 
 def postgres_version_to_int(pg_version: str) -> int:
     """Convert the server_version to integer
