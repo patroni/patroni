@@ -175,11 +175,16 @@ class PatronictlPrettyTable(PrettyTable):
         self.__hline_num += 1
         return ret
 
-    def _validate_field_names(self, val: List[str]) -> None:
+    def _validate_field_names(self, *args: Any, **kwargs: Any) -> None:
+        """Validate field names.
+
+        Remove uniqueness constraint for field names from the original implementation.
+        Required for having shorter ``Lag`` columns without specifying lag's type after ``LSN`` column already did so.
+        """
         try:
-            super(PatronictlPrettyTable, self)._validate_field_names(val)
+            super(PatronictlPrettyTable, self)._validate_field_names(*args, **kwargs)
         except ValueError as e:
-            if 'Field names must be unique' not in e.args:
+            if 'Field names must be unique' not in str(e):
                 raise e
 
     _hrule = property(_get_hline, _set_hline)
@@ -1602,8 +1607,10 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
 
             receive_lag, replay_lag = member.get('received_lag', ''), member.get('replayed_lag', '')
             receive_lsn, replay_lsn = member.get('received_lsn', ''), member.get('replayed_lsn', '')
-            receive_lag = round(receive_lag / 1024 / 1024) if isinstance(receive_lag, int) else receive_lag
-            replay_lag = round(replay_lag / 1024 / 1024) if isinstance(replay_lag, int) else replay_lag
+            receive_lag = round(receive_lag / 1024 / 1024) if isinstance(receive_lag, int) \
+                else '' if receive_lag == 'unknown' else receive_lag
+            replay_lag = round(replay_lag / 1024 / 1024) if isinstance(replay_lag, int) \
+                else '' if replay_lag == 'unknown' else replay_lag
 
             member.update(cluster=name, member=member['name'], group=g,
                           host=member.get('host', ''), tl=member.get('timeline', ''),
