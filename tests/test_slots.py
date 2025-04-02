@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch, PropertyMock
 from patroni import global_config, psycopg
 from patroni.dcs import Cluster, ClusterConfig, Member, Status, SyncState
 from patroni.postgresql import Postgresql
-from patroni.postgresql.misc import fsync_dir, PostgresqlState
+from patroni.postgresql.misc import fsync_dir, PostgresqlRole, PostgresqlState
 from patroni.postgresql.slots import SlotsAdvanceThread, SlotsHandler
 from patroni.tags import Tags
 
@@ -52,21 +52,22 @@ class TestSlotsHandler(BaseTestPostgresql):
         global_config.update(cluster)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg.OperationalError)):
             self.s.sync_replication_slots(cluster, self.tags)
-        self.p.set_role('standby_leader')
+        self.p.set_role(PostgresqlRole.STANDBY_LEADER)
         with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(True, False))), \
                 patch.object(global_config.__class__, 'is_standby_cluster', PropertyMock(return_value=True)), \
                 patch('patroni.postgresql.slots.logger.debug') as mock_debug:
             self.s.sync_replication_slots(cluster, self.tags)
             mock_debug.assert_called_once()
-        self.p.set_role('replica')
+        self.p.set_role(PostgresqlRole.REPLICA)
         with patch.object(Postgresql, 'is_primary', Mock(return_value=False)), \
                 patch.object(global_config.__class__, 'is_paused', PropertyMock(return_value=True)), \
                 patch.object(SlotsHandler, 'drop_replication_slot') as mock_drop:
             config.data['slots'].pop('ls')
             self.s.sync_replication_slots(cluster, self.tags)
             mock_drop.assert_not_called()
-        self.p.set_role('primary')
-        with mock.patch('patroni.postgresql.Postgresql.role', new_callable=PropertyMock(return_value='replica')):
+        self.p.set_role(PostgresqlRole.PRIMARY)
+        with mock.patch('patroni.postgresql.Postgresql.role',
+                        new_callable=PropertyMock(return_value=PostgresqlRole.REPLICA)):
             self.s.sync_replication_slots(cluster, self.tags)
         with patch('patroni.dcs.logger.error', new_callable=Mock()) as errorlog_mock:
             alias1 = Member(0, 'test-3', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres'})
@@ -79,7 +80,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.assertTrue("test.3" in ca, "non matching {0}".format(ca))
             with patch.object(Postgresql, 'major_version', PropertyMock(return_value=90618)):
                 self.s.sync_replication_slots(cluster, self.tags)
-                self.p.set_role('replica')
+                self.p.set_role(PostgresqlRole.REPLICA)
                 self.s.sync_replication_slots(cluster, self.tags)
 
     def test_cascading_replica_sync_replication_slots(self):
@@ -91,7 +92,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         })
         cluster = Cluster(True, config, self.leader, Status(0, {'ls': 10}, []),
                           [self.me, self.other, self.leadermem, cascading_replica], None, SyncState.empty(), None, None)
-        self.p.set_role('replica')
+        self.p.set_role(PostgresqlRole.REPLICA)
         with patch.object(Postgresql, '_query') as mock_query, \
                 patch.object(Postgresql, 'is_primary', Mock(return_value=False)):
             mock_query.return_value = [('ls', 'logical', 104, 'b', 'a', 5, 12345, 105)]
@@ -147,10 +148,10 @@ class TestSlotsHandler(BaseTestPostgresql):
         # sanity for primary
         self.p.name = self.leadermem.name
         self.assertEqual(
-            cluster._get_permanent_slots(self.p, self.leadermem, 'primary'),
+            cluster._get_permanent_slots(self.p, self.leadermem, PostgresqlRole.PRIMARY),
             {'foo': {'type': 'logical', 'database': 'a', 'plugin': 'b'}, 'bar': {'type': 'physical'}})
         self.assertEqual(
-            cluster._get_members_slots(self.p.name, 'primary', False, True),
+            cluster._get_members_slots(self.p.name, PostgresqlRole.PRIMARY, False, True),
             {'test_3': {'type': 'physical', 'lsn': 98, 'expected_active': False},
              'test_4': {'type': 'physical', 'lsn': 98, 'expected_active': True}})
 
@@ -158,7 +159,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.p.name = nostream_node.name
         # permanent logical slots are not allowed on nostream node
         self.assertEqual(
-            cluster._get_permanent_slots(self.p, nostream_node, 'replica'),
+            cluster._get_permanent_slots(self.p, nostream_node, PostgresqlRole.REPLICA),
             {'bar': {'type': 'physical'}})
         self.assertEqual(
             cluster.get_slot_name_on_primary(self.p.name, nostream_node),
@@ -166,7 +167,7 @@ class TestSlotsHandler(BaseTestPostgresql):
 
         # check cascade member-slot existence on nostream node
         self.assertEqual(
-            cluster._get_members_slots(nostream_node.name, 'replica', False, True),
+            cluster._get_members_slots(nostream_node.name, PostgresqlRole.REPLICA, False, True),
             {'leader': {'type': 'physical', 'lsn': 99, 'expected_active': False},
              'test_3': {'type': 'physical', 'lsn': 98, 'expected_active': True},
              'test_4': {'type': 'physical', 'lsn': 98, 'expected_active': False}})
@@ -174,7 +175,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         # cascade also does not entitled to have logical slot on itself ...
         self.p.name = cascade_node.name
         self.assertEqual(
-            cluster._get_permanent_slots(self.p, cascade_node, 'replica'),
+            cluster._get_permanent_slots(self.p, cascade_node, PostgresqlRole.REPLICA),
             {'bar': {'type': 'physical'}})
         # ... and member-slot on primary
         self.assertEqual(
@@ -184,7 +185,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         # simple replica must have every permanent slot ...
         self.p.name = stream_node.name
         self.assertEqual(
-            cluster._get_permanent_slots(self.p, stream_node, 'replica'),
+            cluster._get_permanent_slots(self.p, stream_node, PostgresqlRole.REPLICA),
             {'foo': {'type': 'logical', 'database': 'a', 'plugin': 'b'}, 'bar': {'type': 'physical'}})
         # ... and member-slot on primary
         self.assertEqual(
@@ -219,7 +220,7 @@ class TestSlotsHandler(BaseTestPostgresql):
 
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     def test__ensure_logical_slots_replica(self):
-        self.p.set_role('replica')
+        self.p.set_role(PostgresqlRole.REPLICA)
         self.cluster.status.slots['ls'] = 12346
         with patch.object(SlotsHandler, 'check_logical_slots_readiness', Mock(return_value=False)):
             self.assertEqual(self.s.sync_replication_slots(self.cluster, self.tags), [])
@@ -321,7 +322,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.assertTrue(mock_query.call_args[0][0].startswith('WITH slots AS (SELECT slot_name, active'))
 
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
-    @patch.object(Postgresql, 'role', PropertyMock(return_value='replica'))
+    @patch.object(Postgresql, 'role', PropertyMock(return_value=PostgresqlRole.REPLICA))
     def test_advance_physical_slots(self):
         config = ClusterConfig(1, {'slots': {'blabla': {'type': 'physical'}, 'leader': None}}, 1)
         cluster = Cluster(True, config, self.leader, Status(0, {'blabla': 12346}, []),
@@ -363,7 +364,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             mock_drop.assert_not_called()
 
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
-    @patch.object(Postgresql, 'role', PropertyMock(return_value='replica'))
+    @patch.object(Postgresql, 'role', PropertyMock(return_value=PostgresqlRole.REPLICA))
     @patch.object(TestTags, 'tags', PropertyMock(return_value={'nofailover': True}))
     def test_slots_nofailover_tag(self):
         self.p.name = self.leadermem.name

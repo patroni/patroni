@@ -17,7 +17,7 @@ from .collections import CaseInsensitiveSet
 from .dcs import AbstractDCS, Cluster, Leader, Member, RemoteMember, Status, SyncState
 from .exceptions import DCSError, PatroniFatalException, PostgresConnectionException
 from .postgresql.callback_executor import CallbackAction
-from .postgresql.misc import postgres_version_to_int, PostgresqlState
+from .postgresql.misc import postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .postgresql.postmaster import PostmasterProcess
 from .postgresql.rewind import Rewind
 from .quorum import QuorumStateResolver
@@ -54,7 +54,8 @@ class _MemberStatus(Tags, NamedTuple('_MemberStatus',
         # If one of those is not in a response we want to count the node as not healthy/reachable
         wal: Dict[str, Any] = json.get('wal') or json['xlog']
         # abuse difference in primary/replica response format
-        in_recovery = not (bool(wal.get('location')) or json.get('role') in ('master', 'primary'))
+        in_recovery = not (bool(wal.get('location'))
+                           or json.get('role') in (PostgresqlRole.MASTER, PostgresqlRole.PRIMARY))
         lsn = int(in_recovery and max(wal.get('received_location', 0), wal.get('replayed_location', 0)))
         return cls(member, True, in_recovery, lsn, json)
 
@@ -474,7 +475,7 @@ class Ha(object):
                         # Unfortunately such optimization isn't possible on the standby_leader,
                         # therefore we will get the timeline from pg_control, either by calling
                         # pg_control_checkpoint() on 9.6+ or by parsing the output of pg_controldata.
-                        if self.state_handler.role == 'standby_leader':
+                        if self.state_handler.role == PostgresqlRole.STANDBY_LEADER:
                             timeline = pg_control_timeline or self.state_handler.pg_control_timeline()
                         else:
                             timeline = self.state_handler.replica_cached_timeline(self._leader_timeline) or 0
@@ -493,7 +494,7 @@ class Ha(object):
             ret = self.dcs.touch_member(data)
             if ret:
                 new_state = (data['state'], data['role'])
-                if self._last_state != new_state and new_state == (PostgresqlState.RUNNING, 'primary'):
+                if self._last_state != new_state and new_state == (PostgresqlState.RUNNING, PostgresqlRole.PRIMARY):
                     self.notify_mpp_coordinator('after_promote')
                 self._last_state = new_state
             return ret
@@ -560,7 +561,7 @@ class Ha(object):
         with self._async_response:  # pretend that post_bootstrap was already executed
             self._async_response.complete(result)
         if result:
-            self.state_handler.set_role('standby_leader')
+            self.state_handler.set_role(PostgresqlRole.STANDBY_LEADER)
 
         return result
 
@@ -635,7 +636,7 @@ class Ha(object):
                 and data.get('Database cluster state') in ('in production', 'in crash recovery',
                                                            'shutting down', 'shut down')\
                 and self.state_handler.state == PostgresqlState.CRASHED\
-                and self.state_handler.role == 'primary'\
+                and self.state_handler.role == PostgresqlRole.PRIMARY\
                 and not self.state_handler.config.recovery_conf_exists():
             # We know 100% that we were running as a primary a few moments ago, therefore could just start postgres
             msg = 'starting primary after failure'
@@ -654,7 +655,7 @@ class Ha(object):
 
         self.load_cluster_from_dcs()
 
-        role = 'replica'
+        role = PostgresqlRole.REPLICA
         if self.has_lock() and not self.is_standby_cluster():
             self._rewind.reset_state()  # we want to later trigger CHECKPOINT after promote
             msg = "starting as readonly because i had the session lock"
@@ -668,7 +669,7 @@ class Ha(object):
 
             if self.has_lock():  # in standby cluster
                 msg = "starting as a standby leader because i had the session lock"
-                role = 'standby_leader'
+                role = PostgresqlRole.STANDBY_LEADER
                 node_to_follow = self._get_node_to_follow(self.cluster)
             elif self.is_standby_cluster() and self.cluster.is_unlocked():
                 msg = "trying to follow a remote member because standby cluster is unhealthy"
@@ -732,10 +733,10 @@ class Ha(object):
             if not (self._rewind.is_needed and self._rewind.can_rewind_or_reinitialize_allowed)\
                     or self.cluster.is_unlocked():
                 if is_leader:
-                    self.state_handler.set_role('primary')
+                    self.state_handler.set_role(PostgresqlRole.PRIMARY)
                     return 'continue to run as primary without lock'
-                elif self.state_handler.role != 'standby_leader':
-                    self.state_handler.set_role('replica')
+                elif self.state_handler.role != PostgresqlRole.STANDBY_LEADER:
+                    self.state_handler.set_role(PostgresqlRole.REPLICA)
 
                 if not node_to_follow:
                     return 'no action. I am ({0})'.format(self.state_handler.name)
@@ -755,10 +756,12 @@ class Ha(object):
         if not self.is_paused():
             self.state_handler.handle_parameter_change()
 
-        role = 'standby_leader' if isinstance(node_to_follow, RemoteMember) and self.has_lock(False) else 'replica'
+        role = PostgresqlRole.STANDBY_LEADER \
+            if isinstance(node_to_follow, RemoteMember) and self.has_lock(False) else PostgresqlRole.REPLICA
         # It might happen that leader key in the standby cluster references non-exiting member.
         # In this case it is safe to continue running without changing recovery.conf
-        if self.is_standby_cluster() and role == 'replica' and not (node_to_follow and node_to_follow.conn_url):
+        if self.is_standby_cluster() and role == PostgresqlRole.REPLICA \
+                and not (node_to_follow and node_to_follow.conn_url):
             return 'continue following the old known standby leader'
         else:
             change_required, restart_required = self.state_handler.config.check_recovery_conf(node_to_follow)
@@ -769,7 +772,7 @@ class Ha(object):
                 else:
                     self.state_handler.follow(node_to_follow, role, do_reload=True)
                 self._rewind.trigger_check_diverged_lsn()
-            elif role == 'standby_leader' and self.state_handler.role != role:
+            elif role == PostgresqlRole.STANDBY_LEADER and self.state_handler.role != role:
                 self.state_handler.set_role(role)
                 self.state_handler.call_nowait(CallbackAction.ON_ROLE_CHANGE)
 
@@ -1095,12 +1098,12 @@ class Ha(object):
         if self.state_handler.is_primary():
             # Inform the state handler about its primary role.
             # It may be unaware of it if postgres is promoted manually.
-            self.state_handler.set_role('primary')
+            self.state_handler.set_role(PostgresqlRole.PRIMARY)
             self.process_sync_replication()
             self.update_cluster_history()
             self.state_handler.mpp_handler.sync_meta_data(self.cluster)
             return message
-        elif self.state_handler.role in ('primary', 'promoted'):
+        elif self.state_handler.role in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
             self.process_sync_replication()
             return message
         else:
@@ -1108,7 +1111,7 @@ class Ha(object):
                 # Somebody else updated sync state, it may be due to us losing the lock. To be safe,
                 # postpone promotion until next cycle. TODO: trigger immediate retry of run_cycle.
                 return 'Postponing promotion because synchronous replication state was updated by somebody else'
-            if self.state_handler.role not in ('primary', 'promoted'):
+            if self.state_handler.role not in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
                 # reset failsafe state when promote
                 self._failsafe.set_is_active(0)
 
@@ -1156,7 +1159,7 @@ class Ha(object):
 
         :returns: the reason why caller shouldn't continue as a primary or the current value of received/replayed LSN.
         """
-        if self.state_handler.state == PostgresqlState.RUNNING and self.state_handler.role == 'primary':
+        if self.state_handler.state == PostgresqlState.RUNNING and self.state_handler.role == PostgresqlRole.PRIMARY:
             return 'Running as a leader'
         self._failsafe.update(data)
         return self._last_wal_lsn
@@ -1570,7 +1573,7 @@ class Ha(object):
             # location, we can remove the leader key and allow them to start leader race.
             time.sleep(1)  # give replicas some more time to catch up
             if self.is_failover_possible(cluster_lsn=checkpoint_location):
-                self.state_handler.set_role('demoted')
+                self.state_handler.set_role(PostgresqlRole.DEMOTED)
                 with self._async_executor:
                     self.release_leader_key_voluntarily(prev_location)
                     status['released'] = True
@@ -1586,7 +1589,7 @@ class Ha(object):
                                 on_shutdown=on_shutdown if mode_control['release'] else None,
                                 before_shutdown=before_shutdown if mode == 'graceful' else None,
                                 stop_timeout=self.primary_stop_timeout())
-        self.state_handler.set_role('demoted')
+        self.state_handler.set_role(PostgresqlRole.DEMOTED)
         self.set_is_leader(False)
 
         if mode_control['release']:
@@ -1758,7 +1761,7 @@ class Ha(object):
                     # enforce anything, since the leader is not a primary
                     # So just remind the role.
                     msg = 'no action. I am ({0}), the standby leader with the lock'.format(self.state_handler.name) \
-                          if self.state_handler.role == 'standby_leader' else \
+                          if self.state_handler.role == PostgresqlRole.STANDBY_LEADER else \
                           'promoted self to a standby leader because i had the session lock'
                     return self.enforce_follow_remote_member(msg)
                 else:
@@ -1958,7 +1961,7 @@ class Ha(object):
                     self.state_handler.cancellable.cancel()
                     return 'lost leader before promote'
 
-            if self.state_handler.role == 'primary':
+            if self.state_handler.role == PostgresqlRole.PRIMARY:
                 logger.info('Demoting primary during %s', self._async_executor.scheduled_action)
                 if self._async_executor.scheduled_action in ('restart', 'starting primary after failure'):
                     # Restart needs a special interlocking cancel because postmaster may be just started in a
@@ -1984,8 +1987,8 @@ class Ha(object):
         if not self.state_handler.is_running():
             self.watchdog.disable()
             if self.has_lock():
-                if self.state_handler.role in ('primary', 'standby_leader'):
-                    self.state_handler.set_role('demoted')
+                if self.state_handler.role in (PostgresqlRole.PRIMARY, PostgresqlRole.STANDBY_LEADER):
+                    self.state_handler.set_role(PostgresqlRole.DEMOTED)
                     self.state_handler.call_nowait(CallbackAction.ON_ROLE_CHANGE)
                 self._delete_leader()
                 return 'removed leader key after trying and failing to start postgres'
@@ -2010,7 +2013,7 @@ class Ha(object):
             if not self.state_handler.is_primary():
                 return 'waiting for end of recovery after bootstrap'
 
-            self.state_handler.set_role('primary')
+            self.state_handler.set_role(PostgresqlRole.PRIMARY)
             ret = self._async_executor.try_run_async('post_bootstrap', self.state_handler.bootstrap.post_bootstrap,
                                                      args=(self.patroni.config['bootstrap'], self._async_response))
             return ret or 'running post_bootstrap'
@@ -2160,7 +2163,7 @@ class Ha(object):
                 data_directory_error = e
 
             if not data_directory_is_accessible or data_directory_is_empty:
-                self.state_handler.set_role('uninitialized')
+                self.state_handler.set_role(PostgresqlRole.UNINITIALIZED)
                 self.state_handler.stop('immediate', stop_timeout=self.patroni.config['retry_timeout'])
                 # In case datadir went away while we were primary
                 self.watchdog.disable()

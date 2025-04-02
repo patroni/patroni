@@ -29,6 +29,7 @@ import time
 
 from collections import defaultdict
 from contextlib import contextmanager
+from enum import Enum
 from typing import Any, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
 from urllib.parse import urlparse
 
@@ -64,7 +65,7 @@ from . import global_config
 from .config import Config
 from .dcs import AbstractDCS, Cluster, get_dcs as _get_dcs, Member
 from .exceptions import PatroniException
-from .postgresql.misc import postgres_version_to_int, PostgresqlState
+from .postgresql.misc import postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .postgresql.mpp import get_mpp
 from .request import PatroniRequest
 from .utils import cluster_as_json, patch_config, polling_loop
@@ -78,6 +79,20 @@ DCS_DEFAULTS: Dict[str, Dict[str, Any]] = {
     'consul': {'port': 8500, 'template': "consul:\n host: '{host}:{port}'"},
     'etcd': {'port': 2379, 'template': "etcd:\n host: '{host}:{port}'"},
     'etcd3': {'port': 2379, 'template': "etcd3:\n host: '{host}:{port}'"}}
+
+
+class CtlPostgresqlRole(str, Enum):
+
+    LEADER = 'leader'
+    PRIMARY = 'primary'
+    STANDBY_LEADER = 'standby-leader'
+    REPLICA = 'replica'
+    STANDBY = 'standby'
+    ANY = 'any'
+
+    def __repr__(self) -> str:
+        """Get a string representation of a :class:`CtlPostgresqlRole` member."""
+        return self.value
 
 
 class PatroniCtlException(click.ClickException):
@@ -289,7 +304,7 @@ arg_cluster_name = click.argument('cluster_name', required=False,
 option_default_citus_group = click.option('--group', required=False, type=int, help='Citus group',
                                           default=lambda: _get_configuration().get('citus', {}).get('group'))
 option_citus_group = click.option('--group', required=False, type=int, help='Citus group')
-role_choice = click.Choice(['leader', 'primary', 'standby-leader', 'replica', 'standby', 'any'])
+role_choice = click.Choice([role.value for role in CtlPostgresqlRole])
 
 
 @click.group(cls=click.Group)
@@ -493,45 +508,42 @@ def watching(w: bool, watch: Optional[int], max_count: Optional[int] = None, cle
         yield 0
 
 
-def get_all_members(cluster: Cluster, group: Optional[int], role: str = 'leader') -> Iterator[Member]:
+def get_all_members(cluster: Cluster, group: Optional[int],
+                    role: CtlPostgresqlRole = CtlPostgresqlRole.LEADER) -> Iterator[Member]:
     """Get all cluster members that have the given *role*.
 
     :param cluster: the Patroni cluster.
     :param group: filter which Citus group we should get members from. If ``None`` get from all groups.
-    :param role: role to filter members. Can be one among:
-
-        * ``primary``: the primary PostgreSQL instance;
-        * ``replica`` or ``standby``: a standby PostgreSQL instance;
-        * ``leader``: the leader of a Patroni cluster. Can also be used to get the leader of a Patroni standby cluster;
-        * ``standby-leader``: the leader of a Patroni standby cluster;
-        * ``any``: matches any node independent of its role.
+    :param role: role to filter members. One of :class:`CtlPostgresqlRole` values.
 
     :yields: members that have the given *role*.
     """
     clusters = {0: cluster}
     if is_citus_cluster() and group is None:
         clusters.update(cluster.workers)
-    if role in ('leader', 'primary', 'standby-leader'):
+    if role in (CtlPostgresqlRole.LEADER, CtlPostgresqlRole.PRIMARY, CtlPostgresqlRole.STANDBY_LEADER):
         # In the DCS the members' role can be one among: ``primary``, ``master``, ``replica`` or ``standby_leader``.
         # ``primary`` and ``master`` are the same thing.
-        role = {'standby-leader': 'standby_leader'}.get(role, role)
         for cluster in clusters.values():
             if cluster.leader is not None and cluster.leader.name and\
-                    (role == 'leader'
-                     or cluster.leader.data.get('role') not in ('primary', 'master') and role == 'standby_leader'
-                     or cluster.leader.data.get('role') != 'standby_leader' and role == 'primary'):
+                (role == CtlPostgresqlRole.LEADER
+                 or cluster.leader.data.get('role') not in (PostgresqlRole.PRIMARY, PostgresqlRole.MASTER)
+                 and role == CtlPostgresqlRole.STANDBY_LEADER
+                 or cluster.leader.data.get('role') != PostgresqlRole.STANDBY_LEADER
+                 and role == CtlPostgresqlRole.PRIMARY):
                 yield cluster.leader.member
         return
 
     for cluster in clusters.values():
         leader_name = (cluster.leader.member.name if cluster.leader else None)
         for m in cluster.members:
-            if role == 'any' or role in ('replica', 'standby') and m.name != leader_name:
+            if role == CtlPostgresqlRole.ANY or\
+                    role in (CtlPostgresqlRole.REPLICA, CtlPostgresqlRole.STANDBY) and m.name != leader_name:
                 yield m
 
 
 def get_any_member(cluster: Cluster, group: Optional[int],
-                   role: Optional[str] = None, member: Optional[str] = None) -> Optional[Member]:
+                   role: Optional[CtlPostgresqlRole] = None, member: Optional[str] = None) -> Optional[Member]:
     """Get the first found cluster member that has the given *role*.
 
     :param cluster: the Patroni cluster.
@@ -547,9 +559,9 @@ def get_any_member(cluster: Cluster, group: Optional[int],
     if member is not None:
         if role is not None:
             raise PatroniCtlException('--role and --member are mutually exclusive options')
-        role = 'any'
+        role = CtlPostgresqlRole.ANY
     elif role is None:
-        role = 'leader'
+        role = CtlPostgresqlRole.LEADER
 
     for m in get_all_members(cluster, group, role):
         if member is None or m.name == member:
@@ -573,7 +585,8 @@ def get_all_members_leader_first(cluster: Cluster) -> Iterator[Member]:
 
 
 def get_cursor(cluster: Cluster, group: Optional[int], connect_parameters: Dict[str, Any],
-               role: Optional[str] = None, member_name: Optional[str] = None) -> Union['cursor', 'Cursor[Any]', None]:
+               role: Optional[CtlPostgresqlRole] = None,
+               member_name: Optional[str] = None) -> Union['cursor', 'Cursor[Any]', None]:
     """Get a cursor object to execute queries against a member that has the given *role* or *member_name*.
 
     .. note::
@@ -612,7 +625,7 @@ def get_cursor(cluster: Cluster, group: Optional[int], connect_parameters: Dict[
     # If we want ``any`` node we are fine to return the cursor. ``None`` is similar to ``any`` at this point, as it's
     # been dealt with through :func:`get_any_member`.
     # If we want the Patroni leader node, :func:`get_any_member` already checks that for us
-    if role in (None, 'any', 'leader'):
+    if role in (None, CtlPostgresqlRole.ANY, CtlPostgresqlRole.LEADER):
         return cursor
 
     # If we want something other than ``any`` or ``leader``, then we do not rely only on the DCS information about
@@ -621,7 +634,9 @@ def get_cursor(cluster: Cluster, group: Optional[int], connect_parameters: Dict[
     row = cursor.fetchone()
     in_recovery = not row or row[0]
 
-    if in_recovery and role in ('replica', 'standby', 'standby-leader') or not in_recovery and role == 'primary':
+    if in_recovery and\
+        role in (CtlPostgresqlRole.REPLICA, CtlPostgresqlRole.STANDBY, CtlPostgresqlRole.STANDBY_LEADER) or\
+            not in_recovery and role == CtlPostgresqlRole.PRIMARY:
         return cursor
 
     conn.close()
@@ -629,7 +644,7 @@ def get_cursor(cluster: Cluster, group: Optional[int], connect_parameters: Dict[
     return None
 
 
-def get_members(cluster: Cluster, cluster_name: str, member_names: List[str], role: str,
+def get_members(cluster: Cluster, cluster_name: str, member_names: List[str], role: CtlPostgresqlRole,
                 force: bool, action: str, ask_confirmation: bool = True, group: Optional[int] = None) -> List[Member]:
     """Get the list of members based on the given filters.
 
@@ -752,7 +767,7 @@ def confirm_members_action(members: List[Member], force: bool, action: str,
 @click.option('--member', '-m', help='Generate a dsn for this member', type=str)
 @arg_cluster_name
 @option_citus_group
-def dsn(cluster_name: str, group: Optional[int], role: Optional[str], member: Optional[str]) -> None:
+def dsn(cluster_name: str, group: Optional[int], role: Optional[CtlPostgresqlRole], member: Optional[str]) -> None:
     """Process ``dsn`` command of ``patronictl`` utility.
 
     Get DSN to connect to *member*.
@@ -798,7 +813,7 @@ def dsn(cluster_name: str, group: Optional[int], role: Optional[str], member: Op
 def query(
     cluster_name: str,
     group: Optional[int],
-    role: Optional[str],
+    role: Optional[CtlPostgresqlRole],
     member: Optional[str],
     w: bool,
     watch: Optional[int],
@@ -865,7 +880,7 @@ def query(
 
 
 def query_member(cluster: Cluster, group: Optional[int], cursor: Union['cursor', 'Cursor[Any]', None],
-                 member: Optional[str], role: Optional[str], command: str,
+                 member: Optional[str], role: Optional[CtlPostgresqlRole], command: str,
                  connect_parameters: Dict[str, Any]) -> Tuple[List[List[Any]], Optional[List[Any]]]:
     """Execute SQL *command* against a member.
 
@@ -903,7 +918,7 @@ def query_member(cluster: Cluster, group: Optional[int], cursor: Union['cursor',
             if member is not None:
                 message = f'No connection to member {member} is available'
             elif role is not None:
-                message = f'No connection to role {role} is available'
+                message = f'No connection to role {role!r} is available'
             else:
                 message = 'No connection is available'
             logging.debug(message)
@@ -1030,9 +1045,11 @@ def parse_scheduled(scheduled: Optional[str]) -> Optional[datetime.datetime]:
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
 @option_citus_group
-@click.option('--role', '-r', help='Reload only members with this role', type=role_choice, default='any')
+@click.option('--role', '-r', help='Reload only members with this role',
+              type=role_choice, default=CtlPostgresqlRole.ANY)
 @option_force
-def reload(cluster_name: str, member_names: List[str], group: Optional[int], force: bool, role: str) -> None:
+def reload(cluster_name: str, member_names: List[str], group: Optional[int],
+           force: bool, role: CtlPostgresqlRole) -> None:
     """Process ``reload`` command of ``patronictl`` utility.
 
     Reload configuration of cluster members based on given filters.
@@ -1067,7 +1084,8 @@ def reload(cluster_name: str, member_names: List[str], group: Optional[int], for
 @click.argument('cluster_name')
 @click.argument('member_names', nargs=-1)
 @option_citus_group
-@click.option('--role', '-r', help='Restart only members with this role', type=role_choice, default='any')
+@click.option('--role', '-r', help='Restart only members with this role', type=role_choice,
+              default=CtlPostgresqlRole.ANY)
 @click.option('--any', 'p_any', help='Restart a single member only', is_flag=True)
 @click.option('--scheduled', help='Timestamp of a scheduled restart in unambiguous format (e.g. ISO 8601)',
               default=None)
@@ -1077,7 +1095,7 @@ def reload(cluster_name: str, member_names: List[str], group: Optional[int], for
 @click.option('--timeout', help='Return error and fail over if necessary when restarting takes longer than this.')
 @option_force
 def restart(cluster_name: str, group: Optional[int], member_names: List[str],
-            force: bool, role: str, p_any: bool, scheduled: Optional[str], version: Optional[str],
+            force: bool, role: CtlPostgresqlRole, p_any: bool, scheduled: Optional[str], version: Optional[str],
             pending: bool, timeout: Optional[str]) -> None:
     """Process ``restart`` command of ``patronictl`` utility.
 
@@ -1184,7 +1202,8 @@ def reinit(cluster_name: str, group: Optional[int], member_names: List[str], for
     :param wait: wait for the operation to complete.
     """
     cluster = get_dcs(cluster_name, group).get_cluster()
-    members = get_members(cluster, cluster_name, member_names, 'replica', force, 'reinitialize', group=group)
+    members = get_members(cluster, cluster_name, member_names, CtlPostgresqlRole.REPLICA,
+                          force, 'reinitialize', group=group)
 
     wait_on_members: List[Member] = []
     for member in members:
@@ -1709,10 +1728,10 @@ def timestamp(precision: int = 6) -> str:
 @option_citus_group
 @click.argument('member_names', nargs=-1)
 @click.argument('target', type=click.Choice(['restart', 'switchover']))
-@click.option('--role', '-r', help='Flush only members with this role', type=role_choice, default='any')
+@click.option('--role', '-r', help='Flush only members with this role', type=role_choice, default=CtlPostgresqlRole.ANY)
 @option_force
 def flush(cluster_name: str, group: Optional[int],
-          member_names: List[str], force: bool, role: str, target: str) -> None:
+          member_names: List[str], force: bool, role: CtlPostgresqlRole, target: str) -> None:
     """Process ``flush`` command of ``patronictl`` utility.
 
     Discard scheduled restart or switchover events.
@@ -2193,7 +2212,7 @@ def version(cluster_name: str, group: Optional[int], member_names: List[str]) ->
 
     click.echo("")
     cluster = get_dcs(cluster_name, group).get_cluster()
-    for m in get_all_members(cluster, group, 'any'):
+    for m in get_all_members(cluster, group, CtlPostgresqlRole.ANY):
         if m.api_url:
             if not member_names or m.name in member_names:
                 try:
