@@ -1439,7 +1439,7 @@ class TestHa(PostgresInit):
                                                                          CaseInsensitiveSet()))
         with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
             self.ha.run_cycle()
-        mock_set_sync.assert_called_once_with(CaseInsensitiveSet('*'))
+        mock_set_sync.assert_not_called()
         mock_cfg_set_sync.assert_not_called()
 
         # Test the value configured by the user for synchronous_standby_names is used when synchronous mode is disabled
