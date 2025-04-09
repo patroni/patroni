@@ -1168,8 +1168,9 @@ def restart(cluster_name: str, group: Optional[int], member_names: List[str],
 @option_citus_group
 @click.argument('member_names', nargs=-1)
 @option_force
+@click.option('--from-leader', is_flag=True, help='Set to sync wal from leader')
 @click.option('--wait', help='Wait until reinitialization completes', is_flag=True)
-def reinit(cluster_name: str, group: Optional[int], member_names: List[str], force: bool, wait: bool) -> None:
+def reinit(cluster_name: str, group: Optional[int], member_names: List[str], force: bool, from_leader: bool, wait: bool) -> None:
     """Process ``reinit`` command of ``patronictl`` utility.
 
     Reinitialize cluster members based on given filters.
@@ -1181,6 +1182,7 @@ def reinit(cluster_name: str, group: Optional[int], member_names: List[str], for
     :param group: filter which Citus group we should reinit members. Refer to the module note for more details.
     :param member_names: name of the members that should be reinitialized.
     :param force: perform the restart without asking for confirmations.
+    :param from-leader: perform the reinit to sync wal from the leader node.
     :param wait: wait for the operation to complete.
     """
     cluster = get_dcs(cluster_name, group).get_cluster()
@@ -1188,7 +1190,7 @@ def reinit(cluster_name: str, group: Optional[int], member_names: List[str], for
 
     wait_on_members: List[Member] = []
     for member in members:
-        body: Dict[str, bool] = {'force': force}
+        body: Dict[str, bool] = {'force': force, 'from_leader': True }
         while True:
             r = request_patroni(member, 'post', 'reinitialize', body)
             started = check_response(r, member.name, 'reinitialize')
