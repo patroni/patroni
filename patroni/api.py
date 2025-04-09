@@ -1002,6 +1002,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         The request body may contain a JSON dictionary with the following key:
 
             * ``force``: ``True`` if we want to cancel an already running task in order to reinit a replica.
+            * ``from_leader``: ``True`` if we want to reinit a replica and sync wal from the leader node.
 
         Response HTTP status codes:
 
@@ -1014,8 +1015,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
             logger.debug('received reinitialize request: %s', request)
 
         force = isinstance(request, dict) and parse_bool(request.get('force')) or False
+        from_leader = isinstance(request, dict) and parse_bool(request.get('from-leader')) or False
 
-        data = self.server.patroni.ha.reinitialize(force)
+        data = self.server.patroni.ha.reinitialize(force, from_leader)
         if data is None:
             status_code = 200
             data = 'reinitialize started'
