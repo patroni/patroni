@@ -365,13 +365,15 @@ class SlotsHandler:
                     logger.error("Failed to drop replication slot '%s'", name)
                     self._schedule_load_slots = True
 
-    def _ensure_physical_slots(self, slots: Dict[str, Any]) -> None:
+    def _ensure_physical_slots(self, slots: Dict[str, Any], clean_inactive_physical_slots: bool) -> None:
         """Create or advance physical replication *slots*.
 
         Any failures are logged and do not interrupt creation of all *slots*.
 
         :param slots: A dictionary mapping slot name to slot attributes. This method only considers a slot
                       if the value is a dictionary with the key ``type`` and a value of ``physical``.
+        :param clean_inactive_physical_slots: whether replication slots with ``xmin`` and not expected
+                                              to be active should be dropped.
         """
         immediately_reserve = ', true' if self._postgresql.major_version >= 90600 else ''
         for name, value in slots.items():
@@ -386,7 +388,7 @@ class SlotsHandler:
             if self._postgresql.can_advance_slots and name in self._replication_slots and\
                     self._replication_slots[name]['type'] == 'physical':
                 self._copy_items(self._replication_slots[name], value, ('restart_lsn', 'xmin'))
-                if value.get('expected_active') is False and value['xmin']:
+                if clean_inactive_physical_slots and value.get('expected_active') is False and value['xmin']:
                     logger.warning('Dropping physical replication slot %s because of its xmin value %s',
                                    name, value['xmin'])
                     active, dropped = self.drop_replication_slot(name)
@@ -548,7 +550,12 @@ class SlotsHandler:
 
                 self._drop_incorrect_slots(cluster, slots)
 
-                self._ensure_physical_slots(slots)
+                # We don't want to clean physical replication slots with xmin feedback if:
+                # - cluster has no leader
+                # - current node is a leader, but still running as a standby
+                clean_inactive_physical_slots = not cluster.is_unlocked() and \
+                    (cluster.leader and cluster.leader.name != self._postgresql.name or self._postgresql.is_primary())
+                self._ensure_physical_slots(slots, clean_inactive_physical_slots)
 
                 if self._postgresql.is_primary():
                     self._logical_slots_processing_queue.clear()

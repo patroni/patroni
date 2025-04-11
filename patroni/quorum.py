@@ -188,7 +188,7 @@ class QuorumStateResolver:
         old_leader = self.leader
         if leader is not None:  # Change of leader was requested
             self.leader = leader
-        elif self.numsync_confirmed == 0:
+        elif self.numsync_confirmed == 0 and not self.voters:
             # If there are no nodes that known to caught up with the primary we want to reset quorum/voters in /sync key
             quorum = 0
             voters = CaseInsensitiveSet()
@@ -275,6 +275,12 @@ class QuorumStateResolver:
             logger.debug("Case 2: synchronous_standby_names %s is a superset of DCS state %s", self.sync, self.voters)
             # Case 2: sync is superset of voters nodes. In the middle of changing replication factor (sync).
             # Add to voters nodes that are already synced and active
+            remove_from_sync = self.sync - self.active
+            sync = CaseInsensitiveSet(self.sync - remove_from_sync)
+            # If sync will not become empty after removing dead nodes - remove them.
+            # However, do it carefully, between sync and voters should remain common nodes!
+            if remove_from_sync and sync and (not self.voters or sync & self.voters):
+                yield from self.sync_update(min(self.numsync, len(self.sync) - len(remove_from_sync)), sync)
             add_to_voters = (self.sync - self.voters) & self.active
             if add_to_voters:
                 voters = CaseInsensitiveSet(self.voters | add_to_voters)
@@ -323,7 +329,7 @@ class QuorumStateResolver:
                 remove = CaseInsensitiveSet(sorted(to_remove, reverse=True)[:can_reduce_quorum_by])
                 sync = CaseInsensitiveSet(self.sync - remove)
                 # when removing nodes from sync we can safely increase numsync if requested
-                numsync = min(self.sync_wanted, len(sync)) if self.sync_wanted > self.numsync else self.numsync
+                numsync = min(self.sync_wanted if self.sync_wanted > self.numsync else self.numsync, len(sync))
                 yield from self.sync_update(numsync, sync)
                 voters = CaseInsensitiveSet(self.voters - remove)
                 to_remove &= self.sync

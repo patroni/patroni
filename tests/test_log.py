@@ -13,9 +13,13 @@ from patroni.config import Config
 from patroni.log import PatroniLogger
 
 try:
-    from pythonjsonlogger import jsonlogger
+    try:
+        from pythonjsonlogger import json as jsonlogger
+    except ImportError:
+        from pythonjsonlogger import jsonlogger
 
-    jsonlogger.JsonFormatter(None, None, rename_fields={}, static_fields={})
+        jsonlogger.JsonFormatter(None, None, rename_fields={}, static_fields={})
+
     json_formatter_is_available = True
 
     import json  # we need json.loads() function
@@ -274,6 +278,7 @@ class TestPatroniLogger(unittest.TestCase):
         with self.assertLogs() as captured_log:
             logger = PatroniLogger()
             pythonjsonlogger = Mock()
+            pythonjsonlogger.json.JsonFormatter = Mock(side_effect=Exception)
             pythonjsonlogger.jsonlogger.JsonFormatter = Mock(side_effect=Exception)
             with patch('builtins.__import__', Mock(return_value=pythonjsonlogger)):
                 logger.reload_config({'type': 'json'})

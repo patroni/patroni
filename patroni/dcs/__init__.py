@@ -1841,10 +1841,6 @@ class AbstractDCS(abc.ABC):
         """
         timestamp = time.time()
 
-        # DCS is a source of truth, therefore we take missing values from there
-        self._last_retain_slots.update({name: timestamp for name in self._last_status['retain_slots']
-                                        if (not slots or name not in slots) and name not in self._last_retain_slots})
-
         if slots:  # if slots is not empty it implies we are running v11+
             members: Set[str] = set()
             found_self = False
@@ -1928,6 +1924,23 @@ class AbstractDCS(abc.ABC):
 
         :returns: ``True`` if key has been created successfully.
         """
+
+    def acquire_leader_lock(self) -> bool:
+        """Attempt to acquire leader lock.
+
+        .. note::
+            This method wraps :meth:`~AbstractDCS.attempt_to_acquire_leader`: and is
+            used to reset retention time of physical replication slots that representing
+            members of the cluster when current node is to be promoted to the leader.
+
+        :returns: ``True`` if the leader key has been created successfully.
+        """
+        ret = self.attempt_to_acquire_leader()
+        if ret:
+            timestamp = time.time()
+            # every time we promote we need to reset retention time for slots recorded in the /status key
+            self._last_retain_slots = {name: timestamp for name in self._last_status['retain_slots']}
+        return ret
 
     @abc.abstractmethod
     def set_failover_value(self, value: str, version: Optional[Any] = None) -> bool:
