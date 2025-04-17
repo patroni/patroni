@@ -914,6 +914,13 @@ class Ha(object):
 
         # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
         sync_common = voters & allow_promote
+
+        # Since synchronous strict mode requires at least one other replica, /sync should not be updated
+        # with an empty set
+        if global_config.is_synchronous_mode_strict and len(voters) != 0 and not sync_common:
+            logger.warning("Skip update, strict mode must maintain at least one sync replica")
+            return
+
         if sync_common != voters:
             logger.info("Updating synchronous privilege temporarily from %s to %s",
                         list(voters), list(sync_common))
