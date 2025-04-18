@@ -461,6 +461,10 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertEqual(self.p.timeline_wal_position(), (1, 2, 1))
         Thread(target=self.p.timeline_wal_position).start()
 
+    def test_replica_wal_positions(self):
+        self.assertEqual(self.p.replica_wal_positions(), (1, 1))
+        Thread(target=self.p.replica_wal_positions).start()
+
     @patch.object(PostmasterProcess, 'from_pidfile')
     def test_is_running(self, mock_frompidfile):
         # Cached postmaster running
