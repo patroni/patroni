@@ -66,11 +66,11 @@ Installation steps
 
 As systemd is is now the de-facto init system across Linux distributions, we use it in the below steps.
 
-#. Download and unpack source from ...
+#. Download and unpack source from https://github.com/cybertec-postgresql/patroni/archive/refs/heads/multisite.zip
 #. `cd` to the resulting `patroni` directory
 #. `pip install -r requirements.txt`
 #. `pip install psycopg`
-#. create Patroni config (see ...)
+#. create Patroni config (see Configuration below)
 #. to run Patroni as a systemd service, create a systemd unit config based on the linked example: https://github.com/patroni/patroni/blob/master/extras/startup-scripts/patroni.service
 #. start Patroni with `[sudo] systemctl start patroni`
 
@@ -91,7 +91,7 @@ The configuration is very similar to the usual Patroni config.  In fact, the key
 
 An example configuration for two Patroni sites:
 
-```yaml
+```
 multisite:
   name: dc1
   namespace: /multisite/
@@ -164,6 +164,8 @@ When circumstances arise that makes it necessary to switch the location of the P
 ```
 patronictl site-switchover
 ```
+
+Answer the prompts as you would with other `patronictl` commands.
 
 The API call could look like the following (replace 'dc2' with the desired site name):
 
