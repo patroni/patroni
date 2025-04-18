@@ -162,13 +162,13 @@ Site switchover
 When circumstances arise that makes it necessary to switch the location of the Postgres primary from one site to another, one could do it by performing a site switchover.  Just like a normal switchover, a site switchover can be initiated using `patronictl` (or, alternatively, and API call to the Rest API).  The CTL command is as simple as
 
 ```
-patronictl multisite-switchover
+patronictl site-switchover
 ```
 
 The API call could look like the following (replace 'dc2' with the desired site name):
 
 ```
-curl --data-binary '{ "target_site": "dc2"}' http://127.0.0.1:8008/multisite_switchover
+curl --data-binary '{ "target_site": "dc2"}' http://127.0.0.1:8008/site_switchover
 ```
 
 Once the site switchover is done, the old leader site will become a standby site automatically.
