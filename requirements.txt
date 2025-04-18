@@ -3,7 +3,9 @@ boto3
 PyYAML
 kazoo>=1.3.1
 python-etcd>=0.4.3,<0.5
-py-consul>=1.1.1
+py-consul>=1.1.1,<1.5.4; python_version=="3.6"
+py-consul>=1.1.1,<1.6.0; python_version>"3.6" and python_version<"3.9"
+py-consul>=1.1.1; python_version>="3.9"
 click>=4.1
 prettytable>=0.7
 python-dateutil
