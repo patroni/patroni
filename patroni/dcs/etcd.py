@@ -128,9 +128,9 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
     def _check_cluster_raft_term(self, cluster_id: Optional[str], value: Union[None, str, int]) -> None:
         """Check that observed Raft Term in Etcd cluster is increasing.
 
-        If we observe new value is smaller than than previously known value it could be an
+        If we observe that the new value is smaller than the previously known one, it could be an
         indicator that we connected to a stale node and should switch to some other node.
-        However, we need to reset memorized value when notice that Cluster ID changed.
+        However, we need to reset the memorized value when we notice that Cluster ID changed.
         """
         if not (cluster_id and value):
             return
@@ -146,7 +146,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
             return
 
         if raft_term < self._raft_term:
-            logger.warning('Connected to Etcd node with term %d. Old known term %d. Switchnig to another node.',
+            logger.warning('Connected to Etcd node with term %d. Old known term %d. Switching to another node.',
                            raft_term, self._raft_term)
             raise StaleEtcdNode
         self._raft_term = raft_term
