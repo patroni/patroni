@@ -179,7 +179,7 @@ class TestClient(unittest.TestCase):
         with patch('patroni.dcs.etcd.logger.warning') as mock_logger:
             rtry(self.client.api_execute, '/', 'POST', timeout=0, params={'retry': rtry})
             self.assertEqual(mock_logger.call_args_list[0][0],
-                             ('Connected to Etcd node with term %d. Old known term %d. Switchnig to another node.',
+                             ('Connected to Etcd node with term %d. Old known term %d. Switching to another node.',
                               1, 2))
             self.assertEqual(mock_logger.call_args_list[1][0], ('Etcd Cluster ID changed from %s to %s', 'a', 'b'))
         self.client._base_uri = self.client._machines_cache[0]
