@@ -1,10 +1,12 @@
 import unittest
 
+from unittest import mock
 from unittest.mock import Mock, patch
 
 import psutil
 
-from patroni.postgresql.callback_executor import CallbackExecutor
+from patroni.postgresql.callback_executor import CallbackAction, CallbackExecutor
+from patroni.postgresql.misc import PostgresqlRole
 
 
 class TestCallbackExecutor(unittest.TestCase):
@@ -14,7 +16,7 @@ class TestCallbackExecutor(unittest.TestCase):
         mock_popen.return_value.children.return_value = []
         mock_popen.return_value.is_running.return_value = True
 
-        callback = ['test.sh', 'on_start', 'replica', 'foo']
+        callback = ['test.sh', CallbackAction.ON_START, PostgresqlRole.REPLICA, 'foo']
         ce = CallbackExecutor()
         ce._kill_children = Mock(side_effect=Exception)
         ce._invoke_excepthook = Mock()
@@ -22,6 +24,8 @@ class TestCallbackExecutor(unittest.TestCase):
         ce.join()
 
         self.assertIsNone(ce.call(callback))
+        mock_popen.assert_called_with(['test.sh', 'on_start', 'replica', 'foo'], close_fds=True)
+        mock_popen.reset_mock()
 
         mock_popen.return_value.kill.side_effect = psutil.AccessDenied()
         self.assertIsNone(ce.call(callback))
@@ -38,5 +42,7 @@ class TestCallbackExecutor(unittest.TestCase):
         self.assertIsNone(ce.call(callback))
 
         mock_popen.side_effect = [Mock()]
-        self.assertIsNone(ce.call(['test.sh', 'on_reload', 'replica', 'foo']))
+        self.assertIsNone(ce.call(['test.sh', CallbackAction.ON_RELOAD, PostgresqlRole.REPLICA, 'foo']))
+        self.assertEqual(mock_popen.call_args_list[-2],
+                         mock.call(['test.sh', 'on_reload', 'replica', 'foo'], close_fds=True))
         ce.join()

@@ -18,7 +18,7 @@ from ..file_perm import pg_perm
 from ..psycopg import OperationalError
 from ..tags import Tags
 from .connection import get_connection_cursor
-from .misc import format_lsn, fsync_dir
+from .misc import format_lsn, fsync_dir, PostgresqlRole
 
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
@@ -693,7 +693,7 @@ class SlotsHandler:
         leader = cluster.leader
         if not leader:
             return
-        slots = cluster.get_replication_slots(self._postgresql, tags, role='replica')
+        slots = cluster.get_replication_slots(self._postgresql, tags, role=PostgresqlRole.REPLICA)
         copy_slots: Dict[str, Dict[str, Any]] = {}
         with self._get_leader_connection_cursor(leader) as cur:
             try:
