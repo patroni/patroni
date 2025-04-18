@@ -937,7 +937,7 @@ class Cluster(NamedTuple('Cluster',
         return next((m for m in self.members if m.name == member_name),
                     self.leader if fallback_to_leader else None)
 
-    def get_clone_member(self, exclude_name: str, from_leader: bool = False) -> Union[Member, Leader, None]:
+    def get_clone_member(self, exclude_name: str) -> Union[Member, Leader, None]:
         """Get member or leader object to use as clone source.
 
         :param exclude_name: name of a member name to exclude.
@@ -947,7 +947,7 @@ class Cluster(NamedTuple('Cluster',
                  sources for cloning (has tag ``clonefrom`` in configuration). If no member is appropriate the current
                  leader is used.
         """
-        exclude = [exclude_name] + ([self.leader.name] if self.leader and not from_leader else [])
+        exclude = [exclude_name] + ([self.leader.name] if self.leader else [])
         candidates = [m for m in self.members if m.clonefrom and m.is_running and m.name not in exclude]
         return candidates[randint(0, len(candidates) - 1)] if candidates else self.leader
 
