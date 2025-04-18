@@ -941,7 +941,6 @@ class Cluster(NamedTuple('Cluster',
         """Get member or leader object to use as clone source.
 
         :param exclude_name: name of a member name to exclude.
-        :param from-leader: set reinit to sync wal from the leader node.
 
         :returns: a randomly selected candidate member from available running members that are configured to as viable
                  sources for cloning (has tag ``clonefrom`` in configuration). If no member is appropriate the current
