@@ -18,6 +18,7 @@ import urllib3
 
 from urllib3.exceptions import ProtocolError, ReadTimeoutError
 
+from ..collections import EMPTY_DICT
 from ..exceptions import DCSError, PatroniException
 from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, enable_keepalive, iter_response_objects, RetryFailedError, USER_AGENT
@@ -240,6 +241,10 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         try:
             data = data.decode('utf-8')
             ret: Dict[str, Any] = json.loads(data)
+
+            header = ret.get('header', EMPTY_DICT)
+            self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
+
             if response.status < 400:
                 return ret
         except (TypeError, ValueError, UnicodeError) as e:

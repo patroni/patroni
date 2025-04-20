@@ -22,7 +22,7 @@ from patroni.postgresql import PgIsReadyStatus, Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
 from patroni.postgresql.config import _false_validator, get_param_diff
-from patroni.postgresql.misc import PostgresqlState
+from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import _get_postgres_guc_validators, _load_postgres_gucs_validators, \
     _read_postgres_gucs_validators_file, Bool, Enum, EnumBool, Integer, InvalidGucValidatorsFile, \
@@ -446,7 +446,7 @@ class TestPostgresql(BaseTestPostgresql):
         task = CriticalTask()
         self.assertTrue(self.p.promote(0, task))
 
-        self.p.set_role('replica')
+        self.p.set_role(PostgresqlRole.REPLICA)
         self.p.config._config['pre_promote'] = 'test'
         with patch('patroni.postgresql.cancellable.CancellableSubprocess.is_cancelled', PropertyMock(return_value=1)):
             self.assertFalse(self.p.promote(0, task))
@@ -484,7 +484,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch('shlex.split', Mock(side_effect=OSError))
     def test_call_nowait(self):
-        self.p.set_role('replica')
+        self.p.set_role(PostgresqlRole.REPLICA)
         self.assertIsNone(self.p.call_nowait(CallbackAction.ON_START))
         self.p.bootstrapping = True
         self.assertIsNone(self.p.call_nowait(CallbackAction.ON_START))
@@ -512,7 +512,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('os.path.exists', Mock(return_value=True))
     @patch.object(Postgresql, 'controldata', Mock())
     def test_get_postgres_role_from_data_directory(self):
-        self.assertEqual(self.p.get_postgres_role_from_data_directory(), 'replica')
+        self.assertEqual(self.p.get_postgres_role_from_data_directory(), PostgresqlRole.REPLICA)
 
     @patch('os.remove', Mock())
     @patch('shutil.rmtree', Mock())
@@ -856,7 +856,8 @@ class TestPostgresql(BaseTestPostgresql):
     def test_get_primary_timeline(self):
         self.assertEqual(self.p.get_primary_timeline(), 1)
 
-    @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='replica'))
+    @patch.object(Postgresql, 'get_postgres_role_from_data_directory',
+                  Mock(return_value=PostgresqlRole.REPLICA))
     @patch.object(Postgresql, 'is_running', Mock(return_value=False))
     @patch.object(Bootstrap, 'running_custom_bootstrap', PropertyMock(return_value=True))
     @patch('patroni.postgresql.config.logger')
@@ -897,7 +898,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch.object(Postgresql, '_query', Mock(side_effect=RetryFailedError('')))
     def test_received_timeline(self):
-        self.p.set_role('standby_leader')
+        self.p.set_role(PostgresqlRole.STANDBY_LEADER)
         self.p.reset_cluster_info_state(None)
         self.assertRaises(PostgresConnectionException, self.p.received_timeline)
 

@@ -28,7 +28,7 @@ from .callback_executor import CallbackAction, CallbackExecutor
 from .cancellable import CancellableSubprocess
 from .config import ConfigHandler, mtime
 from .connection import ConnectionPool, get_connection_cursor
-from .misc import parse_history, parse_lsn, postgres_major_version_to_int, PostgresqlState
+from .misc import parse_history, parse_lsn, postgres_major_version_to_int, PostgresqlRole, PostgresqlState
 from .mpp import AbstractMPP
 from .postmaster import PostmasterProcess
 from .slots import SlotsHandler
@@ -95,7 +95,7 @@ class Postgresql(object):
         self.mpp_handler = mpp.get_handler_impl(self)
         self._bin_dir = config.get('bin_dir') or ''
         self._role_lock = Lock()
-        self.set_role('uninitialized')
+        self.set_role(PostgresqlRole.UNINITIALIZED)
         self.config = ConfigHandler(self, config)
         self.config.check_directories()
 
@@ -142,20 +142,20 @@ class Postgresql(object):
             # we know that PostgreSQL is accepting connections and can read some GUC's from pg_settings
             self.config.load_current_server_parameters()
 
-            self.set_role('primary' if self.is_primary() else 'replica')
+            self.set_role(PostgresqlRole.PRIMARY if self.is_primary() else PostgresqlRole.REPLICA)
 
             hba_saved = self.config.replace_pg_hba()
             ident_saved = self.config.replace_pg_ident()
 
-            if self.major_version < 120000 or self.role == 'primary':
+            if self.major_version < 120000 or self.role == PostgresqlRole.PRIMARY:
                 # If PostgreSQL is running as a primary or we run PostgreSQL that is older than 12 we can
                 # call reload_config() once again (the first call happened in the ConfigHandler constructor),
                 # so that it can figure out if config files should be updated and pg_ctl reload executed.
                 self.config.reload_config(config, sighup=bool(hba_saved or ident_saved))
             elif hba_saved or ident_saved:
                 self.reload()
-        elif not self.is_running() and self.role == 'primary':
-            self.set_role('demoted')
+        elif not self.is_running() and self.role == PostgresqlRole.PRIMARY:
+            self.set_role(PostgresqlRole.DEMOTED)
 
     @property
     def create_replica_methods(self) -> List[str]:
@@ -237,7 +237,7 @@ class Postgresql(object):
                          " pg_catalog.pg_stat_get_activity(w.pid)"
                          " WHERE w.state = 'streaming') r)").format(self.wal_name, self.lsn_name)
                         if global_config.is_synchronous_mode
-                        and self.role in ('primary', 'promoted') else "'on', '', NULL")
+                        and self.role in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED) else "'on', '', NULL")
 
         if self._major_version >= 90600:
             filter_failover = ' WHERE NOT failover' if self._major_version >= 170000 else ''
@@ -252,7 +252,7 @@ class Postgresql(object):
                            if self._major_version >= 130000 else "NULL")
             extra = (", CASE WHEN latest_end_lsn IS NULL THEN NULL ELSE received_tli END, {0}, slot_name, "
                      "conninfo, status, {1} FROM pg_catalog.pg_stat_get_wal_receiver()").format(written_lsn, extra)
-            if self.role == 'standby_leader':
+            if self.role == PostgresqlRole.STANDBY_LEADER:
                 extra = "timeline_id" + extra + ", pg_catalog.pg_control_checkpoint()"
             else:
                 extra = "0" + extra
@@ -366,13 +366,13 @@ class Postgresql(object):
             self._sysid = data.get('Database system identifier', '')
         return self._sysid
 
-    def get_postgres_role_from_data_directory(self) -> str:
+    def get_postgres_role_from_data_directory(self) -> PostgresqlRole:
         if self.data_directory_empty() or not self.controldata():
-            return 'uninitialized'
+            return PostgresqlRole.UNINITIALIZED
         elif self.config.recovery_conf_exists():
-            return 'replica'
+            return PostgresqlRole.REPLICA
         else:
-            return 'primary'
+            return PostgresqlRole.PRIMARY
 
     @property
     def server_version(self) -> int:
@@ -592,7 +592,7 @@ class Postgresql(object):
             return bool(self._cluster_info_state_get('timeline'))
         except PostgresConnectionException:
             logger.warning('Failed to determine PostgreSQL state from the connection, falling back to cached role')
-            return bool(self.is_running() and self.role == 'primary')
+            return bool(self.is_running() and self.role == PostgresqlRole.PRIMARY)
 
     def replay_paused(self) -> bool:
         return self._cluster_info_state_get('replay_paused') or False
@@ -694,7 +694,7 @@ class Postgresql(object):
 
         if self.callback and cb_type in self.callback:
             cmd = self.callback[cb_type]
-            role = 'primary' if self.role == 'promoted' else self.role
+            role = PostgresqlRole.PRIMARY if self.role == PostgresqlRole.PROMOTED else self.role
             try:
                 cmd = shlex.split(self.callback[cb_type]) + [cb_type, role, self.scope]
                 self._callback_executor.call(cmd)
@@ -702,11 +702,11 @@ class Postgresql(object):
                 logger.exception('callback %s %r %s %s failed', cmd, cb_type, role, self.scope)
 
     @property
-    def role(self) -> str:
+    def role(self) -> PostgresqlRole:
         with self._role_lock:
             return self._role
 
-    def set_role(self, value: str) -> None:
+    def set_role(self, value: PostgresqlRole) -> None:
         with self._role_lock:
             self._role = value
 
@@ -747,7 +747,7 @@ class Postgresql(object):
         return False
 
     def start(self, timeout: Optional[float] = None, task: Optional[CriticalTask] = None,
-              block_callbacks: bool = False, role: Optional[str] = None,
+              block_callbacks: bool = False, role: Optional[PostgresqlRole] = None,
               after_start: Optional[Callable[..., Any]] = None) -> Optional[bool]:
         """Start PostgreSQL
 
@@ -1032,7 +1032,7 @@ class Postgresql(object):
         return self.state == PostgresqlState.RUNNING
 
     def restart(self, timeout: Optional[float] = None, task: Optional[CriticalTask] = None,
-                block_callbacks: bool = False, role: Optional[str] = None,
+                block_callbacks: bool = False, role: Optional[PostgresqlRole] = None,
                 before_shutdown: Optional[Callable[..., Any]] = None,
                 after_start: Optional[Callable[..., Any]] = None) -> Optional[bool]:
         """Restarts PostgreSQL.
@@ -1140,14 +1140,15 @@ class Postgresql(object):
                 logger.exception('Failed to read and parse %s', (history_path,))
         return history
 
-    def follow(self, member: Union[Leader, Member, None], role: str = 'replica',
+    def follow(self, member: Union[Leader, Member, None], role: PostgresqlRole = PostgresqlRole.REPLICA,
                timeout: Optional[float] = None, do_reload: bool = False) -> Optional[bool]:
         """Reconfigure postgres to follow a new member or use different recovery parameters.
 
         Method may call `on_role_change` callback if role is changing.
 
         :param member: The member to follow
-        :param role: The desired role, normally 'replica', but could also be a 'standby_leader'
+        :param role: The desired role, one of :class:`~misc.PostgresqlRole` values, normally
+            :class:`~misc.PostgresqlRole.REPLICA`, but could also be a :class:`~misc.PostgresqlRole.STANDBY_LEADER`
         :param timeout: start timeout, how long should the `start()` method wait for postgres accepting connections
         :param do_reload: indicates that after updating postgresql.conf we just need to do a reload instead of restart
 
@@ -1165,8 +1166,9 @@ class Postgresql(object):
         # and we know for sure that postgres was already running before, we will only execute on_role_change
         # callback and prevent execution of on_restart/on_start callback.
         # If the role remains the same (replica or standby_leader), we will execute on_start or on_restart
-        change_role = self.cb_called and (self.role in ('primary', 'demoted')
-                                          or not {'standby_leader', 'replica'} - {self.role, role})
+        change_role = self.cb_called and \
+            (self.role in (PostgresqlRole.PRIMARY, PostgresqlRole.DEMOTED)
+             or not {PostgresqlRole.STANDBY_LEADER, PostgresqlRole.REPLICA} - {self.role, role})
         if change_role:
             self.__cb_pending = CallbackAction.NOOP
 
@@ -1191,7 +1193,7 @@ class Postgresql(object):
         for _ in polling_loop(wait_seconds):
             data = self.controldata()
             if data.get('Database cluster state') == 'in production':
-                self.set_role('primary')
+                self.set_role(PostgresqlRole.PRIMARY)
                 return True
 
     def _pre_promote(self) -> bool:
@@ -1226,7 +1228,7 @@ class Postgresql(object):
 
     def promote(self, wait_seconds: int, task: CriticalTask,
                 before_promote: Optional[Callable[..., Any]] = None) -> Optional[bool]:
-        if self.role in ('promoted', 'primary'):
+        if self.role in (PostgresqlRole.PROMOTED, PostgresqlRole.PRIMARY):
             return True
 
         ret = self._pre_promote()
@@ -1250,7 +1252,7 @@ class Postgresql(object):
 
         ret = self.pg_ctl('promote', '-W')
         if ret:
-            self.set_role('promoted')
+            self.set_role(PostgresqlRole.PROMOTED)
             self.call_nowait(CallbackAction.ON_ROLE_CHANGE)
             ret = self._wait_promote(wait_seconds)
         return ret
@@ -1373,7 +1375,7 @@ class Postgresql(object):
                 logger.exception("Could not rename data directory %s", self._data_dir)
 
     def remove_data_directory(self) -> None:
-        self.set_role('uninitialized')
+        self.set_role(PostgresqlRole.UNINITIALIZED)
         logger.info('Removing data directory: %s', self._data_dir)
         try:
             if os.path.islink(self._data_dir):
