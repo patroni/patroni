@@ -18,6 +18,7 @@ from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tu
 from . import ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, \
     TimelineHistory, catch_return_false_exception
 from .etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors, DnsCachingResolver, Retry
+from ..collections import EMPTY_DICT
 from ..exceptions import DCSError, PatroniException
 from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, enable_keepalive, iter_response_objects, RetryFailedError, USER_AGENT
@@ -237,6 +238,10 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         try:
             data = data.decode('utf-8')
             ret: Dict[str, Any] = json.loads(data)
+
+            header = ret.get('header', EMPTY_DICT)
+            self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
+
             if response.status < 400:
                 return ret
         except (TypeError, ValueError, UnicodeError) as e:

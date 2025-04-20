@@ -113,6 +113,12 @@ def http_request(method, url, **kwargs):
         ret.content = 'http://localhost:2379,http://localhost:4001'
     elif url == 'http://localhost:4001/v2/machines':
         ret.content = ''
+    elif url == 'http://localhost:4001/term/':
+        ret.headers['x-etcd-cluster-id'] = 'a'
+        ret.headers['x-raft-term'] = '1'
+    elif url == 'http://localhost:2379/term/':
+        ret.headers['x-etcd-cluster-id'] = 'b'
+        ret.headers['x-raft-term'] = 'x'
     elif url != 'http://localhost:2379/':
         raise socket.error
     return ret
@@ -161,6 +167,23 @@ class TestClient(unittest.TestCase):
         except Exception:
             self.assertIsNone(machines)
 
+    def test__check_cluster_raft_term(self):
+        self.client._raft_term = 2
+        self.client._base_uri = 'http://localhost:4001/term'
+        self.client._machines_cache = [self.client._base_uri, 'http://localhost:2379/term']
+        rtry = Retry(deadline=10, max_delay=1, max_tries=-1, retry_exceptions=(etcd.EtcdLeaderElectionInProgress,))
+        with patch('patroni.dcs.etcd.logger.warning') as mock_logger:
+            rtry(self.client.api_execute, '/', 'POST', timeout=0, params={'retry': rtry})
+            self.assertEqual(mock_logger.call_args_list[0][0],
+                             ('Connected to Etcd node with term %d. Old known term %d. Switching to another node.',
+                              1, 2))
+            self.assertEqual(mock_logger.call_args_list[1][0], ('Etcd Cluster ID changed from %s to %s', 'a', 'b'))
+        self.client._base_uri = self.client._machines_cache[0]
+        with patch('patroni.dcs.etcd.logger.warning') as mock_logger:
+            rtry(self.client.api_execute, '/', 'POST', timeout=0, params={'retry': rtry})
+            self.assertEqual(mock_logger.call_args[0], ('Etcd Cluster ID changed from %s to %s', 'b', 'a'))
+
+    @patch('time.sleep', Mock())
     @patch.object(EtcdClient, '_get_machines_list',
                   Mock(return_value=['http://localhost:4001', 'http://localhost:2379']))
     def test_api_execute(self):
