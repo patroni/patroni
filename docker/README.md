@@ -64,7 +64,7 @@ Example session:
 
     $ docker exec -ti demo-patroni1 bash
     postgres@patroni1:~$ patronictl list
-    + Cluster: batman (7484198206076370966) ------+----+-------------+-----+------------+-----+
+    + Cluster: demo (7303838734793224214) --------+----+-------------+-----+------------+-----+
     | Member   | Host       | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
     +----------+------------+---------+-----------+----+-------------+-----+------------+-----+
     | patroni1 | 172.18.0.8 | Leader  | running   |  2 |             |     |            |     |
