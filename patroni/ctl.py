@@ -198,7 +198,7 @@ class PatronictlPrettyTable(PrettyTable):
         """
         try:
             super(PatronictlPrettyTable, self)._validate_field_names(*args, **kwargs)
-        except ValueError as e:
+        except Exception as e:
             if 'Field names must be unique' not in str(e):
                 raise e
 
@@ -1624,8 +1624,16 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
             restart_reason = '\n'.join([format_diff(k, v, fmt in ('pretty', 'topology'))
                                         for k, v in member.get('pending_restart_reason', {}).items()]) or ''
 
-            receive_lag, replay_lag = member.get('received_lag', ''), member.get('replayed_lag', '')
-            receive_lsn, replay_lsn = member.get('received_lsn', ''), member.get('replayed_lsn', '')
+            receive_lag, replay_lag = member.get('receive_lag', ''), member.get('replay_lag', '')
+            receive_lsn, replay_lsn = member.get('receive_lsn', ''), member.get('replay_lsn', '')
+            lsn = member.get('lsn', '')
+            # old lsn/lag implementation compatibility
+            if 'unknown' == receive_lsn and replay_lsn == 'unknown' and lsn and lsn != 'unknown':
+                lag = member.get('lag', '')
+                if member['state'] == 'streaming':
+                    receive_lag, receive_lsn = lag, lsn
+                else:
+                    replay_lag, replay_lsn = lag, lsn
             receive_lag = round(receive_lag / 1024 / 1024) if isinstance(receive_lag, int) \
                 else '' if receive_lag == 'unknown' else receive_lag
             replay_lag = round(replay_lag / 1024 / 1024) if isinstance(replay_lag, int) \

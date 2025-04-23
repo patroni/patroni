@@ -386,10 +386,10 @@ Cluster status endpoints
           "tags": {
             "clonefrom": true
           },
-          "received_lag": 0,
-          "received_lsn": "0/4000060",
-          "replayed_lag": 0,
-          "replayed_lsn": "0/4000060",
+          "receive_lag": 0,
+          "receive_lsn": "0/4000060",
+          "replay_lag": 0,
+          "replay_lsn": "0/4000060",
           "lag": 0,
           "lsn": "0/4000060"
         }

@@ -932,13 +932,13 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
             * ``scheduled_restart``: scheduled restart timestamp, if any;
             * ``tags``: any tags that were set for this member;
             * ``lsn``: current WAL position. See :meth:`Postgresql._wal_position`
-            * ``received_lsn``: receive LSN (``pg_catalog.pg_last_(xlog|wal)_receive_(location|lsn)()``),
+            * ``receive_lsn``: receive LSN (``pg_catalog.pg_last_(xlog|wal)_receive_(location|lsn)()``),
                 if applicable;
-            * ``replayed_lsn``: replay LSN (``pg_catalog.pg_last_(xlog|wal)_replay_(location|lsn)()``),
+            * ``replay_lsn``: replay LSN (``pg_catalog.pg_last_(xlog|wal)_replay_(location|lsn)()``),
                 if applicable;
             * ``lag``: replication lag for ``lsn``, if applicable;
-            * ``received_lag``: lag of the receive LSN;
-            * ``replayed_lag``: lag of the replay LSN;
+            * ``receive_lag``: lag of the receive LSN;
+            * ``replay_lag``: lag of the replay LSN;
 
         * ``pause``: ``True`` if cluster is in maintenance mode;
         * ``scheduled_switchover``: if a switchover has been scheduled, then it contains this entry with these keys:
@@ -975,7 +975,7 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
         member.update({n: m.data[n] for n in optional_attributes if n in m.data})
 
         if m.name != leader_name:
-            for location in ('received_', 'replayed_', ''):
+            for location in ('receive_', 'replay_', ''):
                 lsn_type, lag_type = f'{location}lsn', f'{location}lag'
 
                 lsn = getattr(m, lsn_type)

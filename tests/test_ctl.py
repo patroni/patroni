@@ -128,13 +128,20 @@ class TestCtl(unittest.TestCase):
             scheduled_at = datetime.now(tzutc) + timedelta(seconds=600)
             cluster = get_cluster_initialized_with_leader(Failover(1, 'foo', 'bar', scheduled_at))
             del cluster.members[1].data['conn_url']
+            cluster.members[1].data['replication_state'] = 'streaming'
+            cluster.members[1].data['xlog_location'] = 3
+            cluster.members.append(Member(0, 'foo', 28,
+                                          {'replication_state': 'in archive recovery', 'xlog_location': 3}))
+
             for fmt in ('pretty', 'json', 'yaml', 'topology'):
                 self.assertIsNone(output_members(cluster, name='abc', fmt=fmt))
 
             with patch('click.echo') as mock_echo:
                 self.assertIsNone(output_members(cluster, name='abc', fmt='tsv'))
-                self.assertEqual(mock_echo.call_args[0][0],
-                                 'abc\tother\t\tReplica\trunning\t\tunknown\t\tunknown\t')
+                self.assertEqual(mock_echo.call_args_list[3][0][0],
+                                 'abc\tother\t\tReplica\tstreaming\t\t0/3\t0\tunknown\t')
+                self.assertEqual(mock_echo.call_args_list[1][0][0],
+                                 'abc\tfoo\t\tReplica\tin archive recovery\t\tunknown\t\t0/3\t0')
 
     @patch('patroni.dcs.AbstractDCS.set_failover_value', Mock())
     def test_switchover(self):
