@@ -19,6 +19,11 @@ In order to change the dynamic configuration you can use either :ref:`patronictl
 
         loop_wait + 2 * retry_timeout <= ttl
 
+    and you'd better follow the rule:
+
+    .. code-block:: python
+
+        2 * loop_wait <= ttl
 
 -  **maximum\_lag\_on\_failover**: the maximum bytes a follower may lag to be able to participate in leader election.
 -  **maximum\_lag\_on\_syncnode**: the maximum bytes a synchronous follower may lag before it is considered as an unhealthy candidate and swapped by healthy asynchronous follower. Patroni utilize the max replica lsn if there is more than one follower, otherwise it will use leader's current wal lsn. Default is -1, Patroni will not take action to swap synchronous unhealthy follower when the value is set to 0 or below. Please set the value high enough so Patroni won't swap synchrounous follower frequently during high transaction volume.
