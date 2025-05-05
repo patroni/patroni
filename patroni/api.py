@@ -512,7 +512,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         failure_reason = self._readiness()
 
         if failure_reason:
-            logger.info("Readiness check failure: %s", failure_reason)
+            logger.debug("Readiness check failure: %s", failure_reason)
 
         self._write_status_code_only(200 if not failure_reason else 503)
 
