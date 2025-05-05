@@ -1262,7 +1262,13 @@ class Postgresql(object):
                       receive_lsn: Optional[int], replay_lsn: Optional[int]) -> int:
         return wal_position if is_primary else max(receive_lsn or 0, replay_lsn or 0)
 
-    def timeline_wal_position(self) -> Tuple[int, int, Optional[int]]:
+    def timeline_wal_position(self) -> Tuple[int, int, Optional[int], Optional[int], Optional[int]]:
+        """Get timeline and various wal positions.
+
+        :returns: a tuple composed of 5 integers representing timeline, ``pg_current_wal_lsn()`` position
+            on primary/the biggest value among receive and replay LSN on replicas, ``pg_control_checkpoint()``
+            value on a standby leader, receive and replay LSN on replicas (if available).
+        """
         # This method could be called from different threads (simultaneously with some other `_query` calls).
         # If it is called not from main thread we will create a new cursor to execute statement.
         if current_thread().ident == self.__thread_ident:
@@ -1277,22 +1283,7 @@ class Postgresql(object):
             receive_lsn = max(receive_lsn or 0, write_location or 0)
 
         wal_position = self._wal_position(bool(timeline), wal_position, receive_lsn, replay_lsn)
-        return timeline, wal_position, pg_control_timeline
-
-    def replica_wal_positions(self) -> Tuple[Optional[int], Optional[int]]:
-        """Get receive and replay LSN.
-
-        :returns: a tuple composed of 2 integers representing receive and replay LSN (if available).
-        """
-        # This method could be called from different threads (simultaneously with some other `_query` calls).
-        # If it is called not from main thread we will create a new cursor to execute statement.
-        if current_thread().ident == self.__thread_ident:
-            replay_lsn = self.replay_lsn()
-            receive_lsn = self.receive_lsn()
-        else:
-            _, _, replay_lsn, receive_lsn = self._query(self.cluster_info_query)[0][:4]
-
-        return receive_lsn, replay_lsn
+        return timeline, wal_position, pg_control_timeline, receive_lsn, replay_lsn
 
     def postmaster_start_time(self) -> Optional[str]:
         try:
