@@ -449,7 +449,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self._write_status_code_only(status_code)
 
     def _readiness(self) -> Optional[str]:
-        """Check if readiness conditions are met
+        """Check if readiness conditions are met.
 
         :returns: None if node can be considered ready or diagnostic message if not."""
 
@@ -487,8 +487,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         if lag > max_replica_lag:
             return f'Replication {mode} lag {lag} exceeds maximum allowable {max_replica_lag}'
-
-        return
 
     def do_GET_readiness(self) -> None:
         """Handle a ``GET`` request to ``/readiness`` path.
