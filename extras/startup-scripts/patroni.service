@@ -6,7 +6,7 @@ Description=Runners to orchestrate a high-availability PostgreSQL
 After=syslog.target network.target
 
 [Service]
-Type=simple
+Type=notify
 
 User=postgres
 Group=postgres

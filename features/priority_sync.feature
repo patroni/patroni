@@ -3,6 +3,8 @@ Feature: synchronous replicas priority
 
   Scenario: check replica with sync_priority=0 does not become a synchronous replica
      Given I start postgres-0
+     Then postgres-0 is a leader after 10 seconds
+     And there is a non empty initialize key in DCS after 15 seconds
      When I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 20, "synchronous_mode": true}
      Then I receive a response code 200
      When I configure and start postgres-1 with a tag sync_priority 0

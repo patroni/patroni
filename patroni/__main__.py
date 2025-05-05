@@ -12,7 +12,7 @@ import time
 from argparse import Namespace
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from patroni import MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
+from patroni import global_config, MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
 from patroni.daemon import abstract_main, AbstractPatroniDaemon, get_base_arg_parser
 from patroni.tags import Tags
 
@@ -69,6 +69,9 @@ class Patroni(AbstractPatroniDaemon, Tags):
 
         self.watchdog = Watchdog(self.config)
         self.apply_dynamic_configuration(cluster)
+
+        # Initialize global config
+        global_config.update(None, self.config.dynamic_configuration)
 
         self.postgresql = Postgresql(self.config['postgresql'], self.dcs.mpp)
         self.api = RestApiServer(self, self.config['restapi'])
@@ -209,13 +212,15 @@ class Patroni(AbstractPatroniDaemon, Tags):
         the change and cache the new dynamic configuration values in ``patroni.dynamic.json`` file under Postgres data
         directory.
         """
+        from patroni.postgresql.misc import PostgresqlRole
+
         logger.info(self.ha.run_cycle())
 
         if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
                 and self.config.set_dynamic_configuration(self.dcs.cluster.config):
             self.reload_config()
 
-        if self.postgresql.role != 'uninitialized':
+        if self.postgresql.role != PostgresqlRole.UNINITIALIZED:
             self.config.save_cache()
 
         self.schedule_next_run()
@@ -254,6 +259,8 @@ def process_arguments() -> Namespace:
       * ``--generate-sample-config`` -- used to generate a sample Patroni configuration
       * ``--ignore-listen-port`` | ``-i`` -- used to ignore ``listen`` ports already in use.
           Can be used only with ``--validate-config``
+      * ``--print`` | ``-p`` -- used to print out local configuration (incl. environment configuration overrides).
+          Can be used only with ``--validate-config``
 
     .. note::
         If running with ``--generate-config``, ``--generate-sample-config`` or ``--validate-flag`` will exit
@@ -275,6 +282,9 @@ def process_arguments() -> Namespace:
     parser.add_argument('--ignore-listen-port', '-i', action='store_true',
                         help='Ignore `listen` ports already in use.\
                               Can only be used with --validate-config')
+    parser.add_argument('--print', '-p', action='store_true',
+                        help='Print out local configuration (incl. environment configuration overrides).\
+                              Can only be used with --validate-config')
     args = parser.parse_args()
 
     if args.generate_sample_config:
@@ -290,10 +300,14 @@ def process_arguments() -> Namespace:
         populate_validate_params(ignore_listen_port=args.ignore_listen_port)
 
         try:
-            Config(args.configfile, validator=schema)
-            sys.exit()
+            config = Config(args.configfile, validator=schema)
         except ConfigParseError as e:
             sys.exit(e.value)
+
+        if args.print:
+            import yaml
+            yaml.safe_dump(config.local_configuration, sys.stdout, default_flow_style=False, allow_unicode=True)
+        sys.exit()
 
     return args
 

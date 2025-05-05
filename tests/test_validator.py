@@ -70,6 +70,7 @@ config = {
     "kubernetes": {
         "namespace": "string",
         "labels": {},
+        'bootstrap_labels': {'foo': 'bar'},
         "scope_label": "string",
         "role_label": "string",
         "use_endpoints": False,
@@ -228,11 +229,10 @@ class TestValidator(unittest.TestCase):
         c["kubernetes"]["pod_ip"] = "::1"
         c["consul"]["host"] = "127.0.0.1:50000"
         c["etcd"]["host"] = "127.0.0.1:237"
-        c["postgresql"]["listen"] = "127.0.0.1:5432"
         with patch('patroni.validator.open', mock_open(read_data='9')):
             errors = schema(c)
         output = "\n".join(errors)
-        self.assertEqual(['consul.host', 'etcd.host', 'postgresql.bin_dir', 'postgresql.data_dir', 'postgresql.listen',
+        self.assertEqual(['consul.host', 'etcd.host', 'postgresql.bin_dir', 'postgresql.data_dir',
                           'raft.bind_addr', 'raft.self_addr', 'restapi.connect_address'], parse_output(output))
 
     def test_bin_dir_is_empty_string_executables_in_path(self, mock_out, mock_err):

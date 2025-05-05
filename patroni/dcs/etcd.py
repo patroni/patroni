@@ -41,11 +41,16 @@ class EtcdRaftInternal(etcd.EtcdException):
     """Raft Internal Error"""
 
 
+class StaleEtcdNode(Exception):
+    """Node is stale (raft term is older than previous known)."""
+
+
 class EtcdError(DCSError):
     pass
 
 
-_AddrInfo = Tuple[socket.AddressFamily, socket.SocketKind, int, str, Union[Tuple[str, int], Tuple[str, int, int, int]]]
+_AddrInfo = Tuple[socket.AddressFamily, socket.SocketKind, int, str,
+                  Union[Tuple[str, int], Tuple[str, int, int, int], Tuple[int, bytes]]]
 
 
 class DnsCachingResolver(Thread):
@@ -101,6 +106,8 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
     ERROR_CLS: Type[Exception]
 
     def __init__(self, config: Dict[str, Any], dns_resolver: DnsCachingResolver, cache_ttl: int = 300) -> None:
+        self._cluster_id = None
+        self._raft_term = 0
         self._dns_resolver = dns_resolver
         self.set_machines_cache_ttl(cache_ttl)
         self._machines_cache_updated = 0
@@ -117,6 +124,32 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
         self._comparison_conditions.add('retry')
         self._read_options.add('retry')
         self._del_conditions.add('retry')
+
+    def _check_cluster_raft_term(self, cluster_id: Optional[str], value: Union[None, str, int]) -> None:
+        """Check that observed Raft Term in Etcd cluster is increasing.
+
+        If we observe that the new value is smaller than the previously known one, it could be an
+        indicator that we connected to a stale node and should switch to some other node.
+        However, we need to reset the memorized value when we notice that Cluster ID changed.
+        """
+        if not (cluster_id and value):
+            return
+
+        if self._cluster_id and self._cluster_id != cluster_id:
+            logger.warning('Etcd Cluster ID changed from %s to %s', self._cluster_id, cluster_id)
+            self._raft_term = 0
+        self._cluster_id = cluster_id
+
+        try:
+            raft_term = int(value)
+        except Exception:
+            return
+
+        if raft_term < self._raft_term:
+            logger.warning('Connected to Etcd node with term %d. Old known term %d. Switching to another node.',
+                           raft_term, self._raft_term)
+            raise StaleEtcdNode
+        self._raft_term = raft_term
 
     def _calculate_timeouts(self, etcd_nodes: int, timeout: Optional[float] = None) -> Tuple[int, float, int]:
         """Calculate a request timeout and number of retries per single etcd node.
@@ -226,7 +259,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
     def _do_http_request(self, retry: Optional[Retry], machines_cache: List[str],
                          request_executor: Callable[..., urllib3.response.HTTPResponse],
                          method: str, path: str, fields: Optional[Dict[str, Any]] = None,
-                         **kwargs: Any) -> urllib3.response.HTTPResponse:
+                         **kwargs: Any) -> Any:
         is_watch_request = isinstance(fields, dict) and fields.get('wait') == 'true'
         if fields is not None:
             kwargs['fields'] = fields
@@ -240,8 +273,8 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
                 if some_request_failed:
                     self.set_base_uri(base_uri)
                     self._refresh_machines_cache()
-                return response
-            except (HTTPError, HTTPException, socket.error, socket.timeout) as e:
+                return self._handle_server_response(response)
+            except (HTTPError, HTTPException, socket.error, socket.timeout, StaleEtcdNode) as e:
                 self.http.clear()
                 if not retry:
                     if len(machines_cache) == 1:
@@ -284,8 +317,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
 
         while True:
             try:
-                response = self._do_http_request(retry, machines_cache, request_executor, method, path, **kwargs)
-                return self._handle_server_response(response)
+                return self._do_http_request(retry, machines_cache, request_executor, method, path, **kwargs)
             except etcd.EtcdWatchTimedOut:
                 raise
             except etcd.EtcdConnectionFailed as ex:
@@ -350,7 +382,9 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
     def _get_machines_cache_from_dns(self, host: str, port: int) -> List[str]:
         """One host might be resolved into multiple ip addresses. We will make list out of it"""
         if self.protocol == 'http':
-            ret = [uri(self.protocol, res[-1][:2]) for res in self._dns_resolver.resolve(host, port)]
+            # Filter out unexpected results when python is compiled with --disable-ipv6 and running on IPv6 system.
+            ret = [uri(self.protocol, (res[4][0], res[4][1])) for res in self._dns_resolver.resolve(host, port)
+                   if isinstance(res[4][0], str) and isinstance(res[4][1], int)]
             if ret:
                 return list(set(ret))
         return [uri(self.protocol, (host, port))]
@@ -459,6 +493,10 @@ class EtcdClient(AbstractEtcdClientWithFailover):
 
     def _prepare_get_members(self, etcd_nodes: int) -> Dict[str, Any]:
         return self._prepare_common_parameters(etcd_nodes)
+
+    def _handle_server_response(self, response: urllib3.response.HTTPResponse) -> Any:
+        self._check_cluster_raft_term(response.headers.get('x-etcd-cluster-id'), response.headers.get('x-raft-term'))
+        return super(EtcdClient, self)._handle_server_response(response)
 
     def _get_members(self, base_uri: str, **kwargs: Any) -> List[str]:
         response = self.http.request(self._MGET, base_uri + self.version_prefix + '/machines', **kwargs)

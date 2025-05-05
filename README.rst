@@ -102,6 +102,8 @@ raft
     `pysyncobj` module in order to use python Raft implementation as DCS
 aws
     `boto3` in order to use AWS callbacks
+systemd
+    `systemd-python` in order to use sd_notify integration
 all
     all of the above (except psycopg family)
 psycopg3

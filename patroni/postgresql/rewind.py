@@ -14,7 +14,7 @@ from ..collections import EMPTY_DICT
 from ..dcs import Leader, RemoteMember
 from . import Postgresql
 from .connection import get_connection_cursor
-from .misc import format_lsn, fsync_dir, parse_history, parse_lsn
+from .misc import format_lsn, fsync_dir, parse_history, parse_lsn, PostgresqlRole
 
 logger = logging.getLogger(__name__)
 
@@ -135,9 +135,10 @@ class Rewind(object):
                 # Message format depends on the major version:
                 # * expected at least -- starting from v16
                 # * wanted -- before v16
+                # * nothing (end of message) 9.5 and older
                 # We will simply check all possible combinations.
-                for pattern in (': expected at least ', ': wanted '):
-                    j = err[0].find(pattern, i)
+                for pattern in (': expected at least ', ': wanted ', '\n'):
+                    j = (err[0] + '\n').find(pattern, i)
                     if j > -1:
                         try:
                             return parse_lsn(err[0][i:j])
@@ -222,7 +223,8 @@ class Rewind(object):
         if local_timeline is None or local_lsn is None:
             return
 
-        if isinstance(leader, Leader) and leader.member.data.get('role') not in ('master', 'primary'):
+        if isinstance(leader, Leader) and leader.member.data.get('role') not in (PostgresqlRole.MASTER,
+                                                                                 PostgresqlRole.PRIMARY):
             return
 
         # We want to use replication credentials when connecting to the "postgres" database in case if

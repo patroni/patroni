@@ -20,6 +20,7 @@ from patroni.dcs.etcd import AbstractEtcdClientWithFailover
 from patroni.exceptions import DCSError
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
+from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 
 from . import psycopg_connect, SleepException
 from .test_etcd import etcd_read, etcd_write
@@ -64,11 +65,12 @@ class TestPatroni(unittest.TestCase):
     def test_no_config(self):
         self.assertRaises(SystemExit, _main)
 
-    @patch('sys.argv', ['patroni.py', '--validate-config', 'postgres0.yml'])
+    @patch('sys.argv', ['patroni.py', '--print', '--validate-config', 'postgres0.yml'])
     @patch('socket.socket.connect_ex', Mock(return_value=1))
     def test_validate_config(self):
         self.assertRaises(SystemExit, _main)
-        with patch.object(config.Config, '__init__', Mock(return_value=None)):
+        with patch.object(config.Config, '__init__', Mock(return_value=None)), \
+             patch.object(config.Config, 'local_configuration', PropertyMock(return_value={})):
             self.assertRaises(SystemExit, _main)
 
     @patch('pkgutil.iter_importers', Mock(return_value=[MockFrozenImporter()]))
@@ -158,10 +160,10 @@ class TestPatroni(unittest.TestCase):
     @patch('patroni.config.Config.save_cache', Mock())
     @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=True))
     @patch('patroni.ha.Ha.is_leader', Mock(return_value=True))
-    @patch.object(Postgresql, 'state', PropertyMock(return_value='running'))
+    @patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.RUNNING))
     @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
     def test_run(self):
-        self.p.postgresql.set_role('replica')
+        self.p.postgresql.set_role(PostgresqlRole.REPLICA)
         self.p.sighup_handler()
         self.p.ha.dcs.watch = Mock(side_effect=SleepException)
         self.p.api.start = Mock()

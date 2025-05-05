@@ -138,11 +138,14 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
             hosts = hosts.split(",")
         else:
             hosts = [hosts]
+
+        # If host is set to "*" get all hostnames and/or IP addresses that the host would be able to listen to
         if "*" in hosts:
             if len(hosts) != 1:
                 raise ConfigParseError("expecting '*' alone")
-            # If host is set to "*" get all hostnames and/or IP addresses that the host would be able to listen to
-            hosts = [p[-1][0] for p in socket.getaddrinfo(None, port, 0, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)]
+            # Filter out unexpected results when python is compiled with --disable-ipv6 and running on IPv6 system.
+            hosts = [a[4][0] for a in socket.getaddrinfo(None, port, 0, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
+                     if isinstance(a[4][0], str)]
         for host in hosts:
             # Check if "socket.IF_INET" or "socket.IF_INET6" is being used and instantiate a socket with the identified
             # protocol
@@ -1001,7 +1004,8 @@ schema = Schema({
         Optional("file_num"): int,
         Optional("file_size"): int,
         Optional("mode"): IntValidator(min=0, max=511, expected_type=int, raise_assert=True),
-        Optional("loggers"): dict
+        Optional("loggers"): dict,
+        Optional("deduplicate_heartbeat_logs"): bool
     },
     Optional("ctl"): {
         Optional("insecure"): bool,
@@ -1135,6 +1139,7 @@ schema = Schema({
             Optional("ports"): [{"name": str, "port": IntValidator(max=65535, expected_type=int, raise_assert=True)}],
             Optional("cacert"): str,
             Optional("retriable_http_codes"): Or(int, [int]),
+            Optional("bootstrap_labels"): dict,
         },
     }),
     Optional("citus"): {
