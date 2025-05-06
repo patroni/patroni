@@ -463,18 +463,19 @@ class RestApiHandler(BaseHTTPRequestHandler):
             return 'PostgreSQL is not running'
 
         postgres = self.get_postgresql_status(True)
+        latest_end_lsn = postgres.get('latest_end_lsn', 0)
 
         if postgres.get('replication_state') != 'streaming':
             return 'PostgreSQL replication state is not streaming'
 
         cluster = patroni.dcs.cluster
 
-        if not cluster:
+        if not cluster and not latest_end_lsn:
             if patroni.ha.failsafe_is_active():
                 return
             return 'DCS is not accessible'
 
-        leader_optime = cluster.status.last_lsn
+        leader_optime = max(cluster and cluster.status.last_lsn or 0, latest_end_lsn)
 
         mode = 'write' if self.path_query.get('mode', [None])[0] == 'write' else 'apply'
         location = 'received_location' if mode == 'write' else 'replayed_location'
