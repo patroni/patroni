@@ -119,9 +119,11 @@ class AbstractMPP(abc.ABC):
 
         :returns: an instantiated class that implements Handler for this object.
         """
+        cls_name = self.__class__.__name__ + 'Handler'
         for cls in self._get_handler_cls():
-            return cls(postgresql, self._config)
-        raise PatroniException(f'Failed to initialize {self.__class__.__name__}Handler object')
+            if cls.__name__ == cls_name:
+                return cls(postgresql, self._config)
+        raise PatroniException(f'Failed to initialize {cls_name} object')
 
 
 class AbstractMPPHandler(AbstractMPP):
