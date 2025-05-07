@@ -382,11 +382,11 @@ class Citus(AbstractMPP):
         return CITUS_COORDINATOR_GROUP_ID
 
 
-class CitusHandler(Citus, AbstractMPPHandler, Thread):
+class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
     """Define the interfaces for handling an underlying Citus cluster."""
 
     def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
-        """"Initialize a new instance of :class:`CitusHandler`.
+        """"Initialize a new instance of :class:`CitusDatabaseHandler`.
 
         :param postgresql: the Postgres node.
         :param config: the ``citus`` MPP config section.
@@ -464,9 +464,6 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
         loop we make sure that works registered in `self._pg_dist_group`
         cache are matching the cluster view from DCS by creating tasks
         the same way as it is done from the REST API."""
-
-        if not self.is_coordinator():
-            return
 
         with self._condition:
             if not self.is_alive():
@@ -682,7 +679,7 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
                 task.add(secondary)
         return task if self._add_task(task) else None
 
-    def handle_event(self, cluster: Cluster, event: Dict[str, Any]) -> None:
+    def handle_event(self, cluster: Cluster, event: Dict[str, Any]) -> Optional[PgDistTask]:
         if not self.is_alive():
             return
 
@@ -694,7 +691,7 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
                              worker.leader.name, worker.leader.conn_url,
                              event['timeout'], event['cooldown'] * 1000)
         if task and event['type'] == 'before_demote':
-            task.wait()
+            return task
 
     def bootstrap(self) -> None:
         """Bootstrap handler.
@@ -738,6 +735,77 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
             conn.close()
 
     def adjust_postgres_gucs(self, parameters: Dict[str, Any]) -> None:
+        pass
+
+    def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
+        """Check whether provided replication *slot* existing in the database should not be removed.
+
+        .. note::
+            MPP database may create replication slots for its own use, for example to migrate data between workers
+            using logical replication, and we don't want to suddenly drop them.
+
+        :param slot: dictionary containing the replication slot settings, like ``name``, ``database``, ``type``, and
+                     ``plugin``.
+
+        :returns: ``True`` if the replication slots should not be removed, otherwise ``False``.
+        """
+        if self._postgresql.is_primary() and slot['type'] == 'logical' and slot['database'] == self._config['database']:
+            m = CITUS_SLOT_NAME_RE.match(slot['name'])
+            return bool(m and {'move': 'pgoutput', 'split': 'citus'}.get(m.group(1)) == slot['plugin'])
+        return False
+
+
+class CitusHandler(Citus, AbstractMPPHandler):
+    """Define the interfaces for handling an underlying Citus cluster."""
+
+    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int, list]]) -> None:
+        """"Initialize a new instance of :class:`CitusHandler`.
+
+        :param postgresql: the Postgres node.
+        :param config: the ``citus`` MPP config section.
+        """
+        AbstractMPPHandler.__init__(self, postgresql, config)
+        self._citus_database_handlers = {}
+
+        dbconfig = config.copy()
+
+        if isinstance(config['database'], str):
+            config['database'] = [config['database']]
+
+        for dbname in config['database']:
+            dbconfig['database'] = dbname
+            self._citus_database_handlers[dbname] = CitusDatabaseHandler(postgresql, dbconfig)
+
+    def schedule_cache_rebuild(self) -> None:
+        for handler in self._citus_database_handlers.values():
+            handler.schedule_cache_rebuild()
+
+    def on_demote(self) -> None:
+        for handler in self._citus_database_handlers.values():
+            handler.on_demote()
+
+    def sync_meta_data(self, cluster: Cluster) -> None:
+        if not self.is_coordinator():
+            return
+
+        for handler in self._citus_database_handlers.values():
+            handler.sync_meta_data(cluster)
+
+    def handle_event(self, cluster: Cluster, event: Dict[str, Any]) -> None:
+        tasks = []
+        for handler in self._citus_database_handlers.values():
+            task = handler.handle_event(cluster, event)
+            if task:
+                tasks.append(task)
+
+        for task in tasks:
+            task.wait()
+
+    def bootstrap(self) -> None:
+        for handler in self._citus_database_handlers.values():
+            handler.bootstrap()
+
+    def adjust_postgres_gucs(self, parameters: Dict[str, Any]) -> None:
         """Adjust GUCs in the current PostgreSQL configuration.
 
         :param parameters: dictionary of GUCs, with key as GUC name and the corresponding value as current GUC value.
@@ -760,18 +828,4 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
         parameters['citus.local_hostname'] = self._postgresql.connection_pool.conn_kwargs.get('host', 'localhost')
 
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
-        """Check whether provided replication *slot* existing in the database should not be removed.
-
-        .. note::
-            MPP database may create replication slots for its own use, for example to migrate data between workers
-            using logical replication, and we don't want to suddenly drop them.
-
-        :param slot: dictionary containing the replication slot settings, like ``name``, ``database``, ``type``, and
-                     ``plugin``.
-
-        :returns: ``True`` if the replication slots should not be removed, otherwise ``False``.
-        """
-        if self._postgresql.is_primary() and slot['type'] == 'logical' and slot['database'] == self._config['database']:
-            m = CITUS_SLOT_NAME_RE.match(slot['name'])
-            return bool(m and {'move': 'pgoutput', 'split': 'citus'}.get(m.group(1)) == slot['plugin'])
-        return False
+        return any(handler.ignore_replication_slot(slot) for handler in self._citus_database_handlers.values())
