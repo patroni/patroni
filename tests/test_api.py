@@ -387,7 +387,7 @@ class TestRestApiHandler(unittest.TestCase):
             # Failsafe disabled:
             with patch.object(MockHa, 'failsafe_is_active', Mock(return_value=False)):
                 MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0')
-                response_mock.assert_called_with(200)
+                response_mock.assert_called_with(503)
 
     @patch.object(MockPostgresql, 'state', PropertyMock(return_value=PostgresqlState.STOPPED))
     def test_do_GET_patroni(self):
