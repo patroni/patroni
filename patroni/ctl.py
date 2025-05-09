@@ -1168,7 +1168,7 @@ def restart(cluster_name: str, group: Optional[int], member_names: List[str],
 @option_citus_group
 @click.argument('member_names', nargs=-1)
 @option_force
-@click.option('--', is_flag=True, help='Set to get basebackup from leader')
+@click.option('--from-leader', is_flag=True, help='Get basebackup from leader')
 @click.option('--wait', help='Wait until reinitialization completes', is_flag=True)
 def reinit(cluster_name: str, group: Optional[int], member_names: List[str], force: bool, from_leader: bool, wait: bool) -> None:
     """Process ``reinit`` command of ``patronictl`` utility.
