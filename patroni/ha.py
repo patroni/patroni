@@ -220,7 +220,9 @@ class Failsafe(object):
 
 
 class Ha(object):
-
+    # Marking for '--from-leader' parameter for patronictl reinit command
+    global_is_from_leader = False
+  
     def __init__(self, patroni: Patroni):
         self.patroni = patroni
         self.state_handler = patroni.postgresql
@@ -1912,6 +1914,7 @@ class Ha(object):
 
         if from_leader:
             clone_member = cluster.leader
+            Ha.global_is_from_leader = True
         else:
             clone_member = cluster.get_clone_member(self.state_handler.name)
         
