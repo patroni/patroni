@@ -1,4 +1,5 @@
 import json
+import socket
 import unittest
 
 from threading import Thread
@@ -184,6 +185,8 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         self.assertRaises(etcd.EtcdException, self.client._handle_server_response, response)
         response.status_code = 400
         self.assertRaises(Unknown, self.client._handle_server_response, response)
+        response.content = '{"error":{"grpc_code":14,"message":"","http_code":400}}'
+        self.assertRaises(socket.timeout, self.client._handle_server_response, response)
         response.content = '{"error":{"grpc_code":0,"message":"","http_code":400}}'
         try:
             self.client._handle_server_response(response)
