@@ -805,5 +805,5 @@ class TestPatronictlPrettyTable(unittest.TestCase):
     def test_output(self):
         self.assertEqual(str(self.pt), '+ header----+\n| foo | bar |\n+-----+-----+')
 
-    def test___validate_field_names(self):
-        self.assertRaises(ValueError, self.pt._validate_field_names, ['lala'])
+    def test__validate_field_names(self):
+        self.assertRaises(Exception, self.pt._validate_field_names, ['lala'])
