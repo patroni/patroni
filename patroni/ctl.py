@@ -1058,7 +1058,7 @@ def parse_scheduled(scheduled: Optional[str]) -> Optional[datetime.datetime]:
 @click.argument('member_names', nargs=-1)
 @option_citus_group
 @click.option('--role', '-r', help='Reload only members with this role',
-              type=role_choice, default=CtlPostgresqlRole.ANY)
+              type=role_choice, default=repr(CtlPostgresqlRole.ANY))
 @option_force
 def reload(cluster_name: str, member_names: List[str], group: Optional[int],
            force: bool, role: CtlPostgresqlRole) -> None:
@@ -1097,7 +1097,7 @@ def reload(cluster_name: str, member_names: List[str], group: Optional[int],
 @click.argument('member_names', nargs=-1)
 @option_citus_group
 @click.option('--role', '-r', help='Restart only members with this role', type=role_choice,
-              default=CtlPostgresqlRole.ANY)
+              default=repr(CtlPostgresqlRole.ANY))
 @click.option('--any', 'p_any', help='Restart a single member only', is_flag=True)
 @click.option('--scheduled', help='Timestamp of a scheduled restart in unambiguous format (e.g. ISO 8601)',
               default=None)
@@ -1761,7 +1761,8 @@ def timestamp(precision: int = 6) -> str:
 @option_citus_group
 @click.argument('member_names', nargs=-1)
 @click.argument('target', type=click.Choice(['restart', 'switchover']))
-@click.option('--role', '-r', help='Flush only members with this role', type=role_choice, default=CtlPostgresqlRole.ANY)
+@click.option('--role', '-r', help='Flush only members with this role',
+              type=role_choice, default=repr(CtlPostgresqlRole.ANY))
 @option_force
 def flush(cluster_name: str, group: Optional[int],
           member_names: List[str], force: bool, role: CtlPostgresqlRole, target: str) -> None:
