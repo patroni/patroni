@@ -969,6 +969,7 @@ class Etcd3(AbstractEtcd):
         return self.retry(self._client.deleterange, self.sync_path, mod_revision=version)
 
     def watch(self, leader_version: Optional[str], timeout: float) -> bool:
+        self._last_lease_refresh = 0
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True
