@@ -93,7 +93,17 @@ class Postgresql(object):
         self.connection_pool = ConnectionPool()
         self._connection = self.connection_pool.get('heartbeat')
         self.mpp_handler = mpp.get_handler_impl(self)
-        self._bin_dir = config.get('bin_dir') or ''
+        if config.get('bin_dir_template'):
+            if self._major_version:
+                version = str(self._major_version // 10000)
+                if self._major_version < 100000:
+                    version += "." + str((self._major_version % 10000) // 100)
+            else:
+                version = config.get('version')
+            logger.info(f"Picking version {version}")
+            self._bin_dir = config['bin_dir_template'].format(major_version=version) if version else ''
+        else:
+            self._bin_dir = config.get('bin_dir') or ''
         self._role_lock = Lock()
         self.set_role(PostgresqlRole.UNINITIALIZED)
         self.config = ConfigHandler(self, config)
