@@ -270,7 +270,7 @@ class TestCtl(unittest.TestCase):
     def test_query(self):
         # Mutually exclusive
         for role in self.TEST_ROLES:
-            result = self.runner.invoke(ctl, ['query', 'alpha', '--member', 'abc', '--role', role])
+            result = self.runner.invoke(ctl, ['query', 'alpha', '--member', 'abc', '--role', repr(role)])
             assert result.exit_code == 1
 
         with self.runner.isolated_filesystem():
@@ -331,7 +331,7 @@ class TestCtl(unittest.TestCase):
 
         # Mutually exclusive options
         for role in self.TEST_ROLES:
-            result = self.runner.invoke(ctl, ['dsn', 'alpha', '--role', role, '--member', 'dummy'])
+            result = self.runner.invoke(ctl, ['dsn', 'alpha', '--role', repr(role), '--member', 'dummy'])
             assert result.exit_code == 1
 
         # Non-existing member
@@ -555,7 +555,7 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     def test_flush_restart(self):
         for role in self.TEST_ROLES:
-            result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '-r', role], input='y')
+            result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '-r', repr(role)], input='y')
             assert 'No scheduled restart' in result.output
 
         result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '--force'])
