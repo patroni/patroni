@@ -386,7 +386,12 @@ Cluster status endpoints
           "tags": {
             "clonefrom": true
           },
-          "lag": 0
+          "receive_lag": 0,
+          "receive_lsn": "0/4000060",
+          "replay_lag": 0,
+          "replay_lsn": "0/4000060",
+          "lag": 0,
+          "lsn": "0/4000060"
         }
       ],
       "scope": "demo",

@@ -172,7 +172,7 @@ def run_async(self, func, args=()):
 
 @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
 @patch.object(Postgresql, 'is_primary', Mock(return_value=True))
-@patch.object(Postgresql, 'timeline_wal_position', Mock(return_value=(1, 10, 1)))
+@patch.object(Postgresql, 'timeline_wal_position', Mock(return_value=(1, 10, 1, 10, 10)))
 @patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=10))
 @patch.object(Postgresql, 'slots', Mock(return_value={'l': 100}))
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
@@ -237,11 +237,11 @@ class TestHa(PostgresInit):
     def test_touch_member(self):
         self.p._major_version = 110000
         self.p.is_primary = false
-        self.p.timeline_wal_position = Mock(return_value=(0, 1, 0))
+        self.p.timeline_wal_position = Mock(return_value=(0, 1, 0, 1, 1))
         self.p.replica_cached_timeline = Mock(side_effect=Exception)
         with patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value='streaming')):
             self.ha.touch_member()
-        self.p.timeline_wal_position = Mock(return_value=(0, 1, 1))
+        self.p.timeline_wal_position = Mock(return_value=(0, 1, 1, 1, 1))
         self.p.set_role(PostgresqlRole.STANDBY_LEADER)
         self.ha.touch_member()
         self.p.set_role(PostgresqlRole.PRIMARY)
