@@ -38,21 +38,21 @@ Important rules
 PostgreSQL parameters controlled by Patroni
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Some of the PostgreSQL parameters **must hold the same values on the primary and the replicas**. For those, **values set either in the local patroni configuration files or via the environment variables take no effect**. To alter or set their values one must change the shared configuration in the DCS. Below is the actual list of such parameters together with the default values:
+Some of the PostgreSQL parameters **must hold the same values on the primary and the replicas**. For those, **values set either in the local patroni configuration files or via the environment variables take no effect**. To alter or set their values one must change the shared configuration in the DCS. Below is the actual list of such parameters together with the default and minimal values:
 
-- **max_connections**: 100
-- **max_locks_per_transaction**: 64
-- **max_worker_processes**: 8
-- **max_prepared_transactions**: 0
-- **wal_level**: hot_standby
-- **track_commit_timestamp**: off
+- **max_connections**: default value 100, minimal value 25
+- **max_locks_per_transaction**: default value 64, minimal value 32
+- **max_worker_processes**: default value 8, minimal value 2
+- **max_prepared_transactions**: default value 0, minimal value 0
+- **wal_level**: default value hot_standby, accepted values: hot_standby, replica, logical
+- **track_commit_timestamp**: default value off 
 
 For the parameters below, PostgreSQL does not require equal values among the primary and all the replicas. However, considering the possibility of a replica to become the primary at any time, it doesn't really make sense to set them differently; therefore, **Patroni restricts setting their values to the** :ref:`dynamic configuration <dynamic_configuration>`.
 
-- **max_wal_senders**: 10
-- **max_replication_slots**: 10
-- **wal_keep_segments**: 8
-- **wal_keep_size**: 128MB
+- **max_wal_senders**: default value 10, minimal value 3
+- **max_replication_slots**: default value 10, minimal value 4
+- **wal_keep_segments**: default value 8, minimal value 1
+- **wal_keep_size**: default value 128MB, minimal value 16MB
 - **wal_log_hints**: on
 
 These parameters are validated to ensure they are sane, or meet a minimum value.
