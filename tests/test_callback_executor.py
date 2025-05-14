@@ -40,9 +40,11 @@ class TestCallbackExecutor(unittest.TestCase):
         ce._condition.wait = Mock(side_effect=[None, Exception])
         ce._invoke_excepthook = Mock()
         self.assertIsNone(ce.call(callback))
+        ce.join()
+        mock_popen.reset_mock()
 
         mock_popen.side_effect = [Mock()]
         self.assertIsNone(ce.call(['test.sh', CallbackAction.ON_RELOAD, PostgresqlRole.REPLICA, 'foo']))
-        self.assertEqual(mock_popen.call_args_list[-2],
+        self.assertEqual(mock_popen.call_args_list[0],
                          mock.call(['test.sh', 'on_reload', 'replica', 'foo'], close_fds=True))
         ce.join()
