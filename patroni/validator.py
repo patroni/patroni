@@ -1004,7 +1004,8 @@ schema = Schema({
         Optional("file_num"): int,
         Optional("file_size"): int,
         Optional("mode"): IntValidator(min=0, max=511, expected_type=int, raise_assert=True),
-        Optional("loggers"): dict
+        Optional("loggers"): dict,
+        Optional("deduplicate_heartbeat_logs"): bool
     },
     Optional("ctl"): {
         Optional("insecure"): bool,
@@ -1138,6 +1139,7 @@ schema = Schema({
             Optional("ports"): [{"name": str, "port": IntValidator(max=65535, expected_type=int, raise_assert=True)}],
             Optional("cacert"): str,
             Optional("retriable_http_codes"): Or(int, [int]),
+            Optional("bootstrap_labels"): dict,
         },
     }),
     Optional("citus"): {
@@ -1185,7 +1187,10 @@ schema = Schema({
         Optional("clonefrom"): bool,
         Optional("noloadbalance"): bool,
         Optional("replicatefrom"): str,
-        Optional("nosync"): bool,
+        AtMostOne("nosync", "sync_priority"): Case({
+            "nosync": bool,
+            "sync_priority": IntValidator(min=0, expected_type=int, raise_assert=True),
+        }),
         Optional("nostream"): bool
     }
 })

@@ -16,11 +16,11 @@ from ..collections import CaseInsensitiveDict, CaseInsensitiveSet, EMPTY_DICT
 from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException, PostgresConnectionException
 from ..file_perm import pg_perm
-from ..postgresql.misc import get_major_from_minor_version, postgres_version_to_int
 from ..psycopg import parse_conninfo
 from ..utils import compare_values, get_postgres_version, is_subpath, \
     maybe_convert_from_base_unit, parse_bool, parse_int, split_host_port, uri, validate_directory
 from ..validator import EnumValidator, IntValidator
+from .misc import get_major_from_minor_version, postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -455,7 +455,7 @@ class ConfigHandler(object):
         in data directory. If it is not the case, we should use major version from the ``PG_VERSION``
         file.
         """
-        if self._postgresql.state == 'running':
+        if self._postgresql.state == PostgresqlState.RUNNING:
             try:
                 return self._postgresql.server_version
             except AttributeError:
@@ -477,16 +477,19 @@ class ConfigHandler(object):
         return configuration
 
     def set_file_permissions(self, filename: str) -> None:
-        """Set permissions of file *filename* according to the expected permissions if it resides under PGDATA.
+        """Set permissions of file *filename* according to the expected permissions.
 
         .. note::
-            Do nothing if the file is not under PGDATA.
+            Use original umask if the file is not under PGDATA, use PGDATA
+            permissions otherwise.
 
         :param filename: path to a file which permissions might need to be adjusted.
         """
         if is_subpath(self._postgresql.data_dir, filename):
             pg_perm.set_permissions_from_data_directory(self._postgresql.data_dir)
             os.chmod(filename, pg_perm.file_create_mode)
+        else:
+            os.chmod(filename, 0o666 & ~pg_perm.orig_umask)
 
     @contextmanager
     def config_writer(self, filename: str) -> Iterator[ConfigWriter]:
@@ -1059,7 +1062,7 @@ class ConfigHandler(object):
             synchronous_standby_names = self._server_parameters.get('synchronous_standby_names')
             if synchronous_standby_names is None:
                 if global_config.is_synchronous_mode_strict\
-                        and self._postgresql.role in ('primary', 'promoted'):
+                        and self._postgresql.role in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
                     parameters['synchronous_standby_names'] = '*'
                 else:
                     parameters.pop('synchronous_standby_names', None)
@@ -1193,7 +1196,7 @@ class ConfigHandler(object):
 
         conf_changed = hba_changed = ident_changed = local_connection_address_changed = False
         param_diff = CaseInsensitiveDict()
-        if self._postgresql.state == 'running':
+        if self._postgresql.state == PostgresqlState.RUNNING:
             changes = CaseInsensitiveDict({p: v for p, v in server_parameters.items()
                                            if p not in params_skip_changes})
             changes.update({p: None for p in self._server_parameters.keys()
@@ -1247,7 +1250,7 @@ class ConfigHandler(object):
                     and config.get('pg_hba'):
                 hba_changed = self._config.get('pg_hba', []) != config['pg_hba']
 
-            if (not server_parameters.get('ident_file') or server_parameters['ident_file'] == self._pg_hba_conf) \
+            if (not server_parameters.get('ident_file') or server_parameters['ident_file'] == self._pg_ident_conf) \
                     and config.get('pg_ident'):
                 ident_changed = self._config.get('pg_ident', []) != config['pg_ident']
 
@@ -1266,13 +1269,13 @@ class ConfigHandler(object):
         proxy_addr = config.get('proxy_address')
         self._postgresql.proxy_url = uri('postgres', proxy_addr, self._postgresql.database) if proxy_addr else None
 
-        if conf_changed:
+        if conf_changed or sighup:
             self.write_postgresql_conf()
 
-        if hba_changed:
+        if hba_changed or sighup:
             self.replace_pg_hba()
 
-        if ident_changed:
+        if ident_changed or sighup:
             self.replace_pg_ident()
 
         if sighup or conf_changed or hba_changed or ident_changed:
@@ -1311,7 +1314,7 @@ class ConfigHandler(object):
                 self._server_parameters.pop('synchronous_standby_names', None)
             else:
                 self._server_parameters['synchronous_standby_names'] = value
-            if self._postgresql.state == 'running':
+            if self._postgresql.state == PostgresqlState.RUNNING:
                 self.write_postgresql_conf()
                 self._postgresql.reload()
             return True
@@ -1327,7 +1330,7 @@ class ConfigHandler(object):
         As a workaround we will start it with the values from controldata and set `pending_restart`
         to true as an indicator that current values of parameters are not matching expectations."""
 
-        if self._postgresql.role == 'primary':
+        if self._postgresql.role == PostgresqlRole.PRIMARY:
             return self._server_parameters
 
         options_mapping = {

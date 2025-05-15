@@ -517,6 +517,7 @@ class PatroniLogger(Thread):
             self._root_logger.removeHandler(self._proxy_handler)
 
         prev_record = None
+        prev_hb_msg = ''
 
         while True:
             self._close_old_handlers()
@@ -535,14 +536,32 @@ class PatroniLogger(Thread):
                     prev_record, record = record, None
                 else:
                     if prev_record and prev_record.thread == record.thread:
-                        if not (record.msg.startswith('no action. ') or record.msg.startswith('PAUSE: no action')):
+                        if self._is_heartbeat_msg(record):
+                            config = self._config or {}
+                            deduplicate_heartbeat_logs = config.get('deduplicate_heartbeat_logs', False)
+                            if record.msg == prev_hb_msg and deduplicate_heartbeat_logs:
+                                record = None
+                            else:
+                                prev_hb_msg = record.msg
+                        else:
                             self.log_handler.handle(prev_record)
+                            prev_hb_msg = None
                         prev_record = None
 
             if record:
                 self.log_handler.handle(record)
 
             self._queue_handler.queue.task_done()
+
+    @staticmethod
+    def _is_heartbeat_msg(record: logging.LogRecord) -> bool:
+        """Checks if the given record contains a heartbeat message.
+
+        :param record: the record to check.
+
+        :returns: ``True`` if the record contains a heartbeat message, ``False`` otherwise.
+        """
+        return record.msg.startswith('no action. ') or record.msg.startswith('PAUSE: no action')
 
     def shutdown(self) -> None:
         """Shut down the logger thread."""

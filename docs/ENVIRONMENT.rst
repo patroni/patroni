@@ -32,6 +32,10 @@ Log
 -  **PATRONI\_LOG\_FILE\_NUM**: The number of application logs to retain.
 -  **PATRONI\_LOG\_FILE\_SIZE**: Size of patroni.log file (in bytes) that triggers a log rolling.
 -  **PATRONI\_LOG\_LOGGERS**: Redefine logging level per python module. Example ``PATRONI_LOG_LOGGERS="{patroni.postmaster: WARNING, urllib3: DEBUG}"``
+-  **PATRONI\_LOG\_DEDUPLICATE\_HEARTBEAT\_LOGS**: If set to ``true``, successive heartbeat logs that are identical shall not be output. Default value is ``false``.
+
+.. warning::
+   The time the HA loop executes at can be very valuable information in diagnosing failovers due to resource exhaustion and similar problems. When ``PATRONI_LOG_DEDUPLICATE_HEARTBEAT_LOGS`` is set to ``true`` there will be no log generated for the HA loop execution (unless the leader changes) and hence this potentially useful information will not be available from the logs.
 
 Citus
 -----
@@ -113,6 +117,7 @@ Kubernetes
 -  **PATRONI\_KUBERNETES\_NAMESPACE**: (optional) Kubernetes namespace where the Patroni pod is running. Default value is `default`.
 -  **PATRONI\_KUBERNETES\_LABELS**: Labels in format ``{label1: value1, label2: value2}``. These labels will be used to find existing objects (Pods and either Endpoints or ConfigMaps) associated with the current cluster. Also Patroni will set them on every object (Endpoint or ConfigMap) it creates.
 -  **PATRONI\_KUBERNETES\_SCOPE\_LABEL**: (optional) name of the label containing cluster name. Default value is `cluster-name`.
+-  **PATRONI\_KUBERNETES\_BOOTSTRAP\_LABELS**: (optional) Labels in format ``{label1: value1, label2: value2}``. These labels will be assigned to a Patroni pod when its state is either ``initializing new cluster``, ``running custom bootstrap script``, ``starting after custom bootstrap`` or ``creating replica``.
 -  **PATRONI\_KUBERNETES\_ROLE\_LABEL**: (optional) name of the label containing role (`primary`, `replica` or other custom value). Patroni will set this label on the pod it runs in. Default value is ``role``.
 -  **PATRONI\_KUBERNETES\_LEADER\_LABEL\_VALUE**: (optional) value of the pod label when Postgres role is `primary`. Default value is `primary`.
 -  **PATRONI\_KUBERNETES\_FOLLOWER\_LABEL\_VALUE**: (optional) value of the pod label when Postgres role is `replica`. Default value is `replica`.

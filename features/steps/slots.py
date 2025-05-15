@@ -6,15 +6,13 @@ from behave import step, then
 import patroni.psycopg as pg
 
 
-@step('I create a logical replication slot {slot_name} on {pg_name:name} with the {plugin:w} plugin')
-def create_logical_replication_slot(context, slot_name, pg_name, plugin):
+@step('I create a logical {slot_type} slot {slot_name} on {pg_name:name} with the {plugin:w} plugin')
+def create_logical_replication_slot(context, slot_type, slot_name, pg_name, plugin):
+    failover = ', failover=>true' if slot_type == 'failover' else ''
     try:
-        output = context.pctl.query(pg_name, ("SELECT pg_create_logical_replication_slot('{0}', '{1}'),"
-                                              " current_database()").format(slot_name, plugin))
-        print(output.fetchone())
+        context.pctl.query(pg_name, f"SELECT pg_create_logical_replication_slot('{slot_name}', '{plugin}'{failover})")
     except pg.Error as e:
-        print(e)
-        assert False, "Error creating slot {0} on {1} with plugin {2}".format(slot_name, pg_name, plugin)
+        assert False, "Error creating slot {0} on {1} with plugin {2}: {3}".format(slot_name, pg_name, plugin, e)
 
 
 @step('{pg_name:name} has a logical replication slot named {slot_name}'

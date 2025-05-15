@@ -14,7 +14,7 @@ from ..collections import EMPTY_DICT
 from ..dcs import Leader, RemoteMember
 from . import Postgresql
 from .connection import get_connection_cursor
-from .misc import format_lsn, fsync_dir, parse_history, parse_lsn
+from .misc import format_lsn, fsync_dir, parse_history, parse_lsn, PostgresqlRole
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +180,7 @@ class Rewind(object):
         if self._postgresql.is_running():  # if postgres is running - get timeline from replication connection
             in_recovery = True
             timeline = self._postgresql.get_replica_timeline()
-            lsn = self._postgresql.replayed_location()
+            lsn = self._postgresql.replay_lsn()
         else:  # otherwise analyze pg_controldata output
             in_recovery, timeline, lsn = self._get_local_timeline_lsn_from_controldata()
 
@@ -223,7 +223,8 @@ class Rewind(object):
         if local_timeline is None or local_lsn is None:
             return
 
-        if isinstance(leader, Leader) and leader.member.data.get('role') not in ('master', 'primary'):
+        if isinstance(leader, Leader) and leader.member.data.get('role') not in (PostgresqlRole.MASTER,
+                                                                                 PostgresqlRole.PRIMARY):
             return
 
         # We want to use replication credentials when connecting to the "postgres" database in case if

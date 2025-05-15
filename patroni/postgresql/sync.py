@@ -9,6 +9,7 @@ from .. import global_config
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Cluster
 from ..psycopg import quote_ident
+from .misc import PostgresqlState
 
 if TYPE_CHECKING:  # pragma: no cover
     from . import Postgresql
@@ -196,6 +197,7 @@ class _Replica(NamedTuple):
     sync_state: str
     lsn: int
     nofailover: bool
+    sync_priority: int
 
 
 class _ReplicaList(List[_Replica]):
@@ -238,10 +240,12 @@ class _ReplicaList(List[_Replica]):
             #   b. PostgreSQL on the member is known to be running and accepting client connections.
             if member and row[sort_col] is not None and member.is_running and not member.nosync:
                 self.append(_Replica(row['pid'], row['application_name'],
-                                     row['sync_state'], row[sort_col], bool(member.nofailover)))
+                                     row['sync_state'], row[sort_col],
+                                     bool(member.nofailover), member.sync_priority))
 
-        # Prefer replicas that are in state ``sync`` and with higher values of ``write``/``flush``/``replay`` LSN.
-        self.sort(key=lambda r: (r.sync_state, r.lsn), reverse=True)
+        # Prefer replicas with higher ``sync_priority`` value, in state ``sync``,
+        # and higher values of ``write``/``flush``/``replay`` LSN.
+        self.sort(key=lambda r: (r.sync_priority, r.sync_state, r.lsn), reverse=True)
 
         # When checking ``maximum_lag_on_syncnode`` we want to compare with the most
         # up-to-date replica otherwise with cluster LSN if there is only one replica.
@@ -410,7 +414,8 @@ END;$$""")
             sync_param = f'{prefix}{num} ({sync_param})'
 
         if not (self._postgresql.config.set_synchronous_standby_names(sync_param)
-                and self._postgresql.state == 'running' and self._postgresql.is_primary()) or has_asterisk:
+                and self._postgresql.state == PostgresqlState.RUNNING
+                and self._postgresql.is_primary()) or has_asterisk:
             return
 
         time.sleep(0.1)  # Usually it takes 1ms to reload postgresql.conf, but we will give it 100ms

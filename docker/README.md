@@ -55,7 +55,6 @@ Example session:
     2024-08-26 09:04:34,938 INFO: establishing a new patroni heartbeat connection to postgres
     2024-08-26 09:04:34,992 INFO: running post_bootstrap
     2024-08-26 09:04:35,004 WARNING: User creation via "bootstrap.users" will be removed in v4.0.0
-    2024-08-26 09:04:35,009 WARNING: Could not activate Linux watchdog device: Can't open watchdog device: [Errno 2] No such file or directory: '/dev/watchdog'
     2024-08-26 09:04:35,189 INFO: initialized a new cluster
     2024-08-26 09:04:35,328 INFO: no action. I am (patroni1), the leader with the lock
     2024-08-26 09:04:43,824 INFO: establishing a new patroni restapi connection to postgres
@@ -65,13 +64,13 @@ Example session:
 
     $ docker exec -ti demo-patroni1 bash
     postgres@patroni1:~$ patronictl list
-    + Cluster: demo (7303838734793224214) --------+----+-----------+
-    | Member   | Host       | Role    | State     | TL | Lag in MB |
-    +----------+------------+---------+-----------+----+-----------+
-    | patroni1 | 172.29.0.2 | Leader  | running   |  1 |           |
-    | patroni2 | 172.29.0.6 | Replica | streaming |  1 |         0 |
-    | patroni3 | 172.29.0.5 | Replica | streaming |  1 |         0 |
-    +----------+------------+---------+-----------+----+-----------+
+    + Cluster: demo (7303838734793224214) --------+----+-------------+-----+------------+-----+
+    | Member   | Host       | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +----------+------------+---------+-----------+----+-------------+-----+------------+-----+
+    | patroni1 | 172.18.0.8 | Leader  | running   |  2 |             |     |            |     |
+    | patroni2 | 172.18.0.3 | Replica | streaming |  2 |   0/404D8A8 |   0 |  0/404D8A8 |   0 |
+    | patroni3 | 172.18.0.6 | Replica | streaming |  2 |   0/404D8A8 |   0 |  0/404D8A8 |   0 |
+    +----------+------------+---------+-----------+----+-------------+-----+------------+-----+
 
     postgres@patroni1:~$ etcdctl get --keys-only --prefix /service/demo
     /service/demo/config
@@ -172,7 +171,7 @@ Example session:
     2024-08-26 08:21:18,202 INFO: running post_bootstrap
     2024-08-26 08:21:19.048 UTC [53] LOG:  starting maintenance daemon on database 16385 user 10
     2024-08-26 08:21:19.048 UTC [53] CONTEXT:  Citus maintenance daemon for database 16385 user 10
-    2024-08-26 08:21:19,058 WARNING: Could not activate Linux watchdog device: Can't open watchdog device: [Errno 2] No such file or directory: '/dev/watchdog'
+    2024-08-26 08:21:19,058 DEBUG: Could not activate Linux watchdog device: Can't open watchdog device: [Errno 2] No such file or directory: '/dev/watchdog'
     2024-08-26 08:21:19.250 UTC [37] LOG:  checkpoint starting: immediate force wait
     2024-08-26 08:21:19,275 INFO: initialized a new cluster
     2024-08-26 08:21:22.946 UTC [37] LOG:  checkpoint starting: immediate force wait
@@ -268,47 +267,47 @@ Example session:
     citus=# \q
 
     postgres@haproxy:~$ patronictl list
-    + Citus cluster: demo ----------+----------------+-----------+----+-----------+
-    | Group | Member  | Host        | Role           | State     | TL | Lag in MB |
-    +-------+---------+-------------+----------------+-----------+----+-----------+
-    |     0 | coord1  | 172.19.0.8  | Leader         | running   |  1 |           |
-    |     0 | coord2  | 172.19.0.7  | Quorum Standby | streaming |  1 |         0 |
-    |     0 | coord3  | 172.19.0.11 | Quorum Standby | streaming |  1 |         0 |
-    |     1 | work1-1 | 172.19.0.12 | Quorum Standby | streaming |  1 |         0 |
-    |     1 | work1-2 | 172.19.0.2  | Leader         | running   |  1 |           |
-    |     2 | work2-1 | 172.19.0.6  | Quorum Standby | streaming |  1 |         0 |
-    |     2 | work2-2 | 172.19.0.9  | Leader         | running   |  1 |           |
-    +-------+---------+-------------+----------------+-----------+----+-----------+
+    + Citus cluster: demo ----------+----------------+-----------+----+-------------+-----+------------+-----+
+    | Group | Member  | Host        | Role           | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------+---------+-------------+----------------+-----------+----+-------------+-----+------------+-----+
+    |     0 | coord1  | 172.19.0.8  | Leader         | running   |  1 |             |     |            |     |
+    |     0 | coord2  | 172.19.0.7  | Quorum Standby | streaming |  1 |   0/41C06A0 |   0 |  0/41C06A0 |   0 |
+    |     0 | coord3  | 172.19.0.11 | Quorum Standby | streaming |  1 |   0/41C06A0 |   0 |  0/41C06A0 |   0 |
+    |     1 | work1-1 | 172.19.0.12 | Quorum Standby | streaming |  1 |   0/31ED910 |   0 |  0/31ED910 |   0 |
+    |     1 | work1-2 | 172.19.0.2  | Leader         | running   |  1 |             |     |            |     |
+    |     2 | work2-1 | 172.19.0.6  | Quorum Standby | streaming |  1 |   0/31D22D0 |   0 |  0/31D22D0 |   0 |
+    |     2 | work2-2 | 172.19.0.9  | Leader         | running   |  1 |             |     |            |     |
+    +-------+---------+-------------+----------------+-----------+----+-------------+-----+------------+-----+
 
 
     postgres@haproxy:~$ patronictl switchover --group 2 --force
     Current cluster topology
-    + Citus cluster: demo (group: 2, 7407360296219029527) ---+-----------+
-    | Member  | Host       | Role           | State     | TL | Lag in MB |
-    +---------+------------+----------------+-----------+----+-----------+
-    | work2-1 | 172.19.0.6 | Quorum Standby | streaming |  1 |         0 |
-    | work2-2 | 172.19.0.9 | Leader         | running   |  1 |           |
-    +---------+------------+----------------+-----------+----+-----------+
+    + Citus cluster: demo (group: 2, 7407360296219029527) ---+-------------+-----+------------+-----+
+    | Member  | Host       | Role           | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +---------+------------+----------------+-----------+----+-------------+-----+------------+-----+
+    | work2-1 | 172.19.0.6 | Quorum Standby | streaming |  1 |   0/31D22D0 |   0 |  0/31D22D0 |   0 |
+    | work2-2 | 172.19.0.9 | Leader         | running   |  1 |             |     |            |     |
+    +---------+------------+----------------+-----------+----+-------------+-----+------------+-----+
     2024-08-26 08:31:45.92277 Successfully switched over to "work2-1"
-    + Citus cluster: demo (group: 2, 7407360296219029527) ------+
-    | Member  | Host       | Role    | State   | TL | Lag in MB |
-    +---------+------------+---------+---------+----+-----------+
-    | work2-1 | 172.19.0.6 | Leader  | running |  1 |           |
-    | work2-2 | 172.19.0.9 | Replica | stopped |    |   unknown |
-    +---------+------------+---------+---------+----+-----------+
+    + Citus cluster: demo (group: 2, 7407360296219029527) --------+---------+------------+---------+
+    | Member  | Host       | Role    | State   | TL | Receive LSN |     Lag | Replay LSN |     Lag |
+    +---------+------------+---------+---------+----+-------------+---------+------------+---------+
+    | work2-1 | 172.19.0.6 | Leader  | running |  1 |             |         |            |         |
+    | work2-2 | 172.19.0.9 | Replica | stopped |    |     unknown | unknown |    unknown | unknown |
+    +---------+------------+---------+---------+----+-------------+---------+------------+---------+
 
     postgres@haproxy:~$ patronictl list
-    + Citus cluster: demo ----------+----------------+-----------+----+-----------+
-    | Group | Member  | Host        | Role           | State     | TL | Lag in MB |
-    +-------+---------+-------------+----------------+-----------+----+-----------+
-    |     0 | coord1  | 172.19.0.8  | Leader         | running   |  1 |           |
-    |     0 | coord2  | 172.19.0.7  | Quorum Standby | streaming |  1 |         0 |
-    |     0 | coord3  | 172.19.0.11 | Quorum Standby | streaming |  1 |         0 |
-    |     1 | work1-1 | 172.19.0.12 | Quorum Standby | streaming |  1 |         0 |
-    |     1 | work1-2 | 172.19.0.2  | Leader         | running   |  1 |           |
-    |     2 | work2-1 | 172.19.0.6  | Leader         | running   |  2 |           |
-    |     2 | work2-2 | 172.19.0.9  | Quorum Standby | streaming |  2 |         0 |
-    +-------+---------+-------------+----------------+-----------+----+-----------+
+    + Citus cluster: demo ----------+----------------+-----------+----+-------------+-----+------------+-----+
+    | Group | Member  | Host        | Role           | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------+---------+-------------+----------------+-----------+----+-------------+-----+------------+-----+
+    |     0 | coord1  | 172.19.0.8  | Leader         | running   |  1 |             |     |            |     |
+    |     0 | coord2  | 172.19.0.7  | Quorum Standby | streaming |  1 |   0/41C06A0 |   0 |  0/41C06A0 |   0 |
+    |     0 | coord3  | 172.19.0.11 | Quorum Standby | streaming |  1 |   0/41C06A0 |   0 |  0/41C06A0 |   0 |
+    |     1 | work1-1 | 172.19.0.12 | Quorum Standby | streaming |  1 |   0/31ED910 |   0 |  0/31ED910 |   0 |
+    |     1 | work1-2 | 172.19.0.2  | Leader         | running   |  1 |             |     |            |     |
+    |     2 | work2-1 | 172.19.0.6  | Leader         | running   |  2 |             |     |            |     |
+    |     2 | work2-2 | 172.19.0.9  | Quorum Standby | streaming |  2 |   0/31D22D0 |   0 |  0/31D22D0 |   0 |
+    +-------+---------+-------------+----------------+-----------+----+-------------+-----+------------+-----+
 
     postgres@haproxy:~$ psql -h localhost -p 5000 -U postgres -d citus
     Password for user postgres: postgres

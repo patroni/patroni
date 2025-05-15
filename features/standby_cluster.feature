@@ -16,7 +16,7 @@ Feature: standby cluster
     And Response on GET http://127.0.0.1:8008/patroni contains replication_state=streaming after 10 seconds
     And "members/postgres-0" key in DCS has replication_state=streaming after 10 seconds
 
-  @slot-advance
+  @pg110000
   Scenario: check permanent logical slots are synced to the replica
     Given I run patronictl.py restart batman postgres-1 --force
     Then Logical slot test_logical is in sync between postgres-0 and postgres-1 after 10 seconds

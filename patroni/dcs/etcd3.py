@@ -18,6 +18,7 @@ import urllib3
 
 from urllib3.exceptions import ProtocolError, ReadTimeoutError
 
+from ..collections import EMPTY_DICT
 from ..exceptions import DCSError, PatroniException
 from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, enable_keepalive, iter_response_objects, RetryFailedError, USER_AGENT
@@ -240,13 +241,24 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         try:
             data = data.decode('utf-8')
             ret: Dict[str, Any] = json.loads(data)
+
+            header = ret.get('header', EMPTY_DICT)
+            self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
+
             if response.status < 400:
                 return ret
         except (TypeError, ValueError, UnicodeError) as e:
             if response.status < 400:
                 raise etcd.EtcdException('Server response was not valid JSON: %r' % e)
             ret = {}
-        raise _raise_for_data(ret or data, response.status)
+        ex = _raise_for_data(ret or data, response.status)
+        if isinstance(ex, Unavailable):
+            # <Unavailable error: 'etcdserver: request timed out', code: 14>
+            # Pretend that we got `socket.timeout` and let `AbstractEtcdClientWithFailover._do_http_request()`
+            # method handle it by switching to another etcd node and retrying request.
+            raise socket.timeout from ex
+        else:
+            raise ex
 
     def _ensure_version_prefix(self, base_uri: str, **kwargs: Any) -> None:
         if self.version_prefix != '/v3':
@@ -662,8 +674,7 @@ class PatroniEtcd3Client(Etcd3Client):
 class Etcd3(AbstractEtcd):
 
     def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
-        super(Etcd3, self).__init__(config, mpp, PatroniEtcd3Client,
-                                    (DeadlineExceeded, Unavailable, FailedPrecondition))
+        super(Etcd3, self).__init__(config, mpp, PatroniEtcd3Client, (DeadlineExceeded, FailedPrecondition))
         self.__do_not_watch = False
         self._lease = None
         self._last_lease_refresh = 0
@@ -961,6 +972,7 @@ class Etcd3(AbstractEtcd):
         return self.retry(self._client.deleterange, self.sync_path, mod_revision=version)
 
     def watch(self, leader_version: Optional[str], timeout: float) -> bool:
+        self._last_lease_refresh = 0
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True
