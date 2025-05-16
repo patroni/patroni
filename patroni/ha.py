@@ -991,40 +991,68 @@ class Ha(object):
         else:
             self.disable_synchronous_replication()
 
-    def process_sync_replication_prepromote(self) -> bool:
-        """Handle sync replication state before promote.
+    def _process_multisync_prepromote(self) -> bool:
+        """Handle synchronous replication state before promote with one or more sync standbys.
 
-        If quorum replication is requested, and we can keep syncing to enough nodes satisfying the quorum invariant
-        we can promote immediately and let normal quorum resolver process handle any membership changes later.
-        Otherwise, we will just reset DCS state to ourselves and add replicas as they connect.
+        In non strict synchronous mode we just set ourselves as the authoritative source of truth and
+        make changes to /sync key and synchronous_standby_names when standbys connect.
+
+        In strict synchronous mode we want to keep syncing to enough nodes satisfying invariant of /sync key.
 
         :returns: ``True`` if on success or ``False`` if failed to update /sync key in DCS.
         """
-        if not self.is_synchronous_mode():
-            self.disable_synchronous_replication()
-            return True
-
-        if self.quorum_commit_mode_is_active():
+        if global_config.is_synchronous_mode_strict:
             sync = CaseInsensitiveSet(self.cluster.sync.members)
-            numsync = len(sync) - self.cluster.sync.quorum - 1
-            if self.state_handler.name not in sync:  # Node outside voters achieved quorum and got leader
-                numsync += 1
-            else:
+            if self.state_handler.name in sync:
                 sync.discard(self.state_handler.name)
+
+            # Manual failover to non-sync node with Postgres 9.5.
+            # We need to chose sync node. Prefer the old known leader.
+            if self.cluster.sync.leader and not self.state_handler.supports_multiple_sync and len(sync) > 1:
+                sync = CaseInsensitiveSet([self.cluster.sync.leader
+                                           if self.cluster.sync.leader in sync else list(sync)[0]])
         else:
             sync = CaseInsensitiveSet()
-            numsync = global_config.min_synchronous_nodes
 
-        if not self.is_quorum_commit_mode() or not self.state_handler.supports_multiple_sync and numsync > 1:
-            sync = CaseInsensitiveSet()
-            numsync = global_config.min_synchronous_nodes
+        numsync = global_config.min_synchronous_nodes if global_config.is_synchronous_mode_strict and not sync else None
 
-            # Just set ourselves as the authoritative source of truth for now. We don't want to wait for standbys
-            # to connect. We will try finding a synchronous standby in the next cycle.
-            if not self.dcs.write_sync_state(self.state_handler.name, None, 0, version=self.cluster.sync.version):
-                return False
+        if not self.dcs.write_sync_state(self.state_handler.name, sync, 0, version=self.cluster.sync.version):
+            return False
 
         self.state_handler.sync_handler.set_synchronous_standby_names(sync, numsync)
+        return True
+
+    def _process_quorum_prepromote(self) -> None:
+        """Handle synchronous replication state before promote when quorum commit is requested.
+
+        Just set synchronous_standby_names to satisfy invariant of the /sync key and let quorum replication
+        state machine handle membership changes later.
+
+        .. note::
+            We don't do anything special here for non strict synchronous mode.
+        """
+        quorum = self.cluster.sync.quorum if self.quorum_commit_mode_is_active() else 0
+        sync = CaseInsensitiveSet(self.cluster.sync.members)
+        numsync = len(sync) - quorum - 1  # -1 because sync includes former leader
+        if self.state_handler.name in sync:
+            sync.discard(self.state_handler.name)
+        else:  # Node outside voters is being promoted because of manual failover or it achieved quorum
+            numsync += 1
+        numsync = max(numsync, global_config.min_synchronous_nodes)
+
+        self.state_handler.sync_handler.set_synchronous_standby_names(sync, numsync)
+
+    def process_sync_replication_prepromote(self) -> bool:
+        """Handle sync replication state before promote.
+
+        :returns: ``True`` if on success or ``False`` if failed to update /sync key in DCS.
+        """
+        if self.is_quorum_commit_mode():
+            self._process_quorum_prepromote()
+        elif self.is_synchronous_mode():
+            return self._process_multisync_prepromote()
+        elif not self.is_synchronous_mode():
+            self.disable_synchronous_replication()
         return True
 
     def is_sync_standby(self, cluster: Cluster) -> bool:

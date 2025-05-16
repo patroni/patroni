@@ -1526,8 +1526,8 @@ class TestHa(PostgresInit):
 
         # When we just became primary nobody is sync
         self.assertEqual(self.ha.enforce_primary_role('msg', 'promote msg'), 'promote msg')
-        mock_set_sync.assert_called_once_with(CaseInsensitiveSet(), 0)
-        mock_write_sync.assert_called_once_with('leader', None, 0, version=0)
+        mock_set_sync.assert_called_once_with(CaseInsensitiveSet(), None)
+        mock_write_sync.assert_called_once_with('leader', CaseInsensitiveSet(), 0, version=0)
 
         mock_set_sync.reset_mock()
 
@@ -1565,7 +1565,7 @@ class TestHa(PostgresInit):
         mock_acquire.assert_called_once()
         mock_follow.assert_not_called()
         mock_promote.assert_called_once()
-        mock_write_sync.assert_called_once_with('other', None, 0, version=0)
+        mock_write_sync.assert_called_once_with('other', CaseInsensitiveSet(), 0, version=0)
 
     def test_disable_sync_when_restarting(self):
         self.ha.is_synchronous_mode = true
@@ -1800,8 +1800,7 @@ class TestHa(PostgresInit):
             self.assertEqual(mock_logger.call_args[0][1], 'Citus')
 
     @patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True))
-    @patch.object(global_config.__class__, 'is_quorum_commit_mode', PropertyMock(return_value=True))
-    def test_process_sync_replication_prepromote(self):
+    def test__process_multisync_prepromote(self):
         self.p._major_version = 90500
         self.ha.cluster = get_cluster_initialized_without_leader(sync=('other', self.p.name + ',foo'))
         self.p.is_primary = false
@@ -1811,7 +1810,7 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(),
                          'Postponing promotion because synchronous replication state was updated by somebody else')
         self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
-        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, None, 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(), 0))
         self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
 
         mock_set_sync = self.p.config.set_synchronous_standby_names = Mock()
@@ -1819,17 +1818,72 @@ class TestHa(PostgresInit):
         # Postgres 9.5, our name is written to leader of the /sync key, while voters list and ssn is empty
         self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
-        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, None, 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(), 0))
         self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], (None,))
+
+        mock_set_sync.reset_mock()
+        mock_write_sync.reset_mock()
+        self.p.set_role(PostgresqlRole.REPLICA)
+        # Postgres 9.5, with synchronous_mode_strict, our name is written to leader of the /sync key.
+        # Old leader name is written to the /sync key and synchronous_standby_names.
+        with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)), \
+                patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='othe')):
+            self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
+        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(['other']), 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
+        self.assertEqual(mock_set_sync.call_count, 1)
+        self.assertEqual(mock_set_sync.call_args_list[0][0], ('other',))
 
         self.p._major_version = 90600
         mock_set_sync.reset_mock()
         mock_write_sync.reset_mock()
         self.p.set_role(PostgresqlRole.REPLICA)
+        # Postgres 9.6, with synchronous_mode_strict, our name is written to leader of the sync key.
+        # Voters and synchronous_standby_names are set based on the old value of /sync key.
+        with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)), \
+                patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='2 (foo,other)')):
+            self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(['foo', 'other']), 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
+        self.assertEqual(mock_set_sync.call_count, 1)
+        self.assertEqual(mock_set_sync.call_args_list[0][0], ('2 (foo,other)',))
+
+        self.p._major_version = 150000
+        mock_set_sync.reset_mock()
+        mock_write_sync.reset_mock()
+        self.p.set_role(PostgresqlRole.REPLICA)
+        self.p.name = 'nonsync'
+        self.ha.cluster = get_cluster_initialized_without_leader(sync=('other', 'postgresql0,foo'),
+                                                                 failover=Failover(0, None, self.p.name, None))
+        self.ha.fetch_node_status = get_node_status()
+        # Postgres 15, Non-sync node promoted manually. Our name is written to leader of the sync key.
+        # Voters and synchronous_standby_names are set based on the old value of /sync key.
+        with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)), \
+                patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='3 (foo,other,postgresql0)')):
+            self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+        self.assertEqual(mock_write_sync.call_args_list[0][0],
+                         (self.p.name, CaseInsensitiveSet(['foo', 'other', 'postgresql0']), 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
+        self.assertEqual(mock_set_sync.call_count, 1)
+        self.assertEqual(mock_set_sync.call_args_list[0][0], ('3 (foo,other,postgresql0)',))
+
+    @patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True))
+    @patch.object(global_config.__class__, 'is_quorum_commit_mode', PropertyMock(return_value=True))
+    def test__process_quorum_prepromote(self):
+        self.p._major_version = 90600
+        self.ha.cluster = get_cluster_initialized_without_leader(sync=('other', self.p.name + ',foo'))
+        self.p.is_primary = false
+        self.p.set_role(PostgresqlRole.REPLICA)
+        mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=None)
+        mock_set_sync = self.p.config.set_synchronous_standby_names = Mock()
+
         # Postgres 9.6, with quorum commit we avoid updating /sync key and put some nodes to ssn
-        self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+        with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)), \
+                patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='2 (foo,other)')):
+            self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         self.assertEqual(mock_write_sync.call_count, 0)
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('2 (foo,other)',))
@@ -1840,7 +1894,10 @@ class TestHa(PostgresInit):
         self.p.name = 'nonsync'
         self.ha.fetch_node_status = get_node_status()
         # Postgres 15, with quorum commit. Non-sync node promoted we avoid updating /sync key and put some nodes to ssn
-        self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+        with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)), \
+                patch.object(Postgresql, 'synchronous_standby_names',
+                             Mock(return_value='3 ANY (foo,other,postgresql0)')):
+            self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         self.assertEqual(mock_write_sync.call_count, 0)
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 3 (foo,other,postgresql0)',))
