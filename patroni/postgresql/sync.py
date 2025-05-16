@@ -167,17 +167,16 @@ class _SyncState(NamedTuple):
     :ivar sync_type: possible values: ``off``, ``priority``, ``quorum``
     :ivar numsync: how many nodes are required to be synchronous (according to ``synchronous_standby_names``).
                    Is ``0`` if ``synchronous_standby_names`` value is invalid or contains ``*``.
-    :ivar numsync_confirmed: how many nodes are known to be synchronous according to the ``pg_stat_replication`` view.
-                             Only nodes that caught up with the :attr:`SyncHandler._primary_flush_lsn` are counted.
-    :ivar sync: collection of synchronous node names. In case of quorum commit all nodes listed
-                in ``synchronous_standby_names``, otherwise nodes that are confirmed to be synchronous according
-                to the ``pg_stat_replication`` view.
+    :ivar sync: collection of synchronous node names from ``synchronous_standby_names``.
+    :ivar sync_confirmed: collection of synchronous node names from ``synchronous_standby_names`` that are
+                          confirmed to be synchronous according to the ``pg_stat_replication`` view.
+                          Only nodes that caught up with the :attr:`SyncHandler._primary_flush_lsn` are counted.
     :ivar active: collection of node names that are streaming and have no restrictions to become synchronous.
     """
     sync_type: str
     numsync: int
-    numsync_confirmed: int
     sync: CaseInsensitiveSet
+    sync_confirmed: CaseInsensitiveSet
     active: CaseInsensitiveSet
 
 
@@ -350,8 +349,7 @@ END;$$""")
         self._process_replica_readiness(cluster, replica_list)
 
         active = CaseInsensitiveSet()
-        sync_nodes = CaseInsensitiveSet()
-        numsync_confirmed = 0
+        sync_confirmed = CaseInsensitiveSet()
 
         sync_node_count = global_config.synchronous_node_count if self._postgresql.supports_multiple_sync else 1
         sync_node_maxlag = global_config.maximum_lag_on_syncnode
@@ -365,24 +363,20 @@ END;$$""")
                     # there is a chance that a non-promotable node is ahead of a promotable one.
                     if not replica.nofailover or len(active) < sync_node_count:
                         if replica.application_name in self._ready_replicas:
-                            numsync_confirmed += 1
+                            sync_confirmed.add(replica.application_name)
                         active.add(replica.application_name)
                 else:
                     active.add(replica.application_name)
                     if replica.sync_state == 'sync' and replica.application_name in self._ready_replicas:
-                        sync_nodes.add(replica.application_name)
-                        numsync_confirmed += 1
+                        sync_confirmed.add(replica.application_name)
                     if len(active) >= sync_node_count:
                         break
 
-        if global_config.is_quorum_commit_mode:
-            sync_nodes = CaseInsensitiveSet() if self._ssn_data.has_star else self._ssn_data.members
-
         return _SyncState(
             self._ssn_data.sync_type,
-            0 if self._ssn_data.has_star else self._ssn_data.num,
-            numsync_confirmed,
-            sync_nodes,
+            self._ssn_data.num,
+            CaseInsensitiveSet() if self._ssn_data.has_star else self._ssn_data.members,
+            sync_confirmed,
             active)
 
     def set_synchronous_standby_names(self, sync: Collection[str], num: Optional[int] = None) -> None:
