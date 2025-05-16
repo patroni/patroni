@@ -432,6 +432,9 @@ END;$$""")
             prefix = 'ANY ' if global_config.is_quorum_commit_mode and self._postgresql.supports_quorum_commit else ''
             sync_param = f'{prefix}{num} ({sync_param})'
 
+        if sync_param is not None:
+            logger.info("Assigning synchronous_standby_names to %s", sync_param)
+
         if not (self._postgresql.config.set_synchronous_standby_names(sync_param)
                 and self._postgresql.state == PostgresqlState.RUNNING
                 and self._postgresql.is_primary()) or has_asterisk:

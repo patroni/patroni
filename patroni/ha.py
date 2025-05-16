@@ -842,8 +842,8 @@ class Ha(object):
         """
         # If synchronous_mode was turned off, we need to update synchronous_standby_names in Postgres
         if not self.cluster.sync.is_empty and self.dcs.delete_sync_state(version=self.cluster.sync.version):
-            logger.info("Disabled synchronous replication")
             self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
+            logger.info("Disabled synchronous replication")
 
         # As synchronous_mode is off, check if the user configured Postgres synchronous replication instead
         ssn = self.state_handler.config.synchronous_standby_names
@@ -889,14 +889,11 @@ class Ha(object):
                     return
 
                 if transition == 'quorum':
-                    logger.info("Setting leader to %s, quorum to %d of %d (%s)",
-                                leader, num, len(nodes), ", ".join(sorted(nodes)))
+                    logger.info("Setting leader to %s, quorum to %d of (%s)", leader, num, ", ".join(sorted(nodes)))
                     sync = self.dcs.write_sync_state(leader, nodes, num, version=sync.version)
                     if not sync:
                         return logger.info('Synchronous replication key updated by someone else.')
                 elif transition == 'sync':
-                    logger.info("Setting synchronous replication to %d of %d (%s)",
-                                num, len(nodes), ", ".join(sorted(nodes)))
                     # Bump up number of num nodes to meet minimum replication factor. Commits will have to wait until
                     # we have enough nodes to meet replication target.
                     if num < min_sync:
@@ -952,8 +949,7 @@ class Ha(object):
         # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
         sync_common = voters & allow_promote
         if sync_common != voters:
-            logger.info("Updating synchronous privilege temporarily from %s to %s",
-                        list(voters), list(sync_common))
+            logger.info("Updating /sync key temporarily from %s to %s", list(voters), list(sync_common))
             sync = self.dcs.write_sync_state(self.state_handler.name, sync_common, 0, version=sync.version)
             if not sync:
                 return logger.info('Synchronous replication key updated by someone else.')
@@ -964,7 +960,6 @@ class Ha(object):
             logger.warning("No standbys available!")
 
         # Update postgresql.conf and wait 2 secs for changes to become active
-        logger.info("Assigning synchronous standby status to %s", list(picked))
         self.state_handler.sync_handler.set_synchronous_standby_names(picked)
 
         if picked and picked != CaseInsensitiveSet('*') and allow_promote != picked:
