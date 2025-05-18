@@ -235,7 +235,7 @@ class TestSlotsHandler(BaseTestPostgresql):
                 type(mock_diag).sqlstate = PropertyMock(return_value='58P01')
                 self.assertEqual(self.s.sync_replication_slots(self.cluster, self.tags), ['ls'])
             # advance slots based on the replay lsn value
-            with patch.object(Postgresql, 'replay_lsn', PropertyMock(side_effect=[200, 700, 900])), \
+            with patch.object(Postgresql, 'replay_lsn', Mock(side_effect=[200, 700, 900])), \
                  patch.object(SlotsHandler, 'schedule_advance_slots') as advance_mock:
                 self.s.sync_replication_slots(self.cluster, self.tags)
                 advance_mock.assert_called_with(dict())

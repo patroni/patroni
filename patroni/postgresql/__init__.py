@@ -508,11 +508,9 @@ class Postgresql(object):
 
         return self._cluster_info_state.get(name)
 
-    @property
     def replay_lsn(self) -> Optional[int]:
         return self._cluster_info_state_get('replay_lsn')
 
-    @property
     def receive_lsn(self) -> Optional[int]:
         write = self._cluster_info_state_get('write_location')
         received = self._cluster_info_state_get('receive_lsn')
@@ -1276,8 +1274,8 @@ class Postgresql(object):
         if current_thread().ident == self.__thread_ident:
             timeline = self._cluster_info_state_get('timeline') or 0
             wal_position = self._cluster_info_state_get('wal_position') or 0
-            replay_lsn = self.replay_lsn
-            receive_lsn = self.receive_lsn
+            replay_lsn = self.replay_lsn()
+            receive_lsn = self.receive_lsn()
             pg_control_timeline = self._cluster_info_state_get('pg_control_timeline')
         else:
             timeline, wal_position, replay_lsn, receive_lsn, _, pg_control_timeline, _, write_location = \
@@ -1296,7 +1294,7 @@ class Postgresql(object):
 
     def last_operation(self) -> int:
         return self._wal_position(self.is_primary(), self._cluster_info_state_get('wal_position') or 0,
-                                  self.receive_lsn, self.replay_lsn)
+                                  self.receive_lsn(), self.replay_lsn())
 
     def configure_server_parameters(self) -> None:
         self._major_version = self.get_major_version()

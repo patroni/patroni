@@ -513,12 +513,14 @@ class SlotsHandler:
             # If the logical already exists, copy some information about it into the original structure
             if name in self._replication_slots and compare_slots(value, self._replication_slots[name]):
                 self._copy_items(self._replication_slots[name], value)
-                # we can not advance past replay_lsn
-                advance_value = min(value['lsn'], self._postgresql.replay_lsn)
+
                 # The slot has feedback in DCS
-                if 'lsn' in value and value['confirmed_flush_lsn'] < advance_value:
+                if 'lsn' in value:
+                    # we can not advance past replay_lsn
+                    advance_value = min(value['lsn'], self._postgresql.replay_lsn())
                     # Skip slots that don't need to be advanced
-                    advance_slots[value['database']][name] = advance_value
+                    if value['confirmed_flush_lsn'] < advance_value:
+                        advance_slots[value['database']][name] = advance_value
             elif name not in self._replication_slots and 'lsn' in value:
                 # We want to copy only slots with feedback in a DCS
                 create_slots.append(name)
