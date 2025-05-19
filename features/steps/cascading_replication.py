@@ -21,13 +21,13 @@ def write_label(context, content, name):
 
 
 @step('"{name}" key in DCS has {key:w}={value} after {time_limit:d} seconds')
-def check_member(context, name, key, value, time_limit):
+def check_member(context, name, key, value, time_limit, scope='batman'):
     time_limit *= context.timeout_multiplier
     max_time = time.time() + int(time_limit)
     dcs_value = None
     while time.time() < max_time:
         try:
-            response = json.loads(context.dcs_ctl.query(name))
+            response = json.loads(context.dcs_ctl.query(name, scope))
             dcs_value = str(response.get(key))
             if dcs_value == value:
                 return
@@ -36,6 +36,11 @@ def check_member(context, name, key, value, time_limit):
         time.sleep(1)
     assert False, "{0} does not have {1}={2} (found {3}) in dcs after {4} seconds".format(name, key, value,
                                                                                           dcs_value, time_limit)
+
+
+@step('"{name}" key for cluster {scope:w} in DCS has {key:w}={value} after {time_limit:d} seconds')
+def check_cluster_member(context, name, scope, key, value, time_limit):
+    check_member(context, name, key, value, time_limit, scope=scope)
 
 
 @step('there is a non empty {key:w} key in DCS after {time_limit:d} seconds')

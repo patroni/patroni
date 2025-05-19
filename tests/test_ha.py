@@ -1338,6 +1338,14 @@ class TestHa(PostgresInit):
         self.ha.demote('immediate')
         follow.assert_called_once_with(None)
 
+    def test_demote_cluster(self):
+        self.ha.has_lock = true
+        self.e.get_cluster = Mock(return_value=get_cluster_initialized_with_leader())
+        self.ha.cluster.config.data.update({'standby_cluster': {'port': 5432}})
+        self.assertEqual(self.ha.run_cycle(), 'cannot be a real primary in standby cluster')
+        self.ha.is_failover_possible = true
+        self.assertEqual(self.ha.run_cycle(), 'cannot be a real primary in standby cluster')
+
     def test__process_multisync_replication(self):
         self.ha.has_lock = true
         mock_set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock()

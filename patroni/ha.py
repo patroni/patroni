@@ -743,7 +743,10 @@ class Ha(object):
                 if not node_to_follow:
                     return 'no action. I am ({0})'.format(self.state_handler.name)
         elif is_leader:
-            self.demote('immediate-nolock')
+            if self.is_standby_cluster():
+                self._async_executor.try_run_async('demoting cluster', self.demote, ('demote-cluster',))
+            else:
+                self.demote('immediate-nolock')
             return demote_reason
 
         if self.is_standby_cluster() and self._leader_timeline and \
@@ -1559,6 +1562,7 @@ class Ha(object):
             'graceful':         dict(stop='fast',      checkpoint=True,  release=True,  offline=False, async_req=False),  # noqa: E241,E501
             'immediate':        dict(stop='immediate', checkpoint=False, release=True,  offline=False, async_req=True),  # noqa: E241,E501
             'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async_req=True),  # noqa: E241,E501
+            'demote-cluster':   dict(stop='fast',      checkpoint=False, release=True,  offline=True,  async_req=False),  # noqa: E241,E501
 
         }[mode]
 
@@ -1576,6 +1580,8 @@ class Ha(object):
             time.sleep(1)  # give replicas some more time to catch up
             if self.is_failover_possible(cluster_lsn=checkpoint_location):
                 self.state_handler.set_role(PostgresqlRole.DEMOTED)
+                if mode == 'demote-cluster':
+                    self._rewind.archive_shutdown_checkpoint_wal()
                 with self._async_executor:
                     self.release_leader_key_voluntarily(prev_location)
                     status['released'] = True
@@ -1590,19 +1596,26 @@ class Ha(object):
                                 on_safepoint=self.watchdog.disable if self.watchdog.is_running else None,
                                 on_shutdown=on_shutdown if mode_control['release'] else None,
                                 before_shutdown=before_shutdown if mode == 'graceful' else None,
-                                stop_timeout=self.primary_stop_timeout())
+                                stop_timeout=None if mode == 'demote-cluster' else self.primary_stop_timeout())
         self.state_handler.set_role(PostgresqlRole.DEMOTED)
-        self.set_is_leader(False)
+        if mode != 'demote-cluster' or status['released']:
+            self.set_is_leader(False)
 
-        if mode_control['release']:
-            if not status['released']:
-                checkpoint_location = self.state_handler.latest_checkpoint_location() if mode == 'graceful' else None
-                with self._async_executor:
-                    self.release_leader_key_voluntarily(checkpoint_location)
-            time.sleep(2)  # Give a time to somebody to take the leader lock
+        checkpoint_location, prev_location = self.state_handler.latest_checkpoint_locations()
+
+        if mode == 'demote-cluster' and not status['released']:
+            with self._async_executor:
+                self.dcs.update_leader(self.cluster, checkpoint_location, None, self._failsafe_config())
+            self._rewind.archive_shutdown_checkpoint_wal()
         if mode_control['offline']:
             node_to_follow, leader = None, None
         else:
+            if mode_control['release']:
+                if not status['released']:
+                    checkpoint_lsn = prev_location if mode == 'graceful' else None
+                    with self._async_executor:
+                        self.release_leader_key_voluntarily(checkpoint_lsn)
+                time.sleep(2)  # Give a time to somebody to take the leader lock
             try:
                 cluster = self.dcs.get_cluster()
                 node_to_follow, leader = self._get_node_to_follow(cluster), cluster.leader
@@ -2362,8 +2375,8 @@ class Ha(object):
                                                                         stop_timeout=self.primary_stop_timeout()))
             if not self.state_handler.is_running():
                 if self.is_leader() and not status['deleted']:
-                    checkpoint_location = self.state_handler.latest_checkpoint_location()
-                    self.dcs.delete_leader(self.cluster.leader, checkpoint_location)
+                    _, prev_location = self.state_handler.latest_checkpoint_locations()
+                    self.dcs.delete_leader(self.cluster.leader, prev_location)
                 self.touch_member()
             else:
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device
