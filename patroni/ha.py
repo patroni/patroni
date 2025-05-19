@@ -463,7 +463,10 @@ class Ha(object):
                         self.state_handler.timeline_wal_position()
                     data['xlog_location'] = self._last_wal_lsn = wal_position
                     if not timeline:  # running as a standby
-                        data['receive_lsn'], data['replay_lsn'] = receive_lsn, replay_lsn
+                        if replay_lsn:
+                            data['replay_lsn'] = replay_lsn
+                        if receive_lsn:
+                            data['receive_lsn'] = receive_lsn
                         replication_state = self.state_handler.replication_state()
                         if replication_state:
                             data['replication_state'] = replication_state
