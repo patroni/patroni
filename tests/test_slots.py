@@ -221,18 +221,32 @@ class TestSlotsHandler(BaseTestPostgresql):
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     def test__ensure_logical_slots_replica(self):
         self.p.set_role(PostgresqlRole.REPLICA)
-        self.cluster.status.slots['ls'] = 12346
+
+        self.cluster.status.slots['ls'] = 800
         with patch.object(SlotsHandler, 'check_logical_slots_readiness', Mock(return_value=False)):
             self.assertEqual(self.s.sync_replication_slots(self.cluster, self.tags), [])
+
         with patch.object(SlotsHandler, '_query', Mock(return_value=[('ls', 'logical', 1, 499, 'b',
                                                                       'a', 5, 100, 500)])), \
                 patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError)), \
-                patch.object(SlotsAdvanceThread, 'schedule', Mock(return_value=(True, ['ls']))), \
-                patch.object(psycopg.OperationalError, 'diag') as mock_diag:
-            type(mock_diag).sqlstate = PropertyMock(return_value='58P01')
-            self.assertEqual(self.s.sync_replication_slots(self.cluster, self.tags), ['ls'])
+                patch.object(SlotsAdvanceThread, 'schedule', Mock(return_value=(True, ['ls']))):
+            # copy invalidated slot
+            with patch.object(psycopg.OperationalError, 'diag') as mock_diag:
+                type(mock_diag).sqlstate = PropertyMock(return_value='58P01')
+                self.assertEqual(self.s.sync_replication_slots(self.cluster, self.tags), ['ls'])
+            # advance slots based on the replay lsn value
+            with patch.object(Postgresql, 'replay_lsn', Mock(side_effect=[200, 700, 900])), \
+                 patch.object(SlotsHandler, 'schedule_advance_slots') as advance_mock:
+                self.s.sync_replication_slots(self.cluster, self.tags)
+                advance_mock.assert_called_with(dict())
+                self.s.sync_replication_slots(self.cluster, self.tags)
+                advance_mock.assert_called_with({'a': {'ls': 700}})
+                self.s.sync_replication_slots(self.cluster, self.tags)
+                advance_mock.assert_called_with({'a': {'ls': 800}})
+
         self.cluster.status.slots['ls'] = 'a'
         self.assertEqual(self.s.sync_replication_slots(self.cluster, self.tags), [])
+
         self.cluster.config.data['slots']['ls']['database'] = 'b'
         self.cluster.status.slots['ls'] = '500'
         with patch.object(MockCursor, 'rowcount', PropertyMock(return_value=1), create=True):
