@@ -484,8 +484,8 @@ class SlotsHandler:
         """Update logical *slots* on replicas.
 
         If the logical slot already exists, copy state information into the replication slots structure stored in the
-        class instance. Slots that exist are also advanced if their ``confirmed_flush_lsn`` is greater than the stored
-        state of the slot.
+        class instance. Slots that exist are also advanced if their ``confirmed_flush_lsn`` is smaller than the state
+        of the slot stored in DCS or at least the ``replay_lsn`` of this replica.
 
         As logical slots can only be created when the primary is available, pass the list of slots that need to be
         copied back to the caller. They will be created on replicas with :meth:`SlotsHandler.copy_logical_slots`.
@@ -506,9 +506,14 @@ class SlotsHandler:
             # If the logical already exists, copy some information about it into the original structure
             if name in self._replication_slots and compare_slots(value, self._replication_slots[name]):
                 self._copy_items(self._replication_slots[name], value)
-                if 'lsn' in value and value['confirmed_flush_lsn'] < value['lsn']:  # The slot has feedback in DCS
+
+                # The slot has feedback in DCS
+                if 'lsn' in value:
+                    # we can not advance past replay_lsn
+                    advance_value = min(value['lsn'], self._postgresql.replayed_location())
                     # Skip slots that don't need to be advanced
-                    advance_slots[value['database']][name] = value['lsn']
+                    if value['confirmed_flush_lsn'] < advance_value:
+                        advance_slots[value['database']][name] = advance_value
             elif name not in self._replication_slots and 'lsn' in value:
                 # We want to copy only slots with feedback in a DCS
                 create_slots.append(name)
