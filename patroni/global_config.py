@@ -8,7 +8,7 @@ import sys
 import types
 
 from copy import deepcopy
-from typing import Any, cast, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, cast, Dict, List, Optional, TYPE_CHECKING, Union
 
 from .collections import EMPTY_DICT
 from .utils import parse_bool, parse_int
@@ -99,6 +99,12 @@ class GlobalConfig(types.ModuleType):
         :returns: ``True`` if parameter *mode* is enabled in the global configuration.
         """
         return bool(parse_bool(self.__config.get(mode)))
+    
+    
+    @property
+    def citus(self) -> Dict[str, Union[str, int, list]]:
+        return self.__config.get('citus')
+
 
     @property
     def is_paused(self) -> bool:

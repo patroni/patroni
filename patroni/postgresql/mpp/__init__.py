@@ -7,6 +7,7 @@ import abc
 
 from typing import Any, Dict, Iterator, Optional, Tuple, Type, TYPE_CHECKING, Union
 
+from .. import global_config
 from ...dcs import Cluster
 from ...dynamic_loader import iter_classes
 from ...exceptions import PatroniException
@@ -27,12 +28,16 @@ class AbstractMPP(abc.ABC):
 
     group_re: Any  # re.Pattern[str]
 
-    def __init__(self, config: Dict[str, Union[str, int]]) -> None:
+    def __init__(self, config: Dict[str, Union[str, int, list]]) -> None:
         """Init method for :class:`AbstractMPP`.
 
         :param config: configuration of MPP section.
         """
-        self._config = config
+        dbconfig = global_config
+        if dbconfig.citus:
+            self._config = dbconfig.citus
+        else:
+            self._config = config
 
     def is_enabled(self) -> bool:
         """Check if MPP is enabled for a given MPP.
@@ -129,7 +134,7 @@ class AbstractMPP(abc.ABC):
 class AbstractMPPHandler(AbstractMPP):
     """An abstract class which defines interfaces that should be implemented by real handlers."""
 
-    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
+    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int, list]]) -> None:
         """Init method for :class:`AbstractMPPHandler`.
 
         :param postgresql: a reference to :class:`Postgresql` object.
@@ -231,7 +236,7 @@ class Null(AbstractMPP):
 class NullHandler(Null, AbstractMPPHandler):
     """Dummy implementation of :class:`AbstractMPPHandler`."""
 
-    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
+    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int, list]]) -> None:
         """Init method for :class:`NullHandler`.
 
         :param postgresql: a reference to :class:`Postgresql` object.

@@ -340,6 +340,15 @@ class Postgresql(object):
     def reload_config(self, config: Dict[str, Any], sighup: bool = False) -> None:
         self.config.reload_config(config, sighup)
         self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout'] / 2.0
+        # We are checking if postgresql instance is primary
+        # and if in global config citus config exists
+        if self.role == PostgresqlRole.PRIMARY:
+            dbconfig = global_config
+            if dbconfig.citus:
+                dbconfig = dbconfig.citus
+            else:
+                dbconfig = config['citus']
+            self.mpp_handler.create_citus_instances(dbconfig)
 
     @property
     def pending_restart_reason(self) -> CaseInsensitiveDict:
