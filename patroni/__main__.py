@@ -74,6 +74,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
         global_config.update(None, self.config.dynamic_configuration)
 
         self.postgresql = Postgresql(self.config['postgresql'], self.dcs.mpp)
+        self.postgresql.mpp_handler.reload_config(global_config, self.config)
         self.api = RestApiServer(self, self.config['restapi'])
         self.ha = Ha(self)
 
@@ -167,6 +168,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
                 self.request.reload_config(self.config)
             if local or sighup and self.api.reload_local_certificate():
                 self.api.reload_config(self.config['restapi'])
+                self.postgresql.mpp_handler.reload_config(global_config, self.config)
             self.watchdog.reload_config(self.config)
             self.postgresql.reload_config(self.config['postgresql'], sighup)
             self.dcs.reload_config(self.config)

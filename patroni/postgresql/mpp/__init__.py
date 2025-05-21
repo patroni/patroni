@@ -7,7 +7,6 @@ import abc
 
 from typing import Any, Dict, Iterator, Optional, Tuple, Type, TYPE_CHECKING, Union
 
-from .. import global_config
 from ...dcs import Cluster
 from ...dynamic_loader import iter_classes
 from ...exceptions import PatroniException
@@ -33,11 +32,6 @@ class AbstractMPP(abc.ABC):
 
         :param config: configuration of MPP section.
         """
-        dbconfig = global_config
-        if dbconfig.citus:
-            self._config = dbconfig.citus
-        else:
-            self._config = config
 
     def is_enabled(self) -> bool:
         """Check if MPP is enabled for a given MPP.
@@ -130,6 +124,17 @@ class AbstractMPP(abc.ABC):
                 return cls(postgresql, self._config)
         raise PatroniException(f'Failed to initialize {cls_name} object')
 
+    def reload_config(self, global_conf: Dict[str, Any], config: Dict[str, Any]) -> None:
+
+        if global_conf.__config.get(self.__class__.__name__):
+            dbconfig = global_conf.__config.get(self.__class__.__name__).lower()
+        else:
+            dbconfig = config[self.__class__.__name__]
+
+        cls_name = self.__class__.__name__ + 'Handler'
+        for cls in self._get_handler_cls():
+            if cls.__name__ == cls_name:
+                cls.reload_config(dbconfig)
 
 class AbstractMPPHandler(AbstractMPP):
     """An abstract class which defines interfaces that should be implemented by real handlers."""
