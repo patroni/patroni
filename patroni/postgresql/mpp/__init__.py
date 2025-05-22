@@ -126,22 +126,7 @@ class AbstractMPP(abc.ABC):
         raise PatroniException(f'Failed to initialize {cls_name} object')
 
     def reload_config(self, global_conf: Dict[str, Any], config: Dict[str, Any]) -> None:
-
-        #Not really sure how to access active CitusHandler instances to trigger reload
-        #Did something down here but I m not sure if this is it
-
-        if self.__class__.__name__ == 'NullHandler':
-            return
-
-        module = self.__class__.__name__.replace("Handler", "").lower()
-
-        if global_conf.get(module):
-            dbconfig = global_conf.get(module)
-            dbconfig = {k: v.lower() if isinstance(v, str) else v for k, v in dbconfig.items()}
-        else:
-            dbconfig = self._config[module]
-
-        self.__class__.reload_configuration(dbconfig)
+        self._config = config.get(self.type.lower(), {})
 
 class AbstractMPPHandler(AbstractMPP):
     """An abstract class which defines interfaces that should be implemented by real handlers."""
