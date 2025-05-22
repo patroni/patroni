@@ -168,10 +168,10 @@ class Patroni(AbstractPatroniDaemon, Tags):
                 self.request.reload_config(self.config)
             if local or sighup and self.api.reload_local_certificate():
                 self.api.reload_config(self.config['restapi'])
-                self.postgresql.mpp_handler.reload_config(global_config, self.config)
             self.watchdog.reload_config(self.config)
             self.postgresql.reload_config(self.config['postgresql'], sighup)
             self.dcs.reload_config(self.config)
+            self.postgresql.mpp_handler.reload_config(global_config, self.config)
         except Exception:
             logger.exception('Failed to reload config_file=%s', self.config.config_file)
 
