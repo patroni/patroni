@@ -366,15 +366,21 @@ class Rewind(object):
                     if waldir.endswith('/pg_' + self._postgresql.wal_name) and len(wal_filename) == 24:
                         return wal_filename
 
+    def _archive_command(self) -> Optional[str]:
+        archive_mode = self._postgresql.get_guc_value('archive_mode')
+        archive_cmd = self._postgresql.get_guc_value('archive_command')
+        if archive_mode not in ('on', 'always') or not archive_cmd:
+            return
+        return archive_cmd
+
     def _archive_ready_wals(self) -> None:
         """Try to archive WALs that have .ready files just in case
         archive_mode was not set to 'always' before promote, while
         after it the WALs were recycled on the promoted replica.
         With this we prevent the entire loss of such WALs and the
         consequent old leader's start failure."""
-        archive_mode = self._postgresql.get_guc_value('archive_mode')
-        archive_cmd = self._postgresql.get_guc_value('archive_command')
-        if archive_mode not in ('on', 'always') or not archive_cmd:
+        archive_cmd = self._archive_command()
+        if not archive_cmd:
             return
 
         walseg_regex = re.compile(r'^[0-9A-F]{24}(\.partial){0,1}\.ready$')
@@ -594,3 +600,18 @@ class Rewind(object):
             logger.info(' stdout=%s', output['stdout'].decode('utf-8'))
             logger.info(' stderr=%s', output['stderr'].decode('utf-8'))
         return ret == 0 or None
+
+    def archive_shutdown_checkpoint_wal(self) -> None:
+        """Archive WAL file with the shutdown checkpoint."""
+        archive_cmd = self._archive_command()
+        if not archive_cmd:
+            logger.info('Not archiving latest checkpoint WAL file. Archiving is not configured.')
+            return
+        data = self._postgresql.controldata()
+        wal_file = data.get("Latest checkpoint's REDO WAL file", '')
+        if not wal_file:
+            logger.error("Cannot extract latest checkpoint's WAL file name")
+            return
+        cmd = self._build_archiver_command(archive_cmd, wal_file)
+        if self._postgresql.cancellable.call(shlex.split(cmd)):
+            logger.error("Failed to archive WAL file with the shutdown checkpoint")

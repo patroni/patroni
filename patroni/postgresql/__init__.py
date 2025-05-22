@@ -652,18 +652,15 @@ class Postgresql(object):
             if isinstance(checkpoint_lsn, int):
                 return checkpoint_lsn, (prev_lsn or checkpoint_lsn)
 
-    def latest_checkpoint_location(self) -> Optional[int]:
+    def latest_checkpoint_locations(self) -> Tuple[Optional[int], Optional[int]]:
         """Get shutdown checkpoint location.
 
-        .. note::
-            In case if checkpoint was written to the new WAL file due to the archive_mode=on
-            we return LSN of the previous wal record (SWITCH).
-
-        :returns: checkpoint LSN for the cleanly shut down primary.
+        :returns: a tuple of checkpoint LSN for the cleanly shut down primary, and LSN of prev wal record (SWITCH)
+                  if we know that the checkpoint was written to the new WAL file due to the archive_mode=on.
         """
-        checkpoint_locations = self._checkpoint_locations_from_controldata(self.controldata())
-        if checkpoint_locations:
-            return checkpoint_locations[1]
+        checkpoint_location, prev_location =\
+            self._checkpoint_locations_from_controldata(self.controldata()) or (None, None)
+        return checkpoint_location, prev_location
 
     def is_running(self) -> Optional[PostmasterProcess]:
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
