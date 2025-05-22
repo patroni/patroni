@@ -27,7 +27,7 @@ class AbstractMPP(abc.ABC):
 
     group_re: Any  # re.Pattern[str]
 
-    def __init__(self, config: Dict[str, Union[str, int]]) -> None:
+    def __init__(self, config: Dict[str, Union[str, int, list]]) -> None:
         """Init method for :class:`AbstractMPP`.
 
         :param config: configuration of MPP section.
@@ -125,11 +125,28 @@ class AbstractMPP(abc.ABC):
                 return cls(postgresql, self._config)
         raise PatroniException(f'Failed to initialize {cls_name} object')
 
+    def reload_config(self, global_conf: Dict[str, Any], config: Dict[str, Any]) -> None:
+
+        #Not really sure how to access active CitusHandler instances to trigger reload
+        #Did something down here but I m not sure if this is it
+
+        if self.__class__.__name__ == 'NullHandler':
+            return
+
+        module = self.__class__.__name__.replace("Handler", "").lower()
+
+        if global_conf.get(module):
+            dbconfig = global_conf.get(module)
+            dbconfig = {k: v.lower() if isinstance(v, str) else v for k, v in dbconfig.items()}
+        else:
+            dbconfig = self._config[module]
+
+        self.__class__.reload_configuration(dbconfig)
 
 class AbstractMPPHandler(AbstractMPP):
     """An abstract class which defines interfaces that should be implemented by real handlers."""
 
-    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
+    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int, list]]) -> None:
         """Init method for :class:`AbstractMPPHandler`.
 
         :param postgresql: a reference to :class:`Postgresql` object.
@@ -231,7 +248,7 @@ class Null(AbstractMPP):
 class NullHandler(Null, AbstractMPPHandler):
     """Dummy implementation of :class:`AbstractMPPHandler`."""
 
-    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
+    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int, list]]) -> None:
         """Init method for :class:`NullHandler`.
 
         :param postgresql: a reference to :class:`Postgresql` object.

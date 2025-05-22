@@ -702,7 +702,7 @@ class Config(object):
         for name, value in local_configuration.items():
             if name == 'citus':  # remove invalid citus configuration
                 if isinstance(value, dict) and isinstance(cast(Dict[str, Any], value).get('group'), int) \
-                        and isinstance(cast(Dict[str, Any], value).get('database'), str):
+                        and isinstance(cast(Dict[str, Any], value).get('database'), (str, list)):
                     config[name] = value
             elif name == 'postgresql':
                 for name, value in (value or {}).items():

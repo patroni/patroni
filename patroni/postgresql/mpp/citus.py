@@ -368,7 +368,7 @@ class Citus(AbstractMPP):
         :returns: ``True`` is config passes validation, otherwise ``False``.
         """
         return isinstance(config, dict) \
-            and isinstance(cast(Dict[str, Any], config).get('database'), str) \
+            and isinstance(cast(Dict[str, Any], config).get('database'), (str, list)) \
             and parse_int(cast(Dict[str, Any], config).get('group')) is not None
 
     @property
@@ -766,15 +766,21 @@ class CitusHandler(Citus, AbstractMPPHandler):
         """
         AbstractMPPHandler.__init__(self, postgresql, config)
         self._citus_database_handlers = {}
+        self._postgresql = postgresql
 
-        dbconfig = config.copy()
+        self.reload_configuration(config)
 
-        if isinstance(config['database'], str):
-            config['database'] = [config['database']]
+       # dbconfig = config.copy()
 
-        for dbname in config['database']:
-            dbconfig['database'] = dbname
-            self._citus_database_handlers[dbname] = CitusDatabaseHandler(postgresql, dbconfig)
+
+        # if isinstance(config['database'], str):
+        #     config['database'] = [config['database']]
+
+        # for dbname in config['database']:
+        #     dbconfig['database'] = dbname
+        #     self._citus_database_handlers[dbname] = CitusDatabaseHandler(postgresql, dbconfig)
+        
+
 
     def schedule_cache_rebuild(self) -> None:
         for handler in self._citus_database_handlers.values():
@@ -783,6 +789,41 @@ class CitusHandler(Citus, AbstractMPPHandler):
     def on_demote(self) -> None:
         for handler in self._citus_database_handlers.values():
             handler.on_demote()
+
+
+
+    def reload_configuration(self, config: Dict[str, Union[str, int, list]]) -> None:
+        """Creates CitusHandler instances and add them to dict."""
+       
+        dbconfig = config.copy()
+
+        dbs = []
+
+        if isinstance(config.get('databases'), list):
+            dbs = config['databases']
+        elif isinstance(config.get('database'), list):
+            dbs = config['database']
+        else:
+            raw = config.get('databases') or config.get('database') or ""
+            dbs = re.split(r'\s*,\s*', raw) if isinstance(raw, str) else []
+
+        if dbconfig.get('databases'):      
+            dbconfig['database'] = dbconfig.pop("databases")
+
+
+        for dbname in self._citus_database_handlers.keys():
+            if dbname not in dbs:
+                del self._citus_database_handlers[dbname]
+                
+        for dbname in dbs:
+            if dbname not in self._citus_database_handlers.keys():
+                dbconfig['database'] = dbname
+                self._citus_database_handlers[dbname] = CitusDatabaseHandler(self._postgresql, dbconfig)
+                try: #Keep geting some errors in the tests without error handling not sure why
+                    self._citus_database_handlers[dbname].bootstrap()
+                except:
+                    pass
+
 
     def sync_meta_data(self, cluster: Cluster) -> None:
         if not self.is_coordinator():

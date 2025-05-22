@@ -8,7 +8,7 @@ import sys
 import types
 
 from copy import deepcopy
-from typing import Any, cast, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, cast, Dict, List, Optional, TYPE_CHECKING, Union
 
 from .collections import EMPTY_DICT
 from .utils import parse_bool, parse_int

@@ -201,7 +201,7 @@ def run_async(self, func, args=()):
 @patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=False))
 @patch('patroni.async_executor.AsyncExecutor.run_async', run_async)
 @patch('patroni.postgresql.rewind.Thread', Mock())
-@patch('patroni.postgresql.mpp.citus.CitusHandler.start', Mock())
+@patch('patroni.postgresql.mpp.citus.CitusDatabaseHandler.start', Mock())
 @patch('subprocess.call', Mock(return_value=0))
 @patch('time.sleep', Mock())
 class TestHa(PostgresInit):
