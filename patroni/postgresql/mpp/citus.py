@@ -793,7 +793,7 @@ class CitusHandler(Citus, AbstractMPPHandler):
 
     def reload_config(self, config: Dict[str, Any]) -> None:
         """Creates CitusHandler instances and add them to dict."""
-       
+       super(CitusHandler, self).reload_config(config)
         dbconfig = config.copy()
 
         dbs = []
