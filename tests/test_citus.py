@@ -19,7 +19,7 @@ class TestCitus(BaseTestPostgresql):
     def setUp(self):
         super(TestCitus, self).setUp()
         self.c = self.p.mpp_handler
-        handler = self.c.get_citus_database_handlers()
+        handler = self.c._citus_database_handlers
         self.handler = handler['citus']
         self.cluster = get_cluster_initialized_with_leader()
         self.cluster.workers[1] = self.cluster

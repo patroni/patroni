@@ -100,12 +100,6 @@ class GlobalConfig(types.ModuleType):
         """
         return bool(parse_bool(self.__config.get(mode)))
     
-    
-    @property
-    def citus(self) -> Dict[str, Union[str, int, list]]:
-        return self.__config.get('citus')
-
-
     @property
     def is_paused(self) -> bool:
         """``True`` if cluster is in maintenance mode."""

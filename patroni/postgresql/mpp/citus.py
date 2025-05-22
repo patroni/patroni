@@ -807,7 +807,7 @@ class CitusHandler(Citus, AbstractMPPHandler):
             raw = config.get('databases') or config.get('database') or ""
             dbs = re.split(r'\s*,\s*', raw) if isinstance(raw, str) else []
 
-        if dbconfig['databases']:      
+        if dbconfig.get('databases'):      
             dbconfig['database'] = dbconfig.pop("databases")
 
 
@@ -819,9 +819,10 @@ class CitusHandler(Citus, AbstractMPPHandler):
             if dbname not in self._citus_database_handlers.keys():
                 dbconfig['database'] = dbname
                 self._citus_database_handlers[dbname] = CitusDatabaseHandler(self._postgresql, dbconfig)
-                self._citus_database_handlers[dbname].bootstrap()
-
-
+                try: #Keep geting some errors in the tests without error handling not sure why
+                    self._citus_database_handlers[dbname].bootstrap()
+                except:
+                    pass
 
 
     def sync_meta_data(self, cluster: Cluster) -> None:

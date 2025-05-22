@@ -33,6 +33,8 @@ class AbstractMPP(abc.ABC):
         :param config: configuration of MPP section.
         """
 
+        self._config = config
+
     def is_enabled(self) -> bool:
         """Check if MPP is enabled for a given MPP.
 
@@ -126,15 +128,21 @@ class AbstractMPP(abc.ABC):
 
     def reload_config(self, global_conf: Dict[str, Any], config: Dict[str, Any]) -> None:
 
-        if global_conf.__config.get(self.__class__.__name__):
-            dbconfig = global_conf.__config.get(self.__class__.__name__).lower()
-        else:
-            dbconfig = config[self.__class__.__name__]
+        #Not really sure how to access active CitusHandler instances to trigger reload
+        #Did something down here but I m not sure if this is it
 
-        cls_name = self.__class__.__name__ + 'Handler'
-        for cls in self._get_handler_cls():
-            if cls.__name__ == cls_name:
-                cls.reload_config(dbconfig)
+        if self.__class__.__name__ == 'NullHandler':
+            return
+
+        module = self.__class__.__name__.replace("Handler", "").lower()
+
+        if global_conf.get(module):
+            dbconfig = global_conf.get(module)
+            dbconfig = {k: v.lower() if isinstance(v, str) else v for k, v in dbconfig.items()}
+        else:
+            dbconfig = self._config[module]
+
+        self.__class__.reload_configuration(dbconfig)
 
 class AbstractMPPHandler(AbstractMPP):
     """An abstract class which defines interfaces that should be implemented by real handlers."""
