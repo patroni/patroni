@@ -979,7 +979,7 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
                 lsn_type, lag_type = f'{location}lsn', f'{location}lag'
 
                 lsn = getattr(m, lsn_type)
-                if lsn is None:
+                if not lsn:
                     member[lsn_type] = member[lag_type] = 'unknown'
                 elif cluster_lsn >= lsn:
                     member[lag_type] = cluster_lsn - lsn
