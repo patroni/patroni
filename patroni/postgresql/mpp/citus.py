@@ -870,5 +870,3 @@ class CitusHandler(Citus, AbstractMPPHandler):
 
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
         return any(handler.ignore_replication_slot(slot) for handler in self._citus_database_handlers.values())
-
-

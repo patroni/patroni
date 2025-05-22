@@ -99,7 +99,7 @@ class GlobalConfig(types.ModuleType):
         :returns: ``True`` if parameter *mode* is enabled in the global configuration.
         """
         return bool(parse_bool(self.__config.get(mode)))
-    
+
     @property
     def is_paused(self) -> bool:
         """``True`` if cluster is in maintenance mode."""

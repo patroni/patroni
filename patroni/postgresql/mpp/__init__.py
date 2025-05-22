@@ -32,7 +32,6 @@ class AbstractMPP(abc.ABC):
 
         :param config: configuration of MPP section.
         """
-
         self._config = config
 
     def is_enabled(self) -> bool:
