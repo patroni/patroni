@@ -230,7 +230,7 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.dcs.AbstractDCS.set_failover_value', Mock())
     def test_failover(self):
         # No candidate specified
-        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='0\n')
+        result = self.runner.invoke(ctl, ['failover', 'dummy'], input='0\n\n')
         self.assertIn('Failover could be performed only to a specific candidate', result.output)
 
         # Candidate is the same as the leader
@@ -346,7 +346,7 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.ctl.request_patroni')
     def test_restart_reinit(self, mock_post):
         mock_post.return_value.status = 503
-        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='now\ny\n')
+        result = self.runner.invoke(ctl, ['restart', 'alpha'], input='now\ny\n\n')
         assert 'Failed: restart for' in result.output
         assert result.exit_code == 0
 
@@ -354,7 +354,7 @@ class TestCtl(unittest.TestCase):
         assert result.exit_code == 1
 
         # successful reinit
-        result = self.runner.invoke(ctl, ['reinit', 'alpha', 'other'], input='y\ny')
+        result = self.runner.invoke(ctl, ['reinit', 'alpha', 'other'], input='y\ny\nn')
         assert result.exit_code == 0
 
         # Aborted restart
