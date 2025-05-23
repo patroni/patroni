@@ -221,7 +221,9 @@ class Failsafe(object):
 
 
 class Ha(object):
-
+    # Marking for '--from-leader' parameter for patronictl reinit command
+    global_is_from_leader = False
+  
     def __init__(self, patroni: Patroni):
         self.patroni = patroni
         self.state_handler = patroni.postgresql
@@ -1913,17 +1915,22 @@ class Ha(object):
             else:
                 return (False, PostgresqlState.RESTART_FAILED)
 
-    def _do_reinitialize(self, cluster: Cluster) -> Optional[bool]:
+    def _do_reinitialize(self, cluster: Cluster, from_leader: bool = False) -> Optional[bool]:
         self.state_handler.stop('immediate', stop_timeout=self.patroni.config['retry_timeout'])
         # Commented redundant data directory cleanup here
         # self.state_handler.remove_data_directory()
 
-        clone_member = cluster.get_clone_member(self.state_handler.name)
+        if from_leader:
+            clone_member = cluster.leader
+            Ha.global_is_from_leader = True
+        else:
+            clone_member = cluster.get_clone_member(self.state_handler.name)
+        
         if clone_member:
             member_role = 'leader' if clone_member == cluster.leader else 'replica'
             return self.clone(clone_member, "from {0} '{1}'".format(member_role, clone_member.name))
 
-    def reinitialize(self, force: bool = False) -> Optional[str]:
+    def reinitialize(self, force: bool = False, from_leader: bool = False) -> Optional[str]:
         with self._async_executor:
             self.load_cluster_from_dcs()
 
@@ -1943,7 +1950,7 @@ class Ha(object):
             if action is not None:
                 return '{0} already in progress'.format(action)
 
-        self._async_executor.run_async(self._do_reinitialize, args=(cluster, ))
+        self._async_executor.run_async(self._do_reinitialize, args=(cluster, from_leader))
 
     def handle_long_action_in_progress(self) -> str:
         """Figure out what to do with the task AsyncExecutor is performing."""
