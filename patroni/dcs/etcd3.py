@@ -765,7 +765,8 @@ class Etcd3(AbstractEtcd):
 
         # get leader
         leader = nodes.get(self._LEADER)
-        if not self._ctl and not self._multisite and leader and leader['value'] == self._name and self._lease != leader.get('lease'):
+        if not self._ctl and not self._multisite and leader and leader['value'] == self._name and \
+                self._lease != leader.get('lease'):
             logger.warning('I am the leader but not owner of the lease')
 
         if leader:

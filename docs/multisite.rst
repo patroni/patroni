@@ -91,48 +91,49 @@ The configuration is very similar to the usual Patroni config.  In fact, the key
 
 An example configuration for two Patroni sites:
 
-```
-multisite:
-  name: dc1
-  namespace: /multisite/
-  etcd3: # <DCS>
-    hosts:
-    # dc1
-    - 10.0.1.1:2379
-    - 10.0.1.2:2379
-    - 10.0.1.3:2379
-    # dc2
-    - 10.0.2.1:2379
-    - 10.0.2.2:2379
-    - 10.0.2.3:2379
-    # dc 3
-    - 10.0.0.1:2379
-  host: 10.0.1.1,10.0.1.2,10.0.1.3 # How the leader of the other site(s) can connect to the primary on this site
-  port: 5432
-  # Multisite failover timeouts
-  ttl: 90
-  retry_timeout: 40
-```
+.. code:: YAML
+
+   multisite:
+     name: dc1
+     namespace: /multisite/
+     etcd3: # <DCS>
+       hosts:
+       # dc1
+       - 10.0.1.1:2379
+       - 10.0.1.2:2379
+       - 10.0.1.3:2379
+       # dc2
+       - 10.0.2.1:2379
+       - 10.0.2.2:2379
+       - 10.0.2.3:2379
+       # dc 3
+       - 10.0.0.1:2379
+     host: 10.0.1.1,10.0.1.2,10.0.1.3 # How the leader of the other site(s) can connect to the primary on this site
+     port: 5432
+     # Multisite failover timeouts
+     ttl: 90
+     retry_timeout: 40
+
 
 Details of the configuration parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-`name`
-: The name of the site.  All nodes that share the same value are considered to be a part of the same site, thus it must be different for each site.
-`namespace`
-: Optional path within DCS where Patroni stores the multisite state.  If used, it should be different from the namespace used by the base config, but the same on all sites.
-`<DCS>` (in the example `etcd3`)
-: The DCS implementation in use.  Possible values are `etcd`, `etcd3`, `zookeeper`, `consul`, `exhibitor`, `kubernetes`, or `raft` (the latter is deprecated).
-`<DCS>.hosts`
-: a list of IP addresses of nodes forming the global DCS cluster, including the extra (tiebreaking) node(s)
-`host`
-: Comma-separated list of IPs of the Patroni nodes that can become a primary on the present site
-`port`
-: Postgres port, through which other sites' members can connect to this site.  It can be specified once if all nodes use the same port, or as a comma-separated list matching the different port numbers, in the order used in the `host` key.
-`ttl`
-: Time to live of site leader lock. If the site is unable to elect a functioning leader within this timeout, a different site can take over the leader role.  Must be a few times longer than the usual `ttl` value in order to prevent unnecessary site failovers.
-`retry_timeout`
-: How long the global etcd cluster can be inaccessible before the cluster is demoted. Must be a few times longer than the usual `retry_timeout` value in order to prevent unnecessary site failovers.
+``name``
+    The name of the site.  All nodes that share the same value are considered to be a part of the same site, thus it must be different for each site.
+``namespace``
+    Optional path within DCS where Patroni stores the multisite state.  If used, it should be different from the namespace used by the base config, but the same on all sites.
+``<DCS>`` (in the example ``etcd3``)
+    The DCS implementation in use.  Possible values are ``etcd``, ``etcd3``, ``zookeeper``, ``consul``, ``exhibitor``, ``kubernetes``, or ``raft`` (the latter is deprecated).
+``<DCS>.hosts``
+    a list of IP addresses of nodes forming the global DCS cluster, including the extra (tiebreaking) node(s)
+``host``
+    Comma-separated list of IPs of the Patroni nodes that can become a primary on the present site
+``port``
+    Postgres port, through which other sites' members can connect to this site.  It can be specified once if all nodes use the same port, or as a comma-separated list matching the different port numbers, in the order used in the ``host`` key.
+``ttl``
+    Time to live of site leader lock. If the site is unable to elect a functioning leader within this timeout, a different site can take over the leader role.  Must be a few times longer than the usual ``ttl`` value in order to prevent unnecessary site failovers.
+``retry_timeout``
+    How long the global etcd cluster can be inaccessible before the cluster is demoted. Must be a few times longer than the usual ``retry_timeout`` value in order to prevent unnecessary site failovers.
 
 Passwords in the YAML configuration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -184,23 +185,23 @@ Applications should be ready to try to connect to the new primary.  See 'Connect
 Glossary
 ++++++++
 
-DCS
-: distributed configuration store
-site
-: a Patroni cluster with any number of nodes, and the respective DCS - usually corresponding to a data centre
-primary
-: the writable PostgreSQL node, from which the other nodes replicate their data (either directly or in a cascading fashion)
-leader
-: the node which other nodes inside the same site replicate from - the leader can be a replica itself, in which case it's called a _standby leader_
-site switchover
-: a (manual) leader site switch performed when both sites are functioning fine
-site failover
-: when the main site goes down (meaning there is no Patroni leader and none of the remaining nodes (if any left) can become a leader), the standby leader will be promoted, becoming a leader proper, and the Postgres instance running there becoming the primary
-leader site
-: the site where the PostgreSQL primary instance is
-standby site
-: a site replicating from the leader site, and a potential target for site switchover/failover
-DCS quorum
-: more than half of the DCS nodes are available (and can take part in a leader race)
-multisite leader lock
-: just like under normal Patroni operation, the leader puts/updates an entry in DCS, thus notifying other sites that there is a functioning Postgres primary running.  The entry mentioned is the multisite leader lock.
+**DCS**
+    distributed configuration store
+**site**
+    a Patroni cluster with any number of nodes, and the respective DCS - usually corresponding to a data centre
+**primary**
+    the writable PostgreSQL node, from which the other nodes replicate their data (either directly or in a cascading fashion)
+**leader**
+    the node which other nodes inside the same site replicate from - the leader can be a replica itself, in which case it's called a *standby leader*
+**site switchover**
+    a (manual) leader site switch performed when both sites are functioning fine
+**site failover**
+    when the main site goes down (meaning there is no Patroni leader and none of the remaining nodes (if any left) can become a leader), the standby leader will be promoted, becoming a leader proper, and the Postgres instance running there becoming the primary
+**leader site**
+    the site where the PostgreSQL primary instance is
+**standby site**
+    a site replicating from the leader site, and a potential target for site switchover/failover
+**DCS quorum**
+    more than half of the DCS nodes are available (and can take part in a leader race)
+**multisite leader lock**
+    just like under normal Patroni operation, the leader puts/updates an entry in DCS, thus notifying other sites that there is a functioning Postgres primary running.  The entry mentioned is the multisite leader lock.

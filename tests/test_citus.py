@@ -1,4 +1,3 @@
-import etcd
 import time
 import unittest
 

@@ -332,6 +332,11 @@ class Member(Tags, NamedTuple('Member',
     def replay_lsn(self) -> Optional[int]:
         return parse_int(self.data.get('replay_lsn'))
 
+    @property
+    def multisite(self) -> Optional[Dict[str, Any]]:
+        """The ``multisite`` dict of the member if multisite is on."""
+        return self.data.get('multisite')
+
 
 class RemoteMember(Member):
     """Represents a remote member (typically a primary) for a standby cluster.
@@ -434,6 +439,11 @@ class Leader(NamedTuple):
                 and 'checkpoint_after_promote' not in self.data
         return None
 
+    @property
+    def multisite(self) -> Optional[Dict[str, Any]]:
+        """Multisite dict of the member data of the :class:`Member` instance if multisite is active"""
+        return self.member.data.get('multisite')
+
 
 class Failover(NamedTuple):
     """Immutable object (namedtuple) representing configuration information required for failover/switchover capability.
@@ -503,14 +513,15 @@ class Failover(NamedTuple):
                 t = [a.strip() for a in value.split(':')]
                 leader = t[0]
                 candidate = t[1] if len(t) > 1 else None
-                return Failover(version, leader, candidate, None)
+                return Failover(version, leader, candidate, None, '')
         else:
             data = {}
 
         if data.get('scheduled_at'):
             data['scheduled_at'] = dateutil.parser.parse(data['scheduled_at'])
 
-        return Failover(version, data.get('leader'), data.get('member'), data.get('scheduled_at'), data.get('target_site'))
+        return Failover(version, data.get('leader'), data.get('member'), data.get('scheduled_at'),
+                        data.get('target_site'))
 
     def __len__(self) -> int:
         """Implement ``len`` function capability.

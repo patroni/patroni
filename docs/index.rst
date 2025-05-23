@@ -38,6 +38,7 @@ Currently supported PostgreSQL versions: 9.3 to 17.
    tools_integration
    security
    ha_multi_dc
+   multisite
    faq
    releases
    CONTRIBUTING
