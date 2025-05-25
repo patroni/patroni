@@ -173,6 +173,7 @@ class TestCitusDatabase(BaseTestPostgresql):
         mock_logger.assert_called_once()
         self.assertTrue(mock_logger.call_args[0][0].startswith('Exception when creating database'))
 
+
 @patch('patroni.postgresql.mpp.citus.Thread', Mock())
 @patch('patroni.psycopg.connect', psycopg_connect)
 class TestCitus(BaseTestPostgresql):

@@ -807,9 +807,6 @@ class CitusHandler(Citus, AbstractMPPHandler):
         elif isinstance(config.get('database'), str):
             dbs = [config['database']]
 
-        if dbconfig.get('databases'):      
-            dbconfig.pop("databases")
-
         for dbname in list(self._citus_database_handlers.keys()):
             if dbname not in dbs:
                 self._citus_database_handlers[dbname].stop()
@@ -818,6 +815,10 @@ class CitusHandler(Citus, AbstractMPPHandler):
         for dbname in dbs:
             if dbname not in self._citus_database_handlers.keys():
                 dbconfig['database'] = dbname
+                # What to do here ? After this the dbconfig wil look like this:
+                #  {'databases': ['db2', 'db3'], 'group': 0, 'database': 'db3'}
+                # But when calling CitusDatabaseHandler(self._postgresql, dbconfig)
+                # we just need this  {'group': 0, 'database': 'db3'}
                 self._citus_database_handlers[dbname] = CitusDatabaseHandler(self._postgresql, dbconfig)
 
     def sync_meta_data(self, cluster: Cluster) -> None:
