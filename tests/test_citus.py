@@ -35,7 +35,6 @@ class TestCitusDatabase(BaseTestPostgresql):
         # certain timeout. In case if it is not, we want to roll it back
         # in order to not block other workers that want to update
         # `pg_dist_node`.
-
         self.c._condition.wait = Mock(side_effect=[Mock(), Mock(), Mock(), SleepException])
 
         self.c.handle_event(self.cluster, {'type': 'before_demote', 'group': 1,

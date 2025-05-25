@@ -406,6 +406,7 @@ class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
         self._condition = Condition()  # protects _pg_dist_group, _tasks, _in_flight, and _schedule_load_pg_dist_group
         self.schedule_cache_rebuild()
         self._stop_event = Event()
+        self._bootstrapped = False
 
     def schedule_cache_rebuild(self) -> None:
         """Cache rebuild handler.
@@ -608,12 +609,14 @@ class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
             self._condition.notify_all()
 
     def run(self) -> None:
-        try:
-            self.bootstrap()
-        except Exception as e:
-            logger.error('Error while running bootstrap: %s', e)
 
         while not self._stop_event.is_set():
+            if not self._bootstrapped:
+                try:
+                    self.bootstrap()
+                except Exception as e:
+                    logger.error('Error while running bootstrap: %s', e)
+
             try:
                 with self._condition:
                     if self._schedule_load_pg_dist_group:
@@ -634,7 +637,6 @@ class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
                 logger.exception('run')
         self._connection.close()
 
-    
     def _add_task(self, task: PgDistTask) -> bool:
         with self._condition:
             i = self.find_task_by_groupid(task.groupid)
@@ -747,6 +749,7 @@ class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
                                 (r.hostname, r.port or 5432))
         finally:
             conn.close()
+        self._bootstrapped = True
 
     def adjust_postgres_gucs(self, parameters: Dict[str, Any]) -> None:
         pass
