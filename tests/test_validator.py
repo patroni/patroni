@@ -8,6 +8,7 @@ from io import StringIO
 from unittest.mock import Mock, mock_open, patch
 
 from patroni.dcs import dcs_modules
+from patroni.postgresql.sync import SYNC_STRICT_PLACEHOLDER
 from patroni.validator import Directory, populate_validate_params, schema, Schema
 
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
@@ -435,3 +436,10 @@ class TestValidator(unittest.TestCase):
 
         self.assertEqual(['postgresql.bin_dir'],
                          parse_output(output))
+
+    def test_invalid_name(self, mock_out, mock_err):
+        c = copy.deepcopy(config)
+        c["name"] = SYNC_STRICT_PLACEHOLDER
+        errors = schema(c)
+        output = "\n".join(errors)
+        self.assertEqual(['name', 'postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))

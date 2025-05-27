@@ -233,6 +233,7 @@ class Ha(object):
         self._leader_expiry_lock = RLock()
         self._failsafe = Failsafe(patroni.dcs)
         self._was_paused = False
+        self._synchronous_strict_mode_activated = False
         self._leader_timeline = None
         self.recovering = False
         self._async_response = CriticalTask()
@@ -846,6 +847,53 @@ class Ha(object):
         ssn = self.state_handler.config.synchronous_standby_names
         self.state_handler.config.set_synchronous_standby_names(ssn)
 
+    def _handle_synchronous_strict_mode(self, dcs_state: SyncState, replication_state: Any) -> bool:
+        """Handle strict synchronous mode.
+
+        In case if synchronous_mode_strict is set and we don't have active replication connections we need to set
+        synchronous_standby_names GUC to something which will guaranty minimal replication factor > 1.
+        There are two options:
+        1. Use values stored in a /sync key
+        2. Use magical value '__patroni_strict_sync_replica_placeholder__', as a fallback.
+
+        In case if strict synchronous mode is disabled and there are not good candidates, we just
+        remove synchronous_standby_names GUC from postgresql.conf.
+
+        :param dcs_state: :class:`~patroni.dcs.SyncState` object that represents current state of /sync key.
+        :param replication_state: current state of synchronous replication returned by
+                                  :meth:`SyncHandler.current_state` method.
+
+        :returns: ``True`` in case if strict synchronous mode is active, otherwise ``False``.
+        """
+        if len(replication_state.active) < global_config.min_synchronous_nodes:
+            # We don't have enough replication connections to satisfy min_synchronous_nodes.
+            quorum = dcs_state.quorum if self.quorum_commit_mode_is_active() else 0
+            voters = CaseInsensitiveSet(dcs_state.voters)
+            numsync = max(global_config.min_synchronous_nodes, len(voters) - quorum)
+
+            msg = ''
+            if voters != replication_state.sync or numsync != replication_state.numsync:
+                self.state_handler.sync_handler.set_synchronous_standby_names(voters, numsync)
+            elif voters:
+                msg = 'Continue using old value of synchronous_standby_names="{0}". '.format(
+                    self.state_handler.synchronous_standby_names())
+
+            # We use self._synchronous_strict_mode_activated to show warning only once.
+            if not self._synchronous_strict_mode_activated:
+                logger.warning('No active replication connections and synchronous_mode_strict is requested.'
+                               ' %sCommits will be delayed.', msg)
+
+            self._synchronous_strict_mode_activated = True
+        else:
+            if global_config.min_synchronous_nodes == 0 and not replication_state.active and \
+                    not dcs_state.voters and (replication_state.sync or replication_state.numsync):
+                # For non-strict mode remove synchronous_standby_names name from postgresql.conf if there is
+                # something, but there are no active nodes which could be added to synchronous_standby_names later.
+                self.state_handler.sync_handler.set_synchronous_standby_names([])
+            self._synchronous_strict_mode_activated = False
+
+        return self._synchronous_strict_mode_activated
+
     def _process_quorum_replication(self) -> None:
         """Process synchronous replication state when quorum commit is requested.
 
@@ -857,9 +905,6 @@ class Ha(object):
         and retry necessary transitions.
         """
         start_time = time.time()
-
-        min_sync = global_config.min_synchronous_nodes
-        sync_wanted = global_config.synchronous_node_count
 
         sync = self._maybe_enable_synchronous_mode()
         if not sync or not sync.leader:
@@ -873,6 +918,11 @@ class Ha(object):
         while True:
             transition = 'break'  # we need define transition value if `QuorumStateResolver` produced no changes
             sync_state = self.state_handler.sync_handler.current_state(self.cluster)
+
+            if leader == self.state_handler.name and \
+                    self._handle_synchronous_strict_mode(sync, sync_state):
+                return
+
             for transition, leader, num, nodes in QuorumStateResolver(leader=leader,
                                                                       quorum=sync.quorum,
                                                                       voters=sync.voters,
@@ -880,7 +930,7 @@ class Ha(object):
                                                                       sync=sync_state.sync,
                                                                       numsync_confirmed=len(sync_state.sync_confirmed),
                                                                       active=sync_state.active,
-                                                                      sync_wanted=sync_wanted,
+                                                                      sync_wanted=global_config.synchronous_node_count,
                                                                       leader_wanted=self.state_handler.name):
                 if _check_timeout():
                     return
@@ -891,12 +941,6 @@ class Ha(object):
                     if not sync:
                         return logger.info('Synchronous replication key updated by someone else.')
                 elif transition == 'sync':
-                    # Bump up number of num nodes to meet minimum replication factor. Commits will have to wait until
-                    # we have enough nodes to meet replication target.
-                    if num < min_sync:
-                        logger.warning("Replication factor %d requested, but %d synchronous standbys available."
-                                       " Commits will be delayed.", min_sync + 1, num)
-                        num = min_sync
                     self.state_handler.sync_handler.set_synchronous_standby_names(nodes, num)
             if transition != 'restart' or _check_timeout(1):
                 return
@@ -940,6 +984,9 @@ class Ha(object):
                 return logger.warning("Updating sync state failed")
             voters = CaseInsensitiveSet(sync.voters)
 
+        if self._handle_synchronous_strict_mode(sync, current_state):
+            return
+
         if picked == voters == current_state.sync and current_state.numsync == len(picked):
             return
 
@@ -951,15 +998,10 @@ class Ha(object):
             if not sync:
                 return logger.info('Synchronous replication key updated by someone else.')
 
-        # When strict mode and no suitable replication connections put "*" to synchronous_standby_names
-        if global_config.is_synchronous_mode_strict and not picked:
-            picked = CaseInsensitiveSet('*')
-            logger.warning("No standbys available!")
-
         # Update postgresql.conf and wait 2 secs for changes to become active
         self.state_handler.sync_handler.set_synchronous_standby_names(picked)
 
-        if picked and picked != CaseInsensitiveSet('*') and allow_promote != picked:
+        if picked and allow_promote != picked:
             # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
             time.sleep(2)
             allow_promote = self.state_handler.sync_handler.current_state(self.cluster).sync_confirmed
@@ -989,7 +1031,7 @@ class Ha(object):
 
         :returns: ``True`` if on success or ``False`` if failed to update /sync key in DCS.
         """
-        if global_config.is_synchronous_mode_strict:
+        if global_config.min_synchronous_nodes > 0:
             sync = CaseInsensitiveSet(self.cluster.sync.members)
             if self.state_handler.name in sync:
                 sync.discard(self.state_handler.name)
@@ -1002,7 +1044,7 @@ class Ha(object):
         else:
             sync = CaseInsensitiveSet()
 
-        numsync = global_config.min_synchronous_nodes if global_config.is_synchronous_mode_strict and not sync else None
+        numsync = global_config.min_synchronous_nodes if global_config.min_synchronous_nodes > 0 and not sync else None
 
         if not self.dcs.write_sync_state(self.state_handler.name, sync, 0, version=self.cluster.sync.version):
             return False
@@ -2115,8 +2157,7 @@ class Ha(object):
         self.dcs.take_leader()
         self.set_is_leader(True)
         if self.is_synchronous_mode():
-            self.state_handler.sync_handler.set_synchronous_standby_names(
-                CaseInsensitiveSet('*') if global_config.is_synchronous_mode_strict else CaseInsensitiveSet())
+            self.state_handler.sync_handler.set_synchronous_standby_names([], global_config.min_synchronous_nodes)
         self.state_handler.call_nowait(CallbackAction.ON_START)
         self.load_cluster_from_dcs()
 

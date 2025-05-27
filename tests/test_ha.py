@@ -1433,7 +1433,6 @@ class TestHa(PostgresInit):
         mock_set_sync.assert_not_called()
 
         mock_set_sync.reset_mock()
-        mock_cfg_set_sync.reset_mock()
 
         # Test sync standby is replaced when switching standbys
         self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, CaseInsensitiveSet(),
@@ -1456,7 +1455,6 @@ class TestHa(PostgresInit):
         mock_cfg_set_sync.assert_not_called()
 
         mock_set_sync.reset_mock()
-        mock_cfg_set_sync.reset_mock()
         # Test sync standby is not disabled when updating dcs fails
         self.ha.dcs.write_sync_state = Mock(return_value=None)
         self.ha.run_cycle()
@@ -1464,7 +1462,6 @@ class TestHa(PostgresInit):
         mock_cfg_set_sync.assert_not_called()
 
         mock_set_sync.reset_mock()
-        mock_cfg_set_sync.reset_mock()
         # Test changing sync standby
         self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
         self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('leader', 'other')))
@@ -1492,15 +1489,19 @@ class TestHa(PostgresInit):
         self.ha.run_cycle()
         self.assertEqual(self.ha.dcs.write_sync_state.call_count, 2)
 
-        # Test sync set to '*' when synchronous_mode_strict is enabled
+        # Test that we stick with last known sync node when synchronous_mode_strict and no nodes available
         mock_set_sync.reset_mock()
-        mock_cfg_set_sync.reset_mock()
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, CaseInsensitiveSet(),
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1, CaseInsensitiveSet(['other']),
                                                                          CaseInsensitiveSet(), CaseInsensitiveSet()))
         with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
             self.ha.run_cycle()
-        mock_set_sync.assert_called_once_with(CaseInsensitiveSet('*'))
-        mock_cfg_set_sync.assert_not_called()
+        mock_set_sync.assert_not_called()
+
+        # Test sync set to '__patroni_strict_sync_replica_placeholder__' when synchronous_mode_strict is enabled
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', None))
+        with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
+            self.ha.run_cycle()
+        mock_set_sync.assert_called_once_with(CaseInsensitiveSet(), 1)
 
         # Test the value configured by the user for synchronous_standby_names is used when synchronous mode is disabled
         self.ha.is_synchronous_mode = false
@@ -1950,23 +1951,33 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (other)',))
 
-        # Test ANY 1 (*) when synchronous_mode_strict and no nodes available
+        # Test that we stick with last known sync node when synchronous_mode_strict and no nodes available
         self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1,
                                                                          CaseInsensitiveSet(['other', 'foo']),
                                                                          CaseInsensitiveSet(),
                                                                          CaseInsensitiveSet()))
         mock_write_sync.reset_mock()
         mock_set_sync.reset_mock()
+        with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)), \
+                patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')):
+            self.ha.run_cycle()
+        mock_write_sync.assert_not_called()
+        self.assertEqual(mock_set_sync.call_count, 1)
+        self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (foo)',))
+
+        # Test ANY 1 (__patroni_strict_sync_replica_placeholder__) when synchronous_mode_strict and no nodes available
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', None))
+        mock_write_sync.reset_mock()
+        mock_set_sync.reset_mock()
         with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
             self.ha.run_cycle()
-        self.assertEqual(mock_write_sync.call_count, 1)
-        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(), 0))
-        self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
+        mock_write_sync.assert_not_called()
         self.assertEqual(mock_set_sync.call_count, 1)
-        self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (*)',))
+        self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (__patroni_strict_sync_replica_placeholder__)',))
 
         # Test that _process_quorum_replication doesn't take longer than loop_wait
-        with patch('time.time', Mock(side_effect=[30, 60, 90, 120])):
+        with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')), \
+                patch('time.time', Mock(side_effect=[30, 60, 90, 120])):
             self.ha.process_sync_replication()
 
     def test_is_failover_possible(self):
