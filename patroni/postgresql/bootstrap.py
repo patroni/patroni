@@ -235,26 +235,23 @@ class Bootstrap(object):
                 return False
         return True
 
-    def create_replica(self, clone_member: Union[Leader, Member, None]) -> Optional[int]:
+    def create_replica(self, clone_member: Union[Leader, Member, None], clone_from_leader: bool = False) -> Optional[int]:
         """
             create the replica according to the replica_method
             defined by the user.  this is a list, so we need to
             loop through all methods the user supplies
         """
 
-        from ..ha import Ha
         self._postgresql.set_state(PostgresqlState.CREATING_REPLICA)
         self._postgresql.schedule_sanity_checks_after_pause()
 
         is_remote_member = isinstance(clone_member, RemoteMember)
-        is_from_leader = Ha.global_is_from_leader
-        Ha.global_is_from_leader = False if Ha.global_is_from_leader else Ha.global_is_from_leader
 
         # get list of replica methods either from clone member or from
         # the config. If there is no configuration key, or no value is
         # specified, use basebackup. If '--from-leader' parameter is set
         # when reinit, always use basebackup.
-        replica_methods = ['basebackup'] if is_from_leader else (
+        replica_methods = ['basebackup'] if clone_from_leader else (
                           clone_member.create_replica_methods if is_remote_member
                           else self._postgresql.create_replica_methods) or ['basebackup']
 
@@ -375,7 +372,7 @@ class Bootstrap(object):
 
         return ret
 
-    def clone(self, clone_member: Union[Leader, Member, None]) -> bool:
+    def clone(self, clone_member: Union[Leader, Member, None], clone_from_leader: bool = False) -> bool:
         """
              - initialize the replica from an existing member (primary or replica)
              - initialize the replica using the replica creation method that
@@ -383,7 +380,7 @@ class Bootstrap(object):
                base backup)
         """
 
-        ret = self.create_replica(clone_member) == 0
+        ret = self.create_replica(clone_member, clone_from_leader) == 0
         if ret:
             self._post_restore()
         return ret
