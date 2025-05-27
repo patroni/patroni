@@ -220,8 +220,6 @@ class Failsafe(object):
 
 
 class Ha(object):
-    # Marking for '--from-leader' parameter for patronictl reinit command
-    global_is_from_leader = False
   
     def __init__(self, patroni: Patroni):
         self.patroni = patroni
@@ -500,12 +498,12 @@ class Ha(object):
                 self._last_state = new_state
             return ret
 
-    def clone(self, clone_member: Union[Leader, Member, None] = None, msg: str = '(without leader)') -> Optional[bool]:
+    def clone(self, clone_member: Union[Leader, Member, None] = None, msg: str = '(without leader)', clone_from_leader: bool = False) -> Optional[bool]:
         if self.is_standby_cluster() and not isinstance(clone_member, RemoteMember):
             clone_member = self.get_remote_member(clone_member)
 
         self._rewind.reset_state()
-        if self.state_handler.bootstrap.clone(clone_member):
+        if self.state_handler.bootstrap.clone(clone_member, clone_from_leader):
             logger.info('bootstrapped %s', msg)
             cluster = self.dcs.get_cluster()
             node_to_follow = self._get_node_to_follow(cluster)
@@ -1914,13 +1912,12 @@ class Ha(object):
 
         if from_leader:
             clone_member = cluster.leader
-            Ha.global_is_from_leader = True
         else:
             clone_member = cluster.get_clone_member(self.state_handler.name)
         
         if clone_member:
             member_role = 'leader' if clone_member == cluster.leader else 'replica'
-            return self.clone(clone_member, "from {0} '{1}'".format(member_role, clone_member.name))
+            return self.clone(clone_member, "from {0} '{1}'".format(member_role, clone_member.name), from_leader)
 
     def reinitialize(self, force: bool = False, from_leader: bool = False) -> Optional[str]:
         with self._async_executor:
