@@ -324,6 +324,14 @@ class Member(Tags, NamedTuple('Member',
         """Current LSN (receive/flush/replay)."""
         return parse_int(self.data.get('xlog_location'))
 
+    @property
+    def receive_lsn(self) -> Optional[int]:
+        return parse_int(self.data.get('receive_lsn'))
+
+    @property
+    def replay_lsn(self) -> Optional[int]:
+        return parse_int(self.data.get('replay_lsn'))
+
 
 class RemoteMember(Member):
     """Represents a remote member (typically a primary) for a standby cluster.

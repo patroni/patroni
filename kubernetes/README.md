@@ -52,13 +52,13 @@ Example session:
 
     $ kubectl exec -ti patronidemo-0 -- bash
     postgres@patronidemo-0:~$ patronictl list
-    + Cluster: patronidemo (7186662553319358497) ----+----+-----------+
-    | Member        | Host       | Role    | State   | TL | Lag in MB |
-    +---------------+------------+---------+---------+----+-----------+
-    | patronidemo-0 | 10.244.0.5 | Leader  | running |  1 |           |
-    | patronidemo-1 | 10.244.0.6 | Replica | running |  1 |         0 |
-    | patronidemo-2 | 10.244.0.7 | Replica | running |  1 |         0 |
-    +---------------+------------+---------+---------+----+-----------+
+    + Cluster: patronidemo (7186662553319358497) ----+----+-------------+-----+------------+-----+
+    | Member        | Host       | Role    | State   | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +---------------+------------+---------+---------+----+-------------+-----+------------+-----+
+    | patronidemo-0 | 10.244.0.5 | Leader  | running |  1 |             |     |            |     |
+    | patronidemo-1 | 10.244.0.6 | Replica | running |  1 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    | patronidemo-2 | 10.244.0.7 | Replica | running |  1 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +---------------+------------+---------+---------+----+-------------+-----+------------+-----+
 
 # Citus on K8s
 The Citus cluster with the StatefulSets, one coordinator with three Pods and two workers with two pods each.
@@ -129,17 +129,17 @@ Example session:
 
     $ kubectl exec -ti citusdemo-0-0 -- bash
     postgres@citusdemo-0-0:~$ patronictl list
-    + Citus cluster: citusdemo -----------+----------------+---------+----+-----------+
-    | Group | Member        | Host        | Role           | State   | TL | Lag in MB |
-    +-------+---------------+-------------+----------------+---------+----+-----------+
-    |     0 | citusdemo-0-0 | 10.244.0.10 | Leader         | running |  1 |           |
-    |     0 | citusdemo-0-1 | 10.244.0.12 | Replica        | running |  1 |         0 |
-    |     0 | citusdemo-0-2 | 10.244.0.14 | Quorum Standby | running |  1 |         0 |
-    |     1 | citusdemo-1-0 | 10.244.0.8  | Leader         | running |  1 |           |
-    |     1 | citusdemo-1-1 | 10.244.0.11 | Quorum Standby | running |  1 |         0 |
-    |     2 | citusdemo-2-0 | 10.244.0.9  | Leader         | running |  1 |           |
-    |     2 | citusdemo-2-1 | 10.244.0.13 | Quorum Standby | running |  1 |         0 |
-    +-------+---------------+-------------+----------------+---------+----+-----------+
+    + Citus cluster: citusdemo -----------+----------------+---------+----+-------------+-----+------------+-----+
+    | Group | Member        | Host        | Role           | State   | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------+---------------+-------------+----------------+---------+----+-------------+-----+------------+-----+
+    |     0 | citusdemo-0-0 | 10.244.0.10 | Leader         | running |  1 |             |     |            |     |
+    |     0 | citusdemo-0-1 | 10.244.0.12 | Replica        | running |  1 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    |     0 | citusdemo-0-2 | 10.244.0.14 | Quorum Standby | running |  1 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    |     1 | citusdemo-1-0 | 10.244.0.8  | Leader         | running |  1 |             |     |            |     |
+    |     1 | citusdemo-1-1 | 10.244.0.11 | Quorum Standby | running |  1 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    |     2 | citusdemo-2-0 | 10.244.0.9  | Leader         | running |  1 |             |     |            |     |
+    |     2 | citusdemo-2-1 | 10.244.0.13 | Quorum Standby | running |  1 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +-------+---------------+-------------+----------------+---------+----+-------------+-----+------------+-----+
 
     postgres@citusdemo-0-0:~$ psql citus
     psql (16.4 (Debian 16.4-1.pgdg120+1))

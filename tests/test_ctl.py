@@ -128,12 +128,20 @@ class TestCtl(unittest.TestCase):
             scheduled_at = datetime.now(tzutc) + timedelta(seconds=600)
             cluster = get_cluster_initialized_with_leader(Failover(1, 'foo', 'bar', scheduled_at))
             del cluster.members[1].data['conn_url']
+            cluster.members[1].data['replication_state'] = 'streaming'
+            cluster.members[1].data['xlog_location'] = 3
+            cluster.members.append(Member(0, 'foo', 28,
+                                          {'replication_state': 'in archive recovery', 'xlog_location': 3}))
+
             for fmt in ('pretty', 'json', 'yaml', 'topology'):
                 self.assertIsNone(output_members(cluster, name='abc', fmt=fmt))
 
             with patch('click.echo') as mock_echo:
                 self.assertIsNone(output_members(cluster, name='abc', fmt='tsv'))
-                self.assertEqual(mock_echo.call_args[0][0], 'abc\tother\t\tReplica\trunning\t\tunknown')
+                self.assertEqual(mock_echo.call_args_list[3][0][0],
+                                 'abc\tother\t\tReplica\tstreaming\t\t0/3\t0\tunknown\t')
+                self.assertEqual(mock_echo.call_args_list[1][0][0],
+                                 'abc\tfoo\t\tReplica\tin archive recovery\t\tunknown\t\t0/3\t0')
 
     @patch('patroni.dcs.AbstractDCS.set_failover_value', Mock())
     def test_switchover(self):
@@ -270,7 +278,7 @@ class TestCtl(unittest.TestCase):
     def test_query(self):
         # Mutually exclusive
         for role in self.TEST_ROLES:
-            result = self.runner.invoke(ctl, ['query', 'alpha', '--member', 'abc', '--role', role])
+            result = self.runner.invoke(ctl, ['query', 'alpha', '--member', 'abc', '--role', repr(role)])
             assert result.exit_code == 1
 
         with self.runner.isolated_filesystem():
@@ -331,7 +339,7 @@ class TestCtl(unittest.TestCase):
 
         # Mutually exclusive options
         for role in self.TEST_ROLES:
-            result = self.runner.invoke(ctl, ['dsn', 'alpha', '--role', role, '--member', 'dummy'])
+            result = self.runner.invoke(ctl, ['dsn', 'alpha', '--role', repr(role), '--member', 'dummy'])
             assert result.exit_code == 1
 
         # Non-existing member
@@ -555,7 +563,7 @@ class TestCtl(unittest.TestCase):
     @patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=get_cluster_initialized_with_leader()))
     def test_flush_restart(self):
         for role in self.TEST_ROLES:
-            result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '-r', role], input='y')
+            result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '-r', repr(role)], input='y')
             assert 'No scheduled restart' in result.output
 
         result = self.runner.invoke(ctl, ['flush', 'dummy', 'restart', '--force'])
@@ -796,3 +804,6 @@ class TestPatronictlPrettyTable(unittest.TestCase):
 
     def test_output(self):
         self.assertEqual(str(self.pt), '+ header----+\n| foo | bar |\n+-----+-----+')
+
+    def test__validate_field_names(self):
+        self.assertRaises(Exception, self.pt._validate_field_names, ['lala'])

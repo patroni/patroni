@@ -190,6 +190,18 @@ class PatronictlPrettyTable(PrettyTable):
         self.__hline_num += 1
         return ret
 
+    def _validate_field_names(self, *args: Any, **kwargs: Any) -> None:
+        """Validate field names.
+
+        Remove uniqueness constraint for field names from the original implementation.
+        Required for having shorter ``Lag`` columns without specifying lag's type after ``LSN`` column already did so.
+        """
+        try:
+            super(PatronictlPrettyTable, self)._validate_field_names(*args, **kwargs)
+        except Exception as e:
+            if 'Field names must be unique' not in str(e):
+                raise e
+
     _hrule = property(_get_hline, _set_hline)
 
 
@@ -1046,7 +1058,7 @@ def parse_scheduled(scheduled: Optional[str]) -> Optional[datetime.datetime]:
 @click.argument('member_names', nargs=-1)
 @option_citus_group
 @click.option('--role', '-r', help='Reload only members with this role',
-              type=role_choice, default=CtlPostgresqlRole.ANY)
+              type=role_choice, default=repr(CtlPostgresqlRole.ANY))
 @option_force
 def reload(cluster_name: str, member_names: List[str], group: Optional[int],
            force: bool, role: CtlPostgresqlRole) -> None:
@@ -1085,7 +1097,7 @@ def reload(cluster_name: str, member_names: List[str], group: Optional[int],
 @click.argument('member_names', nargs=-1)
 @option_citus_group
 @click.option('--role', '-r', help='Restart only members with this role', type=role_choice,
-              default=CtlPostgresqlRole.ANY)
+              default=repr(CtlPostgresqlRole.ANY))
 @click.option('--any', 'p_any', help='Restart a single member only', is_flag=True)
 @click.option('--scheduled', help='Timestamp of a scheduled restart in unambiguous format (e.g. ISO 8601)',
               default=None)
@@ -1554,7 +1566,10 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         * ``Role``: ``Leader``, ``Standby Leader``, ``Sync Standby`` or ``Replica``;
         * ``State``: one of :class:`~patroni.postgresql.misc.PostgresqlState`;
         * ``TL``: current timeline in Postgres;
-          ``Lag in MB``: replication lag.
+        * ``Receive LSN``: last received LSN (``pg_catalog.pg_last_(xlog|wal)_receive_(location|lsn)()``);
+        * ``Receive Lag``: lag of the receive LSN in MB;
+        * ``Replay LSN``: last replayed LSN (``pg_catalog.pg_last_(xlog|wal)_replay_(location|lsn)()``);
+        * ``Replay Lag``: lag of the replay LSN in MB.
 
     Besides that it may also have:
         * ``Group``: Citus group ID -- showed only if Citus is enabled.
@@ -1578,7 +1593,8 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
     logging.debug(cluster)
 
     initialize = {None: 'uninitialized', '': 'initializing'}.get(cluster.initialize, cluster.initialize)
-    columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'TL', 'Lag in MB']
+    columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'TL',
+               'Receive LSN', 'Receive Lag', 'Replay LSN', 'Replay Lag']
 
     clusters = {group or 0: cluster_as_json(cluster)}
 
@@ -1602,18 +1618,32 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         for member in sort(c['members']):
             logging.debug(member)
 
-            lag = member.get('lag', '')
-
             def format_diff(param: str, values: Dict[str, str], hide_long: bool):
                 full_diff = param + ': ' + values['old_value'] + '->' + values['new_value']
                 return full_diff if not hide_long or len(full_diff) <= 50 else param + ': [hidden - too long]'
             restart_reason = '\n'.join([format_diff(k, v, fmt in ('pretty', 'topology'))
                                         for k, v in member.get('pending_restart_reason', {}).items()]) or ''
 
+            receive_lag, replay_lag = member.get('receive_lag', ''), member.get('replay_lag', '')
+            receive_lsn, replay_lsn = member.get('receive_lsn', ''), member.get('replay_lsn', '')
+            lsn = member.get('lsn', '')
+            # old lsn/lag implementation compatibility
+            if 'unknown' == receive_lsn and replay_lsn == 'unknown' and lsn and lsn != 'unknown':
+                lag = member.get('lag', '')
+                if member['state'] == 'streaming':
+                    receive_lag, receive_lsn = lag, lsn
+                else:
+                    replay_lag, replay_lsn = lag, lsn
+            receive_lag = round(receive_lag / 1024 / 1024) if isinstance(receive_lag, int) \
+                else '' if receive_lag == 'unknown' else receive_lag
+            replay_lag = round(replay_lag / 1024 / 1024) if isinstance(replay_lag, int) \
+                else '' if replay_lag == 'unknown' else replay_lag
+
             member.update(cluster=name, member=member['name'], group=g,
                           host=member.get('host', ''), tl=member.get('timeline', ''),
                           role=member['role'].replace('_', ' ').title(),
-                          lag_in_mb=round(lag / 1024 / 1024) if isinstance(lag, int) else lag,
+                          receive_lag=receive_lag, replay_lag=replay_lag,
+                          receive_lsn=receive_lsn, replay_lsn=replay_lsn,
                           pending_restart='*' if member.get('pending_restart') else '',
                           pending_restart_reason=restart_reason)
 
@@ -1636,7 +1666,10 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         title_details = f' ({initialize})'
 
     title = f' {title}: {name}{title_details} '
-    print_output(columns, rows, {'Group': 'r', 'Lag in MB': 'r', 'TL': 'r'}, fmt, title)
+    if fmt in ('pretty', 'topology'):
+        columns[columns.index('Replay Lag')] = columns[columns.index('Receive Lag')] = 'Lag'
+    print_output(columns, rows,
+                 {'Group': 'r', 'Receive LSN': 'r', 'Replay LSN': 'r', 'Lag': 'r', 'TL': 'r'}, fmt, title)
 
     if fmt not in ('pretty', 'topology'):  # Omit service info when using machine-readable formats
         return
@@ -1728,7 +1761,8 @@ def timestamp(precision: int = 6) -> str:
 @option_citus_group
 @click.argument('member_names', nargs=-1)
 @click.argument('target', type=click.Choice(['restart', 'switchover']))
-@click.option('--role', '-r', help='Flush only members with this role', type=role_choice, default=CtlPostgresqlRole.ANY)
+@click.option('--role', '-r', help='Flush only members with this role',
+              type=role_choice, default=repr(CtlPostgresqlRole.ANY))
 @option_force
 def flush(cluster_name: str, group: Optional[int],
           member_names: List[str], force: bool, role: CtlPostgresqlRole, target: str) -> None:

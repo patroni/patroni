@@ -294,12 +294,26 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
             self.assertEqual(mock_logger.call_args[0][1], 'Citus')
             self.assertIsInstance(mock_logger.call_args[0][2], KubernetesError)
 
-    def test_attempt_to_acquire_leader(self):
+    @patch.object(k8s_client.CoreV1Api, 'read_namespaced_config_map', create=True)
+    def test_attempt_to_acquire_leader(self, mock_read):
+        metadata = k8s_client.V1ObjectMeta(resource_version='2', labels={'f': 'b'}, name='test',
+                                           annotations={'optime': '1234', 'leader': 'p-0', 'transitions': '0',
+                                                        'renewTime': 'now', 'acquireTime': 'now', 'ttl': '30'})
+        mock_read.return_value = k8s_client.V1ConfigMap(metadata=metadata)
         with patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', create=True) as mock_patch:
             mock_patch.side_effect = K8sException
             self.assertRaises(KubernetesError, self.k.attempt_to_acquire_leader)
+
             mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
+            self.k._leader_resource_version = '0'
+            self.k._isotime = Mock(return_value='now')
+            self.assertTrue(self.k.attempt_to_acquire_leader())
+
+            mock_read.side_effect = Exception
             self.assertFalse(self.k.attempt_to_acquire_leader())
+
+            mock_read.side_effect = RetryFailedError('')
+            self.assertRaises(KubernetesError, self.k.attempt_to_acquire_leader)
 
     def test_take_leader(self):
         self.k.take_leader()
