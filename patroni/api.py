@@ -481,7 +481,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         location = 'received_location' if mode == 'write' else 'replayed_location'
         lag = leader_optime - postgres.get('xlog', {}).get(location, 0)
 
-        logger.info("Lag: %s", self.path_query.get('lag', [None])[0])
         max_replica_lag = parse_int(self.path_query.get('lag', [None])[0], 'B')
         if max_replica_lag is None:
             max_replica_lag = global_config.maximum_lag_on_failover
