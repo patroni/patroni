@@ -405,8 +405,6 @@ class TestGroupTransition(unittest.TestCase):
         old = PgDistGroup(0, {PgDistNode('1', 5432, 'demoted', nodeid=1),
                               PgDistNode('2', 5432, 'secondary', nodeid=2)})
         new = PgDistGroup(0, {PgDistNode('2', 5432, 'primary')})
-        # expected = PgDistGroup(0, {PgDistNode('1', 5432, 'secondary', nodeid=2),
-        #                            PgDistNode('2', 5432, 'primary', nodeid=1)})
         self.check_transitions(old, new, ["citus_update_node(2, '1', 5432)", "citus_update_node(1, '2', 5432)"])
 
     def test_switchover_to_new_node_after_paused_connections(self):
