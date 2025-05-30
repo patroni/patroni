@@ -669,10 +669,10 @@ class Config(object):
                     if name == 'CITUS':
                         if suffix == 'GROUP':
                             value = parse_int(value)
+                        elif suffix == 'DATABASES':
+                            value = _parse_list(value)
                         elif suffix != 'DATABASE':
                             continue
-                        elif suffix != 'DATABASES':
-                            value = _parse_list(value)
                     elif suffix == 'PORT':
                         value = value and parse_int(value)
                     elif suffix in ('HOSTS', 'PORTS', 'CHECKS', 'SERVICE_TAGS', 'RETRIABLE_HTTP_CODES'):
