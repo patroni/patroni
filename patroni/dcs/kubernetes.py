@@ -786,7 +786,6 @@ class Kubernetes(AbstractDCS):
 
         bypass_api_service = not self._ctl and config.get('bypass_api_service')
         self._api = CoreV1ApiProxy(config.get('use_endpoints'), bypass_api_service)
-        self._should_create_config_service = self._api.use_endpoints
         self.reload_config(config)
         # leader_observed_record, leader_resource_version, and leader_observed_time are used only for leader race!
         self._leader_observed_record: Dict[str, str] = {}
@@ -1143,23 +1142,7 @@ class Kubernetes(AbstractDCS):
 
     def patch_or_create_config(self, annotations: Dict[str, Any],
                                resource_version: Optional[str] = None, patch: bool = False, retry: bool = True) -> bool:
-        # SCOPE-config endpoint requires corresponding service otherwise it might be "cleaned" by k8s master
-        if self._api.use_endpoints and not patch and not resource_version:
-            self._should_create_config_service = True
-            self._create_config_service()
         return bool(self.patch_or_create(self.config_path, annotations, resource_version, patch, retry))
-
-    def _create_config_service(self) -> None:
-        metadata = k8s_client.V1ObjectMeta(namespace=self._namespace, name=self.config_path, labels=self._labels)
-        body = k8s_client.V1Service(metadata=metadata, spec=k8s_client.V1ServiceSpec(cluster_ip='None'))
-        try:
-            if not self._api.create_namespaced_service(self._namespace, body):
-                return
-        except Exception as e:
-            # 409 - service already exists, 403 - creation forbidden
-            if not isinstance(e, k8s_client.rest.ApiException) or e.status not in (409, 403):
-                return logger.exception('create_config_service failed')
-        self._should_create_config_service = False
 
     def _write_leader_optime(self, last_lsn: str) -> bool:
         """Unused"""
@@ -1394,8 +1377,6 @@ class Kubernetes(AbstractDCS):
             ret = self._api.patch_namespaced_pod(self._name, self._namespace, body)
             if ret:
                 self._pods.set(self._name, ret)
-        if self._should_create_config_service:
-            self._create_config_service()
         return bool(ret)
 
     def initialize(self, create_new: bool = True, sysid: str = "") -> bool:

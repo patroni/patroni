@@ -483,36 +483,6 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
     def test_write_sync_state(self):
         self.assertIsNotNone(self.k.write_sync_state('a', ['b'], 0, 1))
 
-    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod', mock_namespaced_kind, create=True)
-    @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints', mock_namespaced_kind, create=True)
-    @patch.object(k8s_client.CoreV1Api, 'create_namespaced_service',
-                  Mock(side_effect=[True,
-                                    False,
-                                    k8s_client.rest.ApiException(409, ''),
-                                    k8s_client.rest.ApiException(403, ''),
-                                    k8s_client.rest.ApiException(500, ''),
-                                    Exception("Unexpected")
-                                    ]), create=True)
-    @patch('patroni.dcs.kubernetes.logger.exception')
-    def test__create_config_service(self, mock_logger_exception):
-        self.assertIsNotNone(self.k.patch_or_create_config({'foo': 'bar'}))
-        self.assertIsNotNone(self.k.patch_or_create_config({'foo': 'bar'}))
-
-        self.k.patch_or_create_config({'foo': 'bar'})
-        mock_logger_exception.assert_not_called()
-
-        self.k.patch_or_create_config({'foo': 'bar'})
-        mock_logger_exception.assert_not_called()
-
-        self.k.patch_or_create_config({'foo': 'bar'})
-        mock_logger_exception.assert_called_once()
-        self.assertEqual(('create_config_service failed',), mock_logger_exception.call_args[0])
-        mock_logger_exception.reset_mock()
-
-        self.k.touch_member({'state': PostgresqlState.RUNNING, 'role': PostgresqlRole.REPLICA})
-        mock_logger_exception.assert_called_once()
-        self.assertEqual(('create_config_service failed',), mock_logger_exception.call_args[0])
-
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', mock_namespaced_kind, create=True)
     def test_write_leader_optime(self):
         self.k.write_leader_optime(12345)
