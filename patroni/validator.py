@@ -1143,10 +1143,10 @@ schema = Schema({
         },
     }),
     Optional("citus"): {
-        AtMostOne("database", "databases"): Case({ 
-	     "database": str, 
-	     "databases": [str], 
-	 }), 
+        AtMostOne("database", "databases"): Case({
+            "database": str,
+            "databases": [str]
+        }),
         "group": IntValidator(min=0, expected_type=int, raise_assert=True),
     },
     "postgresql": {

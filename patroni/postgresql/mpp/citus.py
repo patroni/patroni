@@ -368,8 +368,9 @@ class Citus(AbstractMPP):
         :returns: ``True`` is config passes validation, otherwise ``False``.
         """
         return isinstance(config, dict) \
-            and isinstance(cast(Dict[str, Any], config).get('database'), str) \
-            or isinstance(cast(Dict[str, Any], config).get('databases'), list) \
+            and (isinstance(cast(Dict[str, Any], config).get('database'), str)
+                 or isinstance(cast(Dict[str, Any], config).get('databases'), list)
+                 and all(isinstance(db, str) for db in config.get('databases'))) \
             and parse_int(cast(Dict[str, Any], config).get('group')) is not None
 
     @property
@@ -616,7 +617,9 @@ class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
                     self.bootstrap()
                 except Exception as e:
                     logger.error('Error while running bootstrap: %s', e)
-
+                    with self._condition:
+                        self._condition.wait()
+                    continue
             try:
                 with self._condition:
                     if self._schedule_load_pg_dist_group:
@@ -782,10 +785,10 @@ class CitusHandler(Citus, AbstractMPPHandler):
         :param config: the ``citus`` MPP config section.
         """
         AbstractMPPHandler.__init__(self, postgresql, config)
-        self._citus_database_handlers = {}
+        self._citus_database_handlers: Dict[str, CitusDatabaseHandler] = {}
         self._postgresql = postgresql
         self.reload_config(config)
-        
+
     def schedule_cache_rebuild(self) -> None:
         for handler in self._citus_database_handlers.values():
             handler.schedule_cache_rebuild()
@@ -797,8 +800,6 @@ class CitusHandler(Citus, AbstractMPPHandler):
     def reload_config(self, config: Dict[str, Any]) -> None:
         """Creates CitusHandler instances and add them to dict."""
         super(CitusHandler, self).reload_config(config)
-        
-        dbconfig = config.copy()
 
         dbs = []
 
@@ -807,19 +808,11 @@ class CitusHandler(Citus, AbstractMPPHandler):
         elif isinstance(config.get('database'), str):
             dbs = [config['database']]
 
-        for dbname in list(self._citus_database_handlers.keys()):
-            if dbname not in dbs:
-                self._citus_database_handlers[dbname].stop()
-                del self._citus_database_handlers[dbname]
-                
-        for dbname in dbs:
-            if dbname not in self._citus_database_handlers.keys():
-                dbconfig['database'] = dbname
-                # What to do here ? After this the dbconfig wil look like this:
-                #  {'databases': ['db2', 'db3'], 'group': 0, 'database': 'db3'}
-                # But when calling CitusDatabaseHandler(self._postgresql, dbconfig)
-                # we just need this  {'group': 0, 'database': 'db3'}
-                self._citus_database_handlers[dbname] = CitusDatabaseHandler(self._postgresql, dbconfig)
+        for db in set(self._citus_database_handlers) - set(dbs):
+            self._citus_database_handlers.pop(db).stop()
+
+        for db in set(dbs) - set(self._citus_database_handlers):
+            self._citus_database_handlers[db] = CitusDatabaseHandler(self._postgresql, {**config, 'database': db})
 
     def sync_meta_data(self, cluster: Cluster) -> None:
         if not self.is_coordinator():
