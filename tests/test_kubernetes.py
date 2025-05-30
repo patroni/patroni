@@ -12,9 +12,9 @@ from unittest.mock import Mock, mock_open, patch, PropertyMock
 import urllib3
 
 from patroni.dcs import get_dcs
-from patroni.dcs.kubernetes import Cluster, k8s_client, k8s_config, K8sConfig, K8sConnectionFailed, \
-    K8sException, K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException, Retry, \
-    RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
+from patroni.dcs.kubernetes import Cluster, k8s_client, k8s_config, K8sConfig, K8sConnectionFailed, K8sException, \
+    K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException, LEADER_ELECTION_RECORD_ANNOTATION_KEY, \
+    Retry, RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.mpp import get_mpp
 
@@ -440,6 +440,7 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         args = mock_patch_namespaced_endpoints.call_args[0]
         self.assertEqual(args[2].subsets[0].addresses[0].target_ref.resource_version, '10')
         self.assertEqual(args[2].subsets[0].addresses[0].ip, '10.0.0.0')
+        self.assertNotIn(LEADER_ELECTION_RECORD_ANNOTATION_KEY, args[2].metadata.annotations)
         self.k._kinds._object_cache['test'].subsets[:] = []
         self.assertIsNotNone(self.k.update_leader(cluster, '123'))
         self.k._kinds._object_cache['test'].metadata.annotations['leader'] = 'p-1'
@@ -479,9 +480,23 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
     def test_delete_sync_state(self):
         self.assertFalse(self.k.delete_sync_state(1))
 
-    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', mock_namespaced_kind, create=True)
-    def test_write_sync_state(self):
+    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', create=True)
+    def test_write_sync_state(self, mock_patch_namespaced_endpoints):
+        mock_patch_namespaced_endpoints.side_effect = mock_namespaced_kind()
         self.assertIsNotNone(self.k.write_sync_state('a', ['b'], 0, 1))
+        args = mock_patch_namespaced_endpoints.call_args[0]
+        self.assertIn(LEADER_ELECTION_RECORD_ANNOTATION_KEY, args[2].metadata.annotations)
+
+    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', create=True)
+    @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints', create=True)
+    def test_patch_or_create_config(self, mock_create, mock_patch):
+        mock_create.return_value.metadata.resource_version = '1'
+        self.assertTrue(self.k.patch_or_create_config({'foo': 'bar'}))
+        self.assertIn(LEADER_ELECTION_RECORD_ANNOTATION_KEY, mock_create.call_args[0][1].metadata.annotations)
+
+        mock_patch.return_value = mock_namespaced_kind()
+        self.assertTrue(self.k.patch_or_create_config({'foo': 'bar'}, patch=True))
+        self.assertIn(LEADER_ELECTION_RECORD_ANNOTATION_KEY, mock_patch.call_args[0][2].metadata.annotations)
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', mock_namespaced_kind, create=True)
     def test_write_leader_optime(self):

@@ -39,6 +39,7 @@ SERVICE_HOST_ENV_NAME = 'KUBERNETES_SERVICE_HOST'
 SERVICE_PORT_ENV_NAME = 'KUBERNETES_SERVICE_PORT'
 SERVICE_TOKEN_FILENAME = '/var/run/secrets/kubernetes.io/serviceaccount/token'
 SERVICE_CERT_FILENAME = '/var/run/secrets/kubernetes.io/serviceaccount/ca.crt'
+LEADER_ELECTION_RECORD_ANNOTATION_KEY = 'control-plane.alpha.kubernetes.io/leader'
 __temp_files: List[str] = []
 
 
@@ -1104,6 +1105,8 @@ class Kubernetes(AbstractDCS):
 
         :returns: the new :class:`V1Endpoints` or :class:`V1ConfigMap` object, that was created or updated.
         """
+        use_endpoints = self._api.use_endpoints
+
         metadata = {'namespace': self._namespace, 'name': name, 'labels': self._labels, 'annotations': annotations}
         if patch or resource_version:
             if resource_version is not None:
@@ -1114,9 +1117,12 @@ class Kubernetes(AbstractDCS):
             func = functools.partial(self._api.create_namespaced_kind)
             # skip annotations with null values
             metadata['annotations'] = {k: v for k, v in annotations.items() if v is not None}
+        if use_endpoints and name != self.leader_path:
+            # prevent endpoints without traffic from being cleaned by K8s
+            metadata['annotations'][LEADER_ELECTION_RECORD_ANNOTATION_KEY] = 'Patroni'
 
         metadata = k8s_client.V1ObjectMeta(**metadata)
-        if self._api.use_endpoints:
+        if use_endpoints:
             endpoints = {'metadata': metadata}
             if ips is not None:
                 self._map_subsets(endpoints, ips)
