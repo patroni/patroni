@@ -125,7 +125,7 @@ class AbstractMPP(abc.ABC):
                 return cls(postgresql, self._config)
         raise PatroniException(f'Failed to initialize {cls_name} object')
 
-    def reload_config(self, config: Dict[str, Any]) -> None:
+    def reload_config(self, config: Union['Config', Dict[str, Any]]) -> None:
         self._config = config.get(self.type.lower(), {})
 
 

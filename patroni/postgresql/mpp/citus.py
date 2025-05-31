@@ -615,6 +615,7 @@ class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
             if not self._bootstrapped:
                 try:
                     self.bootstrap()
+                    self._bootstrapped = True
                 except Exception as e:
                     logger.error('Error while running bootstrap: %s', e)
                     with self._condition:
@@ -752,7 +753,6 @@ class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
                                 (r.hostname, r.port or 5432))
         finally:
             conn.close()
-        self._bootstrapped = True
 
     def adjust_postgres_gucs(self, parameters: Dict[str, Any]) -> None:
         pass
@@ -787,7 +787,7 @@ class CitusHandler(Citus, AbstractMPPHandler):
         AbstractMPPHandler.__init__(self, postgresql, config)
         self._citus_database_handlers: Dict[str, CitusDatabaseHandler] = {}
         self._postgresql = postgresql
-        self.reload_config(config)
+        self._initialize_handlers()
 
     def schedule_cache_rebuild(self) -> None:
         for handler in self._citus_database_handlers.values():
@@ -797,22 +797,24 @@ class CitusHandler(Citus, AbstractMPPHandler):
         for handler in self._citus_database_handlers.values():
             handler.on_demote()
 
-    def reload_config(self, config: Dict[str, Any]) -> None:
+    def _initialize_handlers(self):                                                                                                    
+        dbs = []                                                                                                                       
+    
+        if isinstance(self._config.get('databases'), list):                                                                            
+            dbs = self._config['databases']                                                                                            
+        elif isinstance(self._config.get('database'), str):
+            dbs = [self._config['database']]                                                                                           
+
+        for db in set(self._citus_database_handlers) - set(dbs):                                                                       
+            self._citus_database_handlers.pop(db).stop()                                                                               
+        
+        for db in set(dbs) - set(self._citus_database_handlers):                                                                       
+            self._citus_database_handlers[db] = CitusDatabaseHandler(self._postgresql, {**self._config, 'database': db})               
+	    
+    def reload_config(self, config: Union['Config', Dict[str, Any]]) -> None:                                                                           
         """Creates CitusHandler instances and add them to dict."""
-        super(CitusHandler, self).reload_config(config)
-
-        dbs = []
-
-        if isinstance(config.get('databases'), list):
-            dbs = config['databases']
-        elif isinstance(config.get('database'), str):
-            dbs = [config['database']]
-
-        for db in set(self._citus_database_handlers) - set(dbs):
-            self._citus_database_handlers.pop(db).stop()
-
-        for db in set(dbs) - set(self._citus_database_handlers):
-            self._citus_database_handlers[db] = CitusDatabaseHandler(self._postgresql, {**config, 'database': db})
+        super(CitusHandler, self).reload_config(config)                                                                                
+        self._initialize_handlers() 
 
     def sync_meta_data(self, cluster: Cluster) -> None:
         if not self.is_coordinator():
