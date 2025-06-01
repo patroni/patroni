@@ -211,8 +211,7 @@ class TestCitus(BaseTestPostgresql):
     def test_reload_config_removes_old_handlers(self, mock_run_stop, mock_handler_class):
 
         new_config = {
-            'databases': ['db2', 'db3'],
-            'group': 0
+            'citus': {'databases': ['db2', 'db3'], 'group': 0}
         }
 
         self.p.mpp_handler.reload_config(new_config)
