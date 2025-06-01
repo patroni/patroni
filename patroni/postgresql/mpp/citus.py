@@ -3,7 +3,7 @@ import re
 import time
 
 from threading import Condition, Event, Thread
-from typing import Any, cast, Collection, Dict, Iterator, List, Optional, Set, Tuple, TYPE_CHECKING
+from typing import Any, cast, Collection, Dict, Iterator, List, Optional, Set, Tuple, TYPE_CHECKING, Union
 from urllib.parse import urlparse
 
 from ...dcs import Cluster
@@ -13,6 +13,7 @@ from ..misc import PostgresqlRole, PostgresqlState
 from . import AbstractMPP, AbstractMPPHandler
 
 if TYPE_CHECKING:  # pragma: no cover
+    from ...config import Config
     from .. import Postgresql
 
 CITUS_COORDINATOR_GROUP_ID = 0
