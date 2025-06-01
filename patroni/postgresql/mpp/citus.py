@@ -3,7 +3,7 @@ import re
 import time
 
 from threading import Condition, Event, Thread
-from typing import Any, cast, Collection, Dict, Iterator, List, Optional, Set, Tuple, TYPE_CHECKING, Union
+from typing import Any, cast, Collection, Dict, Iterator, List, Optional, Set, Tuple, TYPE_CHECKING
 from urllib.parse import urlparse
 
 from ...dcs import Cluster
@@ -384,17 +384,18 @@ class Citus(AbstractMPP):
         return CITUS_COORDINATOR_GROUP_ID
 
 
-class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
+class CitusDatabaseHandler(Citus, Thread):
     """Define the interfaces for handling an underlying Citus cluster."""
 
-    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
+    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Any]) -> None:
         """"Initialize a new instance of :class:`CitusDatabaseHandler`.
 
         :param postgresql: the Postgres node.
         :param config: the ``citus`` MPP config section.
         """
         Thread.__init__(self)
-        AbstractMPPHandler.__init__(self, postgresql, config)
+        Citus.__init__(self, config)
+        self._postgresql = postgresql
         self.daemon = True
         if config:
             self._connection = postgresql.connection_pool.get(
@@ -754,9 +755,6 @@ class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
         finally:
             conn.close()
 
-    def adjust_postgres_gucs(self, parameters: Dict[str, Any]) -> None:
-        pass
-
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
         """Check whether provided replication *slot* existing in the database should not be removed.
 
@@ -778,7 +776,7 @@ class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
 class CitusHandler(Citus, AbstractMPPHandler):
     """Define the interfaces for handling an underlying Citus cluster."""
 
-    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int, list]]) -> None:
+    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Any]) -> None:
         """"Initialize a new instance of :class:`CitusHandler`.
 
         :param postgresql: the Postgres node.
