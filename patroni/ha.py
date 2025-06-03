@@ -1121,6 +1121,7 @@ class Ha(object):
                 self._failsafe.set_is_active(0)
 
                 def before_promote():
+                    self._rewind.reset_state()  # make sure we will trigger checkpoint after promote
                     self.notify_mpp_coordinator('before_promote')
 
                 with self._async_response:
