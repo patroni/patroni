@@ -917,7 +917,7 @@ class Ha(object):
                 return logger.warning("Updating sync state failed")
             voters = CaseInsensitiveSet(sync.voters)
 
-        if picked == voters:
+        if picked == voters == current_state.sync and current_state.numsync == len(picked):
             return
 
         # update synchronous standby list in dcs temporarily to point to common nodes in current and picked

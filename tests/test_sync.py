@@ -81,16 +81,32 @@ class TestSync(BaseTestPostgresql):
 
         pg_stat_replication = [
             {'pid': 100, 'application_name': self.leadermem.name, 'sync_state': 'quorum', 'flush_lsn': 1},
-            {'pid': 101, 'application_name': self.other.name, 'sync_state': 'quorum', 'flush_lsn': 2}]
+            {'pid': 101, 'application_name': self.me.name, 'sync_state': 'quorum', 'flush_lsn': 2}]
 
         # sync node is a bit behind of async, but we prefer it anyway
         with patch.object(Postgresql, "_cluster_info_state_get",
-                          side_effect=['ANY 1 ({0},"{1}")'.format(self.leadermem.name, self.other.name),
+                          side_effect=['ANY 1 ({0},"{1}")'.format(self.leadermem.name, self.me.name),
                                        'on', pg_stat_replication]):
             self.assertEqual(self.s.current_state(self.cluster),
-                             ('quorum', 1, CaseInsensitiveSet([self.other.name, self.leadermem.name]),
-                              CaseInsensitiveSet([self.other.name, self.leadermem.name]),
-                              CaseInsensitiveSet([self.leadermem.name, self.other.name])))
+                             ('quorum', 1, CaseInsensitiveSet([self.me.name, self.leadermem.name]),
+                              CaseInsensitiveSet([self.me.name, self.leadermem.name]),
+                              CaseInsensitiveSet([self.leadermem.name, self.me.name])))
+
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    def test_current_state_cascading(self):
+        pg_stat_replication = [
+            {'pid': 100, 'application_name': self.me.name, 'sync_state': 'async', 'flush_lsn': 1},
+            {'pid': 101, 'application_name': self.other.name, 'sync_state': 'sync', 'flush_lsn': 2}]
+
+        # nodes that are supposed to replicate from other standby nodes are not
+        # returned if at least one standby in a chain is streaming from primary
+        self.leadermem.data['tags'] = {'replicatefrom': self.me.name}
+        with patch.object(Postgresql, "_cluster_info_state_get",
+                          side_effect=['2 ({0},"{1}")'.format(self.leadermem.name, self.other.name),
+                                       'on', pg_stat_replication]):
+            self.assertEqual(self.s.current_state(self.cluster),
+                             ('priority', 2, CaseInsensitiveSet([self.other.name, self.leadermem.name]),
+                              CaseInsensitiveSet(), CaseInsensitiveSet([self.me.name])))
 
     @patch('time.sleep', Mock())
     def test_set_sync_standby(self):
