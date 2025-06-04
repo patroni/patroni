@@ -1490,6 +1490,10 @@ def _do_site_switchover(cluster_name: str, group: Optional[int],
     # We sort the names for consistent output to the client
     candidate_names.sort()
 
+    # to be replaced with:
+    candidate_names = sorted({str(m.multisite['name']) for m in cluster.members
+                              if m.multisite and m.multisite['name'] != leader_site})
+
     # TODO: once there is a reliable way for getting the candidate sites when on the leader site, turn this back on
     # if not candidate_names:
     #     raise PatroniCtlException('No candidates found to switch over to')
@@ -1518,7 +1522,7 @@ def _do_site_switchover(cluster_name: str, group: Optional[int],
                 raise PatroniCtlException("Can't schedule switchover in the paused state")
             scheduled_at_str = scheduled_at.isoformat()
 
-    switchover_value = {'candidate': candidate}
+    switchover_value = {'target_site': candidate}
 
     if scheduled_at_str:
         switchover_value['scheduled_at'] = scheduled_at_str
