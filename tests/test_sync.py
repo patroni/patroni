@@ -40,7 +40,8 @@ class TestSync(BaseTestPostgresql):
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=[self.leadermem.name,
                                                                               'on', pg_stat_replication]):
             self.assertEqual(self.s.current_state(cluster), (CaseInsensitiveSet([self.leadermem.name]),
-                                                             CaseInsensitiveSet([self.leadermem.name])))
+                                                             CaseInsensitiveSet([self.leadermem.name]),
+                                                             1, CaseInsensitiveSet([self.leadermem.name])))
 
         # prefer node with sync_state='potential', even if it is slightly behind of async
         pg_stat_replication[0]['sync_state'] = 'potential'
@@ -48,25 +49,42 @@ class TestSync(BaseTestPostgresql):
             r['write_lsn'] = r.pop('flush_lsn')
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_write', pg_stat_replication]):
             self.assertEqual(self.s.current_state(cluster), (CaseInsensitiveSet([self.leadermem.name]),
-                                                             CaseInsensitiveSet()))
+                                                             CaseInsensitiveSet(), 0, CaseInsensitiveSet()))
 
         # when there are no sync or potential candidates we pick async with the minimal replication lag
         for i, r in enumerate(pg_stat_replication):
             r.update(replay_lsn=3 - i, application_name=r['application_name'].upper())
         missing = pg_stat_replication.pop(0)
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_apply', pg_stat_replication]):
-            self.assertEqual(self.s.current_state(cluster), (CaseInsensitiveSet([self.me.name]), CaseInsensitiveSet()))
+            self.assertEqual(self.s.current_state(cluster), (CaseInsensitiveSet([self.me.name]),
+                                                             CaseInsensitiveSet(), 0, CaseInsensitiveSet()))
 
         # unknown sync node is ignored
         missing.update(application_name='missing', sync_state='sync')
         pg_stat_replication.insert(0, missing)
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_apply', pg_stat_replication]):
-            self.assertEqual(self.s.current_state(cluster), (CaseInsensitiveSet([self.me.name]), CaseInsensitiveSet()))
+            self.assertEqual(self.s.current_state(cluster), (CaseInsensitiveSet([self.me.name]),
+                                                             CaseInsensitiveSet(), 0, CaseInsensitiveSet()))
 
         # invalid synchronous_standby_names and empty pg_stat_replication
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['a b', 'remote_apply', None]):
             self.p._major_version = 90400
-            self.assertEqual(self.s.current_state(cluster), (CaseInsensitiveSet(), CaseInsensitiveSet()))
+            self.assertEqual(self.s.current_state(cluster), (CaseInsensitiveSet(),
+                                                             CaseInsensitiveSet(), 0, CaseInsensitiveSet()))
+
+        pg_stat_replication = [
+            {'pid': 100, 'application_name': self.me.name, 'sync_state': 'async', 'flush_lsn': 1},
+            {'pid': 101, 'application_name': self.other.name, 'sync_state': 'sync', 'flush_lsn': 2}]
+
+        # nodes that are supposed to replicate from other standby nodes are not
+        # returned if at least one standby in a chain is streaming from primary
+        self.leadermem.data['tags'] = {'replicatefrom': self.me.name}
+        with patch.object(Postgresql, "_cluster_info_state_get",
+                          side_effect=['2 ({0},"{1}")'.format(self.leadermem.name, self.other.name),
+                                       'on', pg_stat_replication]):
+            self.assertEqual(self.s.current_state(cluster),
+                             (CaseInsensitiveSet([self.me.name]), CaseInsensitiveSet(), 2,
+                              CaseInsensitiveSet([self.other.name, self.leadermem.name])))
 
     def test_set_sync_standby(self):
         def value_in_conf():
@@ -114,4 +132,5 @@ class TestSync(BaseTestPostgresql):
         # the pg_stat_replication. We need to check that primary is not selected as the synchronous node.
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=[self.leadermem.name,
                                                                               'on', pg_stat_replication]):
-            self.assertEqual(self.s.current_state(cluster), (CaseInsensitiveSet([self.me.name]), CaseInsensitiveSet()))
+            self.assertEqual(self.s.current_state(cluster), (CaseInsensitiveSet([self.me.name]), CaseInsensitiveSet(),
+                                                             1, CaseInsensitiveSet([self.leadermem.name])))

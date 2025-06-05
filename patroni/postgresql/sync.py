@@ -7,7 +7,7 @@ from typing import Collection, List, NamedTuple, Tuple, TYPE_CHECKING
 
 from .. import global_config
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
-from ..dcs import Cluster
+from ..dcs import Cluster, Member
 from ..psycopg import quote_ident
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -207,8 +207,11 @@ class _ReplicaList(List[_Replica]):
             'remote_write': 'write'
         }.get(postgresql.synchronous_commit(), 'flush') + '_lsn'
 
-        members = CaseInsensitiveDict({m.name: m for m in cluster.members if m.name.lower() != postgresql.name.lower()})
-        for row in postgresql.pg_stat_replication():
+        members = CaseInsensitiveDict({m.name: m for m in cluster.members
+                                       if m.is_running and not m.nosync and m.name.lower() != postgresql.name.lower()})
+        replication = CaseInsensitiveDict({row['application_name']: row for row in postgresql.pg_stat_replication()
+                                           if row[sort_col] is not None and row['application_name'] in members})
+        for row in replication.values():
             member = members.get(row['application_name'])
 
             # We want to consider only rows from ``pg_stat_replication` that:
@@ -216,7 +219,8 @@ class _ReplicaList(List[_Replica]):
             # 2. can be mapped to a ``Member`` of the ``Cluster``:
             #   a. ``Member`` doesn't have ``nosync`` tag set;
             #   b. PostgreSQL on the member is known to be running and accepting client connections.
-            if member and row[sort_col] is not None and member.is_running and not member.nosync:
+            #   c. ``Member`` isn't supposed to stream from another standby (``replicatefrom`` tag).
+            if member and row[sort_col] is not None and not self._should_cascade(members, replication, member):
                 self.append(_Replica(row['pid'], row['application_name'],
                                      row['sync_state'], row[sort_col], bool(member.nofailover)))
 
@@ -224,6 +228,27 @@ class _ReplicaList(List[_Replica]):
         self.sort(key=lambda r: (r.sync_state, r.lsn), reverse=True)
 
         self.max_lsn = max(self, key=lambda x: x.lsn).lsn if len(self) > 1 else postgresql.last_operation()
+
+    @staticmethod
+    def _should_cascade(members: CaseInsensitiveDict, replication: CaseInsensitiveDict, member: Member) -> bool:
+        """Check whether *member* is supposed to cascade from another standby node.
+
+        :param members: members that are eligible to stream (state=running and don't have nosync tag)
+        :param replication: state of ``pg_stat_replication``, already filtered by member names from *members*
+        :param member: member that we want to check
+
+        :returns: ``True`` if provided member should stream from other standby node in
+                  the cluster (according to ``replicatefrom`` tag), because some standbys
+                  in a chain already streaming from the primary, otherwise ``False``
+        """
+        if not member.replicatefrom or member.replicatefrom not in members:
+            return False
+
+        member = members[member.replicatefrom]
+        if not member.replicatefrom:
+            return member.name in replication
+
+        return _ReplicaList._should_cascade(members, replication, member)
 
 
 class SyncHandler(object):
@@ -289,7 +314,7 @@ END;$$""")
                          or replica.sync_state == 'sync' and replica.lsn >= self._primary_flush_lsn):
                 self._ready_replicas[replica.application_name] = replica.pid
 
-    def current_state(self, cluster: Cluster) -> Tuple[CaseInsensitiveSet, CaseInsensitiveSet]:
+    def current_state(self, cluster: Cluster) -> Tuple[CaseInsensitiveSet, CaseInsensitiveSet, int, CaseInsensitiveSet]:
         """Find the best candidates to be the synchronous standbys.
 
         Current synchronous standby is always preferred, unless it has disconnected or does not want to be a
@@ -324,7 +349,8 @@ END;$$""")
             if len(candidates) >= sync_node_count:
                 break
 
-        return candidates, sync_nodes
+        return (candidates, sync_nodes, self._ssn_data.num,
+                CaseInsensitiveSet() if self._ssn_data.has_star else self._ssn_data.members)
 
     def set_synchronous_standby_names(self, sync: Collection[str]) -> None:
         """Constructs and sets "synchronous_standby_names" GUC value.
