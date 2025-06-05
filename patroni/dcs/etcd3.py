@@ -17,7 +17,8 @@ from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tu
 
 from . import ClusterConfig, Cluster, Failover, Leader, Member, Status, SyncState, \
     TimelineHistory, catch_return_false_exception
-from .etcd import AbstractEtcdClientWithFailover, AbstractEtcd, catch_etcd_errors, DnsCachingResolver, Retry
+from .etcd import AbstractEtcd, AbstractEtcdClientWithFailover, catch_etcd_errors, \
+    DnsCachingResolver, Retry, StaleEtcdNode, StaleEtcdNodeGuard
 from ..collections import EMPTY_DICT
 from ..exceptions import DCSError, PatroniException
 from ..postgresql.mpp import AbstractMPP
@@ -429,10 +430,11 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         return self.watchrange(key, prefix_range_end(key), start_revision, filters, read_timeout)
 
 
-class KVCache(Thread):
+class KVCache(StaleEtcdNodeGuard, Thread):
 
     def __init__(self, dcs: 'Etcd3', client: 'PatroniEtcd3Client') -> None:
-        super(KVCache, self).__init__()
+        Thread.__init__(self)
+        StaleEtcdNodeGuard.__init__(self)
         self.daemon = True
         self._dcs = dcs
         self._client = client
@@ -502,7 +504,10 @@ class KVCache(Thread):
         logger.debug('Received message: %s', message)
         if 'error' in message:
             raise _raise_for_data(message)
-        events: List[Dict[str, Any]] = message.get('result', {}).get('events', [])
+        result = message.get('result', EMPTY_DICT)
+        header = result.get('header', EMPTY_DICT)
+        self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
+        events: List[Dict[str, Any]] = result.get('events', [])
         for event in events:
             self._process_event(event)
 
@@ -536,8 +541,11 @@ class KVCache(Thread):
 
     def _build_cache(self) -> None:
         result = self._dcs.retry(self._client.prefix, self._dcs.cluster_prefix)
+        header = result.get('header', EMPTY_DICT)
         with self._object_cache_lock:
+            self._reset_cluster_raft_term()
             self._object_cache = {node['key']: node for node in result.get('kvs', [])}
+            self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
         with self.condition:
             self._is_ready = True
             self.condition.notify()
@@ -583,6 +591,12 @@ class KVCache(Thread):
 
     def is_ready(self) -> bool:
         """Must be called only when holding the lock on `condition`"""
+        if self._is_ready:
+            try:
+                self._client._check_cluster_raft_term(self._cluster_id, self._raft_term)
+            except StaleEtcdNode:
+                self._is_ready = False
+                self.kill_stream()
         return self._is_ready
 
 
