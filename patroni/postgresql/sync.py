@@ -7,7 +7,7 @@ from typing import Collection, List, NamedTuple, Optional, TYPE_CHECKING
 
 from .. import global_config
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
-from ..dcs import Cluster
+from ..dcs import Cluster, Member
 from ..psycopg import quote_ident
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -166,17 +166,16 @@ class _SyncState(NamedTuple):
     :ivar sync_type: possible values: ``off``, ``priority``, ``quorum``
     :ivar numsync: how many nodes are required to be synchronous (according to ``synchronous_standby_names``).
                    Is ``0`` if ``synchronous_standby_names`` value is invalid or contains ``*``.
-    :ivar numsync_confirmed: how many nodes are known to be synchronous according to the ``pg_stat_replication`` view.
-                             Only nodes that caught up with the :attr:`SyncHandler._primary_flush_lsn` are counted.
-    :ivar sync: collection of synchronous node names. In case of quorum commit all nodes listed
-                in ``synchronous_standby_names``, otherwise nodes that are confirmed to be synchronous according
-                to the ``pg_stat_replication`` view.
+    :ivar sync: collection of synchronous node names from ``synchronous_standby_names``.
+    :ivar sync_confirmed: collection of synchronous node names from ``synchronous_standby_names`` that are
+                          confirmed to be synchronous according to the ``pg_stat_replication`` view.
+                          Only nodes that caught up with the :attr:`SyncHandler._primary_flush_lsn` are counted.
     :ivar active: collection of node names that are streaming and have no restrictions to become synchronous.
     """
     sync_type: str
     numsync: int
-    numsync_confirmed: int
     sync: CaseInsensitiveSet
+    sync_confirmed: CaseInsensitiveSet
     active: CaseInsensitiveSet
 
 
@@ -227,8 +226,11 @@ class _ReplicaList(List[_Replica]):
             'remote_write': 'write'
         }.get(postgresql.synchronous_commit(), 'flush') + '_lsn'
 
-        members = CaseInsensitiveDict({m.name: m for m in cluster.members if m.name.lower() != postgresql.name.lower()})
-        for row in postgresql.pg_stat_replication():
+        members = CaseInsensitiveDict({m.name: m for m in cluster.members
+                                       if m.is_running and not m.nosync and m.name.lower() != postgresql.name.lower()})
+        replication = CaseInsensitiveDict({row['application_name']: row for row in postgresql.pg_stat_replication()
+                                           if row[sort_col] is not None and row['application_name'] in members})
+        for row in replication.values():
             member = members.get(row['application_name'])
 
             # We want to consider only rows from ``pg_stat_replication` that:
@@ -236,7 +238,8 @@ class _ReplicaList(List[_Replica]):
             # 2. can be mapped to a ``Member`` of the ``Cluster``:
             #   a. ``Member`` doesn't have ``nosync`` tag set;
             #   b. PostgreSQL on the member is known to be running and accepting client connections.
-            if member and row[sort_col] is not None and member.is_running and not member.nosync:
+            #   c. ``Member`` isn't supposed to stream from another standby (``replicatefrom`` tag).
+            if member and row[sort_col] is not None and not self._should_cascade(members, replication, member):
                 self.append(_Replica(row['pid'], row['application_name'],
                                      row['sync_state'], row[sort_col], bool(member.nofailover)))
 
@@ -246,6 +249,27 @@ class _ReplicaList(List[_Replica]):
         # When checking ``maximum_lag_on_syncnode`` we want to compare with the most
         # up-to-date replica otherwise with cluster LSN if there is only one replica.
         self.max_lsn = max(self, key=lambda x: x.lsn).lsn if len(self) > 1 else postgresql.last_operation()
+
+    @staticmethod
+    def _should_cascade(members: CaseInsensitiveDict, replication: CaseInsensitiveDict, member: Member) -> bool:
+        """Check whether *member* is supposed to cascade from another standby node.
+
+        :param members: members that are eligible to stream (state=running and don't have nosync tag)
+        :param replication: state of ``pg_stat_replication``, already filtered by member names from *members*
+        :param member: member that we want to check
+
+        :returns: ``True`` if provided member should stream from other standby node in
+                  the cluster (according to ``replicatefrom`` tag), because some standbys
+                  in a chain already streaming from the primary, otherwise ``False``
+        """
+        if not member.replicatefrom or member.replicatefrom not in members:
+            return False
+
+        member = members[member.replicatefrom]
+        if not member.replicatefrom:
+            return member.name in replication
+
+        return _ReplicaList._should_cascade(members, replication, member)
 
 
 class SyncHandler(object):
@@ -346,8 +370,7 @@ END;$$""")
         self._process_replica_readiness(cluster, replica_list)
 
         active = CaseInsensitiveSet()
-        sync_nodes = CaseInsensitiveSet()
-        numsync_confirmed = 0
+        sync_confirmed = CaseInsensitiveSet()
 
         sync_node_count = global_config.synchronous_node_count if self._postgresql.supports_multiple_sync else 1
         sync_node_maxlag = global_config.maximum_lag_on_syncnode
@@ -361,24 +384,20 @@ END;$$""")
                     # there is a chance that a non-promotable node is ahead of a promotable one.
                     if not replica.nofailover or len(active) < sync_node_count:
                         if replica.application_name in self._ready_replicas:
-                            numsync_confirmed += 1
+                            sync_confirmed.add(replica.application_name)
                         active.add(replica.application_name)
                 else:
                     active.add(replica.application_name)
                     if replica.sync_state == 'sync' and replica.application_name in self._ready_replicas:
-                        sync_nodes.add(replica.application_name)
-                        numsync_confirmed += 1
+                        sync_confirmed.add(replica.application_name)
                     if len(active) >= sync_node_count:
                         break
 
-        if global_config.is_quorum_commit_mode:
-            sync_nodes = CaseInsensitiveSet() if self._ssn_data.has_star else self._ssn_data.members
-
         return _SyncState(
             self._ssn_data.sync_type,
-            0 if self._ssn_data.has_star else self._ssn_data.num,
-            numsync_confirmed,
-            sync_nodes,
+            self._ssn_data.num,
+            CaseInsensitiveSet() if self._ssn_data.has_star else self._ssn_data.members,
+            sync_confirmed,
             active)
 
     def set_synchronous_standby_names(self, sync: Collection[str], num: Optional[int] = None) -> None:
