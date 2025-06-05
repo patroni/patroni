@@ -2272,10 +2272,7 @@ class Ha(object):
                     self._sync_replication_slots(True)
                     return 'continue to run as a leader because failsafe mode is enabled and all members are accessible'
                 self._failsafe.set_is_active(0)
-                msg = 'demoting self because DCS is not accessible and I was a leader'
-                if not self._async_executor.try_run_async(msg, self.demote, ('offline',)):
-                    return msg
-                logger.warning('AsyncExecutor is busy, demoting from the main thread')
+                logger.info('demoting self because DCS is not accessible and I was a leader')
                 self.demote('offline')
                 return 'demoted self because DCS is not accessible and I was a leader'
             else:
