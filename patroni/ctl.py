@@ -383,10 +383,14 @@ def get_dcs(scope: str, group: Optional[int], multisite: Optional[bool] = False)
     :raises:
         :class:`PatroniCtlException`: if not suitable DCS configuration could be found.
     """
-    if (scope, group) in __dcs_cache:
-        return __dcs_cache[(scope, group)]
+    if (scope, group, multisite) in __dcs_cache:
+        return __dcs_cache[(scope, group, multisite)]
 
     config = _get_configuration()
+
+    if multisite:
+        config = config['multisite']
+
     config.update({'scope': scope, 'patronictl': True})
     if group is not None:
         config['citus'] = {'group': group, 'database': 'postgres'}
@@ -402,7 +406,7 @@ def get_dcs(scope: str, group: Optional[int], multisite: Optional[bool] = False)
         if is_citus_cluster() and group is None:
             dcs.is_mpp_coordinator = lambda: True
         click.get_current_context().obj['__mpp'] = dcs.mpp
-        __dcs_cache[(scope, group)] = dcs
+        __dcs_cache[(scope, group, multisite)] = dcs
         return dcs
     except PatroniException as e:
         raise PatroniCtlException(str(e))
@@ -1461,11 +1465,6 @@ def _do_site_switchover(cluster_name: str, group: Optional[int],
 
     config = global_config.from_cluster(cluster)
 
-    cluster_leader = cluster.leader and cluster.leader.name
-
-    if not cluster_leader:
-        raise PatroniCtlException('This cluster has no leader')
-
     if cluster.leader and cluster.leader.multisite:
         leader_site = (cluster.leader.multisite.get('name') if not cluster.leader.multisite.get('standby_config') else
                        cluster.leader.multisite.get('standby_config', {}).get('leader_site'))
@@ -1482,27 +1481,26 @@ def _do_site_switchover(cluster_name: str, group: Optional[int],
     if leader_site != switchover_leader:
         raise PatroniCtlException(f'Site {switchover_leader} is not the leader of cluster {cluster_name}')
 
-    # multisite_dcs = get_dcs(cluster_name, group, True)
-    # multisite_cluster = multisite_dcs.get_cluster()
+    ms_dcs = get_dcs(cluster_name, group, True)
+    ms_cluster = ms_dcs.get_cluster()
 
-    candidate_names = [str(m.multisite['name']) for m in cluster.members
-                       if m.multisite and m.multisite['name'] != leader_site]
+    candidate_names = [str(m.name) for m in ms_cluster.members
+                        if m.name != leader_site]
+
     # We sort the names for consistent output to the client
     candidate_names.sort()
 
-    # to be replaced with:
-    candidate_names = sorted({str(m.multisite['name']) for m in cluster.members
-                              if m.multisite and m.multisite['name'] != leader_site})
-
-    # TODO: once there is a reliable way for getting the candidate sites when on the leader site, turn this back on
-    # if not candidate_names:
-    #     raise PatroniCtlException('No candidates found to switch over to')
+    if not candidate_names:
+        raise PatroniCtlException('No candidates found to switch over to')
 
     if candidate is None and not force:
-        candidate = click.prompt('Candidate ' + str(candidate_names), type=str, default='')
+        if len(candidate_names) == 1:
+            candidate = click.prompt('Candidate ', type=str, default=candidate_names[0])
+        else:
+            candidate = click.prompt('Candidate ' + str(candidate_names), type=str, default='')
 
     if candidate and candidate not in candidate_names:
-        if candidate == cluster_leader:
+        if candidate == leader_site:
             raise PatroniCtlException(
                 f'Site {candidate} is already the leader of cluster {cluster_name}')
         raise PatroniCtlException(
@@ -1531,7 +1529,7 @@ def _do_site_switchover(cluster_name: str, group: Optional[int],
 
     # By now we have established that the leader site exists and the candidate also exists
     if not force:
-        demote_msg = f' to another site, demoting current site {cluster_leader}' if cluster_leader else ''
+        demote_msg = f' to another site, demoting current site {leader_site}' if leader_site else ''
         if scheduled_at_str:
             if not click.confirm(f'Are you sure you want to schedule switchover of cluster '
                                  f'{cluster_name} at {scheduled_at_str}{demote_msg}?'):
