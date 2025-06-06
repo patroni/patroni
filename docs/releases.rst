@@ -3,7 +3,8 @@
 Release notes
 =============
 
-Version 3.3.6
+
+Version 3.3.7
 -------------
 
 Released 2025-06-06
@@ -63,7 +64,7 @@ Released 2025-06-06
   Previously, the mechanism implementing the state machine for non-quorum synchronous replication didn't check the actual value of ``synchronous_standby_names``, what resulted in a stale value of ``synchronous_standby_names`` being used when ``pg_stat_replication`` is a subset of ``synchronous_standby_names``.
 
 
-Version 3.3.7
+Version 3.3.6
 -------------
 
 Released 2025-02-20
