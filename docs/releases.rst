@@ -22,9 +22,9 @@ Released 2025-06-06
 
   Do not check quorum requirements when a candidate is specified.
 
-- Ignore stale ``etcd`` nodes by comparing cluster term (Alexander Kukushkin)
+- Ignore stale Etcd nodes by comparing cluster term (Alexander Kukushkin)
 
-  Memorize the last known "term" of the ``etcd`` cluster, and when executing client requests, compare it with the "term" reported by an ``etcd`` node.
+  Memorize the last known "raft_term" of the Etcd cluster, and when executing client requests, compare it with the "raft_term" reported by an Etcd node.
 
 - Update PostgreSQL configuration files on ``SIGHUP`` (Alexander Kukushkin)
 
@@ -49,10 +49,6 @@ Released 2025-06-06
 - Make sure ``CHECKPOINT`` is executed after promote (Alexander Kukushkin)
 
   It was possible that checkpoint task wasn't reset on demote because ``CHECKPOINT`` wasn't yet finished. This resulted in using a stale ``result`` when the next promote is triggered.
-
-- Make sure ``etcd3`` ``KVCache`` is not stale when doing ``get_cluster()`` (Alexander Kukushkin)
-
-  Cross-check raft_term between ``KVCache`` and the client connection in the ``is_ready()`` method. In case of mismatch, reset the ``KVCache`` state by terminating watcher connection.
 
 - Avoid running "offline" demotion concurrently (Alexander Kukushkin)
 
