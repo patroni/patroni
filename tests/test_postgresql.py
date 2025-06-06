@@ -2,6 +2,7 @@ import datetime
 import os
 import psutil
 import re
+import stat
 import subprocess
 import time
 
@@ -16,6 +17,7 @@ from patroni.async_executor import CriticalTask
 from patroni.collections import CaseInsensitiveDict, CaseInsensitiveSet
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PostgresConnectionException, PatroniException
+from patroni.file_perm import pg_perm
 from patroni.postgresql import Postgresql, STATE_REJECT, STATE_NO_RESPONSE
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
@@ -1144,6 +1146,19 @@ class TestPostgresql(BaseTestPostgresql):
                 "Unexpected issue while reading parameters file `random.yaml`: `[Errno 2] No such file or "
                 "directory:", mock_warning.call_args[0][0]
             )
+
+    @patch('os.chmod')
+    @patch('os.stat')
+    @patch('os.umask')
+    def test_set_file_permissions(self, mock_umask, mock_stat, mock_chmod):
+        pg_conf = os.path.join(self.p.data_dir, 'postgresql.conf')
+        mock_stat.return_value.st_mode = stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP   # MODE_GROUP
+        self.p.config.set_file_permissions(pg_conf)
+        mock_chmod.assert_called_with(pg_conf, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP)
+
+        pg_conf = os.path.join(os.path.abspath(os.sep) + 'tmp', 'postgresql.conf')
+        self.p.config.set_file_permissions(pg_conf)
+        mock_chmod.assert_called_with(pg_conf, 0o666 & ~pg_perm.orig_umask)
 
 
 @patch('subprocess.call', Mock(return_value=0))
