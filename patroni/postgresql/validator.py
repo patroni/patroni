@@ -3,7 +3,7 @@ from copy import deepcopy
 import logging
 import yaml
 
-from typing import Any, Dict, Iterator, List, MutableMapping, Optional, Tuple, Type, Union
+from typing import Any, cast, Dict, Iterator, List, MutableMapping, Optional, Tuple, Type, Union
 
 from .available_parameters import get_validator_files, PathLikeObj
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
@@ -222,8 +222,7 @@ class ValidatorFactory:
         for key, value in validator.items():
             # :func:`_transform_parameter_value` expects :class:`tuple` instead of :class:`list`
             if isinstance(value, list):
-                tmp_value: List[Any] = value
-                validator[key] = tuple(tmp_value)
+                validator[key] = tuple(cast(List[Any], value))
 
         try:
             return cls.TYPES[type_](**validator)

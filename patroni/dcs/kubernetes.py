@@ -17,7 +17,7 @@ from copy import deepcopy
 from http.client import HTTPException
 from urllib3.exceptions import HTTPError
 from threading import Condition, Lock, Thread
-from typing import Any, Callable, Collection, Dict, List, Optional, Tuple, Type, Union, TYPE_CHECKING
+from typing import Any, Callable, cast, Collection, Dict, List, Optional, Tuple, Type, Union, TYPE_CHECKING
 
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, TimelineHistory
 from ..collections import EMPTY_DICT
@@ -186,13 +186,12 @@ class K8sObject(object):
     @classmethod
     def _wrap(cls, parent: Optional[str], value: Any) -> Any:
         if isinstance(value, dict):
-            data_dict: Dict[str, Any] = value
+            data_dict: Dict[str, Any] = cast(Dict[str, Any], value)
             # we know that `annotations` and `labels` are dicts and therefore don't want to convert them into K8sObject
             return data_dict if parent in {'annotations', 'labels'} and \
                 all(isinstance(v, str) for v in data_dict.values()) else cls(data_dict)
         elif isinstance(value, list):
-            data_list: List[Any] = value
-            return [cls._wrap(None, v) for v in data_list]
+            return [cls._wrap(None, v) for v in cast(List[Any], value)]
         else:
             return value
 
