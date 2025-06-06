@@ -342,3 +342,16 @@ class TestRewind(BaseTestPostgresql):
         mock_controldata.side_effect = TypeError
         mock_checkpoint.side_effect = Exception
         self.r.ensure_checkpoint_after_promote(Mock())
+
+    @patch.object(CancellableSubprocess, 'call', mock_cancellable_call0)
+    @patch('patroni.postgresql.rewind.logger.error')
+    def test_archive_shutdown_checkpoint_wal(self, mock_logger):
+        with patch.object(Postgresql, 'controldata',
+                          Mock(return_value={"Latest checkpoint's REDO WAL file": '000000020000000000000009'})):
+            self.r.archive_shutdown_checkpoint_wal('lala')
+            mock_logger.assert_not_called()
+            with patch.object(CancellableSubprocess, 'call', Mock(return_value=1)):
+                self.r.archive_shutdown_checkpoint_wal('lala')
+                mock_logger.assert_called_with("Failed to archive WAL file with the shutdown checkpoint")
+        self.r.archive_shutdown_checkpoint_wal('lala')
+        mock_logger.assert_called_with("Cannot extract latest checkpoint's WAL file name")
