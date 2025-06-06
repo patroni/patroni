@@ -2,7 +2,7 @@ import abc
 import logging
 
 from copy import deepcopy
-from typing import Any, Dict, Iterator, List, MutableMapping, Optional, Tuple, Type, Union
+from typing import Any, cast, Dict, Iterator, List, MutableMapping, Optional, Tuple, Type, Union
 
 import yaml
 
@@ -223,8 +223,7 @@ class ValidatorFactory:
         for key, value in validator.items():
             # :func:`_transform_parameter_value` expects :class:`tuple` instead of :class:`list`
             if isinstance(value, list):
-                tmp_value: List[Any] = value
-                validator[key] = tuple(tmp_value)
+                validator[key] = tuple(cast(List[Any], value))
 
         try:
             return cls.TYPES[type_](**validator)
