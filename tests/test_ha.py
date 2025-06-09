@@ -513,8 +513,6 @@ class TestHa(PostgresInit):
 
     def test_no_dcs_connection_primary_demote(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
-        self.assertEqual(self.ha.run_cycle(), 'demoting self because DCS is not accessible and I was a leader')
-        self.ha._async_executor.schedule('dummy')
         self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
 
     def test_check_failsafe_topology(self):
@@ -522,7 +520,7 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
         global_config.update(self.ha.cluster)
         self.ha.dcs._last_failsafe = self.ha.cluster.failsafe
-        self.assertEqual(self.ha.run_cycle(), 'demoting self because DCS is not accessible and I was a leader')
+        self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
         self.ha.state_handler.name = self.ha.cluster.leader.name
         self.assertFalse(self.ha.failsafe_is_active())
         self.assertEqual(self.ha.run_cycle(),
@@ -530,7 +528,7 @@ class TestHa(PostgresInit):
         self.assertTrue(self.ha.failsafe_is_active())
         with patch.object(Postgresql, 'slots', Mock(side_effect=Exception)):
             self.ha.patroni.request = Mock(side_effect=Exception)
-            self.assertEqual(self.ha.run_cycle(), 'demoting self because DCS is not accessible and I was a leader')
+            self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
             self.assertFalse(self.ha.failsafe_is_active())
         self.ha.dcs._last_failsafe.clear()
         self.ha.dcs._last_failsafe[self.ha.cluster.leader.name] = self.ha.cluster.leader.member.api_url
@@ -981,7 +979,6 @@ class TestHa(PostgresInit):
         with patch('patroni.ha.logger.warning') as mock_warning:
             self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'other', None),
                                                                      sync=('leader1', 'postgresql0'))
-            self.p.sync_handler.current_state = Mock(return_value=(CaseInsensitiveSet(), CaseInsensitiveSet()))
             self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
             self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
             self.assertEqual(mock_warning.call_args_list[0][0],
@@ -992,8 +989,6 @@ class TestHa(PostgresInit):
         self.p.set_role(PostgresqlRole.REPLICA)
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'postgresql0', None),
                                                                  sync=('leader1', 'other'))
-        self.p.sync_handler.current_state = Mock(return_value=(CaseInsensitiveSet(['leader1']),
-                                                               CaseInsensitiveSet(['leader1'])))
         self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
 
     def test_manual_switchover_process_no_leader_in_synchronous_mode(self):
@@ -1368,7 +1363,8 @@ class TestHa(PostgresInit):
         self.ha.is_synchronous_mode = true
 
         # Test sync standby not touched when picking the same node
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1, 1,
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1,
+                                                                         CaseInsensitiveSet(['other']),
                                                                          CaseInsensitiveSet(['other']),
                                                                          CaseInsensitiveSet(['other'])))
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
@@ -1379,7 +1375,8 @@ class TestHa(PostgresInit):
         mock_cfg_set_sync.reset_mock()
 
         # Test sync standby is replaced when switching standbys
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, 0, CaseInsensitiveSet(),
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, CaseInsensitiveSet(),
+                                                                         CaseInsensitiveSet(),
                                                                          CaseInsensitiveSet(['other2'])))
         self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
         self.ha.run_cycle()
@@ -1387,7 +1384,8 @@ class TestHa(PostgresInit):
         mock_cfg_set_sync.assert_not_called()
 
         # Test sync standby is replaced when new standby is joined
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1, 1,
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1,
+                                                                         CaseInsensitiveSet(['other2']),
                                                                          CaseInsensitiveSet(['other2']),
                                                                          CaseInsensitiveSet(['other2', 'other3'])))
         self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
@@ -1410,7 +1408,8 @@ class TestHa(PostgresInit):
         self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
         self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('leader', 'other')))
         # self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1, 1,
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1,
+                                                                         CaseInsensitiveSet(['other2']),
                                                                          CaseInsensitiveSet(['other2']),
                                                                          CaseInsensitiveSet(['other2'])))
         self.ha.run_cycle()
@@ -1435,8 +1434,8 @@ class TestHa(PostgresInit):
         # Test sync set to '*' when synchronous_mode_strict is enabled
         mock_set_sync.reset_mock()
         mock_cfg_set_sync.reset_mock()
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, 0, CaseInsensitiveSet(),
-                                                                         CaseInsensitiveSet()))
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, CaseInsensitiveSet(),
+                                                                         CaseInsensitiveSet(), CaseInsensitiveSet()))
         with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
             self.ha.run_cycle()
         mock_set_sync.assert_called_once_with(CaseInsensitiveSet('*'))
@@ -1547,7 +1546,7 @@ class TestHa(PostgresInit):
         self.ha.is_synchronous_mode = true
         self.ha.has_lock = true
         self.p.name = 'leader'
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, 0,
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, CaseInsensitiveSet(),
                                                                          CaseInsensitiveSet(), CaseInsensitiveSet()))
         self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
         with patch('patroni.ha.logger.info') as mock_logger:
@@ -1564,7 +1563,7 @@ class TestHa(PostgresInit):
         self.ha.has_lock = true
         self.p.name = 'leader'
         self.ha.cluster = get_cluster_initialized_without_leader(sync=('leader', 'a'))
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, 0,
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, CaseInsensitiveSet(),
                                                                          CaseInsensitiveSet(), CaseInsensitiveSet('a')))
         self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
         mock_set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock()
@@ -1792,7 +1791,8 @@ class TestHa(PostgresInit):
 
         mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=None)
         # Test /sync key is attempted to set and failed when missing or invalid
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1, 1, CaseInsensitiveSet(['other']),
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1, CaseInsensitiveSet(['other']),
+                                                                         CaseInsensitiveSet(['other']),
                                                                          CaseInsensitiveSet(['other'])))
         self.ha.run_cycle()
         self.assertEqual(mock_write_sync.call_count, 1)
@@ -1812,9 +1812,11 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_write_sync.call_args_list[1][1], {'version': None})
         self.assertEqual(mock_set_sync.call_count, 0)
 
-        self.p.sync_handler.current_state = Mock(side_effect=[_SyncState('quorum', 1, 0, CaseInsensitiveSet(['foo']),
+        self.p.sync_handler.current_state = Mock(side_effect=[_SyncState('quorum', 1, CaseInsensitiveSet(['foo']),
+                                                                         CaseInsensitiveSet(),
                                                                          CaseInsensitiveSet(['other'])),
-                                                              _SyncState('quorum', 1, 1, CaseInsensitiveSet(['foo']),
+                                                              _SyncState('quorum', 1, CaseInsensitiveSet(['foo']),
+                                                                         CaseInsensitiveSet(['foo']),
                                                                          CaseInsensitiveSet(['foo']))])
         mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=SyncState(1, 'leader', 'foo', 0))
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo'))
@@ -1829,8 +1831,9 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (other)',))
 
         # Test ANY 1 (*) when synchronous_mode_strict and no nodes available
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1, 0,
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1,
                                                                          CaseInsensitiveSet(['other', 'foo']),
+                                                                         CaseInsensitiveSet(),
                                                                          CaseInsensitiveSet()))
         mock_write_sync.reset_mock()
         mock_set_sync.reset_mock()

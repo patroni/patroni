@@ -1357,7 +1357,7 @@ class Postgresql(object):
                     os.unlink(source)
                     os.symlink(new_name, source)
 
-                new_name = '{0}.{1}'.format(self._data_dir, postfix)
+                new_name = '{0}.{1}'.format(self._data_dir.rstrip(os.sep), postfix)
                 logger.info('renaming data directory to %s', new_name)
                 if os.path.exists(new_name):
                     shutil.rmtree(new_name)
