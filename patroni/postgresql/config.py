@@ -1102,8 +1102,10 @@ class ConfigHandler(object):
         listen_addresses = self._server_parameters['listen_addresses'].split(',')
 
         for la in listen_addresses:
-            if la.strip().lower() in ('*', '0.0.0.0', '127.0.0.1', 'localhost'):  # we are listening on '*' or localhost
+            if la.strip().lower() in ('*', 'localhost'):  # we are listening on '*' or localhost
                 return 'localhost'  # connection via localhost is preferred
+            if la.strip().lower() in ('0.0.0.0', '127.0.0.1'):  # these are treated as IPv4 addresses by getaddrinfo()
+                return '127.0.0.1'  # connection via localhost is preferred, but don't allow Windows to resolve to IPv6
         return listen_addresses[0].strip()  # can't use localhost, take first address from listen_addresses
 
     def resolve_connection_addresses(self) -> None:
