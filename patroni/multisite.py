@@ -63,7 +63,7 @@ class AbstractSiteController(object):
     def should_failover(self) -> bool:
         return False
 
-    def on_shutdown(self, checkpoint_location: Optional[int]):
+    def on_shutdown(self, checkpoint_location: int, prev_location: int):
         pass
 
 
@@ -172,7 +172,7 @@ class MultisiteController(Thread, AbstractSiteController):
     def should_failover(self):
         return self._failover_target is not None and self._failover_target != self.name
 
-    def on_shutdown(self, checkpoint_location: Optional[int]):
+    def on_shutdown(self, checkpoint_location: int, prev_location: int):
         """ Called when shutdown for multisite failover has completed.
         """
         # TODO: check if we replicated everything to standby site
