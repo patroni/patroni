@@ -1628,7 +1628,8 @@ class Ha(object):
                     self.release_leader_key_voluntarily(checkpoint_location)
             time.sleep(2)  # Give a time to somebody to take the leader lock
         if mode == 'multisite':
-            self.patroni.multisite.on_shutdown(self.state_handler.latest_checkpoint_location(), None)
+            self.patroni.multisite.on_shutdown(
+                self.state_handler.latest_checkpoint_location(), None)  # pyright: ignore [reportArgumentType]
         if mode_control['offline']:
             node_to_follow, leader = None, None
         else:
