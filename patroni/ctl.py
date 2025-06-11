@@ -367,7 +367,7 @@ def is_citus_cluster() -> bool:
 
 
 # Cache DCS instances for given scope and group
-__dcs_cache: Dict[Tuple[str, Optional[int]], AbstractDCS] = {}
+__dcs_cache: Dict[Tuple[str, Optional[int], Optional[bool]], AbstractDCS] = {}
 
 
 def get_dcs(scope: str, group: Optional[int], multisite: Optional[bool] = False) -> AbstractDCS:
