@@ -1485,7 +1485,7 @@ def _do_site_switchover(cluster_name: str, group: Optional[int],
     ms_cluster = ms_dcs.get_cluster()
 
     candidate_names = [str(m.name) for m in ms_cluster.members
-                        if m.name != leader_site]
+                       if m.name != leader_site]
 
     # We sort the names for consistent output to the client
     candidate_names.sort()
