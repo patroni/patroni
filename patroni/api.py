@@ -7,6 +7,7 @@ utilises the API to perform these functions.
 """
 
 import base64
+from csv import __version__
 import datetime
 import hmac
 import json
@@ -1479,7 +1480,28 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self._received_new_cert = False
         self.reload_config(config)
         self.daemon = True
+        self.server_header: str = self.__construct_server_tokens(config.get('server_tokens', 'Full').lower()) # Default is to show full version in Server header.)
 
+    def __construct_server_tokens(self, token_config: str) -> str:
+        """Construct the value for the ``Server`` HTTP header based on *server_tokens*.
+
+        :param server_tokens: the value of ``restapi.server_tokens`` configuration option.
+
+        :returns: a string to be used as the value of ``Server`` HTTP header.
+        """
+        token = token_config.lower()
+
+        if token == 'full': # Show everything, including Patroni and PostgreSQL versions.
+            return f'Patroni/{__version__} (PostgreSQL {self.patroni.postgresql.server_version})'
+        elif token == 'productonly': # Show only the product name, without versions.
+            return 'Patroni'
+        elif token == 'Minimal': # Show only the product name and version, without PostgreSQL version.
+            return f'Patroni/{__version__}'
+        else:
+            ValueError(f'Invalid value for restapi.server_tokens: {token_config}. '
+                       'Valid values are: "Full", "Minimal", "ProductOnly".')
+        return 'Patroni'  # Default to 'Patroni' if the value is not recognized.
+        
     def query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
         """Execute *sql* query with *params* and optionally return results.
 
@@ -1857,6 +1879,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(self.__listen, str)
         self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
+
+        self.server_header = self.__construct_server_tokens(config.get('server_tokens', 'Full').lower())
 
     def handle_error(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
                      client_address: Tuple[str, int]) -> None:
