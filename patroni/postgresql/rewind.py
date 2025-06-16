@@ -595,7 +595,10 @@ class Rewind(object):
         return ret == 0 or None
 
     def archive_shutdown_checkpoint_wal(self, archive_cmd: str) -> None:
-        """Archive WAL file with the shutdown checkpoint."""
+        """Archive WAL file with the shutdown checkpoint.
+
+        :param archive_cmd: archiver command to use
+        """
         data = self._postgresql.controldata()
         wal_file = data.get("Latest checkpoint's REDO WAL file", '')
         if not wal_file:

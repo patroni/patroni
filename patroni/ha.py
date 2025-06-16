@@ -1578,6 +1578,9 @@ class Ha(object):
         demote_cluster_with_archive = False
         archive_cmd = self.state_handler.get_archive_command()
         if mode == 'demote-cluster':
+            # We need to send the shutdown checkpoint WAL file to archive to eliminate the need of rewind
+            # from a promoted instance that was previously replicating from archive
+            # When doing this, we disable stop timeout and do not run on_shutdown callback
             if archive_cmd is None:
                 logger.info('Not archiving latest checkpoint WAL file. Archiving is not configured.')
             else:
@@ -1591,6 +1594,7 @@ class Ha(object):
             time.sleep(1)  # give replicas some more time to catch up
             if self.is_failover_possible(cluster_lsn=checkpoint_location):
                 self.state_handler.set_role(PostgresqlRole.DEMOTED)
+                # for cluster demotion we need shutdown checkpoint lsn to be written to optime, not the prev one
                 last_lsn = checkpoint_location if mode == 'demote-cluster' else prev_location
                 with self._async_executor:
                     self.release_leader_key_voluntarily(last_lsn)
@@ -1617,6 +1621,7 @@ class Ha(object):
                     if mode == 'graceful' else (None, None)
                 with self._async_executor:
                     if mode == 'demote-cluster':
+                        # for cluster demotion we need shutdown checkpoint lsn to be written to optime, not the prev one
                         self.dcs.update_leader(self.cluster, checkpoint_lsn, None, self._failsafe_config())
                     else:
                         self.release_leader_key_voluntarily(prev_lsn)

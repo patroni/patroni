@@ -1406,7 +1406,7 @@ class Postgresql(object):
         })
 
     def get_archive_command(self) -> Optional[str]:
-        """Get ``archive_command`` GUC value if defined.
+        """Get ``archive_command`` GUC value if defined and archiving is enabled.
 
         :returns: ``archive_command`` defined in the Postgres configuration or None.
         """
