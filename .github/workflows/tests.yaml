@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches:
-    - master
+    - multisite
     - 'REL_[0-9]+_[0-9]+'
 
 env:
