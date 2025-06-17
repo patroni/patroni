@@ -480,7 +480,10 @@ class Ha(object):
                         self.state_handler.timeline_wal_position()
                     data['xlog_location'] = self._last_wal_lsn = wal_position
                     if not timeline:  # running as a standby
-                        data['receive_lsn'], data['replay_lsn'] = receive_lsn, replay_lsn
+                        if replay_lsn:
+                            data['replay_lsn'] = replay_lsn
+                        if receive_lsn:
+                            data['receive_lsn'] = receive_lsn
                         replication_state = self.state_handler.replication_state()
                         if replication_state:
                             data['replication_state'] = replication_state
@@ -881,7 +884,7 @@ class Ha(object):
                                                                       voters=sync.voters,
                                                                       numsync=sync_state.numsync,
                                                                       sync=sync_state.sync,
-                                                                      numsync_confirmed=sync_state.numsync_confirmed,
+                                                                      numsync_confirmed=len(sync_state.sync_confirmed),
                                                                       active=sync_state.active,
                                                                       sync_wanted=sync_wanted,
                                                                       leader_wanted=self.state_handler.name):
@@ -927,7 +930,7 @@ class Ha(object):
 
         current_state = self.state_handler.sync_handler.current_state(self.cluster)
         picked = current_state.active
-        allow_promote = current_state.sync
+        allow_promote = current_state.sync_confirmed
         voters = CaseInsensitiveSet(sync.voters)
 
         if picked == voters and voters != allow_promote:
@@ -938,7 +941,7 @@ class Ha(object):
                 return logger.warning("Updating sync state failed")
             voters = CaseInsensitiveSet(sync.voters)
 
-        if picked == voters:
+        if picked == voters == current_state.sync and current_state.numsync == len(picked):
             return
 
         # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
@@ -962,7 +965,7 @@ class Ha(object):
         if picked and picked != CaseInsensitiveSet('*') and allow_promote != picked:
             # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
             time.sleep(2)
-            allow_promote = self.state_handler.sync_handler.current_state(self.cluster).sync
+            allow_promote = self.state_handler.sync_handler.current_state(self.cluster).sync_confirmed
 
         if allow_promote and allow_promote != sync_common:
             if self.dcs.write_sync_state(self.state_handler.name, allow_promote, 0, version=sync.version):
@@ -1142,6 +1145,7 @@ class Ha(object):
                 self._failsafe.set_is_active(0)
 
                 def before_promote():
+                    self._rewind.reset_state()  # make sure we will trigger checkpoint after promote
                     self.notify_mpp_coordinator('before_promote')
 
                 with self._async_response:
@@ -2318,10 +2322,7 @@ class Ha(object):
                     self._sync_replication_slots(True)
                     return 'continue to run as a leader because failsafe mode is enabled and all members are accessible'
                 self._failsafe.set_is_active(0)
-                msg = 'demoting self because DCS is not accessible and I was a leader'
-                if not self._async_executor.try_run_async(msg, self.demote, ('offline',)):
-                    return msg
-                logger.warning('AsyncExecutor is busy, demoting from the main thread')
+                logger.info('demoting self because DCS is not accessible and I was a leader')
                 self.demote('offline')
                 return 'demoted self because DCS is not accessible and I was a leader'
             else:
