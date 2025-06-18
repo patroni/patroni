@@ -42,7 +42,7 @@ Feature: dcs failsafe mode
     And I receive a response postgres-1 http://127.0.0.1:8009/patroni
 
   @dcs-failsafe
-  @slot-advance
+  @pg110000
   Scenario: check leader and replica are functioning while DCS is down
     Given I get all changes from physical slot dcs_slot_1 on postgres-0
     Then physical slot dcs_slot_1 is in sync between postgres-0 and postgres-1 after 10 seconds
@@ -84,7 +84,7 @@ Feature: dcs failsafe mode
     And replication works from postgres-1 to postgres-2 after 10 seconds
 
   @dcs-failsafe
-  @slot-advance
+  @pg110000
   Scenario: make sure permanent slots exist on replicas
     Given I issue a PATCH request to http://127.0.0.1:8009/config with {"slots":{"dcs_slot_0":null,"dcs_slot_2":{"type":"logical","database":"postgres","plugin":"test_decoding"}}}
     Then logical slot dcs_slot_2 is in sync between postgres-1 and postgres-0 after 20 seconds
@@ -104,7 +104,7 @@ Feature: dcs failsafe mode
     And postgres-2 role is the replica after 2 seconds
 
   @dcs-failsafe
-  @slot-advance
+  @pg110000
   Scenario: check that permanent slots are in sync between nodes while DCS is down
     Given replication works from postgres-1 to postgres-0 after 10 seconds
     And replication works from postgres-1 to postgres-2 after 10 seconds

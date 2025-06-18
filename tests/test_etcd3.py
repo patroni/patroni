@@ -1,4 +1,5 @@
 import json
+import socket
 import unittest
 
 from threading import Thread
@@ -50,7 +51,7 @@ def mock_urlopen(self, method, url, **kwargs):
     elif url.endswith('/watch'):
         key = base64_encode('/patroni/test/config')
         ret.read_chunked = Mock(return_value=[json.dumps({
-            'result': {'events': [
+            'result': {'header': {'cluster_id': '1', 'raft_term': 1}, 'events': [
                 {'kv': {'key': key, 'value': base64_encode('bar'), 'mod_revision': '2'}},
                 {'kv': {'key': key, 'value': base64_encode('buzz'), 'mod_revision': '3'}},
                 {'type': 'DELETE', 'kv': {'key': key, 'mod_revision': '4'}},
@@ -119,6 +120,14 @@ class TestKVCache(BaseTestEtcd3):
             type(mock_conn).sock = PropertyMock(side_effect=Exception)
             self.kv_cache.kill_stream()
 
+    @patch.object(urllib3.PoolManager, 'urlopen', mock_urlopen)
+    def test_is_ready(self):
+        self.kv_cache._build_cache()
+        with self.kv_cache.condition:
+            self.kv_cache._is_ready = True
+            self.client._raft_term = 2
+            self.assertFalse(self.kv_cache.is_ready())
+
 
 class TestPatroniEtcd3Client(BaseTestEtcd3):
 
@@ -184,6 +193,8 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         self.assertRaises(etcd.EtcdException, self.client._handle_server_response, response)
         response.status_code = 400
         self.assertRaises(Unknown, self.client._handle_server_response, response)
+        response.content = '{"error":{"grpc_code":14,"message":"","http_code":400}}'
+        self.assertRaises(socket.timeout, self.client._handle_server_response, response)
         response.content = '{"error":{"grpc_code":0,"message":"","http_code":400}}'
         try:
             self.client._handle_server_response(response)

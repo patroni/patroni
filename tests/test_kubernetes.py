@@ -15,6 +15,7 @@ from patroni.dcs import get_dcs
 from patroni.dcs.kubernetes import Cluster, k8s_client, k8s_config, K8sConfig, K8sConnectionFailed, \
     K8sException, K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException, Retry, \
     RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
+from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.mpp import get_mpp
 
 from . import MockResponse, SleepException
@@ -161,6 +162,7 @@ class TestK8sConfig(unittest.TestCase):
 
 
 @patch('urllib3.PoolManager.request')
+@patch.object(K8sConfig, '_server', '', create=True)
 class TestApiClient(unittest.TestCase):
 
     @patch.object(K8sConfig, '_server', '', create=True)
@@ -235,7 +237,8 @@ class BaseTestKubernetes(unittest.TestCase):
     @patch.object(k8s_client.CoreV1Api, 'list_namespaced_config_map', mock_list_namespaced_config_map, create=True)
     def setUp(self, config=None):
         config = {'ttl': 30, 'scope': 'test', 'name': 'p-0', 'loop_wait': 10, 'retry_timeout': 10,
-                  'kubernetes': {'labels': {'f': 'b'}, 'bypass_api_service': True, **(config or {})},
+                  'kubernetes': {'labels': {'f': 'b'}, 'bypass_api_service': True, **(config or {}),
+                                 'bootstrap_labels': {'foo': 'bar'}},
                   'citus': {'group': 0, 'database': 'postgres'}}
         self.k = get_dcs(config)
         self.assertIsInstance(self.k, Kubernetes)
@@ -291,12 +294,26 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
             self.assertEqual(mock_logger.call_args[0][1], 'Citus')
             self.assertIsInstance(mock_logger.call_args[0][2], KubernetesError)
 
-    def test_attempt_to_acquire_leader(self):
+    @patch.object(k8s_client.CoreV1Api, 'read_namespaced_config_map', create=True)
+    def test_attempt_to_acquire_leader(self, mock_read):
+        metadata = k8s_client.V1ObjectMeta(resource_version='2', labels={'f': 'b'}, name='test',
+                                           annotations={'optime': '1234', 'leader': 'p-0', 'transitions': '0',
+                                                        'renewTime': 'now', 'acquireTime': 'now', 'ttl': '30'})
+        mock_read.return_value = k8s_client.V1ConfigMap(metadata=metadata)
         with patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', create=True) as mock_patch:
             mock_patch.side_effect = K8sException
             self.assertRaises(KubernetesError, self.k.attempt_to_acquire_leader)
+
             mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
+            self.k._leader_resource_version = '0'
+            self.k._isotime = Mock(return_value='now')
+            self.assertTrue(self.k.attempt_to_acquire_leader())
+
+            mock_read.side_effect = Exception
             self.assertFalse(self.k.attempt_to_acquire_leader())
+
+            mock_read.side_effect = RetryFailedError('')
+            self.assertRaises(KubernetesError, self.k.attempt_to_acquire_leader)
 
     def test_take_leader(self):
         self.k.take_leader()
@@ -317,10 +334,22 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod', create=True)
     def test_touch_member(self, mock_patch_namespaced_pod):
         mock_patch_namespaced_pod.return_value.metadata.resource_version = '10'
-        self.k.touch_member({'role': 'replica'})
+
         self.k._name = 'p-1'
-        self.k.touch_member({'state': 'running', 'role': 'replica'})
-        self.k.touch_member({'state': 'stopped', 'role': 'primary'})
+        self.k.touch_member({'role': PostgresqlRole.REPLICA, 'state': PostgresqlState.INITDB})
+        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], 'bar')
+
+        self.k.touch_member({'state': PostgresqlState.RUNNING, 'role': PostgresqlRole.REPLICA})
+        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], None)
+
+        self.k.touch_member({'role': PostgresqlRole.REPLICA, 'state': PostgresqlState.CUSTOM_BOOTSTRAP})
+        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], 'bar')
+
+        self.k.touch_member({'role': PostgresqlRole.REPLICA, 'state': PostgresqlState.BOOTSTRAP_STARTING})
+        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], 'bar')
+
+        self.k.touch_member({'state': PostgresqlState.STOPPED, 'role': PostgresqlRole.PRIMARY})
+        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], None)
 
         self.k._role_label = 'isMaster'
         self.k._leader_label_value = 'true'
@@ -328,23 +357,26 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
         self.k._standby_leader_label_value = 'false'
         self.k._tmp_role_label = 'tmp_role'
 
-        self.k.touch_member({'state': 'running', 'role': 'replica'})
-        mock_patch_namespaced_pod.assert_called()
+        self.k.touch_member({'state': PostgresqlState.CREATING_REPLICA, 'role': PostgresqlRole.REPLICA})
+        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], 'bar')
+
+        self.k.touch_member({'state': PostgresqlState.RUNNING, 'role': PostgresqlRole.REPLICA})
+        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['foo'], None)
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['isMaster'], 'false')
-        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['tmp_role'], 'replica')
+        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['tmp_role'], PostgresqlRole.REPLICA)
         mock_patch_namespaced_pod.rest_mock()
 
         self.k._name = 'p-0'
-        self.k.touch_member({'role': 'standby_leader'})
+        self.k.touch_member({'state': PostgresqlState.RUNNING, 'role': PostgresqlRole.STANDBY_LEADER})
         mock_patch_namespaced_pod.assert_called()
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['isMaster'], 'false')
-        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['tmp_role'], 'primary')
+        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['tmp_role'], PostgresqlRole.PRIMARY)
         mock_patch_namespaced_pod.rest_mock()
 
-        self.k.touch_member({'role': 'primary'})
+        self.k.touch_member({'state': PostgresqlState.RUNNING, 'role': PostgresqlRole.PRIMARY})
         mock_patch_namespaced_pod.assert_called()
         self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['isMaster'], 'true')
-        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['tmp_role'], 'primary')
+        self.assertEqual(mock_patch_namespaced_pod.call_args[0][2].metadata.labels['tmp_role'], PostgresqlRole.PRIMARY)
 
     def test_initialize(self):
         self.k.initialize()
@@ -425,7 +457,8 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         mock_patch.side_effect = [k8s_client.rest.ApiException(409, ''),
                                   k8s_client.rest.ApiException(409, ''), mock_namespaced_kind()]
         mock_read.return_value.metadata.resource_version = '2'
-        with patch('time.time', Mock(side_effect=[0, 0, 100, 200, 0, 0, 0, 0, 0, 100, 200])):
+        mock_time = Mock(side_effect=[0, 0, 100, 200, 0, 0, 0, 0, 0, 100, 200])
+        with patch('time.time', mock_time), patch('time.time_ns', mock_time, create=True):
             self.assertFalse(self.k.update_leader(cluster, '123'))
             self.assertFalse(self.k.update_leader(cluster, '123'))
         mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
@@ -476,7 +509,7 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         self.assertEqual(('create_config_service failed',), mock_logger_exception.call_args[0])
         mock_logger_exception.reset_mock()
 
-        self.k.touch_member({'state': 'running', 'role': 'replica'})
+        self.k.touch_member({'state': PostgresqlState.RUNNING, 'role': PostgresqlRole.REPLICA})
         mock_logger_exception.assert_called_once()
         self.assertEqual(('create_config_service failed',), mock_logger_exception.call_args[0])
 

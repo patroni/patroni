@@ -26,6 +26,7 @@ KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd' +\
 
 EXTRAS_REQUIRE = {'aws': ['boto3'], 'etcd': ['python-etcd'], 'etcd3': ['python-etcd'],
                   'consul': ['py-consul'], 'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'],
+                  'systemd': ['systemd-python'],
                   'kubernetes': [], 'raft': ['pysyncobj', 'cryptography'], 'jsonlogger': ['python-json-logger']}
 
 # Add here all kinds of additional classifiers as defined under
@@ -49,6 +50,7 @@ CLASSIFIERS = [
     'Programming Language :: Python :: 3.10',
     'Programming Language :: Python :: 3.11',
     'Programming Language :: Python :: 3.12',
+    'Programming Language :: Python :: 3.13',
     'Programming Language :: Python :: Implementation :: CPython',
 ]
 

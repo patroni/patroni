@@ -11,6 +11,7 @@ from ..collections import EMPTY_DICT
 from ..dcs import Leader, Member, RemoteMember
 from ..psycopg import quote_ident, quote_literal
 from ..utils import deep_compare, unquote
+from .misc import PostgresqlState
 
 if TYPE_CHECKING:  # pragma: no cover
     from . import Postgresql
@@ -114,7 +115,7 @@ class Bootstrap(object):
         return user_options
 
     def _initdb(self, config: Any) -> bool:
-        self._postgresql.set_state('initializing new cluster')
+        self._postgresql.set_state(PostgresqlState.INITDB)
         not_allowed_options = ('pgdata', 'nosync', 'pwfile', 'sync-only', 'version')
 
         def error_handler(e: str) -> None:
@@ -138,7 +139,7 @@ class Bootstrap(object):
         if ret:
             self._postgresql.configure_server_parameters()
         else:
-            self._postgresql.set_state('initdb failed')
+            self._postgresql.set_state(PostgresqlState.INITDB_FAILED)
         return ret
 
     def _post_restore(self) -> None:
@@ -186,7 +187,7 @@ class Bootstrap(object):
         :returns: ``True`` if the bootstrap was successful, i.e. the execution of the custom ``command`` from *config*
             exited with code ``0``, ``False`` otherwise.
         """
-        self._postgresql.set_state('running custom bootstrap script')
+        self._postgresql.set_state(PostgresqlState.CUSTOM_BOOTSTRAP)
         params = [] if config.get('no_params') else ['--scope=' + self._postgresql.scope,
                                                      '--datadir=' + self._postgresql.data_dir]
         # Add custom parameters specified by the user
@@ -196,7 +197,7 @@ class Bootstrap(object):
         try:
             logger.info('Running custom bootstrap script: %s', config['command'])
             if self._postgresql.cancellable.call(shlex.split(config['command']) + params) != 0:
-                self._postgresql.set_state('custom bootstrap failed')
+                self._postgresql.set_state(PostgresqlState.CUSTOM_BOOTSTRAP_FAILED)
                 return False
         except Exception:
             logger.exception('Exception during custom bootstrap')
@@ -241,7 +242,7 @@ class Bootstrap(object):
             loop through all methods the user supplies
         """
 
-        self._postgresql.set_state('creating replica')
+        self._postgresql.set_state(PostgresqlState.CREATING_REPLICA)
         self._postgresql.schedule_sanity_checks_after_pause()
 
         is_remote_member = isinstance(clone_member, RemoteMember)
@@ -322,7 +323,7 @@ class Bootstrap(object):
                 if not method_config.get('keep_data', False) and not self._postgresql.data_directory_empty():
                     self._postgresql.remove_data_directory()
 
-        self._postgresql.set_state('stopped')
+        self._postgresql.set_state(PostgresqlState.STOPPED)
         return ret
 
     def basebackup(self, conn_url: str, env: Dict[str, str], options: Dict[str, Any]) -> Optional[int]:

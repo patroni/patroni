@@ -1,6 +1,7 @@
 import datetime
 import os
 import re
+import stat
 import subprocess
 import time
 
@@ -18,10 +19,12 @@ from patroni.async_executor import CriticalTask
 from patroni.collections import CaseInsensitiveDict, CaseInsensitiveSet
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PatroniException, PostgresConnectionException
-from patroni.postgresql import Postgresql, STATE_NO_RESPONSE, STATE_REJECT
+from patroni.file_perm import pg_perm
+from patroni.postgresql import PgIsReadyStatus, Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
 from patroni.postgresql.config import _false_validator, get_param_diff
+from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import _get_postgres_guc_validators, _load_postgres_gucs_validators, \
     _read_postgres_gucs_validators_file, Bool, Enum, EnumBool, Integer, InvalidGucValidatorsFile, \
@@ -159,7 +162,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(Postgresql, 'pg_isready')
     @patch('patroni.postgresql.polling_loop', Mock(return_value=range(1)))
     def test_wait_for_port_open(self, mock_pg_isready):
-        mock_pg_isready.return_value = STATE_NO_RESPONSE
+        mock_pg_isready.return_value = PgIsReadyStatus.NO_RESPONSE
         mock_postmaster = MockPostmaster()
         mock_postmaster.is_running.return_value = None
 
@@ -257,7 +260,7 @@ class TestPostgresql(BaseTestPostgresql):
     def test_restart(self):
         self.p.start = Mock(return_value=False)
         self.assertFalse(self.p.restart())
-        self.assertEqual(self.p.state, 'restart failed (restarting)')
+        self.assertEqual(self.p.state, PostgresqlState.RESTART_FAILED)
 
     @patch('os.chmod', Mock())
     @patch('builtins.open', MagicMock())
@@ -378,7 +381,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError))
     def test__query(self):
         self.assertRaises(PostgresConnectionException, self.p._query, 'blabla')
-        self.p._state = 'restarting'
+        self.p._state = PostgresqlState.RESTARTING
         self.assertRaises(RetryFailedError, self.p._query, 'blabla')
 
     def test_query(self):
@@ -386,7 +389,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertRaises(PostgresConnectionException, self.p.query, 'RetryFailedError')
         self.assertRaises(psycopg.ProgrammingError, self.p.query, 'blabla')
 
-    @patch.object(Postgresql, 'pg_isready', Mock(return_value=STATE_REJECT))
+    @patch.object(Postgresql, 'pg_isready', Mock(return_value=PgIsReadyStatus.REJECT))
     def test_is_primary(self):
         self.assertTrue(self.p.is_primary())
         self.p.reset_cluster_info_state(None)
@@ -445,7 +448,7 @@ class TestPostgresql(BaseTestPostgresql):
         task = CriticalTask()
         self.assertTrue(self.p.promote(0, task))
 
-        self.p.set_role('replica')
+        self.p.set_role(PostgresqlRole.REPLICA)
         self.p.config._config['pre_promote'] = 'test'
         with patch('patroni.postgresql.cancellable.CancellableSubprocess.is_cancelled', PropertyMock(return_value=1)):
             self.assertFalse(self.p.promote(0, task))
@@ -457,7 +460,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertFalse(self.p.promote(0, task))
 
     def test_timeline_wal_position(self):
-        self.assertEqual(self.p.timeline_wal_position(), (1, 2, 1))
+        self.assertEqual(self.p.timeline_wal_position(), (1, 2, 1, 1, 1))
         Thread(target=self.p.timeline_wal_position).start()
 
     @patch.object(PostmasterProcess, 'from_pidfile')
@@ -479,7 +482,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch('shlex.split', Mock(side_effect=OSError))
     def test_call_nowait(self):
-        self.p.set_role('replica')
+        self.p.set_role(PostgresqlRole.REPLICA)
         self.assertIsNone(self.p.call_nowait(CallbackAction.ON_START))
         self.p.bootstrapping = True
         self.assertIsNone(self.p.call_nowait(CallbackAction.ON_START))
@@ -507,7 +510,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('os.path.exists', Mock(return_value=True))
     @patch.object(Postgresql, 'controldata', Mock())
     def test_get_postgres_role_from_data_directory(self):
-        self.assertEqual(self.p.get_postgres_role_from_data_directory(), 'replica')
+        self.assertEqual(self.p.get_postgres_role_from_data_directory(), PostgresqlRole.REPLICA)
 
     @patch('os.remove', Mock())
     @patch('shutil.rmtree', Mock())
@@ -744,33 +747,33 @@ class TestPostgresql(BaseTestPostgresql):
 
     def test_check_for_startup(self):
         with patch('subprocess.call', return_value=0):
-            self.p._state = 'starting'
+            self.p._state = PostgresqlState.STARTING
             self.assertFalse(self.p.check_for_startup())
-            self.assertEqual(self.p.state, 'running')
+            self.assertEqual(self.p.state, PostgresqlState.RUNNING)
 
         with patch('subprocess.call', return_value=1):
-            self.p._state = 'starting'
+            self.p._state = PostgresqlState.STARTING
             self.assertTrue(self.p.check_for_startup())
-            self.assertEqual(self.p.state, 'starting')
+            self.assertEqual(self.p.state, PostgresqlState.STARTING)
 
         with patch('subprocess.call', return_value=2):
-            self.p._state = 'starting'
+            self.p._state = PostgresqlState.STARTING
             self.assertFalse(self.p.check_for_startup())
-            self.assertEqual(self.p.state, 'start failed')
+            self.assertEqual(self.p.state, PostgresqlState.START_FAILED)
 
         with patch('subprocess.call', return_value=0):
-            self.p._state = 'running'
+            self.p._state = PostgresqlState.RUNNING
             self.assertFalse(self.p.check_for_startup())
-            self.assertEqual(self.p.state, 'running')
+            self.assertEqual(self.p.state, PostgresqlState.RUNNING)
 
         with patch('subprocess.call', return_value=127):
-            self.p._state = 'running'
+            self.p._state = PostgresqlState.RUNNING
             self.assertFalse(self.p.check_for_startup())
-            self.assertEqual(self.p.state, 'running')
+            self.assertEqual(self.p.state, PostgresqlState.RUNNING)
 
-            self.p._state = 'starting'
+            self.p._state = PostgresqlState.STARTING
             self.assertFalse(self.p.check_for_startup())
-            self.assertEqual(self.p.state, 'running')
+            self.assertEqual(self.p.state, PostgresqlState.RUNNING)
 
     def test_wait_for_startup(self):
         state = {'sleeps': 0, 'num_rejects': 0, 'final_return': 0}
@@ -793,21 +796,21 @@ class TestPostgresql(BaseTestPostgresql):
             with patch('time.sleep', side_effect=increment_sleeps):
                 self.p.time_in_state = Mock(side_effect=time_in_state)
 
-                self.p._state = 'stopped'
+                self.p._state = PostgresqlState.STOPPED
                 self.assertTrue(self.p.wait_for_startup())
                 self.assertEqual(state['sleeps'], 0)
 
-                self.p._state = 'starting'
+                self.p._state = PostgresqlState.STARTING
                 state['num_rejects'] = 5
                 self.assertTrue(self.p.wait_for_startup())
                 self.assertEqual(state['sleeps'], 5)
 
-                self.p._state = 'starting'
+                self.p._state = PostgresqlState.STARTING
                 state['sleeps'] = 0
                 state['final_return'] = 2
                 self.assertFalse(self.p.wait_for_startup())
 
-                self.p._state = 'starting'
+                self.p._state = PostgresqlState.STARTING
                 state['sleeps'] = 0
                 state['final_return'] = 0
                 self.assertFalse(self.p.wait_for_startup(timeout=2))
@@ -815,7 +818,7 @@ class TestPostgresql(BaseTestPostgresql):
 
         with patch.object(Postgresql, 'check_startup_state_changed', Mock(return_value=False)):
             self.p.cancellable.cancel()
-            self.p._state = 'starting'
+            self.p._state = PostgresqlState.STARTING
             self.assertIsNone(self.p.wait_for_startup())
 
     def test_get_server_parameters(self):
@@ -851,7 +854,8 @@ class TestPostgresql(BaseTestPostgresql):
     def test_get_primary_timeline(self):
         self.assertEqual(self.p.get_primary_timeline(), 1)
 
-    @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='replica'))
+    @patch.object(Postgresql, 'get_postgres_role_from_data_directory',
+                  Mock(return_value=PostgresqlRole.REPLICA))
     @patch.object(Postgresql, 'is_running', Mock(return_value=False))
     @patch.object(Bootstrap, 'running_custom_bootstrap', PropertyMock(return_value=True))
     @patch('patroni.postgresql.config.logger')
@@ -892,7 +896,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch.object(Postgresql, '_query', Mock(side_effect=RetryFailedError('')))
     def test_received_timeline(self):
-        self.p.set_role('standby_leader')
+        self.p.set_role(PostgresqlRole.STANDBY_LEADER)
         self.p.reset_cluster_info_state(None)
         self.assertRaises(PostgresConnectionException, self.p.received_timeline)
 
@@ -1144,6 +1148,19 @@ class TestPostgresql(BaseTestPostgresql):
                 "Unexpected issue while reading parameters file `random.yaml`: `[Errno 2] No such file or "
                 "directory:", mock_warning.call_args[0][0]
             )
+
+    @patch('os.chmod')
+    @patch('os.stat')
+    @patch('os.umask')
+    def test_set_file_permissions(self, mock_umask, mock_stat, mock_chmod):
+        pg_conf = os.path.join(self.p.data_dir, 'postgresql.conf')
+        mock_stat.return_value.st_mode = stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP   # MODE_GROUP
+        self.p.config.set_file_permissions(pg_conf)
+        mock_chmod.assert_called_with(pg_conf, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP)
+
+        pg_conf = os.path.join(os.path.abspath(os.sep) + 'tmp', 'postgresql.conf')
+        self.p.config.set_file_permissions(pg_conf)
+        mock_chmod.assert_called_with(pg_conf, 0o666 & ~pg_perm.orig_umask)
 
 
 @patch('subprocess.call', Mock(return_value=0))

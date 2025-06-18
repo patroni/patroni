@@ -34,10 +34,10 @@ jobs:
 
     - name: Publish distribution to Test PyPI
       if: github.event_name == 'push'
-      uses: pypa/gh-action-pypi-publish@v1.9.0
+      uses: pypa/gh-action-pypi-publish@v1.12.4
       with:
         repository_url: https://test.pypi.org/legacy/
 
     - name: Publish distribution to PyPI
       if: github.event_name == 'release'
-      uses: pypa/gh-action-pypi-publish@v1.9.0
+      uses: pypa/gh-action-pypi-publish@v1.12.4

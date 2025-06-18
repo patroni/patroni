@@ -54,6 +54,8 @@ class AbstractController(abc.ABC):
         self._log = open(os.path.join(self._output_dir, self._name + '.log'), 'a')
         self._handle = self._start()
 
+        if max_wait_limit < 0:
+            return
         max_wait_limit *= self._context.timeout_multiplier
         for _ in range(max_wait_limit):
             assert self._has_started(), "Process {0} is not running after being started".format(self._name)
@@ -218,6 +220,8 @@ class PatroniController(AbstractController):
             'host replication replicator all md5',
             'host all all all md5'
         ]
+        if isinstance(self._context.dcs_ctl, KubernetesController):
+            config['kubernetes'] = {'bootstrap_labels': {'foo': 'bar'}}
 
         if self._context.postgres_supports_ssl and self._context.certfile:
             config['postgresql']['parameters'].update({
@@ -657,6 +661,10 @@ class KubernetesController(AbstractExternalDcsController):
             except Exception:
                 break
 
+    def pod_labels(self, name):
+        pod = self._api.read_namespaced_pod(name, self._namespace)
+        return pod.metadata.labels or {}
+
     def query(self, key, scope='batman', group=None):
         if key.startswith('members/'):
             pod = self._api.read_namespaced_pod(key[8:], self._namespace)
@@ -870,7 +878,7 @@ class PatroniPoolController(object):
         os.makedirs(feature_dir)
         self._output_dir = feature_dir
 
-    def clone(self, from_name, cluster_name, to_name):
+    def clone(self, from_name, cluster_name, to_name, long_running=False):
         f = self._processes[from_name]
         custom_config = {
             'scope': cluster_name,
@@ -878,7 +886,8 @@ class PatroniPoolController(object):
                 'method': 'pg_basebackup',
                 'pg_basebackup': {
                     'command': " ".join(self.BACKUP_SCRIPT
-                                        + ['--walmethod=stream', '--dbname="{0}"'.format(f.backup_source)])
+                                        + ['--walmethod=stream', f'--dbname="{f.backup_source}"',
+                                           f'--sleep {5 if long_running else 0}'])
                 },
                 'dcs': {
                     'postgresql': {
@@ -901,12 +910,16 @@ class PatroniPoolController(object):
                 }
             }
         }
-        self.start(to_name, custom_config=custom_config)
+        kwargs = {'custom_config': custom_config}
+        if long_running:
+            kwargs['max_wait_limit'] = -1
+        self.start(to_name, **kwargs)
 
-    def backup_restore_config(self, params=None):
+    def backup_restore_config(self, params=None, long_running=False):
         return {
             'command': (self.BACKUP_RESTORE_SCRIPT
-                        + ' --sourcedir=' + os.path.join(self.patroni_path, 'data', 'basebackup')).replace('\\', '/'),
+                        + ' --sourcedir=' + os.path.join(self.patroni_path, 'data', 'basebackup')
+                        + f' --sleep {5 if long_running else 0}').replace('\\', '/'),
             'test-argument': 'test-value',  # test config mapping approach on custom bootstrap/replica creation
             **(params or {}),
         }
@@ -1124,6 +1137,8 @@ def before_feature(context, feature):
         lib = subprocess.check_output(['pg_config', '--pkglibdir']).decode('utf-8').strip()
         if not os.path.exists(os.path.join(lib, 'citus.so')):
             return feature.skip("Citus extension isn't available")
+    elif feature.name == 'bootstrap labels' and context.dcs_ctl.name() != 'kubernetes':
+        feature.skip("Tested only on Kubernetes")
     context.pctl.create_and_set_output_directory(feature.name)
 
 
@@ -1153,11 +1168,18 @@ def after_feature(context, feature):
 
 
 def before_scenario(context, scenario):
-    if 'slot-advance' in scenario.effective_tags:
-        for p in context.pctl._processes.values():
-            if p._conn and p._conn.server_version < 110000:
-                scenario.skip('pg_replication_slot_advance() is not supported on {0}'.format(p._conn.server_version))
-                break
+    for tag in scenario.effective_tags:
+        if tag.startswith('pg') and 6 < len(tag) < 9:
+            try:
+                ver = int(tag[2:])
+            except Exception:
+                ver = 0
+            if not ver:
+                continue
+            for p in context.pctl._processes.values():
+                if p._conn and p._conn.server_version < ver:
+                    scenario.skip('not supported on {0}'.format(p._conn.server_version))
+                    break
     if 'dcs-failsafe' in scenario.effective_tags and not context.dcs_ctl._handle:
         scenario.skip('it is not possible to control state of {0} from tests'.format(context.dcs_ctl.name()))
     if 'reject-duplicate-name' in scenario.effective_tags and context.dcs_ctl.name() == 'raft':

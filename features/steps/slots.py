@@ -6,15 +6,13 @@ from behave import step, then
 import patroni.psycopg as pg
 
 
-@step('I create a logical replication slot {slot_name} on {pg_name:name} with the {plugin:w} plugin')
-def create_logical_replication_slot(context, slot_name, pg_name, plugin):
+@step('I create a logical {slot_type} slot {slot_name} on {pg_name:name} with the {plugin:w} plugin')
+def create_logical_replication_slot(context, slot_type, slot_name, pg_name, plugin):
+    failover = ', failover=>true' if slot_type == 'failover' else ''
     try:
-        output = context.pctl.query(pg_name, ("SELECT pg_create_logical_replication_slot('{0}', '{1}'),"
-                                              " current_database()").format(slot_name, plugin))
-        print(output.fetchone())
+        context.pctl.query(pg_name, f"SELECT pg_create_logical_replication_slot('{slot_name}', '{plugin}'{failover})")
     except pg.Error as e:
-        print(e)
-        assert False, "Error creating slot {0} on {1} with plugin {2}".format(slot_name, pg_name, plugin)
+        assert False, "Error creating slot {0} on {1} with plugin {2}: {3}".format(slot_name, pg_name, plugin, e)
 
 
 @step('{pg_name:name} has a logical replication slot named {slot_name}'
@@ -99,8 +97,8 @@ def has_physical_replication_slot(context, pg_name, slot_name, time_limit):
 def physical_slot_no_xmin(context, pg_name, slot_name, time_limit):
     time_limit *= context.timeout_multiplier
     max_time = time.time() + int(time_limit)
-    query = "SELECT xmin FROM pg_catalog.pg_replication_slots WHERE slot_type = 'physical'"
-    f" AND slot_name = '{slot_name}'"
+    query = "SELECT xmin FROM pg_catalog.pg_replication_slots WHERE slot_type = 'physical'" +\
+        f" AND slot_name = '{slot_name}'"
     exists = False
     while time.time() < max_time:
         try:

@@ -12,6 +12,7 @@ import patroni.psycopg as psycopg
 from patroni.dcs import Leader, Member
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
+from patroni.postgresql.misc import PostgresqlState
 from patroni.postgresql.mpp import get_mpp
 from patroni.utils import RetryFailedError, tzutc
 
@@ -144,7 +145,7 @@ class MockCursor(object):
         elif sql.startswith('WITH slots AS (SELECT slot_name, active'):
             self.results = [(False, True)] if self.rowcount == 1 else []
         elif sql.startswith('SELECT CASE WHEN pg_catalog.pg_is_in_recovery()'):
-            self.results = [(1, 2, 1, 0, False, 1, 1, None, None, 'streaming', '',
+            self.results = [(1, 2, 1, 0, False, 1, 1, 1, None, None, 'streaming', '',
                              [{"slot_name": "ls", "confirmed_flush_lsn": 12345, "restart_lsn": 12344}],
                              'on', 'n1', None)]
         elif sql.startswith('SELECT pg_catalog.pg_is_in_recovery()'):
@@ -252,7 +253,8 @@ class PostgresInit(unittest.TestCase):
     @patch.object(ConfigHandler, 'replace_pg_ident', Mock())
     @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='primary'))
     def setUp(self):
-        data_dir = os.path.join('data', 'test0')
+        self._tmp_dir = 'data'
+        data_dir = os.path.join(self._tmp_dir, 'test0')
         config = {'name': 'postgresql0', 'scope': 'batman', 'data_dir': data_dir,
                   'config_dir': data_dir, 'retry_timeout': 10,
                   'krbsrvname': 'postgres', 'pgpass': os.path.join(data_dir, 'pgpass0'),
@@ -282,14 +284,17 @@ class BaseTestPostgresql(PostgresInit):
         if not os.path.exists(self.p.data_dir):
             os.makedirs(self.p.data_dir)
 
-        self.leadermem = Member(0, 'leader', 28, {'xlog_location': 100, 'state': 'running',
+        self.leadermem = Member(0, 'leader', 28, {'xlog_location': 100, 'state': PostgresqlState.RUNNING,
                                                   'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres'})
         self.leader = Leader(-1, 28, self.leadermem)
         self.other = Member(0, 'test-1', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
-                                              'state': 'running', 'tags': {'replicatefrom': 'leader'}})
+                                              'state': PostgresqlState.RUNNING, 'tags': {'replicatefrom': 'leader'}})
         self.me = Member(0, 'test0', 28, {
-            'state': 'running', 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres'})
+            'state': PostgresqlState.RUNNING, 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres'})
 
     def tearDown(self):
         if os.path.exists(self.p.data_dir):
             shutil.rmtree(self.p.data_dir)
+
+        if not os.listdir(self._tmp_dir):
+            shutil.rmtree(self._tmp_dir)

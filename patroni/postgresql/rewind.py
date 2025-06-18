@@ -14,7 +14,7 @@ from ..collections import EMPTY_DICT
 from ..dcs import Leader, RemoteMember
 from . import Postgresql
 from .connection import get_connection_cursor
-from .misc import format_lsn, fsync_dir, parse_history, parse_lsn
+from .misc import format_lsn, fsync_dir, parse_history, parse_lsn, PostgresqlRole
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,8 @@ class Rewind(object):
     def trigger_check_diverged_lsn(self) -> None:
         if self.can_rewind_or_reinitialize_allowed and self._state != REWIND_STATUS.NEED:
             self._state = REWIND_STATUS.CHECK
+        with self._checkpoint_task_lock:
+            self._checkpoint_task = None
 
     @staticmethod
     def check_leader_is_not_in_recovery(conn_kwargs: Dict[str, Any]) -> Optional[bool]:
@@ -135,9 +137,10 @@ class Rewind(object):
                 # Message format depends on the major version:
                 # * expected at least -- starting from v16
                 # * wanted -- before v16
+                # * nothing (end of message) 9.5 and older
                 # We will simply check all possible combinations.
-                for pattern in (': expected at least ', ': wanted '):
-                    j = err[0].find(pattern, i)
+                for pattern in (': expected at least ', ': wanted ', '\n'):
+                    j = (err[0] + '\n').find(pattern, i)
                     if j > -1:
                         try:
                             return parse_lsn(err[0][i:j])
@@ -179,7 +182,7 @@ class Rewind(object):
         if self._postgresql.is_running():  # if postgres is running - get timeline from replication connection
             in_recovery = True
             timeline = self._postgresql.get_replica_timeline()
-            lsn = self._postgresql.replayed_location()
+            lsn = self._postgresql.replay_lsn()
         else:  # otherwise analyze pg_controldata output
             in_recovery, timeline, lsn = self._get_local_timeline_lsn_from_controldata()
 
@@ -222,7 +225,8 @@ class Rewind(object):
         if local_timeline is None or local_lsn is None:
             return
 
-        if isinstance(leader, Leader) and leader.member.data.get('role') not in ('master', 'primary'):
+        if isinstance(leader, Leader) and leader.member.data.get('role') not in (PostgresqlRole.MASTER,
+                                                                                 PostgresqlRole.PRIMARY):
             return
 
         # We want to use replication credentials when connecting to the "postgres" database in case if
@@ -304,10 +308,16 @@ class Rewind(object):
         if self._state != REWIND_STATUS.CHECKPOINT and self._postgresql.is_primary():
             with self._checkpoint_task_lock:
                 if self._checkpoint_task:
+                    result = None
+
                     with self._checkpoint_task:
-                        if self._checkpoint_task.result is not None:
-                            self._state = REWIND_STATUS.CHECKPOINT
-                            self._checkpoint_task = None
+                        result = self._checkpoint_task.result
+
+                    if result is True:
+                        self._state = REWIND_STATUS.CHECKPOINT
+
+                    if result is not None:
+                        self._checkpoint_task = None
                 elif self._postgresql.get_primary_timeline() == self._postgresql.pg_control_timeline():
                     self._state = REWIND_STATUS.CHECKPOINT
                 else:

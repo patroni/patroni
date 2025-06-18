@@ -14,7 +14,7 @@ from collections import defaultdict
 from copy import deepcopy
 from http.client import HTTPException
 from threading import Condition, Lock, Thread
-from typing import Any, Callable, Collection, Dict, List, Optional, Tuple, Type, TYPE_CHECKING, Union
+from typing import Any, Callable, cast, Collection, Dict, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 
 import urllib3
 import yaml
@@ -23,6 +23,7 @@ from urllib3.exceptions import HTTPError
 
 from ..collections import EMPTY_DICT
 from ..exceptions import DCSError
+from ..postgresql.misc import PostgresqlRole, PostgresqlState
 from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, iter_response_objects, \
     keepalive_socket_options, Retry, RetryFailedError, tzutc, uri, USER_AGENT
@@ -189,13 +190,12 @@ class K8sObject(object):
     @classmethod
     def _wrap(cls, parent: Optional[str], value: Any) -> Any:
         if isinstance(value, dict):
-            data_dict: Dict[str, Any] = value
+            data_dict: Dict[str, Any] = cast(Dict[str, Any], value)
             # we know that `annotations` and `labels` are dicts and therefore don't want to convert them into K8sObject
             return data_dict if parent in {'annotations', 'labels'} and \
                 all(isinstance(v, str) for v in data_dict.values()) else cls(data_dict)
         elif isinstance(value, list):
-            data_list: List[Any] = value
-            return [cls._wrap(None, v) for v in data_list]
+            return [cls._wrap(None, v) for v in cast(List[Any], value)]
         else:
             return value
 
@@ -760,6 +760,8 @@ class Kubernetes(AbstractDCS):
         self._follower_label_value = config.get('follower_label_value', 'replica')
         self._standby_leader_label_value = config.get('standby_leader_label_value', 'primary')
         self._tmp_role_label = config.get('tmp_role_label')
+        self._bootstrap_labels: Dict[str, str] = {str(k): str(v)
+                                                  for k, v in (config.get('bootstrap_labels') or EMPTY_DICT).items()}
         self._ca_certs = os.environ.get('PATRONI_KUBERNETES_CACERT', config.get('cacert')) or SERVICE_CERT_FILENAME
         super(Kubernetes, self).__init__({**config, 'namespace': ''}, mpp)
         if self._mpp.is_enabled():
@@ -1233,6 +1235,10 @@ class Kubernetes(AbstractDCS):
         return bool(_run_and_handle_exceptions(self._patch_or_create, self.leader_path, annotations,
                                                kind_resource_version, ips=ips, retry=_retry))
 
+    @staticmethod
+    def _isotime() -> str:
+        return datetime.datetime.now(tzutc).isoformat()
+
     def update_leader(self, cluster: Cluster, last_lsn: Optional[int],
                       slots: Optional[Dict[str, int]] = None, failsafe: Optional[Dict[str, str]] = None) -> bool:
         kind = self._kinds.get(self.leader_path)
@@ -1241,7 +1247,7 @@ class Kubernetes(AbstractDCS):
         if kind and kind_annotations.get(self._LEADER) != self._name:
             return False
 
-        now = datetime.datetime.now(tzutc).isoformat()
+        now = self._isotime()
         leader_observed_record = kind_annotations or self._leader_observed_record
         annotations = {self._LEADER: self._name, 'ttl': str(self._ttl), 'renewTime': now,
                        'acquireTime': leader_observed_record.get('acquireTime') or now,
@@ -1259,7 +1265,7 @@ class Kubernetes(AbstractDCS):
         return self._update_leader_with_retry(annotations, resource_version, self.__ips)
 
     def attempt_to_acquire_leader(self) -> bool:
-        now = datetime.datetime.now(tzutc).isoformat()
+        now = self._isotime()
         annotations = {self._LEADER: self._name, 'ttl': str(self._ttl),
                        'renewTime': now, 'acquireTime': now, 'transitions': '0'}
         if self._leader_observed_record:
@@ -1274,17 +1280,54 @@ class Kubernetes(AbstractDCS):
                 annotations['acquireTime'] = self._leader_observed_record.get('acquireTime') or now
             annotations['transitions'] = str(transitions)
 
+        resource_version = self._leader_resource_version
+        if resource_version:
+            kind = self._kinds.get(self.leader_path)
+            # If leader object in cache was updated we should better use fresh resource_version
+            if kind and kind.metadata.resource_version != resource_version:
+                kind_annotations = kind and kind.metadata.annotations or EMPTY_DICT
+                # But, only in case if leader annotations didn't change
+                if all(kind_annotations.get(k) == self._leader_observed_record.get(k) for k in annotations.keys()):
+                    resource_version = kind.metadata.resource_version
+
+        retry = self._retry.copy()
+
+        def _retry(*args: Any, **kwargs: Any) -> Any:
+            kwargs['_retry'] = retry
+            return retry(*args, **kwargs)
+
+        handle_conflict = False
         try:
             ret = bool(self._patch_or_create(self.leader_path, annotations,
-                                             self._leader_resource_version, retry=self.retry, ips=self.__ips))
+                                             resource_version, retry=_retry, ips=self.__ips))
         except k8s_client.rest.ApiException as e:
-            if e.status == 409 and self._leader_resource_version:  # Conflict in resource_version
+            if e.status == 409 and resource_version:  # Conflict in resource_version
                 # Terminate watchers, it could be a sign that K8s API is in a failed state
                 self._kinds.kill_stream()
                 self._pods.kill_stream()
+                handle_conflict = True
             ret = False
         except (RetryFailedError, K8sException) as e:
             raise KubernetesError(e)
+
+        if handle_conflict and retry.ensure_deadline(1):
+            # if we are here, that means update failed with 409
+            # Try to get the latest version directly from K8s API instead of relying on async cache
+            try:
+                kind = _retry(self._api.read_namespaced_kind, self.leader_path, self._namespace)
+            except (RetryFailedError, K8sException) as e:
+                raise KubernetesError(e)
+            except Exception as e:
+                logger.error('Failed to get the leader object "%s": %r', self.leader_path, e)
+            else:
+                kind_annotations = kind and kind.metadata.annotations or EMPTY_DICT
+                kind_resource_version = kind and kind.metadata.resource_version
+
+                # We can get 409 because we do at least one retry, and the first update might have succeeded,
+                # therefore we will check if annotations on the read object match expectations.
+                if kind and kind_resource_version != resource_version and\
+                        all(kind_annotations.get(k) == v for k, v in annotations.items()):
+                    ret = True
 
         if not ret:
             logger.info('Could not take out TTL lock')
@@ -1316,28 +1359,36 @@ class Kubernetes(AbstractDCS):
     def touch_member(self, data: Dict[str, Any]) -> bool:
         cluster = self.cluster
         if cluster and cluster.leader and cluster.leader.name == self._name:
-            role = self._standby_leader_label_value if data['role'] == 'standby_leader' else self._leader_label_value
+            role = self._standby_leader_label_value \
+                if data['role'] == PostgresqlRole.STANDBY_LEADER else self._leader_label_value
             tmp_role = 'primary'
-        elif data['state'] == 'running' and data['role'] != 'primary':
+        elif data['state'] == PostgresqlState.RUNNING and data['role'] != PostgresqlRole.PRIMARY:
             role = {'replica': self._follower_label_value}.get(data['role'], data['role'])
             tmp_role = data['role']
         else:
             role = None
             tmp_role = None
 
-        role_labels = {self._role_label: role}
+        updated_labels = {self._role_label: role}
         if self._tmp_role_label:
-            role_labels[self._tmp_role_label] = tmp_role
+            updated_labels[self._tmp_role_label] = tmp_role
+
+        if self._bootstrap_labels:
+            if data['state'] in (PostgresqlState.INITDB, PostgresqlState.CUSTOM_BOOTSTRAP,
+                                 PostgresqlState.BOOTSTRAP_STARTING, PostgresqlState.CREATING_REPLICA):
+                updated_labels.update(self._bootstrap_labels)
+            else:
+                updated_labels.update({k: None for k, _ in self._bootstrap_labels.items()})
 
         member = cluster and cluster.get_member(self._name, fallback_to_leader=False)
         pod_labels = member and member.data.pop('pod_labels', None)
         ret = member and pod_labels is not None\
-            and all(pod_labels.get(k) == v for k, v in role_labels.items())\
+            and all(pod_labels.get(k) == v for k, v in updated_labels.items())\
             and deep_compare(data, member.data)
 
         if not ret:
-            metadata = {'namespace': self._namespace, 'name': self._name, 'labels': role_labels,
-                        'annotations': {'status': json.dumps(data, separators=(',', ':'))}}
+            metadata: Dict[str, Any] = {'namespace': self._namespace, 'name': self._name, 'labels': updated_labels,
+                                        'annotations': {'status': json.dumps(data, separators=(',', ':'))}}
             body = k8s_client.V1Pod(metadata=k8s_client.V1ObjectMeta(**metadata))
             ret = self._api.patch_namespaced_pod(self._name, self._namespace, body)
             if ret:

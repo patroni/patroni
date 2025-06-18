@@ -77,7 +77,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'Patroni'
-copyright = '2024 Compose, Zalando SE, Patroni Contributors'
+copyright = '2025 Compose, Zalando SE, Patroni Contributors'
 author = 'Patroni Contributors'
 
 # The version info for the project you're documenting, acts as replacement for

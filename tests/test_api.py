@@ -14,10 +14,12 @@ from patroni.dcs import ClusterConfig, Member
 from patroni.exceptions import PostgresConnectionException
 from patroni.ha import _MemberStatus
 from patroni.postgresql.config import get_param_diff
+from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.psycopg import OperationalError
 from patroni.utils import RetryFailedError, tzutc
 
 from . import MockConnect, psycopg_connect
+from .test_etcd import socket_getaddrinfo
 from .test_ha import get_cluster_initialized_without_leader
 
 future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)
@@ -32,7 +34,7 @@ class MockConnection:
 
     @staticmethod
     def query(sql, *params):
-        return [(postmaster_start_time, 0, '', 0, '', False, postmaster_start_time, 'streaming', None,
+        return [(postmaster_start_time, 0, '', 0, '', False, postmaster_start_time, 1, 'streaming', None, 0,
                  '[{"application_name":"walreceiver","client_addr":"1.2.3.4",'
                  + '"state":"streaming","sync_state":"async","sync_priority":0}]')]
 
@@ -48,8 +50,8 @@ class MockPostgresql:
 
     connection_pool = MockConnectionPool()
     name = 'test'
-    state = 'running'
-    role = 'primary'
+    state = PostgresqlState.RUNNING
+    role = PostgresqlRole.PRIMARY
     server_version = 90625
     major_version = 90600
     sysid = 'dummysysid'
@@ -212,20 +214,22 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, 'GET /read-only')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={})):
             MockRestApiServer(RestApiHandler, 'GET /replica')
-        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'primary'})):
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': PostgresqlRole.PRIMARY})):
             MockRestApiServer(RestApiHandler, 'GET /replica')
-        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'state': 'running'})):
+        with patch.object(RestApiHandler, 'get_postgresql_status',
+                          Mock(return_value={'state': PostgresqlState.RUNNING})):
             MockRestApiServer(RestApiHandler, 'GET /health')
         MockRestApiServer(RestApiHandler, 'GET /leader')
         with patch.object(RestApiHandler, 'get_postgresql_status',
-                          Mock(return_value={'role': 'replica', 'sync_standby': True})):
+                          Mock(return_value={'role': PostgresqlRole.REPLICA, 'sync_standby': True})):
             MockRestApiServer(RestApiHandler, 'GET /synchronous')
             MockRestApiServer(RestApiHandler, 'GET /read-only-sync')
         with patch.object(RestApiHandler, 'get_postgresql_status',
-                          Mock(return_value={'role': 'replica', 'quorum_standby': True})):
+                          Mock(return_value={'role': PostgresqlRole.REPLICA, 'quorum_standby': True})):
             MockRestApiServer(RestApiHandler, 'GET /quorum')
             MockRestApiServer(RestApiHandler, 'GET /read-only-quorum')
-        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'replica'})):
+        with patch.object(RestApiHandler, 'get_postgresql_status',
+                          Mock(return_value={'role': PostgresqlRole.REPLICA})):
             MockRestApiServer(RestApiHandler, 'GET /asynchronous')
         with patch.object(MockHa, 'is_leader', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /replica')
@@ -234,12 +238,13 @@ class TestRestApiHandler(unittest.TestCase):
             with patch.object(global_config.__class__, 'is_standby_cluster', Mock(return_value=True)):
                 MockRestApiServer(RestApiHandler, 'GET /standby_leader')
         MockPatroni.dcs.cluster = None
-        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'primary'})):
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': PostgresqlRole.PRIMARY})):
             MockRestApiServer(RestApiHandler, 'GET /primary')
         with patch.object(MockHa, 'restart_scheduled', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /primary')
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /primary'))
-        with patch.object(RestApiServer, 'query', Mock(return_value=[('', 1, '', '', '', '', False, None, None, '')])):
+        with patch.object(RestApiServer, 'query',
+                          Mock(return_value=[('', 1, '', '', '', '', False, None, 0, None, 0, '')])):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
         with patch.object(global_config.__class__, 'is_standby_cluster', Mock(return_value=True)), \
                 patch.object(global_config.__class__, 'is_paused', Mock(return_value=True)):
@@ -260,7 +265,7 @@ class TestRestApiHandler(unittest.TestCase):
                                           'tag_key1=true&tag_key2=false&'
                                           'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag&tag_key6=RandomTag2')
         #
-        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'primary'})):
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': PostgresqlRole.PRIMARY})):
             MockRestApiServer(RestApiHandler, 'GET /primary?lag=1M&'
                                               'tag_key1=true&tag_key2=false&'
                                               'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
@@ -274,7 +279,8 @@ class TestRestApiHandler(unittest.TestCase):
                                               'tag_key1=true&tag_key2=false&'
                                               'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag&tag_key6=RandomTag2')
         #
-        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'standby_leader'})):
+        with patch.object(RestApiHandler, 'get_postgresql_status',
+                          Mock(return_value={'role': PostgresqlRole.STANDBY_LEADER})):
             MockRestApiServer(RestApiHandler, 'GET /standby_leader?lag=1M&'
                                               'tag_key1=true&tag_key2=false&'
                                               'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
@@ -301,7 +307,7 @@ class TestRestApiHandler(unittest.TestCase):
                                           'tag_key1=true&tag_key2=false&'
                                           'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag&tag_key6=RandomTag2')
         #
-        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': 'primary'})):
+        with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={'role': PostgresqlRole.PRIMARY})):
             MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M&'
                                               'tag_key1=true&tag_key2=false&'
                                               'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag')
@@ -328,10 +334,14 @@ class TestRestApiHandler(unittest.TestCase):
                                           'tag_key1=true&tag_key2=false&'
                                           'tag_key3=1&tag_key4=1.4&tag_key5=RandomTag&tag_key6=RandomTag2')
 
-    def test_do_OPTIONS(self):
+    @patch.object(MockPatroni, 'dcs')
+    def test_do_OPTIONS(self, mock_dcs):
+        mock_dcs.cluster.status.last_lsn = 20
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'OPTIONS / HTTP/1.0'))
 
-    def test_do_HEAD(self):
+    @patch.object(MockPatroni, 'dcs')
+    def test_do_HEAD(self, mock_dcs):
+        mock_dcs.cluster.status.last_lsn = 20
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'HEAD / HTTP/1.0'))
 
     @patch.object(MockPatroni, 'dcs')
@@ -340,13 +350,46 @@ class TestRestApiHandler(unittest.TestCase):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /liveness HTTP/1.0'))
 
     def test_do_GET_readiness(self):
-        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0'))
+        MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0')
         with patch.object(MockHa, 'is_leader', Mock(return_value=True)):
-            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0'))
-        with patch.object(MockPostgresql, 'state', PropertyMock(return_value='stopped')):
-            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0'))
+            MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0')
+        with patch.object(MockPostgresql, 'state', PropertyMock(return_value=PostgresqlState.STOPPED)):
+            MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0')
 
-    @patch.object(MockPostgresql, 'state', PropertyMock(return_value='stopped'))
+        # Replica not streaming results in error
+        with patch.object(MockPostgresql, 'replication_state_from_parameters', Mock(return_value=None)), \
+                patch.object(RestApiHandler, '_write_status_code_only') as response_mock:
+            MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0')
+            response_mock.assert_called_with(503)
+
+        def patch_query(latest_lsn, received_location, replayed_location):
+            return patch.object(MockConnection, 'query', Mock(return_value=[
+                (postmaster_start_time, 0, '', replayed_location, '', False, postmaster_start_time, latest_lsn,
+                 None, None, received_location, '[]')]))
+
+        # Replica lagging on replay
+        with patch_query(latest_lsn=120, received_location=115, replayed_location=100), \
+                patch.object(RestApiHandler, '_write_status_code_only') as response_mock:
+            MockRestApiServer(RestApiHandler, 'GET /readiness?lag=10&mode=write HTTP/1.0')
+            response_mock.assert_called_with(200)
+            response_mock.reset_mock()
+            MockRestApiServer(RestApiHandler, 'GET /readiness?lag=10 HTTP/1.0')
+            response_mock.assert_called_with(503)
+
+        # DCS not available
+        MockPatroni.dcs.cluster = None
+        with patch_query(None, None, None), \
+                patch.object(RestApiHandler, '_write_status_code_only') as response_mock:
+            # Failsafe active
+            MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0')
+            response_mock.assert_called_with(200)
+            response_mock.reset_mock()
+            # Failsafe disabled:
+            with patch.object(MockHa, 'failsafe_is_active', Mock(return_value=False)):
+                MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0')
+                response_mock.assert_called_with(503)
+
+    @patch.object(MockPostgresql, 'state', PropertyMock(return_value=PostgresqlState.STOPPED))
     def test_do_GET_patroni(self):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /patroni'))
 
@@ -453,27 +496,29 @@ class TestRestApiHandler(unittest.TestCase):
         request = make_request(schedule=future_restart_time.isoformat(), role='unknown', postgres_version='9.5.3')
         MockRestApiServer(RestApiHandler, request)
         # wrong version
-        request = make_request(schedule=future_restart_time.isoformat(), role='primary', postgres_version='9.5.3.1')
+        request = make_request(schedule=future_restart_time.isoformat(),
+                               role=PostgresqlRole.PRIMARY, postgres_version='9.5.3.1')
         MockRestApiServer(RestApiHandler, request)
         # unknown filter
         request = make_request(schedule=future_restart_time.isoformat(), batman='lives')
         MockRestApiServer(RestApiHandler, request)
         # incorrect schedule
-        request = make_request(schedule='2016-08-42 12:45TZ+1', role='primary')
+        request = make_request(schedule='2016-08-42 12:45TZ+1', role=PostgresqlRole.PRIMARY)
         MockRestApiServer(RestApiHandler, request)
         # everything fine, but the schedule is missing
-        request = make_request(role='primary', postgres_version='9.5.2')
+        request = make_request(role=PostgresqlRole.PRIMARY, postgres_version='9.5.2')
         MockRestApiServer(RestApiHandler, request)
         for retval in (True, False):
             with patch.object(MockHa, 'schedule_future_restart', Mock(return_value=retval)):
                 request = make_request(schedule=future_restart_time.isoformat())
                 MockRestApiServer(RestApiHandler, request)
             with patch.object(MockHa, 'restart', Mock(return_value=(retval, "foo"))):
-                request = make_request(role='primary', postgres_version='9.5.2')
+                request = make_request(role=PostgresqlRole.PRIMARY, postgres_version='9.5.2')
                 MockRestApiServer(RestApiHandler, request)
 
         with patch.object(global_config.__class__, 'is_paused', PropertyMock(return_value=True)):
-            MockRestApiServer(RestApiHandler, make_request(schedule='2016-08-42 12:45TZ+1', role='primary'))
+            MockRestApiServer(RestApiHandler,
+                              make_request(schedule='2016-08-42 12:45TZ+1', role=PostgresqlRole.PRIMARY))
             # Valid timeout
             MockRestApiServer(RestApiHandler, make_request(timeout='60s'))
             # Invalid timeout
@@ -706,6 +751,7 @@ class TestRestApiServer(unittest.TestCase):
                 patch.object(MockRestApiServer, 'server_close', Mock()):
             self.srv.reload_config({'listen': ':8008'})
 
+    @patch('socket.getaddrinfo', socket_getaddrinfo)
     @patch.object(MockPatroni, 'dcs')
     def test_check_access(self, mock_dcs):
         mock_dcs.cluster = get_cluster_initialized_without_leader()

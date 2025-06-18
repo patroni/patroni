@@ -38,8 +38,11 @@ def iter_modules(package: str) -> List[str]:
         for importer in pkgutil.iter_importers():
             if hasattr(importer, 'toc'):
                 toc |= getattr(importer, 'toc')
-        dots = module_prefix.count('.')  # search for modules only on the same level
-        return [module for module in toc if module.startswith(module_prefix) and module.count('.') == dots]
+        # If it found the pyinstaller toc then use it, otherwise fall through to default
+        # behavior which works in pyinstaller >= 4.4
+        if len(toc) > 0:
+            dots = module_prefix.count('.')  # search for modules only on the same level
+            return [module for module in toc if module.startswith(module_prefix) and module.count('.') == dots]
 
     # here we are making an assumption that the package which is calling this function is already imported
     pkg_file = sys.modules[package].__file__

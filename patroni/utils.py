@@ -923,9 +923,7 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
 
             * ``name``: the name of the host (unique in the cluster). The ``members`` list is sorted by this key;
             * ``role``: ``leader``, ``standby_leader``, ``sync_standby``, ``quorum_standby``, or ``replica``;
-            * ``state``: ``stopping``, ``stopped``, ``stop failed``, ``crashed``, ``running``, ``starting``,
-                ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``, ``initdb failed``,
-                ``running custom bootstrap script``, ``custom bootstrap failed``, or ``creating replica``;
+            * ``state``: one of :class:`~patroni.postgresql.misc.PostgresqlState`;
             * ``api_url``: REST API URL based on ``restapi->connect_address`` configuration;
             * ``host``: PostgreSQL host based on ``postgresql->connect_address``;
             * ``port``: PostgreSQL port based on ``postgresql->connect_address``;
@@ -933,7 +931,14 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
             * ``pending_restart``: ``True`` if PostgreSQL is pending to be restarted;
             * ``scheduled_restart``: scheduled restart timestamp, if any;
             * ``tags``: any tags that were set for this member;
-            * ``lag``: replication lag, if applicable;
+            * ``lsn``: current WAL position. See :meth:`Postgresql._wal_position`
+            * ``receive_lsn``: receive LSN (``pg_catalog.pg_last_(xlog|wal)_receive_(location|lsn)()``),
+                if applicable;
+            * ``replay_lsn``: replay LSN (``pg_catalog.pg_last_(xlog|wal)_replay_(location|lsn)()``),
+                if applicable;
+            * ``lag``: replication lag for ``lsn``, if applicable;
+            * ``receive_lag``: lag of the receive LSN;
+            * ``replay_lag``: lag of the replay LSN;
 
         * ``pause``: ``True`` if cluster is in maintenance mode;
         * ``scheduled_switchover``: if a switchover has been scheduled, then it contains this entry with these keys:
@@ -943,6 +948,7 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
             * ``to``: name of the member to be promoted.
     """
     from . import global_config
+    from .postgresql.misc import format_lsn
 
     config = global_config.from_cluster(cluster)
     leader_name = cluster.leader.name if cluster.leader else None
@@ -969,13 +975,18 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
         member.update({n: m.data[n] for n in optional_attributes if n in m.data})
 
         if m.name != leader_name:
-            lsn = m.lsn
-            if lsn is None:
-                member['lag'] = 'unknown'
-            elif cluster_lsn >= lsn:
-                member['lag'] = cluster_lsn - lsn
-            else:
-                member['lag'] = 0
+            for location in ('receive_', 'replay_', ''):
+                lsn_type, lag_type = f'{location}lsn', f'{location}lag'
+
+                lsn = getattr(m, lsn_type)
+                if not lsn:
+                    member[lsn_type] = member[lag_type] = 'unknown'
+                elif cluster_lsn >= lsn:
+                    member[lag_type] = cluster_lsn - lsn
+                    member[lsn_type] = format_lsn(lsn)
+                else:
+                    member[lag_type] = 0
+                    member[lsn_type] = format_lsn(lsn)
 
         ret['members'].append(member)
 

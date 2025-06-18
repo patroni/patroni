@@ -26,12 +26,17 @@ def install_requirements(what):
     # try to split tests between psycopg2 and psycopg3
     requirements += ['psycopg[binary]'] if sys.version_info >= (3, 8, 0) and\
         (sys.platform != 'darwin' or what == 'etcd3') else ['psycopg2-binary']
+
+    from pip._vendor.distlib.markers import evaluator, DEFAULT_CONTEXT
+    from pip._vendor.distlib.util import parse_requirement
+
     for r in read('requirements.txt').split('\n'):
-        r = r.strip()
-        if r != '':
-            extras = {e for e, v in EXTRAS_REQUIRE.items() if v and any(r.startswith(x) for x in v)}
-            if not extras or what == 'all' or what in extras:
-                requirements.append(r)
+        r = parse_requirement(r)
+        if not r or r.marker and not evaluator.evaluate(r.marker, DEFAULT_CONTEXT):
+            continue
+        extras = {e for e, v in EXTRAS_REQUIRE.items() if v and any(r.requirement.startswith(x) for x in v)}
+        if not extras or what == 'all' or what in extras:
+            requirements.append(r.requirement)
 
     return subprocess.call([sys.executable, '-m', 'pip', 'install'] + requirements)
 
@@ -46,8 +51,8 @@ def install_packages(what):
     packages['exhibitor'] = packages['zookeeper']
     packages = packages.get(what, [])
     ver = versions.get(what)
-    if 15 <= float(ver) < 17:
-        packages += ['postgresql-{0}-citus-12.1'.format(ver)]
+    if 15 <= float(ver) < 18:
+        packages += ['postgresql-{0}-citus-13.0'.format(ver)]
     subprocess.call(['sudo', 'apt-get', 'update', '-y'])
     return subprocess.call(['sudo', 'apt-get', 'install', '-y', 'postgresql-' + ver, 'expect-dev'] + packages)
 

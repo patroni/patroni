@@ -30,7 +30,7 @@ from . import global_config, psycopg
 from .__main__ import Patroni
 from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
-from .postgresql.misc import postgres_version_to_int
+from .postgresql.misc import postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .utils import cluster_as_json, deep_compare, enable_keepalive, parse_bool, \
     parse_int, patch_config, Retry, RetryFailedError, split_host_port, tzutc, uri
 
@@ -310,12 +310,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         path = '/primary' if self.path == '/' else self.path
         response = self.get_postgresql_status()
+        latest_end_lsn = response.pop('latest_end_lsn', 0)
 
         patroni = self.server.patroni
         cluster = patroni.dcs.cluster
         config = global_config.from_cluster(cluster)
 
-        leader_optime = cluster and cluster.status.last_lsn
+        leader_optime = max(cluster and cluster.status.last_lsn or 0, latest_end_lsn)
         replayed_location = response.get('xlog', {}).get('replayed_location', 0)
         max_replica_lag = parse_int(self.path_query.get('lag', [sys.maxsize])[0], 'B')
         if max_replica_lag is None:
@@ -323,17 +324,19 @@ class RestApiHandler(BaseHTTPRequestHandler):
         is_lagging = leader_optime and leader_optime > replayed_location + max_replica_lag
 
         replica_status_code = 200 if not patroni.noloadbalance and not is_lagging and \
-            response.get('role') == 'replica' and response.get('state') == 'running' else 503
+            response.get('role') == PostgresqlRole.REPLICA and response.get('state') == PostgresqlState.RUNNING else 503
 
         if not cluster and response.get('pause'):
-            leader_status_code = 200 if response.get('role') in ('primary', 'standby_leader') else 503
-            primary_status_code = 200 if response.get('role') == 'primary' else 503
-            standby_leader_status_code = 200 if response.get('role') == 'standby_leader' else 503
+            leader_status_code = 200 if response.get('role') in (PostgresqlRole.PRIMARY,
+                                                                 PostgresqlRole.STANDBY_LEADER) else 503
+            primary_status_code = 200 if response.get('role') == PostgresqlRole.PRIMARY else 503
+            standby_leader_status_code = 200 if response.get('role') == PostgresqlRole.STANDBY_LEADER else 503
         elif patroni.ha.is_leader():
             leader_status_code = 200
             if config.is_standby_cluster:
                 primary_status_code = replica_status_code = 503
-                standby_leader_status_code = 200 if response.get('role') in ('replica', 'standby_leader') else 503
+                standby_leader_status_code =\
+                    200 if response.get('role') in (PostgresqlRole.REPLICA, PostgresqlRole.STANDBY_LEADER) else 503
             else:
                 primary_status_code = 200
                 standby_leader_status_code = 503
@@ -357,7 +360,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         elif 'read-only' in path and 'sync' not in path and 'quorum' not in path:
             status_code = 200 if 200 in (primary_status_code, standby_leader_status_code) else replica_status_code
         elif 'health' in path:
-            status_code = 200 if response.get('state') == 'running' else 503
+            status_code = 200 if response.get('state') == PostgresqlState.RUNNING else 503
         elif cluster:  # dcs is available
             is_quorum = response.get('quorum_standby')
             is_synchronous = response.get('sync_standby')
@@ -435,7 +438,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         """
         patroni: Patroni = self.server.patroni
-        is_primary = patroni.postgresql.role == 'primary' and patroni.postgresql.is_running()
+        is_primary = patroni.postgresql.role == PostgresqlRole.PRIMARY and patroni.postgresql.is_running()
         # We can tolerate Patroni problems longer on the replica.
         # On the primary the liveness probe most likely will start failing only after the leader key expired.
         # It should not be a big problem because replicas will see that the primary is still alive via REST API call.
@@ -445,27 +448,73 @@ class RestApiHandler(BaseHTTPRequestHandler):
         status_code = 200 if patroni.ha.is_paused() or patroni.next_run + liveness_threshold > time.time() else 503
         self._write_status_code_only(status_code)
 
+    def _readiness(self) -> Optional[str]:
+        """Check if readiness conditions are met.
+
+        :returns: None if node can be considered ready or diagnostic message if not."""
+
+        patroni = self.server.patroni
+        if patroni.ha.is_leader():
+            # We only become leader after bootstrap or once up as a standby, so we are definitely ready.
+            return
+
+        # When postgres is not running we are not ready.
+        if patroni.postgresql.state != PostgresqlState.RUNNING:
+            return 'PostgreSQL is not running'
+
+        postgres = self.get_postgresql_status(True)
+        latest_end_lsn = postgres.get('latest_end_lsn', 0)
+
+        if postgres.get('replication_state') != 'streaming':
+            return 'PostgreSQL replication state is not streaming'
+
+        cluster = patroni.dcs.cluster
+
+        if not cluster and not latest_end_lsn:
+            if patroni.ha.failsafe_is_active():
+                return
+            return 'DCS is not accessible'
+
+        leader_optime = max(cluster and cluster.status.last_lsn or 0, latest_end_lsn)
+
+        mode = 'write' if self.path_query.get('mode', [None])[0] == 'write' else 'apply'
+        location = 'received_location' if mode == 'write' else 'replayed_location'
+        lag = leader_optime - postgres.get('xlog', {}).get(location, 0)
+
+        max_replica_lag = parse_int(self.path_query.get('lag', [None])[0], 'B')
+        if max_replica_lag is None:
+            max_replica_lag = global_config.maximum_lag_on_failover
+
+        if lag > max_replica_lag:
+            return f'Replication {mode} lag {lag} exceeds maximum allowable {max_replica_lag}'
+
     def do_GET_readiness(self) -> None:
         """Handle a ``GET`` request to ``/readiness`` path.
+
+            * Query parameters:
+
+                * ``lag``: only accept replication lag up to ``lag``. Accepts either an :class:`int`, which
+                    represents lag in bytes, or a :class:`str` representing lag in human-readable format (e.g.
+                    ``10MB``).
+                * ``mode``: allowed values ``write``, ``apply``. Base replication lag off of received WAL or
+                    replayed WAL. Defaults to ``apply``.
 
         Write a simple HTTP response which HTTP status can be:
 
             * ``200``:
 
-                * If this Patroni node holds the DCS leader lock; or
-                * If this PostgreSQL instance is up and running;
+                * If this Patroni node considers itself the leader; or
+                * If PostgreSQL is running, replicating and not lagging;
 
             * ``503``: if none of the previous conditions apply.
 
         """
-        patroni = self.server.patroni
-        if patroni.ha.is_leader():
-            status_code = 200
-        elif patroni.postgresql.state == 'running':
-            status_code = 200 if patroni.dcs.cluster else 503
-        else:
-            status_code = 503
-        self._write_status_code_only(status_code)
+        failure_reason = self._readiness()
+
+        if failure_reason:
+            logger.debug("Readiness check failure: %s", failure_reason)
+
+        self._write_status_code_only(200 if not failure_reason else 503)
 
     def do_GET_patroni(self) -> None:
         """Handle a ``GET`` request to ``/patroni`` path.
@@ -474,6 +523,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Postgres.
         """
         response = self.get_postgresql_status(True)
+        response.pop('latest_end_lsn', None)
         self._write_status_response(200, response)
 
     def do_GET_cluster(self) -> None:
@@ -571,7 +621,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics.append("# HELP patroni_postgres_running Value is 1 if Postgres is running, 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_running gauge")
-        metrics.append("patroni_postgres_running{0} {1}".format(labels, int(postgres['state'] == 'running')))
+        metrics.append("patroni_postgres_running{0} {1}".format(
+            labels, int(postgres['state'] == PostgresqlState.RUNNING)))
 
         metrics.append("# HELP patroni_postmaster_start_time Epoch seconds since Postgres started.")
         metrics.append("# TYPE patroni_postmaster_start_time gauge")
@@ -581,7 +632,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics.append("# HELP patroni_primary Value is 1 if this node is the leader, 0 otherwise.")
         metrics.append("# TYPE patroni_primary gauge")
-        metrics.append("patroni_primary{0} {1}".format(labels, int(postgres['role'] == 'primary')))
+        metrics.append("patroni_primary{0} {1}".format(labels, int(postgres['role'] == PostgresqlRole.PRIMARY)))
 
         metrics.append("# HELP patroni_xlog_location Current location of the Postgres"
                        " transaction log, 0 if this node is not the leader.")
@@ -590,11 +641,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics.append("# HELP patroni_standby_leader Value is 1 if this node is the standby_leader, 0 otherwise.")
         metrics.append("# TYPE patroni_standby_leader gauge")
-        metrics.append("patroni_standby_leader{0} {1}".format(labels, int(postgres['role'] == 'standby_leader')))
+        metrics.append("patroni_standby_leader{0} {1}".format(labels,
+                                                              int(postgres['role'] == PostgresqlRole.STANDBY_LEADER)))
 
         metrics.append("# HELP patroni_replica Value is 1 if this node is a replica, 0 otherwise.")
         metrics.append("# TYPE patroni_replica gauge")
-        metrics.append("patroni_replica{0} {1}".format(labels, int(postgres['role'] == 'replica')))
+        metrics.append("patroni_replica{0} {1}".format(labels, int(postgres['role'] == PostgresqlRole.REPLICA)))
 
         metrics.append("# HELP patroni_sync_standby Value is 1 if this node is a sync standby, 0 otherwise.")
         metrics.append("# TYPE patroni_sync_standby gauge")
@@ -887,7 +939,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             If it's not able to parse the request body, then the request is silently discarded.
         """
         status_code = 500
-        data = 'restart failed'
+        data = PostgresqlState.RESTART_FAILED
         request = self._read_json_content(body_is_optional=True)
         cluster = self.server.patroni.dcs.get_cluster()
         if request is None:
@@ -907,7 +959,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     status_code = _
                     break
             elif k == 'role':
-                if request[k] not in ('primary', 'standby_leader', 'replica'):
+                if request[k] not in (PostgresqlRole.PRIMARY, PostgresqlRole.STANDBY_LEADER, PostgresqlRole.REPLICA):
                     status_code = 400
                     data = "PostgreSQL role should be either primary, standby_leader, or replica"
                     break
@@ -1261,20 +1313,19 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         :returns: a dict with the status of Postgres/Patroni. The keys are:
 
-            * ``state``: Postgres state among ``stopping``, ``stopped``, ``stop failed``, ``crashed``, ``running``,
-              ``starting``, ``start failed``, ``restarting``, ``restart failed``, ``initializing new cluster``,
-              ``initdb failed``, ``running custom bootstrap script``, ``custom bootstrap failed``,
-              ``creating replica``, or ``unknown``;
+            * ``state``: one of :class:`~patroni.postgresql.misc.PostgresqlState` or ``unknown``;
             * ``postmaster_start_time``: ``pg_postmaster_start_time()``;
-            * ``role``: ``replica`` or ``primary`` based on ``pg_is_in_recovery()`` output;
+            * ``role``: :class:`~patroni.postgresql.misc.PostgresqlRole.REPLICA` or
+                :class:`~patroni.postgresql.misc.PostgresqlRole.PRIMARY` based on ``pg_is_in_recovery()`` output;
             * ``server_version``: Postgres version without periods, e.g. ``150002`` for Postgres ``15.2``;
+            * ``latest_end_lsn``: latest_end_lsn value from ``pg_stat_get_wal_receiver()``, only on replica nodes;
             * ``xlog``: dictionary. Its structure depends on ``role``:
 
-                * If ``primary``:
+                * If :class:`~patroni.postgresql.misc.PostgresqlRole.PRIMARY`:
 
                     * ``location``: ``pg_current_wal_flush_lsn()``
 
-                * If ``replica``:
+                * If :class:`~patroni.postgresql.misc.PostgresqlRole.REPLICA`:
 
                     * ``received_location``: ``pg_wal_lsn_diff(pg_last_wal_receive_lsn(), '0/0')``;
                     * ``replayed_location``: ``pg_wal_lsn_diff(pg_last_wal_replay_lsn(), '0/0)``;
@@ -1305,27 +1356,31 @@ class RestApiHandler(BaseHTTPRequestHandler):
         config = global_config.from_cluster(cluster)
         try:
 
-            if postgresql.state not in ('running', 'restarting', 'starting'):
+            if postgresql.state not in (PostgresqlState.RUNNING, PostgresqlState.RESTARTING,
+                                        PostgresqlState.STARTING):
                 raise RetryFailedError('')
-            replication_state = ('(pg_catalog.pg_stat_get_wal_receiver()).status'
-                                 if postgresql.major_version >= 90600 else 'NULL') + ", " +\
-                ("pg_catalog.current_setting('restore_command')" if postgresql.major_version >= 120000 else "NULL")
+            replication_state = ("pg_catalog.pg_{0}_{1}_diff(wr.latest_end_lsn, '0/0')::bigint, wr.status"
+                                 if postgresql.major_version >= 90600 else "NULL, NULL") + ", " +\
+                ("pg_catalog.current_setting('restore_command')" if postgresql.major_version >= 120000 else "NULL") +\
+                ", " + ("pg_catalog.pg_wal_lsn_diff(wr.written_lsn, '0/0')::bigint"
+                        if postgresql.major_version >= 130000 else "NULL")
             stmt = ("SELECT " + postgresql.POSTMASTER_START_TIME + ", " + postgresql.TL_LSN + ","
                     " pg_catalog.pg_last_xact_replay_timestamp(), " + replication_state + ","
-                    " pg_catalog.array_to_json(pg_catalog.array_agg(pg_catalog.row_to_json(ri))) "
+                    " (SELECT pg_catalog.array_to_json(pg_catalog.array_agg(pg_catalog.row_to_json(ri))) "
                     "FROM (SELECT (SELECT rolname FROM pg_catalog.pg_authid WHERE oid = usesysid) AS usename,"
                     " application_name, client_addr, w.state, sync_state, sync_priority"
-                    " FROM pg_catalog.pg_stat_get_wal_senders() w, pg_catalog.pg_stat_get_activity(pid)) AS ri")
+                    " FROM pg_catalog.pg_stat_get_wal_senders() w, pg_catalog.pg_stat_get_activity(pid)) AS ri)") +\
+                (" FROM pg_catalog.pg_stat_get_wal_receiver() AS wr" if postgresql.major_version >= 90600 else "")
 
             row = self.query(stmt.format(postgresql.wal_name, postgresql.lsn_name,
                                          postgresql.wal_flush), retry=retry)[0]
             result = {
                 'state': postgresql.state,
                 'postmaster_start_time': row[0],
-                'role': 'replica' if row[1] == 0 else 'primary',
+                'role': PostgresqlRole.REPLICA if row[1] == 0 else PostgresqlRole.PRIMARY,
                 'server_version': postgresql.server_version,
                 'xlog': ({
-                    'received_location': row[4] or row[3],
+                    'received_location': row[10] or row[4] or row[3],
                     'replayed_location': row[3],
                     'replayed_timestamp': row[6],
                     'paused': row[5]} if row[1] == 0 else {
@@ -1333,10 +1388,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 })
             }
 
-            if result['role'] == 'replica' and config.is_standby_cluster:
+            if result['role'] == PostgresqlRole.REPLICA and config.is_standby_cluster:
                 result['role'] = postgresql.role
 
-            if result['role'] == 'replica' and config.is_synchronous_mode\
+            if result['role'] == PostgresqlRole.REPLICA and config.is_synchronous_mode\
                     and cluster and cluster.sync.matches(postgresql.name):
                 result['quorum_standby' if global_config.is_quorum_commit_mode else 'sync_standby'] = True
 
@@ -1347,16 +1402,19 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     if not cluster or cluster.is_unlocked() or not cluster.leader else cluster.leader.timeline
                 result['timeline'] = postgresql.replica_cached_timeline(leader_timeline)
 
-            replication_state = postgresql.replication_state_from_parameters(row[1] > 0, row[7], row[8])
+            if row[7]:
+                result['latest_end_lsn'] = row[7]
+
+            replication_state = postgresql.replication_state_from_parameters(row[1] > 0, row[8], row[9])
             if replication_state:
                 result['replication_state'] = replication_state
 
-            if row[9]:
-                result['replication'] = row[9]
+            if row[11]:
+                result['replication'] = row[11]
 
         except (psycopg.Error, RetryFailedError, PostgresConnectionException):
             state = postgresql.state
-            if state == 'running':
+            if state == PostgresqlState.RUNNING:
                 logger.exception('get_postgresql_status')
                 state = 'unknown'
             result: Dict[str, Any] = {'state': state, 'role': postgresql.role}
@@ -1600,13 +1658,16 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if hostname in ('', '*'):
             hostname = None
 
-        info = socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
+        # Filter out unexpected results when python is compiled with --disable-ipv6 and running on IPv6 system.
+        info = [(a[0], a[4][0], a[4][1])
+                for a in socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
+                if isinstance(a[4][0], str) and isinstance(a[4][1], int)]
         # in case dual stack is not supported we want IPv4 to be preferred over IPv6
         info.sort(key=lambda x: x[0] == socket.AF_INET, reverse=not dual_stack)
 
         self.address_family = info[0][0]
         try:
-            HTTPServer.__init__(self, info[0][-1][:2], RestApiHandler)
+            HTTPServer.__init__(self, (info[0][1], info[0][2]), RestApiHandler)
         except socket.error:
             logger.error(
                 "Couldn't start a service on '%s:%s', please check your `restapi.listen` configuration", hostname, port)

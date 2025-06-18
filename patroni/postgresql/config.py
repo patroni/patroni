@@ -16,10 +16,11 @@ from ..collections import CaseInsensitiveDict, CaseInsensitiveSet, EMPTY_DICT
 from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException, PostgresConnectionException
 from ..file_perm import pg_perm
-from ..postgresql.misc import get_major_from_minor_version, postgres_version_to_int
+from ..psycopg import parse_conninfo
 from ..utils import compare_values, get_postgres_version, is_subpath, \
     maybe_convert_from_base_unit, parse_bool, parse_int, split_host_port, uri, validate_directory
 from ..validator import EnumValidator, IntValidator
+from .misc import get_major_from_minor_version, postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -30,7 +31,17 @@ logger = logging.getLogger(__name__)
 PARAMETER_RE = re.compile(r'([a-z_]+)\s*=\s*')
 
 
-def conninfo_uri_parse(dsn: str) -> Dict[str, str]:
+def _conninfo_uri_parse(dsn: str) -> Dict[str, str]:
+    """
+    >>> r = _conninfo_uri_parse('postgresql://u%2Fse:pass@:%2f123/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
+    >>> r == {'application_name': 'mya/pp', 'dbname': 'db/sdf', 'sslmode': 'require',\
+              'password': 'pass', 'port': '/123', 'user': 'u/se'}
+    True
+    >>> r = _conninfo_uri_parse('postgresql://u%2Fse:pass@[::1]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
+    >>> r == {'application_name': 'mya/pp', 'dbname': 'db/sdf', 'host': '::1', 'sslmode': 'require',\
+              'password': 'pass', 'user': 'u/se'}
+    True
+    """
     ret: Dict[str, str] = {}
     r = urlparse(dsn)
     if r.username:
@@ -52,9 +63,9 @@ def conninfo_uri_parse(dsn: str) -> Dict[str, str]:
             host = tmp[0]
         hosts.append(host)
         ports.append(tmp[1] if len(tmp) == 2 else '')
-    if hosts:
+    if any(map(len, hosts)):
         ret['host'] = ','.join(hosts)
-    if ports:
+    if any(map(len, ports)):
         ret['port'] = ','.join(ports)
     ret = {name: unquote(value) for name, value in ret.items()}
     ret.update({name: value for name, value in parse_qsl(r.query)})
@@ -84,7 +95,20 @@ def read_param_value(value: str) -> Union[Tuple[None, None], Tuple[str, int]]:
     return (None, None) if is_quoted else (ret, i)
 
 
-def conninfo_parse(dsn: str) -> Optional[Dict[str, str]]:
+def _conninfo_dsn_parse(dsn: str) -> Optional[Dict[str, str]]:
+    """
+    >>> r = _conninfo_dsn_parse(" host = 'host' dbname = db\\\\ name requiressl=1 ")
+    >>> r == {'dbname': 'db name', 'host': 'host', 'requiressl': '1'}
+    True
+    >>> _conninfo_dsn_parse('requiressl = 0\\\\') == {'requiressl': '0'}
+    True
+    >>> _conninfo_dsn_parse("host=a foo = '") is None
+    True
+    >>> _conninfo_dsn_parse("host=a foo = ") is None
+    True
+    >>> _conninfo_dsn_parse("1") is None
+    True
+    """
     ret: Dict[str, str] = {}
     length = len(dsn)
     i = 0
@@ -111,17 +135,44 @@ def conninfo_parse(dsn: str) -> Optional[Dict[str, str]]:
     return ret
 
 
-def parse_dsn(value: str) -> Optional[Dict[str, str]]:
+def _conninfo_parse(value: str) -> Optional[Dict[str, str]]:
     """
     Very simple equivalent of `psycopg2.extensions.parse_dsn` introduced in 2.7.0.
-    We are not using psycopg2 function in order to remain compatible with 2.5.4+.
-    There are a few minor differences though, this function sets the `sslmode`, 'gssencmode',
-    and `channel_binding` to `prefer` if they are not present in the connection string.
+    Exists just for compatibility with 2.5.4+.
+
+    >>> r = _conninfo_parse('postgresql://foo/postgres')
+    >>> r == {'dbname': 'postgres', 'host': 'foo'}
+    True
+    >>> r = _conninfo_parse(" host = 'host' dbname = db\\\\ name requiressl=1 ")
+    >>> r == {'dbname': 'db name', 'host': 'host', 'sslmode': 'require'}
+    True
+    >>> _conninfo_parse('requiressl = 0\\\\') == {'sslmode': 'prefer'}
+    True
+    """
+
+    if value.startswith('postgres://') or value.startswith('postgresql://'):
+        ret = _conninfo_uri_parse(value)
+    else:
+        ret = _conninfo_dsn_parse(value)
+
+    if ret and 'sslmode' not in ret:  # allow sslmode to take precedence over requiressl
+        requiressl = ret.pop('requiressl', None)
+        if requiressl == '1':
+            ret['sslmode'] = 'require'
+        elif requiressl is not None:
+            ret['sslmode'] = 'prefer'
+    return ret
+
+
+def parse_dsn(value: str) -> Optional[Dict[str, str]]:
+    """
+    Compatibility layer on top of function from psycopg2/psycopg3, which parses connection strings.
+    In this function sets the `sslmode`, 'gssencmode', and `channel_binding` to `prefer`
+    and `sslnegotiation` to `postgres` if they are not present in the connection string.
     This is necessary to simplify comparison of the old and the new values.
 
-    >>> r = parse_dsn('postgresql://u%2Fse:pass@:%2f123,[::1]/db%2Fsdf?application_name=mya%2Fpp&ssl=true')
-    >>> r == {'application_name': 'mya/pp', 'dbname': 'db/sdf', 'host': ',::1', 'sslmode': 'require',\
-              'password': 'pass', 'port': '/123,', 'user': 'u/se', 'gssencmode': 'prefer',\
+    >>> r = parse_dsn('postgresql://foo/postgres')
+    >>> r == {'dbname': 'postgres', 'host': 'foo', 'sslmode': 'prefer', 'gssencmode': 'prefer',\
               'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}
     True
     >>> r = parse_dsn(" host = 'host' dbname = db\\\\ name requiressl=1 ")
@@ -131,26 +182,14 @@ def parse_dsn(value: str) -> Optional[Dict[str, str]]:
     >>> parse_dsn('requiressl = 0\\\\') == {'sslmode': 'prefer', 'gssencmode': 'prefer',\
                                             'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}
     True
-    >>> parse_dsn("host=a foo = '") is None
-    True
-    >>> parse_dsn("host=a foo = ") is None
-    True
-    >>> parse_dsn("1") is None
+    >>> parse_dsn('foo=bar') == {'foo': 'bar', 'sslmode': 'prefer', 'gssencmode': 'prefer',\
+                                 'channel_binding': 'prefer', 'sslnegotiation': 'postgres'}
     True
     """
-    if value.startswith('postgres://') or value.startswith('postgresql://'):
-        ret = conninfo_uri_parse(value)
-    else:
-        ret = conninfo_parse(value)
+    ret = parse_conninfo(value, _conninfo_parse)
 
     if ret:
-        if 'sslmode' not in ret:  # allow sslmode to take precedence over requiressl
-            requiressl = ret.pop('requiressl', None)
-            if requiressl == '1':
-                ret['sslmode'] = 'require'
-            elif requiressl is not None:
-                ret['sslmode'] = 'prefer'
-            ret.setdefault('sslmode', 'prefer')
+        ret.setdefault('sslmode', 'prefer')
         ret.setdefault('gssencmode', 'prefer')
         ret.setdefault('channel_binding', 'prefer')
         ret.setdefault('sslnegotiation', 'postgres')
@@ -416,7 +455,7 @@ class ConfigHandler(object):
         in data directory. If it is not the case, we should use major version from the ``PG_VERSION``
         file.
         """
-        if self._postgresql.state == 'running':
+        if self._postgresql.state == PostgresqlState.RUNNING:
             try:
                 return self._postgresql.server_version
             except AttributeError:
@@ -438,16 +477,19 @@ class ConfigHandler(object):
         return configuration
 
     def set_file_permissions(self, filename: str) -> None:
-        """Set permissions of file *filename* according to the expected permissions if it resides under PGDATA.
+        """Set permissions of file *filename* according to the expected permissions.
 
         .. note::
-            Do nothing if the file is not under PGDATA.
+            Use original umask if the file is not under PGDATA, use PGDATA
+            permissions otherwise.
 
         :param filename: path to a file which permissions might need to be adjusted.
         """
         if is_subpath(self._postgresql.data_dir, filename):
             pg_perm.set_permissions_from_data_directory(self._postgresql.data_dir)
             os.chmod(filename, pg_perm.file_create_mode)
+        else:
+            os.chmod(filename, 0o666 & ~pg_perm.orig_umask)
 
     @contextmanager
     def config_writer(self, filename: str) -> Iterator[ConfigWriter]:
@@ -554,7 +596,8 @@ class ConfigHandler(object):
             if 'host' in self.local_replication_address and not self.local_replication_address['host'].startswith('/'):
                 addresses.update({sa[0] + '/32': 'host' for _, _, _, _, sa in socket.getaddrinfo(
                                   self.local_replication_address['host'], self.local_replication_address['port'],
-                                  0, socket.SOCK_STREAM, socket.IPPROTO_TCP)})
+                                  0, socket.SOCK_STREAM, socket.IPPROTO_TCP) if isinstance(sa[0], str)})
+                # Filter out unexpected results when python is compiled with --disable-ipv6 and running on IPv6 system.
 
             with self.config_writer(self._pg_hba_conf) as f:
                 for address, t in addresses.items():
@@ -1019,7 +1062,7 @@ class ConfigHandler(object):
             synchronous_standby_names = self._server_parameters.get('synchronous_standby_names')
             if synchronous_standby_names is None:
                 if global_config.is_synchronous_mode_strict\
-                        and self._postgresql.role in ('primary', 'promoted'):
+                        and self._postgresql.role in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
                     parameters['synchronous_standby_names'] = '*'
                 else:
                     parameters.pop('synchronous_standby_names', None)
@@ -1059,8 +1102,11 @@ class ConfigHandler(object):
         listen_addresses = self._server_parameters['listen_addresses'].split(',')
 
         for la in listen_addresses:
-            if la.strip().lower() in ('*', '0.0.0.0', '127.0.0.1', 'localhost'):  # we are listening on '*' or localhost
+            if la.strip().lower() in ('*', 'localhost'):  # we are listening on '*' or localhost
                 return 'localhost'  # connection via localhost is preferred
+            if la.strip() in ('0.0.0.0', '127.0.0.1'):  # Postgres listens only on IPv4
+                # localhost, but don't allow Windows to resolve to IPv6
+                return '127.0.0.1' if os.name == 'nt' else 'localhost'
         return listen_addresses[0].strip()  # can't use localhost, take first address from listen_addresses
 
     def resolve_connection_addresses(self) -> None:
@@ -1153,7 +1199,7 @@ class ConfigHandler(object):
 
         conf_changed = hba_changed = ident_changed = local_connection_address_changed = False
         param_diff = CaseInsensitiveDict()
-        if self._postgresql.state == 'running':
+        if self._postgresql.state == PostgresqlState.RUNNING:
             changes = CaseInsensitiveDict({p: v for p, v in server_parameters.items()
                                            if p not in params_skip_changes})
             changes.update({p: None for p in self._server_parameters.keys()
@@ -1207,7 +1253,7 @@ class ConfigHandler(object):
                     and config.get('pg_hba'):
                 hba_changed = self._config.get('pg_hba', []) != config['pg_hba']
 
-            if (not server_parameters.get('ident_file') or server_parameters['ident_file'] == self._pg_hba_conf) \
+            if (not server_parameters.get('ident_file') or server_parameters['ident_file'] == self._pg_ident_conf) \
                     and config.get('pg_ident'):
                 ident_changed = self._config.get('pg_ident', []) != config['pg_ident']
 
@@ -1226,13 +1272,13 @@ class ConfigHandler(object):
         proxy_addr = config.get('proxy_address')
         self._postgresql.proxy_url = uri('postgres', proxy_addr, self._postgresql.database) if proxy_addr else None
 
-        if conf_changed:
+        if conf_changed or sighup:
             self.write_postgresql_conf()
 
-        if hba_changed:
+        if hba_changed or sighup:
             self.replace_pg_hba()
 
-        if ident_changed:
+        if ident_changed or sighup:
             self.replace_pg_ident()
 
         if sighup or conf_changed or hba_changed or ident_changed:
@@ -1271,7 +1317,7 @@ class ConfigHandler(object):
                 self._server_parameters.pop('synchronous_standby_names', None)
             else:
                 self._server_parameters['synchronous_standby_names'] = value
-            if self._postgresql.state == 'running':
+            if self._postgresql.state == PostgresqlState.RUNNING:
                 self.write_postgresql_conf()
                 self._postgresql.reload()
             return True
@@ -1287,7 +1333,7 @@ class ConfigHandler(object):
         As a workaround we will start it with the values from controldata and set `pending_restart`
         to true as an indicator that current values of parameters are not matching expectations."""
 
-        if self._postgresql.role == 'primary':
+        if self._postgresql.role == PostgresqlRole.PRIMARY:
             return self._server_parameters
 
         options_mapping = {
