@@ -123,15 +123,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """Override the default version string to return the server header as specified in the configuration.
         """
 
-        # If the server_header is not set then use the base class version_string.
-        if not self.server.server_header:
-            version: str = super().version_string()
-            logger.debug('Using default server header: %s', version)
-            return version
-        
-        logger.debug('Using server header: %s', self.server.server_header)
-        # Otherwise return the server_header as is.
-        return self.server.server_header
+        return self.server.server_header or super().version_string()
     
     def _write_status_code_only(self, status_code: int) -> None:
         """Write a response that is composed only of the HTTP status.
