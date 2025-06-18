@@ -119,7 +119,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.__start_time: float = 0.0
         self.path_query: Dict[str, List[str]] = {}
 
-    def version_string(self):
+    def version_string(self) -> str:
         """Override the default version string to return the server header as specified in the configuration.
         """
 
