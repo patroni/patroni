@@ -7,7 +7,6 @@ utilises the API to perform these functions.
 """
 
 import base64
-from csv import __version__
 import datetime
 import hmac
 import json
