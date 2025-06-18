@@ -105,6 +105,21 @@ def validate_connect_address(address: str) -> bool:
         raise ConfigParseError('must not contain "127.0.0.1", "0.0.0.0", "*", "::1", "localhost"')
     return True
 
+def is_ipv6_available() -> bool:
+    """Checks if the IPv6 stack is available on the system and if Python is compiled with IPv6 support.
+    
+    :return: ``True`` if the IPv6 stack is available and Python supports IPv6, otherwise ``False``.
+    """
+    try:
+        # Check if Python is compiled with IPv6 support
+        if not getattr(socket, 'has_ipv6', False):
+            return False
+        # Check if the system's IPv6 stack is available
+        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as s:
+            return True
+        return False
+    except OSError:
+        return False
 
 def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: bool = False) -> bool:
     """Check if host(s) and port are valid and available for usage.
@@ -143,9 +158,12 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
         if "*" in hosts:
             if len(hosts) != 1:
                 raise ConfigParseError("expecting '*' alone")
+            # Check IPv6 availability
+            ipv6_available = is_ipv6_available()
             # Filter out unexpected results when python is compiled with --disable-ipv6 and running on IPv6 system.
+            # If IPV6 is not available on system, only keep IPv4 addresses (AF_INET family)
             hosts = [a[4][0] for a in socket.getaddrinfo(None, port, 0, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
-                     if isinstance(a[4][0], str)]
+                     if isinstance(a[4][0], str) and (ipv6_available or a[0] == socket.AF_INET)]
         for host in hosts:
             # Check if "socket.IF_INET" or "socket.IF_INET6" is being used and instantiate a socket with the identified
             # protocol
