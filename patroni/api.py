@@ -120,6 +120,18 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.__start_time: float = 0.0
         self.path_query: Dict[str, List[str]] = {}
 
+    def version_string(self):
+        """Override the default version string to return the server header as specified in the configuration.
+        """
+
+        logger.debug('sending server header %s', self.server.server_header)
+        # If the server_header is not set then use the base class version_string.
+        if not self.server.server_header:        
+            return super().version_string()
+        
+        # Otherwise return the server_header as is.
+        return self.server.server_header
+    
     def _write_status_code_only(self, status_code: int) -> None:
         """Write a response that is composed only of the HTTP status.
 
@@ -1480,7 +1492,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self._received_new_cert = False
         self.reload_config(config)
         self.daemon = True
-        self.server_header: str = self.__construct_server_tokens(config.get('server_tokens', 'Full').lower()) # Default is to show full version in Server header.)
+        self.server_header: str = self.__construct_server_tokens(config.get('server_tokens', 'Original').lower())
 
     def __construct_server_tokens(self, token_config: str) -> str:
         """Construct the value for the ``Server`` HTTP header based on *server_tokens*.
@@ -1491,6 +1503,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """
         token = token_config.lower()
 
+        if token == 'original':
+            logger.error('restapi.server_tokens is set to "Original". Patroni will not modify the Server header.')
+            return ""
         if token == 'full': # Show everything, including Patroni and PostgreSQL versions.
             return f'Patroni/{__version__} (PostgreSQL {self.patroni.postgresql.server_version})'
         elif token == 'productonly': # Show only the product name, without versions.
@@ -1501,7 +1516,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             ValueError(f'Invalid value for restapi.server_tokens: {token_config}. '
                        'Valid values are: "Full", "Minimal", "ProductOnly".')
         return 'Patroni'  # Default to 'Patroni' if the value is not recognized.
-        
+    
+    def version_string(self):
+        return 
+    
     def query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
         """Execute *sql* query with *params* and optionally return results.
 
@@ -1880,7 +1898,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             assert isinstance(self.__listen, str)
         self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
 
-        self.server_header = self.__construct_server_tokens(config.get('server_tokens', 'Full').lower())
+        self.server_header = self.__construct_server_tokens(config.get('server_tokens', 'original').lower())
 
     def handle_error(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
                      client_address: Tuple[str, int]) -> None:
