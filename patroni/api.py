@@ -124,11 +124,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """Override the default version string to return the server header as specified in the configuration.
         """
 
-        logger.debug('sending server header %s', self.server.server_header)
         # If the server_header is not set then use the base class version_string.
-        if not self.server.server_header:        
-            return super().version_string()
+        if not self.server.server_header:
+            version: str = super().version_string()
+            logger.debug('Using default server header: %s', version)
+            return version
         
+        logger.debug('Using server header: %s', self.server.server_header)
         # Otherwise return the server_header as is.
         return self.server.server_header
     
@@ -1492,7 +1494,6 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self._received_new_cert = False
         self.reload_config(config)
         self.daemon = True
-        self.server_header: str = self.__construct_server_tokens(config.get('server_tokens', 'Original').lower())
 
     def __construct_server_tokens(self, token_config: str) -> str:
         """Construct the value for the ``Server`` HTTP header based on *server_tokens*.
@@ -1503,22 +1504,28 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         """
         token = token_config.lower()
 
-        if token == 'original':
-            logger.error('restapi.server_tokens is set to "Original". Patroni will not modify the Server header.')
+        logger.debug('restapi.server_tokens is set to "%s".', token_config)
+        if token not in ('original', 'full', 'productonly', 'minimal'):
+            logger.warning('restapi.server_tokens is set to "%s". Patroni will not modify the Server header. '
+                           'Valid values are: "Full", "Minimal", "ProductOnly".', token_config)
             return ""
-        if token == 'full': # Show everything, including Patroni and PostgreSQL versions.
-            return f'Patroni/{__version__} (PostgreSQL {self.patroni.postgresql.server_version})'
-        elif token == 'productonly': # Show only the product name, without versions.
+        
+        # If 'original' is set, we do not modify the Server header.
+        # This is useful for compatibility with existing setups that expect the original header.
+        if token == 'original':
+            logger.info('restapi.server_tokens is set to "Original". Patroni will not modify the Server header.')
+            return ""
+        
+        # If 'full', 'productonly', or 'minimal' is set, we construct the header accordingly.
+        if token == 'productonly': # Show only the product name, without versions.
             return 'Patroni'
-        elif token == 'Minimal': # Show only the product name and version, without PostgreSQL version.
-            return f'Patroni/{__version__}'
+        elif token == 'minimal': # Show only the product name and version, without PostgreSQL version.
+            return f'Patroni/{self.patroni.version}'
+        elif token == 'full': # Show everything, including Patroni and PostgreSQL versions.
+            return f'Patroni/{self.patroni.version} (PostgreSQL {self.patroni.postgresql.major_version})'
         else:
-            ValueError(f'Invalid value for restapi.server_tokens: {token_config}. '
-                       'Valid values are: "Full", "Minimal", "ProductOnly".')
-        return 'Patroni'  # Default to 'Patroni' if the value is not recognized.
-    
-    def version_string(self):
-        return 
+            # This should never be reached, but we return a default value just in case.
+            return 'Patroni'
     
     def query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
         """Execute *sql* query with *params* and optionally return results.
@@ -1898,7 +1905,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             assert isinstance(self.__listen, str)
         self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
 
-        self.server_header = self.__construct_server_tokens(config.get('server_tokens', 'original').lower())
+        # Define the Server header response using the server_tokens option.
+        self.server_header = self.__construct_server_tokens(config.get('server_tokens', 'original'))
 
     def handle_error(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
                      client_address: Tuple[str, int]) -> None:
