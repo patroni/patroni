@@ -128,7 +128,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         from the BaseHTTPRequestHandler.
         """
         return self.server.server_header or super().version_string()
-    
+
     def _write_status_code_only(self, status_code: int) -> None:
         """Write a response that is composed only of the HTTP status.
 
@@ -1508,7 +1508,6 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         # If 'original' is set, we do not modify the Server header.
         # This is useful for compatibility with existing setups that expect the original header.
         if token == 'original':
-            logger.info('restapi.server_tokens is set to "Original". Patroni will not modify the Server header.')
             return ""
 
         # If 'full', 'productonly', or 'minimal' is set, we construct the header accordingly.
