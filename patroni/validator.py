@@ -1033,7 +1033,7 @@ schema = Schema({
         Optional("http_extra_headers"): dict,
         Optional("https_extra_headers"): dict,
         Optional("request_queue_size"): IntValidator(min=0, max=4096, expected_type=int, raise_assert=True),
-        Optional("server_tokens"): EnumValidator(('full', 'minimal', 'productonly', 'original'),
+        Optional("server_tokens"): EnumValidator(('minimal', 'productonly', 'original'),
                                                  case_sensitive=False, raise_assert=True)
     },
     Optional("bootstrap"): {

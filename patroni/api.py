@@ -1500,9 +1500,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         token = token_config.lower()
 
         logger.debug('restapi.server_tokens is set to "%s".', token_config)
-        if token not in ('original', 'full', 'productonly', 'minimal'):
+        if token not in ('original', 'productonly', 'minimal'):
             logger.warning('restapi.server_tokens is set to "%s". Patroni will not modify the Server header. '
-                           'Valid values are: "Full", "Minimal", "ProductOnly".', token_config)
+                           'Valid values are: "Minimal", "ProductOnly".', token_config)
             return ""
 
         # If 'original' is set, we do not modify the Server header.
@@ -1510,13 +1510,11 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if token == 'original':
             return ""
 
-        # If 'full', 'productonly', or 'minimal' is set, we construct the header accordingly.
+        # If 'productonly', or 'minimal' is set, we construct the header accordingly.
         if token == 'productonly':  # Show only the product name, without versions.
             return 'Patroni'
         elif token == 'minimal':    # Show only the product name and version, without PostgreSQL version.
             return f'Patroni/{self.patroni.version}'
-        elif token == 'full':       # Show everything, including Patroni and PostgreSQL versions.
-            return f'Patroni/{self.patroni.version} (PostgreSQL {self.patroni.postgresql.major_version})'
         else:
             # This should never be reached, but we return a default value just in case.
             return 'Patroni'
