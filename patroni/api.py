@@ -128,11 +128,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
             version: str = super().version_string()
             logger.debug('Using default server header: %s', version)
             return version
-        
+
         logger.debug('Using server header: %s', self.server.server_header)
         # Otherwise return the server_header as is.
         return self.server.server_header
-    
+
     def _write_status_code_only(self, status_code: int) -> None:
         """Write a response that is composed only of the HTTP status.
 
@@ -1508,24 +1508,24 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             logger.warning('restapi.server_tokens is set to "%s". Patroni will not modify the Server header. '
                            'Valid values are: "Full", "Minimal", "ProductOnly".', token_config)
             return ""
-        
+
         # If 'original' is set, we do not modify the Server header.
         # This is useful for compatibility with existing setups that expect the original header.
         if token == 'original':
             logger.info('restapi.server_tokens is set to "Original". Patroni will not modify the Server header.')
             return ""
-        
+
         # If 'full', 'productonly', or 'minimal' is set, we construct the header accordingly.
-        if token == 'productonly': # Show only the product name, without versions.
+        if token == 'productonly':  # Show only the product name, without versions.
             return 'Patroni'
-        elif token == 'minimal': # Show only the product name and version, without PostgreSQL version.
+        elif token == 'minimal':    # Show only the product name and version, without PostgreSQL version.
             return f'Patroni/{self.patroni.version}'
-        elif token == 'full': # Show everything, including Patroni and PostgreSQL versions.
+        elif token == 'full':       # Show everything, including Patroni and PostgreSQL versions.
             return f'Patroni/{self.patroni.version} (PostgreSQL {self.patroni.postgresql.major_version})'
         else:
             # This should never be reached, but we return a default value just in case.
             return 'Patroni'
-    
+
     def query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
         """Execute *sql* query with *params* and optionally return results.
 
