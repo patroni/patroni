@@ -1170,7 +1170,8 @@ def restart(cluster_name: str, group: Optional[int], member_names: List[str],
 @option_force
 @click.option('--from-leader', is_flag=True, help='Get basebackup from leader')
 @click.option('--wait', help='Wait until reinitialization completes', is_flag=True)
-def reinit(cluster_name: str, group: Optional[int], member_names: List[str], force: bool, from_leader: bool, wait: bool) -> None:
+def reinit(cluster_name: str, group: Optional[int], member_names: List[str], force: bool, 
+           from_leader: bool, wait: bool) -> None:
     """Process ``reinit`` command of ``patronictl`` utility.
 
     Reinitialize cluster members based on given filters.
@@ -1190,7 +1191,7 @@ def reinit(cluster_name: str, group: Optional[int], member_names: List[str], for
 
     wait_on_members: List[Member] = []
     for member in members:
-        body: Dict[str, bool] = {'force': force, 'from_leader': from_leader }
+        body: Dict[str, bool] = {'force': force, 'from_leader': from_leader}
         while True:
             r = request_patroni(member, 'post', 'reinitialize', body)
             started = check_response(r, member.name, 'reinitialize')
