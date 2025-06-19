@@ -121,8 +121,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
     def version_string(self) -> str:
         """Override the default version string to return the server header as specified in the configuration.
-        """
 
+        If the server header is not set, then it returns the default version string of the HTTP server.
+
+        :return: ``Server`` version string, which is either the server header or the default version string
+        from the BaseHTTPRequestHandler.
+        """
         return self.server.server_header or super().version_string()
     
     def _write_status_code_only(self, status_code: int) -> None:
