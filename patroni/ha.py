@@ -220,7 +220,7 @@ class Failsafe(object):
 
 
 class Ha(object):
-  
+
     def __init__(self, patroni: Patroni):
         self.patroni = patroni
         self.state_handler = patroni.postgresql
@@ -498,7 +498,8 @@ class Ha(object):
                 self._last_state = new_state
             return ret
 
-    def clone(self, clone_member: Union[Leader, Member, None] = None, msg: str = '(without leader)', clone_from_leader: bool = False) -> Optional[bool]:
+    def clone(self, clone_member: Union[Leader, Member, None] = None, msg: str = '(without leader)', 
+              clone_from_leader: bool = False) -> Optional[bool]:
         if self.is_standby_cluster() and not isinstance(clone_member, RemoteMember):
             clone_member = self.get_remote_member(clone_member)
 
