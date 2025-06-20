@@ -498,7 +498,7 @@ class Ha(object):
                 self._last_state = new_state
             return ret
 
-    def clone(self, clone_member: Union[Leader, Member, None] = None, msg: str = '(without leader)', 
+    def clone(self, clone_member: Union[Leader, Member, None] = None, msg: str = '(without leader)',
               clone_from_leader: bool = False) -> Optional[bool]:
         if self.is_standby_cluster() and not isinstance(clone_member, RemoteMember):
             clone_member = self.get_remote_member(clone_member)
@@ -1915,7 +1915,7 @@ class Ha(object):
             clone_member = cluster.leader
         else:
             clone_member = cluster.get_clone_member(self.state_handler.name)
-        
+
         if clone_member:
             member_role = 'leader' if clone_member == cluster.leader else 'replica'
             return self.clone(clone_member, "from {0} '{1}'".format(member_role, clone_member.name), from_leader)
