@@ -125,7 +125,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         If the server header is not set, then it returns the default version string of the HTTP server.
 
         :return: ``Server`` version string, which is either the server header or the default version string
-        from the BaseHTTPRequestHandler.
+            from the BaseHTTPRequestHandler.
         """
         return self.server.server_header or super().version_string()
 
