@@ -1498,12 +1498,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         :returns: a string to be used as the value of ``Server`` HTTP header.
         """
         token = token_config.lower()
-
         logger.debug('restapi.server_tokens is set to "%s".', token_config)
-        if token not in ('original', 'productonly', 'minimal'):
-            logger.warning('restapi.server_tokens is set to "%s". Patroni will not modify the Server header. '
-                           'Valid values are: "Minimal", "ProductOnly".', token_config)
-            return ""
 
         # If 'original' is set, we do not modify the Server header.
         # This is useful for compatibility with existing setups that expect the original header.
@@ -1516,8 +1511,11 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         elif token == 'minimal':    # Show only the product name and version, without PostgreSQL version.
             return f'Patroni/{self.patroni.version}'
         else:
-            # This should never be reached, but we return a default value just in case.
-            return 'Patroni'
+            # Token is not valid (one of 'original', 'productonly', 'minimal') so report a warning and
+            # return an empty string.
+            logger.warning('restapi.server_tokens is set to "%s". Patroni will not modify the Server header. '
+                           'Valid values are: "Minimal", "ProductOnly".', token_config)
+            return ""
 
     def query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
         """Execute *sql* query with *params* and optionally return results.
