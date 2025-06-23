@@ -817,7 +817,7 @@ class TestRestApiServer(unittest.TestCase):
         # Test cases (case insensitive values):
         # 1. 'original' server token - should return empty string
         self.assertEqual(self.srv._RestApiServer__construct_server_tokens('original'), '')
-                
+
         # 2. 'productonly' server token - should return 'Patroni'
         self.assertEqual(self.srv._RestApiServer__construct_server_tokens('productonly'), 'Patroni')
 
