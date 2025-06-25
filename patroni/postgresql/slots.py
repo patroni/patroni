@@ -417,8 +417,20 @@ class SlotsHandler:
             # And advance restart_lsn on physical replication slots that are not expected to be active.
             elif self._postgresql.can_advance_slots and self._replication_slots[name]['type'] == 'physical' and\
                     value.get('expected_active') is not True and not value['xmin']:
+                restart_lsn = value.get('restart_lsn')
+                if not restart_lsn:
+                    # This slot either belongs to a member or was configured as a permanent slot. However, for some
+                    # reason the slot was created by an external agent instead of by Patroni, and it was created without
+                    # reserving the LSN. We ignore the slot here, as we cannot advance it. The user might want to drop
+                    # the slot and let Patroni recreate and manage it.
+                    logger.warning(
+                        "Physical replication slot '%s' has no restart_lsn, cannot advance it. "
+                        "This slot was probably not created by Patroni, but by an external process.",
+                        name
+                    )
+                    continue
                 lsn = value.get('lsn')
-                if lsn and lsn > value['restart_lsn']:  # The slot has feedback in DCS and needs to be advanced
+                if lsn and lsn > restart_lsn:  # The slot has feedback in DCS and needs to be advanced
                     try:
                         lsn = format_lsn(lsn)
                         self._query("SELECT pg_catalog.pg_replication_slot_advance(%s, %s)", name, lsn)
