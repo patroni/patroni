@@ -425,7 +425,8 @@ class SlotsHandler:
                     # the slot and let Patroni recreate and manage it.
                     logger.warning(
                         "Physical replication slot '%s' has no restart_lsn, cannot advance it. "
-                        "This slot was probably not created by Patroni, but by an external process.",
+                        "This slot was probably not created by Patroni, but by an external process."
+                        "You might want to drop it and let Patroni recreate and manage it.",
                         name
                     )
                     continue

@@ -388,7 +388,8 @@ class TestSlotsHandler(BaseTestPostgresql):
                 self.assertNotIn("pg_catalog.pg_replication_slot_advance", mock_call[0][0])
             self.assertEqual(mock_warning.call_args[0][0],
                              "Physical replication slot '%s' has no restart_lsn, cannot advance it. "
-                             "This slot was probably not created by Patroni, but by an external process.")
+                             "This slot was probably not created by Patroni, but by an external process."
+                             "You might want to drop it and let Patroni recreate and manage it.")
             self.assertEqual(mock_warning.call_args[0][1], 'blabla')
 
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
