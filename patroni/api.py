@@ -517,7 +517,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         ``502`` instead.
         """
         cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
-        if cluster.config:
+        if cluster.config and cluster.config.modify_version:
             self._write_json_response(200, cluster.config.data)
         else:
             self.send_error(502)
