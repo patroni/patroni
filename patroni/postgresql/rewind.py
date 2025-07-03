@@ -319,6 +319,16 @@ class Rewind(object):
     def checkpoint_after_promote(self) -> bool:
         return self._state == REWIND_STATUS.CHECKPOINT
 
+    def get_archive_command(self) -> Optional[str]:
+        """Get ``archive_command`` GUC value if defined and archiving is enabled.
+
+        :returns: ``archive_command`` defined in the Postgres configuration or None.
+        """
+        archive_mode = self._postgresql.get_guc_value('archive_mode')
+        archive_cmd = self._postgresql.get_guc_value('archive_command')
+        if archive_mode in ('on', 'always') and archive_cmd:
+            return archive_cmd
+
     def _build_archiver_command(self, command: str, wal_filename: str) -> str:
         """Replace placeholders in the given archiver command's template.
         Applicable for archive_command and restore_command.
@@ -372,7 +382,7 @@ class Rewind(object):
         after it the WALs were recycled on the promoted replica.
         With this we prevent the entire loss of such WALs and the
         consequent old leader's start failure."""
-        archive_cmd = self._postgresql.get_archive_command()
+        archive_cmd = self.get_archive_command()
         if not archive_cmd:
             return
 

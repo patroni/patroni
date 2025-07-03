@@ -1576,7 +1576,7 @@ class Ha(object):
         status = {'released': False}
 
         demote_cluster_with_archive = False
-        archive_cmd = self.state_handler.get_archive_command()
+        archive_cmd = self._rewind.get_archive_command()
         if mode == 'demote-cluster':
             # We need to send the shutdown checkpoint WAL file to archive to eliminate the need of rewind
             # from a promoted instance that was previously replicating from archive

@@ -1404,13 +1404,3 @@ class Postgresql(object):
         return CaseInsensitiveSet({
             line.split('\t')[0] for line in subprocess.check_output(cmd).decode('utf-8').strip().split('\n')
         })
-
-    def get_archive_command(self) -> Optional[str]:
-        """Get ``archive_command`` GUC value if defined and archiving is enabled.
-
-        :returns: ``archive_command`` defined in the Postgres configuration or None.
-        """
-        archive_mode = self.get_guc_value('archive_mode')
-        archive_cmd = self.get_guc_value('archive_command')
-        if archive_mode in ('on', 'always') and archive_cmd:
-            return archive_cmd
