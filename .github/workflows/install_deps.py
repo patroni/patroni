@@ -25,8 +25,7 @@ def install_requirements(what):
     requirements += ['coverage']
     # try to split tests between psycopg2 and psycopg3
     requirements += ['psycopg[binary]'] if sys.version_info >= (3, 8, 0) and\
-        (sys.platform != 'darwin' or what == 'etcd3') else ['psycopg2-binary==2.9.9' 
-                                                            if sys.platform == 'darwin' else 'psycopg2-binary']
+        (sys.platform != 'darwin' or what == 'etcd3') else ['psycopg2-binary']
 
     from pip._vendor.distlib.markers import evaluator, DEFAULT_CONTEXT
     from pip._vendor.distlib.util import parse_requirement
