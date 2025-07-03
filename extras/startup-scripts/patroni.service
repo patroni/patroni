@@ -23,8 +23,8 @@ EnvironmentFile=-/etc/patroni_env.conf
 
 # Pre-commands to start watchdog device
 # Uncomment if watchdog is part of your patroni setup
-#ExecStartPre=-/usr/bin/sudo /sbin/modprobe softdog
-#ExecStartPre=-/usr/bin/sudo /bin/chown postgres /dev/watchdog
+#ExecStartPre=-+/sbin/modprobe softdog
+#ExecStartPre=-+/bin/chown postgres /dev/watchdog
 
 # Start the patroni process
 ExecStart=/bin/patroni /etc/patroni.yml
