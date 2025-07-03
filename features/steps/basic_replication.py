@@ -64,18 +64,13 @@ def get_wal_name(context, pg_name):
 
 
 @step('I add the table {table_name:w} to {pg_name:name}')
-def add_table(context, table_name, pg_name, timeout=15):
+def add_table(context, table_name, pg_name):
     # parse the configuration file and get the port
-    timeout *= context.timeout_multiplier
-    for _ in range(int(timeout)):
-        try:
-            context.pctl.query(pg_name, "CREATE TABLE public.{0}()".format(table_name))
-            context.pctl.query(pg_name, "SELECT pg_switch_{0}()".format(get_wal_name(context, pg_name)))
-            return
-        except pg.Error:
-            pass
-        sleep(1)
-    assert False, "Error creating table {0} on {1}".format(table_name, pg_name)
+    try:
+        context.pctl.query(pg_name, "CREATE TABLE public.{0}()".format(table_name))
+        context.pctl.query(pg_name, "SELECT pg_switch_{0}()".format(get_wal_name(context, pg_name)))
+    except pg.Error as e:
+        assert False, "Error creating table {0} on {1}: {2}".format(table_name, pg_name, e)
 
 
 @step('I {action:w} wal replay on {pg_name:name}')

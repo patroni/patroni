@@ -2,8 +2,6 @@ import json
 import os
 import time
 
-import yaml
-
 from behave import step
 from patroni_api import check_response, do_request
 
@@ -74,13 +72,11 @@ def check_replication_status(context, pg_name1, pg_name2, timeout):
 
 @step('I switch standby cluster {scope:name} to archive recovery')
 def standby_cluster_archive(context, scope, demote=False):
-    for _, proc in context.pctl._processes.items():
+    for name, proc in context.pctl._processes.items():
         if proc._scope != scope or not proc._is_running:
             continue
 
-        config = dict()
-        with open(proc._config) as r:
-            config = yaml.safe_load(r)
+        config = context.pctl.read_config(name)
         url = f'http://{config["restapi"]["connect_address"]}/config'
         data = {
             "standby_cluster": {

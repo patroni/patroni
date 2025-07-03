@@ -75,7 +75,6 @@ Feature: standby cluster
   Scenario: promote cluster
     When I issue a PATCH request to http://127.0.0.1:8009/config with {"standby_cluster": null}
     Then I receive a response code 200
-    And "members/postgres-1" key for cluster batman1 in DCS has role=primary after 20 seconds
-    And "members/postgres-1" key for cluster batman1 in DCS has state=running after 10 seconds
+    And postgres-1 role is the primary after 10 seconds
     When I add the table foo2 to postgres-1
     Then table foo2 is present on postgres-0 after 20 seconds
