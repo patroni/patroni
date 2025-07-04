@@ -121,6 +121,11 @@ parameters:
     version_from: 130000
     min_val: -1
     max_val: 2147483647
+  autovacuum_vacuum_max_threshold:
+  - type: Integer
+    version_from: 180000
+    min_val: -1
+    max_val: 2147483647
   autovacuum_vacuum_scale_factor:
   - type: Real
     version_from: 90300
@@ -137,6 +142,11 @@ parameters:
     min_val: -1
     max_val: 2147483647
     unit: kB
+  autovacuum_worker_slots:
+  - type: Integer
+    version_from: 180000
+    min_val: 1
+    max_val: 262143
   backend_flush_after:
   - type: Integer
     version_from: 90600
@@ -434,6 +444,9 @@ parameters:
   enable_bitmapscan:
   - type: Bool
     version_from: 90300
+  enable_distinct_reordering:
+  - type: Bool
+    version_from: 180000
   enable_gathermerge:
   - type: Bool
     version_from: 100000
@@ -485,6 +498,9 @@ parameters:
   enable_presorted_aggregate:
   - type: Bool
     version_from: 160000
+  enable_self_join_elimination:
+  - type: Bool
+    version_from: 180000
   enable_seqscan:
   - type: Bool
     version_from: 90300
@@ -506,9 +522,13 @@ parameters:
   exit_on_error:
   - type: Bool
     version_from: 90300
+  extension_control_path:
+  - type: String
+    version_from: 180000
   extension_destdir:
   - type: String
     version_from: 140000
+    version_till: 180000
   external_pid_file:
   - type: String
     version_from: 90300
@@ -517,6 +537,12 @@ parameters:
     version_from: 90300
     min_val: -15
     max_val: 3
+  file_copy_method:
+  - type: Enum
+    version_from: 180000
+    possible_values:
+    - copy
+    - clone
   force_parallel_mode:
   - type: EnumBool
     version_from: 90600
@@ -629,6 +655,12 @@ parameters:
     min_val: 0
     max_val: 2147483647
     unit: ms
+  idle_replication_slot_timeout:
+  - type: Integer
+    version_from: 180000
+    min_val: 0
+    max_val: 2147483647
+    unit: s
   idle_session_timeout:
   - type: Integer
     version_from: 140000
@@ -647,9 +679,38 @@ parameters:
   io_combine_limit:
   - type: Integer
     version_from: 170000
+    version_till: 180000
     min_val: 1
     max_val: 32
     unit: 8kB
+  - type: Integer
+    version_from: 180000
+    min_val: 1
+    max_val: 128
+    unit: 8kB
+  io_max_combine_limit:
+  - type: Integer
+    version_from: 180000
+    min_val: 1
+    max_val: 128
+    unit: 8kB
+  io_max_concurrency:
+  - type: Integer
+    version_from: 180000
+    min_val: -1
+    max_val: 1024
+  io_method:
+  - type: Enum
+    version_from: 180000
+    possible_values:
+    - sync
+    - worker
+    - io_uring
+  io_workers:
+  - type: Integer
+    version_from: 180000
+    min_val: 1
+    max_val: 32
   IntervalStyle:
   - type: Enum
     version_from: 90300
@@ -748,6 +809,9 @@ parameters:
   log_connections:
   - type: Bool
     version_from: 90300
+    version_till: 180000
+  - type: String
+    version_from: 180000
   log_destination:
   - type: String
     version_from: 90300
@@ -793,6 +857,9 @@ parameters:
   log_line_prefix:
   - type: String
     version_from: 90300
+  log_lock_failures:
+  - type: Bool
+    version_from: 180000
   log_lock_waits:
   - type: Bool
     version_from: 90300
@@ -873,8 +940,14 @@ parameters:
   log_rotation_size:
   - type: Integer
     version_from: 90300
+    version_till: 180000
     min_val: 0
     max_val: 2097151
+    unit: kB
+  - type: Integer
+    version_from: 180000
+    min_val: 0
+    max_val: 2147483647
     unit: kB
   log_startup_progress_interval:
   - type: Integer
@@ -930,9 +1003,20 @@ parameters:
   maintenance_work_mem:
   - type: Integer
     version_from: 90300
+    version_till: 180000
     min_val: 1024
     max_val: 2147483647
     unit: kB
+  - type: Integer
+    version_from: 180000
+    min_val: 64
+    max_val: 2147483647
+    unit: kB
+  max_active_replication_origins:
+  - type: Integer
+    version_from: 180000
+    min_val: 0
+    max_val: 262143
   max_connections:
   - type: Integer
     version_from: 90300
@@ -1084,6 +1168,9 @@ parameters:
     version_from: 90600
     min_val: 0
     max_val: 262143
+  md5_password_warnings:
+  - type: Bool
+    version_from: 180000
   min_dynamic_shared_memory:
   - type: Integer
     version_from: 140000
@@ -1139,6 +1226,9 @@ parameters:
     min_val: 16
     max_val: 131072
     unit: 8kB
+  oauth_validator_libraries:
+  - type: String
+    version_from: 180000
   old_snapshot_threshold:
   - type: Integer
     version_from: 90600
@@ -1336,6 +1426,10 @@ parameters:
   ssl_ecdh_curve:
   - type: String
     version_from: 90400
+    version_till: 180000
+  ssl_groups:
+  - type: String
+    version_from: 180000
   ssl_key_file:
   - type: String
     version_from: 90300
@@ -1372,6 +1466,9 @@ parameters:
     min_val: 0
     max_val: 2147483647
     unit: kB
+  ssl_tls13_ciphers:
+  - type: String
+    version_from: 180000
   standard_conforming_strings:
   - type: Bool
     version_from: 90300
@@ -1547,6 +1644,9 @@ parameters:
   track_commit_timestamp:
   - type: Bool
     version_from: 90500
+  track_cost_delay_timing:
+  - type: Bool
+    version_from: 180000
   track_counts:
   - type: Bool
     version_from: 90300
@@ -1671,6 +1771,11 @@ parameters:
     version_from: 90300
     min_val: 0
     max_val: 2000000000
+  vacuum_max_eager_freeze_failure_rate:
+  - type: Real
+    version_from: 180000
+    min_val: 0
+    max_val: 1
   vacuum_multixact_failsafe_age:
   - type: Integer
     version_from: 140000
@@ -1686,6 +1791,9 @@ parameters:
     version_from: 90300
     min_val: 0
     max_val: 2000000000
+  vacuum_truncate:
+  - type: Bool
+    version_from: 180000
   wal_buffers:
   - type: Integer
     version_from: 90300
