@@ -382,15 +382,16 @@ class TestSlotsHandler(BaseTestPostgresql):
         # expected situation.
         with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('blabla', 'physical', None, None, None, None,
                                                                       None, None, None)], Exception])) as mock_query, \
-                patch('patroni.postgresql.slots.logger.warning') as mock_warning:
+                patch('patroni.postgresql.slots.logger.warning') as mock_warning, \
+                patch.object(SlotsHandler, 'drop_replication_slot') as mock_drop:
             self.s.sync_replication_slots(cluster, self.tags)
             for mock_call in mock_query.call_args_list:
                 self.assertNotIn("pg_catalog.pg_replication_slot_advance", mock_call[0][0])
             self.assertEqual(mock_warning.call_args[0][0],
-                             "Physical replication slot '%s' has no restart_lsn, cannot advance it. "
-                             "This slot was probably not created by Patroni, but by an external process."
-                             "You might want to drop it and let Patroni recreate and manage it.")
+                             'Dropping physical replication slot %s because it has no restart_lsn. '
+                             'This slot was probably not created by Patroni, but by an external agent.')
             self.assertEqual(mock_warning.call_args[0][1], 'blabla')
+            mock_drop.assert_called_once_with('blabla')
 
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     @patch.object(Postgresql, 'role', PropertyMock(return_value=PostgresqlRole.REPLICA))

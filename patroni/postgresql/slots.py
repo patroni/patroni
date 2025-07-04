@@ -421,14 +421,17 @@ class SlotsHandler:
                 if not restart_lsn:
                     # This slot either belongs to a member or was configured as a permanent slot. However, for some
                     # reason the slot was created by an external agent instead of by Patroni, and it was created without
-                    # reserving the LSN. We ignore the slot here, as we cannot advance it. The user might want to drop
-                    # the slot and let Patroni recreate and manage it.
-                    logger.warning(
-                        "Physical replication slot '%s' has no restart_lsn, cannot advance it. "
-                        "This slot was probably not created by Patroni, but by an external process."
-                        "You might want to drop it and let Patroni recreate and manage it.",
-                        name
-                    )
+                    # reserving the LSN. We drop the slot here, as we cannot advance it, and let Patroni recreate and
+                    # manage it in the next cycle.
+                    logger.warning('Dropping physical replication slot %s because it has no restart_lsn. '
+                                   'This slot was probably not created by Patroni, but by an external agent.',
+                                   name)
+                    _, dropped = self.drop_replication_slot(name)
+                    if dropped:
+                        self._replication_slots.pop(name)
+                    else:
+                        self._schedule_load_slots = True
+                        logger.error("Failed to drop replication slot '%s'", name)
                     continue
                 lsn = value.get('lsn')
                 if lsn and lsn > restart_lsn:  # The slot has feedback in DCS and needs to be advanced
