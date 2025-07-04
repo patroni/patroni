@@ -1,7 +1,9 @@
+import json
 import os
 import time
 
 from behave import step
+from patroni_api import check_response, do_request
 
 
 def callbacks(context, name):
@@ -66,3 +68,29 @@ def check_replication_status(context, pg_name1, pg_name2, timeout):
         time.sleep(1)
     else:
         assert False, "{0} is not replicating from {1} after {2} seconds".format(pg_name1, pg_name2, timeout)
+
+
+@step('I switch standby cluster {scope:name} to archive recovery')
+def standby_cluster_archive(context, scope, demote=False):
+    for name, proc in context.pctl._processes.items():
+        if proc._scope != scope or not proc._is_running:
+            continue
+
+        config = context.pctl.read_config(name)
+        url = f'http://{config["restapi"]["connect_address"]}/config'
+        data = {
+            "standby_cluster": {
+                "restore_command": config['bootstrap']['dcs']['postgresql']['parameters']['restore_command']
+            }
+        }
+        if not demote:
+            data['standby_cluster']['primary_slot_name'] = data['standby_cluster']['host'] =\
+                data['standby_cluster']['port'] = None
+        do_request(context, 'PATCH', url, json.dumps(data))
+        check_response(context, 'code', 200)
+        break
+
+
+@step('I demote cluster {scope:name}')
+def demote_cluster(context, scope):
+    standby_cluster_archive(context, scope, True)
