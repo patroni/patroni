@@ -349,6 +349,10 @@ REST API
    -  **http\_extra\_headers**: (optional): HTTP headers let the REST API server pass additional information with an HTTP response.
    -  **https\_extra\_headers**: (optional): HTTPS headers let the REST API server pass additional information with an HTTP response when TLS is enabled. This will also pass additional information set in ``http_extra_headers``.
    -  **request_queue_size**: (optional): Sets request queue size for TCP socket used by Patroni REST API.  Once the queue is full, further requests get a "Connection denied" error. The default value is 5.
+   -  **server_tokens**: (optional): Configures the value of the ``Server`` HTTP header.
+      - ``Minimal``: The header will contain only the Patroni version, e.g. ``Patroni/4.0.0``.
+      - ``ProductOnly``: The header will contain only the product name, e.g. ``Patroni``.
+      - ``Original`` (default): The header will expose the original behaviour and display the BaseHTTP and Python versions, e.g. ``BaseHTTP/0.6 Python/3.12.3``.
 
 Here is an example of both **http_extra_headers** and **https_extra_headers**:
 
