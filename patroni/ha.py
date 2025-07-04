@@ -1577,13 +1577,13 @@ class Ha(object):
 
         demote_cluster_with_archive = False
         archive_cmd = self._rewind.get_archive_command()
-        if mode == 'demote-cluster':
+        if mode == 'demote-cluster' and archive_cmd is not None:
             # We need to send the shutdown checkpoint WAL file to archive to eliminate the need of rewind
             # from a promoted instance that was previously replicating from archive
-            # When doing this, we disable stop timeout and do not run on_shutdown callback
-            if archive_cmd is not None:
-                demote_cluster_with_archive = True
-                mode_control['release'] = False
+            # When doing this, we disable stop timeout, do not run on_shutdown callback and do not release
+            # leader key.
+            demote_cluster_with_archive = True
+            mode_control['release'] = False
 
         def on_shutdown(checkpoint_location: int, prev_location: int) -> None:
             # Postmaster is still running, but pg_control already reports clean "shut down".
@@ -1598,6 +1598,10 @@ class Ha(object):
                 with self._async_executor:
                     self.release_leader_key_voluntarily(last_lsn)
                     status['released'] = True
+            elif mode == 'demote-cluster':
+                # for cluster demotion, if failover is not possible, we better keep the leader key
+                # and wait for the complete shutdown and start. We need a healthy standby leader.
+                mode_control['release'] = False
 
         def before_shutdown() -> None:
             if self.state_handler.mpp_handler.is_coordinator():
@@ -1616,18 +1620,24 @@ class Ha(object):
         # for cluster demotion we need shutdown checkpoint lsn to be written to optime, not the prev one
         checkpoint_lsn, prev_lsn = self.state_handler.latest_checkpoint_locations() \
             if mode == 'graceful' else (None, None)
+
         if mode_control['release']:
             if not status['released']:
+                # for cluster demotion, if leader key is not released, we should not try to do it here,
+                # thus always prev_lsn here
                 with self._async_executor:
-                    self.release_leader_key_voluntarily(checkpoint_lsn if mode == 'demote-cluster' else prev_lsn)
+                    self.release_leader_key_voluntarily(prev_lsn)
             time.sleep(2)  # Give a time to somebody to take the leader lock
+
         if mode == 'demote-cluster':
-            if not demote_cluster_with_archive:
-                logger.info('Not archiving latest checkpoint WAL file. Archiving is not configured.')
+            if demote_cluster_with_archive:
+                self._rewind.archive_shutdown_checkpoint_wal(cast(str, archive_cmd))
             else:
+                logger.info('Not archiving latest checkpoint WAL file. Archiving is not configured.')
+            if not status['released']:
                 with self._async_executor:
                     self.dcs.update_leader(self.cluster, checkpoint_lsn, None, self._failsafe_config())
-                self._rewind.archive_shutdown_checkpoint_wal(cast(str, archive_cmd))
+
         if mode_control['offline']:
             node_to_follow, leader = None, None
         else:
