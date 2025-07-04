@@ -343,6 +343,7 @@ class TestSlotsHandler(BaseTestPostgresql):
                           [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
         global_config.update(cluster)
         self.s.sync_replication_slots(cluster, self.tags)
+
         with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('blabla', 'physical', None, 12345, None, None,
                                                                       None, None, None)], Exception])) as mock_query, \
                 patch('patroni.postgresql.slots.logger.error') as mock_error:
@@ -376,6 +377,21 @@ class TestSlotsHandler(BaseTestPostgresql):
                 patch.object(SlotsHandler, 'drop_replication_slot') as mock_drop:
             self.s.sync_replication_slots(cluster, self.tags)
             mock_drop.assert_not_called()
+
+        # If the slot has no restart_lsn, we should not try to advance it, and only warn the user that this is not an
+        # expected situation.
+        with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('blabla', 'physical', None, None, None, None,
+                                                                      None, None, None)], Exception])) as mock_query, \
+                patch('patroni.postgresql.slots.logger.warning') as mock_warning, \
+                patch.object(SlotsHandler, 'drop_replication_slot') as mock_drop:
+            self.s.sync_replication_slots(cluster, self.tags)
+            for mock_call in mock_query.call_args_list:
+                self.assertNotIn("pg_catalog.pg_replication_slot_advance", mock_call[0][0])
+            self.assertEqual(mock_warning.call_args[0][0],
+                             'Dropping physical replication slot %s because it has no restart_lsn. '
+                             'This slot was probably not created by Patroni, but by an external agent.')
+            self.assertEqual(mock_warning.call_args[0][1], 'blabla')
+            mock_drop.assert_called_once_with('blabla')
 
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     @patch.object(Postgresql, 'role', PropertyMock(return_value=PostgresqlRole.REPLICA))
