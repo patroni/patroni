@@ -1426,6 +1426,7 @@ parameters:
   ssl_ecdh_curve:
   - type: String
     version_from: 90400
+    version_till: 180000
   ssl_groups:
   - type: String
     version_from: 180000
