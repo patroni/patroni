@@ -1593,15 +1593,12 @@ class Ha(object):
             time.sleep(1)  # give replicas some more time to catch up
             if self.is_failover_possible(cluster_lsn=checkpoint_location):
                 self.state_handler.set_role(PostgresqlRole.DEMOTED)
-                # for cluster demotion we need shutdown checkpoint lsn to be written to optime, not the prev one
+                # for demotion to a standby cluster we need shutdown checkpoint lsn to be written to optime,
+                # not the prev one
                 last_lsn = checkpoint_location if mode == 'demote-cluster' else prev_location
                 with self._async_executor:
                     self.release_leader_key_voluntarily(last_lsn)
                     status['released'] = True
-            elif mode == 'demote-cluster':
-                # for cluster demotion, if failover is not possible, we better keep the leader key
-                # and wait for the complete shutdown and start. We need a healthy standby leader.
-                mode_control['release'] = False
 
         def before_shutdown() -> None:
             if self.state_handler.mpp_handler.is_coordinator():
@@ -1615,16 +1612,21 @@ class Ha(object):
                                 before_shutdown=before_shutdown if mode == 'graceful' else None,
                                 stop_timeout=None if demote_cluster_with_archive else self.primary_stop_timeout())
         self.state_handler.set_role(PostgresqlRole.DEMOTED)
-        self.set_is_leader(False)
 
-        # for cluster demotion we need shutdown checkpoint lsn to be written to optime, not the prev one
+        # for demotion to a standby cluster we need shutdown checkpoint lsn to be written to optime, not the prev one
         checkpoint_lsn, prev_lsn = self.state_handler.latest_checkpoint_locations() \
             if mode == 'graceful' else (None, None)
 
+        is_standby_leader = mode == 'demote-cluster' and not status['released']
+        if is_standby_leader:
+            with self._async_executor:
+                self.dcs.update_leader(self.cluster, checkpoint_lsn, None, self._failsafe_config())
+            mode_control['release'] = False
+        else:
+            self.set_is_leader(False)
+
         if mode_control['release']:
             if not status['released']:
-                # for cluster demotion, if leader key is not released, we should not try to do it here,
-                # thus always prev_lsn here
                 with self._async_executor:
                     self.release_leader_key_voluntarily(prev_lsn)
             time.sleep(2)  # Give a time to somebody to take the leader lock
@@ -1634,9 +1636,6 @@ class Ha(object):
                 self._rewind.archive_shutdown_checkpoint_wal(cast(str, archive_cmd))
             else:
                 logger.info('Not archiving latest checkpoint WAL file. Archiving is not configured.')
-            if not status['released']:
-                with self._async_executor:
-                    self.dcs.update_leader(self.cluster, checkpoint_lsn, None, self._failsafe_config())
 
         if mode_control['offline']:
             node_to_follow, leader = None, None
@@ -1650,8 +1649,7 @@ class Ha(object):
         if self.is_synchronous_mode():
             self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
 
-        role = PostgresqlRole.STANDBY_LEADER if mode == 'demote-cluster' and not status['released'] \
-            else PostgresqlRole.REPLICA
+        role = PostgresqlRole.STANDBY_LEADER if is_standby_leader else PostgresqlRole.REPLICA
         # FIXME: with mode offline called from DCS exception handler and handle_long_action_in_progress
         # there could be an async action already running, calling follow from here will lead
         # to racy state handler state updates.
