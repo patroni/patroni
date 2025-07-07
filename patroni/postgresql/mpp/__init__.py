@@ -27,7 +27,7 @@ class AbstractMPP(abc.ABC):
 
     group_re: Any  # re.Pattern[str]
 
-    def __init__(self, config: Dict[str, Union[str, int]]) -> None:
+    def __init__(self, config: Dict[str, Any]) -> None:
         """Init method for :class:`AbstractMPP`.
 
         :param config: configuration of MPP section.
@@ -129,7 +129,7 @@ class AbstractMPP(abc.ABC):
 class AbstractMPPHandler(AbstractMPP):
     """An abstract class which defines interfaces that should be implemented by real handlers."""
 
-    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
+    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Any]) -> None:
         """Init method for :class:`AbstractMPPHandler`.
 
         :param postgresql: a reference to :class:`Postgresql` object.
@@ -231,7 +231,7 @@ class Null(AbstractMPP):
 class NullHandler(Null, AbstractMPPHandler):
     """Dummy implementation of :class:`AbstractMPPHandler`."""
 
-    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
+    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Any]) -> None:
         """Init method for :class:`NullHandler`.
 
         :param postgresql: a reference to :class:`Postgresql` object.
