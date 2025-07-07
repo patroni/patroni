@@ -371,7 +371,7 @@ class Citus(AbstractMPP):
         return isinstance(config, dict) \
             and (isinstance(cast(Dict[str, Any], config).get('database'), str)
                  or isinstance(cast(Dict[str, Any], config).get('databases'), list)
-                 and all(isinstance(db, str) for db in config.get('databases'))) \
+                 and all(isinstance(db, str) for db in cast(Dict[str, List[Any]], config).get('databases', []))) \
             and parse_int(cast(Dict[str, Any], config).get('group')) is not None
 
     @property
@@ -824,7 +824,7 @@ class CitusHandler(Citus, AbstractMPPHandler):
             handler.sync_meta_data(cluster)
 
     def handle_event(self, cluster: Cluster, event: Dict[str, Any]) -> None:
-        tasks = []
+        tasks: List[PgDistTask] = []
         for handler in self._citus_database_handlers.values():
             task = handler.handle_event(cluster, event)
             if task:
