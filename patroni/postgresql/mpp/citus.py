@@ -612,17 +612,16 @@ class CitusDatabaseHandler(Citus, Thread):
             self._condition.notify_all()
 
     def run(self) -> None:
-
         while not self._stop_event.is_set():
             if not self._bootstrapped:
                 try:
                     self.bootstrap()
-                    self._bootstrapped = True
                 except Exception as e:
                     logger.error('Error while running bootstrap: %s', e)
                     with self._condition:
                         self._condition.wait()
                     continue
+
             try:
                 with self._condition:
                     if self._schedule_load_pg_dist_group:
@@ -746,15 +745,17 @@ class CitusDatabaseHandler(Citus, Thread):
                 params = {k: superuser[k] for k in ('password', 'sslcert', 'sslkey') if k in superuser}
                 if params:
                     cur.execute("INSERT INTO pg_catalog.pg_dist_authinfo VALUES"
-                                "(0, pg_catalog.current_user(), %s)",
+                                "(0, pg_catalog.current_user(), %s) ON CONFLICT DO NOTHING",
                                 (self._postgresql.config.format_dsn(params),))
 
                 if self.is_coordinator():
                     r = urlparse(self._postgresql.connection_string)
-                    cur.execute("SELECT pg_catalog.citus_set_coordinator_host(%s, %s, 'primary', 'default')",
-                                (r.hostname, r.port or 5432))
+                    cur.execute("SELECT pg_catalog.citus_set_coordinator_host(%s, %s, 'primary', 'default')"
+                                " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_dist_node WHERE groupid = %s"
+                                " AND noderole = 'primary')", (r.hostname, r.port or 5432, self.coordinator_group_id))
         finally:
             conn.close()
+        self._bootstrapped = False
 
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
         """Check whether provided replication *slot* existing in the database should not be removed.
