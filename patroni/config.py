@@ -662,12 +662,15 @@ class Config(object):
                               'REGISTER_SERVICE', 'SERVICE_CHECK_INTERVAL', 'SERVICE_CHECK_TLS_SERVER_NAME',
                               'SERVICE_TAGS', 'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL',
                               'POD_IP', 'PORTS', 'LABELS', 'BYPASS_API_SERVICE', 'RETRIABLE_HTTP_CODES', 'KEY_PASSWORD',
-                              'USE_SSL', 'SET_ACLS', 'GROUP', 'DATABASE', 'LEADER_LABEL_VALUE', 'FOLLOWER_LABEL_VALUE',
-                              'STANDBY_LEADER_LABEL_VALUE', 'TMP_ROLE_LABEL', 'AUTH_DATA', 'BOOTSTRAP_LABELS') and name:
+                              'USE_SSL', 'SET_ACLS', 'GROUP', 'DATABASE', 'DATABASES', 'LEADER_LABEL_VALUE',
+                              'FOLLOWER_LABEL_VALUE', 'STANDBY_LEADER_LABEL_VALUE', 'TMP_ROLE_LABEL', 'AUTH_DATA',
+                              'BOOTSTRAP_LABELS') and name:
                     value = os.environ.pop(param)
                     if name == 'CITUS':
                         if suffix == 'GROUP':
                             value = parse_int(value)
+                        elif suffix == 'DATABASES':
+                            value = _parse_list(value)
                         elif suffix != 'DATABASE':
                             continue
                     elif suffix == 'PORT':
@@ -702,7 +705,9 @@ class Config(object):
         for name, value in local_configuration.items():
             if name == 'citus':  # remove invalid citus configuration
                 if isinstance(value, dict) and isinstance(cast(Dict[str, Any], value).get('group'), int) \
-                        and isinstance(cast(Dict[str, Any], value).get('database'), str):
+                    and (isinstance(cast(Dict[str, Any], value).get('database'), str)
+                         or isinstance(cast(Dict[str, Any], value).get('databases'), list)
+                         and all(isinstance(d, str) for d in cast(Dict[str, List[Any]], config).get('databases', []))):
                     config[name] = value
             elif name == 'postgresql':
                 for name, value in (value or {}).items():
