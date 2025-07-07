@@ -304,8 +304,10 @@ A couple of examples of Patroni configuration using Pods environment variables:
                   fieldPath: metadata.namespace
             - name: PATRONI_KUBERNETES_LABELS
               value: '{application: patroni}'
-            - name: PATRONI_CITUS_DATABASE or PATRONI_CITUS_DATABASES
-              value: citus or ["database1", "database2"]
+            - name: PATRONI_CITUS_DATABASE
+              value: Citus
+            #- name: PATRONI_CITUS_DATABASES
+            #  value: ["database1", "database2"]
             - name: PATRONI_CITUS_GROUP
               value: "0"
 
@@ -345,8 +347,10 @@ A couple of examples of Patroni configuration using Pods environment variables:
                   fieldPath: metadata.namespace
             - name: PATRONI_KUBERNETES_LABELS
               value: '{application: patroni}'
-            - name: PATRONI_CITUS_DATABASE or PATRONI_CITUS_DATABASES
-              value: citus or ["database1", "database2"]
+            - name: PATRONI_CITUS_DATABASE
+              value: citus
+            #- name: PATRONI_CITUS_DATABASES
+            #  value: ["database1", "database2"]
             - name: PATRONI_CITUS_GROUP
               value: "2"
 
