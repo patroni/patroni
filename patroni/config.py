@@ -707,7 +707,7 @@ class Config(object):
                 if isinstance(value, dict) and isinstance(cast(Dict[str, Any], value).get('group'), int) \
                     and (isinstance(cast(Dict[str, Any], value).get('database'), str)
                          or isinstance(cast(Dict[str, Any], value).get('databases'), list)
-                         and all(isinstance(db, str) for db in config.get('databases'))):
+                         and all(isinstance(d, str) for d in cast(Dict[str, List[Any]], config).get('databases', []))):
                     config[name] = value
             elif name == 'postgresql':
                 for name, value in (value or {}).items():
