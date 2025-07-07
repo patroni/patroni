@@ -28,6 +28,10 @@ class TestCitusDatabase(BaseTestPostgresql):
     @patch('patroni.postgresql.mpp.citus.PgDistTask.wait', Mock())
     def test_run(self, mock_logger_warning):
         self.c._ready_to_run.set()
+        self.c._condition.wait = Mock(side_effect=[Mock(), SleepException])
+        with patch.object(CitusDatabaseHandler, 'bootstrap', Mock(side_effect=Exception)):
+            self.assertRaises(SleepException, self.c.run)
+
         # `before_demote` or `before_promote` REST API calls starting a
         # transaction. We want to make sure that it finishes during
         # certain timeout. In case if it is not, we want to roll it back
@@ -38,6 +42,7 @@ class TestCitusDatabase(BaseTestPostgresql):
         self.c.handle_event(self.cluster, {'type': 'before_demote', 'group': 1,
                                            'leader': 'leader', 'timeout': 30, 'cooldown': 10})
         self.c.add_task('after_promote', 2, self.cluster, self.cluster.leader_name, 'postgres://host3:5432/postgres')
+        self.c._bootstrapped = True
         self.assertRaises(SleepException, self.c.run)
         mock_logger_warning.assert_called_once()
         self.assertTrue(mock_logger_warning.call_args[0][0].startswith('Rolling back transaction'))
