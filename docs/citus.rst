@@ -305,7 +305,7 @@ A couple of examples of Patroni configuration using Pods environment variables:
             - name: PATRONI_KUBERNETES_LABELS
               value: '{application: patroni}'
             - name: PATRONI_CITUS_DATABASE
-              value: Citus
+              value: citus
             #- name: PATRONI_CITUS_DATABASES
             #  value: ["database1", "database2"]
             - name: PATRONI_CITUS_GROUP
