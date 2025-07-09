@@ -332,6 +332,26 @@ class SlotsHandler:
                             ' FULL OUTER JOIN dropped ON true'), name)
         return (rows[0][0], rows[0][1]) if rows else (False, False)
 
+    def _drop_physical_slot(self, name: str) -> bool:
+        """Drop a physical replication slot by name.
+
+        .. note::
+            If not able to drop the slot, it will log a message and set the flag to reload slots.
+
+        :param name: name of the slot to be dropped.
+        :returns: ``True`` if the slot was successfully dropped, ``False`` otherwise.
+        """
+        active, dropped = self.drop_replication_slot(name)
+        if dropped:
+            logger.info("Dropped physical replication slot '%s'", name)
+        else:
+            self._schedule_load_slots = True
+            if active:
+                logger.warning("Unable to drop replication slot '%s', slot is active", name)
+            else:
+                logger.error("Failed to drop replication slot '%s'", name)
+        return dropped
+
     def _drop_incorrect_slots(self, cluster: Cluster, slots: Dict[str, Any]) -> None:
         """Compare required slots and configured as permanent slots with those found, dropping extraneous ones.
 
@@ -347,15 +367,8 @@ class SlotsHandler:
         # drop old replication slots which are not presented in desired slots.
         for name in set(self._replication_slots) - set(slots):
             if not global_config.is_paused and not self.ignore_replication_slot(cluster, name):
-                active, dropped = self.drop_replication_slot(name)
-                if dropped:
-                    logger.info("Dropped unknown replication slot '%s'", name)
-                else:
-                    self._schedule_load_slots = True
-                    if active:
-                        logger.debug("Unable to drop unknown replication slot '%s', slot is still active", name)
-                    else:
-                        logger.error("Failed to drop replication slot '%s'", name)
+                logger.info("Trying to drop unknown replication slot '%s'", name)
+                self._drop_physical_slot(name)
 
         # drop slots with matching names but attributes that do not match, e.g. `plugin` or `database`.
         for name, value in slots.items():
@@ -394,15 +407,9 @@ class SlotsHandler:
                 if clean_inactive_physical_slots and value.get('expected_active') is False and value['xmin']:
                     logger.warning('Dropping physical replication slot %s because of its xmin value %s',
                                    name, value['xmin'])
-                    active, dropped = self.drop_replication_slot(name)
+                    dropped = self._drop_physical_slot(name)
                     if dropped:
                         self._replication_slots.pop(name)
-                    else:
-                        self._schedule_load_slots = True
-                        if active:
-                            logger.warning("Unable to drop replication slot '%s', slot is active", name)
-                        else:
-                            logger.error("Failed to drop replication slot '%s'", name)
 
             # Now we will create physical replication slots that are missing.
             if name not in self._replication_slots:
@@ -426,12 +433,9 @@ class SlotsHandler:
                     logger.warning('Dropping physical replication slot %s because it has no restart_lsn. '
                                    'This slot was probably not created by Patroni, but by an external agent.',
                                    name)
-                    _, dropped = self.drop_replication_slot(name)
+                    dropped = self._drop_physical_slot(name)
                     if dropped:
                         self._replication_slots.pop(name)
-                    else:
-                        self._schedule_load_slots = True
-                        logger.error("Failed to drop replication slot '%s'", name)
                     continue
                 lsn = value.get('lsn')
                 if lsn and lsn > restart_lsn:  # The slot has feedback in DCS and needs to be advanced

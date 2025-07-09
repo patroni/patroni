@@ -55,9 +55,9 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.p.set_role(PostgresqlRole.STANDBY_LEADER)
         with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(True, False))), \
                 patch.object(global_config.__class__, 'is_standby_cluster', PropertyMock(return_value=True)), \
-                patch('patroni.postgresql.slots.logger.debug') as mock_debug:
+                patch('patroni.postgresql.slots.logger.warning') as mock_warning:
             self.s.sync_replication_slots(cluster, self.tags)
-            mock_debug.assert_called_once()
+            mock_warning.assert_called_once_with("Unable to drop replication slot '%s', slot is active", 'foobar')
         self.p.set_role(PostgresqlRole.REPLICA)
         with patch.object(Postgresql, 'is_primary', Mock(return_value=False)), \
                 patch.object(global_config.__class__, 'is_paused', PropertyMock(return_value=True)), \
