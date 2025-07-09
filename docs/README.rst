@@ -36,7 +36,7 @@ perfectly fine. You can add more standby nodes later.
 
 **2-node clusters** (primary + standby) are common and provide automatic failover with high availability. Note that during failover, you'll temporarily have no redundancy until the failed node rejoins.
 
-**DCS requirements**: Your DCS (etcd, ZooKeeper, Consul) should run with **3 or 5 nodes** for proper consensus and fault tolerance. A single DCS cluster can store information for hundreds or thousands of Patroni clusters using different namespace/scope combinations.
+**DCS requirements**: Your DCS (etcd, ZooKeeper, Consul) has to run with **3 or 5 nodes** for proper consensus and fault tolerance. A single DCS cluster can store information for hundreds or thousands of Patroni clusters using different namespace/scope combinations.
 
 Running and Configuring
 -----------------------
