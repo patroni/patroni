@@ -13,6 +13,7 @@ from ..misc import PostgresqlRole, PostgresqlState
 from . import AbstractMPP, AbstractMPPHandler
 
 if TYPE_CHECKING:  # pragma: no cover
+    from ...config import Config
     from .. import Postgresql
 
 CITUS_COORDINATOR_GROUP_ID = 0
@@ -368,7 +369,9 @@ class Citus(AbstractMPP):
         :returns: ``True`` is config passes validation, otherwise ``False``.
         """
         return isinstance(config, dict) \
-            and isinstance(cast(Dict[str, Any], config).get('database'), str) \
+            and (isinstance(cast(Dict[str, Any], config).get('database'), str)
+                 or isinstance(cast(Dict[str, Any], config).get('databases'), list)
+                 and all(isinstance(db, str) for db in cast(Dict[str, List[Any]], config).get('databases', []))) \
             and parse_int(cast(Dict[str, Any], config).get('group')) is not None
 
     @property
@@ -382,17 +385,18 @@ class Citus(AbstractMPP):
         return CITUS_COORDINATOR_GROUP_ID
 
 
-class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
+class CitusDatabaseHandler(Citus, Thread):
     """Define the interfaces for handling an underlying Citus cluster."""
 
-    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int]]) -> None:
+    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Any]) -> None:
         """"Initialize a new instance of :class:`CitusDatabaseHandler`.
 
         :param postgresql: the Postgres node.
         :param config: the ``citus`` MPP config section.
         """
         Thread.__init__(self)
-        AbstractMPPHandler.__init__(self, postgresql, config)
+        Citus.__init__(self, config)
+        self._postgresql = postgresql
         self.daemon = True
         if config:
             self._connection = postgresql.connection_pool.get(
@@ -404,6 +408,8 @@ class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
         self._schedule_load_pg_dist_group = True  # Flag that "pg_dist_group" should be queried from the database
         self._condition = Condition()  # protects _pg_dist_group, _tasks, _in_flight, and _schedule_load_pg_dist_group
         self.schedule_cache_rebuild()
+        self._stop_event = Event()
+        self._bootstrapped = False
 
     def schedule_cache_rebuild(self) -> None:
         """Cache rebuild handler.
@@ -600,8 +606,22 @@ class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
                         self._tasks.pop(i)
             task.wakeup()
 
+    def stop(self) -> None:
+        self._stop_event.set()
+        with self._condition:
+            self._condition.notify_all()
+
     def run(self) -> None:
-        while True:
+        while not self._stop_event.is_set():
+            if not self._bootstrapped:
+                try:
+                    self.bootstrap()
+                except Exception as e:
+                    logger.error('Error while running bootstrap: %s', e)
+                    with self._condition:
+                        self._condition.wait()
+                    continue
+
             try:
                 with self._condition:
                     if self._schedule_load_pg_dist_group:
@@ -620,6 +640,7 @@ class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
                 self.process_tasks()
             except Exception:
                 logger.exception('run')
+        self._connection.close()
 
     def _add_task(self, task: PgDistTask) -> bool:
         with self._condition:
@@ -724,18 +745,17 @@ class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
                 params = {k: superuser[k] for k in ('password', 'sslcert', 'sslkey') if k in superuser}
                 if params:
                     cur.execute("INSERT INTO pg_catalog.pg_dist_authinfo VALUES"
-                                "(0, pg_catalog.current_user(), %s)",
+                                "(0, pg_catalog.current_user(), %s) ON CONFLICT DO NOTHING",
                                 (self._postgresql.config.format_dsn(params),))
 
                 if self.is_coordinator():
                     r = urlparse(self._postgresql.connection_string)
-                    cur.execute("SELECT pg_catalog.citus_set_coordinator_host(%s, %s, 'primary', 'default')",
-                                (r.hostname, r.port or 5432))
+                    cur.execute("SELECT pg_catalog.citus_set_coordinator_host(%s, %s, 'primary', 'default')"
+                                " WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_dist_node WHERE groupid = %s"
+                                " AND noderole = 'primary')", (r.hostname, r.port or 5432, self.coordinator_group_id))
         finally:
             conn.close()
-
-    def adjust_postgres_gucs(self, parameters: Dict[str, Any]) -> None:
-        pass
+        self._bootstrapped = False
 
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
         """Check whether provided replication *slot* existing in the database should not be removed.
@@ -758,23 +778,16 @@ class CitusDatabaseHandler(Citus, AbstractMPPHandler, Thread):
 class CitusHandler(Citus, AbstractMPPHandler):
     """Define the interfaces for handling an underlying Citus cluster."""
 
-    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Union[str, int, list]]) -> None:
+    def __init__(self, postgresql: 'Postgresql', config: Dict[str, Any]) -> None:
         """"Initialize a new instance of :class:`CitusHandler`.
 
         :param postgresql: the Postgres node.
         :param config: the ``citus`` MPP config section.
         """
         AbstractMPPHandler.__init__(self, postgresql, config)
-        self._citus_database_handlers = {}
-
-        dbconfig = config.copy()
-
-        if isinstance(config['database'], str):
-            config['database'] = [config['database']]
-
-        for dbname in config['database']:
-            dbconfig['database'] = dbname
-            self._citus_database_handlers[dbname] = CitusDatabaseHandler(postgresql, dbconfig)
+        self._citus_database_handlers: Dict[str, CitusDatabaseHandler] = {}
+        self._postgresql = postgresql
+        self._initialize_handlers()
 
     def schedule_cache_rebuild(self) -> None:
         for handler in self._citus_database_handlers.values():
@@ -784,6 +797,25 @@ class CitusHandler(Citus, AbstractMPPHandler):
         for handler in self._citus_database_handlers.values():
             handler.on_demote()
 
+    def _initialize_handlers(self):
+        dbs = []
+
+        if isinstance(self._config.get('databases'), list):
+            dbs = self._config['databases']
+        elif isinstance(self._config.get('database'), str):
+            dbs = [self._config['database']]
+
+        for db in set(self._citus_database_handlers) - set(dbs):
+            self._citus_database_handlers.pop(db).stop()
+
+        for db in set(dbs) - set(self._citus_database_handlers):
+            self._citus_database_handlers[db] = CitusDatabaseHandler(self._postgresql, {**self._config, 'database': db})
+
+    def reload_config(self, config: Union['Config', Dict[str, Any]]) -> None:
+        """Creates CitusHandler instances and add them to dict."""
+        super(CitusHandler, self).reload_config(config)
+        self._initialize_handlers()
+
     def sync_meta_data(self, cluster: Cluster) -> None:
         if not self.is_coordinator():
             return
@@ -792,7 +824,7 @@ class CitusHandler(Citus, AbstractMPPHandler):
             handler.sync_meta_data(cluster)
 
     def handle_event(self, cluster: Cluster, event: Dict[str, Any]) -> None:
-        tasks = []
+        tasks: List[PgDistTask] = []
         for handler in self._citus_database_handlers.values():
             task = handler.handle_event(cluster, event)
             if task:

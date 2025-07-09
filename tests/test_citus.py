@@ -27,7 +27,12 @@ class TestCitusDatabase(BaseTestPostgresql):
     @patch('patroni.postgresql.mpp.citus.logger.warning')
     @patch('patroni.postgresql.mpp.citus.PgDistTask.wait', Mock())
     @patch.object(CitusDatabaseHandler, 'is_alive', Mock(return_value=True))
-    def test_run(self, mock_logger_warning):
+    @patch('patroni.postgresql.mpp.citus.CitusDatabaseHandler.bootstrap')
+    def test_run(self, mock_boostrap, mock_logger_warning):
+        self.c._condition.wait = Mock(side_effect=[Mock(), SleepException])
+        with patch.object(CitusDatabaseHandler, 'bootstrap', Mock(side_effect=Exception)):
+            self.assertRaises(SleepException, self.c.run)
+
         # `before_demote` or `before_promote` REST API calls starting a
         # transaction. We want to make sure that it finishes during
         # certain timeout. In case if it is not, we want to roll it back
@@ -39,9 +44,14 @@ class TestCitusDatabase(BaseTestPostgresql):
                                            'leader': 'leader', 'timeout': 30, 'cooldown': 10})
         self.c.add_task('after_promote', 2, self.cluster, self.cluster.leader_name, 'postgres://host3:5432/postgres')
         self.assertRaises(SleepException, self.c.run)
+        mock_boostrap.assert_called()
         mock_logger_warning.assert_called_once()
         self.assertTrue(mock_logger_warning.call_args[0][0].startswith('Rolling back transaction'))
         self.assertTrue(repr(mock_logger_warning.call_args[0][1]).startswith('PgDistTask'))
+        self.c.stop()
+        with patch('patroni.postgresql.connection.NamedConnection.close') as mock_close:
+            self.c.run()
+            mock_close.assert_called_once()
 
     def test_handle_event(self):
         self.c.handle_event(self.cluster, {})
@@ -171,7 +181,6 @@ class TestCitusDatabase(BaseTestPostgresql):
         self.assertTrue(mock_logger.call_args[0][0].startswith('Exception when creating database'))
 
 
-@patch('patroni.postgresql.mpp.citus.Thread', Mock())
 @patch('patroni.psycopg.connect', psycopg_connect)
 class TestCitus(BaseTestPostgresql):
 
@@ -181,6 +190,7 @@ class TestCitus(BaseTestPostgresql):
         self.cluster = get_cluster_initialized_with_leader()
         self.cluster.workers[1] = self.cluster
 
+    @patch('patroni.postgresql.mpp.citus.Thread', Mock())
     @patch.object(CitusDatabaseHandler, 'is_alive', Mock(return_value=False))
     @patch.object(CitusDatabaseHandler, 'start', Mock())
     def test_sync_meta_data(self):
@@ -203,6 +213,15 @@ class TestCitus(BaseTestPostgresql):
         self.assertEqual(parameters['shared_preload_libraries'], 'citus,foo,bar')
         self.assertEqual(parameters['wal_level'], 'logical')
         self.assertEqual(parameters['citus.local_hostname'], '/tmp')
+
+    def test_reload_config_removes_old_handlers(self):
+        new_config = {'citus': {'databases': ['db2', 'db3'], 'group': 0}}
+
+        self.p.mpp_handler.reload_config(new_config)
+
+        self.assertNotIn('citus', self.c._citus_database_handlers)
+        self.assertIn('db2', self.c._citus_database_handlers)
+        self.assertIn('db3', self.c._citus_database_handlers)
 
 
 class TestGroupTransition(unittest.TestCase):
