@@ -812,7 +812,7 @@ class TestRestApiServer(unittest.TestCase):
             self.srv.query('SELECT 1')
             mock_query.assert_called_once_with('SELECT 1')
 
-    def test__construct_server_tokens(self):
+    def test_construct_server_tokens(self):
         #
         # Test cases (case insensitive values):
         # 1. 'original' server token - should return empty string
