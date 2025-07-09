@@ -2353,7 +2353,7 @@ def demote_cluster(cluster_name: str, force: bool, host: Optional[str], port: Op
 
     content = {k: v for k, v in {'host': host, 'port': port, 'primary_slot_name': primary_slot_name,
                                  'restore_command': restore_command}.items() if v}
-    r = request_patroni(cluster.leader.member, 'POST', 'demote', content)
+    r = request_patroni(cluster.leader.member, 'POST', 'demote-cluster', content)
     if r.status == 200:
         logging.debug(r)
         cluster = dcs.get_cluster()

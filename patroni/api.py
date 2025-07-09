@@ -1315,8 +1315,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         return 503, 'cluster demotion status unknown'
 
     @check_access
-    def do_POST_demote(self) -> None:
-        """Handle a ``POST`` request to ``/demote`` path.
+    def do_POST_demote_cluster(self) -> None:
+        """Handle a ``POST`` request to ``/demote-cluster`` path.
 
         Handles demotion to a standby cluster.
 
@@ -1371,6 +1371,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
             * ``GET /uri1/part2`` request should invoke :func:`do_GET_uri1()`
             * ``POST /other`` should invoke :func:`do_POST_other()`
+            * ``POST /some-path`` should invoke :func:`do_POST_some_path()`
 
         If the :func:`do_<REQUEST_METHOD>_<first_part_url>` method does not exist we'll fall back to original behavior.
 
@@ -1384,6 +1385,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             self.path = urlpath.path
             self.path_query = parse_qs(urlpath.query) or {}
             mname = self.path.lstrip('/').split('/')[0]
+            mname = mname.replace('-', '_')
             mname = self.command + ('_' + mname if mname else '')
             if hasattr(self, 'do_' + mname):
                 self.command = mname

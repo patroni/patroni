@@ -731,10 +731,10 @@ class TestRestApiHandler(unittest.TestCase):
 
     @patch('time.sleep', Mock())
     @patch.object(MockPatroni, 'dcs')
-    def test_do_POST_demote(self, mock_dcs):
+    def test_do_POST_demote_cluster(self, mock_dcs):
         mock_dcs.loop_wait = 10
         mock_dcs.get_cluster.return_value = mock_dcs.cluster = get_standby_cluster_initialized_with_only_leader()
-        post = 'POST /demote HTTP/1.0' + self._authorization + '\nContent-Length: '
+        post = 'POST /demote-cluster HTTP/1.0' + self._authorization + '\nContent-Length: '
         MockRestApiServer(RestApiHandler, post + '0\n\n')
         MockRestApiServer(RestApiHandler, post + '28\n\n{"primary_slot_name":"foo"}')
         # already a standby cluster
