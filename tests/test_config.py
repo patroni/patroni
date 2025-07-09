@@ -40,6 +40,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_LOG_FILE_NUM': '5',
             'PATRONI_LOG_MODE': '0123',
             'PATRONI_CITUS_DATABASE': 'citus',
+            'PATRONI_CITUS_DATABASES': '[citus]',
             'PATRONI_CITUS_GROUP': '0',
             'PATRONI_CITUS_HOST': '0',
             'PATRONI_RESTAPI_USERNAME': 'username',

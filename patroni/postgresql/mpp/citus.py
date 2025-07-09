@@ -755,7 +755,7 @@ class CitusDatabaseHandler(Citus, Thread):
                                 " AND noderole = 'primary')", (r.hostname, r.port or 5432, self.coordinator_group_id))
         finally:
             conn.close()
-        self._bootstrapped = False
+        self._bootstrapped = True
 
     def ignore_replication_slot(self, slot: Dict[str, str]) -> bool:
         """Check whether provided replication *slot* existing in the database should not be removed.
