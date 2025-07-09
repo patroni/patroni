@@ -20,7 +20,8 @@ from patroni.utils import RetryFailedError, tzutc
 
 from . import MockConnect, psycopg_connect
 from .test_etcd import socket_getaddrinfo
-from .test_ha import get_cluster_initialized_without_leader
+from .test_ha import get_cluster_initialized_with_leader, \
+    get_cluster_initialized_without_leader, get_standby_cluster_initialized_with_only_leader
 
 future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)
 postmaster_start_time = datetime.datetime.now(tzutc)
@@ -727,6 +728,29 @@ class TestRestApiHandler(unittest.TestCase):
         post = 'POST /mpp HTTP/1.0' + self._authorization + '\nContent-Length: '
         MockRestApiServer(RestApiHandler, post + '0\n\n')
         MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
+
+    @patch('time.sleep', Mock())
+    @patch.object(MockPatroni, 'dcs')
+    def test_do_POST_demote(self, mock_dcs):
+        mock_dcs.loop_wait = 10
+        mock_dcs.get_cluster.return_value = mock_dcs.cluster = get_standby_cluster_initialized_with_only_leader()
+        post = 'POST /demote HTTP/1.0' + self._authorization + '\nContent-Length: '
+        MockRestApiServer(RestApiHandler, post + '0\n\n')
+        MockRestApiServer(RestApiHandler, post + '28\n\n{"primary_slot_name":"foo"}')
+        # already a standby cluster
+        MockRestApiServer(RestApiHandler, post + '25\n\n{"restore_command":"foo"}')
+        # success
+        mock_dcs.cluster = get_cluster_initialized_with_leader()
+        MockRestApiServer(RestApiHandler, post + '25\n\n{"restore_command":"foo"}')
+        # update config error
+        with patch.object(RestApiHandler, '_patch_dynamic_config', Mock(return_value=(503, None))):
+            MockRestApiServer(RestApiHandler, post + '25\n\n{"restore_command":"foo"}')
+        # exception in poll_demotion_readiness
+        mock_dcs.get_cluster.side_effect = [get_standby_cluster_initialized_with_only_leader(), Exception]
+        MockRestApiServer(RestApiHandler, post + '25\n\n{"restore_command":"foo"}')
+        # no leader
+        mock_dcs.cluster = get_cluster_initialized_without_leader()
+        MockRestApiServer(RestApiHandler, post + '25\n\n{"restore_command":"foo"}')
 
 
 class TestRestApiServer(unittest.TestCase):

@@ -35,7 +35,8 @@ from patroni.utils import tzutc
 from . import MockConnect, MockCursor, MockResponse, psycopg_connect
 from .test_etcd import etcd_read, socket_getaddrinfo
 from .test_ha import get_cluster, get_cluster_initialized_with_leader, get_cluster_initialized_with_only_leader, \
-    get_cluster_initialized_without_leader, get_cluster_not_initialized_without_leader, Member
+    get_cluster_initialized_without_leader, get_cluster_not_initialized_without_leader, \
+    get_standby_cluster_initialized_with_only_leader, Member
 
 
 def get_default_config(*args):
@@ -783,6 +784,31 @@ class TestCtl(unittest.TestCase):
             result = self.runner.invoke(ctl, ['reinit', 'alpha', 'other', '--wait'], input='y\ny')
         self.assertIn("Waiting for reinitialize to complete on: other", result.output)
         self.assertIn("Reinitialize is completed on: other", result.output)
+
+    @patch('patroni.ctl.request_patroni')
+    def test_cluster_demote(self, mock_post):
+        only_leader_cluster = get_cluster_initialized_with_only_leader()
+        standby_cluster = get_standby_cluster_initialized_with_only_leader()
+        mock_post.return_value.status = 200
+        # no option provided
+        self.runner.invoke(ctl, ['demote-cluster', 'dummy'])
+        # no leader
+        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=get_cluster_initialized_without_leader())):
+            result = self.runner.invoke(ctl, ['demote-cluster', 'dummy', '--restore-command', 'foo'])
+            assert 'This cluster has no leader, demotion is not possible' in result.output
+        # aborted
+        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=only_leader_cluster)):
+            result = self.runner.invoke(ctl, ['demote-cluster', 'dummy', '--restore-command', 'foo'], input='N')
+            assert 'Aborted' in result.output
+        # success
+        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(side_effect=[only_leader_cluster, standby_cluster])):
+            result = self.runner.invoke(ctl, ['demote-cluster', 'dummy', '--restore-command', 'foo', '--force'])
+            assert result.exit_code == 0
+        # failed request
+        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=only_leader_cluster)):
+            mock_post.return_value.status = 412
+            result = self.runner.invoke(ctl, ['demote-cluster', 'dummy', '--restore-command', 'foo', '--force'])
+            assert 'Cluster demotion failed' in result.output
 
 
 class TestPatronictlPrettyTable(unittest.TestCase):

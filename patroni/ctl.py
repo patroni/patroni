@@ -2314,3 +2314,52 @@ def format_pg_version(version: int) -> str:
         return "{0}.{1}.{2}".format(version // 10000, version // 100 % 100, version % 100)
     else:
         return "{0}.{1}".format(version // 10000, version % 100)
+
+
+@ctl.command('demote-cluster', help="Demote cluster to a standby cluster")
+@arg_cluster_name
+@option_force
+@click.option('--host', help='Address of the remote node', required=False)
+@click.option('--port', help='Port of the remote node', required=False)
+@click.option('--restore-command', help='Command to restore WAL records from the remote primary', required=False)
+@click.option('--primary-slot-name', help='Name of the slot on the remote node to use for replication', required=False)
+def demote_cluster(cluster_name: str, force: bool, host: Optional[str], port: Optional[str],
+                   restore_command: Optional[str], primary_slot_name: Optional[str]) -> None:
+    """Process ``demote-cluster`` command of ``patronictl`` utility.
+
+    Demote cluster to a standby cluster.
+
+    :param cluster_name: name of the Patroni cluster.
+    :param force: if ``True`` run cluster demotion without asking for confirmation.
+    :param host: address of the remote node.
+    :param port: port of the remote node.
+    :param restore_command: command to restore WAL records from the remote primary'.
+    :param primary_slot_name: name of the slot on the remote node to use for replication.
+    """
+    if not any((host, port, restore_command)):
+        raise PatroniCtlException('At least --host, --port or --restore-command should be specified')
+
+    dcs = get_dcs(cluster_name, None)
+    cluster = dcs.get_cluster()
+    if not (cluster.leader and cluster.leader.name):
+        raise PatroniCtlException('This cluster has no leader, demotion is not possible')
+
+    click.echo('Current cluster topology')
+    output_members(cluster, cluster_name)
+    if not force:
+        confirm = click.confirm(f'Are you sure you want to demote {cluster_name} cluster to a standby cluster?')
+        if not confirm:
+            raise PatroniCtlException('Aborted cluster demotion')
+
+    content = {k: v for k, v in {'host': host, 'port': port, 'primary_slot_name': primary_slot_name,
+                                 'restore_command': restore_command}.items() if v}
+    r = request_patroni(cluster.leader.member, 'POST', 'demote', content)
+    if r.status == 200:
+        logging.debug(r)
+        cluster = dcs.get_cluster()
+        logging.debug(cluster)
+        click.echo(f'{timestamp()} {r.data.decode("utf-8")}')
+    else:
+        click.echo(f'Cluster demotion failed, details: {r.status}, {r.data.decode("utf-8")}')
+        return
+    output_members(cluster, cluster_name)
