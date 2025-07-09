@@ -1490,7 +1490,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.reload_config(config)
         self.daemon = True
 
-    def __construct_server_tokens(self, token_config: str) -> str:
+    def construct_server_tokens(self, token_config: str) -> str:
         """Construct the value for the ``Server`` HTTP header based on *server_tokens*.
 
         :param server_tokens: the value of ``restapi.server_tokens`` configuration option.
@@ -1896,7 +1896,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
 
         # Define the Server header response using the server_tokens option.
-        self.server_header = self.__construct_server_tokens(config.get('server_tokens', 'original'))
+        self.server_header = self.construct_server_tokens(config.get('server_tokens', 'original'))
 
     def handle_error(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
                      client_address: Tuple[str, int]) -> None:
