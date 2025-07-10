@@ -76,8 +76,7 @@ If you just want to add or remove databases in existing cluster:
 
 2. Reload cluster configuration with  ``patronictl reload`` or ``systemctl reload patroni``
 3. Patroni will automatically create new databases and citus extensions. 
-4. Also patroni will remove old databases that are not in configuration anymore.
-   Note. removed databases will not be deleted from postgres, it just wont be maintained by patroni anymore.
+4. Also patroni will just stop managing databases which are no longer listed, but will not remove anything.
 
 patronictl
 ----------
@@ -307,7 +306,7 @@ A couple of examples of Patroni configuration using Pods environment variables:
             - name: PATRONI_CITUS_DATABASE
               value: citus
             #- name: PATRONI_CITUS_DATABASES
-            #  value: ["database1", "database2"]
+            #  value: '["database1", "database2"]'
             - name: PATRONI_CITUS_GROUP
               value: "0"
 
@@ -350,7 +349,7 @@ A couple of examples of Patroni configuration using Pods environment variables:
             - name: PATRONI_CITUS_DATABASE
               value: citus
             #- name: PATRONI_CITUS_DATABASES
-            #  value: ["database1", "database2"]
+            #  value: '["database1", "database2"]'
             - name: PATRONI_CITUS_GROUP
               value: "2"
 
