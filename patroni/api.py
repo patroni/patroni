@@ -757,32 +757,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
             logger.exception('Bad request')
         self.send_error(400)
 
-    def _patch_dynamic_config(self, params: Dict[Any, Any]) -> Tuple[int, Optional[Dict[Any, Any]]]:
-        """Patch current dynamic configuration with the parameters provided.
-
-        :param params: dictionary with the new configuration values to patch dynamic configuration with.
-
-        :returns: a tuple composed of 2 items:
-
-            * Response HTTP status codes:
-
-                * ``200``: if the patch succeeded; or
-                * ``409``: if applying configuration value fails; or
-                * ``503``: if the configuration has been previously wiped out from DCS.
-
-            * Dictionary containing the new dynamic configuration if patch succeeded.
-        """
-        cluster = self.server.patroni.dcs.get_cluster()
-        if not (cluster.config and cluster.config.modify_version):
-            return 503, None
-        data = cluster.config.data.copy()
-        if patch_config(data, params):
-            value = json.dumps(data, separators=(',', ':'))
-            if not self.server.patroni.dcs.set_config_value(value, cluster.config.version):
-                return 409, None
-        self.server.patroni.ha.wakeup()
-        return 200, data
-
     @check_access
     def do_PATCH_config(self) -> None:
         """Handle a ``PATCH`` request to ``/config`` path.
@@ -798,11 +772,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         request = self._read_json_content()
         if request:
-            status_code, data = self._patch_dynamic_config(request)
-            if status_code == 200:
-                self._write_json_response(status_code, data)
-            else:
-                self.send_error(status_code)
+            cluster = self.server.patroni.dcs.get_cluster()
+            if not (cluster.config and cluster.config.modify_version):
+                return self.send_error(503)
+            data = cluster.config.data.copy()
+            if patch_config(data, request):
+                value = json.dumps(data, separators=(',', ':'))
+                if not self.server.patroni.dcs.set_config_value(value, cluster.config.version):
+                    return self.send_error(409)
+            self.server.patroni.ha.wakeup()
+            self._write_json_response(200, data)
 
     @check_access
     def do_PUT_config(self) -> None:
@@ -1284,83 +1263,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
             patroni.postgresql.mpp_handler.handle_event(cluster, request)
         self.write_response(200, 'OK')
 
-    def poll_demotion_readiness(self, leader_name: str) -> Tuple[int, str]:
-        """Poll cluster demotion operation until it finishes or times out.
-
-        :param leader: name of the current Patroni leader.
-
-        :returns: a tuple composed of 2 items:
-
-            * Response HTTP status codes:
-
-                * ``200``: if the operation succeeded; or
-                * ``503``: if the operation failed or timed out.
-
-            * A status message about the operation.
-
-        """
-        timeout = max(10, self.server.patroni.dcs.loop_wait)
-        for _ in range(0, timeout * 2):
-            time.sleep(1)
-            try:
-                cluster = self.server.patroni.dcs.get_cluster()
-                if not cluster.is_unlocked() and cluster.leader\
-                        and cluster.leader.data.get('role') == PostgresqlRole.STANDBY_LEADER\
-                        and cluster.leader.data.get('state') == PostgresqlState.RUNNING:
-                    old_leader = list(filter(lambda m: m.name == leader_name, cluster.members))[0]
-                    if old_leader.data.get('state') == PostgresqlState.RUNNING:
-                        return 200, 'successfully demoted to a standby cluster'
-            except Exception as e:
-                logger.debug('Exception occurred during polling cluster demotion result: %s', e)
-        return 503, 'cluster demotion status unknown'
-
-    @check_access
-    def do_POST_demote_cluster(self) -> None:
-        """Handle a ``POST`` request to ``/demote-cluster`` path.
-
-        Handles demotion to a standby cluster.
-
-        The request body should be a JSON dictionary, and it can contain the following keys:
-
-            * ``host``: address of the remote node;
-            * ``port``: port of the remote node;
-            * ``restore_command``: command to restore WAL records from the remote primary';
-            * ``primary_slot_name``: name of the slot on the remote node to use for replication.
-
-        Response HTTP status codes:
-
-            * ``400``: if neither ``host`` nor ``port`` nor ``restore_command`` is provided;
-            * ``409``: if dynamic configuration patch has failed;
-            * ``412``: if operation is not possible;
-            * ``503``: if the dynamic configuration has been previously wiped out from DCS.
-
-        .. note::
-            If unable to parse the request body, then the request is silently discarded.
-        """
-        request = self._read_json_content()
-        if not request:
-            return
-
-        params: Dict[Any, Any] = {'standby_cluster': {}}
-        fields = ('host', 'port', 'restore_command', 'primary_slot_name')
-        config = {k: request.get(k) for k in fields}
-        if not any(config[k] for k in ('host', 'port', 'restore_command')):
-            return self.write_response(400, 'At least host, port or restore_command should be specified')
-        params['standby_cluster'].update({k: v for k, v in config.items() if v})
-        cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
-
-        if cluster.leader and cluster.leader.name:
-            if cluster.leader.data.get('role') == PostgresqlRole.STANDBY_LEADER:
-                status_code, data = 412, 'Cluster is already running as a standby cluster'
-            status_code, _ = self._patch_dynamic_config(params)
-            if status_code != 200:
-                return self.send_error(status_code)
-            status_code, data = self.poll_demotion_readiness(cluster.leader.name)
-        else:
-            status_code, data = 412, 'this cluster has no leader, demotion is not possible'
-
-        self.write_response(status_code, data)
-
     def parse_request(self) -> bool:
         """Override :func:`parse_request` to enrich basic functionality of :class:`~http.server.BaseHTTPRequestHandler`.
 
@@ -1371,7 +1273,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
             * ``GET /uri1/part2`` request should invoke :func:`do_GET_uri1()`
             * ``POST /other`` should invoke :func:`do_POST_other()`
-            * ``POST /some-path`` should invoke :func:`do_POST_some_path()`
 
         If the :func:`do_<REQUEST_METHOD>_<first_part_url>` method does not exist we'll fall back to original behavior.
 
@@ -1385,7 +1286,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
             self.path = urlpath.path
             self.path_query = parse_qs(urlpath.query) or {}
             mname = self.path.lstrip('/').split('/')[0]
-            mname = mname.replace('-', '_')
             mname = self.command + ('_' + mname if mname else '')
             if hasattr(self, 'do_' + mname):
                 self.command = mname

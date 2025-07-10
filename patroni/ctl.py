@@ -2129,24 +2129,9 @@ def invoke_editor(before_editing: str, cluster_name: str) -> Tuple[str, Dict[str
         return after_editing, yaml.safe_load(after_editing)
 
 
-@ctl.command('edit-config', help="Edit cluster configuration")
-@arg_cluster_name
-@option_default_citus_group
-@click.option('--quiet', '-q', is_flag=True, help='Do not show changes')
-@click.option('--set', '-s', 'kvpairs', multiple=True,
-              help='Set specific configuration value. Can be specified multiple times')
-@click.option('--pg', '-p', 'pgkvpairs', multiple=True,
-              help='Set specific PostgreSQL parameter value. Shorthand for -s postgresql.parameters. '
-                   'Can be specified multiple times')
-@click.option('--apply', 'apply_filename', help='Apply configuration from file. Use - for stdin.')
-@click.option('--replace', 'replace_filename', help='Apply configuration from file, replacing existing configuration.'
-              ' Use - for stdin.')
-@option_force
-def edit_config(cluster_name: str, group: Optional[int], force: bool, quiet: bool, kvpairs: List[str],
-                pgkvpairs: List[str], apply_filename: Optional[str], replace_filename: Optional[str]) -> None:
-    """Process ``edit-config`` command of ``patronictl`` utility.
-
-    Update or replace Patroni configuration in the DCS.
+def edit_dynamic_config(cluster_name: str, group: Optional[int], force: bool, quiet: bool, kvpairs: List[str],
+                        pgkvpairs: List[str], apply_filename: Optional[str], replace_filename: Optional[str]) -> None:
+    """Update or replace Patroni configuration in the DCS.
 
     :param cluster_name: name of the Patroni cluster.
     :param group: filter which Citus group configuration we should edit. Refer to the module note for more details.
@@ -2205,6 +2190,27 @@ def edit_config(cluster_name: str, group: Optional[int], force: bool, quiet: boo
         if not dcs.set_config_value(json.dumps(changed_data, separators=(',', ':')), cluster.config.version):
             raise PatroniCtlException("Config modification aborted due to concurrent changes")
         click.echo("Configuration changed")
+
+
+@ctl.command('edit-config', help="Edit cluster configuration")
+@arg_cluster_name
+@option_default_citus_group
+@click.option('--quiet', '-q', is_flag=True, help='Do not show changes')
+@click.option('--set', '-s', 'kvpairs', multiple=True,
+              help='Set specific configuration value. Can be specified multiple times')
+@click.option('--pg', '-p', 'pgkvpairs', multiple=True,
+              help='Set specific PostgreSQL parameter value. Shorthand for -s postgresql.parameters. '
+                   'Can be specified multiple times')
+@click.option('--apply', 'apply_filename', help='Apply configuration from file. Use - for stdin.')
+@click.option('--replace', 'replace_filename', help='Apply configuration from file, replacing existing configuration.'
+              ' Use - for stdin.')
+@option_force
+def edit_config(*args: Any, **kwargs: Any) -> None:
+    """Process ``edit-config`` command of ``patronictl`` utility.
+
+    See :func:`~patroni.ctl.edit_dynamic_config` for more information.
+    """
+    edit_dynamic_config(*args, **kwargs)
 
 
 @ctl.command('show-config', help="Show cluster configuration")
@@ -2316,6 +2322,50 @@ def format_pg_version(version: int) -> str:
         return "{0}.{1}".format(version // 10000, version % 100)
 
 
+def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional[List[str]]) -> None:
+    """Demote or promote cluster.
+
+    :param cluster_name: name of the Patroni cluster.
+    :param force: if ``True`` run cluster demotion without asking for confirmation.
+    :param standby_config: standby cluster configuration to be applied if demotion is requested.
+    """
+    demote = bool(standby_config)
+    standby_config = standby_config or ['standby_cluster=']
+    action_name = 'demot' if demote else 'promot'
+    target_role = PostgresqlRole.STANDBY_LEADER if demote else PostgresqlRole.PRIMARY
+
+    dcs = get_dcs(cluster_name, None)
+    cluster = dcs.get_cluster()
+    config = global_config.from_cluster(cluster)
+    leader_name = cluster.leader and cluster.leader.name
+    if not leader_name:
+        raise PatroniCtlException(f'Cluster has no leader, {action_name}ion is not possible')
+    if cluster.leader and cluster.leader.data.get('role') == target_role:
+        raise PatroniCtlException('Cluster is already in the required state')
+
+    click.echo('Current cluster topology')
+    output_members(cluster, cluster_name)
+    if not force:
+        confirm = click.confirm(f'Are you sure you want to {action_name}e {cluster_name} cluster?')
+        if not confirm:
+            raise PatroniCtlException(f'Aborted cluster {action_name}ion')
+    edit_dynamic_config(cluster_name, None, True, True, standby_config, [], None, None)
+
+    loop_wait = config.get('loop_wait') or dcs.loop_wait
+    for _ in polling_loop(loop_wait + 1):
+        cluster = dcs.get_cluster()
+        old_leader = list(filter(lambda m: m.name == leader_name, cluster.members))[0]
+        if not cluster.is_unlocked() and cluster.leader\
+                and cluster.leader.data.get('role') == target_role\
+                and cluster.leader.data.get('state') == PostgresqlState.RUNNING\
+                and old_leader.data.get('state') == PostgresqlState.RUNNING:
+            click.echo(f'{timestamp()} cluster is successfully {action_name}ed')
+            break
+    else:
+        click.echo(f'Cluster {action_name}ion status unknown')
+    output_members(cluster, cluster_name)
+
+
 @ctl.command('demote-cluster', help="Demote cluster to a standby cluster")
 @arg_cluster_name
 @option_force
@@ -2335,31 +2385,32 @@ def demote_cluster(cluster_name: str, force: bool, host: Optional[str], port: Op
     :param port: port of the remote node.
     :param restore_command: command to restore WAL records from the remote primary'.
     :param primary_slot_name: name of the slot on the remote node to use for replication.
+
+    :raises:
+        :class:`PatroniCtlException`: if:
+            * neither ``host`` nor ``port`` nor ``restore_command`` is provided; or
+            * cluster has no leader; or
+            * cluster is already in the required state; or
+            * operation is aborted.
     """
     if not any((host, port, restore_command)):
         raise PatroniCtlException('At least --host, --port or --restore-command should be specified')
 
-    dcs = get_dcs(cluster_name, None)
-    cluster = dcs.get_cluster()
-    if not (cluster.leader and cluster.leader.name):
-        raise PatroniCtlException('This cluster has no leader, demotion is not possible')
+    data = [f'standby_cluster.{k}={v}' for k, v in {'host': host, 'port': port,
+                                                    'primary_slot_name': primary_slot_name,
+                                                    'restore_command': restore_command}.items() if v]
+    change_cluster_role(cluster_name, force, data)
 
-    click.echo('Current cluster topology')
-    output_members(cluster, cluster_name)
-    if not force:
-        confirm = click.confirm(f'Are you sure you want to demote {cluster_name} cluster to a standby cluster?')
-        if not confirm:
-            raise PatroniCtlException('Aborted cluster demotion')
 
-    content = {k: v for k, v in {'host': host, 'port': port, 'primary_slot_name': primary_slot_name,
-                                 'restore_command': restore_command}.items() if v}
-    r = request_patroni(cluster.leader.member, 'POST', 'demote-cluster', content)
-    if r.status == 200:
-        logging.debug(r)
-        cluster = dcs.get_cluster()
-        logging.debug(cluster)
-        click.echo(f'{timestamp()} {r.data.decode("utf-8")}')
-    else:
-        click.echo(f'Cluster demotion failed, details: {r.status}, {r.data.decode("utf-8")}')
-        return
-    output_members(cluster, cluster_name)
+@ctl.command('promote-cluster', help="Promote cluster, make it run standalone")
+@arg_cluster_name
+@option_force
+def promote_cluster(cluster_name: str, force: bool) -> None:
+    """Process ``promote-cluster`` command of ``patronictl`` utility.
+
+    Promote cluster, make it run standalone.
+
+    :param cluster_name: name of the Patroni cluster.
+    :param force: if ``True`` run cluster demotion without asking for confirmation.
+    """
+    change_cluster_role(cluster_name, force, None)
