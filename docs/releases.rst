@@ -3,6 +3,66 @@
 Release notes
 =============
 
+Version 4.0.6
+-------------
+
+Released 2025-06-06
+
+**Bugfixes**
+
+- Fix bug in failover from a leader with a higher priority (Alexander Kukushkin)
+
+  Make sure Patroni ignores the former leader with higher priority when it reports the same ``LSN`` as the current node.
+
+- Fix permissions for the ``postgresql.conf`` file created outside of ``PGDATA`` (Michael Banck)
+
+  Respect the system-wide umask value when creating the ``postgresql.conf`` file outside of the ``PGDATA`` directory.
+
+- Fix bug with switchover in ``synchronous_mode=quorum`` (Alexander Kukushkin)
+
+  Do not check quorum requirements when a candidate is specified.
+
+- Ignore stale Etcd nodes by comparing cluster term (Alexander Kukushkin)
+
+  Memorize the last known "raft_term" of the Etcd cluster, and when executing client requests, compare it with the "raft_term" reported by an Etcd node.
+
+- Update PostgreSQL configuration files on ``SIGHUP`` (Alexander Kukushkin)
+
+  Previously, Patroni was only replacing PostgreSQL configuration files if a change in global or local configuration was detected.
+
+- Properly handle ``Unavailable`` exception raised by ``etcd3`` (Alexander Kukushkin)
+
+  Patroni used to retry such requests on the same ``etcd3`` node, while switching to another node is a better strategy.
+
+- Improve ``etcd3`` lease handling (Alexander Kukushkin)
+
+  Make sure Patroni refreshes the ``etcd3`` lease at least once per HA loop.
+
+- Recheck annotations on 409 status code when attempting to acquire leader lock (Alexander Kukushkin)
+
+  Implement the same behavior as was done for the leader object read in Patroni version 4.0.3.
+
+- Consider ``replay_lsn`` when advancing slots (Polina Bungina)
+
+  Do not try to advance slots on replicas past the ``replay_lsn``. Additionally, advance the slot to the ``replay_lsn`` position if it is already past the ``confirmed_flush_lsn`` of this slot on the replica but the replica has still not replayed the actual ``LSN`` at which this slot is on the primary.
+
+- Make sure ``CHECKPOINT`` is executed after promote (Alexander Kukushkin)
+
+  It was possible that checkpoint task wasn't reset on demote because ``CHECKPOINT`` wasn't yet finished. This resulted in using a stale ``result`` when the next promote is triggered.
+
+- Avoid running "offline" demotion concurrently (Alexander Kukushkin)
+
+  In case of a slow shutdown, it might happen that the next heartbeat loop hits the DCS error handling method again, resulting in ``AsyncExecutor is busy, demoting from the main thread`` warning and starting offline demotion again.
+
+- Normalize the ``data_dir`` value before renaming the data directory on initialization failure (Waynerv)
+
+  Prevent a trailing slash in the ``data_dir`` parameter value from breaking the renaming process after an initialization failure.
+
+- Check that ``synchronous_standby_names`` contains the expected value (Alexander Kukushkin)
+
+  Previously, the mechanism implementing the state machine for non-quorum synchronous replication didn't check the actual value of ``synchronous_standby_names``, what resulted in a stale value of ``synchronous_standby_names`` being used when ``pg_stat_replication`` is a subset of ``synchronous_standby_names``.
+
+
 Version 4.0.5
 -------------
 

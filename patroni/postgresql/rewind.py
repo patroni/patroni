@@ -73,6 +73,8 @@ class Rewind(object):
     def trigger_check_diverged_lsn(self) -> None:
         if self.can_rewind_or_reinitialize_allowed and self._state != REWIND_STATUS.NEED:
             self._state = REWIND_STATUS.CHECK
+        with self._checkpoint_task_lock:
+            self._checkpoint_task = None
 
     @staticmethod
     def check_leader_is_not_in_recovery(conn_kwargs: Dict[str, Any]) -> Optional[bool]:
@@ -306,10 +308,16 @@ class Rewind(object):
         if self._state != REWIND_STATUS.CHECKPOINT and self._postgresql.is_primary():
             with self._checkpoint_task_lock:
                 if self._checkpoint_task:
+                    result = None
+
                     with self._checkpoint_task:
-                        if self._checkpoint_task.result is not None:
-                            self._state = REWIND_STATUS.CHECKPOINT
-                            self._checkpoint_task = None
+                        result = self._checkpoint_task.result
+
+                    if result is True:
+                        self._state = REWIND_STATUS.CHECKPOINT
+
+                    if result is not None:
+                        self._checkpoint_task = None
                 elif self._postgresql.get_primary_timeline() == self._postgresql.pg_control_timeline():
                     self._state = REWIND_STATUS.CHECKPOINT
                 else:
