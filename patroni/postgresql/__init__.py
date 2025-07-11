@@ -623,7 +623,7 @@ class Postgresql(object):
                 return match.group(1), match.group(2), match.group(3), match.group(4)
         return None, None, None, None
 
-    def _checkpoint_locations_from_controldata(self, data: Dict[str, str]) -> Optional[Tuple[int, int]]:
+    def latest_checkpoint_locations(self, data: Optional[Dict[str, str]] = None) -> Tuple[Optional[int], Optional[int]]:
         """Get shutdown checkpoint location.
 
         :param data: :class:`dict` object with values returned by `pg_controldata` tool.
@@ -631,6 +631,8 @@ class Postgresql(object):
         :returns: a tuple of checkpoint LSN for the cleanly shut down primary, and LSN of prev wal record (SWITCH)
                   if we know that the checkpoint was written to the new WAL file due to the archive_mode=on.
         """
+        if data is None:
+            data = self.controldata()
         timeline = data.get("Latest checkpoint's TimeLineID")
         lsn = checkpoint_lsn = data.get('Latest checkpoint location')
         prev_lsn = None
@@ -651,19 +653,7 @@ class Postgresql(object):
                 logger.error('Exception when parsing WAL pg_%sdump output: %r', self.wal_name, e)
             if isinstance(checkpoint_lsn, int):
                 return checkpoint_lsn, (prev_lsn or checkpoint_lsn)
-
-    def latest_checkpoint_location(self) -> Optional[int]:
-        """Get shutdown checkpoint location.
-
-        .. note::
-            In case if checkpoint was written to the new WAL file due to the archive_mode=on
-            we return LSN of the previous wal record (SWITCH).
-
-        :returns: checkpoint LSN for the cleanly shut down primary.
-        """
-        checkpoint_locations = self._checkpoint_locations_from_controldata(self.controldata())
-        if checkpoint_locations:
-            return checkpoint_locations[1]
+        return None, None
 
     def is_running(self) -> Optional[PostmasterProcess]:
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
@@ -922,9 +912,9 @@ class Postgresql(object):
             while postmaster.is_running():
                 data = self.controldata()
                 if data.get('Database cluster state', '') == 'shut down':
-                    checkpoint_locations = self._checkpoint_locations_from_controldata(data)
-                    if checkpoint_locations:
-                        on_shutdown(*checkpoint_locations)
+                    checkpoint_lsn, prev_lsn = self.latest_checkpoint_locations(data)
+                    if checkpoint_lsn is not None and prev_lsn is not None:
+                        on_shutdown(checkpoint_lsn, prev_lsn)
                     break
                 elif data.get('Database cluster state', '').startswith('shut down'):  # shut down in recovery
                     break

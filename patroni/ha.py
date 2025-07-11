@@ -8,7 +8,7 @@ import uuid
 
 from multiprocessing.pool import ThreadPool
 from threading import RLock
-from typing import Any, Callable, Collection, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Callable, cast, Collection, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING, Union
 
 from . import global_config, psycopg
 from .__main__ import Patroni
@@ -746,7 +746,10 @@ class Ha(object):
                 if not node_to_follow:
                     return 'no action. I am ({0})'.format(self.state_handler.name)
         elif is_leader:
-            self.demote('immediate-nolock')
+            if self.is_standby_cluster():
+                self._async_executor.try_run_async('demoting to a standby cluster', self.demote, ('demote-cluster',))
+            else:
+                self.demote('immediate-nolock')
             return demote_reason
 
         if self.is_standby_cluster() and self._leader_timeline and \
@@ -1563,6 +1566,7 @@ class Ha(object):
             'graceful':         dict(stop='fast',      checkpoint=True,  release=True,  offline=False, async_req=False),  # noqa: E241,E501
             'immediate':        dict(stop='immediate', checkpoint=False, release=True,  offline=False, async_req=True),  # noqa: E241,E501
             'immediate-nolock': dict(stop='immediate', checkpoint=False, release=False, offline=False, async_req=True),  # noqa: E241,E501
+            'demote-cluster':   dict(stop='fast',      checkpoint=False, release=True,  offline=False,  async_req=False),  # noqa: E241,E501
 
         }[mode]
 
@@ -1572,6 +1576,16 @@ class Ha(object):
 
         status = {'released': False}
 
+        demote_cluster_with_archive = False
+        archive_cmd = self._rewind.get_archive_command()
+        if mode == 'demote-cluster' and archive_cmd is not None:
+            # We need to send the shutdown checkpoint WAL file to archive to eliminate the need of rewind
+            # from a promoted instance that was previously replicating from archive
+            # When doing this, we disable stop timeout, do not run on_shutdown callback and do not release
+            # leader key.
+            demote_cluster_with_archive = True
+            mode_control['release'] = False
+
         def on_shutdown(checkpoint_location: int, prev_location: int) -> None:
             # Postmaster is still running, but pg_control already reports clean "shut down".
             # It could happen if Postgres is still archiving the backlog of WAL files.
@@ -1580,8 +1594,11 @@ class Ha(object):
             time.sleep(1)  # give replicas some more time to catch up
             if self.is_failover_possible(cluster_lsn=checkpoint_location):
                 self.state_handler.set_role(PostgresqlRole.DEMOTED)
+                # for demotion to a standby cluster we need shutdown checkpoint lsn to be written to optime,
+                # not the prev one
+                last_lsn = checkpoint_location if mode == 'demote-cluster' else prev_location
                 with self._async_executor:
-                    self.release_leader_key_voluntarily(prev_location)
+                    self.release_leader_key_voluntarily(last_lsn)
                     status['released'] = True
 
         def before_shutdown() -> None:
@@ -1594,16 +1611,33 @@ class Ha(object):
                                 on_safepoint=self.watchdog.disable if self.watchdog.is_running else None,
                                 on_shutdown=on_shutdown if mode_control['release'] else None,
                                 before_shutdown=before_shutdown if mode == 'graceful' else None,
-                                stop_timeout=self.primary_stop_timeout())
+                                stop_timeout=None if demote_cluster_with_archive else self.primary_stop_timeout())
         self.state_handler.set_role(PostgresqlRole.DEMOTED)
-        self.set_is_leader(False)
+
+        # for demotion to a standby cluster we need shutdown checkpoint lsn to be written to optime, not the prev one
+        checkpoint_lsn, prev_lsn = self.state_handler.latest_checkpoint_locations() \
+            if mode == 'graceful' else (None, None)
+
+        is_standby_leader = mode == 'demote-cluster' and not status['released']
+        if is_standby_leader:
+            with self._async_executor:
+                self.dcs.update_leader(self.cluster, checkpoint_lsn, None, self._failsafe_config())
+            mode_control['release'] = False
+        else:
+            self.set_is_leader(False)
 
         if mode_control['release']:
             if not status['released']:
-                checkpoint_location = self.state_handler.latest_checkpoint_location() if mode == 'graceful' else None
                 with self._async_executor:
-                    self.release_leader_key_voluntarily(checkpoint_location)
+                    self.release_leader_key_voluntarily(prev_lsn)
             time.sleep(2)  # Give a time to somebody to take the leader lock
+
+        if mode == 'demote-cluster':
+            if demote_cluster_with_archive:
+                self._rewind.archive_shutdown_checkpoint_wal(cast(str, archive_cmd))
+            else:
+                logger.info('Not archiving latest checkpoint WAL file. Archiving is not configured.')
+
         if mode_control['offline']:
             node_to_follow, leader = None, None
         else:
@@ -1616,15 +1650,17 @@ class Ha(object):
         if self.is_synchronous_mode():
             self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
 
+        role = PostgresqlRole.STANDBY_LEADER if is_standby_leader else PostgresqlRole.REPLICA
         # FIXME: with mode offline called from DCS exception handler and handle_long_action_in_progress
         # there could be an async action already running, calling follow from here will lead
         # to racy state handler state updates.
         if mode_control['async_req']:
-            self._async_executor.try_run_async('starting after demotion', self.state_handler.follow, (node_to_follow,))
+            self._async_executor.try_run_async('starting after demotion', self.state_handler.follow,
+                                               (node_to_follow, role,))
         else:
             if self._rewind.rewind_or_reinitialize_needed_and_possible(leader):
                 return False  # do not start postgres, but run pg_rewind on the next iteration
-            self.state_handler.follow(node_to_follow)
+            self.state_handler.follow(node_to_follow, role)
 
     def should_run_scheduled_action(self, action_name: str, scheduled_at: Optional[datetime.datetime],
                                     cleanup_fn: Callable[..., Any]) -> bool:
@@ -2363,8 +2399,8 @@ class Ha(object):
                                                                         stop_timeout=self.primary_stop_timeout()))
             if not self.state_handler.is_running():
                 if self.is_leader() and not status['deleted']:
-                    checkpoint_location = self.state_handler.latest_checkpoint_location()
-                    self.dcs.delete_leader(self.cluster.leader, checkpoint_location)
+                    _, prev_location = self.state_handler.latest_checkpoint_locations()
+                    self.dcs.delete_leader(self.cluster.leader, prev_location)
                 self.touch_member()
             else:
                 # XXX: what about when Patroni is started as the wrong user that has access to the watchdog device

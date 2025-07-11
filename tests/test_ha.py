@@ -9,7 +9,8 @@ import etcd
 from patroni import global_config
 from patroni.collections import CaseInsensitiveSet
 from patroni.config import Config
-from patroni.dcs import Cluster, ClusterConfig, Failover, get_dcs, Leader, Member, Status, SyncState, TimelineHistory
+from patroni.dcs import Cluster, ClusterConfig, Failover, get_dcs, \
+    Leader, Member, RemoteMember, Status, SyncState, TimelineHistory
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover
 from patroni.exceptions import DCSError, PatroniFatalException, PostgresConnectionException
 from patroni.ha import _MemberStatus, Ha
@@ -1331,7 +1332,59 @@ class TestHa(PostgresInit):
         self.ha.has_lock = true
         self.e.get_cluster = Mock(return_value=get_cluster_initialized_without_leader())
         self.ha.demote('immediate')
-        follow.assert_called_once_with(None)
+        follow.assert_called_once_with(None, PostgresqlRole.REPLICA)
+
+    @patch.object(Rewind, 'archive_shutdown_checkpoint_wal')
+    @patch.object(Postgresql, 'follow')
+    @patch.object(Postgresql, 'latest_checkpoint_locations', Mock(return_value=(7, 7)))
+    @patch.object(Postgresql, 'get_guc_value',
+                  Mock(side_effect=['off', 'command %f'] * 3 + ['on', 'command %f'] * 2))
+    def test_demote_cluster(self, follow_mock, archive_mock):
+        self.ha.has_lock = true
+        self.p.name = 'leader'
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.e.get_cluster = Mock(return_value=self.ha.cluster)
+        global_config.update(self.ha.cluster)
+        self.p.set_role(PostgresqlRole.PRIMARY)
+        self.ha.cluster.config.data.update({'standby_cluster': {'port': 5432}})
+
+        # archiving is off
+        self.assertEqual(self.ha.run_cycle(), 'cannot be a real primary in standby cluster')
+        self.assertEqual(follow_mock.call_args[0][1], PostgresqlRole.STANDBY_LEADER)
+        self.assertIsInstance(follow_mock.call_args[0][0], RemoteMember)
+        archive_mock.assert_not_called()
+
+        # archiving is off, long shut down, failover is not possible
+        self.ha.is_failover_possible = false
+        self.assertEqual(self.ha.run_cycle(), 'cannot be a real primary in standby cluster')
+        self.assertEqual(follow_mock.call_args[0][1], PostgresqlRole.STANDBY_LEADER)
+        self.assertIsInstance(follow_mock.call_args[0][0], RemoteMember)
+        archive_mock.assert_not_called()
+
+        # archiving is off, long shut down, failover is possible
+        new_leader = Leader(0, 0,
+                            Member(0, 'l', 2, {"version": "1.6", "conn_url": "postgres://a", "role": "primary"}))
+        self.e.get_cluster.return_value = get_cluster(SYSID, new_leader, [new_leader], None, None)
+        self.p.controldata = lambda: {'Database cluster state': 'shut down',
+                                      'Database system identifier': SYSID, "Latest checkpoint's TimeLineID": '7'}
+        self.ha.is_failover_possible = true
+        self.assertEqual(self.ha.run_cycle(), 'cannot be a real primary in standby cluster')
+        self.assertEqual(follow_mock.call_args[0], (new_leader, PostgresqlRole.REPLICA))
+        archive_mock.assert_not_called()
+
+        # archiving is on
+        self.e.get_cluster.return_value = self.ha.cluster
+        self.assertEqual(self.ha.run_cycle(), 'cannot be a real primary in standby cluster')
+        self.assertEqual(follow_mock.call_args[0][1], PostgresqlRole.STANDBY_LEADER)
+        self.assertIsInstance(follow_mock.call_args[0][0], RemoteMember)
+        archive_mock.assert_called_once()
+        archive_mock.reset_mock()
+
+        self.ha.cluster.config.data.update({'standby_cluster': {'restore_command': 'foo', 'port': None}})
+        self.assertEqual(self.ha.run_cycle(), 'cannot be a real primary in standby cluster')
+        self.assertEqual(follow_mock.call_args[0][1], PostgresqlRole.STANDBY_LEADER)
+        self.assertIsInstance(follow_mock.call_args[0][0], RemoteMember)
+        archive_mock.assert_called_once()
 
     def test__process_multisync_replication(self):
         self.ha.has_lock = true
