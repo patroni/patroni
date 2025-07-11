@@ -317,7 +317,12 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
 
         # Update machines_cache if previous attempt of update has failed
         if self._update_machines_cache:
-            self._load_machines_cache()
+            try:
+                self._load_machines_cache()
+            except etcd.EtcdException as e:
+                # If etcd cluster isn't accessible _load_machines_cache() -> _refresh_machines_cache() may raise
+                # etcd.EtcdException. We need to convert it to etcd.EtcdConnectionFailed for failsafe_mode to work.
+                raise etcd.EtcdConnectionFailed('No more machines in the cluster') from e
         elif not self._use_proxies and time.time() - self._machines_cache_updated > self._machines_cache_ttl:
             self._refresh_machines_cache()
 
