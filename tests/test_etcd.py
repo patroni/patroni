@@ -207,6 +207,9 @@ class TestClient(unittest.TestCase):
                 patch.object(EtcdClient, '_load_machines_cache', Mock(return_value=True)):
             self.assertRaises(etcd.EtcdException, rtry, self.client.api_execute, '/', 'GET', params={'retry': rtry})
 
+        with patch.object(EtcdClient, '_get_machines_list', Mock(side_effect=etcd.EtcdConnectionFailed)):
+            self.assertRaises(etcd.EtcdConnectionFailed, self.client.api_execute, '/', 'GET')
+
         with patch.object(EtcdClient, '_do_http_request', Mock(side_effect=etcd.EtcdException)):
             self.client._read_timeout = 0.01
             self.assertRaises(etcd.EtcdException, self.client.api_execute, '/', 'GET')
