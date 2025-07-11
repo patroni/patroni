@@ -119,6 +119,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.__start_time: float = 0.0
         self.path_query: Dict[str, List[str]] = {}
 
+    def version_string(self) -> str:
+        """Override the default version string to return the server header as specified in the configuration.
+
+        If the server header is not set, then it returns the default version string of the HTTP server.
+
+        :return: ``Server`` version string, which is either the server header or the default version string
+            from the :class:`BaseHTTPRequestHandler`.
+        """
+        return self.server.server_header or super().version_string()
+
     def _write_status_code_only(self, status_code: int) -> None:
         """Write a response that is composed only of the HTTP status.
 
@@ -1480,6 +1490,33 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.reload_config(config)
         self.daemon = True
 
+    def construct_server_tokens(self, token_config: str) -> str:
+        """Construct the value for the ``Server`` HTTP header based on *server_tokens*.
+
+        :param server_tokens: the value of ``restapi.server_tokens`` configuration option.
+
+        :returns: a string to be used as the value of ``Server`` HTTP header.
+        """
+        token = token_config.lower()
+        logger.debug('restapi.server_tokens is set to "%s".', token_config)
+
+        # If 'original' is set, we do not modify the Server header.
+        # This is useful for compatibility with existing setups that expect the original header.
+        if token == 'original':
+            return ""
+
+        # If 'productonly', or 'minimal' is set, we construct the header accordingly.
+        if token == 'productonly':  # Show only the product name, without versions.
+            return 'Patroni'
+        elif token == 'minimal':    # Show only the product name and version, without PostgreSQL version.
+            return f'Patroni/{self.patroni.version}'
+        else:
+            # Token is not valid (one of 'original', 'productonly', 'minimal') so report a warning and
+            # return an empty string.
+            logger.warning('restapi.server_tokens is set to "%s". Patroni will not modify the Server header. '
+                           'Valid values are: "Minimal", "ProductOnly".', token_config)
+            return ""
+
     def query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
         """Execute *sql* query with *params* and optionally return results.
 
@@ -1857,6 +1894,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(self.__listen, str)
         self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
+
+        # Define the Server header response using the server_tokens option.
+        self.server_header = self.construct_server_tokens(config.get('server_tokens', 'original'))
 
     def handle_error(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
                      client_address: Tuple[str, int]) -> None:
