@@ -250,11 +250,13 @@ class Bootstrap(object):
 
         # get list of replica methods either from clone member or from
         # the config. If there is no configuration key, or no value is
-        # specified, use basebackup. If '--from-leader' parameter is set
-        # when reinit, always use basebackup.
-        replica_methods = ['basebackup'] if clone_from_leader else (
-            clone_member.create_replica_methods if is_remote_member
-            else self._postgresql.create_replica_methods) or ['basebackup']
+        # specified, use basebackup
+        replica_methods = clone_member.create_replica_methods if is_remote_member
+                          else self._postgresql.create_replica_methods) or ['basebackup']
+
+        # If '--from-leader' parameter is set when reinit, always use basebackup
+        if clone_from_leader:
+             replica_methods = ['basebackup']
 
         if clone_member and clone_member.conn_url:
             r = clone_member.conn_kwargs(self._postgresql.config.replication)
