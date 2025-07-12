@@ -1,6 +1,7 @@
 import datetime
 import os
 import re
+import stat
 import subprocess
 import time
 
@@ -18,11 +19,12 @@ from patroni.async_executor import CriticalTask
 from patroni.collections import CaseInsensitiveDict, CaseInsensitiveSet
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PatroniException, PostgresConnectionException
+from patroni.file_perm import pg_perm
 from patroni.postgresql import PgIsReadyStatus, Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
 from patroni.postgresql.config import _false_validator, get_param_diff
-from patroni.postgresql.misc import PostgresqlState
+from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import _get_postgres_guc_validators, _load_postgres_gucs_validators, \
     _read_postgres_gucs_validators_file, Bool, Enum, EnumBool, Integer, InvalidGucValidatorsFile, \
@@ -240,7 +242,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('time.sleep', Mock())
     @patch.object(Postgresql, 'is_running', MockPostmaster)
     @patch.object(Postgresql, '_wait_for_connection_close', Mock())
-    @patch.object(Postgresql, 'latest_checkpoint_location', Mock(return_value='7'))
+    @patch.object(Postgresql, 'latest_checkpoint_locations', Mock(return_value=(7, 7)))
     def test__do_stop(self):
         mock_callback = Mock()
         with patch.object(Postgresql, 'controldata',
@@ -398,13 +400,13 @@ class TestPostgresql(BaseTestPostgresql):
                                                                 'Latest checkpoint location': '0/1ADBC18',
                                                                 "Latest checkpoint's TimeLineID": '1'}))
     @patch('subprocess.Popen')
-    def test_latest_checkpoint_location(self, mock_popen):
+    def test_latest_checkpoint_locations(self, mock_popen):
         mock_popen.return_value.communicate.return_value = (None, None)
-        self.assertEqual(self.p.latest_checkpoint_location(), 28163096)
+        self.assertEqual(self.p.latest_checkpoint_locations(), (28163096, 28163096))
         with patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'shut down',
                                                                         'Latest checkpoint location': 'k/1ADBC18',
                                                                         "Latest checkpoint's TimeLineID": '1'})):
-            self.assertIsNone(self.p.latest_checkpoint_location())
+            self.assertEqual(self.p.latest_checkpoint_locations(), (None, None))
         # 9.3 and 9.4 format
         mock_popen.return_value.communicate.side_effect = [
             (b'rmgr: XLOG        len (rec/tot):     72/   104, tx:          0, lsn: 0/01ADBC18, prev 0/01ADBBB8, '
@@ -412,14 +414,14 @@ class TestPostgresql(BaseTestPostgresql):
              + b' 1; offset 0; oldest xid 715 in DB 1; oldest multi 1 in DB 1; oldest running xid 0; shutdown', None),
             (b'rmgr: Transaction len (rec/tot):     64/    96, tx:        726, lsn: 0/01ADBBB8, prev 0/01ADBB70, '
              + b'bkp: 0000, desc: commit: 2021-02-26 11:19:37.900918 CET; inval msgs: catcache 11 catcache 10', None)]
-        self.assertEqual(self.p.latest_checkpoint_location(), 28163096)
+        self.assertEqual(self.p.latest_checkpoint_locations(), (28163096, 28163096))
         mock_popen.return_value.communicate.side_effect = [
             (b'rmgr: XLOG        len (rec/tot):     72/   104, tx:          0, lsn: 0/01ADBC18, prev 0/01ADBBB8, '
              + b'bkp: 0000, desc: checkpoint: redo 0/1ADBC18; tli 1; prev tli 1; fpw true; xid 0/727; oid 16386; multi'
              + b' 1; offset 0; oldest xid 715 in DB 1; oldest multi 1 in DB 1; oldest running xid 0; shutdown', None),
             (b'rmgr: XLOG        len (rec/tot):      0/    32, tx:          0, lsn: 0/01ADBBB8, prev 0/01ADBBA0, '
              + b'bkp: 0000, desc: xlog switch ', None)]
-        self.assertEqual(self.p.latest_checkpoint_location(), 28163000)
+        self.assertEqual(self.p.latest_checkpoint_locations(), (28163096, 28163000))
         # 9.5+ format
         mock_popen.return_value.communicate.side_effect = [
             (b'rmgr: XLOG        len (rec/tot):    114/   114, tx:          0, lsn: 0/01ADBC18, prev 0/018260F8, '
@@ -428,7 +430,7 @@ class TestPostgresql(BaseTestPostgresql):
              + b' oldest running xid 0; shutdown', None),
             (b'rmgr: XLOG        len (rec/tot):     24/    24, tx:          0, lsn: 0/018260F8, prev 0/01826080, '
              + b'desc: SWITCH ', None)]
-        self.assertEqual(self.p.latest_checkpoint_location(), 25321720)
+        self.assertEqual(self.p.latest_checkpoint_locations(), (28163096, 25321720))
 
     def test_reload(self):
         self.assertTrue(self.p.reload())
@@ -446,7 +448,7 @@ class TestPostgresql(BaseTestPostgresql):
         task = CriticalTask()
         self.assertTrue(self.p.promote(0, task))
 
-        self.p.set_role('replica')
+        self.p.set_role(PostgresqlRole.REPLICA)
         self.p.config._config['pre_promote'] = 'test'
         with patch('patroni.postgresql.cancellable.CancellableSubprocess.is_cancelled', PropertyMock(return_value=1)):
             self.assertFalse(self.p.promote(0, task))
@@ -458,7 +460,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertFalse(self.p.promote(0, task))
 
     def test_timeline_wal_position(self):
-        self.assertEqual(self.p.timeline_wal_position(), (1, 2, 1))
+        self.assertEqual(self.p.timeline_wal_position(), (1, 2, 1, 1, 1))
         Thread(target=self.p.timeline_wal_position).start()
 
     @patch.object(PostmasterProcess, 'from_pidfile')
@@ -480,7 +482,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch('shlex.split', Mock(side_effect=OSError))
     def test_call_nowait(self):
-        self.p.set_role('replica')
+        self.p.set_role(PostgresqlRole.REPLICA)
         self.assertIsNone(self.p.call_nowait(CallbackAction.ON_START))
         self.p.bootstrapping = True
         self.assertIsNone(self.p.call_nowait(CallbackAction.ON_START))
@@ -508,7 +510,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('os.path.exists', Mock(return_value=True))
     @patch.object(Postgresql, 'controldata', Mock())
     def test_get_postgres_role_from_data_directory(self):
-        self.assertEqual(self.p.get_postgres_role_from_data_directory(), 'replica')
+        self.assertEqual(self.p.get_postgres_role_from_data_directory(), PostgresqlRole.REPLICA)
 
     @patch('os.remove', Mock())
     @patch('shutil.rmtree', Mock())
@@ -852,7 +854,8 @@ class TestPostgresql(BaseTestPostgresql):
     def test_get_primary_timeline(self):
         self.assertEqual(self.p.get_primary_timeline(), 1)
 
-    @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='replica'))
+    @patch.object(Postgresql, 'get_postgres_role_from_data_directory',
+                  Mock(return_value=PostgresqlRole.REPLICA))
     @patch.object(Postgresql, 'is_running', Mock(return_value=False))
     @patch.object(Bootstrap, 'running_custom_bootstrap', PropertyMock(return_value=True))
     @patch('patroni.postgresql.config.logger')
@@ -893,7 +896,7 @@ class TestPostgresql(BaseTestPostgresql):
 
     @patch.object(Postgresql, '_query', Mock(side_effect=RetryFailedError('')))
     def test_received_timeline(self):
-        self.p.set_role('standby_leader')
+        self.p.set_role(PostgresqlRole.STANDBY_LEADER)
         self.p.reset_cluster_info_state(None)
         self.assertRaises(PostgresConnectionException, self.p.received_timeline)
 
@@ -1145,6 +1148,19 @@ class TestPostgresql(BaseTestPostgresql):
                 "Unexpected issue while reading parameters file `random.yaml`: `[Errno 2] No such file or "
                 "directory:", mock_warning.call_args[0][0]
             )
+
+    @patch('os.chmod')
+    @patch('os.stat')
+    @patch('os.umask')
+    def test_set_file_permissions(self, mock_umask, mock_stat, mock_chmod):
+        pg_conf = os.path.join(self.p.data_dir, 'postgresql.conf')
+        mock_stat.return_value.st_mode = stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP   # MODE_GROUP
+        self.p.config.set_file_permissions(pg_conf)
+        mock_chmod.assert_called_with(pg_conf, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP)
+
+        pg_conf = os.path.join(os.path.abspath(os.sep) + 'tmp', 'postgresql.conf')
+        self.p.config.set_file_permissions(pg_conf)
+        mock_chmod.assert_called_with(pg_conf, 0o666 & ~pg_perm.orig_umask)
 
 
 @patch('subprocess.call', Mock(return_value=0))

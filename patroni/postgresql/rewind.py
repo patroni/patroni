@@ -14,7 +14,7 @@ from ..collections import EMPTY_DICT
 from ..dcs import Leader, RemoteMember
 from . import Postgresql
 from .connection import get_connection_cursor
-from .misc import format_lsn, fsync_dir, parse_history, parse_lsn
+from .misc import format_lsn, fsync_dir, parse_history, parse_lsn, PostgresqlRole
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,8 @@ class Rewind(object):
     def trigger_check_diverged_lsn(self) -> None:
         if self.can_rewind_or_reinitialize_allowed and self._state != REWIND_STATUS.NEED:
             self._state = REWIND_STATUS.CHECK
+        with self._checkpoint_task_lock:
+            self._checkpoint_task = None
 
     @staticmethod
     def check_leader_is_not_in_recovery(conn_kwargs: Dict[str, Any]) -> Optional[bool]:
@@ -180,7 +182,7 @@ class Rewind(object):
         if self._postgresql.is_running():  # if postgres is running - get timeline from replication connection
             in_recovery = True
             timeline = self._postgresql.get_replica_timeline()
-            lsn = self._postgresql.replayed_location()
+            lsn = self._postgresql.replay_lsn()
         else:  # otherwise analyze pg_controldata output
             in_recovery, timeline, lsn = self._get_local_timeline_lsn_from_controldata()
 
@@ -223,7 +225,8 @@ class Rewind(object):
         if local_timeline is None or local_lsn is None:
             return
 
-        if isinstance(leader, Leader) and leader.member.data.get('role') not in ('master', 'primary'):
+        if isinstance(leader, Leader) and leader.member.data.get('role') not in (PostgresqlRole.MASTER,
+                                                                                 PostgresqlRole.PRIMARY):
             return
 
         # We want to use replication credentials when connecting to the "postgres" database in case if
@@ -305,10 +308,16 @@ class Rewind(object):
         if self._state != REWIND_STATUS.CHECKPOINT and self._postgresql.is_primary():
             with self._checkpoint_task_lock:
                 if self._checkpoint_task:
+                    result = None
+
                     with self._checkpoint_task:
-                        if self._checkpoint_task.result is not None:
-                            self._state = REWIND_STATUS.CHECKPOINT
-                            self._checkpoint_task = None
+                        result = self._checkpoint_task.result
+
+                    if result is True:
+                        self._state = REWIND_STATUS.CHECKPOINT
+
+                    if result is not None:
+                        self._checkpoint_task = None
                 elif self._postgresql.get_primary_timeline() == self._postgresql.pg_control_timeline():
                     self._state = REWIND_STATUS.CHECKPOINT
                 else:
@@ -317,6 +326,16 @@ class Rewind(object):
 
     def checkpoint_after_promote(self) -> bool:
         return self._state == REWIND_STATUS.CHECKPOINT
+
+    def get_archive_command(self) -> Optional[str]:
+        """Get ``archive_command`` GUC value if defined and archiving is enabled.
+
+        :returns: ``archive_command`` defined in the Postgres configuration or None.
+        """
+        archive_mode = self._postgresql.get_guc_value('archive_mode')
+        archive_cmd = self._postgresql.get_guc_value('archive_command')
+        if archive_mode in ('on', 'always') and archive_cmd:
+            return archive_cmd
 
     def _build_archiver_command(self, command: str, wal_filename: str) -> str:
         """Replace placeholders in the given archiver command's template.
@@ -371,9 +390,8 @@ class Rewind(object):
         after it the WALs were recycled on the promoted replica.
         With this we prevent the entire loss of such WALs and the
         consequent old leader's start failure."""
-        archive_mode = self._postgresql.get_guc_value('archive_mode')
-        archive_cmd = self._postgresql.get_guc_value('archive_command')
-        if archive_mode not in ('on', 'always') or not archive_cmd:
+        archive_cmd = self.get_archive_command()
+        if not archive_cmd:
             return
 
         walseg_regex = re.compile(r'^[0-9A-F]{24}(\.partial){0,1}\.ready$')
@@ -593,3 +611,17 @@ class Rewind(object):
             logger.info(' stdout=%s', output['stdout'].decode('utf-8'))
             logger.info(' stderr=%s', output['stderr'].decode('utf-8'))
         return ret == 0 or None
+
+    def archive_shutdown_checkpoint_wal(self, archive_cmd: str) -> None:
+        """Archive WAL file with the shutdown checkpoint.
+
+        :param archive_cmd: archiver command to use
+        """
+        data = self._postgresql.controldata()
+        wal_file = data.get("Latest checkpoint's REDO WAL file", '')
+        if not wal_file:
+            logger.error("Cannot extract latest checkpoint's WAL file name")
+            return
+        cmd = self._build_archiver_command(archive_cmd, wal_file)
+        if self._postgresql.cancellable.call([cmd], shell=True):
+            logger.error("Failed to archive WAL file with the shutdown checkpoint")

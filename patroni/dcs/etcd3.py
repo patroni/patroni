@@ -18,12 +18,14 @@ import urllib3
 
 from urllib3.exceptions import ProtocolError, ReadTimeoutError
 
+from ..collections import EMPTY_DICT
 from ..exceptions import DCSError, PatroniException
 from ..postgresql.mpp import AbstractMPP
 from ..utils import deep_compare, enable_keepalive, iter_response_objects, RetryFailedError, USER_AGENT
 from . import catch_return_false_exception, Cluster, ClusterConfig, \
     Failover, Leader, Member, Status, SyncState, TimelineHistory
-from .etcd import AbstractEtcd, AbstractEtcdClientWithFailover, catch_etcd_errors, DnsCachingResolver, Retry
+from .etcd import AbstractEtcd, AbstractEtcdClientWithFailover, catch_etcd_errors, \
+    DnsCachingResolver, Retry, StaleEtcdNode, StaleEtcdNodeGuard
 
 logger = logging.getLogger(__name__)
 
@@ -240,13 +242,24 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         try:
             data = data.decode('utf-8')
             ret: Dict[str, Any] = json.loads(data)
+
+            header = ret.get('header', EMPTY_DICT)
+            self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
+
             if response.status < 400:
                 return ret
         except (TypeError, ValueError, UnicodeError) as e:
             if response.status < 400:
                 raise etcd.EtcdException('Server response was not valid JSON: %r' % e)
             ret = {}
-        raise _raise_for_data(ret or data, response.status)
+        ex = _raise_for_data(ret or data, response.status)
+        if isinstance(ex, Unavailable):
+            # <Unavailable error: 'etcdserver: request timed out', code: 14>
+            # Pretend that we got `socket.timeout` and let `AbstractEtcdClientWithFailover._do_http_request()`
+            # method handle it by switching to another etcd node and retrying request.
+            raise socket.timeout from ex
+        else:
+            raise ex
 
     def _ensure_version_prefix(self, base_uri: str, **kwargs: Any) -> None:
         if self.version_prefix != '/v3':
@@ -420,10 +433,11 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         return self.watchrange(key, prefix_range_end(key), start_revision, filters, read_timeout)
 
 
-class KVCache(Thread):
+class KVCache(StaleEtcdNodeGuard, Thread):
 
     def __init__(self, dcs: 'Etcd3', client: 'PatroniEtcd3Client') -> None:
-        super(KVCache, self).__init__()
+        Thread.__init__(self)
+        StaleEtcdNodeGuard.__init__(self)
         self.daemon = True
         self._dcs = dcs
         self._client = client
@@ -493,7 +507,10 @@ class KVCache(Thread):
         logger.debug('Received message: %s', message)
         if 'error' in message:
             raise _raise_for_data(message)
-        events: List[Dict[str, Any]] = message.get('result', {}).get('events', [])
+        result = message.get('result', EMPTY_DICT)
+        header = result.get('header', EMPTY_DICT)
+        self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
+        events: List[Dict[str, Any]] = result.get('events', [])
         for event in events:
             self._process_event(event)
 
@@ -527,8 +544,11 @@ class KVCache(Thread):
 
     def _build_cache(self) -> None:
         result = self._dcs.retry(self._client.prefix, self._dcs.cluster_prefix)
+        header = result.get('header', EMPTY_DICT)
         with self._object_cache_lock:
+            self._reset_cluster_raft_term()
             self._object_cache = {node['key']: node for node in result.get('kvs', [])}
+            self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
         with self.condition:
             self._is_ready = True
             self.condition.notify()
@@ -574,6 +594,12 @@ class KVCache(Thread):
 
     def is_ready(self) -> bool:
         """Must be called only when holding the lock on `condition`"""
+        if self._is_ready:
+            try:
+                self._client._check_cluster_raft_term(self._cluster_id, self._raft_term)
+            except StaleEtcdNode:
+                self._is_ready = False
+                self.kill_stream()
         return self._is_ready
 
 
@@ -662,8 +688,7 @@ class PatroniEtcd3Client(Etcd3Client):
 class Etcd3(AbstractEtcd):
 
     def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
-        super(Etcd3, self).__init__(config, mpp, PatroniEtcd3Client,
-                                    (DeadlineExceeded, Unavailable, FailedPrecondition))
+        super(Etcd3, self).__init__(config, mpp, PatroniEtcd3Client, (DeadlineExceeded, FailedPrecondition))
         self.__do_not_watch = False
         self._lease = None
         self._last_lease_refresh = 0
@@ -961,6 +986,7 @@ class Etcd3(AbstractEtcd):
         return self.retry(self._client.deleterange, self.sync_path, mod_revision=version)
 
     def watch(self, leader_version: Optional[str], timeout: float) -> bool:
+        self._last_lease_refresh = 0
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True

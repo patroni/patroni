@@ -20,7 +20,7 @@ from ..psycopg import parse_conninfo
 from ..utils import compare_values, get_postgres_version, is_subpath, \
     maybe_convert_from_base_unit, parse_bool, parse_int, split_host_port, uri, validate_directory
 from ..validator import EnumValidator, IntValidator
-from .misc import get_major_from_minor_version, postgres_version_to_int, PostgresqlState
+from .misc import get_major_from_minor_version, postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -1062,7 +1062,7 @@ class ConfigHandler(object):
             synchronous_standby_names = self._server_parameters.get('synchronous_standby_names')
             if synchronous_standby_names is None:
                 if global_config.is_synchronous_mode_strict\
-                        and self._postgresql.role in ('primary', 'promoted'):
+                        and self._postgresql.role in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
                     parameters['synchronous_standby_names'] = '*'
                 else:
                     parameters.pop('synchronous_standby_names', None)
@@ -1102,8 +1102,11 @@ class ConfigHandler(object):
         listen_addresses = self._server_parameters['listen_addresses'].split(',')
 
         for la in listen_addresses:
-            if la.strip().lower() in ('*', '0.0.0.0', '127.0.0.1', 'localhost'):  # we are listening on '*' or localhost
+            if la.strip().lower() in ('*', 'localhost'):  # we are listening on '*' or localhost
                 return 'localhost'  # connection via localhost is preferred
+            if la.strip() in ('0.0.0.0', '127.0.0.1'):  # Postgres listens only on IPv4
+                # localhost, but don't allow Windows to resolve to IPv6
+                return '127.0.0.1' if os.name == 'nt' else 'localhost'
         return listen_addresses[0].strip()  # can't use localhost, take first address from listen_addresses
 
     def resolve_connection_addresses(self) -> None:
@@ -1330,7 +1333,7 @@ class ConfigHandler(object):
         As a workaround we will start it with the values from controldata and set `pending_restart`
         to true as an indicator that current values of parameters are not matching expectations."""
 
-        if self._postgresql.role == 'primary':
+        if self._postgresql.role == PostgresqlRole.PRIMARY:
             return self._server_parameters
 
         options_mapping = {

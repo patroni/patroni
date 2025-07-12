@@ -30,8 +30,32 @@ class PostgresqlState(str, Enum):
     CRASHED = 'crashed'
 
     def __repr__(self) -> str:
-        """Get a string representation of a :class:`PostgresqlState` member."""
+        """Get an "official" string representation of a :class:`PostgresqlState` member."""
         return self.value
+
+    def __str__(self) -> str:
+        """Get a string representation of a :class:`PostgresqlState` member."""
+        return self.__repr__()
+
+
+class PostgresqlRole(str, Enum):
+    """Possible values of :attr:`Postgresql.role`."""
+
+    PRIMARY = 'primary'
+    MASTER = 'master'
+    STANDBY_LEADER = 'standby_leader'
+    REPLICA = 'replica'
+    DEMOTED = 'demoted'
+    UNINITIALIZED = 'uninitialized'
+    PROMOTED = 'promoted'
+
+    def __repr__(self) -> str:
+        """Get an "official" string representation of a :class:`PostgresqlRole` member."""
+        return self.value
+
+    def __str__(self) -> str:
+        """Get a string representation of a :class:`PostgresqlRole` member."""
+        return self.__repr__()
 
 
 def postgres_version_to_int(pg_version: str) -> int:

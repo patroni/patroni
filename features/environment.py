@@ -123,6 +123,12 @@ class PatroniController(AbstractController):
         except IOError:
             return None
 
+    def read_config(self):
+        config = dict()
+        with open(self._config) as r:
+            config = yaml.safe_load(r)
+        return config
+
     @staticmethod
     def recursive_update(dst, src):
         for k, v in src.items():
@@ -132,11 +138,10 @@ class PatroniController(AbstractController):
                 dst[k] = v
 
     def update_config(self, custom_config):
-        with open(self._config) as r:
-            config = yaml.safe_load(r)
-            self.recursive_update(config, custom_config)
-            with open(self._config, 'w') as w:
-                yaml.safe_dump(config, w, default_flow_style=False)
+        config = self.read_config()
+        self.recursive_update(config, custom_config)
+        with open(self._config, 'w') as w:
+            yaml.safe_dump(config, w, default_flow_style=False)
         self._scope = config.get('scope', 'batman')
 
     def add_tag_to_config(self, tag, value):
@@ -857,7 +862,7 @@ class PatroniPoolController(object):
         self._processes[name].start(max_wait_limit)
 
     def __getattr__(self, func):
-        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to',
+        if func not in ['stop', 'query', 'write_label', 'read_label', 'read_config', 'check_role_has_changed_to',
                         'add_tag_to_config', 'get_watchdog', 'patroni_hang', 'backup', 'read_patroni_log']:
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
