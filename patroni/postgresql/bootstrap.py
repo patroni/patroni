@@ -256,7 +256,7 @@ class Bootstrap(object):
 
         # If '--from-leader' parameter is set when reinit, always use basebackup
         if clone_from_leader:
-             replica_methods = ['basebackup']
+            replica_methods = ['basebackup']
 
         if clone_member and clone_member.conn_url:
             r = clone_member.conn_kwargs(self._postgresql.config.replication)
