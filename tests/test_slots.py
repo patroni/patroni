@@ -407,9 +407,9 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.s.sync_replication_slots(cluster, self.tags)
             self.assertTrue(mock_query.call_args[0][0].startswith('SELECT slot_name, slot_type, xmin, '))
 
-    def test_drop_physical_slot(self):
+    def test__drop_physical_slot(self):
         """Test the :meth:~SlotsHandler._drop_physical_slot` method."""
-        # Should log info and return True when slot is dropped
+        # Should log info and remove the slot from the list when the slot is dropped
         self.s._replication_slots['testslot'] = {'type': 'physical'}
         self.s._schedule_load_slots = False
         with patch.object(self.s, 'drop_replication_slot', return_value=(False, True)) as mock_drop, \
@@ -424,7 +424,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.assertFalse(self.s._schedule_load_slots)
             self.assertNotIn('testslot', self.s._replication_slots)
 
-        # Should log warning and return False when slot is active and not dropped
+        # Should log warning and keep slot in the list when the slot is active and not dropped
         self.s._replication_slots['testslot'] = {'type': 'physical'}
         self.s._schedule_load_slots = False
         with patch.object(self.s, 'drop_replication_slot', return_value=(True, False)) as mock_drop, \
@@ -439,7 +439,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.assertTrue(self.s._schedule_load_slots)
             self.assertIn('testslot', self.s._replication_slots)
 
-        # Should log error and return False when slot is not active and not dropped
+        # Should log error and keep the slot in the list when the slot is not active and not dropped
         self.s._replication_slots['testslot'] = {'type': 'physical'}
         self.s._schedule_load_slots = False
         with patch.object(self.s, 'drop_replication_slot', return_value=(False, False)) as mock_drop, \
