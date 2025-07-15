@@ -2129,9 +2129,24 @@ def invoke_editor(before_editing: str, cluster_name: str) -> Tuple[str, Dict[str
         return after_editing, yaml.safe_load(after_editing)
 
 
-def edit_dynamic_config(cluster_name: str, group: Optional[int], force: bool, quiet: bool, kvpairs: List[str],
-                        pgkvpairs: List[str], apply_filename: Optional[str], replace_filename: Optional[str]) -> None:
-    """Update or replace Patroni configuration in the DCS.
+@ctl.command('edit-config', help="Edit cluster configuration")
+@arg_cluster_name
+@option_default_citus_group
+@click.option('--quiet', '-q', is_flag=True, help='Do not show changes')
+@click.option('--set', '-s', 'kvpairs', multiple=True,
+              help='Set specific configuration value. Can be specified multiple times')
+@click.option('--pg', '-p', 'pgkvpairs', multiple=True,
+              help='Set specific PostgreSQL parameter value. Shorthand for -s postgresql.parameters. '
+                   'Can be specified multiple times')
+@click.option('--apply', 'apply_filename', help='Apply configuration from file. Use - for stdin.')
+@click.option('--replace', 'replace_filename', help='Apply configuration from file, replacing existing configuration.'
+              ' Use - for stdin.')
+@option_force
+def edit_config(cluster_name: str, group: Optional[int], force: bool, quiet: bool, kvpairs: List[str],
+                pgkvpairs: List[str], apply_filename: Optional[str], replace_filename: Optional[str]) -> None:
+    """Process ``edit-config`` command of ``patronictl`` utility.
+
+    Update or replace Patroni configuration in the DCS.
 
     :param cluster_name: name of the Patroni cluster.
     :param group: filter which Citus group configuration we should edit. Refer to the module note for more details.
@@ -2190,27 +2205,6 @@ def edit_dynamic_config(cluster_name: str, group: Optional[int], force: bool, qu
         if not dcs.set_config_value(json.dumps(changed_data, separators=(',', ':')), cluster.config.version):
             raise PatroniCtlException("Config modification aborted due to concurrent changes")
         click.echo("Configuration changed")
-
-
-@ctl.command('edit-config', help="Edit cluster configuration")
-@arg_cluster_name
-@option_default_citus_group
-@click.option('--quiet', '-q', is_flag=True, help='Do not show changes')
-@click.option('--set', '-s', 'kvpairs', multiple=True,
-              help='Set specific configuration value. Can be specified multiple times')
-@click.option('--pg', '-p', 'pgkvpairs', multiple=True,
-              help='Set specific PostgreSQL parameter value. Shorthand for -s postgresql.parameters. '
-                   'Can be specified multiple times')
-@click.option('--apply', 'apply_filename', help='Apply configuration from file. Use - for stdin.')
-@click.option('--replace', 'replace_filename', help='Apply configuration from file, replacing existing configuration.'
-              ' Use - for stdin.')
-@option_force
-def edit_config(*args: Any, **kwargs: Any) -> None:
-    """Process ``edit-config`` command of ``patronictl`` utility.
-
-    See :func:`~patroni.ctl.edit_dynamic_config` for more information.
-    """
-    edit_dynamic_config(*args, **kwargs)
 
 
 @ctl.command('show-config', help="Show cluster configuration")
@@ -2349,7 +2343,10 @@ def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional
         confirm = click.confirm(f'Are you sure you want to {action_name}e {cluster_name} cluster?')
         if not confirm:
             raise PatroniCtlException(f'Aborted cluster {action_name}ion')
-    edit_dynamic_config(cluster_name, None, True, True, standby_config, [], None, None)
+
+    ctx = click.get_current_context()
+    ctx.invoke(edit_config, cluster_name=cluster_name, group=None, force=True, quiet=True, kvpairs=standby_config,
+               pgkvpairs=[], apply_filename=None, replace_filename=None)
 
     loop_wait = config.get('loop_wait') or dcs.loop_wait
     for _ in polling_loop(loop_wait * 2):
