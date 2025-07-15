@@ -2352,7 +2352,7 @@ def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional
     edit_dynamic_config(cluster_name, None, True, True, standby_config, [], None, None)
 
     loop_wait = config.get('loop_wait') or dcs.loop_wait
-    for _ in polling_loop(loop_wait + 1):
+    for _ in polling_loop(loop_wait * 2):
         cluster = dcs.get_cluster()
         old_leader = list(filter(lambda m: m.name == leader_name, cluster.members))[0]
         if not cluster.is_unlocked() and cluster.leader\
