@@ -736,6 +736,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
         state_to_num = {state: idx for idx, state in enumerate(PostgresqlState, start=0)}
 
         metrics.append("# HELP patroni_postgres_state Numeric representation of Postgres state.")
+        metrics.append("# Values: 0=initializing, 1=initdb_failed, 2=custom_bootstrap, 3=custom_bootstrap_failed,")
+        metrics.append("# 4=creating_replica, 5=running, 6=starting, 7=bootstrap_starting, 8=start_failed,")
+        metrics.append("# 9=restarting, 10=restart_failed, 11=stopping, 12=stopped, 13=stop_failed, 14=crashed")
         metrics.append("# TYPE patroni_postgres_state gauge")
         metrics.append(f"patroni_postgres_state{labels} {state_to_num.get(postgres['state'], -1)}")
 
