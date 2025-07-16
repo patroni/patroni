@@ -512,8 +512,9 @@ def watching(w: bool, watch: Optional[int], max_count: Optional[int] = None, cle
         return
 
     counter = 1
+    start_time = time.time()
     while watch and counter <= (max_count or counter):
-        time.sleep(watch)
+        time.sleep(start_time + counter * watch - time.time())
         counter += 1
         if clear:
             click.clear()
@@ -2330,7 +2331,6 @@ def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional
 
     dcs = get_dcs(cluster_name, None)
     cluster = dcs.get_cluster()
-    config = global_config.from_cluster(cluster)
     leader_name = cluster.leader and cluster.leader.name
     if not leader_name:
         raise PatroniCtlException(f'Cluster has no leader, {action_name}ion is not possible')
@@ -2348,18 +2348,26 @@ def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional
     ctx.invoke(edit_config, cluster_name=cluster_name, group=None, force=True, quiet=True, kvpairs=standby_config,
                pgkvpairs=[], apply_filename=None, replace_filename=None)
 
-    loop_wait = config.get('loop_wait') or dcs.loop_wait
-    for _ in polling_loop(loop_wait * 2):
+    for _ in watching(True, 1, clear=False):
         cluster = dcs.get_cluster()
-        old_leader = list(filter(lambda m: m.name == leader_name, cluster.members))[0]
-        if not cluster.is_unlocked() and cluster.leader\
-                and cluster.leader.data.get('role') == target_role\
-                and cluster.leader.data.get('state') == PostgresqlState.RUNNING\
-                and old_leader.data.get('state') == PostgresqlState.RUNNING:
-            click.echo(f'{timestamp()} cluster is successfully {action_name}ed')
-            break
-    else:
-        click.echo(f'Cluster {action_name}ion status unknown')
+        is_unlocked = cluster.is_unlocked()
+        leader_role = cluster.leader and cluster.leader.data.get('role')
+        leader_state = cluster.leader and cluster.leader.data.get('state')
+        old_leader = next((m for m in cluster.members if m.name == leader_name), None)
+        old_leader_state = old_leader and old_leader.data.get('state')
+
+        if not is_unlocked and leader_role == target_role and leader_state == PostgresqlState.RUNNING:
+            if not demote or old_leader_state == PostgresqlState.RUNNING:
+                click.echo(
+                    f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")} cluster is successfully {action_name}ed')
+                break
+
+        state_prts = [f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")} cluster is unlocked: {is_unlocked}',
+                      f'leader role: {leader_role}',
+                      f'leader state: {leader_state}']
+        if demote and cluster.leader and leader_name != cluster.leader.name and old_leader_state:
+            state_prts.append(f'previous leader state: {repr(old_leader_state)}')
+        click.echo(", ".join(state_prts))
     output_members(cluster, cluster_name)
 
 
