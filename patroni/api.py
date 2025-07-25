@@ -733,14 +733,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_is_paused gauge")
         metrics.append("patroni_is_paused{0} {1}".format(labels, int(postgres.get('pause', 0))))
 
-        state_to_num = {state: idx for idx, state in enumerate(PostgresqlState, start=0)}
-
         metrics.append("# HELP patroni_postgres_state Numeric representation of Postgres state.")
-        metrics.append("# Values: 0=initializing, 1=initdb_failed, 2=custom_bootstrap, 3=custom_bootstrap_failed,")
-        metrics.append("# 4=creating_replica, 5=running, 6=starting, 7=bootstrap_starting, 8=start_failed,")
-        metrics.append("# 9=restarting, 10=restart_failed, 11=stopping, 12=stopped, 13=stop_failed, 14=crashed")
+        metrics.append(f"# Values: {PostgresqlState.get_metrics_description()}")
         metrics.append("# TYPE patroni_postgres_state gauge")
-        metrics.append(f"patroni_postgres_state{labels} {state_to_num.get(postgres['state'], -1)}")
+        current_state = postgres['state']
+        state_value = current_state.to_metrics_value() if isinstance(current_state, PostgresqlState) else -1
+        metrics.append(f"patroni_postgres_state{labels} {state_value}")
 
         self.write_response(200, '\n'.join(metrics) + '\n', content_type='text/plain')
 
