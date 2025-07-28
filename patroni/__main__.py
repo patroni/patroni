@@ -388,6 +388,12 @@ def main() -> None:
         if pid:
             os.kill(pid, signo)
 
+    import multiprocessing
+    patroni = multiprocessing.Process(target=patroni_main, args=(args.configfile,))
+    patroni.start()
+    pid = patroni.pid
+
+    # Set up signal handlers after fork to prevent child from inheriting them
     if os.name != 'nt':
         signal.signal(signal.SIGCHLD, sigchld_handler)
         signal.signal(signal.SIGHUP, passtochild)
@@ -397,11 +403,6 @@ def main() -> None:
     signal.signal(signal.SIGINT, passtochild)
     signal.signal(signal.SIGABRT, passtochild)
     signal.signal(signal.SIGTERM, passtochild)
-
-    import multiprocessing
-    patroni = multiprocessing.Process(target=patroni_main, args=(args.configfile,))
-    patroni.start()
-    pid = patroni.pid
     patroni.join()
 
 
