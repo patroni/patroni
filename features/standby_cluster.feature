@@ -64,3 +64,17 @@ Feature: standby cluster
     And I receive a response role standby_leader
     And replication works from postgres-0 to postgres-1 after 15 seconds
     And there is a postgres-1_cb.log with "on_role_change replica batman1\non_role_change standby_leader batman1" in postgres-1 data directory
+
+  Scenario: demote cluster
+    When I switch standby cluster batman1 to archive recovery
+    Then Response on GET http://127.0.0.1:8009/patroni contains replication_state=in archive recovery after 30 seconds
+    When I demote cluster batman
+    And "members/postgres-0" key in DCS has role=standby_leader after 20 seconds
+    And "members/postgres-0" key in DCS has state=running after 10 seconds
+
+  Scenario: promote cluster
+    When I issue a PATCH request to http://127.0.0.1:8009/config with {"standby_cluster": null}
+    Then I receive a response code 200
+    And postgres-1 role is the primary after 10 seconds
+    When I add the table foo2 to postgres-1
+    Then table foo2 is present on postgres-0 after 20 seconds
