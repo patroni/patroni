@@ -102,7 +102,7 @@ def initiate_load(context, pg_name):
         assert False, "Error loading test data on {0}: {1}".format(pg_name, e)
 
 
-@then('Table {table_name:w} is present on {pg_name:name} after {max_replication_delay:d} seconds')
+@then('table {table_name:w} is present on {pg_name:name} after {max_replication_delay:d} seconds')
 def table_is_present_on(context, table_name, pg_name, max_replication_delay):
     max_replication_delay *= context.timeout_multiplier
     for _ in range(int(max_replication_delay)):
@@ -124,7 +124,7 @@ def check_role(context, pg_name, pg_role, max_promotion_timeout):
 @step('replication works from {primary:name} to {replica:name} after {time_limit:d} seconds')
 @then('replication works from {primary:name} to {replica:name} after {time_limit:d} seconds')
 def replication_works(context, primary, replica, time_limit):
-    context.execute_steps(u"""
+    context.execute_steps("""
         When I add the table test_{0} to {1}
         Then table test_{0} is present on {2} after {3} seconds
     """.format(str(time()).replace('.', '_').replace(',', '_'), primary, replica, time_limit))
