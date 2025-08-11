@@ -138,9 +138,13 @@ class TestPatroni(unittest.TestCase):
         def mock_signal(signo, handler):
             handler(signo, None)
 
-        with patch('signal.signal', mock_signal):
-            with patch('os.waitpid', Mock(side_effect=[(1, 0), (0, 0)])):
+        with patch('signal.signal', mock_signal), patch('os.kill') as mock_kill:
+            with patch('os.waitpid', Mock(side_effect=[(1, 0), (0, 0)])), \
+                 patch('patroni.__main__.logger') as mock_logger:
                 _main()
+                mock_kill.assert_called_with(mock_process.return_value.pid, signal.SIGTERM)
+                if os.name != 'nt':
+                    mock_logger.info.assert_called_with('Reaped pid=%s, exit status=%s', 1, 0)
             with patch('os.waitpid', Mock(side_effect=OSError)):
                 _main()
 

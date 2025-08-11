@@ -55,13 +55,13 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.p.set_role(PostgresqlRole.STANDBY_LEADER)
         with patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(True, False))), \
                 patch.object(global_config.__class__, 'is_standby_cluster', PropertyMock(return_value=True)), \
-                patch('patroni.postgresql.slots.logger.debug') as mock_debug:
+                patch('patroni.postgresql.slots.logger.warning') as mock_warning:
             self.s.sync_replication_slots(cluster, self.tags)
-            mock_debug.assert_called_once()
+            mock_warning.assert_called_once_with("Unable to drop replication slot '%s', slot is active", 'foobar')
         self.p.set_role(PostgresqlRole.REPLICA)
         with patch.object(Postgresql, 'is_primary', Mock(return_value=False)), \
                 patch.object(global_config.__class__, 'is_paused', PropertyMock(return_value=True)), \
-                patch.object(SlotsHandler, 'drop_replication_slot') as mock_drop:
+                patch.object(SlotsHandler, '_drop_physical_slot') as mock_drop:
             config.data['slots'].pop('ls')
             self.s.sync_replication_slots(cluster, self.tags)
             mock_drop.assert_not_called()
@@ -343,6 +343,7 @@ class TestSlotsHandler(BaseTestPostgresql):
                           [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
         global_config.update(cluster)
         self.s.sync_replication_slots(cluster, self.tags)
+
         with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('blabla', 'physical', None, 12345, None, None,
                                                                       None, None, None)], Exception])) as mock_query, \
                 patch('patroni.postgresql.slots.logger.error') as mock_error:
@@ -354,7 +355,7 @@ class TestSlotsHandler(BaseTestPostgresql):
 
         with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('test_1', 'physical', 1, 12345, None, None,
                                                                       None, None, None)], Exception])), \
-                patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(False, True))):
+                patch.object(SlotsHandler, '_drop_physical_slot', Mock(return_value=(True))):
             self.s.sync_replication_slots(cluster, self.tags)
 
         with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('test_1', 'physical', 1, 12345, None, None,
@@ -367,15 +368,30 @@ class TestSlotsHandler(BaseTestPostgresql):
 
         with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('test_1', 'physical', 1, 12345, None, None,
                                                                       None, None, None)], Exception])), \
-                patch.object(SlotsHandler, 'drop_replication_slot', Mock(return_value=(False, False))):
+                patch.object(SlotsHandler, '_drop_physical_slot', Mock(return_value=(False))):
             self.s.sync_replication_slots(cluster, self.tags)
 
         with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('test_1', 'physical', 1, 12345, None, None,
                                                                       None, None, None)], Exception])), \
                 patch.object(Cluster, 'is_unlocked', Mock(return_value=True)), \
-                patch.object(SlotsHandler, 'drop_replication_slot') as mock_drop:
+                patch.object(SlotsHandler, '_drop_physical_slot') as mock_drop:
             self.s.sync_replication_slots(cluster, self.tags)
             mock_drop.assert_not_called()
+
+        # If the slot has no restart_lsn, we should not try to advance it, and only warn the user that this is not an
+        # expected situation.
+        with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('blabla', 'physical', None, None, None, None,
+                                                                      None, None, None)], Exception])) as mock_query, \
+                patch('patroni.postgresql.slots.logger.warning') as mock_warning, \
+                patch.object(SlotsHandler, '_drop_physical_slot') as mock_drop:
+            self.s.sync_replication_slots(cluster, self.tags)
+            for mock_call in mock_query.call_args_list:
+                self.assertNotIn("pg_catalog.pg_replication_slot_advance", mock_call[0][0])
+            self.assertEqual(mock_warning.call_args[0][0],
+                             'Dropping physical replication slot %s because it has no restart_lsn. '
+                             'This slot was probably not created by Patroni, but by an external agent.')
+            self.assertEqual(mock_warning.call_args[0][1], 'blabla')
+            mock_drop.assert_called_once_with('blabla')
 
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     @patch.object(Postgresql, 'role', PropertyMock(return_value=PostgresqlRole.REPLICA))
@@ -390,3 +406,50 @@ class TestSlotsHandler(BaseTestPostgresql):
                                                                       None, None, None)], Exception])) as mock_query:
             self.s.sync_replication_slots(cluster, self.tags)
             self.assertTrue(mock_query.call_args[0][0].startswith('SELECT slot_name, slot_type, xmin, '))
+
+    def test__drop_physical_slot(self):
+        """Test the :meth:~SlotsHandler._drop_physical_slot` method."""
+        # Should log info and remove the slot from the list when the slot is dropped
+        self.s._replication_slots['testslot'] = {'type': 'physical'}
+        self.s._schedule_load_slots = False
+        with patch.object(self.s, 'drop_replication_slot', return_value=(False, True)) as mock_drop, \
+                patch('patroni.postgresql.slots.logger.info') as mock_info, \
+                patch('patroni.postgresql.slots.logger.warning') as mock_warning, \
+                patch('patroni.postgresql.slots.logger.error') as mock_error:
+            self.s._drop_physical_slot('testslot')
+            mock_drop.assert_called_once_with('testslot')
+            mock_info.assert_called_once_with("Dropped physical replication slot '%s'", 'testslot')
+            mock_warning.assert_not_called()
+            mock_error.assert_not_called()
+            self.assertFalse(self.s._schedule_load_slots)
+            self.assertNotIn('testslot', self.s._replication_slots)
+
+        # Should log warning and keep slot in the list when the slot is active and not dropped
+        self.s._replication_slots['testslot'] = {'type': 'physical'}
+        self.s._schedule_load_slots = False
+        with patch.object(self.s, 'drop_replication_slot', return_value=(True, False)) as mock_drop, \
+                patch('patroni.postgresql.slots.logger.info') as mock_info, \
+                patch('patroni.postgresql.slots.logger.warning') as mock_warning, \
+                patch('patroni.postgresql.slots.logger.error') as mock_error:
+            self.s._drop_physical_slot('testslot')
+            mock_drop.assert_called_once_with('testslot')
+            mock_info.assert_not_called()
+            mock_warning.assert_called_once_with("Unable to drop replication slot '%s', slot is active", 'testslot')
+            mock_error.assert_not_called()
+            self.assertTrue(self.s._schedule_load_slots)
+            self.assertIn('testslot', self.s._replication_slots)
+
+        # Should log error and keep the slot in the list when the slot is not active and not dropped
+        self.s._replication_slots['testslot'] = {'type': 'physical'}
+        self.s._schedule_load_slots = False
+        with patch.object(self.s, 'drop_replication_slot', return_value=(False, False)) as mock_drop, \
+                patch('patroni.postgresql.slots.logger.info') as mock_info, \
+                patch('patroni.postgresql.slots.logger.warning') as mock_warning, \
+                patch('patroni.postgresql.slots.logger.error') as mock_error:
+            self.s._drop_physical_slot('testslot')
+            mock_drop.assert_called_once_with('testslot')
+            mock_info.assert_not_called()
+            mock_warning.assert_not_called()
+            mock_error.assert_called_once_with("Failed to drop replication slot '%s'", 'testslot')
+            self.assertTrue(self.s._schedule_load_slots)
+            self.assertIn('testslot', self.s._replication_slots)

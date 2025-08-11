@@ -811,3 +811,21 @@ class TestRestApiServer(unittest.TestCase):
                 patch.object(MockConnection, 'query') as mock_query:
             self.srv.query('SELECT 1')
             mock_query.assert_called_once_with('SELECT 1')
+
+    def test_construct_server_tokens(self):
+        #
+        # Test cases (case insensitive values):
+        # 1. 'original' server token - should return empty string
+        self.assertEqual(self.srv.construct_server_tokens('original'), '')
+        self.assertEqual(self.srv.construct_server_tokens('oriGINal'), '')
+
+        # 2. 'productonly' server token - should return 'Patroni'
+        self.assertEqual(self.srv.construct_server_tokens('productonly'), 'Patroni')
+        self.assertEqual(self.srv.construct_server_tokens('prodUCTOnly'), 'Patroni')
+
+        # 3. 'minimal' server token - should return 'Patroni/$version'
+        self.assertEqual(self.srv.construct_server_tokens('minimal'), 'Patroni/0.00')
+        self.assertEqual(self.srv.construct_server_tokens('miNIMal'), 'Patroni/0.00')
+
+        # 4. Invalid server token - should exhibit 'original' behaviour and return an empty string.
+        self.assertEqual(self.srv.construct_server_tokens('foobar'), '')
