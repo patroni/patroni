@@ -512,8 +512,9 @@ def watching(w: bool, watch: Optional[int], max_count: Optional[int] = None, cle
         return
 
     counter = 1
+    start_time = time.time()
     while watch and counter <= (max_count or counter):
-        time.sleep(watch)
+        time.sleep(start_time + counter * watch - time.time())
         counter += 1
         if clear:
             click.clear()
@@ -2314,3 +2315,107 @@ def format_pg_version(version: int) -> str:
         return "{0}.{1}.{2}".format(version // 10000, version // 100 % 100, version % 100)
     else:
         return "{0}.{1}".format(version // 10000, version % 100)
+
+
+def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional[List[str]]) -> None:
+    """Demote or promote cluster.
+
+    :param cluster_name: name of the Patroni cluster.
+    :param force: if ``True`` run cluster demotion without asking for confirmation.
+    :param standby_config: standby cluster configuration to be applied if demotion is requested.
+    """
+    demote = bool(standby_config)
+    standby_config = standby_config or ['standby_cluster=']
+    action_name = 'demot' if demote else 'promot'
+    target_role = PostgresqlRole.STANDBY_LEADER if demote else PostgresqlRole.PRIMARY
+
+    dcs = get_dcs(cluster_name, None)
+    cluster = dcs.get_cluster()
+    leader_name = cluster.leader and cluster.leader.name
+    if not leader_name:
+        raise PatroniCtlException(f'Cluster has no leader, {action_name}ion is not possible')
+    if cluster.leader and cluster.leader.data.get('role') == target_role:
+        raise PatroniCtlException('Cluster is already in the required state')
+
+    click.echo('Current cluster topology')
+    output_members(cluster, cluster_name)
+    if not force:
+        confirm = click.confirm(f'Are you sure you want to {action_name}e {cluster_name} cluster?')
+        if not confirm:
+            raise PatroniCtlException(f'Aborted cluster {action_name}ion')
+
+    ctx = click.get_current_context()
+    ctx.invoke(edit_config, cluster_name=cluster_name, group=None, force=True, quiet=True, kvpairs=standby_config,
+               pgkvpairs=[], apply_filename=None, replace_filename=None)
+
+    for _ in watching(True, 1, clear=False):
+        cluster = dcs.get_cluster()
+        is_unlocked = cluster.is_unlocked()
+        leader_role = cluster.leader and cluster.leader.data.get('role')
+        leader_state = cluster.leader and cluster.leader.data.get('state')
+        old_leader = next((m for m in cluster.members if m.name == leader_name), None)
+        old_leader_state = old_leader and old_leader.data.get('state')
+
+        if not is_unlocked and leader_role == target_role and leader_state == PostgresqlState.RUNNING:
+            if not demote or old_leader_state == PostgresqlState.RUNNING:
+                click.echo(
+                    f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")} cluster is successfully {action_name}ed')
+                break
+
+        state_prts = [f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")} cluster is unlocked: {is_unlocked}',
+                      f'leader role: {leader_role}',
+                      f'leader state: {leader_state}']
+        if demote and cluster.leader and leader_name != cluster.leader.name and old_leader_state:
+            state_prts.append(f'previous leader state: {repr(old_leader_state)}')
+        click.echo(", ".join(state_prts))
+    output_members(cluster, cluster_name)
+
+
+@ctl.command('demote-cluster', help="Demote cluster to a standby cluster")
+@arg_cluster_name
+@option_force
+@click.option('--host', help='Address of the remote node', required=False)
+@click.option('--port', help='Port of the remote node', required=False)
+@click.option('--restore-command', help='Command to restore WAL records from the remote primary', required=False)
+@click.option('--primary-slot-name', help='Name of the slot on the remote node to use for replication', required=False)
+def demote_cluster(cluster_name: str, force: bool, host: Optional[str], port: Optional[str],
+                   restore_command: Optional[str], primary_slot_name: Optional[str]) -> None:
+    """Process ``demote-cluster`` command of ``patronictl`` utility.
+
+    Demote cluster to a standby cluster.
+
+    :param cluster_name: name of the Patroni cluster.
+    :param force: if ``True`` run cluster demotion without asking for confirmation.
+    :param host: address of the remote node.
+    :param port: port of the remote node.
+    :param restore_command: command to restore WAL records from the remote primary'.
+    :param primary_slot_name: name of the slot on the remote node to use for replication.
+
+    :raises:
+        :class:`PatroniCtlException`: if:
+            * neither ``host`` nor ``port`` nor ``restore_command`` is provided; or
+            * cluster has no leader; or
+            * cluster is already in the required state; or
+            * operation is aborted.
+    """
+    if not any((host, port, restore_command)):
+        raise PatroniCtlException('At least --host, --port or --restore-command should be specified')
+
+    data = [f'standby_cluster.{k}={v}' for k, v in {'host': host, 'port': port,
+                                                    'primary_slot_name': primary_slot_name,
+                                                    'restore_command': restore_command}.items() if v]
+    change_cluster_role(cluster_name, force, data)
+
+
+@ctl.command('promote-cluster', help="Promote cluster, make it run standalone")
+@arg_cluster_name
+@option_force
+def promote_cluster(cluster_name: str, force: bool) -> None:
+    """Process ``promote-cluster`` command of ``patronictl`` utility.
+
+    Promote cluster, make it run standalone.
+
+    :param cluster_name: name of the Patroni cluster.
+    :param force: if ``True`` run cluster demotion without asking for confirmation.
+    """
+    change_cluster_role(cluster_name, force, None)
