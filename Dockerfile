@@ -1,6 +1,6 @@
 ## This Dockerfile is meant to aid in the building and debugging patroni whilst developing on your local machine
 ## It has all the necessary components to play/debug with a single node appliance, running etcd
-ARG PG_MAJOR=16
+ARG PG_MAJOR=17
 ARG COMPRESS=false
 ARG PGHOME=/home/postgres
 ARG PGDATA=$PGHOME/data
@@ -14,7 +14,7 @@ ARG PGDATA
 ARG LC_ALL
 ARG LANG
 
-ENV ETCDVERSION=3.3.13 CONFDVERSION=0.16.0
+ENV ETCDVERSION=3.6.4 CONFDVERSION=0.16.0
 
 RUN set -ex \
     && export DEBIAN_FRONTEND=noninteractive \
