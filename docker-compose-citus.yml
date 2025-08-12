@@ -12,11 +12,6 @@
 networks:
     demo:
 
-x-common-env: &common-env
-  POSTGRES_USER: postgres
-  POSTGRES_PASSWORD: secret
-  POSTGRES_DB: citus
-
 x-pg-healthcheck: &pg-healthcheck
   test: ["CMD-SHELL", "pg_isready -U postgres"]
   interval: 10s
@@ -118,7 +113,7 @@ services:
             resources:
                 <<: *resource-limit-psql
         environment: &coord_env
-            <<: [*haproxy_env, *common-env]
+            <<: *haproxy_env
             PATRONI_NAME: coord1
             PATRONI_CITUS_GROUP: 0
 
@@ -135,7 +130,7 @@ services:
             resources:
                 <<: *resource-limit-psql
         environment:
-            <<: [*coord_env, *common-env]
+            <<: *coord_env
             PATRONI_NAME: coord2
 
     coord3:
@@ -151,7 +146,7 @@ services:
             resources:
                 <<: *resource-limit-psql
         environment:
-            <<: [*coord_env, *common-env]
+            <<: *coord_env
             PATRONI_NAME: coord3
 
 
@@ -167,7 +162,7 @@ services:
             resources:
                 <<: *resource-limit-psql
         environment: &work1_env
-            <<: [*haproxy_env, *common-env]
+            <<: *haproxy_env
             PATRONI_NAME: work1-1
             PATRONI_CITUS_GROUP: 1
 
@@ -183,7 +178,7 @@ services:
             resources:
                 <<: *resource-limit-psql
         environment:
-            <<: [*work1_env, *common-env]
+            <<: *work1_env
             PATRONI_NAME: work1-2
 
     work2-1:
@@ -198,7 +193,7 @@ services:
             resources:
                 <<: *resource-limit-psql
         environment: &work2_env
-            <<: [*haproxy_env, *common-env]
+            <<: *haproxy_env
             PATRONI_NAME: work2-1
             PATRONI_CITUS_GROUP: 2
 
@@ -214,7 +209,7 @@ services:
         volumes:
             - work2_2_data:/var/lib/postgresql/data
         environment:
-            <<: [*work2_env, *common-env]
+            <<: *work2_env
             PATRONI_NAME: work2-2
 
 volumes:
