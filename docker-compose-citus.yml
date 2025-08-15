@@ -11,34 +11,6 @@
 # https://github.com/patroni/patroni/blob/master/docker/README.md#citus-cluster
 networks:
     demo:
-
-x-pg-healthcheck: &pg-healthcheck
-  test: ["CMD-SHELL", "pg_isready -U postgres"]
-  interval: 10s
-  retries: 5
-  start_period: 10s
-
-x-etcd-healthcheck: &etcd-healthcheck
-  test: ["CMD-SHELL", "etcdctl endpoint health"]
-  interval: 10s
-  retries: 5
-  start_period: 10s
-
-x-pg-resource-limit: &resource-limit-psql
-  limits:
-    cpus: "0.5"
-    memory: 512M
-  reservations:
-    cpus: "0.1"
-    memory: 128M
-
-x-etcd-resource-limit: &resource-limit-etcd
-  limits:
-    cpus: "0.5"
-    memory: 256M
-  reservations:
-    cpus: "0.1"
-    memory: 64M
     
 services:
     etcd1: &etcd
@@ -51,10 +23,6 @@ services:
             ETCD_INITIAL_CLUSTER_STATE: new
             ETCD_INITIAL_CLUSTER_TOKEN: tutorial
             ETCD_UNSUPPORTED_ARCH: arm64
-        healthcheck: *etcd-healthcheck
-        deploy:
-            resources:
-                <<: *resource-limit-etcd
         container_name: demo-etcd1
         hostname: etcd1
         command: etcd --name etcd1 --initial-advertise-peer-urls http://etcd1:2380
@@ -62,20 +30,12 @@ services:
     etcd2:
         <<: *etcd
         container_name: demo-etcd2
-        healthcheck: *etcd-healthcheck
-        deploy:
-            resources:
-                <<: *resource-limit-etcd
         hostname: etcd2
         command: etcd --name etcd2 --initial-advertise-peer-urls http://etcd2:2380
 
     etcd3:
         <<: *etcd
         container_name: demo-etcd3
-        healthcheck: *etcd-healthcheck
-        deploy:
-            resources:
-                <<: *resource-limit-etcd
         hostname: etcd3
         command: etcd --name etcd3 --initial-advertise-peer-urls http://etcd3:2380
 
@@ -106,12 +66,6 @@ services:
         env_file: docker/patroni.env
         hostname: coord1
         container_name: demo-coord1
-        healthcheck: *pg-healthcheck
-        volumes:
-            - coord_1_data:/var/lib/postgresql/data
-        deploy:
-            resources:
-                <<: *resource-limit-psql
         environment: &coord_env
             <<: *haproxy_env
             PATRONI_NAME: coord1
@@ -123,12 +77,6 @@ services:
         env_file: docker/patroni.env
         hostname: coord2
         container_name: demo-coord2
-        healthcheck: *pg-healthcheck
-        volumes:
-            - coord_2_data:/var/lib/postgresql/data
-        deploy:
-            resources:
-                <<: *resource-limit-psql
         environment:
             <<: *coord_env
             PATRONI_NAME: coord2
@@ -139,16 +87,9 @@ services:
         env_file: docker/patroni.env
         hostname: coord3
         container_name: demo-coord3
-        healthcheck: *pg-healthcheck
-        volumes:
-            - coord_3_data:/var/lib/postgresql/data
-        deploy:
-            resources:
-                <<: *resource-limit-psql
         environment:
             <<: *coord_env
             PATRONI_NAME: coord3
-
 
     work1-1:
         image: ${PATRONI_TEST_IMAGE:-patroni-citus}
@@ -156,11 +97,6 @@ services:
         env_file: docker/patroni.env
         hostname: work1-1
         container_name: demo-work1-1
-        volumes:
-            - work1_1_data:/var/lib/postgresql/data
-        deploy:
-            resources:
-                <<: *resource-limit-psql
         environment: &work1_env
             <<: *haproxy_env
             PATRONI_NAME: work1-1
@@ -172,11 +108,6 @@ services:
         env_file: docker/patroni.env
         hostname: work1-2
         container_name: demo-work1-2
-        volumes:
-            - work1_2_data:/var/lib/postgresql/data
-        deploy:
-            resources:
-                <<: *resource-limit-psql
         environment:
             <<: *work1_env
             PATRONI_NAME: work1-2
@@ -187,11 +118,6 @@ services:
         env_file: docker/patroni.env
         hostname: work2-1
         container_name: demo-work2-1
-        volumes:
-            - work2_1_data:/var/lib/postgresql/data
-        deploy:
-            resources:
-                <<: *resource-limit-psql
         environment: &work2_env
             <<: *haproxy_env
             PATRONI_NAME: work2-1
@@ -203,20 +129,6 @@ services:
         env_file: docker/patroni.env
         hostname: work2-2
         container_name: demo-work2-2
-        deploy:
-            resources:
-                <<: *resource-limit-psql
-        volumes:
-            - work2_2_data:/var/lib/postgresql/data
         environment:
             <<: *work2_env
             PATRONI_NAME: work2-2
-
-volumes:
-  coord_1_data:
-  coord_2_data:
-  coord_3_data:
-  work1_1_data:
-  work1_2_data:
-  work2_1_data:
-  work2_2_data:
