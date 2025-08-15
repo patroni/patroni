@@ -9,9 +9,11 @@
 # $ docker-compose -f docker-compose-citus.yml up -d
 # You can read more about it in the:
 # https://github.com/patroni/patroni/blob/master/docker/README.md#citus-cluster
+version: "2"
+
 networks:
     demo:
-    
+
 services:
     etcd1: &etcd
         image: ${PATRONI_TEST_IMAGE:-patroni-citus}
@@ -91,6 +93,7 @@ services:
             <<: *coord_env
             PATRONI_NAME: coord3
 
+
     work1-1:
         image: ${PATRONI_TEST_IMAGE:-patroni-citus}
         networks: [ demo ]
@@ -111,6 +114,7 @@ services:
         environment:
             <<: *work1_env
             PATRONI_NAME: work1-2
+
 
     work2-1:
         image: ${PATRONI_TEST_IMAGE:-patroni-citus}
