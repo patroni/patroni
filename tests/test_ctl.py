@@ -786,9 +786,9 @@ class TestCtl(unittest.TestCase):
         self.assertIn("Waiting for reinitialize to complete on: other", result.output)
         self.assertIn("Reinitialize is completed on: other", result.output)
 
-    @patch('patroni.dcs.etcd.Etcd.set_config_value', Mock(return_value=True))
     @patch('patroni.ctl.watching', Mock(return_value=[0, 0]))
-    def test_cluster_demote(self):
+    @patch('patroni.ctl.request_patroni')
+    def test_cluster_demote(self, mock_patch):
         m1 = Member(0, 'new_leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
                                           'role': PostgresqlRole.STANDBY_LEADER, 'state': 'running'})
         m2 = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
@@ -814,15 +814,17 @@ class TestCtl(unittest.TestCase):
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=standby_cluster)):
             result = self.runner.invoke(ctl, ['demote-cluster', 'dummy', '--restore-command', 'foo'])
             assert 'Cluster is already in the required state' in result.output
+
+        mock_patch.return_value.status = 200
         # success
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(side_effect=[original_cluster, original_cluster,
-                                                                            original_cluster, standby_cluster])):
+                                                                            standby_cluster])):
             result = self.runner.invoke(ctl, ['demote-cluster', 'dummy', '--restore-command', 'foo', '--force'])
             assert result.exit_code == 0
 
-    @patch('patroni.dcs.etcd.Etcd.set_config_value', Mock(return_value=True))
     @patch('patroni.ctl.polling_loop', Mock(return_value=[0, 0]))
-    def test_cluster_promote(self):
+    @patch('patroni.ctl.request_patroni')
+    def test_cluster_promote(self, mock_patch):
         only_leader_cluster = get_cluster_initialized_with_only_leader()
         standby_cluster = get_standby_cluster_initialized_with_only_leader()
         # no leader
@@ -837,7 +839,16 @@ class TestCtl(unittest.TestCase):
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=only_leader_cluster)):
             result = self.runner.invoke(ctl, ['promote-cluster', 'dummy'])
             assert 'Cluster is already in the required state' in result.output
+        # PATCH error
+        mock_patch.return_value.status = 500
+        result = self.runner.invoke(ctl, ['demote-cluster', 'dummy', '--restore-command', 'foo', '--force'])
+        assert 'Failed to demote' in result.output
+        # Exception
+        with patch('patroni.ctl.request_patroni', Mock(side_effect=Exception)):
+            result = self.runner.invoke(ctl, ['demote-cluster', 'dummy', '--restore-command', 'foo', '--force'])
+            assert 'Failed to demote' in result.output
         # success
+        mock_patch.return_value.status = 200
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(side_effect=[standby_cluster, standby_cluster,
                                                                             only_leader_cluster])):
             result = self.runner.invoke(ctl, ['promote-cluster', 'dummy', '--force'])

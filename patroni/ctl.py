@@ -63,7 +63,7 @@ except ImportError:  # pragma: no cover
 
 from . import global_config
 from .config import Config
-from .dcs import AbstractDCS, Cluster, get_dcs as _get_dcs, Member
+from .dcs import AbstractDCS, Cluster, get_dcs as _get_dcs, Leader, Member
 from .exceptions import PatroniException
 from .postgresql.misc import postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .postgresql.mpp import get_mpp
@@ -514,7 +514,10 @@ def watching(w: bool, watch: Optional[int], max_count: Optional[int] = None, cle
     counter = 1
     start_time = time.time()
     while watch and counter <= (max_count or counter):
-        time.sleep(start_time + counter * watch - time.time())
+        elapsed = time.time() - start_time
+        expected_elapsed = counter * watch
+        if elapsed < expected_elapsed:
+            time.sleep(min(watch, expected_elapsed - elapsed))
         counter += 1
         if clear:
             click.clear()
@@ -2317,7 +2320,7 @@ def format_pg_version(version: int) -> str:
         return "{0}.{1}".format(version // 10000, version % 100)
 
 
-def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional[List[str]]) -> None:
+def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional[Dict[str, Dict[str, str]]]) -> None:
     """Demote or promote cluster.
 
     :param cluster_name: name of the Patroni cluster.
@@ -2325,7 +2328,6 @@ def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional
     :param standby_config: standby cluster configuration to be applied if demotion is requested.
     """
     demote = bool(standby_config)
-    standby_config = standby_config or ['standby_cluster=']
     action_name = 'demot' if demote else 'promot'
     target_role = PostgresqlRole.STANDBY_LEADER if demote else PostgresqlRole.PRIMARY
 
@@ -2344,9 +2346,17 @@ def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional
         if not confirm:
             raise PatroniCtlException(f'Aborted cluster {action_name}ion')
 
-    ctx = click.get_current_context()
-    ctx.invoke(edit_config, cluster_name=cluster_name, group=None, force=True, quiet=True, kvpairs=standby_config,
-               pgkvpairs=[], apply_filename=None, replace_filename=None)
+    try:
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(cluster.leader, Leader)
+        r = request_patroni(cluster.leader.member, 'patch', 'config', standby_config or {'standby_cluster': None})
+
+        if r.status != 200:
+            raise PatroniCtlException(
+                f'Failed to {action_name}e {cluster_name} cluster:'
+                f'/config PATCH status code={r.status}, ({r.data.decode("utf-8")})')
+    except Exception as err:
+        raise PatroniCtlException(f'Failed to {action_name}e {cluster_name} cluster: {err}')
 
     for _ in watching(True, 1, clear=False):
         cluster = dcs.get_cluster()
@@ -2401,9 +2411,11 @@ def demote_cluster(cluster_name: str, force: bool, host: Optional[str], port: Op
     if not any((host, port, restore_command)):
         raise PatroniCtlException('At least --host, --port or --restore-command should be specified')
 
-    data = [f'standby_cluster.{k}={v}' for k, v in {'host': host, 'port': port,
-                                                    'primary_slot_name': primary_slot_name,
-                                                    'restore_command': restore_command}.items() if v]
+    data = {'standby_cluster': {
+        k: v for k, v in {'host': host,
+                          'port': port,
+                          'primary_slot_name': primary_slot_name,
+                          'restore_command': restore_command}.items() if v}}
     change_cluster_role(cluster_name, force, data)
 
 
