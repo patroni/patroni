@@ -580,16 +580,21 @@ class KVCache(StaleEtcdNodeGuard, Thread):
                 time.sleep(1)
 
     def kill_stream(self) -> None:
-        sock = None
+        conn_sock: Any = None
         with self._response_lock:
             if isinstance(self._response, urllib3.response.HTTPResponse):
                 try:
-                    sock = self._response.connection.sock if self._response.connection else None
+                    conn_sock = self._response.connection.sock if self._response.connection else None
                 except Exception:
-                    sock = None
+                    conn_sock = None
             else:
                 self._response = False
-        if sock:
+        if conn_sock:
+            # python-etcd forces usage of pyopenssl if the last one is available.
+            # In this case HTTPConnection.socket is not inherited from socket.socket, but urllib3 uses custom
+            # class `WrappedSocket`, which shutdown() method could be incompatible with socket.shutdown().
+            # Therefore we use WrappedSocket.socket, which points to original `socket` object.
+            sock: socket.socket = conn_sock.socket if conn_sock.__class__.__name__ == 'WrappedSocket' else conn_sock
             try:
                 sock.shutdown(socket.SHUT_RDWR)
                 sock.close()
