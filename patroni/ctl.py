@@ -512,15 +512,14 @@ def watching(w: bool, watch: Optional[int], max_count: Optional[int] = None, cle
         return
 
     counter = 1
-    start_time = time.time()
+    yield_time = time.time()
     while watch and counter <= (max_count or counter):
-        elapsed = time.time() - start_time
-        expected_elapsed = counter * watch
-        if elapsed < expected_elapsed:
-            time.sleep(min(watch, expected_elapsed - elapsed))
+        elapsed = time.time() - yield_time
+        time.sleep(max(0, watch - elapsed))
         counter += 1
         if clear:
             click.clear()
+        yield_time = time.time()
         yield 0
 
 
@@ -2320,7 +2319,7 @@ def format_pg_version(version: int) -> str:
         return "{0}.{1}".format(version // 10000, version % 100)
 
 
-def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional[Dict[str, Dict[str, str]]]) -> None:
+def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional[Dict[str, str]]) -> None:
     """Demote or promote cluster.
 
     :param cluster_name: name of the Patroni cluster.
@@ -2349,7 +2348,7 @@ def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional
     try:
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(cluster.leader, Leader)
-        r = request_patroni(cluster.leader.member, 'patch', 'config', standby_config or {'standby_cluster': None})
+        r = request_patroni(cluster.leader.member, 'patch', 'config', {'standby_cluster': standby_config})
 
         if r.status != 200:
             raise PatroniCtlException(
@@ -2411,11 +2410,10 @@ def demote_cluster(cluster_name: str, force: bool, host: Optional[str], port: Op
     if not any((host, port, restore_command)):
         raise PatroniCtlException('At least --host, --port or --restore-command should be specified')
 
-    data = {'standby_cluster': {
-        k: v for k, v in {'host': host,
-                          'port': port,
-                          'primary_slot_name': primary_slot_name,
-                          'restore_command': restore_command}.items() if v}}
+    data = {k: v for k, v in {'host': host,
+                              'port': port,
+                              'primary_slot_name': primary_slot_name,
+                              'restore_command': restore_command}.items() if v}
     change_cluster_role(cluster_name, force, data)
 
 
