@@ -22,7 +22,7 @@ from .etcd import AbstractEtcd, AbstractEtcdClientWithFailover, catch_etcd_error
 from ..collections import EMPTY_DICT
 from ..exceptions import DCSError, PatroniException
 from ..postgresql.mpp import AbstractMPP
-from ..utils import deep_compare, enable_keepalive, iter_response_objects, RetryFailedError, USER_AGENT
+from ..utils import deep_compare, enable_keepalive, iter_response_objects, parse_bool, RetryFailedError, USER_AGENT
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,10 @@ GRPCcodeToText: Dict[int, str] = {v: k for k, v in GRPCCode.__dict__['_member_ma
 
 
 class Etcd3Exception(etcd.EtcdException):
+    pass
+
+
+class Etcd3WatchCanceled(Etcd3Exception):
     pass
 
 
@@ -353,7 +357,6 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
                 exc = e
             self._reauthenticate = True
             if retry:
-                logger.error('retry = %s', retry)
                 retry.ensure_deadline(0.5, exc)
             elif reauthenticated:
                 raise exc
@@ -505,6 +508,8 @@ class KVCache(StaleEtcdNodeGuard, Thread):
         if 'error' in message:
             raise _raise_for_data(message)
         result = message.get('result', EMPTY_DICT)
+        if parse_bool(result.get('canceled')):
+            raise Etcd3WatchCanceled('Watch canceled')
         header = result.get('header', EMPTY_DICT)
         self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
         events: List[Dict[str, Any]] = result.get('events', [])
@@ -552,8 +557,10 @@ class KVCache(StaleEtcdNodeGuard, Thread):
 
         try:
             self._do_watch(result['header']['revision'])
+        except Etcd3WatchCanceled:
+            logger.info('Watch request canceled')
         except Exception as e:
-            # Following exceptions are expected on Windows because the /watch request  is done with `read_timeout`
+            # Following exceptions are expected on Windows because the /watch request is done with `read_timeout`
             if not (os.name == 'nt' and isinstance(e, (ReadTimeoutError, ProtocolError))):
                 logger.error('watchprefix failed: %r', e)
         finally:
