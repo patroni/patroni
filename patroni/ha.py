@@ -1660,7 +1660,7 @@ class Ha(object):
         else:
             if self._rewind.rewind_or_reinitialize_needed_and_possible(leader):
                 return False  # do not start postgres, but run pg_rewind on the next iteration
-            self.state_handler.follow(node_to_follow, role)
+            return self.state_handler.follow(node_to_follow, role)
 
     def should_run_scheduled_action(self, action_name: str, scheduled_at: Optional[datetime.datetime],
                                     cleanup_fn: Callable[..., Any]) -> bool:

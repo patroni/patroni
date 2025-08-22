@@ -85,7 +85,7 @@ def get_cluster_initialized_with_only_leader(failover=None, cluster_config=None)
 
 
 def get_standby_cluster_initialized_with_only_leader(failover=None, sync=None):
-    return get_cluster_initialized_with_only_leader(
+    cluster = get_cluster_initialized_with_only_leader(
         cluster_config=ClusterConfig(1, {
             "standby_cluster": {
                 "host": "localhost",
@@ -93,6 +93,8 @@ def get_standby_cluster_initialized_with_only_leader(failover=None, sync=None):
                 "primary_slot_name": "",
             }}, 1)
     )
+    cluster.leader.data['role'] = PostgresqlRole.STANDBY_LEADER
+    return cluster
 
 
 def get_cluster_initialized_with_leader_and_failsafe():
