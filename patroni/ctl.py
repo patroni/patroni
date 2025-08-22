@@ -2319,7 +2319,7 @@ def format_pg_version(version: int) -> str:
         return "{0}.{1}".format(version // 10000, version % 100)
 
 
-def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional[Dict[str, str]]) -> None:
+def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional[Dict[str, Any]]) -> None:
     """Demote or promote cluster.
 
     :param cluster_name: name of the Patroni cluster.
@@ -2352,7 +2352,7 @@ def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional
 
         if r.status != 200:
             raise PatroniCtlException(
-                f'Failed to {action_name}e {cluster_name} cluster:'
+                f'Failed to {action_name}e {cluster_name} cluster: '
                 f'/config PATCH status code={r.status}, ({r.data.decode("utf-8")})')
     except Exception as err:
         raise PatroniCtlException(f'Failed to {action_name}e {cluster_name} cluster: {err}')
@@ -2362,7 +2362,7 @@ def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional
         is_unlocked = cluster.is_unlocked()
         leader_role = cluster.leader and cluster.leader.data.get('role')
         leader_state = cluster.leader and cluster.leader.data.get('state')
-        old_leader = next((m for m in cluster.members if m.name == leader_name), None)
+        old_leader = cluster.get_member(leader_name, False)
         old_leader_state = old_leader and old_leader.data.get('state')
 
         if not is_unlocked and leader_role == target_role and leader_state == PostgresqlState.RUNNING:
@@ -2384,10 +2384,10 @@ def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional
 @arg_cluster_name
 @option_force
 @click.option('--host', help='Address of the remote node', required=False)
-@click.option('--port', help='Port of the remote node', required=False)
+@click.option('--port', help='Port of the remote node', type=int, required=False)
 @click.option('--restore-command', help='Command to restore WAL records from the remote primary', required=False)
 @click.option('--primary-slot-name', help='Name of the slot on the remote node to use for replication', required=False)
-def demote_cluster(cluster_name: str, force: bool, host: Optional[str], port: Optional[str],
+def demote_cluster(cluster_name: str, force: bool, host: Optional[str], port: Optional[int],
                    restore_command: Optional[str], primary_slot_name: Optional[str]) -> None:
     """Process ``demote-cluster`` command of ``patronictl`` utility.
 
