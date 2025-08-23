@@ -733,6 +733,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_is_paused gauge")
         metrics.append("patroni_is_paused{0} {1}".format(labels, int(postgres.get('pause', 0))))
 
+        metrics.append("# HELP patroni_postgres_state Numeric representation of Postgres state.")
+        metrics.append(f"# Values: {PostgresqlState.get_metrics_description()}")
+        metrics.append("# TYPE patroni_postgres_state gauge")
+        current_state = postgres['state']
+        state_value = current_state.to_metrics_value() if isinstance(current_state, PostgresqlState) else -1
+        metrics.append(f"patroni_postgres_state{labels} {state_value}")
+
         self.write_response(200, '\n'.join(metrics) + '\n', content_type='text/plain')
 
     def _read_json_content(self, body_is_optional: bool = False) -> Optional[Dict[Any, Any]]:
