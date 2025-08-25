@@ -332,8 +332,8 @@ class SlotsHandler:
                             ' FULL OUTER JOIN dropped ON true'), name)
         return (rows[0][0], rows[0][1]) if rows else (False, False)
 
-    def _drop_physical_slot(self, name: str) -> None:
-        """Drop a physical replication slot by name.
+    def _drop_replication_slot(self, name: str) -> None:
+        """Drop replication slot by name.
 
         .. note::
             If not able to drop the slot, it will log a message and set the flag to reload slots.
@@ -342,7 +342,7 @@ class SlotsHandler:
         """
         active, dropped = self.drop_replication_slot(name)
         if dropped:
-            logger.info("Dropped physical replication slot '%s'", name)
+            logger.info("Dropped replication slot '%s'", name)
             if name in self._replication_slots:
                 del self._replication_slots[name]
         else:
@@ -368,7 +368,7 @@ class SlotsHandler:
         for name in set(self._replication_slots) - set(slots):
             if not global_config.is_paused and not self.ignore_replication_slot(cluster, name):
                 logger.info("Trying to drop unknown replication slot '%s'", name)
-                self._drop_physical_slot(name)
+                self._drop_replication_slot(name)
 
         # drop slots with matching names but attributes that do not match, e.g. `plugin` or `database`.
         for name, value in slots.items():
@@ -407,7 +407,7 @@ class SlotsHandler:
                 if clean_inactive_physical_slots and value.get('expected_active') is False and value['xmin']:
                     logger.warning('Dropping physical replication slot %s because of its xmin value %s',
                                    name, value['xmin'])
-                    self._drop_physical_slot(name)
+                    self._drop_replication_slot(name)
 
             # Now we will create physical replication slots that are missing.
             if name not in self._replication_slots:
@@ -429,9 +429,8 @@ class SlotsHandler:
                     # reserving the LSN. We drop the slot here, as we cannot advance it, and let Patroni recreate and
                     # manage it in the next cycle.
                     logger.warning('Dropping physical replication slot %s because it has no restart_lsn. '
-                                   'This slot was probably not created by Patroni, but by an external agent.',
-                                   name)
-                    self._drop_physical_slot(name)
+                                   'This slot was probably not created by Patroni, but by an external agent.', name)
+                    self._drop_replication_slot(name)
                     continue
                 lsn = value.get('lsn')
                 if lsn and lsn > restart_lsn:  # The slot has feedback in DCS and needs to be advanced
