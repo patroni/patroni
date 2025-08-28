@@ -198,11 +198,15 @@ class Member(Tags, NamedTuple('Member',
             conn_url, api_url = parse_connection_string(value)
             data = {'conn_url': conn_url, 'api_url': api_url}
         else:
+            data: Dict[str, Any] = {}
             try:
-                data = json.loads(value)
-                assert isinstance(data, dict)
-            except (AssertionError, TypeError, ValueError):
-                data: Dict[str, Any] = {}
+                if value:
+                    parsed_value = json.loads(value)
+                    if isinstance(parsed_value, dict):
+                        data = parsed_value
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+
         return Member(version, name, session, data)
 
     @property
@@ -495,9 +499,8 @@ class Failover(NamedTuple):
         elif value:
             try:
                 data = json.loads(value)
-                assert isinstance(data, dict)
-            except AssertionError:
-                data = {}
+                if not isinstance(data, dict):
+                    data = {}
             except ValueError:
                 t = [a.strip() for a in value.split(':')]
                 leader = t[0]
@@ -560,11 +563,13 @@ class ClusterConfig(NamedTuple):
             >>> ClusterConfig.from_node(1, '{') is None
             False
         """
+        data: Dict[str, Any] = {}
         try:
-            data = json.loads(value)
-            assert isinstance(data, dict)
-        except (AssertionError, TypeError, ValueError):
-            data: Dict[str, Any] = {}
+            if value:
+                parsed_value = json.loads(value)
+                if isinstance(parsed_value, dict):
+                    data = parsed_value
+        except (json.JSONDecodeError, TypeError, ValueError):
             modify_version = 0
         return ClusterConfig(version, data, version if modify_version is None else modify_version)
 
@@ -614,15 +619,39 @@ class SyncState(NamedTuple):
             >>> SyncState.from_node(1, {"leader": "leader"}).leader == "leader"
             True
         """
-        try:
-            if value and isinstance(value, str):
+        if value and isinstance(value, str):
+            try:
                 value = json.loads(value)
-            assert isinstance(value, dict)
-            leader = value.get('leader')
-            quorum = value.get('quorum')
-            return SyncState(version, leader, value.get('sync_standby'), int(quorum) if leader and quorum else 0)
-        except (AssertionError, TypeError, ValueError):
+            except json.JSONDecodeError:
+                logger.warning(
+                    "Failed to parse SyncState JSON for version %s. Value: %r",
+                    version, value, exc_info=True
+                )
+                return SyncState.empty(version)
+
+        if not isinstance(value, dict):
+            logger.warning(
+                "SyncState value is not a dictionary for version %s. Type: %s, Value: %r",
+                version, type(value).__name__, value
+            )
             return SyncState.empty(version)
+
+        leader = value.get('leader')
+        sync_standby = value.get('sync_standby')
+
+        quorum, quorum_val = 0, value.get('quorum')
+
+        if leader and quorum_val is not None:
+            try:
+                quorum = int(quorum_val)
+            except (ValueError, TypeError):
+                logger.warning(
+                    "Could not convert quorum value '%s' to an integer for leader '%s'.",
+                    quorum_val, leader
+                )
+                quorum = 0
+
+        return SyncState(version, leader, sync_standby, quorum)
 
     @staticmethod
     def empty(version: Optional[_Version] = None) -> 'SyncState':
@@ -750,11 +779,14 @@ class TimelineHistory(NamedTuple):
             >>> h.lines
             []
         """
+        lines: List[_HistoryTuple] = []
         try:
-            lines = json.loads(value)
-            assert isinstance(lines, list)
-        except (AssertionError, TypeError, ValueError):
-            lines: List[_HistoryTuple] = []
+            if value:
+                parsed_value = json.loads(value)
+                if isinstance(parsed_value, list):
+                    lines = parsed_value
+        except (json.JSONDecodeError, TypeError):
+            pass
         return TimelineHistory(version, value, lines)
 
 
