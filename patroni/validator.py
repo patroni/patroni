@@ -15,6 +15,7 @@ from .collections import CaseInsensitiveSet, EMPTY_DICT
 from .dcs import dcs_modules
 from .exceptions import ConfigParseError
 from .log import type_logformat
+from .postgresql.sync import SYNC_STRICT_PLACEHOLDER
 from .utils import data_directory_is_empty, get_major_version, parse_int, split_host_port
 
 # Additional parameters to fine-tune validation process
@@ -962,6 +963,18 @@ def validate_watchdog_mode(value: Any) -> None:
     assert_(value in (False, "off", "automatic", "required"))
 
 
+def validate_name(value: Any) -> None:
+    """Validate ``name`` configuration option.
+
+    :param value: value of ``name`` to be validated.
+
+    :raises:
+        :class:`~patroni.exceptions.ConfigParseError` if value is set to "__patroni_strict_sync_replica_placeholder__"
+    """
+    if value == SYNC_STRICT_PLACEHOLDER:
+        raise ConfigParseError(f"Node 'name' can't be set to '{SYNC_STRICT_PLACEHOLDER}'")
+
+
 userattributes = {"username": "", Optional("password"): ""}
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 setattr(validate_host_port_list, 'expected_type', list)
@@ -971,6 +984,7 @@ setattr(validate_host_port_listen, 'expected_type', str)
 setattr(validate_host_port_listen_multiple_hosts, 'expected_type', str)
 setattr(validate_data_dir, 'expected_type', str)
 setattr(validate_binary_name, 'expected_type', str)
+setattr(validate_name, 'expected_type', str)
 validate_etcd = {
     Or("host", "hosts", "srv", "srv_suffix", "url", "proxy"): Case({
         "host": validate_host_port,
@@ -989,7 +1003,7 @@ validate_etcd = {
 }
 
 schema = Schema({
-    "name": str,
+    "name": validate_name,
     "scope": str,
     Optional("log"): {
         Optional("type"): EnumValidator(('plain', 'json'), case_sensitive=True, raise_assert=True),

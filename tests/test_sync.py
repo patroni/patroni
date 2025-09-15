@@ -74,6 +74,14 @@ class TestSync(BaseTestPostgresql):
             self.assertEqual(self.s.current_state(self.cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
                                                                   CaseInsensitiveSet()))
 
+        # synchronous_standby_names contains '*'
+        with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['*', 'remote_apply', None]):
+            self.p._major_version = 90400
+            self.assertEqual(self.s.current_state(self.cluster),
+                             ('priority', 1,
+                              CaseInsensitiveSet(['__patroni_strict_sync_replica_placeholder__']),
+                              CaseInsensitiveSet(), CaseInsensitiveSet()))
+
     @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
     def test_current_state_quorum(self):
         self.cluster.config.data['synchronous_mode'] = 'quorum'
@@ -139,14 +147,15 @@ class TestSync(BaseTestPostgresql):
         mock_reload.reset_mock()
         self.s.set_synchronous_standby_names(CaseInsensitiveSet('*'))
         mock_reload.assert_called()
-        self.assertEqual(value_in_conf(), "synchronous_standby_names = '*'")
+        self.assertEqual(value_in_conf(), "synchronous_standby_names = '__patroni_strict_sync_replica_placeholder__'")
 
         self.cluster.config.data['synchronous_mode'] = 'quorum'
         global_config.update(self.cluster)
         mock_reload.reset_mock()
         self.s.set_synchronous_standby_names([], 1)
         mock_reload.assert_called()
-        self.assertEqual(value_in_conf(), "synchronous_standby_names = 'ANY 1 (*)'")
+        self.assertEqual(value_in_conf(),
+                         "synchronous_standby_names = 'ANY 1 (__patroni_strict_sync_replica_placeholder__)'")
 
         mock_reload.reset_mock()
         self.s.set_synchronous_standby_names(['any', 'b'], 1)
@@ -162,7 +171,8 @@ class TestSync(BaseTestPostgresql):
         mock_reload.reset_mock()
         self.s.set_synchronous_standby_names([], 1)
         mock_reload.assert_called()
-        self.assertEqual(value_in_conf(), "synchronous_standby_names = '1 (*)'")
+        self.assertEqual(value_in_conf(),
+                         "synchronous_standby_names = '1 (__patroni_strict_sync_replica_placeholder__)'")
 
         mock_reload.reset_mock()
         self.s.set_synchronous_standby_names(['a', 'b'], 1)
@@ -178,7 +188,7 @@ class TestSync(BaseTestPostgresql):
         mock_reload.reset_mock()
         self.s.set_synchronous_standby_names([], 1)
         mock_reload.assert_called()
-        self.assertEqual(value_in_conf(), "synchronous_standby_names = '*'")
+        self.assertEqual(value_in_conf(), "synchronous_standby_names = '__patroni_strict_sync_replica_placeholder__'")
 
         mock_reload.reset_mock()
         self.s.set_synchronous_standby_names(['a-1'], 1)

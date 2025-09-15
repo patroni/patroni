@@ -19,7 +19,7 @@ from .exceptions import ConfigParseError
 from .file_perm import pg_perm
 from .postgresql.config import ConfigHandler
 from .utils import deep_compare, parse_bool, parse_int, patch_config
-from .validator import IntValidator
+from .validator import IntValidator, validate_name
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ _AUTH_ALLOWED_PARAMETERS = (
 
 
 def default_validator(conf: Dict[str, Any]) -> List[str]:
-    """Ensure *conf* is not empty.
+    """Ensure *conf* is not empty and name key is valid.
 
     Designed to be used as default validator for :class:`Config` objects, if no specific validator is provided.
 
@@ -50,10 +50,11 @@ def default_validator(conf: Dict[str, Any]) -> List[str]:
         validating the configuration.
 
     :raises:
-        :class:`ConfigParseError`: if *conf* is empty.
+        :class:`ConfigParseError`: if *conf* is empty or "name" doesn't pass validation.
     """
     if not conf:
         raise ConfigParseError("Config is empty.")
+    validate_name(conf.get('name'))
     return []
 
 
