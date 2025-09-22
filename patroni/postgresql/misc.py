@@ -36,7 +36,8 @@ class PostgresqlState(str, Enum):
     def __new__(cls, value: str, index: int) -> 'PostgresqlState':
         obj = str.__new__(cls, value)
         obj._value_ = value
-        obj.index = index
+        # Use setattr to avoid pyright type checking issues
+        setattr(obj, 'index', index)
         return obj
 
     def __repr__(self) -> str:

@@ -1228,27 +1228,6 @@ class TestPostgresql2(BaseTestPostgresql):
 class TestPostgresqlStateMetrics(unittest.TestCase):
     """Test PostgreSQL state metrics consistency."""
 
-    def test_postgresql_state_metrics_consistency(self):
-        """Test that all PostgresqlState enum values have corresponding metrics values."""
-        from patroni.postgresql.misc import PostgresqlState
-
-        # Get all enum values
-        all_states = list(PostgresqlState)
-
-        # Test that each state has a corresponding metrics value
-        for state in all_states:
-            with self.subTest(state=state):
-                # This should not raise AttributeError
-                metrics_value = state.index
-                self.assertIsInstance(metrics_value, int)
-                self.assertGreaterEqual(metrics_value, 0)
-
-        # Test that all states have index attribute
-        for state in all_states:
-            with self.subTest(state=state):
-                self.assertTrue(hasattr(state, 'index'), f"State {state} is missing index attribute")
-                self.assertIsInstance(state.index, int)
-
     def test_postgresql_state_metrics_uniqueness(self):
         """Test that all metrics values are unique."""
         from patroni.postgresql.misc import PostgresqlState
@@ -1287,30 +1266,12 @@ class TestPostgresqlStateMetrics(unittest.TestCase):
             PostgresqlState.CRASHED: 14,
         }
 
-        for state, expected_value in expected_values.items():
+        # Iterate over all states to ensure we don't miss any new ones
+        for state in PostgresqlState:
             with self.subTest(state=state):
+                self.assertIn(state, expected_values,
+                              f"New state {state} added but not included in expected_values test")
+                expected_value = expected_values[state]
                 actual_value = state.index
                 self.assertEqual(actual_value, expected_value,
                                  f"Metrics value for {state} changed from {expected_value} to {actual_value}")
-
-    def test_postgresql_state_metrics_description_consistency(self):
-        """Test that metrics description generation includes all states."""
-        from patroni.postgresql.misc import PostgresqlState
-
-        # Generate description the same way as in api.py
-        state_descriptions = [f"{state.index}={state.name.lower()}" for state in PostgresqlState]
-        description = ', '.join(state_descriptions)
-
-        # Check that all states are mentioned in the description
-        for state in PostgresqlState:
-            with self.subTest(state=state):
-                # Each state should appear as "value=state_name" in the description
-                expected_pattern = f"{state.index}={state.name.lower()}"
-                self.assertIn(expected_pattern, description,
-                              f"State {state} not found in metrics description: {description}")
-
-        # Check that the description contains the expected number of entries
-        # (should be equal to the number of states)
-        entries = description.split(", ")
-        self.assertEqual(len(entries), len(PostgresqlState),
-                         f"Expected {len(PostgresqlState)} entries in description, got {len(entries)}")
