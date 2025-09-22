@@ -23,7 +23,7 @@ from . import MockResponse, SleepException
 def mock_list_namespaced_config_map(*args, **kwargs):
     k8s_group_label = get_mpp({'citus': {'group': 0, 'database': 'postgres'}}).k8s_group_label
     metadata = {'resource_version': '1', 'labels': {'f': 'b'}, 'name': 'test-config',
-                'annotations': {'initialize': '123', 'config': '{}'}}
+                'annotations': {'initialize': '123', 'config': '[]', 'history': '{}'}}
     items = [k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata))]
     metadata.update({'name': 'test-leader',
                      'annotations': {'optime': '1234x', 'leader': 'p-0', 'ttl': '30s',

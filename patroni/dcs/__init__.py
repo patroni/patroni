@@ -18,7 +18,7 @@ import dateutil.parser
 
 from .. import global_config
 from ..dynamic_loader import iter_classes, iter_modules
-from ..exceptions import PatroniFatalException
+from ..exceptions import PatroniAssertionError, PatroniFatalException
 from ..tags import Tags
 from ..utils import deep_compare, parse_int, uri
 
@@ -198,10 +198,13 @@ class Member(Tags, NamedTuple('Member',
             data = {'conn_url': conn_url, 'api_url': api_url}
         else:
             try:
-                data = json.loads(value)
-                assert isinstance(data, dict)
-            except (AssertionError, TypeError, ValueError):
-                data: Dict[str, Any] = {}
+                json_data = json.loads(value)
+                if isinstance(json_data, dict):
+                    data = cast(Dict[str, Any], json_data)
+                else:
+                    raise PatroniAssertionError('not a dict')
+            except (PatroniAssertionError, TypeError, ValueError):
+                data = {}
         return Member(version, name, session, data)
 
     @property
@@ -480,9 +483,12 @@ class Failover(NamedTuple):
             data: Dict[str, Any] = value
         elif value:
             try:
-                data = json.loads(value)
-                assert isinstance(data, dict)
-            except AssertionError:
+                json_data = json.loads(value)
+                if isinstance(json_data, dict):
+                    data = cast(Dict[str, Any], json_data)
+                else:
+                    raise PatroniAssertionError('not a dict')
+            except PatroniAssertionError:
                 data = {}
             except ValueError:
                 t = [a.strip() for a in value.split(':')]
@@ -547,10 +553,13 @@ class ClusterConfig(NamedTuple):
             False
         """
         try:
-            data = json.loads(value)
-            assert isinstance(data, dict)
-        except (AssertionError, TypeError, ValueError):
-            data: Dict[str, Any] = {}
+            json_data = json.loads(value)
+            if isinstance(json_data, dict):
+                data = cast(Dict[str, Any], json_data)
+            else:
+                raise PatroniAssertionError('not a dict')
+        except (PatroniAssertionError, TypeError, ValueError):
+            data = {}
             modify_version = 0
         return ClusterConfig(version, data, version if modify_version is None else modify_version)
 
@@ -603,11 +612,12 @@ class SyncState(NamedTuple):
         try:
             if value and isinstance(value, str):
                 value = json.loads(value)
-            assert isinstance(value, dict)
+            if not isinstance(value, dict):
+                raise PatroniAssertionError('not a dict')
             leader = value.get('leader')
             quorum = value.get('quorum')
             return SyncState(version, leader, value.get('sync_standby'), int(quorum) if leader and quorum else 0)
-        except (AssertionError, TypeError, ValueError):
+        except (PatroniAssertionError, TypeError, ValueError):
             return SyncState.empty(version)
 
     @staticmethod
@@ -737,10 +747,13 @@ class TimelineHistory(NamedTuple):
             []
         """
         try:
-            lines = json.loads(value)
-            assert isinstance(lines, list)
-        except (AssertionError, TypeError, ValueError):
-            lines: List[_HistoryTuple] = []
+            json_lines = json.loads(value)
+            if isinstance(json_lines, list):
+                lines = cast(List[_HistoryTuple], json_lines)
+            else:
+                raise PatroniAssertionError('not a list')
+        except (PatroniAssertionError, TypeError, ValueError):
+            lines = []
         return TimelineHistory(version, value, lines)
 
 
