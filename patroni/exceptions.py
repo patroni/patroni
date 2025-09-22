@@ -53,3 +53,9 @@ class ConfigParseError(PatroniException):
     """Any issue identified while loading or validating the Patroni configuration."""
 
     pass
+
+
+class PatroniAssertionError(PatroniException):
+    """Any issue related to type/value validation."""
+
+    pass

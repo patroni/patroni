@@ -13,7 +13,7 @@ from typing import Any, cast, Dict, Union, Iterator, List, Optional as OptionalT
 
 from .collections import CaseInsensitiveSet, EMPTY_DICT
 from .dcs import dcs_modules
-from .exceptions import ConfigParseError
+from .exceptions import ConfigParseError, PatroniAssertionError
 from .utils import parse_int, split_host_port, data_directory_is_empty, get_major_version
 from .log import type_logformat
 
@@ -161,9 +161,12 @@ def validate_host_port_list(value: List[str]) -> bool:
     :param value: list of host(s) and port items to be validated.
 
     :returns: ``True`` if all items are valid.
+
+    .. note::
+        :func:`validate_host_port` will raise an exception if validation failed.
     """
-    assert all([validate_host_port(v) for v in value]), "didn't pass the validation"
-    return True
+
+    return all(validate_host_port(v) for v in value)
 
 
 def comma_separated_host_port(string: str) -> bool:
@@ -858,7 +861,8 @@ def assert_(condition: bool, message: str = "Wrong value") -> None:
     :param condition: result of a condition to be asserted.
     :param message: message to be thrown if the condition is ``False``.
     """
-    assert condition, message
+    if not condition:
+        raise PatroniAssertionError(message)
 
 
 class IntValidator(object):
