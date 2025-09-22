@@ -4,6 +4,7 @@ import re
 import stat
 import subprocess
 import time
+import unittest
 
 from copy import deepcopy
 from pathlib import Path
@@ -1222,3 +1223,97 @@ class TestPostgresql2(BaseTestPostgresql):
         self.assertEqual(self.p.config.format_dsn(params),
                          'host=1 port=2 sslpassword=pwd sslcrldir=/ gssencmode=prefer channel_binding=prefer '
                          'target_session_attrs=read-write sslnegotiation=postgres')
+
+
+class TestPostgresqlStateMetrics(unittest.TestCase):
+    """Test PostgreSQL state metrics consistency."""
+
+    def test_postgresql_state_metrics_consistency(self):
+        """Test that all PostgresqlState enum values have corresponding metrics values."""
+        from patroni.postgresql.misc import PostgresqlState, _get_state_metrics_value
+
+        # Get all enum values
+        all_states = list(PostgresqlState)
+
+        # Test that each state has a corresponding metrics value
+        for state in all_states:
+            with self.subTest(state=state):
+                # This should not raise KeyError
+                metrics_value = _get_state_metrics_value(state)
+                self.assertIsInstance(metrics_value, int)
+                self.assertGreaterEqual(metrics_value, 0)
+
+        # Test that all states are covered in _METRICS_VALUES
+        # We need to access the internal _METRICS_VALUES dict
+        # Since it's not exposed, we'll test by ensuring all states can be converted
+        for state in all_states:
+            with self.subTest(state=state):
+                try:
+                    value = _get_state_metrics_value(state)
+                    self.assertIsNotNone(value)
+                except KeyError:
+                    self.fail(f"State {state} is missing from _METRICS_VALUES")
+
+    def test_postgresql_state_metrics_uniqueness(self):
+        """Test that all metrics values are unique."""
+        from patroni.postgresql.misc import PostgresqlState, _get_state_metrics_value
+
+        # Collect all metrics values
+        metrics_values = []
+        for state in PostgresqlState:
+            value = _get_state_metrics_value(state)
+            metrics_values.append(value)
+
+        # Check for duplicates
+        unique_values = set(metrics_values)
+        self.assertEqual(len(metrics_values), len(unique_values),
+                         f"Duplicate metrics values found: {metrics_values}")
+
+    def test_postgresql_state_metrics_stability(self):
+        """Test that metrics values are stable and don't change unexpectedly."""
+        from patroni.postgresql.misc import PostgresqlState, _get_state_metrics_value
+
+        # Test specific known values to ensure they don't change
+        expected_values = {
+            PostgresqlState.INITDB: 0,
+            PostgresqlState.INITDB_FAILED: 1,
+            PostgresqlState.CUSTOM_BOOTSTRAP: 2,
+            PostgresqlState.CUSTOM_BOOTSTRAP_FAILED: 3,
+            PostgresqlState.CREATING_REPLICA: 4,
+            PostgresqlState.RUNNING: 5,
+            PostgresqlState.STARTING: 6,
+            PostgresqlState.BOOTSTRAP_STARTING: 7,
+            PostgresqlState.START_FAILED: 8,
+            PostgresqlState.RESTARTING: 9,
+            PostgresqlState.RESTART_FAILED: 10,
+            PostgresqlState.STOPPING: 11,
+            PostgresqlState.STOPPED: 12,
+            PostgresqlState.STOP_FAILED: 13,
+            PostgresqlState.CRASHED: 14,
+        }
+
+        for state, expected_value in expected_values.items():
+            with self.subTest(state=state):
+                actual_value = _get_state_metrics_value(state)
+                self.assertEqual(actual_value, expected_value,
+                                 f"Metrics value for {state} changed from {expected_value} to {actual_value}")
+
+    def test_postgresql_state_metrics_description_consistency(self):
+        """Test that get_metrics_description() includes all states."""
+        from patroni.postgresql.misc import PostgresqlState
+
+        description = PostgresqlState.get_metrics_description()
+
+        # Check that all states are mentioned in the description
+        for state in PostgresqlState:
+            with self.subTest(state=state):
+                # Each state should appear as "value=state_name" in the description
+                expected_pattern = f"{state.to_metrics_value()}={state.name.lower()}"
+                self.assertIn(expected_pattern, description,
+                              f"State {state} not found in metrics description: {description}")
+
+        # Check that the description contains the expected number of entries
+        # (should be equal to the number of states)
+        entries = description.split(", ")
+        self.assertEqual(len(entries), len(PostgresqlState),
+                         f"Expected {len(PostgresqlState)} entries in description, got {len(entries)}")

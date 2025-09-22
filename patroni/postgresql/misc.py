@@ -37,21 +37,21 @@ class PostgresqlState(str, Enum):
         """Get a string representation of a :class:`PostgresqlState` member."""
         return self.__repr__()
 
-    @classmethod
-    def get_metrics_description(cls) -> str:
+    @staticmethod
+    def get_metrics_description() -> str:
         """Get a description of all states for metrics documentation.
-        
+
         Returns a string with all state values and their numeric representations
         for use in Prometheus metrics HELP comments.
         """
-        descriptions = []
-        for state in cls:
+        descriptions: list[str] = []
+        for state in PostgresqlState:
             descriptions.append(f"{_get_state_metrics_value(state)}={state.name.lower()}")
         return ", ".join(descriptions)
 
     def to_metrics_value(self) -> int:
         """Convert state to numeric value for metrics.
-        
+
         Returns the numeric representation of this state for use in Prometheus metrics.
         """
         return _get_state_metrics_value(self)
@@ -178,12 +178,12 @@ def fsync_dir(path: str) -> None:
 
 def _get_state_metrics_value(state: PostgresqlState) -> int:
     """Get numeric value for PostgreSQL state for metrics.
-    
+
     These values should NEVER change once assigned to maintain backward compatibility
     with existing monitoring systems.
- 
+
     :param state: PostgreSQL instance state
- 
+
     :returns: numeric representation of PostgreSQL instance state
     """
     # Numeric values for metrics - these should NEVER change once assigned

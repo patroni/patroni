@@ -286,7 +286,7 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 .. code-block:: bash
 
 	$ curl http://localhost:8008/metrics
-	
+
 	# HELP patroni_version Patroni semver without periods. \
 	# TYPE patroni_version gauge
 	patroni_version{scope="batman",name="patroni1"} 040000
@@ -353,6 +353,71 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# HELP patroni_is_paused Value is 1 if auto failover is disabled, 0 otherwise.
 	# TYPE patroni_is_paused gauge
 	patroni_is_paused{scope="batman",name="patroni1"} 1
+	# HELP patroni_postgres_state Numeric representation of Postgres state.
+	# Values: 0=initdb, 1=initdb_failed, 2=custom_bootstrap, 3=custom_bootstrap_failed, 4=creating_replica, 5=running, 6=starting, 7=bootstrap_starting, 8=start_failed, 9=restarting, 10=restart_failed, 11=stopping, 12=stopped, 13=stop_failed, 14=crashed
+	# TYPE patroni_postgres_state gauge
+	patroni_postgres_state{scope="batman",name="patroni1"} 5
+
+PostgreSQL State Values
+^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``patroni_postgres_state`` metric provides a numeric representation of the current PostgreSQL instance state. This is useful for monitoring and alerting systems that need to track state changes over time. The numeric values are generated using the ``PostgresqlState.get_metrics_description()`` static method.
+
+.. list-table:: PostgreSQL State Values
+   :widths: 10 20 50
+   :header-rows: 1
+
+   * - Value
+     - State Name
+     - Description
+   * - 0
+     - initdb
+     - Initializing new cluster
+   * - 1
+     - initdb_failed
+     - Initialization of new cluster failed
+   * - 2
+     - custom_bootstrap
+     - Running custom bootstrap script
+   * - 3
+     - custom_bootstrap_failed
+     - Custom bootstrap script failed
+   * - 4
+     - creating_replica
+     - Creating replica from primary
+   * - 5
+     - running
+     - PostgreSQL is running normally
+   * - 6
+     - starting
+     - PostgreSQL is starting up
+   * - 7
+     - bootstrap_starting
+     - Starting after custom bootstrap
+   * - 8
+     - start_failed
+     - PostgreSQL start failed
+   * - 9
+     - restarting
+     - PostgreSQL is restarting
+   * - 10
+     - restart_failed
+     - PostgreSQL restart failed
+   * - 11
+     - stopping
+     - PostgreSQL is stopping
+   * - 12
+     - stopped
+     - PostgreSQL is stopped
+   * - 13
+     - stop_failed
+     - PostgreSQL stop failed
+   * - 14
+     - crashed
+     - PostgreSQL has crashed
+
+.. note::
+   These numeric values are fixed and will never change to maintain backward compatibility with existing monitoring systems. If new states are added in the future, they will be assigned new numeric values without changing existing ones.
 
 
 Cluster status endpoints
@@ -637,7 +702,7 @@ In the JSON body of the ``POST`` request you must specify the ``candidate`` fiel
 	Successfully failed over to "postgresql1"
 
 .. warning::
-	:ref:`Be very careful <failover_healthcheck>` when using this endpoint, as this can cause data loss in certain situations. In most cases, :ref:`the switchover endpoint <switchover_api>` satisfies the administrator's needs. 
+	:ref:`Be very careful <failover_healthcheck>` when using this endpoint, as this can cause data loss in certain situations. In most cases, :ref:`the switchover endpoint <switchover_api>` satisfies the administrator's needs.
 
 
 ``POST /switchover`` and ``POST /failover`` endpoints are used by :ref:`patronictl_switchover` and :ref:`patronictl_failover`, respectively.
