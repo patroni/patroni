@@ -103,7 +103,7 @@ class MockHa(object):
         return False
 
     @staticmethod
-    def reinitialize(_):
+    def reinitialize(force=False, from_leader=False):
         return 'reinitialize'
 
     @staticmethod
@@ -540,7 +540,8 @@ class TestRestApiHandler(unittest.TestCase):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, request))
 
     def test_do_POST_reinitialize(self):
-        request = 'POST /reinitialize HTTP/1.0' + self._authorization + '\nContent-Length: 15\n\n{"force": true}'
+        request = 'POST /reinitialize HTTP/1.0' + self._authorization + \
+                  '\nContent-Length: 36\n\n{"force": true, "from_leader": true}'
         MockRestApiServer(RestApiHandler, request)
         with patch.object(MockHa, 'reinitialize', Mock(return_value=None)):
             MockRestApiServer(RestApiHandler, request)

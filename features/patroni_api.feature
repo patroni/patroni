@@ -77,7 +77,7 @@ Scenario: check API requests for the primary-replica pair in the pause mode
 	Then I receive a response code 200
 	And I receive a response state running
 	And I receive a response role replica
-	When I run patronictl.py reinit batman postgres-1 --force --wait
+	When I run patronictl.py reinit batman postgres-1 --force --from-leader --wait
 	Then I receive a response returncode 0
 	And I receive a response output "Success: reinitialize for member postgres-1"
 	And postgres-1 role is the secondary after 30 seconds

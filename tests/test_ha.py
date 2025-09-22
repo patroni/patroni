@@ -668,7 +668,7 @@ class TestHa(PostgresInit):
         self.assertIsNotNone(self.ha.reinitialize())
 
         self.ha.cluster = get_cluster_initialized_with_leader()
-        self.assertIsNone(self.ha.reinitialize(True))
+        self.assertIsNone(self.ha.reinitialize(True, True))
         self.ha._async_executor.schedule('reinitialize')
         self.assertIsNotNone(self.ha.reinitialize())
 
