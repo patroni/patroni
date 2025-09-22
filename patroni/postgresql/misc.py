@@ -181,6 +181,10 @@ def _get_state_metrics_value(state: PostgresqlState) -> int:
     
     These values should NEVER change once assigned to maintain backward compatibility
     with existing monitoring systems.
+ 
+    :param state: PostgreSQL instance state
+ 
+    :returns: numeric representation of PostgreSQL instance state
     """
     # Numeric values for metrics - these should NEVER change once assigned
     # to maintain backward compatibility with existing monitoring systems
