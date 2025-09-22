@@ -16,7 +16,7 @@ Released 2025-09-22
 
 - Return global config only when ``/config`` key exists in DCS (Alexander Kukushkin)
 
-  Patroni REST API was returning an empty configuration if the ``/config`` key was missing in DCS.
+  Patroni REST API was returning an empty configuration instead of raising an error if the ``/config`` key was missing in DCS.
 
 - Fix the issue of failsafe mode not being triggered in case of Etcd unavailability (Alexander Kukushkin)
 
