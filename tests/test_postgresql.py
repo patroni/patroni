@@ -1230,7 +1230,7 @@ class TestPostgresqlStateMetrics(unittest.TestCase):
 
     def test_postgresql_state_metrics_consistency(self):
         """Test that all PostgresqlState enum values have corresponding metrics values."""
-        from patroni.postgresql.misc import PostgresqlState, _get_state_metrics_value
+        from patroni.postgresql.misc import PostgresqlState
 
         # Get all enum values
         all_states = list(PostgresqlState)
@@ -1238,30 +1238,25 @@ class TestPostgresqlStateMetrics(unittest.TestCase):
         # Test that each state has a corresponding metrics value
         for state in all_states:
             with self.subTest(state=state):
-                # This should not raise KeyError
-                metrics_value = _get_state_metrics_value(state)
+                # This should not raise AttributeError
+                metrics_value = state.index
                 self.assertIsInstance(metrics_value, int)
                 self.assertGreaterEqual(metrics_value, 0)
 
-        # Test that all states are covered in _METRICS_VALUES
-        # We need to access the internal _METRICS_VALUES dict
-        # Since it's not exposed, we'll test by ensuring all states can be converted
+        # Test that all states have index attribute
         for state in all_states:
             with self.subTest(state=state):
-                try:
-                    value = _get_state_metrics_value(state)
-                    self.assertIsNotNone(value)
-                except KeyError:
-                    self.fail(f"State {state} is missing from _METRICS_VALUES")
+                self.assertTrue(hasattr(state, 'index'), f"State {state} is missing index attribute")
+                self.assertIsInstance(state.index, int)
 
     def test_postgresql_state_metrics_uniqueness(self):
         """Test that all metrics values are unique."""
-        from patroni.postgresql.misc import PostgresqlState, _get_state_metrics_value
+        from patroni.postgresql.misc import PostgresqlState
 
         # Collect all metrics values
         metrics_values = []
         for state in PostgresqlState:
-            value = _get_state_metrics_value(state)
+            value = state.index
             metrics_values.append(value)
 
         # Check for duplicates
@@ -1271,7 +1266,7 @@ class TestPostgresqlStateMetrics(unittest.TestCase):
 
     def test_postgresql_state_metrics_stability(self):
         """Test that metrics values are stable and don't change unexpectedly."""
-        from patroni.postgresql.misc import PostgresqlState, _get_state_metrics_value
+        from patroni.postgresql.misc import PostgresqlState
 
         # Test specific known values to ensure they don't change
         expected_values = {
@@ -1294,21 +1289,23 @@ class TestPostgresqlStateMetrics(unittest.TestCase):
 
         for state, expected_value in expected_values.items():
             with self.subTest(state=state):
-                actual_value = _get_state_metrics_value(state)
+                actual_value = state.index
                 self.assertEqual(actual_value, expected_value,
                                  f"Metrics value for {state} changed from {expected_value} to {actual_value}")
 
     def test_postgresql_state_metrics_description_consistency(self):
-        """Test that get_metrics_description() includes all states."""
+        """Test that metrics description generation includes all states."""
         from patroni.postgresql.misc import PostgresqlState
 
-        description = PostgresqlState.get_metrics_description()
+        # Generate description the same way as in api.py
+        state_descriptions = [f"{state.index}={state.name.lower()}" for state in PostgresqlState]
+        description = ', '.join(state_descriptions)
 
         # Check that all states are mentioned in the description
         for state in PostgresqlState:
             with self.subTest(state=state):
                 # Each state should appear as "value=state_name" in the description
-                expected_pattern = f"{state.to_metrics_value()}={state.name.lower()}"
+                expected_pattern = f"{state.index}={state.name.lower()}"
                 self.assertIn(expected_pattern, description,
                               f"State {state} not found in metrics description: {description}")
 

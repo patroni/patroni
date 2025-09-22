@@ -11,23 +11,33 @@ logger = logging.getLogger(__name__)
 
 
 class PostgresqlState(str, Enum):
-    """Possible values of :attr:`Postgresql.state`."""
+    """Possible values of :attr:`Postgresql.state`.
 
-    INITDB = 'initializing new cluster'
-    INITDB_FAILED = 'initdb failed'
-    CUSTOM_BOOTSTRAP = 'running custom bootstrap script'
-    CUSTOM_BOOTSTRAP_FAILED = 'custom bootstrap failed'
-    CREATING_REPLICA = 'creating replica'
-    RUNNING = 'running'
-    STARTING = 'starting'
-    BOOTSTRAP_STARTING = 'starting after custom bootstrap'
-    START_FAILED = 'start failed'
-    RESTARTING = 'restarting'
-    RESTART_FAILED = 'restart failed'
-    STOPPING = 'stopping'
-    STOPPED = 'stopped'
-    STOP_FAILED = 'stop failed'
-    CRASHED = 'crashed'
+    Numeric indexes should NEVER change once assigned to maintain
+    backward compatibility with existing monitoring systems.
+    """
+
+    INITDB = ('initializing new cluster', 0)
+    INITDB_FAILED = ('initdb failed', 1)
+    CUSTOM_BOOTSTRAP = ('running custom bootstrap script', 2)
+    CUSTOM_BOOTSTRAP_FAILED = ('custom bootstrap failed', 3)
+    CREATING_REPLICA = ('creating replica', 4)
+    RUNNING = ('running', 5)
+    STARTING = ('starting', 6)
+    BOOTSTRAP_STARTING = ('starting after custom bootstrap', 7)
+    START_FAILED = ('start failed', 8)
+    RESTARTING = ('restarting', 9)
+    RESTART_FAILED = ('restart failed', 10)
+    STOPPING = ('stopping', 11)
+    STOPPED = ('stopped', 12)
+    STOP_FAILED = ('stop failed', 13)
+    CRASHED = ('crashed', 14)
+
+    def __new__(cls, value: str, index: int) -> 'PostgresqlState':
+        obj = str.__new__(cls, value)
+        obj._value_ = value
+        obj.index = index
+        return obj
 
     def __repr__(self) -> str:
         """Get an "official" string representation of a :class:`PostgresqlState` member."""
@@ -36,25 +46,6 @@ class PostgresqlState(str, Enum):
     def __str__(self) -> str:
         """Get a string representation of a :class:`PostgresqlState` member."""
         return self.__repr__()
-
-    @staticmethod
-    def get_metrics_description() -> str:
-        """Get a description of all states for metrics documentation.
-
-        Returns a string with all state values and their numeric representations
-        for use in Prometheus metrics HELP comments.
-        """
-        descriptions: list[str] = []
-        for state in PostgresqlState:
-            descriptions.append(f"{_get_state_metrics_value(state)}={state.name.lower()}")
-        return ", ".join(descriptions)
-
-    def to_metrics_value(self) -> int:
-        """Convert state to numeric value for metrics.
-
-        Returns the numeric representation of this state for use in Prometheus metrics.
-        """
-        return _get_state_metrics_value(self)
 
 
 class PostgresqlRole(str, Enum):
@@ -174,35 +165,3 @@ def fsync_dir(path: str) -> None:
                 raise
         finally:
             os.close(fd)
-
-
-def _get_state_metrics_value(state: PostgresqlState) -> int:
-    """Get numeric value for PostgreSQL state for metrics.
-
-    These values should NEVER change once assigned to maintain backward compatibility
-    with existing monitoring systems.
-
-    :param state: PostgreSQL instance state
-
-    :returns: numeric representation of PostgreSQL instance state
-    """
-    # Numeric values for metrics - these should NEVER change once assigned
-    # to maintain backward compatibility with existing monitoring systems
-    _METRICS_VALUES = {
-        PostgresqlState.INITDB: 0,
-        PostgresqlState.INITDB_FAILED: 1,
-        PostgresqlState.CUSTOM_BOOTSTRAP: 2,
-        PostgresqlState.CUSTOM_BOOTSTRAP_FAILED: 3,
-        PostgresqlState.CREATING_REPLICA: 4,
-        PostgresqlState.RUNNING: 5,
-        PostgresqlState.STARTING: 6,
-        PostgresqlState.BOOTSTRAP_STARTING: 7,
-        PostgresqlState.START_FAILED: 8,
-        PostgresqlState.RESTARTING: 9,
-        PostgresqlState.RESTART_FAILED: 10,
-        PostgresqlState.STOPPING: 11,
-        PostgresqlState.STOPPED: 12,
-        PostgresqlState.STOP_FAILED: 13,
-        PostgresqlState.CRASHED: 14,
-    }
-    return _METRICS_VALUES[state]
