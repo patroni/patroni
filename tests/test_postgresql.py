@@ -1230,8 +1230,6 @@ class TestPostgresqlStateMetrics(unittest.TestCase):
 
     def test_postgresql_state_metrics_uniqueness(self):
         """Test that all metrics values are unique."""
-        from patroni.postgresql.misc import PostgresqlState
-
         # Collect all metrics values
         metrics_values = []
         for state in PostgresqlState:
