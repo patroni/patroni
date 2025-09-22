@@ -1245,8 +1245,6 @@ class TestPostgresqlStateMetrics(unittest.TestCase):
 
     def test_postgresql_state_metrics_stability(self):
         """Test that metrics values are stable and don't change unexpectedly."""
-        from patroni.postgresql.misc import PostgresqlState
-
         # Test specific known values to ensure they don't change
         expected_values = {
             PostgresqlState.INITDB: 0,
