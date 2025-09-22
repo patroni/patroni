@@ -3,6 +3,56 @@
 Release notes
 =============
 
+Version 4.0.7
+-------------
+
+Released 2025-09-22
+
+**New features**
+
+- Add support for PostgreSQL 18 RC1 (Alexander Kukushkin)
+
+  GUC's validator rules were extended. Patroni now properly handles the new background I/O worker.
+
+
+**Bugfixes**
+
+- Fix potential issue around resolving localhost to IPv6 on Windows (András Váczi)
+
+  When configuring ``listen_addresses`` in PostgreSQL, using ``0.0.0.0`` or ``127.0.0.1`` will restrict listening to IPv4 only, excluding IPv6. On typical Windows systems, however, ``localhost`` often resolves to the IPv6 address ``::1`` by default. To ensure compatibility, Patroni now configures PostgreSQL to listen on ``127.0.0.1``, instead of ``localhost``, on Windows systems.
+
+- Return global config only when ``/config`` key exists in DCS (Alexander Kukushkin)
+
+  Patroni REST API was returning an empty configuration instead of raising an error if the ``/config`` key was missing in DCS.
+
+- Fix the issue of failsafe mode not being triggered in case of Etcd unavailability (Alexander Kukushkin)
+
+  Patroni was not always properly handling ``etcd3`` exceptions, which resulted in failsafe mode not being triggered.
+
+- Fix signal handler reentrancy deadlock (Waynerv)
+
+  Patroni running in a Docker container with ``PID=1`` in some special cases was experiencing deadlock after receiving ``SIGCHLD``.
+
+- Recreate (permanent) physical slot when it doesn't reserve WAL (Israel Barth Rubio)
+
+  Permanent physical replication slots created outside of Patroni scope without reserving WALs were causing a ``replication slot cannot be advanced`` error. To avoid this, Patroni now recreates such slots.
+
+- Handle watch cancelation messages in ``etcd3`` properly (Alexander Kukushkin)
+
+  When ``etcd3`` sends a cancelation message to the watch channel, it doesn't close the connection. This results in Patroni using stale data. Patroni now solves it by breaking a loop of reading chunked response and closing the connection on the Patroni side.
+
+- Handle case when ``HTTPConnection`` socket is wrapped with ``pyopenssl`` (Alexander Kukushkin)
+
+  Patroni was not correctly using ``pyopenssl`` interfaces, enforced in ``python-etcd``.
+
+
+**Documentation improvements**
+
+- Improve 2-node cluster guidance (Nikolay Samokhvalov)
+
+  Clarify behaviour during failover and DCS requirements.
+
+
 Version 4.0.6
 -------------
 
