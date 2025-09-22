@@ -8,6 +8,13 @@ Version 4.0.7
 
 Released 2025-09-22
 
+**New features**
+
+- Add support for PostgreSQL 18 RC1 (Alexander Kukushkin)
+
+  GUC's validator rules were extended. Patroni now properly handles the new background I/O worker.
+
+
 **Bugfixes**
 
 - Fix potential issue around resolving localhost to IPv6 on Windows (András Váczi)

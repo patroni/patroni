@@ -12,7 +12,7 @@ Patroni is a template for high availability (HA) PostgreSQL solutions using Pyth
 
 We call Patroni a "template" because it is far from being a one-size-fits-all or plug-and-play replication system. It will have its own caveats. Use wisely.
 
-Currently supported PostgreSQL versions: 9.3 to 17.
+Currently supported PostgreSQL versions: 9.3 to 18.
 
 **Note to Citus users**: Starting from 3.0 Patroni nicely integrates with the `Citus <https://github.com/citusdata/citus>`__ database extension to Postgres. Please check the `Citus support page <https://github.com/patroni/patroni/blob/master/docs/citus.rst>`__ in the Patroni documentation for more info about how to use Patroni high availability together with a Citus distributed cluster.
 
