@@ -659,8 +659,8 @@ parameters:
   - type: Integer
     version_from: 180000
     min_val: 0
-    max_val: 35791394
-    unit: min
+    max_val: 2147483647
+    unit: s
   idle_session_timeout:
   - type: Integer
     version_from: 140000
@@ -857,7 +857,7 @@ parameters:
   log_line_prefix:
   - type: String
     version_from: 90300
-  log_lock_failure:
+  log_lock_failures:
   - type: Bool
     version_from: 180000
   log_lock_waits:
