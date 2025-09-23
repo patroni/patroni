@@ -3,6 +3,77 @@
 Release notes
 =============
 
+Version 4.1.0
+-------------
+
+Released 2025-09-23
+
+**New features**
+
+- Add support for systemd "notify" unit type (Ronan Dunklau)
+
+  Without a notify unit type, it is possible to start Patroni and immediately send it a SIGHUP signal using systemd, effectively killing it before it had time to set up its signal handlers.
+
+- Provide receive and replay LSN/lag information in API and ctl (Polina Bungina)
+
+  Patroni REST API ``/cluster`` endpoint and ``patronictl list`` command now provide receive LSN, replay LSN, receive lag, and replay lag information for each replica member.
+
+- Ensure clean demotion to standby cluster (Polina Bungina)
+
+  Make sure the introduction of the ``standby_cluster`` section in the dynamic configuration leads to a clean cluster demotion.
+
+- Implement ``patronictl demote-cluster`` and ``promote-cluster`` commands (Polina Bungina)
+
+  New commands for cluster demotion and promotion handle both the dynamic configuration editing and checking the result status.
+
+- Implement ``sync_priority`` tag (Polina Bungina)
+
+  This parameter controls the priority a member should have during synchronous replica selection when ``synchronous_mode`` is set to ``on``.
+
+- Implement ``--print`` option for ``--validate-config`` (Polina Bungina)
+
+  Print out local configuration (including environment configuration overrides) after it has been successfully validated.
+
+- Implement ``kubernetes.bootstrap_labels`` (Polina Bungina)
+
+  This feature allows you to define labels that will be assigned to a member pod when in ``initializing new cluster``, ``running custom bootstrap script``, ``starting after custom bootstrap``, or ``creating replica`` state.
+
+- Add configuration option to suppress duplicate heartbeat logs (Michael Morris)
+
+  If set to ``true``, successive heartbeat logs that are identical shall not be output.
+
+- Add optional ``cluster_type`` attribute to permanent replication slots (Michael Banck)
+
+  This allows you to set whether a particular permanent replication slot should always be created, or just on a primary or standby cluster.
+
+- Make HTTP Server header configurable (David Grierson)
+
+  Introduce the ``restapi.server_tokens`` configuration parameter that allows you to restrict information disclosed in the HTTP Server header.
+
+- Implement readiness API checks for replication on replica members (Ants Aasma)
+
+  The previous implementation considered replicas ready as soon as PostgreSQL was started. With this change, a replica pod is only considered ready when PostgreSQL is replicating and is not too far behind the leader.
+
+
+**Improvements**
+
+- Reduce log level of watchdog configuration failure (Ants Aasma)
+
+  Show the `Could not activate Linux watchdog device` log line on debug logging level, when the watchdog is configured with ``required`` mode. It was previously shown on info level.
+
+- Take advantage of ``written_lsn`` and ``latest_end_lsn`` from ``pg_stat_wal_receiver`` (Alexander Kukushkin)
+
+  ``written_lsn``, the actual write LSN, is now preferred over the one returned by ``pg_last_wal_receive_lsn()``, which is in fact the flush LSN. ``latest_end_lsn`` points to WAL flush on the source host. In case of a primary, it allows better calculation of the replay lag, because values stored in DCS are updated only every ``loop_wait`` seconds.
+
+- Avoid interactions with slots created with the ``failover=true`` option (Alexander Kukushkin)
+
+  This change is required to make the logical failover slots feature fully functional.
+
+- Add PostgreSQL state to ``/metrics`` REST API endpoint (Ivan Filianin)
+
+  PostgreSQL instance state information is now available in the Prometheus format output of the ``/metrics`` REST API endpoint.
+
+
 Version 4.0.7
 -------------
 

@@ -302,7 +302,7 @@ class Member(Tags, NamedTuple('Member',
         """``True`` if the member :attr:`~Member.state` is :class:`~patroni.postgresql.misc.PostgresqlState.RUNNING`."""
         from ..postgresql.misc import PostgresqlState
 
-        return self.state == PostgresqlState.RUNNING
+        return self.state == PostgresqlState.RUNNING.value
 
     @property
     def patroni_version(self) -> Optional[Tuple[int, ...]]:
