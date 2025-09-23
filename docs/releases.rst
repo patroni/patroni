@@ -69,6 +69,10 @@ Released 2025-09-23
 
   This change is required to make the logical failover slots feature fully functional.
 
+- Add PostgreSQL state to ``/metrics`` REST API endpoint (Ivan Filianin)
+
+  PostgreSQL instance state information is now available in the Prometheus format output of the ``/metrics`` REST API endpoint.
+
 
 Version 4.0.7
 -------------
