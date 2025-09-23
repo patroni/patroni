@@ -18,7 +18,7 @@ Released 2025-09-23
 
   Patroni REST API ``/cluster`` endpoint and ``patronictl list`` command now provide receive LSN, replay LSN, receive lag, and replay lag information for each replica member.
 
-- Ensure clean cluster demotion (Polina Bungina)
+- Ensure clean demotion to standby cluster (Polina Bungina)
 
   Make sure the introduction of the ``standby_cluster`` section in the dynamic configuration leads to a clean cluster demotion.
 
