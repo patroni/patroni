@@ -13,7 +13,7 @@ env:
 
 jobs:
   unit:
-    runs-on: ${{ fromJson('{"ubuntu":"ubuntu-22.04","windows":"windows-latest","macos":"macos-latest"}')[matrix.os] }}
+    runs-on: ${{ fromJson('{"ubuntu":"ubuntu-22.04","windows":"windows-latest","macos":"macos-15"}')[matrix.os] }}
     strategy:
       fail-fast: false
       matrix:
@@ -112,7 +112,7 @@ jobs:
         flags: unit-${{ matrix.os }}
 
   behave:
-    runs-on: ${{ fromJson('{"ubuntu":"ubuntu-22.04","windows":"windows-latest","macos":"macos-latest"}')[matrix.os] }}
+    runs-on: ${{ fromJson('{"ubuntu":"ubuntu-22.04","windows":"windows-latest","macos":"macos-14"}')[matrix.os] }}
     env:
       DCS: ${{ matrix.dcs }}
       ETCDVERSION: 3.4.23
