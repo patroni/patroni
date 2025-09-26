@@ -173,5 +173,5 @@ When connecting from an application, always use a non-superuser. Patroni require
 
 .. |Tests Status| image:: https://github.com/patroni/patroni/actions/workflows/tests.yaml/badge.svg
    :target: https://github.com/patroni/patroni/actions/workflows/tests.yaml?query=branch%3Amaster
-.. |Coverage Status| image:: https://coveralls.io/repos/patroni/patroni/badge.svg?branch=master
-   :target: https://coveralls.io/github/patroni/patroni?branch=master
+.. |Coverage Status| image:: https://codecov.io/gh/patroni/patroni/graph/badge.svg?token=qWNJyFTeul 
+   :target: https://codecov.io/gh/patroni/patroni
