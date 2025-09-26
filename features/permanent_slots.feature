@@ -78,7 +78,10 @@ Feature: permanent slots
     Then postgres-1 has a physical replication slot named test_physical after 10 seconds
     And postgres-1 has a physical replication slot named postgres_0 after 10 seconds
     And postgres-1 has a physical replication slot named postgres_3 after 10 seconds
-    When I start postgres-0
+
+  @slot-advance
+  Scenario: check permanent physical replication slot on replica after failover
+    Given I start postgres-0
     Then postgres-0 role is the replica after 20 seconds
     And physical replication slot named postgres_1 on postgres-0 has no xmin value after 10 seconds
     # postgres_2 and postgres_3 slots are retained, but postgres_2 will still have xmin value :(
