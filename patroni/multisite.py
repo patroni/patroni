@@ -352,15 +352,17 @@ class MultisiteController(Thread, AbstractSiteController):
                 if isinstance(cluster.history.lines[0], dict):
                     history_state = cluster.history.lines[0]
                     if history_state.get('last_leader') != self.name:  # pyright: ignore [reportUnknownMemberType]
-                        new_state = (history_state.get('switches', 0) + 1, 0, '', self.name)  # noqa: E501 # pyright: ignore [reportUnknownMemberType, reportUnknownVariableType]
-                        self.dcs.set_history_value(json.dumps(new_state))  # FIXME: append instead
+                        state = [(history_state.get('switches', 0), 0, '', history_state.get('last_leader'))]  # noqa: E501 # pyright: ignore [reportUnknownMemberType, reportUnknownVariableType]
+                        state.append((history_state.get('switches', 0) + 1, 0, '', self.name))  # noqa: E501 # pyright: ignore [reportUnknownMemberType, reportUnknownVariableType]
+                        self.dcs.set_history_value(json.dumps(state))
                 else:
                     history_state = cluster.history.lines[-1]
                     if len(history_state) > 3 and history_state[3] != self.name:
                         new_state = (history_state[0] + 1, 0, '', self.name)
-                        self.dcs.set_history_value(json.dumps(cluster.history.lines.append(new_state)))
+                        cluster.history.lines.append(new_state)
+                        self.dcs.set_history_value(json.dumps(cluster.history.lines))
             else:  # no history yet, set initial item
-                self.dcs.set_history_value(json.dumps([(0, 0, '', self.name)]))  # FIXME: append to list instead
+                self.dcs.set_history_value(json.dumps([(0, 0, '', self.name)]))
 
     def _check_for_failover(self, cluster: Cluster):
         if cluster.failover and cluster.failover.target_site:
