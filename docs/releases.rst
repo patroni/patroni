@@ -59,7 +59,7 @@ Released 2025-09-23
 
 - Reduce log level of watchdog configuration failure (Ants Aasma)
 
-  Show the `Could not activate Linux watchdog device` log line on debug logging level, when the watchdog is configured with ``required`` mode. It was previously shown on info level.
+  Show the `Could not activate Linux watchdog device` log line on debug logging level, unless the watchdog is configured with ``required`` mode. It was previously shown on info level.
 
 - Take advantage of ``written_lsn`` and ``latest_end_lsn`` from ``pg_stat_wal_receiver`` (Alexander Kukushkin)
 
