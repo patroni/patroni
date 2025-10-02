@@ -250,6 +250,11 @@ class Ha(object):
         # We update this value from update_lock() and touch_member() methods, because they fetch it anyway.
         # This value is used to notify the leader when the failsafe_mode is active without performing any queries.
         self._last_wal_lsn = None
+        # The last known value of current timeline on this standby node.
+        # We update this value from touch_member() and _is_healthiest_node() methods, because they fetch it anyway.
+        # This value is used to detect cases of timeline bump with actual leader remaining on the same node
+        # and trigger pg_rewind state machine.
+        self._last_timeline = None
 
         # Count of concurrent sync disabling requests. Value above zero means that we don't want to be synchronous
         # standby. Changes protected by _member_state_lock.
@@ -472,6 +477,8 @@ class Ha(object):
                             data['replication_state'] = replication_state
                         # try pg_stat_wal_receiver to get the timeline
                         timeline = self.state_handler.received_timeline()
+                        if timeline:
+                            self._last_timeline = timeline
                     if not timeline:
                         # So far the only way to get the current timeline on the standby is from
                         # the replication connection. In order to avoid opening the replication
@@ -484,6 +491,8 @@ class Ha(object):
                             timeline = pg_control_timeline or self.state_handler.pg_control_timeline()
                         else:
                             timeline = self.state_handler.replica_cached_timeline(self._leader_timeline) or 0
+                        if timeline:
+                            self._last_timeline = timeline
                     if timeline:
                         data['timeline'] = timeline
                 except Exception:
@@ -731,14 +740,14 @@ class Ha(object):
         if refresh:
             self.load_cluster_from_dcs()
 
-        is_leader = self.state_handler.is_primary()
+        is_primary = self.state_handler.is_primary()
 
         node_to_follow = self._get_node_to_follow(self.cluster)
 
         if self.is_paused():
             if not (self._rewind.is_needed and self._rewind.can_rewind_or_reinitialize_allowed)\
                     or self.cluster.is_unlocked():
-                if is_leader:
+                if is_primary:
                     self.state_handler.set_role(PostgresqlRole.PRIMARY)
                     return 'continue to run as primary without lock'
                 elif self.state_handler.role != PostgresqlRole.STANDBY_LEADER:
@@ -746,7 +755,7 @@ class Ha(object):
 
                 if not node_to_follow:
                     return 'no action. I am ({0})'.format(self.state_handler.name)
-        elif is_leader:
+        elif is_primary:
             if self.is_standby_cluster():
                 self._async_executor.try_run_async('demoting to a standby cluster', self.demote, ('demote-cluster',))
             else:
@@ -781,9 +790,17 @@ class Ha(object):
                 else:
                     self.state_handler.follow(node_to_follow, role, do_reload=True)
                 self._rewind.trigger_check_diverged_lsn()
-            elif role == PostgresqlRole.STANDBY_LEADER and self.state_handler.role != role:
-                self.state_handler.set_role(role)
-                self.state_handler.call_nowait(CallbackAction.ON_ROLE_CHANGE)
+            else:
+                if role == PostgresqlRole.STANDBY_LEADER and self.state_handler.role != role:
+                    self.state_handler.set_role(role)
+                    self.state_handler.call_nowait(CallbackAction.ON_ROLE_CHANGE)
+
+                if self._last_timeline and self._leader_timeline and self._last_timeline < self._leader_timeline:
+                    self._rewind.trigger_check_diverged_lsn()
+                    if not self.state_handler.is_starting():
+                        msg = self._handle_rewind_or_reinitialize()
+                        if msg:
+                            return msg
 
         return follow_reason
 
@@ -1131,6 +1148,7 @@ class Ha(object):
             if self.state_handler.role not in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
                 # reset failsafe state when promote
                 self._failsafe.set_is_active(0)
+                self._last_timeline = None
 
                 def before_promote():
                     self._rewind.reset_state()  # make sure we will trigger checkpoint after promote
@@ -1283,14 +1301,16 @@ class Ha(object):
                   themselves as the healthiest because they received/replayed up to the same LSN,
                   but this is totally fine.
         """
+        cluster_timeline = self.cluster.timeline
+        my_timeline = self.state_handler.replica_cached_timeline(cluster_timeline)
+        if my_timeline:
+            self._last_timeline = my_timeline
         my_wal_position = self.state_handler.last_operation()
         if check_replication_lag and self.is_lagging(my_wal_position):
             logger.info('My wal position exceeds maximum replication lag')
             return False  # Too far behind last reported wal position on primary
 
         if not self.is_standby_cluster() and self.check_timeline():
-            cluster_timeline = self.cluster.timeline
-            my_timeline = self.state_handler.replica_cached_timeline(cluster_timeline)
             if my_timeline is None:
                 logger.info('Can not figure out my timeline')
                 return False
