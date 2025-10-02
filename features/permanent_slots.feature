@@ -79,7 +79,7 @@ Feature: permanent slots
     And postgres-1 has a physical replication slot named postgres_0 after 10 seconds
     And postgres-1 has a physical replication slot named postgres_3 after 10 seconds
 
-  @slot-advance
+  @pg110000
   Scenario: check permanent physical replication slot on replica after failover
     Given I start postgres-0
     Then postgres-0 role is the replica after 20 seconds
