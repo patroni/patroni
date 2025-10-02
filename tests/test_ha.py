@@ -1620,16 +1620,19 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_without_leader(sync=('leader', 'a'))
         self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, CaseInsensitiveSet(),
                                                                          CaseInsensitiveSet(), CaseInsensitiveSet('a')))
-        self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
-        mock_set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock()
-        with patch('patroni.ha.logger.warning') as mock_logger:
-            self.ha.run_cycle()
-            mock_set_sync.assert_called_once()
-            self.assertTrue(mock_logger.call_args_list[0][0][0].startswith('Inconsistent state between '))
-        self.ha.dcs.write_sync_state = Mock(return_value=None)
-        with patch('patroni.ha.logger.warning') as mock_logger:
-            self.ha.run_cycle()
-            self.assertEqual(mock_logger.call_args[0][0], 'Updating sync state failed')
+        for leader_name in ('other', 'leader'):
+            with self.subTest(leader_name=leader_name):
+                self.p.name = leader_name
+                self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
+                mock_set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock()
+                with patch('patroni.ha.logger.warning') as mock_logger:
+                    self.ha.run_cycle()
+                    mock_set_sync.assert_called_once()
+                    self.assertTrue(mock_logger.call_args_list[0][0][0].startswith('Inconsistent state '))
+                self.ha.dcs.write_sync_state = Mock(return_value=None)
+                with patch('patroni.ha.logger.warning') as mock_logger:
+                    self.ha.run_cycle()
+                    self.assertEqual(mock_logger.call_args[0][0], 'Updating sync state failed')
 
     def test_effective_tags(self):
         self.ha._disable_sync = True

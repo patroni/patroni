@@ -913,6 +913,14 @@ class Ha(object):
         allow_promote = current_state.sync_confirmed
         voters = CaseInsensitiveSet(sync.voters)
 
+        if self.state_handler.name != sync.leader:
+            logger.warning("Inconsistent state of /sync key detected, leader = %s doesn't match %s, "
+                           "updating synchronous replication key", sync.leader, self.state_handler.name)
+            sync = self.dcs.write_sync_state(self.state_handler.name, None, 0, version=sync.version)
+            if not sync:
+                return logger.warning("Updating sync state failed")
+            voters = CaseInsensitiveSet()
+
         if picked == voters and voters != allow_promote:
             logger.warning('Inconsistent state between synchronous_standby_names = %s and /sync = %s key '
                            'detected, updating synchronous replication key...', list(allow_promote), list(voters))
