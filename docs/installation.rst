@@ -64,7 +64,7 @@ jsonlogger
     `python-json-logger` module in order to enable :ref:`logging <log_settings>` in json format
 all
     all of the above (except psycopg family)
-psycopg
+psycopg3
     `psycopg[binary]>=3.0.0` module
 psycopg2
     `psycopg2>=2.5.4` module
