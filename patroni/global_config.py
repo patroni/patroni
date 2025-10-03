@@ -205,6 +205,14 @@ class GlobalConfig(types.ModuleType):
             if 'primary_stop_timeout' in self.__config else self.get_int('master_stop_timeout', default)
 
     @property
+    def primary_race_backoff(self) -> int:
+        """Currently configured value of ``primary_race_backoff`` from the global configuration.
+
+        Assume ``0`` if it is not set or invalid.
+        """
+        return self.get_int('primary_race_backoff', 0)
+
+    @property
     def ignore_slots_matchers(self) -> List[Dict[str, Any]]:
         """Currently configured value of ``ignore_slots`` from the global configuration.
 
