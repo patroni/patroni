@@ -21,7 +21,7 @@ from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.postmaster import PostmasterProcess
-from patroni.postgresql.rewind import Rewind
+from patroni.postgresql.rewind import Rewind, REWIND_STATUS
 from patroni.postgresql.slots import SlotsHandler
 from patroni.postgresql.sync import _SyncState
 from patroni.utils import tzutc
@@ -100,6 +100,10 @@ def get_standby_cluster_initialized_with_only_leader(failover=None, sync=None):
 def get_cluster_initialized_with_leader_and_failsafe():
     return get_cluster_initialized_without_leader(leader=True, failsafe=True,
                                                   cluster_config=ClusterConfig(1, {'failsafe_mode': True}, 1))
+
+
+def _check_timeline_and_lsn(self, *args):
+    self._state = REWIND_STATUS.NEED
 
 
 def get_node_status(reachable=True, in_recovery=True, dcs_last_seen=0,
@@ -506,12 +510,14 @@ class TestHa(PostgresInit):
         self.p.is_primary = false
         self.assertEqual(self.ha.run_cycle(), 'PAUSE: no action. I am (postgresql0)')
 
-    @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
+    @patch.object(Rewind, '_check_timeline_and_lsn', _check_timeline_and_lsn)
+    @patch.object(ConfigHandler, 'check_recovery_conf', Mock(return_value=(False, False)))
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
     def test_follow_triggers_rewind(self):
         self.p.is_primary = false
-        self.ha._rewind.trigger_check_diverged_lsn()
         self.ha.cluster = get_cluster_initialized_with_leader()
+        self.p.timeline_wal_position = Mock(return_value=(0, 1, 0, 1, 1))
+        self.ha._leader_timeline = 11
         self.assertEqual(self.ha.run_cycle(), 'running pg_rewind from leader')
 
     def test_no_dcs_connection_primary_demote(self):
