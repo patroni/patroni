@@ -20,6 +20,18 @@ if TYPE_CHECKING:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
+try:  # pragma: no cover
+    from systemd import daemon  # pyright: ignore
+
+    def notify_systemd(msg: str) -> None:
+        daemon.notify(msg)  # pyright: ignore
+
+except ImportError:  # pragma: no cover
+    logger.info("Systemd integration is not supported")
+
+    def notify_systemd(msg: str) -> None:
+        pass
+
 
 def get_base_arg_parser() -> argparse.ArgumentParser:
     """Create a basic argument parser with the arguments used for both patroni and raft controller daemon.
@@ -69,6 +81,7 @@ class AbstractPatroniDaemon(abc.ABC):
         Flag the daemon as "SIGHUP received".
         """
         self._received_sighup = True
+        notify_systemd("RELOADING=1")
 
     def api_sigterm(self) -> bool:
         """Guarantee only a single SIGTERM is being processed.
@@ -137,16 +150,13 @@ class AbstractPatroniDaemon(abc.ABC):
         Start the logger thread and keep running execution cycles until a SIGTERM is eventually received. Also reload
         configuration upon receiving SIGHUP.
         """
-        try:  # pragma: no cover
-            from systemd import daemon  # pyright: ignore
-            daemon.notify("READY=1")  # pyright: ignore
-        except ImportError:  # pragma: no cover
-            logger.info("Systemd integration is not supported")
+        notify_systemd("READY=1")
         self.logger.start()
         while not self.received_sigterm:
             if self._received_sighup:
                 self._received_sighup = False
                 self.reload_config(True, self.config.reload_local_configuration())
+                notify_systemd("READY=1")
 
             self._run_cycle()
 
