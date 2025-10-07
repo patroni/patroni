@@ -1,0 +1,94 @@
+#!/bin/bash
+
+exec 2>&1
+
+PATRONI_RESTAPI_USERNAME="${PATRONI_RESTAPI_USERNAME:-admin}"
+PATRONI_RESTAPI_PASSWORD="${PATRONI_RESTAPI_PASSWORD:-admin}"
+PATRONI_REPLICATION_USERNAME="${PATRONI_REPLICATION_USERNAME:-replicator}"
+PATRONI_REPLICATION_PASSWORD="${PATRONI_REPLICATION_PASSWORD:-replicate}"
+PATRONI_REWIND_USERNAME="${PATRONI_REWIND_USERNAME:-rewind}"
+PATRONI_REWIND_PASSWORD="${PATRONI_REWIND_PASSWORD:-rewind}"
+PATRONI_SUPERUSER_USERNAME="${PATRONI_SUPERUSER_USERNAME:-postgres}"
+PATRONI_SUPERUSER_PASSWORD="${PATRONI_SUPERUSER_PASSWORD:-postgres}"
+
+DOCKER_IP=$(hostname --ip-address)
+readonly DOCKER_IP
+
+cat > "$PGHOME/patroni.yml" <<__EOF__
+name: '$HOSTNAME'
+bootstrap:
+  dcs:
+    failsafe_mode: on
+    synchronous_mode: quorum
+    synchronous_mode_strict: on
+    check_timeline: on
+    postgresql:
+      use_pg_rewind: true
+      parameters:
+        wal_sender_timeout: 30000
+  initdb:
+  - auth-host: md5
+  - auth-local: trust
+  - encoding: UTF8
+  - locale: en_US.UTF-8
+  - data-checksums
+restapi:
+  connect_address: $DOCKER_IP:8008
+  listen: '*:8008'
+  authentication:
+    username: '$PATRONI_RESTAPI_USERNAME'
+    password: '$PATRONI_RESTAPI_PASSWORD'
+postgresql:
+  connect_address: $DOCKER_IP:5432
+  listen: '*:5432'
+  data_dir: '${PATRONI_POSTGRESQL_DATA_DIR:-$PGDATA}'
+  use_unix_socket: true
+  use_unix_socket_repl: true
+  authentication:
+    superuser:
+      username: '$PATRONI_SUPERUSER_USERNAME'
+      password: '$PATRONI_SUPERUSER_PASSWORD'
+    replication:
+      username: '$PATRONI_REPLICATION_USERNAME'
+      password: '$PATRONI_REPLICATION_PASSWORD'
+    rewind:
+      username: '$PATRONI_REWIND_USERNAME'
+      password: '$PATRONI_REWIND_PASSWORD'
+  basebackup:
+    checkpoint: fast
+  parameters:
+    shared_buffers: 4MB
+    logging_collector: 'on'
+    log_destination: csvlog
+    log_directory: log
+    log_filename: postgres.log
+    archive_mode: 'on'
+    archive_timeout: 30
+    archive_command: 'rsync -e "ssh -o ConnectTimeout=1" --timeout=3 -a %p test:$PGHOME/archive/%f'
+    restore_command: 'rsync -a test:$PGHOME/archive/%f %p'
+  pg_hba:
+  - local all all trust
+  - local replication all trust
+  - host all all all md5
+  - host replication ${PATRONI_REPLICATION_USERNAME} all md5
+__EOF__
+
+unset PATRONI_RESTAPI_USERNAME PATRONI_RESTAPI_PASSWORD PATRONI_SUPERUSER_USERNAME PATRONI_SUPERUSER_PASSWORD PATRONI_REPLICATION_USERNAME PATRONI_REPLICATION_PASSWORD PATRONI_REWIND_USERNAME PATRONI_REWIND_PASSWORD
+
+# save DCS related environment variables so that they are available in ssh sessions
+export PATRONI_SCOPE="${PATRONI_SCOPE:-demo}"
+PATRONI_NAMESPACE="${PATRONI_NAMESPACE:-/service}"
+export PATRONI_NAMESPACE="${PATRONI_NAMESPACE%/}"
+export -p | grep '^declare -x PATRONI_' > /root/.bashrc
+
+if [ ! -s "$PGHOME/.ssh/known_hosts" ]; then
+    for _ in {1..10}; do
+        ssh-keyscan -t rsa test > "$PGHOME/.ssh/known_hosts" && break
+        sleep 1
+    done
+fi
+[ -s "$PGHOME/.ssh/known_hosts" ] || exit 1
+chown postgres:postgres "$PGHOME/.ssh/known_hosts"
+
+exec chpst -u postgres env HOME="$PGHOME" \
+    /usr/bin/python3 /usr/local/bin/patroni "$PGHOME/patroni.yml"

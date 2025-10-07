@@ -1,0 +1,59 @@
+name: Jepsen tests
+
+on:
+#  schedule:
+#  - cron: '0 0 * * *'
+
+  # Allow manual triggering with a branch input
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to run Jepsen tests on'
+        required: true
+        default: 'master'
+
+jobs:
+  jepsen:
+    runs-on: ubuntu-latest
+    env:
+      BRANCH: ${{ github.event.inputs.branch || 'master' }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v5
+
+    - name: Validate branch
+      run: git ls-remote --exit-code origin "refs/heads/$BRANCH" || (echo "Branch $BRANCH does not exist" && exit 1)
+
+    - name: Run test
+      run: |
+        cd jepsen
+        docker compose build --build-arg "BRANCH=$BRANCH"
+        docker compose up -d
+        mkdir -p logs
+        (
+          cd logs
+          if ! docker exec jepsen-test bash run.sh > jepsen.log 2>&1; then
+            tail -n 18 jepsen.log
+            for name in $(docker ps --filter "name=jepsen-[^t]" --format "{{.Names}}"); do
+              docker logs "$name" > "${name#jepsen-}.log"
+            done
+            for name in $(docker ps --filter "name=jepsen-patroni" --format "{{.Names}}"); do
+              docker exec "$name" sh -c 'cat $PGDATA/log/postgres.log' > "${name#jepsen-}-postgres.log"
+              docker exec "$name" sh -c 'cat $PGDATA/log/postgres.csv' > "${name#jepsen-}-postgres.csv"
+            done
+            docker exec "$name" patronictl list > patronictl.log
+            docker exec "$name" patronictl history >> patronictl.log
+            exit 1
+          fi
+          tail -n 4 jepsen.log
+        )
+        docker compose down --rmi all
+
+    - name: Upload logs if Jepsen test failed
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: jepsen-logs
+        path: jepsen/logs
+        if-no-files-found: error
+        retention-days: 5
