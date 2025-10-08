@@ -127,7 +127,7 @@ class Bootstrap(object):
         if self._postgresql.config.superuser:
             if 'username' in self._postgresql.config.superuser:
                 options.append('--username={0}'.format(self._postgresql.config.superuser['username']))
-            if 'password' in self._postgresql.config.superuser:
+            if isinstance(self._postgresql.config.superuser.get('password'), str):
                 (fd, pwfile) = tempfile.mkstemp()
                 os.write(fd, self._postgresql.config.superuser['password'].encode('utf-8'))
                 os.close(fd)
