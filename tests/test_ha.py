@@ -1886,7 +1886,8 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo'))
         # Test the sync node is removed from voters, added to ssn
         with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='other')), \
-                patch('time.sleep', Mock()):
+                patch('time.sleep', Mock()), \
+                patch.object(Postgresql, 'pg_stat_replication', Mock(return_value=[])):
             self.ha.run_cycle()
         self.assertEqual(mock_write_sync.call_count, 1)
         self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(), 0))
