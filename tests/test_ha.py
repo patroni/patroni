@@ -2174,7 +2174,8 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo'))
         # Test the sync node is removed from voters, added to ssn
         with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='other')), \
-                patch('time.sleep', Mock()):
+                patch('time.sleep', Mock()), \
+                patch.object(Postgresql, 'pg_stat_replication', Mock(return_value=[])):
             self.ha.run_cycle()
         self.assertEqual(mock_write_sync.call_count, 1)
         self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(), 0))
@@ -2190,7 +2191,8 @@ class TestHa(PostgresInit):
         mock_write_sync.reset_mock()
         mock_set_sync.reset_mock()
         with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)), \
-                patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')):
+                patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')), \
+                patch.object(Postgresql, 'pg_stat_replication', Mock(return_value=[])):
             self.ha.run_cycle()
         mock_write_sync.assert_not_called()
         self.assertEqual(mock_set_sync.call_count, 1)
@@ -2208,6 +2210,7 @@ class TestHa(PostgresInit):
 
         # Test that _process_quorum_replication doesn't take longer than loop_wait
         with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')), \
+                patch.object(Postgresql, 'pg_stat_replication', Mock(return_value=[])), \
                 patch('time.monotonic', Mock(side_effect=[30, 60, 90, 120, 150])):
             self.ha.process_sync_replication()
 
@@ -2219,7 +2222,8 @@ class TestHa(PostgresInit):
                                                                          CaseInsensitiveSet(['foo'])))
         mock_write_sync.reset_mock()
         mock_set_sync.reset_mock()
-        with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')):
+        with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')), \
+                patch.object(Postgresql, 'pg_stat_replication', Mock(return_value=[])):
             self.ha.run_cycle()
         mock_write_sync.assert_not_called()
         self.assertEqual(mock_set_sync.call_count, 1)
