@@ -3,8 +3,6 @@
 This module implements abstraction classes and functions for creating and managing daemon processes in Patroni.
 Currently it is only used for the main "Thread" of ``patroni`` and ``patroni_raft_controller`` commands.
 """
-from __future__ import print_function
-
 import abc
 import argparse
 import logging

@@ -240,7 +240,7 @@ class TestBootstrap(BaseTestPostgresql):
     @patch('os.unlink', Mock())
     @patch('shutil.copy', Mock())
     @patch('os.path.isfile', Mock(return_value=True))
-    @patch('patroni.postgresql.bootstrap.quote_ident', Mock())
+    @patch('patroni.psycopg.__quote_ident', Mock(), create=True)
     @patch.object(Bootstrap, 'call_post_bootstrap', Mock(return_value=True))
     @patch.object(Bootstrap, '_custom_bootstrap', Mock(return_value=True))
     @patch.object(Postgresql, 'start', Mock(return_value=True))

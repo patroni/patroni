@@ -13,12 +13,12 @@ jobs:
     permissions:
       id-token: write
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
-    - name: Set up Python 3.11
+    - name: Set up Python 3.14
       uses: actions/setup-python@v5
       with:
-        python-version: 3.11
+        python-version: 3.14
 
     - name: Install dependencies
       run: python .github/workflows/install_deps.py
