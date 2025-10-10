@@ -108,6 +108,16 @@ class TestSync(BaseTestPostgresql):
                              ('priority', 2, CaseInsensitiveSet([self.other.name, self.leadermem.name]),
                               CaseInsensitiveSet(), CaseInsensitiveSet([self.me.name])))
 
+    def test_current_state_waiting(self):
+        pg_stat_replication = [
+            {'pid': 100, 'application_name': self.me.name, 'sync_state': 'sync', 'flush_lsn': 1},
+            {'pid': 101, 'application_name': self.other.name, 'sync_state': 'sync', 'flush_lsn': 2}]
+
+        # some nodes were removed from synchronous_standby_names
+        with patch.object(Postgresql, "_cluster_info_state_get",
+                          side_effect=['1 ("{0}")'.format(self.other.name), pg_stat_replication]):
+            self.assertIsNone(self.s.current_state(self.cluster))
+
     @patch('time.sleep', Mock())
     def test_set_sync_standby(self):
         def value_in_conf():
