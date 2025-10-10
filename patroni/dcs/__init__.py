@@ -539,6 +539,37 @@ class Failover(NamedTuple):
         return int(bool(self.leader)) + int(bool(self.candidate))
 
 
+class SyncSwitchover(NamedTuple):
+
+    version: _Version
+    leader: Optional[str]
+    candidates: Optional[List[str]]
+    scheduled_at: Optional[datetime.datetime]
+
+    @staticmethod
+    def from_node(version: _Version, value: Union[str, Dict[str, str]]) -> 'SyncSwitchover':
+        if isinstance(value, dict):
+            data: Dict[str, Any] = value
+        elif value:
+            try:
+                data = json.loads(value)
+                assert isinstance(data, dict)
+            except AssertionError or ValueError:
+                return SyncSwitchover(version=version, leader='', candidates=[], scheduled_at=None)
+        else:
+            data = {}
+
+        if data.get('scheduled_at'):
+            data['scheduled_at'] = dateutil.parser.parse(data['scheduled_at'])
+
+        return SyncSwitchover(version=version, leader=data.get('leader'), candidates=data.get('candidates'),
+                              scheduled_at=data.get('scheduled_at'))
+
+    def __len__(self) -> int:
+        return int(bool(self.leader)) + int(bool(self.candidates))
+
+
+
 class ClusterConfig(NamedTuple):
     """Immutable object (namedtuple) which represents cluster configuration.
 
@@ -852,6 +883,7 @@ class Cluster(NamedTuple('Cluster',
                           ('status', Status),
                           ('members', List[Member]),
                           ('failover', Optional[Failover]),
+                          ('sync_switchover', Optional[SyncSwitchover]),
                           ('sync', SyncState),
                           ('history', Optional[TimelineHistory]),
                           ('failsafe', Optional[Dict[str, str]]),
@@ -895,7 +927,7 @@ class Cluster(NamedTuple('Cluster',
     @staticmethod
     def empty() -> 'Cluster':
         """Produce an empty :class:`Cluster` instance."""
-        return Cluster(None, None, None, Status.empty(), [], None, SyncState.empty(), None, None, {})
+        return Cluster(None, None, None, Status.empty(), [], None, None, SyncState.empty(), None, None, {})
 
     def is_empty(self):
         """Validate definition of all attributes of this :class:`Cluster` instance.
@@ -903,7 +935,7 @@ class Cluster(NamedTuple('Cluster',
         :returns: ``True`` if all attributes of the current :class:`Cluster` are unpopulated.
         """
         return all((self.initialize is None, self.config is None, self.leader is None, self.status.is_empty(),
-                    self.members == [], self.failover is None, self.sync.version is None,
+                    self.members == [], self.failover is None, self.sync_switchover is None, self.sync.version is None,
                     self.history is None, self.failsafe is None, self.workers == {}))
 
     def __len__(self) -> int:
@@ -919,7 +951,7 @@ class Cluster(NamedTuple('Cluster',
            >>> assert bool(cluster) is False
 
            >>> status = Status(0, None, [])
-           >>> cluster = Cluster(None, None, None, status, [1, 2, 3], None, SyncState.empty(), None, None, {})
+           >>> cluster = Cluster(None, None, None, status, [1, 2, 3], None, None, SyncState.empty(), None, None, {})
            >>> len(cluster)
            1
 
@@ -1523,6 +1555,7 @@ class AbstractDCS(abc.ABC):
     _LEADER_OPTIME = _OPTIME + '/' + _LEADER  # legacy
     _SYNC = 'sync'
     _FAILSAFE = 'failsafe'
+    _SYNC_SWITCHOVER = 'sync_switchover'
 
     def __init__(self, config: Dict[str, Any], mpp: 'AbstractMPP') -> None:
         """Prepare DCS paths, MPP object, initial values for state information and processing dependencies.
@@ -1594,6 +1627,11 @@ class AbstractDCS(abc.ABC):
     def failover_path(self) -> str:
         """Get the client path for ``failover``."""
         return self.client_path(self._FAILOVER)
+
+    @property
+    def sync_switchover_path(self) -> str:
+        """Get the client path for ``sync_switchover_path``."""
+        return self.client_path(self._SYNC_SWITCHOVER)
 
     @property
     def history_path(self) -> str:
@@ -1997,6 +2035,16 @@ class AbstractDCS(abc.ABC):
         :returns: ``True`` if successfully committed to DCS.
         """
 
+    @abc.abstractmethod
+    def set_sync_switchover_value(self, value: str, version: Optional[Any] = None) -> bool:
+        """Create or update ``/sync_switchover`` key.
+
+        :param value: value to set.
+        :param version: for conditional update of the key/object.
+
+        :returns: ``True`` if successfully committed to DCS.
+        """
+
     def manual_failover(self, leader: Optional[str], candidate: Optional[str],
                         scheduled_at: Optional[datetime.datetime] = None, version: Optional[Any] = None) -> bool:
         """Prepare dictionary with given values and set ``/failover`` key in DCS.
@@ -2018,6 +2066,29 @@ class AbstractDCS(abc.ABC):
         if scheduled_at:
             failover_value['scheduled_at'] = scheduled_at.isoformat()
         return self.set_failover_value(json.dumps(failover_value, separators=(',', ':')), version)
+
+    def manual_switch_sync(self, leader: Optional[str], candidate: Optional[str],
+                           scheduled_at: Optional[datetime.datetime] = None, version: Optional[Any] = None) -> bool:
+        """Prepare dictionary with given values and set ``/sync_switchover`` key in DCS.
+
+        :param leader: value to set for ``leader``.
+        :param candidate: value to set for ``member``.
+        :param scheduled_at: value converted to ISO date format for ``scheduled_at``.
+        :param version: for conditional update of the key/object.
+
+        :returns: ``True`` if successfully committed to DCS.
+        """
+        sync_switchover_value = {}
+        if leader:
+            sync_switchover_value['leader'] = leader
+
+        if candidate:
+            sync_switchover_value['candidates'] = candidate
+
+        if scheduled_at:
+            sync_switchover_value['scheduled_at'] = scheduled_at.isoformat()
+
+        return self.set_sync_switchover_value(json.dumps(sync_switchover_value, separators=(',', ':')), version)
 
     @abc.abstractmethod
     def set_config_value(self, value: str, version: Optional[Any] = None) -> bool:

@@ -1409,6 +1409,146 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
     output_members(cluster, cluster_name, group=group)
 
 
+def _do_sync_switchover(cluster_name: str, candidates: Optional[List[str]],
+                               force: bool, switchover_leader: Optional[str] = None,
+                               switchover_scheduled: Optional[str] = None) -> None:
+
+    if type(candidates) is str:
+        candidates = candidates,
+
+    dcs = get_dcs(cluster_name, None)
+    cluster = dcs.get_cluster()
+    click.echo('Current cluster topology')
+    output_members(cluster, cluster_name, group=None)
+    cluster_sync = cluster.sync.sync_standby.split(',')
+    cluster_leader = cluster.leader and cluster.leader.name
+
+    config = global_config.from_cluster(cluster)
+
+    if not config.is_synchronous_mode:
+        raise PatroniCtlException('Cluster is not in synchronous mode')
+
+    # leader has to be be defined for switchover only
+    if not cluster_leader:
+        raise PatroniCtlException('This cluster has no leader')
+
+    if switchover_leader is None:
+        if force:
+            switchover_leader = cluster_leader
+        else:
+            switchover_leader = click.prompt('Primary', type=str, default=cluster_leader)
+
+    if cluster_leader != switchover_leader:
+        raise PatroniCtlException(f'Member {switchover_leader} is not the leader of cluster {cluster_name}')
+
+    # excluding members with nofailover tag
+    candidate_names = [str(m.name) for m in cluster.members if m.name != cluster_leader and not m.nofailover and
+                       not m.nosync and not m.nostream and not m.noloadbalance]
+    # We sort the names for consistent output to the client
+    candidate_names.sort()
+
+    if not candidate_names:
+        raise PatroniCtlException('No candidates found to perform synchronous replica switchover to')
+    if not candidates and force:
+        raise PatroniCtlException('No candidates provided to perform synchronous replica switchover in force mode')
+
+    if candidates:
+        for candidate in candidates:
+            if candidate not in candidate_names:
+                if candidate == cluster_leader:
+                    raise PatroniCtlException(
+                        f'Member {cluster_leader} is the leader of cluster {cluster_name} and cannot be assigned to synchronous stadby')
+                raise PatroniCtlException(
+                    f'Member {candidate} does not exist in cluster {cluster_name} or is tagged as nofailover or nosync or nostream or noloadbalance')
+    else:
+        allowed_candidates = [c for c in candidate_names if c != cluster_sync]
+        candidates = click.prompt(f'Choose allowed candidates to become synchronous standby (if multiple use comma) {allowed_candidates}', type=str, default=None).split(',')
+        for candidate in candidates:
+            if candidate not in allowed_candidates:
+                raise PatroniCtlException(f'Candidate {candidate} is not in suggested list candidates list')
+
+    scheduled_at_str = None
+    scheduled_at = None
+
+    if switchover_scheduled is None and not force:
+        next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
+        switchover_scheduled = click.prompt('When should the switchover take place (e.g. ' + next_hour + ' ) ',
+                                            type=str, default='now')
+
+    scheduled_at = parse_scheduled(switchover_scheduled)
+    if scheduled_at:
+        if config.is_paused:
+            raise PatroniCtlException("Can't schedule switchover in the paused state")
+        scheduled_at_str = scheduled_at.isoformat()
+
+    payload = {
+        'candidates': candidates,
+        'leader': switchover_leader
+    }
+    if scheduled_at_str:
+        payload['scheduled_at'] = scheduled_at_str
+
+    logging.debug(payload)
+
+    # By now we have established that the leader exists and the candidates exists
+    if not force:
+        demote_msg = f', switching current synchronous replica {cluster_sync}' if cluster_sync else ''
+        if scheduled_at_str:
+            if not click.confirm(f'Are you sure you want to schedule synchronous replica switchover of cluster '
+                                 f'{cluster_name} at {scheduled_at_str}{demote_msg}?'):
+                raise PatroniCtlException('Aborting scheduled')
+        else:
+            if not click.confirm(f'Are you sure you want to switchover synchronous replica for cluster {cluster_name}{demote_msg}?'):
+                raise PatroniCtlException('Aborting')
+
+    request = None
+    action = 'sync_switchover'
+    try:
+        member = cluster.leader.member
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(member, Member)
+        request = request_patroni(member, 'post', action, payload)
+
+        if request.status in (200, 202):
+            logging.debug(request)
+            cluster = dcs.get_cluster()
+            logging.debug(cluster)
+            click.echo('{0} {1}'.format(timestamp(), request.data.decode('utf-8')))
+        elif request.status == 501:
+            click.echo(f'sync_switchover is not supported by {member.name} patroni version, details {request.status}, {request.data.decode("utf-8")}')
+            return
+        else:
+            click.echo('{0} failed, details: {1}, {2}'.format(action.title(), request.status, request.data.decode('utf-8')))
+            return
+    except Exception:
+        logging.exception(request)
+
+    if not scheduled_at_str:
+        output_members(cluster, cluster_name, group=None)
+
+
+@ctl.command('sync_switchover', help='Synchronous standby switchover')
+@arg_cluster_name
+@click.option('--leader', '--primary', 'leader', help='The name of the current leader', default=None)
+@click.option('--candidate', help='Names of the candidates', default=None, multiple=True)
+@click.option('--scheduled', help='Timestamp of a scheduled switchover in unambiguous format (e.g. ISO 8601)',
+              default=None)
+@option_force
+def sync_switchover(cluster_name: str, leader: Optional[str], candidate: Optional[str], force: bool, scheduled: Optional[str]) -> None:
+    """Process ``sync_switchover`` command of ``patronictl`` utility.
+
+    .. seealso::
+        Refer to :func:`_do_sync_switchover` for details.
+
+    :param cluster_name: name of the Patroni cluster.
+    :param candidate: names of a replicas to be promoted to synchronous stadby. Nodes that are tagged with ``nofailover`` cannot be used.
+    :param force: perform the failover or switchover without asking for confirmations.
+    :param leader: name of the current leader member.
+    :param scheduled: timestamp when the switchover should be scheduled to occur. If ``now`` perform immediately.
+    """
+    _do_sync_switchover(cluster_name, candidate, force, leader, scheduled)
+
+
 @ctl.command('failover', help='Failover to a replica')
 @arg_cluster_name
 @option_citus_group

@@ -1731,6 +1731,45 @@ class Ha(object):
                 cleanup_fn()
         return False
 
+    def process_manual_sync_switchover(self) -> Optional[str]:
+        """Checks if manual sync switchover is requested and takes action if appropriate
+
+        Cleans up sync switchover key if conditions are not matched
+
+        """
+        if not self.has_lock():
+            return
+
+        sync_switchover = self.cluster.sync_switchover
+        if not sync_switchover or self.is_paused() or not self.state_handler.is_primary():
+            return
+
+        msg = self.do_process_manual_sync_switchover()
+        logger.info('Cleaning up sync switchover key')
+        self.dcs.manual_switch_sync('', '', version=sync_switchover.version)
+
+        # reload cluster from dsc to fetch changed sync replica state
+        self.load_cluster_from_dcs()
+        return msg
+
+    def do_process_manual_sync_switchover(self) -> Optional[str]:
+        sync_switchover = self.cluster.sync_switchover
+        if not sync_switchover.leader or sync_switchover.leader != self.state_handler.name:
+            logger.warning('sync switchover: leader name does not match: %s != %s', sync_switchover.leader,
+                           self.state_handler.name)
+            return
+        sync_confirmed = self.state_handler.sync_handler.current_state(self.cluster).sync_confirmed
+        if sync_confirmed == CaseInsensitiveSet(sync_switchover.candidates):
+            logger.info('sync switchover: candidates are already synchronous replicas')
+            return
+        logger.info("Assigning synchronous standby status to %s", str(sync_switchover.candidates))
+        self.state_handler.sync_handler.set_synchronous_standby_names(sync_switchover.candidates)
+
+        if self.dcs.write_sync_state(self.state_handler.name, sync_switchover.candidates, self.cluster.sync.version):
+            logger.info("Synchronous standby status assigned to %s", sync_switchover.candidates)
+        else:
+            return logger.info("Synchronous replication key updated by someone else")
+
     def process_manual_failover_from_leader(self) -> Optional[str]:
         """Checks if manual failover is requested and takes action if appropriate.
 
@@ -1828,6 +1867,9 @@ class Ha(object):
             # update lock to avoid split-brain
             if self.update_lock(True):
                 msg = self.process_manual_failover_from_leader()
+                if msg is not None:
+                    return msg
+                msg = self.process_manual_sync_switchover()
                 if msg is not None:
                     return msg
 
