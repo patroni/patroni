@@ -1196,6 +1196,7 @@ class ConfigHandler(object):
         self._superuser = config['authentication'].get('superuser', {})
         server_parameters = self.get_server_parameters(config)
         params_skip_changes = CaseInsensitiveSet((*self._RECOVERY_PARAMETERS, 'hot_standby'))
+        params_skip_changes.remove('primary_conninfo')
 
         conf_changed = hba_changed = ident_changed = local_connection_address_changed = False
         param_diff = CaseInsensitiveDict()
