@@ -1719,7 +1719,7 @@ class Ha(object):
 
                 # The value is very close to now
                 time.sleep(max(delta, 0))
-                logger.info('Manual scheduled {0} at %s'.format(action_name), scheduled_at.isoformat())
+                logger.info('Manual scheduled %s at %s', action_name, scheduled_at.isoformat())
                 return True
             except TypeError:
                 logger.warning('Incorrect value of scheduled_at: %s', scheduled_at)
