@@ -1,3 +1,4 @@
+import concurrent.futures
 import datetime
 import functools
 import json
@@ -6,7 +7,6 @@ import sys
 import time
 import uuid
 
-from multiprocessing.pool import ThreadPool
 from threading import RLock
 from typing import Any, Callable, cast, Collection, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING, Union
 
@@ -1182,11 +1182,12 @@ class Ha(object):
     def fetch_nodes_statuses(self, members: List[Member]) -> List[_MemberStatus]:
         if not members:
             return []
-        pool = ThreadPool(len(members))
-        results = pool.map(self.fetch_node_status, members)  # Run API calls on members in parallel
-        pool.close()
-        pool.join()
-        return results
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(members)) as executor:
+            futures = [executor.submit(self.fetch_node_status, member) for member in members]
+            # Run API calls on members in parallel
+            results = [future.result() for future in concurrent.futures.as_completed(futures)]
+            return results
 
     def update_failsafe(self, data: Dict[str, Any]) -> Union[int, str, None]:
         """Update failsafe state.
@@ -1265,17 +1266,16 @@ class Ha(object):
                    for name, url in failsafe.items() if name != self.state_handler.name]
         if not members:  # A single node cluster
             return True
-        pool = ThreadPool(len(members))
-        call_failsafe_member = functools.partial(self.call_failsafe_member, data)
-        results: List[_FailsafeResponse] = pool.map(call_failsafe_member, members)
-        pool.close()
-        pool.join()
-        ret = all(r.accepted for r in results)
-        if ret:
-            # The LSN feedback will be later used to advance position of replication slots
-            # for nodes that are doing cascading replication from other nodes.
-            self._failsafe.update_slots({r.member_name: r.lsn for r in results if r.lsn})
-        return ret
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(members)) as executor:
+            futures = [executor.submit(self.call_failsafe_member, data, member) for member in members]
+            results = [future.result() for future in concurrent.futures.as_completed(futures)]
+            ret = all(r.accepted for r in results)
+            if ret:
+                # The LSN feedback will be later used to advance position of replication slots
+                # for nodes that are doing cascading replication from other nodes.
+                self._failsafe.update_slots({r.member_name: r.lsn for r in results if r.lsn})
+            return ret
 
     def is_lagging(self, wal_position: int) -> bool:
         """Check if node should consider itself unhealthy to be promoted due to replication lag.
