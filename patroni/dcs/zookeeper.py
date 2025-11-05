@@ -106,7 +106,7 @@ class ZooKeeper(AbstractDCS):
                 normalizedPermissions = [p.upper() for p in permissions]
 
                 if ':' in principal:
-                    scheme, _, credential = principal.partition(':')
+                    scheme, credential = principal.split(':', 1)
                 else:
                     scheme, credential = 'x509', principal
 
