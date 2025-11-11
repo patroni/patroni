@@ -1341,13 +1341,19 @@ def process_user_options(tool: str, options: Any,
                 user_options.append('--{0}={1}'.format(key, unquote(val)))
     elif isinstance(options, list):
         for opt in cast(List[Any], options):
-            if isinstance(opt, str) and option_is_allowed(opt):
-                user_options.append('--{0}'.format(opt))
+            if isinstance(opt, str):
+                # This if needs to be nested, otherwise we confuse the user by logging two errors -- one issued by
+                # option_is_allowed and another by the else clause below.
+                if option_is_allowed(opt):
+                    user_options.append('--{0}'.format(opt))
             elif isinstance(opt, dict):
                 args = cast(Dict[str, Any], opt)
                 keys = list(args.keys())
-                if len(keys) == 1 and isinstance(args[keys[0]], str) and option_is_allowed(keys[0]):
-                    user_options.append('--{0}={1}'.format(keys[0], unquote(args[keys[0]])))
+                if len(keys) == 1 and isinstance(args[keys[0]], str):
+                    # This if needs to be nested, otherwise we confuse the user by logging two errors -- one issued by
+                    # option_is_allowed and another by the else clause below.
+                    if option_is_allowed(keys[0]):
+                        user_options.append('--{0}={1}'.format(keys[0], unquote(args[keys[0]])))
                 else:
                     error_handler('Error when parsing {0} key-value option {1}: only one key-value is allowed'
                                     ' and value should be a string'.format(tool, args[keys[0]]))
