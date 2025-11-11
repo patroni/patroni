@@ -12,6 +12,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from ..async_executor import CriticalTask
 from ..collections import EMPTY_DICT
 from ..dcs import Leader, RemoteMember
+from ..utils import process_user_options
 from . import Postgresql
 from .connection import get_connection_cursor
 from .misc import format_lsn, fsync_dir, parse_history, parse_lsn, PostgresqlRole
@@ -443,6 +444,10 @@ class Rewind(object):
 
         :returns: ``True`` if ``pg_rewind`` finished successfully, ``False`` otherwise.
         """
+        options = self._postgresql.config.get('rewind', [])
+        not_allowed_options = ('target-pgdata', 'source-pgdata', 'source-server', 'write-recovery-conf', 'dry-run',
+                               'restore-target-wal', 'config-file', 'no-ensure-shutdown', 'version', 'help')
+        user_options = process_user_options('rewind', options, not_allowed_options, logger.error)
         # prepare pg_rewind connection string
         env = self._postgresql.config.write_pgpass(conn_kwargs)
         env.update(LANG='C', LC_ALL='C', PGOPTIONS='-c statement_timeout=0')
@@ -466,6 +471,7 @@ class Rewind(object):
                 cmd.append('--config-file={0}'.format(self._postgresql.config.postgresql_conf))
 
         cmd.extend(['-D', self._postgresql.data_dir, '--source-server', dsn])
+        cmd.extend(user_options)
 
         while True:
             results: Dict[str, bytes] = {}
