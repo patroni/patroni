@@ -4,13 +4,13 @@ import shlex
 import tempfile
 import time
 
-from typing import Any, Callable, cast, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union
 
 from ..async_executor import CriticalTask
 from ..collections import EMPTY_DICT
 from ..dcs import Leader, Member, RemoteMember
 from ..psycopg import quote_ident, quote_literal
-from ..utils import deep_compare, unquote, process_user_options
+from ..utils import deep_compare, process_user_options
 from .misc import PostgresqlState
 
 if TYPE_CHECKING:  # pragma: no cover

@@ -1356,10 +1356,10 @@ def process_user_options(tool: str, options: Any,
                         user_options.append('--{0}={1}'.format(keys[0], unquote(args[keys[0]])))
                 else:
                     error_handler('Error when parsing {0} key-value option {1}: only one key-value is allowed'
-                                    ' and value should be a string'.format(tool, args[keys[0]]))
+                                  ' and value should be a string'.format(tool, args[keys[0]]))
             else:
                 error_handler('Error when parsing {0} option {1}: value should be string value'
-                                ' or a single key-value pair'.format(tool, opt))
+                              ' or a single key-value pair'.format(tool, opt))
     else:
         error_handler('{0} options must be list or dict'.format(tool))
     return user_options
