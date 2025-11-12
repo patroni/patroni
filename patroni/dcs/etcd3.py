@@ -21,7 +21,8 @@ from urllib3.exceptions import ProtocolError, ReadTimeoutError
 from ..collections import EMPTY_DICT
 from ..exceptions import DCSError, PatroniException
 from ..postgresql.mpp import AbstractMPP
-from ..utils import deep_compare, enable_keepalive, iter_response_objects, parse_bool, RetryFailedError, USER_AGENT
+from ..utils import deep_compare, enable_keepalive, iter_response_objects, \
+    parse_bool, RetryFailedError, USER_AGENT, WHITESPACE_RE
 from . import catch_return_false_exception, Cluster, ClusterConfig, \
     Failover, Leader, Member, Status, SyncState, TimelineHistory
 from .etcd import AbstractEtcd, AbstractEtcdClientWithFailover, catch_etcd_errors, \
@@ -217,6 +218,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     ERROR_CLS = Etcd3Error
 
     def __init__(self, config: Dict[str, Any], dns_resolver: DnsCachingResolver, cache_ttl: int = 300) -> None:
+        self._decoder = json.JSONDecoder()
         self._reauthenticate = False
         self._token = None
         self._cluster_version: Tuple[int, ...] = tuple()
@@ -245,7 +247,8 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         data = response.data
         try:
             data = data.decode('utf-8')
-            ret: Dict[str, Any] = json.loads(data)
+            idx = WHITESPACE_RE.match(data, 0).end()  # pyright: ignore [reportOptionalMemberAccess]
+            ret: Dict[str, Any] = self._decoder.raw_decode(data, idx)[0]
 
             header = ret.get('header', EMPTY_DICT)
             self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
@@ -254,7 +257,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
                 return ret
         except (TypeError, ValueError, UnicodeError) as e:
             if response.status < 400:
-                raise etcd.EtcdException('Server response was not valid JSON: %r' % e)
+                raise etcd.EtcdException("Server response '%s' was not valid JSON: %r" % (data, e))
             ret = {}
         ex = _raise_for_data(ret or data, response.status)
         if isinstance(ex, Unavailable):
