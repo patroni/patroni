@@ -867,12 +867,15 @@ class Ha(object):
         """
         if len(replication_state.active) < global_config.min_synchronous_nodes:
             # We don't have enough replication connections to satisfy min_synchronous_nodes.
+            sync_type = 'quorum' if self.quorum_commit_mode_is_active() else 'priority'
             quorum = dcs_state.quorum if self.quorum_commit_mode_is_active() else 0
             voters = CaseInsensitiveSet(dcs_state.voters)
             numsync = max(global_config.min_synchronous_nodes, len(voters) - quorum)
 
             msg = ''
-            if voters != replication_state.sync or numsync != replication_state.numsync:
+            if voters != replication_state.sync or \
+                    numsync != replication_state.numsync or \
+                    sync_type != replication_state.sync_type:
                 self.state_handler.sync_handler.set_synchronous_standby_names(voters, numsync)
             elif voters:
                 msg = 'Continue using old value of synchronous_standby_names="{0}". '.format(
@@ -942,6 +945,11 @@ class Ha(object):
                         return logger.info('Synchronous replication key updated by someone else.')
                 elif transition == 'sync':
                     self.state_handler.sync_handler.set_synchronous_standby_names(nodes, num)
+
+            if transition == 'break' and sync_state.sync_type != 'quorum':
+                # FIRST -> ANY
+                self.state_handler.sync_handler.set_synchronous_standby_names(sync_state.sync, sync_state.numsync)
+
             if transition != 'restart' or _check_timeout(1):
                 return
             # synchronous_standby_names was transitioned from empty to non-empty and it may take
@@ -988,6 +996,9 @@ class Ha(object):
             return
 
         if picked == voters == current_state.sync and current_state.numsync == len(picked):
+            if current_state.sync_type != 'priority':
+                # ANY -> FIRST
+                self.state_handler.sync_handler.set_synchronous_standby_names(picked)
             return
 
         # update synchronous standby list in dcs temporarily to point to common nodes in current and picked

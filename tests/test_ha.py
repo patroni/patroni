@@ -1503,6 +1503,19 @@ class TestHa(PostgresInit):
             self.ha.run_cycle()
         mock_set_sync.assert_called_once_with(CaseInsensitiveSet(), 1)
 
+        # Test ANY 1 (foo) -> foo transition
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo'))
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1,
+                                                                         CaseInsensitiveSet(['foo']),
+                                                                         CaseInsensitiveSet(['foo']),
+                                                                         CaseInsensitiveSet(['foo'])))
+        self.ha.dcs.write_sync_state.reset_mock()
+        mock_set_sync.reset_mock()
+        self.ha.run_cycle()
+        self.ha.dcs.write_sync_state.assert_not_called()
+        self.assertEqual(mock_set_sync.call_count, 1)
+        self.assertEqual(mock_set_sync.call_args_list[0][0][0], CaseInsensitiveSet(['foo']))
+
         # Test the value configured by the user for synchronous_standby_names is used when synchronous mode is disabled
         self.ha.is_synchronous_mode = false
 
@@ -1979,6 +1992,20 @@ class TestHa(PostgresInit):
         with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')), \
                 patch('time.time', Mock(side_effect=[30, 60, 90, 120])):
             self.ha.process_sync_replication()
+
+        # Test foo -> ANY 1 (foo) transition
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo'))
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1,
+                                                                         CaseInsensitiveSet(['foo']),
+                                                                         CaseInsensitiveSet(['foo']),
+                                                                         CaseInsensitiveSet(['foo'])))
+        mock_write_sync.reset_mock()
+        mock_set_sync.reset_mock()
+        with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')):
+            self.ha.run_cycle()
+        mock_write_sync.assert_not_called()
+        self.assertEqual(mock_set_sync.call_count, 1)
+        self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (foo)',))
 
     def test_is_failover_possible(self):
         self.p._major_version = 140000  # supports_multiple_sync
