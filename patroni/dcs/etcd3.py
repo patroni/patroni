@@ -74,6 +74,8 @@ class Etcd3WatchCanceled(Etcd3Exception):
 class Etcd3ClientError(Etcd3Exception):
 
     def __init__(self, code: Optional[int] = None, error: Optional[str] = None, status: Optional[int] = None) -> None:
+        if not hasattr(self, 'code'):
+            self.code = code
         if not hasattr(self, 'error'):
             self.error = error and error.strip()
         self.codeText = GRPCcodeToText.get(code) if code is not None else None
@@ -81,7 +83,7 @@ class Etcd3ClientError(Etcd3Exception):
 
     def __repr__(self) -> str:
         return "<{0} error: '{1}', code: {2}>"\
-            .format(self.__class__.__name__, getattr(self, 'error', None), getattr(self, 'code', None))
+            .format(self.codeText, getattr(self, 'error', None), getattr(self, 'code', None))
 
     __str__ = __repr__
 
@@ -171,11 +173,11 @@ def _raise_for_data(data: Union[bytes, str, Dict[str, Any]], status_code: Option
             if TYPE_CHECKING:  # pragma: no cover
                 assert not isinstance(data_code, dict)
             code = data_code
-            error = str(data_error)
+            error = str(data_error or data.get('message') or data)
     except Exception:
         error = str(data)
         code = GRPCCode.Unknown
-    err = errStringToClientError.get(error) or errCodeToClientError.get(code) or Unknown
+    err = errStringToClientError.get(error) or errCodeToClientError.get(code) or Etcd3ClientError
     return err(code, error, status_code)
 
 
