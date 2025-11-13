@@ -458,73 +458,27 @@ class RestApiHandler(BaseHTTPRequestHandler):
         status_code = 200 if patroni.ha.is_paused() or patroni.next_run + liveness_threshold > time.time() else 503
         self._write_status_code_only(status_code)
 
-    def _readiness(self) -> Optional[str]:
-        """Check if readiness conditions are met.
-
-        :returns: None if node can be considered ready or diagnostic message if not."""
-
-        patroni = self.server.patroni
-        if patroni.ha.is_leader():
-            # We only become leader after bootstrap or once up as a standby, so we are definitely ready.
-            return
-
-        # When postgres is not running we are not ready.
-        if patroni.postgresql.state != PostgresqlState.RUNNING:
-            return 'PostgreSQL is not running'
-
-        postgres = self.get_postgresql_status(True)
-        latest_end_lsn = postgres.get('latest_end_lsn', 0)
-
-        if postgres.get('replication_state') != 'streaming':
-            return 'PostgreSQL replication state is not streaming'
-
-        cluster = patroni.dcs.cluster
-
-        if not cluster and not latest_end_lsn:
-            if patroni.ha.failsafe_is_active():
-                return
-            return 'DCS is not accessible'
-
-        leader_optime = max(cluster and cluster.status.last_lsn or 0, latest_end_lsn)
-
-        mode = 'write' if self.path_query.get('mode', [None])[0] == 'write' else 'apply'
-        location = 'received_location' if mode == 'write' else 'replayed_location'
-        lag = leader_optime - postgres.get('xlog', {}).get(location, 0)
-
-        max_replica_lag = parse_int(self.path_query.get('lag', [None])[0], 'B')
-        if max_replica_lag is None:
-            max_replica_lag = global_config.maximum_lag_on_failover
-
-        if lag > max_replica_lag:
-            return f'Replication {mode} lag {lag} exceeds maximum allowable {max_replica_lag}'
-
     def do_GET_readiness(self) -> None:
         """Handle a ``GET`` request to ``/readiness`` path.
-
-            * Query parameters:
-
-                * ``lag``: only accept replication lag up to ``lag``. Accepts either an :class:`int`, which
-                    represents lag in bytes, or a :class:`str` representing lag in human-readable format (e.g.
-                    ``10MB``).
-                * ``mode``: allowed values ``write``, ``apply``. Base replication lag off of received WAL or
-                    replayed WAL. Defaults to ``apply``.
 
         Write a simple HTTP response which HTTP status can be:
 
             * ``200``:
 
-                * If this Patroni node considers itself the leader; or
-                * If PostgreSQL is running, replicating and not lagging;
+                * If this Patroni node holds the DCS leader lock; or
+                * If this PostgreSQL instance is up and running;
 
             * ``503``: if none of the previous conditions apply.
 
         """
-        failure_reason = self._readiness()
-
-        if failure_reason:
-            logger.debug("Readiness check failure: %s", failure_reason)
-
-        self._write_status_code_only(200 if not failure_reason else 503)
+        patroni = self.server.patroni
+        if patroni.ha.is_leader():
+            status_code = 200
+        elif patroni.postgresql.state == PostgresqlState.RUNNING:
+            status_code = 200 if patroni.dcs.cluster else 503
+        else:
+            status_code = 503
+        self._write_status_code_only(status_code)
 
     def do_GET_patroni(self) -> None:
         """Handle a ``GET`` request to ``/patroni`` path.
