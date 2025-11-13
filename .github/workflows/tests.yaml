@@ -6,6 +6,7 @@ on:
     branches:
     - master
     - 'REL_[0-9]+_[0-9]+'
+    - zalando-deploy
 
 env:
   CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
