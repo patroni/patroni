@@ -20,6 +20,7 @@ from .postgresql.callback_executor import CallbackAction
 from .postgresql.misc import postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .postgresql.postmaster import PostmasterProcess
 from .postgresql.rewind import Rewind
+from .postgresql.upgrade import InplaceUpgrade
 from .quorum import QuorumStateResolver
 from .tags import Tags
 from .utils import parse_int, polling_loop, tzutc
@@ -226,6 +227,7 @@ class Ha(object):
         self.patroni = patroni
         self.state_handler = patroni.postgresql
         self._rewind = Rewind(self.state_handler)
+        self._upgrade: Optional[InplaceUpgrade] = None
         self.dcs = patroni.dcs
         self.cluster = Cluster.empty()
         self.old_cluster = Cluster.empty()
@@ -2014,6 +2016,26 @@ class Ha(object):
                 return '{0} already in progress'.format(action)
 
         self._async_executor.run_async(self._do_reinitialize, args=(cluster, from_leader))
+
+    def upgrade(self, desired_version: str, replica_count: int) -> Tuple[bool, str]:
+        with self._async_executor:
+            prev = self._async_executor.schedule('upgrade')
+            if prev is not None:
+                return (False, prev + ' already in progress')
+
+        self._upgrade = InplaceUpgrade(self.state_handler, desired_version, replica_count, self.dcs, self)
+
+        # TODO: refactor this into HA class
+        #if self.upgrade_required:
+            # we want to reduce tcp timeouts and keepalives and therefore tune loop_wait, retry_timeout, and ttl
+            #self.dcs = get_dcs({**config.copy(), 'loop_wait': 0, 'ttl': 10, 'retry_timeout': 10, 'patronictl': True})
+            #self.request = PatroniRequest(config, True)
+
+        result = self._async_executor.run(self._upgrade.do_upgrade, args=(desired_version,))
+        if result is None:
+            return (True, 'upgraded to {0} successfully'.format(desired_version))
+        else:
+            return (False, result)
 
     def handle_long_action_in_progress(self) -> str:
         """Figure out what to do with the task AsyncExecutor is performing."""

@@ -94,6 +94,7 @@ class Postgresql(object):
         self._connection = self.connection_pool.get('heartbeat')
         self.mpp_handler = mpp.get_handler_impl(self)
         if config.get('bin_dir_template'):
+            # TODO: move construction from existing data dir to a separate method
             if self._major_version:
                 version = str(self._major_version // 10000)
                 if self._major_version < 100000:
@@ -1414,3 +1415,77 @@ class Postgresql(object):
         return CaseInsensitiveSet({
             line.split('\t')[0] for line in subprocess.check_output(cmd).decode('utf-8').strip().split('\n')
         })
+
+    def get_cluster_version(self) -> str:
+        with open(self._version_file) as f:
+            return f.read().strip()
+
+    @staticmethod
+    def remove_new_data(d):
+        if d.endswith('_new') and os.path.isdir(d):
+            shutil.rmtree(d)
+
+    def prepare_new_pgdata(self, version):
+        #from spilo_commons import append_extensions
+
+        locale = self.query("SELECT datcollate FROM pg_database WHERE datname='template1';")[0][0]
+        encoding = self.query('SHOW server_encoding')[0][0]
+        initdb_config = [{'locale': locale}, {'encoding': encoding}]
+        if self.query("SELECT current_setting('data_checksums')::bool")[0][0]:
+            initdb_config.append('data-checksums')
+
+        logger.info('initdb config: %s', initdb_config)
+
+        self._new_data_dir = os.path.abspath(self._data_dir)
+        self._old_data_dir = self._new_data_dir + '_old'
+        self._data_dir = self._new_data_dir + '_new'
+        self.remove_new_data(self._data_dir)
+        old_postgresql_conf = self.config._postgresql_conf
+        self.config._postgresql_conf = os.path.join(self._data_dir, 'postgresql.conf')
+        old_version_file = self._version_file
+        self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
+
+        self._old_bin_dir = self._bin_dir
+        self.set_bin_dir_for_version(version) # FIXME: refactor this
+        self._new_bin_dir = self._bin_dir
+
+        # shared_preload_libraries for the old cluster, cleaned from incompatible/missing libs
+        old_shared_preload_libraries = self.config.get('parameters').get('shared_preload_libraries')
+
+        # restore original values of archive_mode and shared_preload_libraries
+        if getattr(self, '_old_config_values', None):
+            for name, value in self._old_config_values.items():
+                if value is None:
+                    self.config.get('parameters').pop(name)
+                else:
+                    self.config.get('parameters')[name] = value
+
+        # for the new version we maybe need to add some libs to the shared_preload_libraries
+        shared_preload_libraries = self.config.get('parameters').get('shared_preload_libraries')
+        if shared_preload_libraries:
+            # TODO: plugin API for determining shared preload libraries
+            self._old_shared_preload_libraries = self.config.get('parameters')['shared_preload_libraries'] =\
+                shared_preload_libraries
+                #append_extensions(shared_preload_libraries, float(version))
+            #self.no_bg_mon()
+
+        if not self.bootstrap._initdb(initdb_config):
+            return False
+        self.bootstrap._running_custom_bootstrap = False
+
+        # Copy old configs. XXX: some parameters might be incompatible!
+        for f in os.listdir(self._new_data_dir):
+            if f.startswith('postgresql.') or f.startswith('pg_hba.conf') or f == 'patroni.dynamic.json':
+                shutil.copy(os.path.join(self._new_data_dir, f), os.path.join(self._data_dir, f))
+
+        self.config.write_postgresql_conf()
+        self._new_data_dir, self._data_dir = self._data_dir, self._new_data_dir
+        self.config._postgresql_conf = old_postgresql_conf
+        self._version_file = old_version_file
+        self.set_bin_dir(self._old_bin_dir)
+
+        if old_shared_preload_libraries:
+            self.config.get('parameters')['shared_preload_libraries'] = old_shared_preload_libraries
+            self.no_bg_mon()
+        self.configure_server_parameters()
+        return True
