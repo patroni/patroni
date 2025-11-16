@@ -261,6 +261,9 @@ class Ha(object):
         self._disable_sync = 0
         # Remember the last known member role and state written to the DCS in order to notify MPP coordinator
         self._last_state = None
+        # Remember the last data published to DCS in order to detect xlog-only updates
+        self._last_member_data: Optional[Dict[str, Any]] = None
+        self._last_member_data_timestamp = 0.0
 
         # We need following property to avoid shutdown of postgres when join of Patroni to the postgres
         # already running as replica was aborted due to cluster not being initialized in DCS.
@@ -505,13 +508,42 @@ class Ha(object):
             if self.is_paused():
                 data['pause'] = True
 
+            if self._should_skip_xlog_update(data):
+                return True
+
             ret = self.dcs.touch_member(data)
             if ret:
+                self._last_member_data = data.copy()
+                self._last_member_data_timestamp = time.time()
                 new_state = (data['state'], data['role'])
                 if self._last_state != new_state and new_state == (PostgresqlState.RUNNING, PostgresqlRole.PRIMARY):
                     self.notify_mpp_coordinator('after_promote')
                 self._last_state = new_state
             return ret
+
+    def _xlog_cache_ttl(self) -> int:
+        """Return configured xlog cache ttl as positive int."""
+        ttl = parse_int(self.patroni.config.get('xlog_cache_ttl'))
+        return ttl if isinstance(ttl, int) and ttl > 0 else 0
+
+    def _should_skip_xlog_update(self, data: Dict[str, Any]) -> bool:
+        """Decide whether current touch_member call can be skipped because only xlog changed."""
+        ttl = self._xlog_cache_ttl()
+        if ttl == 0 or not self._last_member_data:
+            return False
+
+        if self._last_member_data_timestamp + ttl <= time.time():
+            return False
+
+        if data.get('xlog_location') == self._last_member_data.get('xlog_location'):
+            return False
+
+        keys = set(self._last_member_data.keys()) | set(data.keys())
+        keys.discard('xlog_location')
+        for key in keys:
+            if self._last_member_data.get(key) != data.get(key):
+                return False
+        return True
 
     def clone(self, clone_member: Union[Leader, Member, None] = None, msg: str = '(without leader)',
               clone_from_leader: bool = False) -> Optional[bool]:

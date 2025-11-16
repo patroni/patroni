@@ -89,6 +89,7 @@ Why is the information about one of my Patroni members not up-to-date in the out
 
     By default, that information is updated by Patroni roughly every ``loop_wait`` seconds.
     In other words, even if everything is normally functional you may still see a "delay" of up to ``loop_wait`` seconds in the information stored in the DCS.
+    When :ref:`xlog_cache_ttl <patroni_configuration>` is configured with a positive value, Patroni will additionally delay DCS writes that only change ``xlog_location`` for up to that amount of time.
 
     Be aware that that is not a rule, though. Some operations performed by Patroni cause it to immediately update the DCS information.
 

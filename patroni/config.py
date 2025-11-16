@@ -88,6 +88,7 @@ class Config(object):
     __CACHE_FILENAME = 'patroni.dynamic.json'
     __DEFAULT_CONFIG: Dict[str, Any] = {
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
+        'xlog_cache_ttl': 0,
         'standby_cluster': {
             'create_replica_methods': '',
             'host': '',

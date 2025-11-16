@@ -137,6 +137,7 @@ Also the following Patroni configuration options **can be changed only dynamical
 - **ttl**: 30
 - **loop_wait**: 10
 - **retry_timeouts**: 10
+- **xlog_cache_ttl**: 0
 - **maximum_lag_on_failover**: 1048576
 - **max_timelines_history**: 0
 - **check_timeline**: false

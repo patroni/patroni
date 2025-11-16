@@ -255,6 +255,30 @@ class TestHa(PostgresInit):
         self.ha.dcs.touch_member = true
         self.ha.touch_member()
 
+    @patch.object(Postgresql, 'received_timeline', Mock(return_value=None))
+    def test_touch_member_xlog_cache_ttl(self):
+        self.ha.patroni.config._Config__effective_configuration['xlog_cache_ttl'] = 60
+        self.p._major_version = 110000
+        self.p.is_primary = false
+        base_position = (0, 10, 0, 0, 0)
+        self.p.timeline_wal_position = Mock(return_value=base_position)
+        self.p.replica_cached_timeline = Mock(return_value=0)
+        self.ha.dcs.touch_member = Mock(return_value=True)
+
+        self.assertTrue(self.ha.touch_member())
+        self.assertEqual(self.ha.dcs.touch_member.call_count, 1)
+
+        new_position = (0, 20, 0, 0, 0)
+        self.p.timeline_wal_position = Mock(return_value=new_position)
+        self.assertTrue(self.ha.touch_member())
+        self.assertEqual(self.ha.dcs.touch_member.call_count, 1)
+
+        self.ha._last_member_data_timestamp -= 100
+        newest_position = (0, 30, 0, 0, 0)
+        self.p.timeline_wal_position = Mock(call_countreturn_value=newest_position)
+        self.assertTrue(self.ha.touch_member())
+        self.assertEqual(self.ha.dcs.touch_member, 2)
+
     def test_is_leader(self):
         self.assertFalse(self.ha.is_leader())
 
