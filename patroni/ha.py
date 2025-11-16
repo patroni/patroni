@@ -511,6 +511,7 @@ class Ha(object):
             if self._should_skip_xlog_update(data):
                 return True
 
+            data['last_modified'] = datetime.datetime.now(tzutc).isoformat()
             ret = self.dcs.touch_member(data)
             if ret:
                 self._last_member_data = data.copy()
@@ -540,6 +541,7 @@ class Ha(object):
 
         keys = set(self._last_member_data.keys()) | set(data.keys())
         keys.discard('xlog_location')
+        keys.discard('last_modified')
         for key in keys:
             if self._last_member_data.get(key) != data.get(key):
                 return False

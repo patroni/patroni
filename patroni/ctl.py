@@ -1611,6 +1611,9 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
 
     all_members = [m for c in clusters.values() for m in c['members'] if 'host' in m]
 
+    if extended:
+        columns.append('Last modified')
+
     for c in ('Pending restart', 'Pending restart reason', 'Scheduled restart', 'Tags'):
         if extended or any(m.get(c.lower().replace(' ', '_')) for m in all_members):
             columns.append(c)

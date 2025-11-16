@@ -723,6 +723,15 @@ Besides that, the following information may be included in the output:
 
         Only shown if a Citus cluster.
 
+``Last modified``
+    Timestamp (in ISO 8601 format) of the last successful update this member wrote to the DCS. Use it to determine how
+    fresh the rest of the member information is.
+
+    .. note::
+        Shown as a member attribute.
+
+        Only shown if extended output is enabled.
+
 ``Pending restart``
     ``*`` indicates that the node needs a restart for some Postgres configuration to take effect. An empty value indicates the node does not require a restart.
 
@@ -791,7 +800,8 @@ Parameters
 ``-e`` / ``--extended``
     Show extended information.
 
-    Force showing ``Pending restart``, ``Scheduled restart`` and ``Tags`` attributes, even if their value is empty.
+    Force showing ``Pending restart``, ``Scheduled restart`` and ``Tags`` attributes, even if their value is empty. Also
+    enables the ``Last modified`` attribute.
 
     .. note::
         Only applies to ``pretty`` and ``tsv`` output formats.
@@ -842,13 +852,13 @@ Show information about the cluster in pretty format with extended columns:
 .. code:: bash
 
     $ patronictl -c postgres0.yml list batman -e
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+-----------------+------------------------+-------------------+------+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag | Pending restart | Pending restart reason | Scheduled restart | Tags |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+-----------------+------------------------+-------------------+------+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |             |     |            |     |                 |                        |                   |      |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |                 |                        |                   |      |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |                 |                        |                   |      |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+-----------------+------------------------+-------------------+------+
+    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+----------------------+-----------------+------------------------+-------------------+------+
+    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag | Last modified        | Pending restart | Pending restart reason | Scheduled restart | Tags |
+    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+----------------------+-----------------+------------------------+-------------------+------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |             |     |            |     | 2024-09-09T12:00:00Z |                 |                        |                   |      |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 | 2024-09-09T12:00:05Z |                 |                        |                   |      |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 | 2024-09-09T12:00:05Z |                 |                        |                   |      |
+    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+----------------------+-----------------+------------------------+-------------------+------+
 
 Show information about the cluster in YAML format, with timestamp of execution:
 

@@ -440,7 +440,8 @@ Cluster status endpoints
           "timeline": 5,
           "tags": {
             "clonefrom": true
-          }
+          },
+          "last_modified": "2024-09-09T12:00:00+00:00"
         },
         {
           "name": "patroni2",
@@ -458,7 +459,8 @@ Cluster status endpoints
           "replay_lag": 0,
           "replay_lsn": "0/4000060",
           "lag": 0,
-          "lsn": "0/4000060"
+          "lsn": "0/4000060",
+          "last_modified": "2024-09-09T12:00:05+00:00"
         }
       ],
       "scope": "demo",
@@ -471,6 +473,10 @@ Cluster status endpoints
 
 
 - The ``GET /history`` endpoint provides a view on the history of cluster switchovers/failovers. The format is very similar to the content of history files in the ``pg_wal`` directory. The only difference is the timestamp field showing when the new timeline was created.
+
+Each member entry in the ``members`` array also contains a ``last_modified`` attribute indicating when that node last
+successfully updated its information in the DCS. It is useful for identifying stale ``xlog_location`` values when
+``xlog_cache_ttl`` defers WAL-only writes.
 
 .. code-block:: bash
 

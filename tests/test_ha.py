@@ -31,6 +31,7 @@ from . import MockPostmaster, PostgresInit, psycopg_connect, requests_get
 from .test_etcd import etcd_read, etcd_write, socket_getaddrinfo
 
 SYSID = '12345678901'
+LAST_MODIFIED = '2100-01-01T00:00:00+00:00'
 
 
 def true(*args, **kwargs):
@@ -60,7 +61,8 @@ def get_cluster_bootstrapping_without_leader(cluster_config=None):
 def get_cluster_initialized_without_leader(leader=False, failover=None, sync=None, cluster_config=None, failsafe=False):
     m1 = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
                                   'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4,
-                                  'role': PostgresqlRole.PRIMARY, 'state': 'running'})
+                                  'role': PostgresqlRole.PRIMARY, 'state': 'running',
+                                  'last_modified': LAST_MODIFIED})
     leader = Leader(0, 0, m1 if leader else Member(0, '', 28, {}))
     m2 = Member(0, 'other', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
                                  'api_url': 'http://127.0.0.1:8011/patroni',
@@ -68,7 +70,8 @@ def get_cluster_initialized_without_leader(leader=False, failover=None, sync=Non
                                  'pause': True,
                                  'tags': {'clonefrom': True},
                                  'scheduled_restart': {'schedule': "2100-01-01 10:53:07.560445+00:00",
-                                                       'postgres_version': '99.0.0'}})
+                                                       'postgres_version': '99.0.0'},
+                                 'last_modified': LAST_MODIFIED})
     syncstate = SyncState(0 if sync else None, sync and sync[0],
                           sync and sync[1], sync[2] if sync and len(sync) > 2 else 0)
     failsafe = {m.name: m.api_url for m in (m1, m2)} if failsafe else None
@@ -267,17 +270,24 @@ class TestHa(PostgresInit):
 
         self.assertTrue(self.ha.touch_member())
         self.assertEqual(self.ha.dcs.touch_member.call_count, 1)
+        last_call_data = self.ha.dcs.touch_member.call_args[0][0]
+        self.assertIn('last_modified', last_call_data)
+        first_last_modified = last_call_data['last_modified']
+        self.assertEqual(self.ha._last_member_data['last_modified'], first_last_modified)
 
         new_position = (0, 20, 0, 0, 0)
         self.p.timeline_wal_position = Mock(return_value=new_position)
         self.assertTrue(self.ha.touch_member())
         self.assertEqual(self.ha.dcs.touch_member.call_count, 1)
+        self.assertEqual(self.ha._last_member_data['last_modified'], first_last_modified)
 
         self.ha._last_member_data_timestamp -= 100
         newest_position = (0, 30, 0, 0, 0)
-        self.p.timeline_wal_position = Mock(call_countreturn_value=newest_position)
+        self.p.timeline_wal_position = Mock(return_value=newest_position)
         self.assertTrue(self.ha.touch_member())
-        self.assertEqual(self.ha.dcs.touch_member, 2)
+        self.assertEqual(self.ha.dcs.touch_member.call_count, 2)
+        second_last_modified = self.ha.dcs.touch_member.call_args[0][0]['last_modified']
+        self.assertNotEqual(first_last_modified, second_last_modified)
 
     def test_is_leader(self):
         self.assertFalse(self.ha.is_leader())

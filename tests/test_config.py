@@ -79,10 +79,12 @@ class TestConfig(unittest.TestCase):
             'PATRONI_REPLICATION_PASSWORD': 'rep-pass',
             'PATRONI_admin_PASSWORD': 'admin',
             'PATRONI_admin_OPTIONS': 'createrole,createdb',
-            'PATRONI_POSTGRESQL_BIN_POSTGRES': 'sergtsop'
+            'PATRONI_POSTGRESQL_BIN_POSTGRES': 'sergtsop',
+            'PATRONI_XLOG_CACHE_TTL': '60'
         })
         config = Config('postgres0.yml')
         self.assertEqual(config.local_configuration['log']['mode'], 0o123)
+        self.assertEqual(config.local_configuration['xlog_cache_ttl'], 60)
         with patch.object(Config, '_load_config_file', Mock(return_value={'restapi': {}})):
             with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
                 config.reload_local_configuration()

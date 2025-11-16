@@ -493,6 +493,12 @@ class Config(object):
             if value:
                 ret[param] = value
 
+        value = _popenv('xlog_cache_ttl')
+        if value:
+            value = parse_int(value)
+            if value is not None:
+                ret['xlog_cache_ttl'] = value
+
         def _fix_log_env(name: str, oldname: str) -> None:
             """Normalize a log related environment variable.
 

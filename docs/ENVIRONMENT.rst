@@ -11,6 +11,8 @@ Global/Universal
 -  **PATRONI\_NAME**: name of the node where the current instance of Patroni is running. Must be unique for the cluster.
 -  **PATRONI\_NAMESPACE**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service"
 -  **PATRONI\_SCOPE**: cluster name
+-  **PATRONI\_XLOG\_CACHE\_TTL**: amount of seconds Patroni may cache updates that only change ``xlog_location`` before
+   writing them to the DCS. Must be a non-negative integer.
 
 Log
 ---
