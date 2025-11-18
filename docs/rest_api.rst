@@ -21,6 +21,7 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
 - ``GET /replica``: replica health check endpoint. It returns HTTP status code **200** only when the Patroni node is in the state ``running``, the role is ``replica`` and ``noloadbalance`` tag is not set.
 
+- ``GET /replica?replication_state=<required state>``: replica check endpoint. In addition to checks from ``replica``, it also checks if the replication state matches the required one. Mainly useful with ``replication_state=streaming``, to exclude replicas still catching up in archive recovery.
 - ``GET /replica?lag=<max-lag>``: replica check endpoint. In addition to checks from ``replica``, it also checks replication latency and returns status code **200** only when it is below specified value. The key cluster.last_leader_operation from DCS is used for Leader wal position and compute latency on replica for performance reasons. max-lag can be specified in bytes (integer) or in human readable values, for e.g. 16kB, 64MB, 1GB.
 
   - ``GET /replica?lag=1048576``
