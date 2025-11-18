@@ -4,7 +4,6 @@ from typing import Optional
 import psycopg2
 
 from ..dcs import Cluster, Member
-from ..ha import Ha
 from ..utils import polling_loop
 from . import Postgresql
 
@@ -13,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class InplaceUpgrade(object):
 
-    def __init__(self, postgresql: Postgresql, desired_version: str, replica_count: int, ha: Ha):
+    def __init__(self, postgresql: Postgresql, desired_version: str, replica_count: int, ha: 'Ha'):
         self.current_pg = postgresql
 
         self.cluster_version = self.current_pg.get_cluster_version()

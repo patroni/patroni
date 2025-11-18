@@ -76,21 +76,43 @@ class Postgresql(object):
               "pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused()")
 
     def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
+        self._init(config, mpp)
+        self._startup(config)
+
+    def new_version(self, version: str, data_dir: str):
+        # TODO: Have a better way to transfer config
+        config = self.config._config
+        major_version = postgres_major_version_to_int(version)
+
+        copy = type(self).__new__(type(self))
+        copy._init(config,
+                   self.mpp_handler.reparented(copy),
+                   explicit_version=major_version,
+                   data_dir_override=data_dir,
+                   existing=self,
+                   )
+        return copy
+
+    def _init(self, config: Dict[str, Any], mpp: AbstractMPP,
+              bin_dir_template_required: bool=False,
+              explicit_version: Optional[int]=None,
+              data_dir_override: Optional[str]=None,
+              existing: Optional['Postgresql']=None) -> None:
         self.name: str = config['name']
         self.scope: str = config['scope']
-        self._data_dir: str = config['data_dir']
+        self._data_dir: str = data_dir_override or config['data_dir']
         self._database = config.get('database', 'postgres')
         self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
         self._pg_control = os.path.join(self._data_dir, 'global', 'pg_control')
         self.connection_string: str
         self.proxy_url: Optional[str]
-        self._major_version = self.get_major_version()
+        self._major_version = explicit_version or self.get_major_version()
 
         self._state_lock = Lock()
         self.set_state(PostgresqlState.STOPPED)
 
         self._pending_restart_reason = CaseInsensitiveDict()
-        self.connection_pool = ConnectionPool()
+        self.connection_pool = ConnectionPool() #TODO: should this be copied on upgrade?
         self._connection = self.connection_pool.get('heartbeat')
         self.mpp_handler = mpp.get_handler_impl(self)
         if config.get('bin_dir_template'):
@@ -101,24 +123,27 @@ class Postgresql(object):
                     version += "." + str((self._major_version % 10000) // 100)
             else:
                 version = config.get('version')
-            logger.info(f"Picking version {version}")
+            if not explicit_version:
+                logger.info(f"Picking version {version}")
             self._bin_dir = config['bin_dir_template'].format(major_version=version) if version else ''
+        elif existing:
+            raise Exception("Upgrading version requires a bin_dir_template") # TODO: pick correct error
         else:
             self._bin_dir = config.get('bin_dir') or ''
         self._role_lock = Lock()
-        self.set_role(PostgresqlRole.UNINITIALIZED)
+        self.set_role(PostgresqlRole.UNINITIALIZED if not existing else existing.role)
         self.config = ConfigHandler(self, config)
         self.config.check_directories()
 
         self.bootstrap = Bootstrap(self)
         self.bootstrapping = False
-        self.__thread_ident = current_thread().ident
+        self.__thread_ident = current_thread().ident if not existing else existing.__thread_ident
 
-        self.slots_handler = SlotsHandler(self)
+        self.slots_handler = SlotsHandler(self) #TODO: handle background thread
         self.sync_handler = SyncHandler(self)
 
         self._callback_executor = CallbackExecutor()
-        self.__cb_called = False
+        self.__cb_called = False if not existing else existing.__cb_called #TODO: guaranteed to be true?
         self.__cb_pending = None
 
         self.cancellable = CancellableSubprocess()
@@ -131,7 +156,6 @@ class Postgresql(object):
         self._is_leader_retry = Retry(max_tries=1, deadline=config['retry_timeout'] / 2.0, max_delay=1,
                                       retry_exceptions=PostgresConnectionException)
 
-        self.set_role(self.get_postgres_role_from_data_directory())
         self._state_entry_timestamp = 0
 
         self._cluster_info_state = {}
@@ -143,6 +167,9 @@ class Postgresql(object):
         self._postmaster_proc = None
 
         self._available_gucs = None
+
+    def _startup(self, config: Dict[str, Any]):
+        self.set_role(self.get_postgres_role_from_data_directory())
 
         if self.is_running():
             # If we found postmaster process we need to figure out whether postgres is accepting connections
