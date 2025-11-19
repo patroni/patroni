@@ -338,6 +338,11 @@ class Postgresql(object):
             return PgIsReadyStatus.UNKNOWN
 
     def reload_config(self, config: Dict[str, Any], sighup: bool = False) -> None:
+        self._bin_dir = config.get('bin_dir') or ''
+        new_data_dir = str(config.get('data_dir', ''))
+        if new_data_dir != self._data_dir:
+            self._data_dir = new_data_dir
+            self._sysid = ''
         self.config.reload_config(config, sighup)
         self._is_leader_retry.deadline = self.retry.deadline = config['retry_timeout'] / 2.0
 
