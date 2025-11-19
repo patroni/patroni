@@ -268,7 +268,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     * ``lag``: only accept replication lag up to ``lag``. Accepts either an :class:`int`, which
                         represents lag in bytes, or a :class:`str` representing lag in human-readable format (e.g.
                         ``10MB``).
-                    * ``replication_state``: only return HTTP status ``200`` if the node's state matches the 
+                    * ``replication_state``: only return HTTP status ``200`` if the node's state matches the
                         requested one (e.g. "streaming")
                     * Any custom parameter: will attempt to match them against node tags.
 
@@ -336,7 +336,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         is_lagging = leader_optime and leader_optime > replayed_location + max_replica_lag
 
         wanted_replication_state = self.path_query.get('replication_state', [None])[0]
-        matches_replication_state = response.get('replication_state') == wanted_replication_state 
+        matches_replication_state = response.get('replication_state') == wanted_replication_state \
             if wanted_replication_state else True
 
         replica_status_code = 200 if not patroni.noloadbalance and not is_lagging and \
