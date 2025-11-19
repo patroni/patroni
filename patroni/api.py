@@ -334,7 +334,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             max_replica_lag = sys.maxsize
         is_lagging = leader_optime and leader_optime > replayed_location + max_replica_lag
 
-        wanted_replication_state = self.path_query.get('replication_state', None)
+        wanted_replication_state = self.path_query.get('replication_state', [None])[0]
         matches_replication_state = response.get('replication_state') == wanted_replication_state if wanted_replication_state else True
 
         replica_status_code = 200 if not patroni.noloadbalance and not is_lagging and \
