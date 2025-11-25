@@ -1967,3 +1967,26 @@ class TestHa(PostgresInit):
             with patch.object(global_config.__class__, 'is_quorum_commit_mode', PropertyMock(return_value=True)):
                 # switchover from leader when synchronous_mode = quorum
                 self.assertFalse(self.ha.is_failover_possible())  # failure, because quorum is low
+
+    def test_failover_mode_parsing(self):
+        # Test default mode
+        f = Failover.from_node(1, '{"leader": "a", "member": "b"}')
+        self.assertEqual(f.mode, 'graceful')
+
+        # Test explicit graceful mode
+        f = Failover.from_node(1, '{"leader": "a", "member": "b", "mode": "graceful"}')
+        self.assertEqual(f.mode, 'graceful')
+
+        # Test immediate mode
+        f = Failover.from_node(1, '{"leader": "a", "member": "b", "mode": "immediate"}')
+        self.assertEqual(f.mode, 'immediate')
+
+    def test_manual_failover_with_immediate_mode(self):
+        self.ha.cluster = get_cluster_initialized_with_leader(
+          Failover(0, self.p.name, '', None, 'immediate')  # 5th parameter
+        )
+        with patch.object(self.ha, 'is_failover_possible', return_value=True):
+            with patch.object(self.ha, 'demote') as mock_demote:
+                self.ha.process_manual_failover_from_leader()
+                # Verify demote was called with 'immediate' mode
+                mock_demote.assert_called_once_with('immediate')
