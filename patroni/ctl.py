@@ -1413,8 +1413,13 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
 @arg_cluster_name
 @option_citus_group
 @click.option('--candidate', help='The name of the candidate', default=None)
+@click.option('--mode', type=click.Choice(['graceful', 'immediate']), help='Demote mode', default=None)
 @option_force
-def failover(cluster_name: str, group: Optional[int], candidate: Optional[str], force: bool) -> None:
+def failover(cluster_name: str,
+             group: Optional[int],
+             candidate: Optional[str],
+             mode: Optional[str],
+             force: bool) -> None:
     """Process ``failover`` command of ``patronictl`` utility.
 
     Perform a failover operation immediately in the cluster.
@@ -1426,6 +1431,7 @@ def failover(cluster_name: str, group: Optional[int], candidate: Optional[str], 
         prompted for filling it -- unless *force* is ``True``, in which case an exception is raised by
         :func:`_do_failover_or_switchover`.
     :param candidate: name of a standby member to be promoted. Nodes that are tagged with ``nofailover`` cannot be used.
+    :param mode: demote mode - either 'graceful' or 'immediate'.
     :param force: perform the failover or switchover without asking for confirmations.
     """
     _do_failover_or_switchover('failover', cluster_name, group, candidate, force)
