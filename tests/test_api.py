@@ -717,6 +717,62 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, post + '30\n\n{"leader":"1","candidate":"2"}')
             response_mock.assert_called_once_with(412, 'leader name does not match')
 
+    @patch.object(MockPatroni, 'dcs')
+    @patch('time.sleep', Mock())
+    def test_do_POST_failover_with_mode(self, dcs):
+        """Test that the mode parameter is correctly passed to manual_failover."""
+        dcs.loop_wait = 10
+        cluster = dcs.get_cluster.return_value
+        cluster.leader.name = 'postgresql1'
+        cluster.members = [Member(0, 'postgresql2', 28, {'api_url': 'http'})]
+        dcs.manual_failover.return_value = True
+
+        post = 'POST /failover HTTP/1.0' + self._authorization + '\nContent-Length: '
+
+        # Test with immediate mode
+        with patch.object(MockHa, 'fetch_nodes_statuses', Mock(return_value=[_MemberStatus(None, True, None, 0, {})])):
+            json_body = '{"candidate":"postgresql2","mode":"immediate"}'
+            request = post + str(len(json_body)) + '\n\n' + json_body
+            MockRestApiServer(RestApiHandler, request)
+            # Verify manual_failover was called with mode='immediate'
+            dcs.manual_failover.assert_called_with(None, 'postgresql2', scheduled_at=None, mode='immediate')
+
+        # Test with graceful mode
+        with patch.object(MockHa, 'fetch_nodes_statuses', Mock(return_value=[_MemberStatus(None, True, None, 0, {})])):
+            json_body = '{"candidate":"postgresql2","mode":"graceful"}'
+            request = post + str(len(json_body)) + '\n\n' + json_body
+            MockRestApiServer(RestApiHandler, request)
+            # Verify manual_failover was called with mode='graceful'
+            dcs.manual_failover.assert_called_with(None, 'postgresql2', scheduled_at=None, mode='graceful')
+
+        # Test without mode (should pass None)
+        with patch.object(MockHa, 'fetch_nodes_statuses', Mock(return_value=[_MemberStatus(None, True, None, 0, {})])):
+            json_body = '{"candidate":"postgresql2"}'
+            request = post + str(len(json_body)) + '\n\n' + json_body
+            MockRestApiServer(RestApiHandler, request)
+            # Verify manual_failover was called with mode=None (will default in DCS)
+            dcs.manual_failover.assert_called_with(None, 'postgresql2', scheduled_at=None, mode=None)
+
+    @patch.object(MockPatroni, 'dcs')
+    @patch('time.sleep', Mock())
+    def test_do_POST_switchover_with_mode(self, dcs):
+        """Test that the mode parameter is correctly passed to manual_failover for switchover."""
+        dcs.loop_wait = 10
+        cluster = dcs.get_cluster.return_value
+        cluster.leader.name = 'postgresql1'
+        cluster.members = [Member(0, 'postgresql1', 28, {'api_url': 'http'}),
+                          Member(0, 'postgresql2', 28, {'api_url': 'http'})]
+        dcs.manual_failover.return_value = True
+
+        post = 'POST /switchover HTTP/1.0' + self._authorization + '\nContent-Length: '
+
+        # Test switchover with immediate mode
+        with patch.object(MockHa, 'fetch_nodes_statuses', Mock(return_value=[_MemberStatus(None, True, None, 0, {})])):
+            request = post + '72\n\n{"leader":"postgresql1","member":"postgresql2","mode":"immediate"}'
+            MockRestApiServer(RestApiHandler, request)
+            # Verify manual_failover was called with mode='immediate'
+            dcs.manual_failover.assert_called_with('postgresql1', 'postgresql2', scheduled_at=None, mode='immediate')
+
     @patch.object(MockHa, 'is_leader', Mock(return_value=True))
     def test_do_POST_citus(self):
         post = 'POST /citus HTTP/1.0' + self._authorization + '\nContent-Length: '

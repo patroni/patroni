@@ -1998,13 +1998,15 @@ class AbstractDCS(abc.ABC):
         """
 
     def manual_failover(self, leader: Optional[str], candidate: Optional[str],
-                        scheduled_at: Optional[datetime.datetime] = None, version: Optional[Any] = None) -> bool:
+                        scheduled_at: Optional[datetime.datetime] = None, version: Optional[Any] = None,
+                        mode: Optional[str] = None) -> bool:
         """Prepare dictionary with given values and set ``/failover`` key in DCS.
 
         :param leader: value to set for ``leader``.
         :param candidate: value to set for ``member``.
         :param scheduled_at: value converted to ISO date format for ``scheduled_at``.
         :param version: for conditional update of the key/object.
+        :param mode: value to set for ``mode`` ('graceful' or 'immediate').
 
         :returns: ``True`` if successfully committed to DCS.
         """
@@ -2017,6 +2019,9 @@ class AbstractDCS(abc.ABC):
 
         if scheduled_at:
             failover_value['scheduled_at'] = scheduled_at.isoformat()
+
+        if mode:
+            failover_value['mode'] = mode
         return self.set_failover_value(json.dumps(failover_value, separators=(',', ':')), version)
 
     @abc.abstractmethod
