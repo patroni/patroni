@@ -761,7 +761,7 @@ class TestRestApiHandler(unittest.TestCase):
         cluster = dcs.get_cluster.return_value
         cluster.leader.name = 'postgresql1'
         cluster.members = [Member(0, 'postgresql1', 28, {'api_url': 'http'}),
-                            Member(0, 'postgresql2', 28, {'api_url': 'http'})]
+                           Member(0, 'postgresql2', 28, {'api_url': 'http'})]
         dcs.manual_failover.return_value = True
 
         post = 'POST /switchover HTTP/1.0' + self._authorization + '\nContent-Length: '
