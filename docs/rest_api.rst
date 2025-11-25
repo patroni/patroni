@@ -789,3 +789,9 @@ The call might fail if Patroni is in a loop trying to recover (restart) a failed
 You can specify {"from-leader":true} in the request body to directly get basebackup from leader node. This is useful when executing reinit during all replica nodes fail.
 
 The reinitialize endpoint is used by :ref:`patronictl_reinit`.
+
+Initialization endpoint
+-----------------------
+
+``DELETE /initialization``: removes the initialization keep in the DCS. It is allowed to be executed only when Patroni is in pause. This is useful when performing a pg_ugprade, see :ref:`major_upgrade`.
+It returns 200 on success, or 412 (precondition not met) if Patroni is not in pause.
