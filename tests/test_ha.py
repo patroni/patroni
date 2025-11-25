@@ -1983,7 +1983,7 @@ class TestHa(PostgresInit):
 
     def test_manual_failover_with_immediate_mode(self):
         self.ha.cluster = get_cluster_initialized_with_leader(
-          Failover(0, self.p.name, '', None, 'immediate')  # 5th parameter
+            Failover(0, self.p.name, '', None, 'immediate')  # 5th parameter
         )
         with patch.object(self.ha, 'is_failover_possible', return_value=True):
             with patch.object(self.ha, 'demote') as mock_demote:
