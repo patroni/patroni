@@ -696,21 +696,14 @@ In the JSON body of the ``POST`` request you must specify the ``candidate`` fiel
 
 The optional ``mode`` field can be used to control how the primary is shut down during the failover:
 
-- ``graceful`` (default): PostgreSQL performs a clean shutdown with a CHECKPOINT. This results in slower failover but faster recovery on the demoted node.
-- ``immediate``: PostgreSQL performs an immediate shutdown without CHECKPOINT. This results in faster failover but longer recovery time when the demoted node restarts.
+- ``graceful`` (default): PostgreSQL performs a clean and fast shutdown.
+- ``immediate``: PostgreSQL performs an immediate shutdown.
 
 **Example:**
 
 .. code-block:: bash
 
 	$ curl -s http://localhost:8008/failover -XPOST -d '{"candidate":"postgresql1"}'
-	Successfully failed over to "postgresql1"
-
-**Example:** perform a failover with immediate shutdown mode for faster failover
-
-.. code-block:: bash
-
-	$ curl -s http://localhost:8008/failover -XPOST -d '{"candidate":"postgresql1","mode":"immediate"}'
 	Successfully failed over to "postgresql1"
 
 .. warning::
