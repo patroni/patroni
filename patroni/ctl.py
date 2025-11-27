@@ -13,7 +13,6 @@
 """
 
 import click
-import codecs
 import copy
 import datetime
 import dateutil.parser
@@ -2087,7 +2086,7 @@ def invoke_editor(before_editing: str, cluster_name: str) -> Tuple[str, Dict[str
         if ret:
             raise PatroniCtlException("Editor exited with return code {0}".format(ret))
 
-        with codecs.open(tmpfile, encoding='utf-8') as fd:
+        with open(tmpfile, encoding='utf-8') as fd:
             after_editing = fd.read()
 
         return after_editing, yaml.safe_load(after_editing)
