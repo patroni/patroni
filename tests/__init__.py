@@ -208,6 +208,8 @@ class MockCursor(object):
 
 class MockConnect(object):
 
+    pgconn = None
+    connection = None
     server_version = 99999
     autocommit = False
     closed = 0
