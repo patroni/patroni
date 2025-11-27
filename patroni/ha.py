@@ -1368,7 +1368,7 @@ class Ha(object):
                                     leader_name, st.failover_priority, self.patroni.failover_priority)
                         low_priority = False
 
-                    if low_priority and (not self.sync_mode_is_active() or quorum_vote):
+                    if low_priority and (not self.quorum_commit_mode_is_active() or quorum_vote):
                         # There's a higher priority non-lagging replica
                         logger.info(
                             '%s has equally tolerable WAL position and priority %s, while this node has priority %s',
@@ -1485,8 +1485,10 @@ class Ha(object):
 
             # at this point we assume that our node is a candidate for a failover among all nodes except former leader
 
-        # exclude former leader from the list (failover.leader can be None)
-        members = [m for m in self.cluster.members if m.name != failover.leader]
+        # exclude former leader (failover.leader can be None) and non-sync nodes in case of sync replication from list
+        members = [m for m in self.cluster.members if m.name != failover.leader
+                   and (not self.sync_mode_is_active() or self.cluster.sync.matches(m.name))]
+
         return self._is_healthiest_node(members, check_replication_lag=False)
 
     def is_healthiest_node(self) -> bool:
@@ -1556,7 +1558,7 @@ class Ha(object):
         # Special handling if synchronous mode was requested and activated (the leader in /sync is not empty)
         if self.sync_mode_is_active():
             # In quorum commit mode we allow nodes outside of "voters" to take part in
-            # the leader race. They just need to get enough votes to `reach quorum + 1`.
+            # the leader race. They just need to get enough votes to reach `quorum + 1`.
             if not self.is_quorum_commit_mode() and not self.cluster.sync.matches(self.state_handler.name, True):
                 return False
             # pick between synchronous candidates so we minimize unnecessary failovers/demotions
