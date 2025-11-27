@@ -34,6 +34,12 @@ def mock_import(*args, **kwargs):
 
 
 def mock_import2(*args, **kwargs):
+    ret = Mock()
+    ret.__version__ = '2.8.3.dev1 a b c'
+    return ret
+
+
+def mock_import3(*args, **kwargs):
     if args[0] == 'psycopg2':
         raise ImportError
     ret = Mock()
@@ -296,6 +302,8 @@ class TestPatroni(unittest.TestCase):
         with patch('builtins.__import__', mock_import):
             self.assertIsNone(check_psycopg())
         with patch('builtins.__import__', mock_import2):
+            self.assertIsNone(check_psycopg())
+        with patch('builtins.__import__', mock_import3):
             self.assertRaises(SystemExit, check_psycopg)
 
     def test_ensure_unique_name(self):

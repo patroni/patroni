@@ -322,7 +322,7 @@ class WALERestore(object):
             logger.debug('calling: %r', cmd)
             exit_code = subprocess.call(cmd)
         except Exception as e:
-            logger.error('Error when fetching backup with WAL-E: {0}'.format(e))
+            logger.error('Error when fetching backup with WAL-E: %r', e)
             return ExitCode.RETRY_LATER
 
         if (exit_code == 0 and not

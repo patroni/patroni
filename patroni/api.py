@@ -965,7 +965,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             # failed to parse the json
             return
         if request:
-            logger.debug("received restart request: {0}".format(request))
+            logger.debug("received restart request: %s", request)
 
         if global_config.from_cluster(cluster).is_paused and 'schedule' in request:
             self.write_response(status_code, "Can't schedule restart in the paused state")

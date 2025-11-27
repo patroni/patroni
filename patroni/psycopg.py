@@ -24,7 +24,7 @@ try:
     from psycopg2.extensions import adapt
 
     try:
-        from psycopg2.extensions import parse_dsn, quote_ident as _quote_ident
+        from psycopg2.extensions import parse_dsn, quote_ident as __quote_ident
 
         def _parse_conninfo(conninfo: str, **kwargs: Any) -> Any:
             """Wraps :func:`parse_dsn` function.
@@ -32,12 +32,26 @@ try:
             Exists only to please pyright.
             """
             return parse_dsn(conninfo)
-    except ImportError:
+    except ImportError:  # pragma: no cover
         _legacy = True
 
         def _parse_conninfo(conninfo: str, **kwargs: Any) -> Any:
             """Return ``None`` and rely on fallback."""
             return None
+
+        def __quote_ident(value: Any, scope: Any) -> Any:
+            """Exists just to please pyright"""
+            return None
+
+    def _quote_ident(value: Any, scope: Any) -> str:
+        """Quote *value* as a SQL identifier.
+
+        :param value: value to be quoted.
+        :param scope: connection or cursor to evaluate the returning string into.
+
+        :returns: *value* quoted as a SQL identifier.
+        """
+        return __quote_ident(value, scope)
 
     def quote_literal(value: Any, conn: Optional[Any] = None) -> str:
         """Quote *value* as a SQL literal.
