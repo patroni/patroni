@@ -796,21 +796,22 @@ class TestHa(PostgresInit):
         with patch('patroni.ha.logger.info') as mock_info:
             self.ha.fetch_node_status = get_node_status(nofailover=True)
             self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
-            self.assertEqual(mock_info.call_args_list[0][0], ('Member %s is %s', 'leader', 'not allowed to promote'))
+            self.assertEqual(mock_info.call_args_list[0][0][0::2], ('Member %s is %s', 'not allowed to promote'))
         with patch('patroni.ha.logger.info') as mock_info:
             self.ha.fetch_node_status = get_node_status(watchdog_failed=True)
             self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
-            self.assertEqual(mock_info.call_args_list[0][0], ('Member %s is %s', 'leader', 'not watchdog capable'))
+            self.assertEqual(mock_info.call_args_list[0][0][0::2], ('Member %s is %s', 'not watchdog capable'))
         with patch('patroni.ha.logger.info') as mock_info:
             self.ha.fetch_node_status = get_node_status(timeline=1)
             self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
-            self.assertEqual(mock_info.call_args_list[0][0],
-                             ('Timeline %s of member %s is behind the cluster timeline %s', 1, 'leader', 2))
+            self.assertEqual(mock_info.call_args_list[0][0][0],
+                             'Timeline %s of member %s is behind the cluster timeline %s')
+            self.assertEqual(mock_info.call_args_list[0][0][1::2], (1, 2))
         with patch('patroni.ha.logger.info') as mock_info:
             self.ha.fetch_node_status = get_node_status(wal_position=1)
             self.ha.cluster.config.data.update({'maximum_lag_on_failover': 5})
             self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
-            self.assertEqual(mock_info.call_args_list[0][0], ('Member %s exceeds maximum replication lag', 'leader'))
+            self.assertEqual(mock_info.call_args_list[0][0][0], 'Member %s exceeds maximum replication lag')
 
     @patch('patroni.postgresql.mpp.AbstractMPPHandler.is_coordinator', Mock(return_value=False))
     def test_scheduled_switchover_from_leader(self):
@@ -970,8 +971,7 @@ class TestHa(PostgresInit):
         with patch('patroni.ha.logger.info') as mock_info:
             self.ha.fetch_node_status = get_node_status(reachable=False)  # inaccessible, in_recovery
             self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
-            self.assertEqual(mock_info.call_args_list[0][0], ('Member %s is %s', 'leader', 'not reachable'))
-            self.assertEqual(mock_info.call_args_list[1][0], ('Member %s is %s', 'other', 'not reachable'))
+            self.assertEqual(mock_info.call_args_list[0][0][0::2], ('Member %s is %s', 'not reachable'))
 
     def test_manual_failover_process_no_leader_in_synchronous_mode(self):
         self.ha.is_synchronous_mode = true
@@ -1087,9 +1087,19 @@ class TestHa(PostgresInit):
         self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members, leader=self.ha.old_cluster.leader))
         self.ha.fetch_node_status = get_node_status(wal_position=11)  # accessible, in_recovery, wal position ahead
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
-        # in synchronous_mode consider itself healthy if the former leader is accessible in read-only and ahead of us
         with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=True)):
+            # in synchronous_mode consider us healthy if the former leader is accessible in read-only and ahead of us
             self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+            self.ha.cluster = get_cluster_initialized_without_leader(sync=('postgresql1', self.p.name + ',other'))
+            self.ha.fetch_node_status = get_node_status(failover_priority=10, wal_position=10)
+            # in synchronous_mode we need to respect failover_priority
+            with patch('patroni.ha.logger.info') as mock_info:
+                self.assertFalse(self.ha._is_healthiest_node(self.ha.cluster.members))
+                self.assertEqual(
+                    mock_info.call_args_list[0][0][0],
+                    '%s has equally tolerable WAL position and priority %s, while this node has priority %s')
+                self.assertEqual(mock_info.call_args_list[0][0][2:], (10, 1))
+        self.ha.fetch_node_status = get_node_status(wal_position=11)  # accessible, in_recovery, wal position ahead
         self.ha.cluster.config.data.update({'maximum_lag_on_failover': 5})
         global_config.update(self.ha.cluster)
         with patch('patroni.postgresql.Postgresql.last_operation', return_value=1):
