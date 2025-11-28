@@ -392,7 +392,7 @@ def _load_postgres_gucs_validators() -> None:
             logger.warning(str(exc))
             continue
 
-        logger.debug(f'Parsing validators from file `{file}`.')
+        logger.debug('Parsing validators from file `%s`.', file)
 
         mapping = {
             'parameters': parameters,
