@@ -520,7 +520,11 @@ class Ha(object):
                 data['pause'] = True
 
             if self._should_skip_xlog_update(data):
-                return True
+                return self.dcs.touch_member(self._last_member_data) if self._last_member_data else True
+
+            payload_changed = not self._payloads_equal(data)
+            if not payload_changed and self._last_member_data:
+                return self.dcs.touch_member(self._last_member_data)
 
             timestamp = time.time()
             if timestamp <= self._last_member_data_timestamp:
@@ -550,11 +554,23 @@ class Ha(object):
         if self._last_member_data_timestamp + ttl <= time.time():
             return False
 
-        if data.get('xlog_location') == self._last_member_data.get('xlog_location'):
+        wal_keys = {'xlog_location', 'receive_lsn', 'replay_lsn'}
+        if not any(self._last_member_data.get(key) != data.get(key) for key in wal_keys):
             return False
 
         keys = set(self._last_member_data.keys()) | set(data.keys())
-        keys.discard('xlog_location')
+        keys.difference_update(wal_keys | {'last_modified'})
+        for key in keys:
+            if self._last_member_data.get(key) != data.get(key):
+                return False
+        logger.info('Skipping member status update for %s due to xlog_cache_ttl', self.state_handler.name)
+        return True
+
+    def _payloads_equal(self, data: Dict[str, Any]) -> bool:
+        """Return True when current payload matches cached payload (ignoring last_modified)."""
+        if not self._last_member_data:
+            return False
+        keys = set(self._last_member_data.keys()) | set(data.keys())
         keys.discard('last_modified')
         for key in keys:
             if self._last_member_data.get(key) != data.get(key):
