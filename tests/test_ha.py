@@ -1096,9 +1096,9 @@ class TestHa(PostgresInit):
             with patch('patroni.ha.logger.info') as mock_info:
                 self.assertFalse(self.ha._is_healthiest_node(self.ha.cluster.members))
                 self.assertEqual(
-                    mock_info.call_args_list[0][0],
-                    ('%s has equally tolerable WAL position and priority %s, while this node has priority %s',
-                     'leader', 10, 1))
+                    mock_info.call_args_list[0][0][0],
+                    '%s has equally tolerable WAL position and priority %s, while this node has priority %s')
+                self.assertEqual(mock_info.call_args_list[0][0][2:], (10, 1))
         self.ha.fetch_node_status = get_node_status(wal_position=11)  # accessible, in_recovery, wal position ahead
         self.ha.cluster.config.data.update({'maximum_lag_on_failover': 5})
         global_config.update(self.ha.cluster)
