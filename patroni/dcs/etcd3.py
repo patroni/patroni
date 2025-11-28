@@ -21,7 +21,8 @@ from .etcd import AbstractEtcd, AbstractEtcdClientWithFailover, catch_etcd_error
 from ..collections import EMPTY_DICT
 from ..exceptions import DCSError, PatroniException
 from ..postgresql.mpp import AbstractMPP
-from ..utils import deep_compare, enable_keepalive, iter_response_objects, parse_bool, RetryFailedError, USER_AGENT
+from ..utils import deep_compare, enable_keepalive, iter_response_objects, \
+    parse_bool, RetryFailedError, USER_AGENT, WHITESPACE_RE
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,8 @@ class Etcd3WatchCanceled(Etcd3Exception):
 class Etcd3ClientError(Etcd3Exception):
 
     def __init__(self, code: Optional[int] = None, error: Optional[str] = None, status: Optional[int] = None) -> None:
+        if not hasattr(self, 'code'):
+            self.code = code
         if not hasattr(self, 'error'):
             self.error = error and error.strip()
         self.codeText = GRPCcodeToText.get(code) if code is not None else None
@@ -76,7 +79,7 @@ class Etcd3ClientError(Etcd3Exception):
 
     def __repr__(self) -> str:
         return "<{0} error: '{1}', code: {2}>"\
-            .format(self.__class__.__name__, getattr(self, 'error', None), getattr(self, 'code', None))
+            .format(self.codeText, getattr(self, 'error', None), getattr(self, 'code', None))
 
     __str__ = __repr__
 
@@ -166,11 +169,11 @@ def _raise_for_data(data: Union[bytes, str, Dict[str, Any]], status_code: Option
             if TYPE_CHECKING:  # pragma: no cover
                 assert not isinstance(data_code, dict)
             code = data_code
-            error = str(data_error)
+            error = str(data_error or data.get('message') or data)
     except Exception:
         error = str(data)
         code = GRPCCode.Unknown
-    err = errStringToClientError.get(error) or errCodeToClientError.get(code) or Unknown
+    err = errStringToClientError.get(error) or errCodeToClientError.get(code) or Etcd3ClientError
     return err(code, error, status_code)
 
 
@@ -213,6 +216,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     ERROR_CLS = Etcd3Error
 
     def __init__(self, config: Dict[str, Any], dns_resolver: DnsCachingResolver, cache_ttl: int = 300) -> None:
+        self._decoder = json.JSONDecoder()
         self._reauthenticate = False
         self._token = None
         self._cluster_version: Tuple[int, ...] = tuple()
@@ -241,7 +245,8 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         data = response.data
         try:
             data = data.decode('utf-8')
-            ret: Dict[str, Any] = json.loads(data)
+            idx = WHITESPACE_RE.match(data, 0).end()  # pyright: ignore [reportOptionalMemberAccess]
+            ret: Dict[str, Any] = self._decoder.raw_decode(data, idx)[0]
 
             header = ret.get('header', EMPTY_DICT)
             self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
@@ -250,7 +255,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
                 return ret
         except (TypeError, ValueError, UnicodeError) as e:
             if response.status < 400:
-                raise etcd.EtcdException('Server response was not valid JSON: %r' % e)
+                raise etcd.EtcdException("Server response '%s' was not valid JSON: %r" % (data, e))
             ret = {}
         ex = _raise_for_data(ret or data, response.status)
         if isinstance(ex, Unavailable):
