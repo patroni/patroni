@@ -202,8 +202,8 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         response.content = '{"error":{"grpc_code":0,"message":"","http_code":400}}'
         try:
             self.client._handle_server_response(response)
-        except Unknown as e:
-            self.assertEqual(e.as_dict(), {'code': 2, 'codeText': 'OK', 'error': u'', 'status': 400})
+        except Etcd3ClientError as e:
+            self.assertEqual(e.as_dict(), {'code': 0, 'codeText': 'OK', 'error': u'', 'status': 400})
 
     @patch.object(urllib3.PoolManager, 'urlopen')
     def test__ensure_version_prefix(self, mock_urlopen):
