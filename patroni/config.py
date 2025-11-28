@@ -98,6 +98,7 @@ class Config(object):
     __CACHE_FILENAME = 'patroni.dynamic.json'
     __DEFAULT_CONFIG: Dict[str, Any] = {
         'ttl': 30, 'loop_wait': 10, 'retry_timeout': 10,
+        'xlog_cache_ttl': 0,
         'standby_cluster': {
             'create_replica_methods': '',
             'host': '',
@@ -504,6 +505,12 @@ class Config(object):
             value = _popenv(param)
             if value:
                 ret[param] = value
+
+        value = _popenv('xlog_cache_ttl')
+        if value:
+            value = parse_int(value)
+            if value is not None:
+                ret['xlog_cache_ttl'] = value
 
         def _fix_log_env(name: str, oldname: str) -> None:
             """Normalize a log related environment variable.

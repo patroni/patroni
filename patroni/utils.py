@@ -943,6 +943,7 @@ def cluster_as_json(cluster: 'Cluster', live_status: Optional[Dict[str, LiveMemb
             * ``pending_restart``: ``True`` if PostgreSQL is pending to be restarted;
             * ``scheduled_restart``: scheduled restart timestamp, if any;
             * ``tags``: any tags that were set for this member;
+            * ``last_modified``: ISO 8601 timestamp when the member last updated its DCS entry;
             * ``lsn``: current WAL position. See :meth:`Postgresql._wal_position`
             * ``receive_lsn``: receive LSN (``pg_catalog.pg_last_(xlog|wal)_receive_(location|lsn)()``),
                 if applicable;
@@ -987,7 +988,7 @@ def cluster_as_json(cluster: 'Cluster', live_status: Optional[Dict[str, LiveMemb
             if conn_kwargs.get('port'):
                 member['port'] = int(conn_kwargs['port'])
         optional_attributes = ('timeline', 'pending_restart', 'pending_restart_reason',
-                               'scheduled_restart', 'tags', 'site')
+                               'scheduled_restart', 'tags', 'site', 'last_modified')
         member.update({n: m.data[n] for n in optional_attributes if n in m.data})
 
         if m.name != leader_name:
