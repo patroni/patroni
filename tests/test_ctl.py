@@ -1,3 +1,4 @@
+import json
 import os
 import unittest
 
@@ -31,7 +32,7 @@ from patroni.dcs import Cluster, Failover
 from patroni.postgresql.config import get_param_diff
 from patroni.postgresql.mpp import get_mpp
 from patroni.psycopg import OperationalError
-from patroni.utils import tzutc
+from patroni.utils import LiveMemberLSNs, tzutc
 
 from . import MockConnect, MockCursor, MockResponse, psycopg_connect
 from .test_etcd import etcd_read, socket_getaddrinfo
@@ -577,6 +578,55 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['list', 'dummy', '--extended', '--timestamp'])
         assert '2100' in result.output
         assert 'Scheduled restart' in result.output
+
+    def test_list_live_flag(self):
+        captured = []
+
+        def _capture(*args, **kwargs):
+            captured.append(click.get_current_context().obj.get('__list_live'))
+
+        with patch('patroni.ctl.output_members', side_effect=_capture):
+            result = self.runner.invoke(ctl, ['list', '--live'])
+        self.assertEqual(result.exit_code, 0)
+        self.assertTrue(captured and all(captured))
+
+    def test_list_live_fetches_rest(self):
+        payload = {'members': [{'name': 'other', 'lsn': '0/10', 'receive_lsn': '0/8', 'replay_lsn': '0/8'}]}
+        response = Mock(status=200, data=json.dumps(payload).encode('utf-8'))
+        with patch('patroni.ctl.request_patroni', Mock(return_value=response)) as req, \
+                patch('patroni.ctl.output_members') as output:
+            result = self.runner.invoke(ctl, ['list', '--live'])
+        self.assertEqual(result.exit_code, 0)
+        req.assert_called()
+        _, kwargs = output.call_args
+        self.assertIn('live_status', kwargs)
+        self.assertTrue(kwargs['live_status'])
+        self.assertTrue(kwargs.get('live_requested'))
+
+    def test_output_members_shows_lsn_source(self):
+        cluster = get_cluster_initialized_with_leader()
+        live_map = {'other': LiveMemberLSNs(lsn=5, receive_lsn=4, replay_lsn=3)}
+        with click.Context(click.Command('list')) as ctx:
+            ctx.obj = {'__config': {}, '__mpp': get_mpp({})}
+            with patch('click.echo') as mock_echo:
+                output_members(cluster, name='alpha', fmt='tsv', live_status=live_map, live_requested=True)
+        header = mock_echo.call_args_list[0][0][0]
+        self.assertIn('LSN Source', header)
+        replica_row = next(call[0][0] for call in mock_echo.call_args_list if 'other' in call[0][0])
+        self.assertIn('live', replica_row)
+        leader_row = next(call[0][0] for call in mock_echo.call_args_list if '\tleader\t' in call[0][0])
+        self.assertIn('dcs', leader_row)
+
+    def test_output_members_live_requested_without_data(self):
+        cluster = get_cluster_initialized_with_leader()
+        with click.Context(click.Command('list')) as ctx:
+            ctx.obj = {'__config': {}, '__mpp': get_mpp({})}
+            with patch('click.echo') as mock_echo:
+                output_members(cluster, name='alpha', fmt='tsv', live_requested=True)
+        header = mock_echo.call_args_list[0][0][0]
+        self.assertIn('LSN Source', header)
+        row = mock_echo.call_args_list[1][0][0]
+        self.assertIn('dcs', row)
 
     def test_list_standby_cluster(self):
         cluster = get_cluster_initialized_without_leader(leader=True, sync=('leader', 'other'))

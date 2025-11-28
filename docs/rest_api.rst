@@ -436,7 +436,11 @@ The ``patroni_postgres_state`` metric provides a numeric representation of the c
 Cluster status endpoints
 ------------------------
 
-- The ``GET /cluster`` endpoint generates a JSON document describing the current cluster topology and state:
+- The ``GET /cluster`` endpoint generates a JSON document describing the current cluster topology and state. It also
+  accepts an optional ``?live=1`` (or any true-ish value) query parameter, which tells Patroni to poll each member for
+  live lag information (falling back to the DCS for members that do not respond). Each replica entry carries an
+  ``lsn_source`` flag showing whether its LSN-derived metrics were pulled live or from the DCS. Clusters with no replicas skip
+  the poll automatically.
 
 .. code-block:: bash
 

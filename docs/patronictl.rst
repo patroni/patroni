@@ -725,6 +725,7 @@ Synopsis
       [ --group CITUS_GROUP ]
       [ { -e | --extended } ]
       [ { -t | --timestamp } ]
+      [ --live ]
       [ { -f | --format } { pretty | tsv | json | yaml } ]
       [ { -W | { -w | --watch } TIME } ]
 
@@ -734,6 +735,10 @@ Description
 """""""""""
 
 ``patronictl list`` shows information about Patroni cluster and its members.
+
+Passing ``--live`` instructs ``patronictl`` to query the Patroni REST API with ``/cluster?live=1`` so that replica LSN
+and lag metrics reflect the latest responses from each member. Older Patroni nodes ignore this query parameter, and
+newer versions fall back to the DCS snapshot automatically if live data is unavailable.
 
 The following information is included in the output:
 
@@ -786,6 +791,10 @@ The following information is included in the output:
 
 ``Replay Lag``
     Replication lag between the ``Replay LSN`` position of the member and its upstream in in MB.
+
+``LSN Source``
+    Shows whether the LSN-related metrics for the replica were gathered from a live REST poll (``live``) or from the
+    DCS (``dcs``). This column is shown only when ``--live`` is used.
 
 Besides that, the following information may be included in the output:
 

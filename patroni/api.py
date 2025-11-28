@@ -31,8 +31,8 @@ from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
 from .postgresql.misc import postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .thread_pool import PatroniThreadPoolExecutor
-from .utils import cluster_as_json, deep_compare, enable_keepalive, parse_bool, \
-    parse_int, patch_config, Retry, RetryFailedError, split_host_port, tzutc, uri
+from .utils import cluster_as_json, deep_compare, enable_keepalive, LiveMemberLSNs, \
+    parse_bool, parse_int, patch_config, Retry, RetryFailedError, split_host_port, tzutc, uri
 
 logger = logging.getLogger(__name__)
 
@@ -552,11 +552,58 @@ class RestApiHandler(BaseHTTPRequestHandler):
         Write an HTTP response with JSON content based on the output of :func:`~patroni.utils.cluster_as_json`, with
         HTTP status ``200`` and the JSON representation of the cluster topology.
         """
+        live_requested = parse_bool(self.path_query.get('live', [None])[0]) or False
         cluster = self.server.patroni.dcs.get_cluster()
+        live_map: Optional[Dict[str, LiveMemberLSNs]] = None
+        if live_requested:
+            if len(cluster.members) > 1:
+                live_map = self.get_live_member_lsns(cluster)
+            else:
+                logger.debug("/cluster live view skipped: single-member cluster")
 
-        response = cluster_as_json(cluster)
+        response = cluster_as_json(cluster, live_map)
         response['scope'] = self.server.patroni.postgresql.scope
         self._write_json_response(200, response)
+
+    @staticmethod
+    def _status_to_live_lsn(status: Dict[str, Any]) -> LiveMemberLSNs:
+        wal: Dict[str, Any] = status.get('wal') or status.get('xlog') or {}
+        receive = parse_int(wal.get('received_location'))
+        replay = parse_int(wal.get('replayed_location'))
+        location = parse_int(wal.get('location')) or replay or receive
+        return LiveMemberLSNs(location, receive, replay)
+
+    def get_live_member_lsns(self, cluster: Cluster) -> Dict[str, LiveMemberLSNs]:
+        """Collect live WAL metrics for local and remote members."""
+        live_map: Dict[str, LiveMemberLSNs] = {}
+        local_name = self.server.patroni.postgresql.name
+
+        try:
+            local_status = self._status_to_live_lsn(self.get_postgresql_status(True))
+            if any((local_status.lsn, local_status.receive_lsn, local_status.replay_lsn)):
+                live_map[local_name] = local_status
+        except Exception as e:  # pragma: no cover - defensive, tested via mocks
+            logger.debug("Failed to collect local live status: %s", e)
+
+        members = [m for m in cluster.members if m.name != local_name and m.api_url]
+        if not members:
+            return live_map
+
+        try:
+            statuses = self.server.patroni.ha.fetch_nodes_statuses(members)
+        except Exception as e:  # pragma: no cover - defensive; exercised via unit tests
+            logger.debug("Failed to collect remote live statuses: %s", e)
+            return live_map
+
+        for status in statuses:
+            member_name = status.member and status.member.name
+            if not member_name:
+                continue
+            if status.reachable and status.data:
+                converted = self._status_to_live_lsn(status.data)
+                if any((converted.lsn, converted.receive_lsn, converted.replay_lsn)):
+                    live_map[member_name] = converted
+        return live_map
 
     def do_GET_history(self) -> None:
         """Handle a ``GET`` request to ``/history`` path.

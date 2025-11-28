@@ -4,8 +4,12 @@ import unittest
 from unittest.mock import Mock, patch
 
 from patroni.exceptions import PatroniException
-from patroni.utils import apply_keepalive_limit, enable_keepalive, get_major_version, get_postgres_version, \
-    polling_loop, process_user_options, Retry, RetryFailedError, unquote, validate_directory
+from patroni.postgresql.misc import format_lsn
+from patroni.utils import apply_keepalive_limit, cluster_as_json, enable_keepalive, \
+    get_major_version, get_postgres_version, LiveMemberLSNs, polling_loop, \
+    process_user_options, Retry, RetryFailedError, unquote, validate_directory
+
+from .test_ha import get_cluster_initialized_without_leader
 
 
 class TestUtils(unittest.TestCase):
@@ -223,3 +227,35 @@ class TestRetrySleeper(unittest.TestCase):
         retry = Retry(sleep_func=_sleep)
         rcopy = retry.copy()
         self.assertTrue(rcopy.sleep_func is _sleep)
+
+
+class TestClusterAsJson(unittest.TestCase):
+
+    @staticmethod
+    def _cluster_with_replica_metrics():
+        cluster = get_cluster_initialized_without_leader()
+        replica = next(m for m in cluster.members if m.name == 'other')
+        replica.data.update({'xlog_location': 6, 'receive_lsn': 5, 'replay_lsn': 4})
+        return cluster, replica.name
+
+    def test_live_none_matches_default(self):
+        cluster, _ = self._cluster_with_replica_metrics()
+        self.assertEqual(cluster_as_json(cluster), cluster_as_json(cluster, None))
+
+    def test_live_values_override(self):
+        cluster, replica_name = self._cluster_with_replica_metrics()
+        live_metrics = {replica_name: LiveMemberLSNs(lsn=8, receive_lsn=7, replay_lsn=6)}
+        response = cluster_as_json(cluster, live_metrics)
+
+        replica = next(m for m in response['members'] if m['name'] == replica_name)
+        self.assertEqual(replica['lsn'], format_lsn(8))
+        self.assertEqual(replica['lag'], cluster.status.last_lsn - 8)
+        self.assertEqual(replica['receive_lsn'], format_lsn(7))
+        self.assertEqual(replica['receive_lag'], cluster.status.last_lsn - 7)
+        self.assertEqual(replica['lsn_source'], 'live')
+
+    def test_dcs_sources_when_no_live(self):
+        cluster, replica_name = self._cluster_with_replica_metrics()
+        response = cluster_as_json(cluster)
+        replica = next(m for m in response['members'] if m['name'] == replica_name)
+        self.assertEqual(replica['lsn_source'], 'dcs')
