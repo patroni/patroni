@@ -563,7 +563,7 @@ class Ha(object):
         for key in keys:
             if self._last_member_data.get(key) != data.get(key):
                 return False
-        logger.info('Skipping member status update for %s due to xlog_cache_ttl', self.state_handler.name)
+        logger.debug('Skipping member status update for %s due to xlog_cache_ttl', self.state_handler.name)
         return True
 
     def _payloads_equal(self, data: Dict[str, Any]) -> bool:
