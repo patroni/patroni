@@ -152,7 +152,7 @@ class PostmasterProcess(psutil.Process):
         :returns None if signaled, True if process is already gone, False if error
         """
         if self.is_single_user:
-            logger.warning("Cannot stop server; single-user server is running (PID: {0})".format(self.pid))
+            logger.warning("Cannot stop server; single-user server is running (PID: %s)", self.pid)
             return False
         if os.name != 'posix':
             return self.pg_ctl_kill(mode, pg_ctl)
@@ -161,7 +161,7 @@ class PostmasterProcess(psutil.Process):
         except psutil.NoSuchProcess:
             return True
         except psutil.AccessDenied as e:
-            logger.warning("Could not send stop signal to PostgreSQL (error: {0})".format(e))
+            logger.warning("Could not send stop signal to PostgreSQL: %r", e)
             return False
 
         return None
