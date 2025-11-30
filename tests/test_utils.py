@@ -4,8 +4,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from patroni.exceptions import PatroniException
-from patroni.utils import apply_keepalive_limit, enable_keepalive, get_major_version, \
-    get_postgres_version, polling_loop, Retry, RetryFailedError, unquote, validate_directory
+from patroni.utils import apply_keepalive_limit, enable_keepalive, get_major_version, get_postgres_version, \
+    polling_loop, process_user_options, Retry, RetryFailedError, unquote, validate_directory
 
 
 class TestUtils(unittest.TestCase):
@@ -114,6 +114,58 @@ class TestUtils(unittest.TestCase):
             self.assertEqual(get_major_version(), '10')
         with patch('subprocess.check_output', Mock(side_effect=OSError)):
             self.assertRaises(PatroniException, get_major_version, 'postgres')
+
+    def test_process_user_options(self):
+        def error_handler(msg):
+            raise Exception(msg)
+
+        self.assertEqual(process_user_options('initdb', ['string'], (), error_handler), ['--string'])
+        self.assertEqual(
+            process_user_options(
+                'initdb',
+                [{'key': 'value'}],
+                (), error_handler
+            ),
+            ['--key=value'])
+        if sys.platform != 'win32':
+            self.assertEqual(
+                process_user_options(
+                    'initdb',
+                    [{'key': 'value with spaces'}],
+                    (), error_handler
+                ),
+                ["--key=value with spaces"])
+            self.assertEqual(
+                process_user_options(
+                    'initdb',
+                    [{'key': "'value with spaces'"}],
+                    (), error_handler
+                ),
+                ["--key=value with spaces"])
+            self.assertEqual(
+                process_user_options(
+                    'initdb',
+                    {'key': 'value with spaces'},
+                    (), error_handler
+                ),
+                ["--key=value with spaces"])
+            self.assertEqual(
+                process_user_options(
+                    'initdb',
+                    {'key': "'value with spaces'"},
+                    (), error_handler
+                ),
+                ["--key=value with spaces"])
+            # not allowed options in list of dicts/strs are filtered out
+            self.assertEqual(
+                process_user_options(
+                    'pg_basebackup',
+                    [{'checkpoint': 'fast'}, {'dbname': 'dbname=postgres'}, 'gzip', {'label': 'standby'}, 'verbose'],
+                    ('dbname', 'verbose'),
+                    print
+                ),
+                ['--checkpoint=fast', '--gzip', '--label=standby'],
+            )
 
 
 @patch('time.sleep', Mock())
