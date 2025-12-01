@@ -1093,6 +1093,20 @@ class RestApiHandler(BaseHTTPRequestHandler):
             status_code = 503
         self.write_response(status_code, data)
 
+    @check_access
+    def do_DELETE_initialization(self) -> None:
+        """Handle a ``DELETE`` request to /intialize path
+
+        This will remove the initialize key, provided the cluster is in pause mode.
+        """
+        cluster = self.server.patroni.dcs.get_cluster()
+        config = global_config.from_cluster(cluster)
+        if not config.is_paused:
+            self.write_response(status_code=412, body="Cluster is not in paused state")
+            return
+        self.server.patroni.dcs.cancel_initialization()
+        self.write_response(status_code=200, body="Cluster initialization key removed")
+
     def poll_failover_result(self, leader: Optional[str], candidate: Optional[str], action: str) -> Tuple[int, str]:
         """Poll failover/switchover operation until it finishes or times out.
 

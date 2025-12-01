@@ -546,6 +546,19 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(MockHa, 'reinitialize', Mock(return_value=None)):
             MockRestApiServer(RestApiHandler, request)
 
+    @patch.object(MockPatroni, 'dcs')
+    def test_do_DELETE_initialization(self, mock_dcs) -> None:
+        request = 'DELETE /initialization HTTP/1.0' + self._authorization
+
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(status_code=412, body="Cluster is not in paused state")
+        with (patch.object(RestApiHandler, 'write_response') as response_mock,
+             patch.object(global_config.__class__, 'is_paused', PropertyMock(return_value=True))):
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(status_code=200, body="Cluster initialization key removed")
+            mock_dcs.cancel_initialization.assert_called_once()
+
     @patch('time.sleep', Mock())
     def test_RestApiServer_query(self):
         with patch.object(MockConnection, 'query', Mock(side_effect=RetryFailedError('bla'))):
