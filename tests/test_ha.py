@@ -1266,7 +1266,13 @@ class TestHa(PostgresInit):
                          'PAUSE: continue to run as primary after failing to update leader lock in DCS')
 
     def test_postgres_unhealthy_in_pause(self):
+        self.p.is_primary = false
         self.ha.is_paused = true
+        with patch.object(Postgresql, 'cb_called', PropertyMock(return_value=True)), \
+                patch.object(Rewind, 'trigger_check_diverged_lsn') as mock_rewind_check:
+            self.ha.patroni.nofailover = True
+            self.assertEqual(self.ha.run_cycle(), 'PAUSE: no action. I am (postgresql0)')
+            mock_rewind_check.assert_not_called()
         self.p.is_healthy = false
         self.assertEqual(self.ha.run_cycle(), 'PAUSE: postgres is not running')
         self.ha.has_lock = true
