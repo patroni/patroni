@@ -1798,9 +1798,11 @@ class Ha(object):
                 return self.follow('demoted self after trying and failing to obtain lock',
                                    'following new leader after trying and failing to obtain lock')
         else:
-            # when we are doing manual failover there is no guaranty that new leader is ahead of any other node
-            # node tagged as nofailover can be ahead of the new leader either, but it is always excluded from elections
-            if bool(self.cluster.failover) or self.patroni.nofailover:
+            # When we are doing manual failover there is no guaranty that new leader is ahead of any other node.
+            # Node tagged as nofailover can be also ahead of the new leader, but it is always excluded from elections
+            # and therefore we trigger rewind checks on it, but only if not in pause, because there is no race in pause.
+            if self.cluster.failover and self.cluster.failover.candidate or \
+                    self.patroni.nofailover and not self.is_paused():
                 self._rewind.trigger_check_diverged_lsn()
                 time.sleep(2)  # Give a time to somebody to take the leader lock
 
