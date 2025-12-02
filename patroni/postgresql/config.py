@@ -21,6 +21,7 @@ from ..utils import compare_values, get_postgres_version, is_subpath, \
     maybe_convert_from_base_unit, parse_bool, parse_int, split_host_port, uri, validate_directory
 from ..validator import EnumValidator, IntValidator
 from .misc import get_major_from_minor_version, postgres_version_to_int, PostgresqlRole, PostgresqlState
+from .sync import SYNC_STRICT_PLACEHOLDER
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -1063,7 +1064,7 @@ class ConfigHandler(object):
             if synchronous_standby_names is None:
                 if global_config.is_synchronous_mode_strict\
                         and self._postgresql.role in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
-                    parameters['synchronous_standby_names'] = '*'
+                    parameters['synchronous_standby_names'] = SYNC_STRICT_PLACEHOLDER
                 else:
                     parameters.pop('synchronous_standby_names', None)
             else:
