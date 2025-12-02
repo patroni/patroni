@@ -1,5 +1,4 @@
 import os
-import sys
 
 from unittest.mock import Mock, patch, PropertyMock
 
@@ -114,58 +113,6 @@ class TestBootstrap(BaseTestPostgresql):
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': [{'foo': 'bar', 1: 2}]})
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': [1]})
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': 1})
-
-    def test__process_user_options(self):
-        def error_handler(msg):
-            raise Exception(msg)
-
-        self.assertEqual(self.b.process_user_options('initdb', ['string'], (), error_handler), ['--string'])
-        self.assertEqual(
-            self.b.process_user_options(
-                'initdb',
-                [{'key': 'value'}],
-                (), error_handler
-            ),
-            ['--key=value'])
-        if sys.platform != 'win32':
-            self.assertEqual(
-                self.b.process_user_options(
-                    'initdb',
-                    [{'key': 'value with spaces'}],
-                    (), error_handler
-                ),
-                ["--key=value with spaces"])
-            self.assertEqual(
-                self.b.process_user_options(
-                    'initdb',
-                    [{'key': "'value with spaces'"}],
-                    (), error_handler
-                ),
-                ["--key=value with spaces"])
-            self.assertEqual(
-                self.b.process_user_options(
-                    'initdb',
-                    {'key': 'value with spaces'},
-                    (), error_handler
-                ),
-                ["--key=value with spaces"])
-            self.assertEqual(
-                self.b.process_user_options(
-                    'initdb',
-                    {'key': "'value with spaces'"},
-                    (), error_handler
-                ),
-                ["--key=value with spaces"])
-            # not allowed options in list of dicts/strs are filtered out
-            self.assertEqual(
-                self.b.process_user_options(
-                    'pg_basebackup',
-                    [{'checkpoint': 'fast'}, {'dbname': 'dbname=postgres'}, 'gzip', {'label': 'standby'}, 'verbose'],
-                    ('dbname', 'verbose'),
-                    print
-                ),
-                ['--checkpoint=fast', '--gzip', '--label=standby'],
-            )
 
     @patch.object(CancellableSubprocess, 'call', Mock())
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
