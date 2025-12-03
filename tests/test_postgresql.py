@@ -310,6 +310,7 @@ class TestPostgresql(BaseTestPostgresql):
             self.p.config.write_postgresql_conf()
             self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
             with patch.object(Postgresql, 'primary_conninfo', Mock(return_value='host=1')):
+                mock_get_pg_settings.return_value['primary_conninfo'][1] = 'host=1 dbname=postgres password=a'
                 mock_get_pg_settings.return_value['primary_slot_name'] = [
                     'primary_slot_name', '', '', 'string', 'postmaster', self.p.config._postgresql_conf]
                 self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
