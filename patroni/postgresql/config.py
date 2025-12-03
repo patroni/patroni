@@ -856,11 +856,11 @@ class ConfigHandler(object):
                     dbname = primary_conninfo.get('dbname')
                     if dbname:
                         wal_receiver_primary_conninfo['dbname'] = dbname
+                    # pg_stat_get_wal_receiver() returns masked password, therefore
+                    # we need to copy password value from primary_conninfo GUC.
+                    if 'password' in primary_conninfo:
+                        wal_receiver_primary_conninfo['password'] = primary_conninfo['password']
                     primary_conninfo = wal_receiver_primary_conninfo
-                    # There could be no password in the primary_conninfo or it is masked.
-                    # Just copy the "desired" value in order to make comparison succeed.
-                    if 'password' in wanted_primary_conninfo:
-                        primary_conninfo['password'] = wanted_primary_conninfo['password']
 
         if 'passfile' in primary_conninfo and 'password' not in primary_conninfo \
                 and 'password' in wanted_primary_conninfo:
