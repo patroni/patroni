@@ -1,6 +1,7 @@
 import logging
 import multiprocessing
 import os
+import pathlib
 import re
 import signal
 import subprocess
@@ -65,23 +66,68 @@ class PostmasterProcess(psutil.Process):
         except IOError:
             return {}
 
-    def _is_postmaster_process(self) -> bool:
-        try:
-            start_time = int(self._postmaster_pid.get('start_time', 0))
-            if start_time and abs(self.create_time() - start_time) > 3:
-                logger.info('Process %s is not postmaster, too much difference between PID file start time %s and '
-                            'process start time %s', self.pid, start_time, self.create_time())
-                return False
-        except ValueError:
-            logger.warning('Garbage start time value in pid file: %r', self._postmaster_pid.get('start_time'))
-
-        # Extra safety check. The process can't be ourselves, our parent or our direct child.
+    def _is_postmaster_process(self, pgcommand: str, data_dir: str) -> bool:
+        # The process can't be ourselves, our parent or our direct child.
         if self.pid == os.getpid() or self.pid == os.getppid() or self.ppid() == os.getpid():
             logger.info('Patroni (pid=%s, ppid=%s), "fake postmaster" (pid=%s, ppid=%s)',
                         os.getpid(), os.getppid(), self.pid, self.ppid())
             return False
 
-        return True
+        try:
+            start_time = int(self._postmaster_pid.get('start_time', 0))
+            if start_time and abs(self.create_time() - start_time) < 3:
+                return True
+        except ValueError:
+            logger.warning('Garbage start time value in pid file: %r', self._postmaster_pid.get('start_time'))
+
+        try:
+            exe = self.exe()
+        except Exception as e:
+            logger.warning('Failed to get executable file for PID=%d: %r', self.pid, e)
+            exe = None
+
+        try:
+            cwd = self.cwd()
+        except Exception as e:
+            logger.warning('Failed to get CWD for PID=%d: %r', self.pid, e)
+            cwd = None
+
+        if exe:
+            def normalize_exe(value: str) -> str:
+                if os.name == 'nt':
+                    value = value.lower()
+                    base, ext = os.path.splitext(value)
+                    if ext == '.exe':
+                        value = base
+                return os.path.basename(value)
+
+            valid_exes = frozenset([normalize_exe(os.path.basename(pgcommand)), 'postmaster'])
+            if normalize_exe(exe) not in valid_exes:
+                logger.info('Process %d from postmaster.pid with executable file "%s" does not look like postgres',
+                            self.pid, exe)
+                return False
+
+            if cwd:
+                def normalize_path(path: str) -> Optional[pathlib.PurePath]:
+                    try:
+                        return pathlib.PurePath(os.path.realpath(path))
+                    except Exception as e:
+                        logger.warning('Failed to normalize "%s" path: %r', path, e)
+                    return None
+
+                data_dir_path = normalize_path(data_dir)
+                if data_dir_path and data_dir_path == normalize_path(cwd):
+                    logger.debug('Process %d from postmaster.pid with executable file "%s" and CWD="%s"'
+                                 ' from postmaster.pid looks like a correct postgres instance', self.pid, exe, cwd)
+                    return True
+
+            logger.warning('Could not determine if process %d with executable file "%s" and CWD="%s"'
+                           ' from postmaster.pid is correct postgres instance. Assuming it is', self.pid, exe, cwd)
+            return True
+
+        logger.info('Process %d from postmaster.pid with executable file "%s" and CWD="%s" does not look like postgres',
+                    self.pid, exe, cwd)
+        return False
 
     @classmethod
     def _from_pidfile(cls, data_dir: str) -> Optional['PostmasterProcess']:
@@ -96,10 +142,10 @@ class PostmasterProcess(psutil.Process):
             return None
 
     @staticmethod
-    def from_pidfile(data_dir: str) -> Optional['PostmasterProcess']:
+    def from_pidfile(pgcommand: str, data_dir: str) -> Optional['PostmasterProcess']:
         try:
             proc = PostmasterProcess._from_pidfile(data_dir)
-            return proc if proc and proc._is_postmaster_process() else None
+            return proc if proc and proc._is_postmaster_process(pgcommand, data_dir) else None
         except psutil.NoSuchProcess:
             return None
 
@@ -229,7 +275,7 @@ class PostmasterProcess(psutil.Process):
             PATRONI_ENV_PREFIX) and not p.startswith(KUBERNETES_ENV_PREFIX)}
         try:
             proc = PostmasterProcess._from_pidfile(data_dir)
-            if proc and not proc._is_postmaster_process():
+            if proc and not proc._is_postmaster_process(pgcommand, data_dir):
                 # Upon start postmaster process performs various safety checks if there is a postmaster.pid
                 # file in the data directory. Although Patroni already detected that the running process
                 # corresponding to the postmaster.pid is not a postmaster, the new postmaster might fail
