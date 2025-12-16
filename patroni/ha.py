@@ -1508,6 +1508,9 @@ class Ha(object):
             if ret is not None:  # continue if we just deleted the stale failover key as a leader
                 return ret
 
+        if self.state_handler.is_starting():  # postgresql still starting up is unhealthy
+            return False
+
         if self.state_handler.is_primary():
             if self.is_paused():
                 # in pause leader is the healthiest only when no initialize or sysid matches with initialize!
