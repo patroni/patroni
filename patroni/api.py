@@ -1284,6 +1284,50 @@ class RestApiHandler(BaseHTTPRequestHandler):
             patroni.postgresql.mpp_handler.handle_event(cluster, request)
         self.write_response(200, 'OK')
 
+    @check_access
+    def do_POST_upgrade(self) -> None:
+        request = self._read_json_content()
+        desired_version = request.get('desired_version')
+        check_only = request.get('check', False)
+
+        if not desired_version:
+            self._write_json_response(503, {'message': 'Desired version is required'})
+            return
+
+        desired_version = str(desired_version)
+
+        success, result_msg = self.server.patroni.ha.upgrade(desired_version, check_only=check_only)
+        status_code = 200 if success else 503
+        self._write_json_response(503, {'message': result_msg})
+
+    @check_access
+    def do_POST_rsync(self) -> None:
+        request = self._read_json_content(body_is_optional=True)
+
+        if request:
+            logger.debug('received rsync request: %s', request)
+
+        data = self.server.patroni.ha.start_rsync_from_primary(request.get('primary_ip'))
+        if data is None:
+            status_code = 200
+            data = 'rsync started'
+        else:
+            status_code = 503
+        self.write_response(status_code, data)
+
+    @check_access
+    def do_GET_rsync(self):
+        try:
+            timeout = int(self.path_query.get('timeout', 'default'))
+        except ValueError:
+            timeout = 5
+
+        status = self.server.patroni.ha.get_rsync_completion_status(timeout)
+
+        self._write_json_response(200, {
+            'status': status,
+        })
+
     def parse_request(self) -> bool:
         """Override :func:`parse_request` to enrich basic functionality of :class:`~http.server.BaseHTTPRequestHandler`.
 

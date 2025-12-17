@@ -73,7 +73,8 @@ class Patroni(AbstractPatroniDaemon, Tags):
         # Initialize global config
         global_config.update(None, self.config.dynamic_configuration)
 
-        self.postgresql = Postgresql(self.config['postgresql'], self.dcs.mpp)
+        bootstrap_version = self.config.get('bootstrap', {}).get('version')
+        self.postgresql = Postgresql(self.config['postgresql'], self.dcs.mpp, bootstrap_version)
         self.api = RestApiServer(self, self.config['restapi'])
         self.ha = Ha(self)
 

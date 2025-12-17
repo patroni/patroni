@@ -20,7 +20,7 @@ from .postgresql.callback_executor import CallbackAction
 from .postgresql.misc import postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .postgresql.postmaster import PostmasterProcess
 from .postgresql.rewind import Rewind
-from .postgresql.upgrade import InplaceUpgrade
+from .postgresql.upgrade import InplaceUpgrade, UpgradeFailure, ReplicaSyncStatus
 from .quorum import QuorumStateResolver
 from .tags import Tags
 from .utils import parse_int, polling_loop, tzutc
@@ -2017,13 +2017,23 @@ class Ha(object):
 
         self._async_executor.run_async(self._do_reinitialize, args=(cluster, from_leader))
 
-    def upgrade(self, desired_version: str, replica_count: int) -> Tuple[bool, str]:
+    def upgrade(self, desired_version: str, check_only=False) -> Tuple[bool, str]:
+        config = global_config.get('upgrade')
+        if config is None:
+            return False, 'Upgrade configuration is missing from global config'
+
+        validation_errors = list(InplaceUpgrade.check_config(config))
+        if validation_errors:
+            return False, 'Upgrade configuration has problems:' + ', '.join(validation_errors)
+
+        upgrade = InplaceUpgrade.start_new(self.state_handler, self, config, desired_version)
+
         with self._async_executor:
             prev = self._async_executor.schedule('upgrade')
             if prev is not None:
                 return (False, prev + ' already in progress')
 
-        self._upgrade = InplaceUpgrade(self.state_handler, desired_version, replica_count, self.dcs, self)
+        self._upgrade = upgrade
 
         # TODO: refactor this into HA class
         #if self.upgrade_required:
@@ -2031,11 +2041,41 @@ class Ha(object):
             #self.dcs = get_dcs({**config.copy(), 'loop_wait': 0, 'ttl': 10, 'retry_timeout': 10, 'patronictl': True})
             #self.request = PatroniRequest(config, True)
 
-        result = self._async_executor.run(self._upgrade.do_upgrade, args=(desired_version,))
+        result = self._async_executor.run(self._upgrade.do_upgrade, args=(check_only,))
         if result is None:
-            return (True, 'upgraded to {0} successfully'.format(desired_version))
+            action = 'upgrade to' if not check_only else 'upgrade check for'
+            return True, f'{action} {desired_version} started'
         else:
-            return (False, result)
+            return False, result
+
+    def is_upgrade_running(self) -> bool:
+        if not self.cluster.status.upgrade:
+            return False
+        return self.cluster.status.upgrade and self.cluster.status.upgrade.state.is_active()
+
+    def start_rsync_from_primary(self, primary_ip: str) -> Optional[str]:
+        if not self.cluster.status.upgrade:
+            # TODO: avoid race with having a stale cluster value
+            return 'Upgrade is not in progress'
+
+        try:
+            # TODO: Should primary_ip come from cluster state or from API?
+            self._upgrade = InplaceUpgrade(self.state_handler, self, self.cluster.status.upgrade)
+            self._async_executor.run_async(self._upgrade.do_run_rsync_from_primary, (primary_ip,))
+            return None
+        except UpgradeFailure as e:
+            return str(e)
+
+    def get_rsync_completion_status(self, timeout: int) -> 'ReplicaSyncStatus':
+        if not self._upgrade:
+            return ReplicaSyncStatus.NOT_RUNNING
+        # TODO: Should we handle checking that the sync result is from the correct sync round?
+
+        return self._upgrade.get_rsync_completion_status(timeout)
+
+    def update_postgres(self, postgres):
+        logger.debug('Updating postgres to %s running in %s', postgres.major_version, postgres.data_dir)
+        self.state_handler = postgres
 
     def handle_long_action_in_progress(self) -> str:
         """Figure out what to do with the task AsyncExecutor is performing."""
@@ -2248,6 +2288,10 @@ class Ha(object):
                 # Therefore we want to postpone the leader race if we just started up.
                 if self.cluster.is_unlocked() and self.dcs.__class__.__name__ == 'Raft':
                     return 'started as a secondary'
+
+            if self.is_upgrade_running():
+                #TODO: make this way more robust
+                return 'waiting for upgrade'
 
             # is data directory empty?
             data_directory_error = ''

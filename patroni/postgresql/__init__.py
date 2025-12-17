@@ -13,6 +13,7 @@ from enum import IntEnum
 from threading import current_thread, Lock
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
 
+import psutil
 from dateutil import tz
 from psutil import TimeoutExpired
 
@@ -22,13 +23,15 @@ from ..collections import CaseInsensitiveDict, CaseInsensitiveSet, EMPTY_DICT
 from ..dcs import Cluster, Leader, Member, slot_name_from_member_name
 from ..exceptions import PostgresConnectionException
 from ..tags import Tags
-from ..utils import data_directory_is_empty, parse_int, polling_loop, Retry, RetryFailedError
+from ..utils import data_directory_is_empty, parse_int, polling_loop, Retry, RetryFailedError, \
+    remove_directory_if_exists
 from .bootstrap import Bootstrap
 from .callback_executor import CallbackAction, CallbackExecutor
 from .cancellable import CancellableSubprocess
 from .config import ConfigHandler, mtime
 from .connection import ConnectionPool, get_connection_cursor
-from .misc import parse_history, parse_lsn, postgres_major_version_to_int, PostgresqlRole, PostgresqlState
+from .misc import parse_history, parse_lsn, postgres_major_version_to_int, PostgresqlRole, PostgresqlState, \
+    format_major_version
 from .mpp import AbstractMPP
 from .postmaster import PostmasterProcess
 from .slots import SlotsHandler
@@ -75,35 +78,36 @@ class Postgresql(object):
               "pg_catalog.pg_{0}_{1}_diff(COALESCE(pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint, "
               "pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused()")
 
-    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
-        self._init(config, mpp)
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP, bootstrap_version: Optional[str]) -> None:
+        self._init(config, mpp, bootstrap_version)
         self._startup(config)
 
-    def new_version(self, version: str, data_dir: str):
-        # TODO: Have a better way to transfer config
+    def new_version(self, major_version: int, data_dir: str):
         config = self.config._config
-        major_version = postgres_major_version_to_int(version)
 
         copy = type(self).__new__(type(self))
         copy._init(config,
-                   self.mpp_handler.reparented(copy),
+                   self.mpp_handler.get_unbound(),
+                   bin_dir_template_required=True,
                    explicit_version=major_version,
                    data_dir_override=data_dir,
                    existing=self,
                    )
+        copy.set_role(PostgresqlRole.UNINITIALIZED)
+        copy.set_state(PostgresqlState.STOPPED)
+
         return copy
 
     def _init(self, config: Dict[str, Any], mpp: AbstractMPP,
+              bootstrap_version: Optional[str]=None,
               bin_dir_template_required: bool=False,
               explicit_version: Optional[int]=None,
               data_dir_override: Optional[str]=None,
               existing: Optional['Postgresql']=None) -> None:
         self.name: str = config['name']
         self.scope: str = config['scope']
-        self._data_dir: str = data_dir_override or config['data_dir']
+        self.set_data_dir(data_dir_override or config['data_dir'], _from_init=True)
         self._database = config.get('database', 'postgres')
-        self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
-        self._pg_control = os.path.join(self._data_dir, 'global', 'pg_control')
         self.connection_string: str
         self.proxy_url: Optional[str]
         self._major_version = explicit_version or self.get_major_version()
@@ -118,15 +122,13 @@ class Postgresql(object):
         if config.get('bin_dir_template'):
             # TODO: move construction from existing data dir to a separate method
             if self._major_version:
-                version = str(self._major_version // 10000)
-                if self._major_version < 100000:
-                    version += "." + str((self._major_version % 10000) // 100)
+                version = format_major_version(self._major_version)
             else:
-                version = config.get('version')
+                version = str(bootstrap_version)
             if not explicit_version:
                 logger.info(f"Picking version {version}")
             self._bin_dir = config['bin_dir_template'].format(major_version=version) if version else ''
-        elif existing:
+        elif bin_dir_template_required:
             raise Exception("Upgrading version requires a bin_dir_template") # TODO: pick correct error
         else:
             self._bin_dir = config.get('bin_dir') or ''
@@ -143,7 +145,7 @@ class Postgresql(object):
         self.sync_handler = SyncHandler(self)
 
         self._callback_executor = CallbackExecutor()
-        self.__cb_called = False if not existing else existing.__cb_called #TODO: guaranteed to be true?
+        self.__cb_called = False if not existing else existing.__cb_called #TODO: guaranteed to be true if existing?
         self.__cb_pending = None
 
         self.cancellable = CancellableSubprocess()
@@ -167,6 +169,13 @@ class Postgresql(object):
         self._postmaster_proc = None
 
         self._available_gucs = None
+
+    def set_data_dir(self, data_dir, _from_init=False):
+        self._data_dir = data_dir
+        self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
+        self._pg_control = os.path.join(self._data_dir, 'global', 'pg_control')
+        if not _from_init:
+            self.config.set_data_dir(data_dir)
 
     def _startup(self, config: Dict[str, Any]):
         self.set_role(self.get_postgres_role_from_data_directory())
@@ -1447,72 +1456,130 @@ class Postgresql(object):
         with open(self._version_file) as f:
             return f.read().strip()
 
-    @staticmethod
-    def remove_new_data(d):
-        if d.endswith('_new') and os.path.isdir(d):
-            shutil.rmtree(d)
-
-    def prepare_new_pgdata(self, version):
+    def prepare_new_pgdata(self, oldpg: "Postgresql"):
         #from spilo_commons import append_extensions
 
-        locale = self.query("SELECT datcollate FROM pg_database WHERE datname='template1';")[0][0]
-        encoding = self.query('SHOW server_encoding')[0][0]
+        locale = oldpg.query("SELECT datcollate FROM pg_database WHERE datname='template1';")[0][0]
+        encoding = oldpg.query('SHOW server_encoding')[0][0]
         initdb_config = [{'locale': locale}, {'encoding': encoding}]
-        if self.query("SELECT current_setting('data_checksums')::bool")[0][0]:
+        if oldpg.query("SELECT current_setting('data_checksums')::bool")[0][0]:
             initdb_config.append('data-checksums')
+
+        #TODO: locale-provider ICU handling?
+        #TODO: wal segment size needs to be propagated
 
         logger.info('initdb config: %s', initdb_config)
 
-        self._new_data_dir = os.path.abspath(self._data_dir)
-        self._old_data_dir = self._new_data_dir + '_old'
-        self._data_dir = self._new_data_dir + '_new'
-        self.remove_new_data(self._data_dir)
-        old_postgresql_conf = self.config._postgresql_conf
-        self.config._postgresql_conf = os.path.join(self._data_dir, 'postgresql.conf')
-        old_version_file = self._version_file
-        self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
+        #TODO: evaluate if waldir needs some more handling
 
-        self._old_bin_dir = self._bin_dir
-        self.set_bin_dir_for_version(version) # FIXME: refactor this
-        self._new_bin_dir = self._bin_dir
+        self.remove_data_directory()
 
-        # shared_preload_libraries for the old cluster, cleaned from incompatible/missing libs
-        old_shared_preload_libraries = self.config.get('parameters').get('shared_preload_libraries')
-
-        # restore original values of archive_mode and shared_preload_libraries
-        if getattr(self, '_old_config_values', None):
-            for name, value in self._old_config_values.items():
-                if value is None:
-                    self.config.get('parameters').pop(name)
-                else:
-                    self.config.get('parameters')[name] = value
-
+        # TODO: plugin API for determining shared preload libraries during upgrade and after upgrade
         # for the new version we maybe need to add some libs to the shared_preload_libraries
-        shared_preload_libraries = self.config.get('parameters').get('shared_preload_libraries')
-        if shared_preload_libraries:
-            # TODO: plugin API for determining shared preload libraries
-            self._old_shared_preload_libraries = self.config.get('parameters')['shared_preload_libraries'] =\
-                shared_preload_libraries
+        #shared_preload_libraries = self.config.get('parameters').get('shared_preload_libraries')
+        #if shared_preload_libraries:
+        #    self._old_shared_preload_libraries = self.config.get('parameters')['shared_preload_libraries'] =\
+        #        shared_preload_libraries
                 #append_extensions(shared_preload_libraries, float(version))
             #self.no_bg_mon()
 
+        # TODO: avoid using private interface
         if not self.bootstrap._initdb(initdb_config):
             return False
-        self.bootstrap._running_custom_bootstrap = False
+        # TODO: this is apparently not needed:
+        # self.bootstrap._running_custom_bootstrap = False
 
+        #TODO: add config dir support
         # Copy old configs. XXX: some parameters might be incompatible!
-        for f in os.listdir(self._new_data_dir):
+        for f in os.listdir(oldpg.data_dir):
             if f.startswith('postgresql.') or f.startswith('pg_hba.conf') or f == 'patroni.dynamic.json':
-                shutil.copy(os.path.join(self._new_data_dir, f), os.path.join(self._data_dir, f))
+                shutil.copy(os.path.join(oldpg.data_dir, f), os.path.join(self.data_dir, f))
 
         self.config.write_postgresql_conf()
-        self._new_data_dir, self._data_dir = self._data_dir, self._new_data_dir
-        self.config._postgresql_conf = old_postgresql_conf
-        self._version_file = old_version_file
-        self.set_bin_dir(self._old_bin_dir)
 
-        if old_shared_preload_libraries:
-            self.config.get('parameters')['shared_preload_libraries'] = old_shared_preload_libraries
-            self.no_bg_mon()
         self.configure_server_parameters()
         return True
+
+    def pg_upgrade(self, src: "Postgresql", check=False) -> bool:
+        #TODO: make upgrade cwd configurable
+        upgrade_dir = src._data_dir + '_upgrade'
+        if os.path.exists(upgrade_dir) and os.path.isdir(upgrade_dir):
+            shutil.rmtree(upgrade_dir)
+
+        os.makedirs(upgrade_dir)
+
+        # TODO: allow configuration of extra upgrade options
+        pg_upgrade_args = ['-k', '-j', str(psutil.cpu_count()),
+                           '-b', src._bin_dir, '-B', self._bin_dir,
+                           '-d', os.path.abspath(src._data_dir), '-D', os.path.abspath(self._data_dir),
+                           '-O', "-c timescaledb.restoring='on'",
+                           '-O', "-c archive_mode='off'"]
+        if 'username' in self.config.superuser:
+            pg_upgrade_args += ['-U', self.config.superuser['username']]
+
+        if check:
+            pg_upgrade_args += ['--check']
+        else:
+            self.config.write_postgresql_conf()
+
+        logger.info('Executing pg_upgrade%s', (' --check' if check else ''))
+        if subprocess.call([self.pgcommand('pg_upgrade')] + pg_upgrade_args, cwd=upgrade_dir) == 0:
+            shutil.rmtree(upgrade_dir)
+            return True
+        return False
+
+    def switch_pgdata(self, other: "Postgresql", suffix="_old") -> bool:
+        replaced_data_dir = other._data_dir + suffix
+
+        # If previous upgrade attempt has left an old datadir behind, remove it now.
+        remove_directory_if_exists(replaced_data_dir)
+
+        # Move target data dir out of the way
+        os.rename(other._data_dir, replaced_data_dir)
+        # Replace target datadir with self
+        if os.path.exists(self._data_dir):
+            os.rename(self._data_dir, other._data_dir)
+
+        # Replace data dir locations
+        self.set_data_dir(other._data_dir)
+        other.set_data_dir(replaced_data_dir)
+
+        self.configure_server_parameters()
+        return True
+
+    @property
+    def local_conn_kwargs(self):
+        conn_kwargs = self.connection_pool.conn_kwargs
+        conn_kwargs['options'] = '-c synchronous_commit=local -c statement_timeout=0 -c search_path='
+        conn_kwargs.pop('connect_timeout', None)
+        return conn_kwargs
+
+    def get_all_databases(self) -> List[str]:
+        return [d[0] for d in self.query('SELECT datname FROM pg_catalog.pg_database WHERE datallowconn')]
+
+    def analyze(self, in_stages=False):
+        vacuumdb_args = ['--analyze-in-stages'] if in_stages else []
+        logger.info('Rebuilding statistics (vacuumdb%s)', (' ' + vacuumdb_args[0] if in_stages else ''))
+        if 'username' in self.config.superuser:
+            vacuumdb_args += ['-U', self.config.superuser['username']]
+        vacuumdb_args += ['-Z', '-j']
+
+        # vacuumdb is processing databases sequantially, while we better do them in parallel,
+        # because it will help with the case when there are multiple databases in the same cluster.
+        single_worker_dbs = ('postgres', 'template1')
+        databases = self.get_all_databases()
+        db_count = len([d for d in databases if d not in single_worker_dbs])
+        # calculate concurrency per database, except always existing "single_worker_dbs" (they'll get always 1 worker)
+        concurrency = str(max(1, int(psutil.cpu_count()/max(1, db_count))))
+        procs = []
+        for d in databases:
+            j = '1' if d in single_worker_dbs else concurrency
+            try:
+                procs.append(subprocess.Popen([self.pgcommand('vacuumdb')] + vacuumdb_args + [j, '-d', d]))
+            except Exception:
+                pass
+        for proc in procs:
+            try:
+                proc.wait()
+            except Exception:
+                pass

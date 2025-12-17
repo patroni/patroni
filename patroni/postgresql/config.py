@@ -401,6 +401,21 @@ class ConfigHandler(object):
         self._server_parameters: CaseInsensitiveDict = CaseInsensitiveDict()
         self.reload_config(config)
 
+    def set_data_dir(self, data_dir: str):
+        if not self._config.get('config_dir', ''):
+            self._config_dir = os.path.abspath(data_dir)
+            config_base_name = self._config.get('config_base_name', 'postgresql')
+            self._postgresql_conf = os.path.join(self._config_dir, config_base_name + '.conf')
+            self._postgresql_base_conf = os.path.join(self._config_dir, self._postgresql_base_conf_name)
+            self._pg_hba_conf = os.path.join(self._config_dir, 'pg_hba.conf')
+            self._pg_ident_conf = os.path.join(self._config_dir, 'pg_ident.conf')
+
+        self._recovery_conf = os.path.join(data_dir, 'recovery.conf')
+        self._recovery_signal = os.path.join(data_dir, 'recovery.signal')
+        self._standby_signal = os.path.join(data_dir, 'standby.signal')
+        self._auto_conf = os.path.join(data_dir, 'postgresql.auto.conf')
+
+
     def load_current_server_parameters(self) -> None:
         """Read GUC's values from ``pg_settings`` when Patroni is joining the the postgres that is already running."""
         exclude = [name.lower() for name, value in self.CMDLINE_OPTIONS.items() if value[1] == _false_validator]

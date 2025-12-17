@@ -135,6 +135,13 @@ def get_major_from_minor_version(version: int) -> int:
     return version // 100 * 100
 
 
+def format_major_version(major_version: int) -> str:
+    version = str(major_version // 10000)
+    if major_version < 100000:
+        version += "." + str((major_version % 10000) // 100)
+    return version
+
+
 def parse_lsn(lsn: str) -> int:
     t = lsn.split('/')
     return int(t[0], 16) * 0x100000000 + int(t[1], 16)
