@@ -1560,8 +1560,10 @@ class Postgresql(object):
     def analyze(self, in_stages=False):
         vacuumdb_args = ['--analyze-in-stages'] if in_stages else []
         logger.info('Rebuilding statistics (vacuumdb%s)', (' ' + vacuumdb_args[0] if in_stages else ''))
-        if 'username' in self.config.superuser:
-            vacuumdb_args += ['-U', self.config.superuser['username']]
+
+        conn_kwargs = self.connection_pool.conn_kwargs
+        env = self.config.write_pgpass(conn_kwargs)
+
         vacuumdb_args += ['-Z', '-j']
 
         # vacuumdb is processing databases sequantially, while we better do them in parallel,
@@ -1574,8 +1576,9 @@ class Postgresql(object):
         procs = []
         for d in databases:
             j = '1' if d in single_worker_dbs else concurrency
+            dsn = self.config.format_dsn({**conn_kwargs, 'password': None, 'dbname': d})
             try:
-                procs.append(subprocess.Popen([self.pgcommand('vacuumdb')] + vacuumdb_args + [j, '-d', d]))
+                procs.append(subprocess.Popen([self.pgcommand('vacuumdb')] + vacuumdb_args + [j, '-d', dsn], env=env))
             except Exception:
                 pass
         for proc in procs:

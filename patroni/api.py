@@ -1298,7 +1298,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         success, result_msg = self.server.patroni.ha.upgrade(desired_version, check_only=check_only)
         status_code = 200 if success else 503
-        self._write_json_response(503, {'message': result_msg})
+        self._write_json_response(status_code, {'message': result_msg})
 
     @check_access
     def do_POST_rsync(self) -> None:
