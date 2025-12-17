@@ -64,8 +64,8 @@ class InplaceUpgrade(object):
 
         self.upgrade_required = float(self.cluster_version) < float(self.desired_version)
 
-        # TODO: handle versioned data_dir
-        temp_datadir = self.current_pg.data_dir + '_new'
+        temp_datadir = self.current_pg.data_dir + '_new' if postgresql.has_versioned_data_dir else None
+
         # FIXME: handle case where new data_dir already exists and has wrong major version in it
 
         self.target_pg = postgresql.new_version(dcs_state.target_version, temp_datadir)
@@ -144,7 +144,7 @@ class InplaceUpgrade(object):
 
         self.update_dcs('New data directory initialized')
 
-        # TODO: implement this too for stuff that is needed to make pg_upgrade check pass
+        # TODO: implement this hook for stuff that is needed to make pg_upgrade check pass
         # Should it happen before preparing new pgdata
         #self.plugins.prepare_precheck(self.current_pg)
 
@@ -178,7 +178,8 @@ class InplaceUpgrade(object):
         if not self.target_pg.pg_upgrade(self.current_pg):
             return logger.error('Failed to upgrade cluster from %s to %s', self.cluster_version, self.desired_version)
 
-        self.target_pg.switch_pgdata(self.current_pg)
+        if not self.current_pg.has_versioned_data_dir:
+            self.target_pg.switch_pgdata(self.current_pg)
         self.upgrade_complete = True
 
         self.update_dcs('pg_upgrade completed')
@@ -232,12 +233,14 @@ class InplaceUpgrade(object):
             analyze_thread = AnalyzeJob(self.target_pg)
             analyze_thread.start()
 
-        if self.members:
-            #TODO: wait for replicas to start
-            pass
-
         self.ha.update_postgres(self.target_pg)
         self.update_dcs('Upgrade complete', state=UpgradeState.SUCCESS)
+
+        if self.members:
+            #TODO: wait for replicas to start
+            time.sleep(3)
+            pass
+
 
         if analyze_thread:
             analyze_thread.join()
@@ -259,7 +262,7 @@ class InplaceUpgrade(object):
         results = pool.map_async(self.checkpoint_member, self.replica_connections.items())
         pool.close()
 
-        self.replica_upgrade.before_pg_upgrade(self.current_pg, self.members)
+        self.replica_upgrade.before_pg_upgrade(self.current_pg, self.target_pg, self.members)
 
         def failed_replicas():
             # Check status of replicas CHECKPOINT and remove connections that are failed.
@@ -283,7 +286,7 @@ class InplaceUpgrade(object):
         checkpoint_lsn = parse_lsn(checkpoint_lsn_str)
         logger.info('Latest checkpoint location: %s', checkpoint_lsn)
 
-        self.replica_upgrade.after_primary_stop(self.current_pg, self.members)
+        self.replica_upgrade.after_primary_stop(self.current_pg, self.target_pg, self.members)
 
         if not self.wait_for_replicas(checkpoint_lsn):
             raise UpgradeFailure("Not all replicas caught up")

@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import shlex
@@ -138,6 +139,7 @@ class Bootstrap(object):
             os.remove(pwfile)
         if ret:
             self._postgresql.configure_server_parameters()
+            self._postgresql.update_state(version=self._postgresql.major_version)
         else:
             self._postgresql.set_state(PostgresqlState.INITDB_FAILED)
         return ret
@@ -145,6 +147,7 @@ class Bootstrap(object):
     def _post_restore(self) -> None:
         self._postgresql.config.restore_configuration_files()
         self._postgresql.configure_server_parameters()
+        self._postgresql.update_state(version=self._postgresql.major_version)
 
         # make sure there is no trigger file or postgres will be automatically promoted
         trigger_file = self._postgresql.config.triggerfile_good_name

@@ -11,10 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 class ReplicaUpgradePlugin:
-    def after_primary_stop(self, postgresql: Postgresql, replicas: Dict[str, Member]):
+    def after_primary_stop(self, current_pg: Postgresql, target_pg: Postgresql, replicas: Dict[str, Member]):
         pass
 
-    def before_pg_upgrade(self, postgresql: Postgresql, replicas: Dict[str, Member]):
+    def before_pg_upgrade(self, current_pg: Postgresql, target_pg: Postgresql, replicas: Dict[str, Member]):
         pass
 
     def before_primary_start(self, ha: 'Ha', leader: Member, replicas: Dict[str, Member]) -> List[str]:

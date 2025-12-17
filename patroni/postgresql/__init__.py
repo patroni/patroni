@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -106,11 +107,45 @@ class Postgresql(object):
               existing: Optional['Postgresql']=None) -> None:
         self.name: str = config['name']
         self.scope: str = config['scope']
-        self.set_data_dir(data_dir_override or config['data_dir'], _from_init=True)
+
+        self.state_file = config.get('state_file')
+        detected_version: Optional[int] = None
+        if config.get('data_dir_template'):
+            self.has_versioned_data_dir = True
+            data_dir_template = config.get('data_dir_template')
+            if explicit_version:
+                detected_version = explicit_version
+            else:
+                if not self.state_file:
+                    raise Exception("State file is required if data_dir_template is used")
+                state = {}
+                if os.path.exists(self.state_file):
+                    try:
+                        with open(self.state_file) as fd:
+                            state_file_contents = fd.read()
+                            state = json.loads(state_file_contents)
+                    except (OSError, json.JSONDecodeError):
+                        pass
+
+                if state:
+                    detected_version = state['version']
+                else:
+                    if not bootstrap_version:
+                        raise Exception("Can't determine version")
+
+                    detected_version = postgres_major_version_to_int(str(bootstrap_version))
+            data_dir = data_dir_template.format(major_version=format_major_version(detected_version),
+                                                name=self.name,
+                                                scope=self.scope)
+        else:
+            self.has_versioned_data_dir = False
+            data_dir = data_dir_override or config['data_dir']
+
+        self.set_data_dir(data_dir, _from_init=True)
         self._database = config.get('database', 'postgres')
         self.connection_string: str
         self.proxy_url: Optional[str]
-        self._major_version = explicit_version or self.get_major_version()
+        self._major_version = explicit_version or detected_version or self.get_major_version()
 
         self._state_lock = Lock()
         self.set_state(PostgresqlState.STOPPED)
@@ -1586,3 +1621,26 @@ class Postgresql(object):
                 proc.wait()
             except Exception:
                 pass
+
+    def update_state(self, version: int):
+        if not self.state_file:
+            return
+
+        state = {
+            'version': version
+        }
+        try:
+            with open(self.state_file, 'w') as fd:
+                fd.write(json.dumps(state))
+                os.fsync(fd)
+
+            if os.name != 'nt':
+                fd = os.open(os.path.dirname(self.state_file), os.O_DIRECTORY)
+                try:
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+        except OSError as e:
+            logger.warning("Error writing state file: %s", e)
+            pass
+
