@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 class ReplicaRsync(ReplicaUpgradePlugin):
     def __init__(self,
-                 conf_dir: str,
+                 conf_dir: str='/tmp/patroni_rsyncd_config',
                  feedback_dir: Optional[str]=None,
-                 port: int=5432,
+                 port: int=8100,
                  timeout: int=300,):
         self.rsyncd = None
         self.rsyncd_configs_created = False

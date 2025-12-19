@@ -166,7 +166,7 @@ class InplaceUpgrade(object):
             return
 
     def _get_replica_upgrade_plugin(self, config: dict) -> ReplicaUpgradePlugin:
-        method_name = config.get('replica_upgrade_method', 'reinit')
+        method_name = config.get('replica_upgrade_method', 'rsync')
         if not isinstance(method_name, str):
             raise ValueError('replica_sync_method must be a string')
 
