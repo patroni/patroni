@@ -176,9 +176,12 @@ class InplaceUpgrade(object):
 
     def update_dcs(self, event: Optional[str] = None, **kwargs):
         logger.info("Updating DCS data %s: %s", ', '.join(f"{k}={v}" for k,v in kwargs.items()), event)
+        prev_state = self.dcs_state.state
         self.dcs_state = self.dcs_state._replace(**kwargs)
         if event:
-            self.dcs_state.progress.append((datetime.datetime.now(datetime.timezone.utc).isoformat(), event))
+            self.dcs_state.progress.append((datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                            prev_state.value,
+                                            event))
         self.ha.dcs.write_status({'upgrade': self.dcs_state._asdict()})
 
     def do_upgrade(self, check_only=False):
@@ -213,6 +216,8 @@ class InplaceUpgrade(object):
 
         if not self.sanity_checks(cluster):
             return False
+
+        logger.info(f"Starting upgrade with {len(self.members)} replicas")
 
         self.update_dcs('Upgrade pre checks complete', state=UpgradeState.PREPARE)
 

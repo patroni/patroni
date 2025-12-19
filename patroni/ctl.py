@@ -2498,9 +2498,9 @@ def upgrade(cluster_name: str, new_version: str, force: bool, check: bool) -> No
                 upgrade = cluster.status.upgrade
                 if not upgrade:
                     raise PatroniCtlException('Upgrade state lost unexpectedly')
-                for tstamp, message in upgrade.progress:
+                for tstamp, state, message in upgrade.progress:
                     if tstamp > high_water_mark:
-                        click.echo(f"[{tstamp}] [{upgrade.state.value}] {message}")
+                        click.echo(f"[{tstamp}] [{state}] {message}")
                         high_water_mark = tstamp
                 if upgrade.state in (UpgradeState.FAILED, UpgradeState.CHECKED):
                     raise PatroniCtlException('Upgrade failed')

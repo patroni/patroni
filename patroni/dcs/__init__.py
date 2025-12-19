@@ -784,7 +784,7 @@ class Upgrade(NamedTuple):
     :ival target_version: version of the cluster after the upgrade.
     :ival shutdown_lsn: Shutdown checkpoint LSN of the old version.
     :ival config: Upgrade config
-    :ival progress: Progress of the upgrade.
+    :ival progress: Progress of the upgrade. Tuple of timestamp, state when event happened and message
     """
 
     initiator: str
@@ -796,7 +796,7 @@ class Upgrade(NamedTuple):
     shutdown_lsn: Optional[int]
     downtime_start: Optional[float]
     config: Dict[str, Any]
-    progress: List[Tuple[str, str]]
+    progress: List[Tuple[str, str, str]]
 
     @staticmethod
     def from_node(value: Dict[str, Any]) -> Optional['Upgrade']:
