@@ -3,6 +3,7 @@ import logging
 import os
 
 from enum import Enum
+from pathlib import Path
 from typing import Iterable, Tuple
 
 from ..exceptions import PostgresException
@@ -173,3 +174,12 @@ def fsync_dir(path: str) -> None:
                 raise
         finally:
             os.close(fd)
+
+
+def common_prefix(path1: str, path2: str) -> Path:
+    p1 = Path(path1).absolute()
+    p2 = Path(path2).absolute()
+    return Path(*(
+        a for a, b in zip(p1.parts, p2.parts)
+        if a == b
+    ))

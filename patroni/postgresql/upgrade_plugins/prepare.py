@@ -3,7 +3,7 @@ import operator
 import re
 import shlex
 import subprocess
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from . import UpgradePreparePlugin, UpgradePluginManager
 from .. import Postgresql
@@ -51,7 +51,8 @@ class ShellCommandPlugin(UpgradePreparePlugin):
     name = 'cmd'
 
     def __init__(self, config: Dict[str, Any]):
-        self.shell = config.get('shell', None)
+        self.shell: Optional[str] = config.get('shell', None)
+        self.rollback: Optional[str]  = config.get('rollback', None)
         # TODO: trivial dummy implementation, needs error checking, background execution
         # maybe output handling etc.
         super().__init__(config)
@@ -65,8 +66,20 @@ class ShellCommandPlugin(UpgradePreparePlugin):
             logger.warning('Shell command not specified')
             return
 
-        cmd = shlex.split(self.shell) + []
+        return self._run_shell_command(self.shell)
+
+    def rollback(self):
+        if self.rollback:
+            self._run_shell_command(self.rollback)
+
+    def _run_shell_command(self, cmd: str):
+        if not self.shell:
+            logger.warning('Shell command not specified')
+            return
+
+        cmd = shlex.split(self.shell) + [] #TODO: what args would a shell command need?
         subprocess.call(cmd, shell=True)
+
 
 VERSION_SPEC_RE = re.compile(
     r"""
@@ -129,7 +142,13 @@ class UpdateExtensions(UpgradePreparePlugin):
             return True
         return False
 
+    def prepare_database(self, postgresql: Postgresql, cur, dbname: str):
+        return self._update_extensions(postgresql, cur, dbname)
+
     def post_process_database(self, postgresql: Postgresql, cur, dbname: str):
+        return self._update_extensions(postgresql, cur, dbname)
+
+    def _update_extensions(self, postgresql: Postgresql, cur, dbname: str):
         cur.execute('SELECT quote_ident(extname), extversion FROM pg_catalog.pg_extension')
         for extname, version in cur.fetchall():
             if self.matches_skip(extname, version):

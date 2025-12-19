@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional, List, Dict
 
 from . import ReplicaUpgradePlugin
-from .. import Postgresql
+from .. import Postgresql, common_prefix, DataDirStatus
 from ..upgrade import UpgradeFailure, ReplicaSyncStatus
 from ...dcs import Member
 from ...utils import polling_loop, remove_directory_if_exists
@@ -19,13 +19,6 @@ if typing.TYPE_CHECKING: #  pragma: nocover
 
 logger = logging.getLogger(__name__)
 
-def common_prefix(path1: str, path2: str) -> Path:
-    p1 = Path(path1).absolute()
-    p2 = Path(path2).absolute()
-    return Path(*(
-        a for a, b in zip(p1.parts, p2.parts)
-        if a == b
-    ))
 
 class ReplicaRsync(ReplicaUpgradePlugin):
     def __init__(self,
@@ -88,15 +81,21 @@ hosts deny = *
         return data_dir_parent
 
     def after_primary_stop(self, current_pg: Postgresql, target_pg: Postgresql, replicas: Dict[str, Member]):
+        if not replicas:
+            return
         self._create_rsyncd_configs(current_pg, target_pg, replicas.values())
         self.rsyncd = subprocess.Popen(['rsync', '--daemon', '--no-detach', '--config=' + self.rsyncd_conf])
         self.rsyncd_started = True
 
     def before_pg_upgrade(self, current_pg: Postgresql, target_pg: Postgresql, replicas: Dict[str, Member]):
-        if not (self.rsyncd.pid and self.rsyncd.poll() is None):
-            raise UpgradeFailure('Failed to start rsyncd')
+        if self.rsyncd_started:
+            if not (self.rsyncd.pid and self.rsyncd.poll() is None):
+                raise UpgradeFailure('Failed to start rsyncd')
 
     def before_primary_start(self, ha: 'Ha', leader: Member, replicas: Dict[str, Member]) -> List[str]:
+        if not self.rsyncd_started:
+            return []
+
         logger.info('Notifying replicas %s to start rsync', ','.join(replicas))
 
         primary_ip = leader.conn_kwargs().get('host')
@@ -118,6 +117,7 @@ hosts deny = *
                     ', '.join(k for k, v in status.items() if v == 'started'))
         for member in replicas.values():
             if status[member.name] == 'started':
+                # TODO: apply a single timeout for all
                 for i in polling_loop(self.rsync_timeout, 10):
                     response = ha.patroni.request(member, 'GET', 'rsync', timeout=10, retries=2)
                     if response.status != 200:
@@ -184,6 +184,7 @@ hosts deny = *
             raise UpgradeFailure(f"Data dir parent directories are not same: {current_pg.data_dir}, {target_pg.data_dir}")
 
         if not current_pg.has_versioned_data_dir:
+            current_pg.update_state(current_pg.major_version, DataDirStatus.SYNC_SWAP)
             target_pg.switch_pgdata(current_pg)
 
         data_dir_parent = self.get_data_dir_parent(current_pg, target_pg)
@@ -203,21 +204,23 @@ hosts deny = *
 
         cmd = ['rsync', '-v',
                         '--archive', '--delete', '--hard-links', '--size-only', '--omit-dir-times',
-                        '--no-inc-recursive',] + \
+                        '--no-inc-recursive', '--delete-delay', ] + \
                         excludes + \
                        [f'{rsync_prefix}/{current_subdir}',
                         f'{rsync_prefix}/{target_subdir}',
                         str(data_dir_parent)]
+
+        current_pg.update_state(current_pg.major_version, DataDirStatus.SYNCING)
+
         logger.info('Starting rsync: '+' '.join(cmd))
 
         if subprocess.call(cmd, env=env) != 0:
             logger.error('Failed to rsync from %s', primary_ip)
-            if current_pg.has_versioned_data_dir:
-                current_pg.switch_pgdata(target_pg, suffix="_new")
+            self.rollback_failed(current_pg, target_pg)
             # XXX: rollback configs?
             return False
 
-        target_pg.update_state(version=target_pg.major_version)
+        target_pg.update_state(target_pg.major_version, DataDirStatus.READY)
 
         #TODO: self.plugins.post_upgrade()
 
@@ -227,3 +230,16 @@ hosts deny = *
 
         remove_directory_if_exists(current_pg.data_dir)
         return True
+
+    def rollback_failed(self, current_pg: Postgresql, target_pg: Postgresql):
+        if os.path.exists(current_pg.pg_control):
+            pass
+        elif os.path.exists(current_pg.pg_control + '.old'):
+            os.rename(current_pg.pg_control + '.old', current_pg.pg_control)
+        else:
+            raise UpgradeFailure('pg_control not found in {}'.format(current_pg.data_dir))
+
+        if not current_pg.has_versioned_data_dir:
+            current_pg.update_state(current_pg.major_version, DataDirStatus.SYNC_SWAP_BACK)
+            current_pg.switch_pgdata(target_pg, suffix="_new")
+        current_pg.update_state(current_pg.major_version, DataDirStatus.READY)

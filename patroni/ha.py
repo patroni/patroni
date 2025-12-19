@@ -2048,6 +2048,48 @@ class Ha(object):
         else:
             return False, result
 
+    def process_upgrade(self) -> Optional[str]:
+        """There is an active upgrade process in DCS, but there is no leader in the cluster.
+
+        No async actions are running.
+        """
+        if self.cluster.is_unlocked():
+            if self.is_paused():
+                # Allow for normal pause handling to recover from a bad upgrade
+                return None
+            self.refresh_upgrade()
+            if self._upgrade.should_recover():
+                if self.acquire_lock():
+                    self.recover_upgrade()
+                    return 'Found interrupted upgrade, trying to recover'
+            else:
+                self._upgrade = None
+            return 'Not healthy enough to recover upgrade'
+        elif self.has_lock(False):
+            if self._upgrade and self._upgrade.too_many_failures():
+                self.release_leader_key_voluntarily()
+                time.sleep(10)
+            else:
+                self.recover_upgrade()
+            return 'trying to recover upgrade'
+        else:
+            return 'waiting for leader to upgrade'
+
+
+    def refresh_upgrade(self):
+        if not self._upgrade or self._upgrade.desired_version != self.cluster.status.upgrade.target_version:
+            self._upgrade = InplaceUpgrade(self.state_handler, self, self.cluster.status.upgrade)
+
+    def recover_upgrade(self):
+        self.refresh_upgrade()
+        with self._async_executor:
+            prev = self._async_executor.schedule('upgrade recovery')
+            if prev is not None:
+                logger.warning("Can't recover upgrade, %s alredy in progress", prev)
+                return
+
+        self._async_executor.run_async(self._upgrade.recover_failed_upgrade)
+
     def is_upgrade_running(self) -> bool:
         if not self.cluster.status.upgrade:
             return False
@@ -2078,9 +2120,10 @@ class Ha(object):
 
         return self._upgrade.get_rsync_completion_status(timeout)
 
-    def update_postgres(self, postgres):
-        logger.debug('Updating postgres to %s running in %s', postgres.major_version, postgres.data_dir)
-        self.state_handler = postgres
+    def update_postgres(self, postgresql):
+        logger.debug('Updating postgres to %s running in %s', postgresql.major_version, postgresql.data_dir)
+        self.state_handler = postgresql
+        self.patroni.postgresql = postgresql
 
     def handle_long_action_in_progress(self) -> str:
         """Figure out what to do with the task AsyncExecutor is performing."""
@@ -2268,8 +2311,9 @@ class Ha(object):
                 return self.handle_long_action_in_progress()
 
             if self.is_upgrade_running():
-                #TODO: make this way more robust
-                return 'waiting for upgrade'
+                msg = self.process_upgrade()
+                if msg is not None:
+                    return msg
 
             msg = self.handle_starting_instance()
             if msg is not None:

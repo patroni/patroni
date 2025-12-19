@@ -1,8 +1,6 @@
 import logging
 from typing import List, Dict, Any, Callable
 
-from pysyncobj import replicated_sync
-
 from .. import Postgresql
 from ..connection import get_connection_cursor
 from ...dcs import Member
@@ -18,6 +16,9 @@ class ReplicaUpgradePlugin:
         pass
 
     def before_primary_start(self, ha: 'Ha', leader: Member, replicas: Dict[str, Member]) -> List[str]:
+        pass
+
+    def rollback_failed(self, current_pg: Postgresql, target_pg: Postgresql):
         pass
 
     @classmethod
@@ -43,6 +44,9 @@ class UpgradePreparePlugin:
         pass
 
     def post_process_database(self, postgresql: Postgresql, cur, dbname: str):
+        pass
+
+    def rollback(self, postgresql: Postgresql):
         pass
 
 class UpgradePluginManager:

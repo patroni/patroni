@@ -794,6 +794,7 @@ class Upgrade(NamedTuple):
     target_sysid: Optional[str]
     target_version: Optional[_Version]
     shutdown_lsn: Optional[int]
+    downtime_start: Optional[float]
     config: Dict[str, Any]
     progress: List[Tuple[str, str]]
 
@@ -808,11 +809,12 @@ class Upgrade(NamedTuple):
             target_sysid = value.get('target_sysid')
             target_version = value.get('target_version')
             shutdown_lsn = value.get('shutdown_lsn')
+            downtime_start = value.get('downtime_start')
             config = value['config']
             progress = value['progress']
 
             return Upgrade(initiator, state, source_sysid, source_version, target_sysid, target_version,
-                           shutdown_lsn, config, progress)
+                           shutdown_lsn, downtime_start, config, progress)
         except (KeyError, ValueError, PatroniAssertionError) as e:
             logger.warning("Error parsing upgrade state: %s", e)
             return None

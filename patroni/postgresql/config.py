@@ -1444,3 +1444,15 @@ class ConfigHandler(object):
             if any, otherwise ``None``.
         """
         return (self.get('parameters') or EMPTY_DICT).get('synchronous_standby_names')
+
+    def copy_configs_from(self, old_config: 'ConfigHandler'):
+        shutil.copy(old_config._postgresql_conf, self._postgresql_conf)
+        shutil.copy(old_config._auto_conf, self._auto_conf)
+        shutil.copy(old_config._postgresql_base_conf, self._postgresql_base_conf)
+        if os.path.exists(old_config._pg_hba_conf):
+            shutil.copy(old_config._pg_hba_conf, self._pg_hba_conf)
+        if os.path.exists(old_config._pg_ident_conf):
+            shutil.copy(old_config._pg_ident_conf, self._pg_ident_conf)
+
+        #TODO: copy patroni.dynamic.json, filename is not accessible from here.
+        # Currently it will get written after an upgrade in the HA loop
