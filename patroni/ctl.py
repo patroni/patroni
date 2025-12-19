@@ -42,6 +42,8 @@ import yaml
 
 from prettytable import PrettyTable
 
+from .postgresql.upgrade import UpgradeState
+
 try:  # pragma: no cover
     from prettytable import HRuleStyle
     hrule_all = HRuleStyle.ALL
@@ -2488,19 +2490,25 @@ def upgrade(cluster_name: str, new_version: str, force: bool, check: bool) -> No
         r = request_patroni(member, 'post', 'upgrade', json.dumps(upgrade_request))
 
         if r.status in (200, 202):
-            logging.debug(r)
-            cluster = dcs.get_cluster()
-            logging.debug(cluster)
+            click.echo('Upgrade started')
 
-            try:
-                response_message = r.json().get('message')
-            except JSONDecodeError as e:
-                logging.warning("Invalid response")
-                response_message = r.data.decode('utf8')
-
-            click.echo(f'{timestamp()} {response_message}')
+            high_water_mark = ''
+            while True:
+                cluster = dcs.get_cluster()
+                upgrade = cluster.status.upgrade
+                if not upgrade:
+                    raise PatroniCtlException('Upgrade state lost unexpectedly')
+                for tstamp, message in upgrade.progress:
+                    if tstamp > high_water_mark:
+                        click.echo(f"[{tstamp}] [{upgrade.state.value}] {message}")
+                        high_water_mark = tstamp
+                if upgrade.state in (UpgradeState.FAILED, UpgradeState.CHECKED):
+                    raise PatroniCtlException('Upgrade failed')
+                if upgrade.state == UpgradeState.SUCCESS:
+                    break
+                time.sleep(2)
         else:
-            click.echo('upgrade failed, details: {0}, {1}'.format(r.status, r.data.decode('utf-8')))
+            click.echo('starting upgrade failed, details: {0}, {1}'.format(r.status, r.data.decode('utf-8')))
             return
     except Exception as e:
         logging.warning('Error %s when executing upgrade', e)

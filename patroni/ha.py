@@ -2041,12 +2041,9 @@ class Ha(object):
             #self.dcs = get_dcs({**config.copy(), 'loop_wait': 0, 'ttl': 10, 'retry_timeout': 10, 'patronictl': True})
             #self.request = PatroniRequest(config, True)
 
-        result = self._async_executor.run(self._upgrade.do_upgrade, args=(check_only,))
-        if result:
-            action = 'upgrade to' if not check_only else 'upgrade check for'
-            return True, f'{action} {desired_version} successful'
-        else:
-            return False, result
+        self._async_executor.run_async(self._upgrade.do_upgrade, args=(check_only,))
+        action = 'upgrade to' if not check_only else 'upgrade check for'
+        return True, f'{action} {desired_version} started successful'
 
     def process_upgrade(self) -> Optional[str]:
         """There is an active upgrade process in DCS, but there is no leader in the cluster.
