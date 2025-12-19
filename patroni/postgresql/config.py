@@ -20,7 +20,7 @@ from ..psycopg import parse_conninfo
 from ..utils import compare_values, get_postgres_version, is_subpath, \
     maybe_convert_from_base_unit, parse_bool, parse_int, split_host_port, uri, validate_directory
 from ..validator import EnumValidator, IntValidator
-from .misc import get_major_from_minor_version, postgres_version_to_int, PostgresqlRole, PostgresqlState
+from .misc import get_major_from_minor_version, postgres_version_to_int, PostgresqlRole, PostgresqlState, format_major_version
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -374,7 +374,15 @@ class ConfigHandler(object):
 
     def __init__(self, postgresql: 'Postgresql', config: Dict[str, Any]) -> None:
         self._postgresql = postgresql
-        self._config_dir = os.path.abspath(config.get('config_dir', '') or postgresql.data_dir)
+        self._config_dir_template = config.get('config_dir_template')
+        if self._config_dir_template:
+            config_dir = self._config_dir_template.format(major_version=format_major_version(postgresql.major_version),
+                                                          scope=postgresql.scope, name=postgresql.name)
+            logger.info("Resolved configuration directory to %s", config_dir)
+        else:
+            config_dir = os.path.abspath(config.get('config_dir', '') or postgresql.data_dir)
+
+        self._config_dir = os.path.abspath(config_dir)
         config_base_name = config.get('config_base_name', 'postgresql')
         self._postgresql_conf = os.path.join(self._config_dir, config_base_name + '.conf')
         self._postgresql_conf_mtime = None
@@ -402,7 +410,7 @@ class ConfigHandler(object):
         self.reload_config(config)
 
     def set_data_dir(self, data_dir: str):
-        if not self._config.get('config_dir', ''):
+        if not self._config_dir_template and not self._config.get('config_dir', ''):
             self._config_dir = os.path.abspath(data_dir)
             config_base_name = self._config.get('config_base_name', 'postgresql')
             self._postgresql_conf = os.path.join(self._config_dir, config_base_name + '.conf')
