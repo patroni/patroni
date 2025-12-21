@@ -1,0 +1,136 @@
+@startuml
+
+<style>
+.old {
+  state,stateBody {
+    BackGroundColor lightblue;
+  }
+}
+
+.mix {
+  state,stateBody {
+    BackGroundColor wheat;
+  }
+}
+
+.new {
+  state,stateBody {
+    BackGroundColor palegreen;
+  }
+}
+
+</style>
+
+hide empty description
+
+state "Upgrade running" as x {
+
+note as n1
+    Blue - all data dirs on old version.
+    Green - all data dirs on new version.
+    Yellow - potential mix of old and new.
+end note
+
+
+[*] --> Precheck <<old>>
+Precheck --> Prepare <<old>>
+Prepare : prepare new pgdata
+Prepare : run pg_upgrade --check
+Prepare : run prepare scripts
+
+Prepare -[#red]> RollbackPrepare <<old>>: [fail]
+RollbackPrepare : run rollback scripts
+RollbackPrepare : delete new pgdata
+RollbackPrepare -[#red]-> RollbackPrepare : [fail]
+
+state failed <<end>> #red
+note right of failed: Failed
+RollbackPrepare --> failed : [success]
+
+Prepare --> Upgrade <<mix>>
+Upgrade : stop
+Upgrade : wait for replication + checkpoint
+Upgrade : prepare replica upgrade (start rsyncd)
+Upgrade : pg_upgrade
+Upgrade : switch pgdata
+Upgrade : run postupgrade (update version info)
+
+note left of Upgrade
+    Primary data dir state unknown.
+    Replicas are old version.
+end note
+
+Upgrade -[#red]> RollbackPrepare : [fail]
+note top of Upgrade
+    Upgrade error should try to cleanup
+    and start old version. Crash needs to
+    determine state from disk. On failure
+    release lock.
+end note
+
+
+Upgrade --> UpgradeReplicas <<mix>>: [success]
+UpgradeReplicas : send upgrade API call to replicas
+UpgradeReplicas : wait for replicas to confirm upgrade
+UpgradeReplicas : stop rsyncd
+
+note left of UpgradeReplicas
+    Primary data dir new version.
+    Replica data dir state broken
+end note
+
+UpgradeReplicas --> PostUpgrade <<new>> : [success]
+UpgradeReplicas -> PostUpgrade : [timeout]
+note on link
+    Failed replicas
+    need reinit.
+end note
+
+PostUpgrade : start postgres
+PostUpgrade : start analyze thread
+PostUpgrade : wait_replicas up
+PostUpgrade : cleanup old pgdata
+PostUpgrade : reanalyze non-default stats target
+PostUpgrade : run post upgrade scripts
+
+
+PostUpgrade -[#red]> PostUpgrade : [fail]
+
+UpgradeReplicas -[#red]> CleanupUpgrade <<mix>>: [fail]
+CleanupUpgrade : Check local status
+CleanupUpgrade : Ask other members for status
+
+CleanupUpgrade --> CleanupUpgrade : [rsync interrupted]
+
+state resume <<choice>>
+
+resume --> UpgradeReplicas  : [new data & promote]
+
+CleanupUpgrade --> resume
+resume  --> RollbackPrepare : [old data & promote]
+
+PostUpgrade --> [*] #Green : [success]
+
+}
+json upgrade #plum {
+    "initiator": "postgres0",
+    "old_sysid": "...",
+    "old_version": "16",
+    "shutdown_lsn": 123456789,
+    "new_sysid": "...",
+    "new_version": "18",
+    "state": "Upgrade",
+    "config": {
+        "replica_upgrade_method": "rsync",
+        "rsync": {
+            "port": 5432,
+            "conf_dir": "/tmp/rsync"
+        }
+    },
+    "progress": "..."
+}
+
+x <- upgrade : etcd state
+
+
+@enduml
