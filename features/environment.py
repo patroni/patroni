@@ -970,6 +970,12 @@ class PatroniPoolController(object):
             assert self._dcs in self.known_dcs, 'Unsupported dcs: ' + self._dcs
         return self._dcs
 
+    @property
+    def server_version(self):
+        for p in self._processes.values():
+            if p._conn:
+                return p._conn.server_version
+
 
 class WatchdogMonitor(object):
     """Testing harness for emulating a watchdog device as a named pipe. Because we can't easily emulate ioctl's we
@@ -1173,17 +1179,16 @@ def after_feature(context, feature):
 
 
 def before_scenario(context, scenario):
-    for tag in scenario.effective_tags:
-        if tag.startswith('pg') and 6 < len(tag) < 9:
-            try:
-                ver = int(tag[2:])
-            except Exception:
-                ver = 0
-            if not ver:
-                continue
-            for p in context.pctl._processes.values():
-                if p._conn and p._conn.server_version < ver:
-                    scenario.skip('not supported on {0}'.format(p._conn.server_version))
+    server_version = context.pctl.server_version
+    if server_version:
+        for tag in scenario.effective_tags:
+            if tag.startswith('pg') and 6 < len(tag) < 9:
+                try:
+                    ver = int(tag[2:])
+                except Exception:
+                    ver = 0
+                if ver and server_version < ver:
+                    scenario.skip('not supported on {0}'.format(server_version))
                     break
     if 'dcs-failsafe' in scenario.effective_tags and not context.dcs_ctl._handle:
         scenario.skip('it is not possible to control state of {0} from tests'.format(context.dcs_ctl.name()))

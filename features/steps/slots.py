@@ -15,21 +15,28 @@ def create_logical_replication_slot(context, slot_type, slot_name, pg_name, plug
         assert False, "Error creating slot {0} on {1} with plugin {2}: {3}".format(slot_name, pg_name, plugin, e)
 
 
-@step('{pg_name:name} has a logical replication slot named {slot_name}'
+@step('{pg_name:name} has a {slot_type:w} replication slot named {slot_name}'
       ' with the {plugin:w} plugin after {time_limit:d} seconds')
-@then('{pg_name:name} has a logical replication slot named {slot_name}'
+@then('{pg_name:name} has a {slot_type:w} replication slot named {slot_name}'
       ' with the {plugin:w} plugin after {time_limit:d} seconds')
-def has_logical_replication_slot(context, pg_name, slot_name, plugin, time_limit):
+def has_logical_replication_slot(context, slot_type, pg_name, slot_name, plugin, time_limit):
+    synced = ', synced' if slot_type == 'synced' and context.pctl.server_version >= 170000 else ''
     time_limit *= context.timeout_multiplier
     max_time = time.time() + int(time_limit)
     while time.time() < max_time:
         try:
-            row = context.pctl.query(pg_name, ("SELECT slot_type, plugin FROM pg_replication_slots"
+            if synced:
+                try:
+                    context.pctl.query(pg_name, "SELECT pg_sync_replication_slots()")
+                except Exception:
+                    pass
+            row = context.pctl.query(pg_name, (f"SELECT slot_type, plugin{synced} FROM pg_replication_slots"
                                                f" WHERE slot_name = '{slot_name}'")).fetchone()
             if row:
                 assert row[0] == "logical", f"Replication slot {slot_name} isn't a logical but {row[0]}"
                 assert row[1] == plugin, f"Replication slot {slot_name} using plugin {row[1]} rather than {plugin}"
-                return
+                if not synced or row[2]:
+                    return
         except Exception:
             pass
         time.sleep(1)
@@ -54,7 +61,13 @@ def slots_in_sync(context, slot_type, slot_name, pg_name1, pg_name2, time_limit)
     max_time = time.time() + int(time_limit)
     column = 'confirmed_flush_lsn' if slot_type.lower() == 'logical' else 'restart_lsn'
     query = f"SELECT {column} FROM pg_replication_slots WHERE slot_name = '{slot_name}'"
+    server_version = context.pctl.server_version
     while time.time() < max_time:
+        if server_version >= 170000 and slot_type.lower() == 'logical':
+            try:
+                context.pctl.query(pg_name2, "SELECT pg_sync_replication_slots()")
+            except Exception:
+                pass
         try:
             slot1 = context.pctl.query(pg_name1, query).fetchone()
             slot2 = context.pctl.query(pg_name2, query).fetchone()

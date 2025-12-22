@@ -265,17 +265,21 @@ class SlotsHandler:
 
         Store replication slot ``name``, ``type``, ``plugin``, ``database`` and ``datoid``.
         If PostgreSQL version is 10 or newer also store ``catalog_xmin`` and ``confirmed_flush_lsn``.
+        If PostgreSQL version is 17 or above also fetch ``failover`` and ``synced``.
 
         When using logical slots, store information separately for slot synchronisation  on replica nodes.
         """
         if self._postgresql.major_version >= 90400 and self._schedule_load_slots:
             replication_slots: Dict[str, Dict[str, Any]] = {}
             pg_wal_lsn_diff = f"pg_catalog.pg_{self._postgresql.wal_name}_{self._postgresql.lsn_name}_diff"
+
             extra = f", catalog_xmin, {pg_wal_lsn_diff}(confirmed_flush_lsn, '0/0')::bigint" \
                 if self._postgresql.major_version >= 100000 else ""
-            filter_columns = tuple(fltr for fltr, major in (('temporary', 100000), ('failover', 170000))
-                                   if self._postgresql.major_version >= major)
-            where_filter = ' AND '.join(map(lambda col: f'NOT {col}', filter_columns))
+            extra += ", failover, synced" if self._postgresql.major_version >= 170000 else ""
+
+            filter_columns = ["NOT temporary"] if self._postgresql.major_version >= 100000 else []
+            filter_columns += ["(NOT failover OR NOT synced)"] if self._postgresql.major_version >= 170000 else []
+            where_filter = ' AND '.join(filter_columns)
             where_condition = f' WHERE {where_filter}' if where_filter else ''
             for r in self._query("SELECT slot_name, slot_type, xmin, "
                                  f"{pg_wal_lsn_diff}(restart_lsn, '0/0')::bigint, plugin, database, datoid{extra}"
@@ -285,15 +289,13 @@ class SlotsHandler:
                     value.update(plugin=r[4], database=r[5], datoid=r[6])
                     if self._postgresql.major_version >= 100000:
                         value.update(catalog_xmin=r[7], confirmed_flush_lsn=r[8])
+                    if self._postgresql.major_version >= 170000:
+                        value.update(failover=r[9], synced=r[10])
                 else:
                     value.update(xmin=r[2], restart_lsn=r[3])
                 replication_slots[r[0]] = value
             self._replication_slots = replication_slots
             self._schedule_load_slots = False
-            if self._force_readiness_check:
-                self._logical_slots_processing_queue = {n: None for n, v in replication_slots.items()
-                                                        if v['type'] == 'logical'}
-                self._force_readiness_check = False
 
     def ignore_replication_slot(self, cluster: Cluster, name: str) -> bool:
         """Check if slot *name* should not be managed by Patroni.
@@ -343,14 +345,25 @@ class SlotsHandler:
         active, dropped = self.drop_replication_slot(name)
         if dropped:
             logger.info("Dropped replication slot '%s'", name)
-            if name in self._replication_slots:
-                del self._replication_slots[name]
+            self._replication_slots.pop(name, None)
+            self._logical_slots_processing_queue.pop(name, None)
         else:
             self._schedule_load_slots = True
             if active:
                 logger.warning("Unable to drop replication slot '%s', slot is active", name)
             else:
                 logger.error("Failed to drop replication slot '%s'", name)
+
+    def _drop_incorrect_failover_synced_slots(self) -> None:
+        """Drop logical failover slots with synced=false on standby.
+
+        Try to workaround nasty bug in Postgres when it refuses to sync logical
+        failover slots after switchover on the former primary node.
+        """
+        for name, value in list(self._replication_slots.items()):
+            if value['type'] == 'logical' and value['failover'] and not value['synced']:
+                logger.info("Trying to drop logical replication slot '%s' with failover=true and synced=false", name)
+                self._drop_replication_slot(name)
 
     def _drop_incorrect_slots(self, cluster: Cluster, slots: Dict[str, Any]) -> None:
         """Compare required slots and configured as permanent slots with those found, dropping extraneous ones.
@@ -365,7 +378,11 @@ class SlotsHandler:
         :param slots: dictionary of desired slot names as keys with slot attributes as a dictionary value, if known.
         """
         # drop old replication slots which are not presented in desired slots.
-        for name in set(self._replication_slots) - set(slots):
+        for name, value in list(self._replication_slots.items()):
+            # However, take into account that it could be a logical failover slot, and we have to skip it.
+            if name in slots or \
+                    self._postgresql.major_version >= 170000 and value['type'] == 'logical' and value['failover']:
+                continue
             if not global_config.is_paused and not self.ignore_replication_slot(cluster, name):
                 logger.info("Trying to drop unknown replication slot '%s'", name)
                 self._drop_replication_slot(name)
@@ -569,7 +586,20 @@ class SlotsHandler:
             try:
                 self.load_replication_slots()
 
+                # Workaround for broken logical failover synced slots after switchover.
+                # We have to drop slots with failover=true, synced=false on former primary.
+                if self._postgresql.major_version >= 170000 and not self._postgresql.is_primary() and \
+                        not cluster.is_unlocked() and (cluster.leader and cluster.leader.name != self._postgresql.name):
+                    self._drop_incorrect_failover_synced_slots()
+
                 slots = cluster.get_replication_slots(self._postgresql, tags, show_error=True)
+
+                if self._force_readiness_check:
+                    self._logical_slots_processing_queue = {
+                        n: None for n, v in self._replication_slots.items()
+                        if v['type'] == 'logical' and not self.ignore_replication_slot(cluster, n)
+                        and (self._postgresql.major_version < 170000 or not v['failover'])}
+                    self._force_readiness_check = False
 
                 self._drop_incorrect_slots(cluster, slots)
 
