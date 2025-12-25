@@ -32,7 +32,6 @@ Example session:
     Image: "" with ID "sha256:e9bfe69c5d2b319dec0cf564fb895484537664775e18f37f9b707914cc5537e6" not yet present on node "kind-control-plane", loading...
 
     $ kubectl apply -f patroni_k8s.yaml
-    service/patronidemo-config created
     statefulset.apps/patronidemo created
     endpoints/patronidemo created
     service/patronidemo created
