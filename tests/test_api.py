@@ -211,6 +211,8 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M')
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=10MB')
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=10485760')
+        MockRestApiServer(RestApiHandler, 'GET /replica?lag=replication_state=streaming')
+        MockRestApiServer(RestApiHandler, 'GET /replica?lag=10485760&replication_state=streaming')
         MockRestApiServer(RestApiHandler, 'GET /read-only')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={})):
             MockRestApiServer(RestApiHandler, 'GET /replica')
@@ -231,6 +233,7 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(RestApiHandler, 'get_postgresql_status',
                           Mock(return_value={'role': PostgresqlRole.REPLICA})):
             MockRestApiServer(RestApiHandler, 'GET /asynchronous')
+            MockRestApiServer(RestApiHandler, 'GET /replica?replication_state=streaming')
         with patch.object(MockHa, 'is_leader', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /replica')
             MockRestApiServer(RestApiHandler, 'GET /read-only-sync')
