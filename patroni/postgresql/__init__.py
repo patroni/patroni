@@ -667,7 +667,7 @@ class Postgresql(object):
         # we noticed that postgres was restarted, force syncing of replication slots and check of logical slots
         self.slots_handler.schedule()
 
-        self._postmaster_proc = PostmasterProcess.from_pidfile(self._data_dir)
+        self._postmaster_proc = PostmasterProcess.from_pidfile(self.pgcommand('postgres'), self._data_dir)
         return self._postmaster_proc
 
     @property
