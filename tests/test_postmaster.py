@@ -59,6 +59,7 @@ class TestPostmasterProcess(unittest.TestCase):
 
             mock_cwd.return_value = 'foo'
             self.assertIsNotNone(PostmasterProcess.from_pidfile('postgres', 'foo'))
+            self.assertIsNone(PostmasterProcess.from_pidfile('postgres', 'bar'))
             with patch('os.path.realpath', Mock(side_effect=Exception)):
                 self.assertIsNotNone(PostmasterProcess.from_pidfile('postgres', 'foo'))
 

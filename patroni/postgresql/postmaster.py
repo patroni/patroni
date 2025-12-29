@@ -67,7 +67,22 @@ class PostmasterProcess(psutil.Process):
             return {}
 
     def _is_postmaster_process(self, pgcommand: str, data_dir: str) -> bool:
-        # The process can't be ourselves, our parent or our direct child.
+        """Determine whether this process is the postmaster.
+
+        This method applies several heuristics to decide if the PID read from ``postmaster.pid``
+        corresponds to the PostgreSQL postmaster:
+
+            * Excludes the Patroni process itself, its parent, and its direct children.
+            * Compares the process start time with the value stored in ``postmaster.pid``,
+              treating a small time difference as a positive match.
+            * Checks that the executable name matches the expected binary derived from
+              ``pgcommand`` (``postgres`` by default) or ``postmaster``.
+            * When possible, verifies that the process current working directory matches the given data directory.
+
+        :param pgcommand: name of the postgres/postmaster executable that should be running.
+        :param data_dir: PostgreSQL data directory that contains.
+        :returns: ``True`` if the process is likely the correct postmaster, ``False`` otherwise.
+        """
         if self.pid == os.getpid() or self.pid == os.getppid() or self.ppid() == os.getpid():
             logger.info('Patroni (pid=%s, ppid=%s), "fake postmaster" (pid=%s, ppid=%s)',
                         os.getpid(), os.getppid(), self.pid, self.ppid())
@@ -116,13 +131,19 @@ class PostmasterProcess(psutil.Process):
                     return None
 
                 data_dir_path = normalize_path(data_dir)
-                if data_dir_path and data_dir_path == normalize_path(cwd):
-                    logger.debug('Process %d from postmaster.pid with executable file "%s" and CWD="%s"'
-                                 ' from postmaster.pid looks like a correct postgres instance', self.pid, exe, cwd)
-                    return True
+                cwd_path = normalize_path(cwd)
+                if data_dir_path and cwd_path:
+                    if data_dir_path == cwd_path:
+                        logger.debug('Process %d from postmaster.pid with executable file "%s" and CWD="%s"'
+                                     ' looks like a correct postgres instance', self.pid, exe, cwd)
+                        return True
+                    else:
+                        logger.info('Process %d from postmaster.pid with executable file "%s" does not look like '
+                                    'postgres because CWD="%s" is not PGDATA="%s"', self.pid, exe, cwd, data_dir)
+                        return False
 
-            logger.warning('Could not determine if process %d with executable file "%s" and CWD="%s"'
-                           ' from postmaster.pid is correct postgres instance. Assuming it is', self.pid, exe, cwd)
+            logger.warning('Could not determine if process %d from postmaster.pid with executable file "%s"'
+                           ' and CWD="%s" is correct postgres instance. Assuming it is', self.pid, exe, cwd)
             return True
 
         logger.info('Process %d from postmaster.pid with executable file "%s" and CWD="%s" does not look like postgres',
