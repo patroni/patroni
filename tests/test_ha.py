@@ -1065,6 +1065,8 @@ class TestHa(PostgresInit):
         self.ha.dcs._last_failsafe = None
         with patch.object(Watchdog, 'is_healthy', PropertyMock(return_value=False)):
             self.assertFalse(self.ha.is_healthiest_node())
+        with patch('patroni.postgresql.Postgresql.is_starting', return_value=True):
+            self.assertFalse(self.ha.is_healthiest_node())
         self.ha.is_paused = true
         self.assertFalse(self.ha.is_healthiest_node())
 
