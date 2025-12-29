@@ -154,7 +154,9 @@ class TestZooKeeper(unittest.TestCase):
     @patch('patroni.dcs.zookeeper.PatroniKazooClient', MockKazooClient)
     def setUp(self):
         self.zk = get_dcs({'scope': 'test', 'name': 'foo', 'ttl': 30, 'retry_timeout': 10, 'loop_wait': 10,
-                           'zookeeper': {'hosts': ['localhost:2181'], 'set_acls': {'CN=principal2': ['ALL']}}})
+                           'zookeeper': {'hosts': ['localhost:2181'],
+                                         'set_acls': {'CN=principal2': ['ALL'],
+                                                      'digest:principal1:R6IlbH3lMF4qX9UfEp/rOy1fv/4=': ['ALL']}}})
         self.assertIsInstance(self.zk, ZooKeeper)
 
     def test_reload_config(self):
