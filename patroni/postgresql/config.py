@@ -1007,6 +1007,10 @@ class ConfigHandler(object):
 
             self._current_recovery_params = CaseInsensitiveDict({n: [v, restart_required(n), self._postgresql_conf]
                                                                  for n, v in recovery_params.items()})
+            self._current_recovery_params.setdefault('recovery_min_apply_delay', ['0', False, self._postgresql_conf])
+            self._current_recovery_params.update({param: ['', restart_required(param), self._postgresql_conf]
+                                                  for param in self._recovery_parameters_to_compare
+                                                  if param not in self._current_recovery_params})
         else:
             with self.config_writer(self._recovery_conf) as f:
                 self._write_recovery_params(f, recovery_params)
