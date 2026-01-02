@@ -104,8 +104,14 @@ class ZooKeeper(AbstractDCS):
             default_acl: List[ACL] = []
             for principal, permissions in config['set_acls'].items():
                 normalizedPermissions = [p.upper() for p in permissions]
-                default_acl.append(make_acl(scheme='x509',
-                                            credential=principal,
+
+                if ':' in principal:
+                    scheme, credential = principal.split(':', 1)
+                else:
+                    scheme, credential = 'x509', principal
+
+                default_acl.append(make_acl(scheme=scheme,
+                                            credential=credential,
                                             read='READ' in normalizedPermissions,
                                             write='WRITE' in normalizedPermissions,
                                             create='CREATE' in normalizedPermissions,

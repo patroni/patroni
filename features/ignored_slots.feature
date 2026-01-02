@@ -61,6 +61,31 @@ Feature: ignored slots
 
   @pg170000
   Scenario: check that logical slots with failover are not removed by Patroni
-    Given I create a logical failover slot test17 on postgres-1 with the pgoutput plugin
+    Given I create a logical failover slot test17 on postgres-1 with the test_decoding plugin
     When I run patronictl.py restart batman postgres-1 --force
-    Then postgres-1 has a logical replication slot named test17 with the pgoutput plugin after 2 seconds
+    Then postgres-1 has a logical replication slot named test17 with the test_decoding plugin after 2 seconds
+
+  @pg170000
+  Scenario: check that logical slots with failover is dropped, recreated and synced after switchover
+    Given I issue a PATCH request to http://127.0.0.1:8009/config with {"postgresql": {"parameters": {"hot_standby_feedback": "on", "sync_replication_slots": "on"}}}
+    Then I receive a response code 200
+    When I start postgres-0
+    Then postgres-0 has a synced replication slot named test17 with the test_decoding plugin after 30 seconds
+    When I add the table replicate1 to postgres-1
+    And I get all changes from logical slot test17 on postgres-1
+    Then logical slot test17 is in sync between postgres-1 and postgres-0 after 30 seconds
+    When I run patronictl.py switchover batman --force
+    Then I receive a response returncode 0
+    And postgres-0 role is the primary after 5 seconds
+    And replication works from postgres-0 to postgres-1 after 20 seconds
+    And I get all changes from logical slot test17 on postgres-0
+    # slot synchronization in 17+ is quite complex, the source slot and replication
+    # must move forward a few times before synchronization completes.
+    When I add the table replicate2 to postgres-0
+    And I get all changes from logical slot test17 on postgres-0
+    Then postgres-1 has a synced replication slot named test17 with the test_decoding plugin after 30 seconds
+    When I add the table replicate3 to postgres-0
+    And I get all changes from logical slot test17 on postgres-0
+    Then postgres-1 has a synced replication slot named test17 with the test_decoding plugin after 30 seconds
+    And replication works from postgres-0 to postgres-1 after 20 seconds
+    And logical slot test17 is in sync between postgres-0 and postgres-1 after 30 seconds

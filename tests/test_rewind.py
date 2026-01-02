@@ -81,6 +81,64 @@ class TestRewind(BaseTestPostgresql):
             with patch.object(CancellableSubprocess, 'call', mock_cancellable_call1):
                 self.assertFalse(self.r.pg_rewind(r))
 
+    def test_pg_rewind_user_options(self):
+        """Test pg_rewind with custom user options."""
+        r = {'user': '', 'host': '', 'port': '', 'database': '', 'password': ''}
+
+        def mock_call_with_cmd_capture(self, cmd, *args, **kwargs):
+            # Capture the command that was called for verification
+            mock_call_with_cmd_capture.last_cmd = cmd
+            communicate = kwargs.pop('communicate', None)
+            if isinstance(communicate, dict):
+                communicate.update(stdout=b'', stderr=b'')
+            return 0
+
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=150000)), \
+             patch('subprocess.check_output', Mock(return_value=b'foo %f %p %r %% % %')), \
+             patch.object(CancellableSubprocess, 'call', mock_call_with_cmd_capture):
+
+            # Test with valid user options as list of dicts
+            self.p.config._config['rewind'] = [{'sync-method': 'fsync'}, {'custom-option': 'custom-value'}]
+            self.assertTrue(self.r.pg_rewind(r))
+            # Verify user options were added to command
+            cmd = mock_call_with_cmd_capture.last_cmd
+            self.assertIn('--sync-method=fsync', cmd)
+            self.assertIn('--custom-option=custom-value', cmd)
+
+            # Test with valid user options as list of strings
+            self.p.config._config['rewind'] = ['debug', 'progress']
+            self.assertTrue(self.r.pg_rewind(r))
+            cmd = mock_call_with_cmd_capture.last_cmd
+            self.assertIn('--debug', cmd)
+            self.assertIn('--progress', cmd)
+
+            # Test with mix of valid options
+            self.p.config._config['rewind'] = ['debug', {'sync-method': 'fsync'}]
+            self.assertTrue(self.r.pg_rewind(r))
+            cmd = mock_call_with_cmd_capture.last_cmd
+            self.assertIn('--debug', cmd)
+            self.assertIn('--sync-method=fsync', cmd)
+
+            # Test that not allowed options are filtered out
+            with patch('patroni.postgresql.rewind.logger.error') as mock_error:
+                self.p.config._config['rewind'] = ['dry-run', 'debug']
+                self.assertTrue(self.r.pg_rewind(r))
+                # Verify error was logged for not allowed option
+                mock_error.assert_called_with('dry-run option for rewind is not allowed')
+                # Verify only allowed option is in command
+                cmd = mock_call_with_cmd_capture.last_cmd
+                self.assertNotIn('--dry-run', cmd)
+                self.assertIn('--debug', cmd)
+
+            # Test with empty options
+            self.p.config._config['rewind'] = []
+            self.assertTrue(self.r.pg_rewind(r))
+
+            # Test with no rewind options configured
+            if 'rewind' in self.p.config._config:
+                del self.p.config._config['rewind']
+            self.assertTrue(self.r.pg_rewind(r))
+
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
     def test__get_local_timeline_lsn(self):
         self.r.trigger_check_diverged_lsn()

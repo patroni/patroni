@@ -26,36 +26,51 @@ class TestPostmasterProcess(unittest.TestCase):
         proc = PostmasterProcess(-123)
         self.assertTrue(proc.is_single_user)
 
+    @patch('os.name', 'nt')
     @patch('psutil.Process.create_time')
     @patch('psutil.Process.__init__')
     @patch.object(PostmasterProcess, '_read_postmaster_pidfile')
     def test_from_pidfile(self, mock_read, mock_init, mock_create_time):
         mock_init.side_effect = psutil.NoSuchProcess(123)
         mock_read.return_value = {}
-        self.assertIsNone(PostmasterProcess.from_pidfile(''))
+        self.assertIsNone(PostmasterProcess.from_pidfile('', ''))
         mock_read.return_value = {"pid": "foo"}
-        self.assertIsNone(PostmasterProcess.from_pidfile(''))
+        self.assertIsNone(PostmasterProcess.from_pidfile('', ''))
         mock_read.return_value = {"pid": "123"}
-        self.assertIsNone(PostmasterProcess.from_pidfile(''))
+        self.assertIsNone(PostmasterProcess.from_pidfile('', ''))
 
         mock_init.side_effect = None
         with patch.object(psutil.Process, 'pid', 123), \
                 patch.object(psutil.Process, 'ppid', return_value=124), \
+                patch.object(psutil.Process, 'exe') as mock_exe, \
+                patch.object(psutil.Process, 'cwd') as mock_cwd, \
                 patch('os.getpid', return_value=125) as mock_ospid, \
                 patch('os.getppid', return_value=126):
+            mock_exe.return_value = 'postgres.exe'
 
-            self.assertIsNotNone(PostmasterProcess.from_pidfile(''))
+            self.assertIsNone(PostmasterProcess.from_pidfile('', 'foo'))
 
             mock_create_time.return_value = 100000
             mock_read.return_value = {"pid": "123", "start_time": "200000"}
-            self.assertIsNone(PostmasterProcess.from_pidfile(''))
+            self.assertIsNone(PostmasterProcess.from_pidfile('', ''))
 
             mock_read.return_value = {"pid": "123", "start_time": "foobar"}
-            self.assertIsNotNone(PostmasterProcess.from_pidfile(''))
+            self.assertIsNone(PostmasterProcess.from_pidfile('', ''))
+
+            mock_cwd.return_value = 'foo'
+            self.assertIsNotNone(PostmasterProcess.from_pidfile('postgres', 'foo'))
+            self.assertIsNone(PostmasterProcess.from_pidfile('postgres', 'bar'))
+            with patch('os.path.realpath', Mock(side_effect=Exception)):
+                self.assertIsNotNone(PostmasterProcess.from_pidfile('postgres', 'foo'))
+
+            mock_exe.side_effect = mock_cwd.side_effect = Exception
+            self.assertIsNone(PostmasterProcess.from_pidfile('', ''))
+
+            mock_read.return_value = {"pid": "123", "start_time": "100000"}
+            self.assertIsNotNone(PostmasterProcess.from_pidfile('', ''))
 
             mock_ospid.return_value = 123
-            mock_read.return_value = {"pid": "123", "start_time": "100000"}
-            self.assertIsNone(PostmasterProcess.from_pidfile(''))
+            self.assertIsNone(PostmasterProcess.from_pidfile('', ''))
 
     @patch('psutil.Process.__init__')
     def test_from_pid(self, mock_init):
@@ -173,6 +188,6 @@ class TestPostmasterProcess(unittest.TestCase):
     @patch('psutil.Process.__init__', Mock(side_effect=psutil.NoSuchProcess(123)))
     def test_read_postmaster_pidfile(self):
         with patch('builtins.open', Mock(side_effect=IOError)):
-            self.assertIsNone(PostmasterProcess.from_pidfile(''))
+            self.assertIsNone(PostmasterProcess.from_pidfile('', ''))
         with patch('builtins.open', mock_open(read_data='123\n')):
-            self.assertIsNone(PostmasterProcess.from_pidfile(''))
+            self.assertIsNone(PostmasterProcess.from_pidfile('', ''))

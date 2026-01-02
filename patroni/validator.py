@@ -1058,6 +1058,8 @@ schema = Schema({
                     Optional("max_worker_processes"): IntValidator(0, 262143, raise_assert=True),
                 },
                 Optional("use_pg_rewind"): bool,
+                Optional("rewind"): [Or(str, dict)],
+                Optional("basebackup"): [Or(str, dict)],
                 Optional("pg_hba"): [str],
                 Optional("pg_ident"): [str],
                 Optional("pg_ctl_timeout"): IntValidator(min=0, raise_assert=True),
@@ -1178,7 +1180,9 @@ schema = Schema({
         Optional("pg_hba"): [str],
         Optional("pg_ident"): [str],
         Optional("pg_ctl_timeout"): IntValidator(min=0, raise_assert=True),
-        Optional("use_pg_rewind"): bool
+        Optional("use_pg_rewind"): bool,
+        Optional("rewind"): [Or(str, dict)],
+        Optional("basebackup"): [Or(str, dict)],
     },
     Optional("watchdog"): {
         Optional("mode"): validate_watchdog_mode,
