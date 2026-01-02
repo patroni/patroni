@@ -256,7 +256,7 @@ class Ha(object):
         # and trigger pg_rewind state machine.
         self._last_timeline = None
 
-        # receive/flush/replay LSN from last cycle, is be used to detect false positives of dead primary
+        # receive/flush/replay LSN from last cycle, is used to detect false positives of dead primary
         self._prev_wal_lsn: Optional[int] = None
         # timestamp when primary_race_backoff was triggered
         self._primary_race_backoff_timestamp = 0
@@ -1790,8 +1790,11 @@ class Ha(object):
             if self._primary_race_backoff_timestamp == 0:
                 self._primary_race_backoff_timestamp = time.time()
             time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.time()
+            # We want to protect from leader key expiring shortly after the last heartbeat loop, and therefore
+            # also postpone leader race whe time_left is greater than primary_race_backoff - loop_wait.
             if time_left > 0 and self.state_handler.replication_state() == 'streaming' and \
-                    self.state_handler.last_operation() > self._prev_wal_lsn:
+                    self.state_handler.last_operation() > self._prev_wal_lsn or \
+                    time_left > global_config.primary_race_backoff - self.dcs.loop_wait:
                 return 'My ({0}) wal position moved since last heart beat loop, {1:.0f} seconds until leader race'\
                     .format(self.state_handler.name, time_left)
 
