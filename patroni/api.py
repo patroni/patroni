@@ -1204,11 +1204,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
         leader = request.get('leader')
         candidate = request.get('candidate') or request.get('member')
         scheduled_at = request.get('scheduled_at')
+        mode = request.get('mode')
         cluster = self.server.patroni.dcs.get_cluster()
         config = global_config.from_cluster(cluster)
 
-        logger.info("received %s request with leader=%s candidate=%s scheduled_at=%s",
-                    action, leader, candidate, scheduled_at)
+        logger.info("received %s request with leader=%s candidate=%s scheduled_at=%s mode=%s",
+                    action, leader, candidate, scheduled_at, mode)
 
         if action == 'failover' and not candidate:
             data = 'Failover could be performed only to a specific candidate'
@@ -1239,7 +1240,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = 412
 
         if not data:
-            if self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at):
+            if self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at, mode=mode):
                 self.server.patroni.ha.wakeup()
                 if scheduled_at:
                     data = action.title() + ' scheduled'

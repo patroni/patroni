@@ -1758,7 +1758,7 @@ class Ha(object):
                 if not failover.candidate and self.is_paused():
                     logger.warning('%s is possible only to a specific candidate in a paused state', action.title())
                 elif self.is_failover_possible():
-                    ret = self._async_executor.try_run_async(f'{action}: demote', self.demote, ('graceful',))
+                    ret = self._async_executor.try_run_async(f'{action}: demote', self.demote, (failover.mode,))
                     return ret or f'{action}: demoting myself'
                 else:
                     logger.warning('%s: no healthy members found, %s is not possible',
