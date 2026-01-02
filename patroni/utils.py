@@ -1280,3 +1280,86 @@ def get_major_version(bin_dir: Optional[str] = None, bin_name: str = 'postgres')
     """
     full_version = get_postgres_version(bin_dir, bin_name)
     return re.sub(r'\.\d+$', '', full_version)
+
+
+def process_user_options(tool: str, options: Any,
+                         not_allowed_options: Tuple[str, ...],
+                         error_handler: Callable[[str], None]) -> List[str]:
+    """Format *options* in a list or dictionary format into command line long form arguments.
+
+    :Example:
+
+        The *options* can be defined as a dictionary of key, values to be converted into arguments:
+        >>> process_user_options('foo', {'foo': 'bar'}, (), print)
+        ['--foo=bar']
+
+        Or as a list of single string arguments
+        >>> process_user_options('foo', ['yes'], (), print)
+        ['--yes']
+
+        Or as a list of key, value options
+        >>> process_user_options('foo', [{'foo': 'bar'}], (), print)
+        ['--foo=bar']
+
+        Or a combination of single and key, values
+        >>> process_user_options('foo', ['yes', {'foo': 'bar'}], (), print)
+        ['--yes', '--foo=bar']
+
+        Options that contain spaces are passed as is to ``subprocess.call``
+        >>> process_user_options('foo', [{'foo': 'bar baz'}], (), print)
+        ['--foo=bar baz']
+
+        Options that are quoted will be unquoted, so the quotes aren't interpreted
+        literally by the postgres command
+        >>> process_user_options('foo', [{'foo': '"bar baz"'}], (), print)
+        ['--foo=bar baz']
+
+    .. note::
+        The *error_handler* is called when any of these conditions are met:
+
+        * Key, value dictionaries in the list form contains multiple keys.
+        * If a key is listed in *not_allowed_options*.
+        * If the options list is not in the required structure.
+
+    :param tool: The name of the tool used in error reports to *error_handler*
+    :param options: Options to parse as a list of key, values or single values, or a dictionary
+    :param not_allowed_options: List of keys that cannot be used in the list of key, value formatted options
+    :param error_handler: A function which will be called when an error condition is encountered
+    :returns: List of long form arguments to pass to the named tool
+    """
+    user_options: List[str] = []
+
+    def option_is_allowed(name: str) -> bool:
+        ret = name not in not_allowed_options
+        if not ret:
+            error_handler('{0} option for {1} is not allowed'.format(name, tool))
+        return ret
+
+    if isinstance(options, dict):
+        for key, val in cast(Dict[str, str], options).items():
+            if key and val:
+                user_options.append('--{0}={1}'.format(key, unquote(val)))
+    elif isinstance(options, list):
+        for opt in cast(List[Any], options):
+            if isinstance(opt, str):
+                # This if needs to be nested, otherwise we confuse the user by logging two errors -- one issued by
+                # option_is_allowed and another by the else clause below.
+                if option_is_allowed(opt):
+                    user_options.append('--{0}'.format(opt))
+            elif isinstance(opt, dict):
+                args = cast(Dict[str, Any], opt)
+                keys = list(args.keys())
+                if len(keys) == 1 and isinstance(args[keys[0]], str):
+                    # This if needs to be nested, otherwise we confuse the user by logging two errors -- one issued by
+                    # option_is_allowed and another by the else clause below.
+                    if option_is_allowed(keys[0]):
+                        user_options.append('--{0}={1}'.format(keys[0], unquote(args[keys[0]])))
+                else:
+                    error_handler('Error when parsing {0} key-value option {1}: only one key-value is allowed'
+                                  ' and value should be a string'.format(tool, args[keys[0]]))
+            else:
+                error_handler('Error when parsing {0} option {1}: value should be string value'
+                              ' or a single key-value pair'.format(tool, opt))
+    else:
+        error_handler('{0} options must be list or dict'.format(tool))
+    return user_options
