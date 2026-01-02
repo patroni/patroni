@@ -85,7 +85,7 @@ class __FilePermissions:
             else:
                 self.__set_owner_permissions()
         except Exception as e:
-            logger.error('Can not check permissions on %s: %r', data_dir, e)
+            logger.exception('Can not check permissions on %s: %r', data_dir, e)
         else:
             self.__set_umask()
 

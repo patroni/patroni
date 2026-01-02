@@ -136,6 +136,9 @@ class AbstractMPPHandler(AbstractMPP):
         super().__init__(config)
         self._postgresql = postgresql
 
+    def get_unbound(self) -> 'AbstractMPP':
+        return get_mpp(self._config)
+
     @abc.abstractmethod
     def handle_event(self, cluster: Cluster, event: Dict[str, Any]) -> None:
         """Handle an event sent from a worker node.
