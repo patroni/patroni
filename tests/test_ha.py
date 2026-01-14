@@ -208,7 +208,6 @@ def run_async(self, func, args=()):
 @patch('patroni.postgresql.polling_loop', Mock(return_value=range(1)))
 @patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=False))
 @patch('patroni.async_executor.AsyncExecutor.run_async', run_async)
-@patch('patroni.postgresql.rewind.Thread', Mock())
 @patch('patroni.thread_pool.get_executor', Mock(return_value=PatroniThreadPoolExecutor(max_workers=3)))
 @patch('subprocess.call', Mock(return_value=0))
 @patch('time.sleep', Mock())
@@ -1723,9 +1722,10 @@ class TestHa(PostgresInit):
     @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_update_cluster_history(self):
         self.ha.has_lock = true
-        for tl in (1, 3):
-            self.p.get_primary_timeline = Mock(return_value=tl)
-            self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
+        with patch('patroni.thread_pool.get_executor', Mock()):
+            for tl in (1, 3):
+                self.p.get_primary_timeline = Mock(return_value=tl)
+                self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
 
     @patch('sys.exit', return_value=1)
     def test_abort_join(self, exit_mock):

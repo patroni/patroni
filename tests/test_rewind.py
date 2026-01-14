@@ -7,16 +7,6 @@ from patroni.postgresql.rewind import Rewind
 from . import BaseTestPostgresql, MockCursor, psycopg_connect
 
 
-class MockThread(object):
-
-    def __init__(self, target, args):
-        self._target = target
-        self._args = args
-
-    def start(self):
-        self._target(*self._args)
-
-
 def mock_cancellable_call(*args, **kwargs):
     communicate = kwargs.pop('communicate', None)
     if isinstance(communicate, dict):
@@ -380,11 +370,13 @@ class TestRewind(BaseTestPostgresql):
     def test_ensure_clean_shutdown(self):
         self.assertIsNone(self.r.ensure_clean_shutdown())
 
-    @patch('patroni.postgresql.rewind.Thread', MockThread)
+    @patch('patroni.thread_pool.get_executor')
     @patch.object(Postgresql, 'controldata')
     @patch.object(Postgresql, 'checkpoint')
     @patch.object(Postgresql, 'get_primary_timeline')
-    def test_ensure_checkpoint_after_promote(self, mock_get_primary_timeline, mock_checkpoint, mock_controldata):
+    def test_ensure_checkpoint_after_promote(self, mock_get_primary_timeline,
+                                             mock_checkpoint, mock_controldata, mock_executor):
+        mock_executor.return_value.submit = lambda f, p1, p2: f(p1, p2)
         mock_controldata.return_value = {"Latest checkpoint's TimeLineID": 1}
         mock_get_primary_timeline.return_value = 1
         self.r.ensure_checkpoint_after_promote(Mock())
