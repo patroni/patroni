@@ -5,7 +5,6 @@ import unittest
 
 from http.server import HTTPServer
 from io import BytesIO as IO
-from socketserver import ThreadingMixIn
 from unittest.mock import Mock, patch, PropertyMock
 
 from patroni import global_config
@@ -198,6 +197,7 @@ class MockRestApiServer(RestApiServer):
 
 @patch('ssl.SSLContext.load_cert_chain', Mock())
 @patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
+@patch('patroni.api.PatroniThreadPoolExecutor', Mock())
 @patch.object(HTTPServer, '__init__', Mock())
 class TestRestApiHandler(unittest.TestCase):
 
@@ -738,6 +738,7 @@ class TestRestApiServer(unittest.TestCase):
     @patch('ssl.SSLContext.load_cert_chain', Mock())
     @patch('ssl.SSLContext.set_ciphers', Mock())
     @patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
+    @patch('patroni.api.PatroniThreadPoolExecutor', Mock())
     @patch.object(HTTPServer, '__init__', Mock())
     def setUp(self):
         self.srv = MockRestApiServer(Mock(), '', {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required',
@@ -791,9 +792,9 @@ class TestRestApiServer(unittest.TestCase):
             pass
         return sock
 
-    @patch.object(ThreadingMixIn, 'process_request_thread', Mock())
-    def test_process_request_thread(self):
-        self.srv.process_request_thread(self.__create_socket(), ('2', 54321))
+    def test_process_request(self):
+        with patch.object(self.srv._executor, 'submit', lambda f, r, c: f(r, c)):
+            self.srv.process_request(self.__create_socket(), ('2', 54321))
 
     @patch.object(MockRestApiServer, 'process_request', Mock(side_effect=RuntimeError))
     @patch.object(MockRestApiServer, 'get_request')
