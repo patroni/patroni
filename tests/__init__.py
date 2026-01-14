@@ -251,6 +251,7 @@ class PostgresInit(unittest.TestCase):
     @patch('patroni.psycopg._connect', psycopg_connect)
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch('patroni.postgresql.mpp.citus.CitusHandler.start', Mock())
+    @patch('patroni.postgresql.slots.SlotsAdvanceThread.start', Mock())
     @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
     @patch.object(ConfigHandler, 'replace_pg_hba', Mock())
     @patch.object(ConfigHandler, 'replace_pg_ident', Mock())
