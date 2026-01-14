@@ -1,10 +1,11 @@
 """Implement facilities for executing asynchronous tasks."""
 import logging
 
-from threading import Event, Lock, RLock, Thread
+from threading import Event, Lock, RLock
 from types import TracebackType
 from typing import Any, Callable, Optional, Tuple, Type
 
+from . import thread_pool
 from .postgresql.cancellable import CancellableSubprocess
 
 logger = logging.getLogger(__name__)
@@ -179,12 +180,10 @@ class AsyncExecutor(object):
     def run_async(self, func: Callable[..., Any], args: Tuple[Any, ...] = ()) -> None:
         """Start an async thread that runs *func* with *args*.
 
-        :param func: function to be run. Will be passed through args to :class:`~threading.Thread` with a target of
-            :func:`run`.
-        :param args: arguments to be passed along to :class:`~threading.Thread` with *func*.
-
+        :param func: function to be run.
+        :param args: arguments to be passed along with *func*.
         """
-        Thread(target=self.run, args=(func, args)).start()
+        thread_pool.get_executor().submit(self.run, func, args)
 
     def try_run_async(self, action: str, func: Callable[..., Any], args: Tuple[Any, ...] = ()) -> Optional[str]:
         """Try to run an async task, if none is currently being executed.

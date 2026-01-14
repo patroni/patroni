@@ -1,6 +1,5 @@
 import unittest
 
-from threading import Thread
 from unittest.mock import Mock, patch
 
 from patroni.async_executor import AsyncExecutor, CriticalTask
@@ -11,7 +10,7 @@ class TestAsyncExecutor(unittest.TestCase):
     def setUp(self):
         self.a = AsyncExecutor(Mock(), Mock())
 
-    @patch.object(Thread, 'start', Mock())
+    @patch('patroni.thread_pool.get_executor', Mock())
     def test_run_async(self):
         self.a.run_async(Mock(return_value=True))
 
