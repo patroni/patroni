@@ -119,6 +119,7 @@ class TestPatroni(unittest.TestCase):
 
     @patch('sys.argv', ['patroni.py', 'postgres0.yml'])
     @patch('time.sleep', Mock(side_effect=SleepException))
+    @patch('patroni.daemon.stack_size', Mock(side_effect=Exception))
     @patch.object(etcd.Client, 'delete', Mock())
     @patch.object(AbstractEtcdClientWithFailover, '_get_machines_list', Mock(return_value=['http://remotehost:2379']))
     @patch.object(Thread, 'join', Mock())
@@ -126,6 +127,8 @@ class TestPatroni(unittest.TestCase):
     def test_patroni_patroni_main(self):
         with patch('subprocess.call', Mock(return_value=1)):
             with patch.object(Patroni, 'run', Mock(side_effect=SleepException)):
+                os.environ['PATRONI_THREAD_STACK_SIZE'] = 'a'
+                os.environ['PATRONI_THREAD_POOL_SIZE'] = 'a'
                 os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
                 self.assertRaises(SleepException, _main)
             with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):

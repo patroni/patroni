@@ -744,7 +744,7 @@ class TestRestApiServer(unittest.TestCase):
         self.srv = MockRestApiServer(Mock(), '', {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required',
                                                   'ciphers': '!SSLv1:!SSLv2:!SSLv3:!TLSv1:!TLSv1.1',
                                                   'allowlist': ['127.0.0.1', '::1/128', '::1/zxc'],
-                                                  'allowlist_include_members': True})
+                                                  'allowlist_include_members': True, 'thread_pool_size': 'a'})
 
     @patch.object(HTTPServer, '__init__', Mock())
     def test_reload_config(self):

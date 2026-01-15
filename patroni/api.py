@@ -1500,8 +1500,13 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         self.patroni = patroni
         self.__listen = None
         self.request_queue_size = int(config.get('request_queue_size', 5))
-        self._executor = PatroniThreadPoolExecutor(max_workers=self.request_queue_size + 1,
-                                                   thread_name_prefix='RestAPI')
+        try:
+            thread_pool_size = max(5, int(config.get('thread_pool_size', 5)))
+        except Exception as e:
+            logger.warning('Failed to parse restapi.thread_pool_size value "%s": %r', config.get('thread_pool_size'), e)
+            thread_pool_size = 5
+        logger.info('REST API thread_pool_size = %d', thread_pool_size)
+        self._executor = PatroniThreadPoolExecutor(max_workers=thread_pool_size + 1, thread_name_prefix='RestAPI')
         self.__ssl_options: Dict[str, Any] = {}
         self.__ssl_serial_number = None
         self._received_new_cert = False

@@ -59,7 +59,13 @@ class Patroni(AbstractPatroniDaemon, Tags):
         from patroni.version import __version__
         from patroni.watchdog import Watchdog
 
-        thread_pool.configure_global_pool(config.get('thread_pool_size', 5))
+        try:
+            thread_pool_size = max(5, int(config.get('thread_pool_size', 5)))
+        except Exception as e:
+            logger.warning('Failed to parse thread_pool_size value "%s": %r', config.get('thread_pool_size'), e)
+            thread_pool_size = 5
+        logger.info('Patroni global thread_pool_size = %d', thread_pool_size)
+        thread_pool.configure_global_pool(thread_pool_size)
 
         super(Patroni, self).__init__(config)
 
