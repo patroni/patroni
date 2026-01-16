@@ -6,9 +6,10 @@ import shutil
 import subprocess
 
 from enum import IntEnum
-from threading import Lock, Thread
+from threading import Lock
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+from .. import thread_pool
 from ..async_executor import CriticalTask
 from ..collections import EMPTY_DICT
 from ..dcs import Leader, RemoteMember
@@ -323,7 +324,7 @@ class Rewind(object):
                     self._state = REWIND_STATUS.CHECKPOINT
                 else:
                     self._checkpoint_task = CriticalTask()
-                    Thread(target=self.__checkpoint, args=(self._checkpoint_task, wakeup)).start()
+                    thread_pool.get_executor().submit(self.__checkpoint, self._checkpoint_task, wakeup)
 
     def checkpoint_after_promote(self) -> bool:
         return self._state == REWIND_STATUS.CHECKPOINT
