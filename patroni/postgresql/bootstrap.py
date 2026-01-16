@@ -4,13 +4,13 @@ import shlex
 import tempfile
 import time
 
-from typing import Any, Callable, cast, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union
 
 from ..async_executor import CriticalTask
 from ..collections import EMPTY_DICT
 from ..dcs import Leader, Member, RemoteMember
 from ..psycopg import quote_ident, quote_literal
-from ..utils import deep_compare, unquote
+from ..utils import deep_compare, process_user_options
 from .misc import PostgresqlState
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -33,87 +33,6 @@ class Bootstrap(object):
     def keep_existing_recovery_conf(self) -> bool:
         return self._running_custom_bootstrap and self._keep_existing_recovery_conf
 
-    @staticmethod
-    def process_user_options(tool: str, options: Any,
-                             not_allowed_options: Tuple[str, ...],
-                             error_handler: Callable[[str], None]) -> List[str]:
-        """Format *options* in a list or dictionary format into command line long form arguments.
-
-        .. note::
-            The format of the output of this method is to prepare arguments for use in the ``initdb``
-            method of `self._postgres`.
-
-        :Example:
-
-            The *options* can be defined as a dictionary of key, values to be converted into arguments:
-            >>> Bootstrap.process_user_options('foo', {'foo': 'bar'}, (), print)
-            ['--foo=bar']
-
-            Or as a list of single string arguments
-            >>> Bootstrap.process_user_options('foo', ['yes'], (), print)
-            ['--yes']
-
-            Or as a list of key, value options
-            >>> Bootstrap.process_user_options('foo', [{'foo': 'bar'}], (), print)
-            ['--foo=bar']
-
-            Or a combination of single and key, values
-            >>> Bootstrap.process_user_options('foo', ['yes', {'foo': 'bar'}], (), print)
-            ['--yes', '--foo=bar']
-
-            Options that contain spaces are passed as is to ``subprocess.call``
-            >>> Bootstrap.process_user_options('foo', [{'foo': 'bar baz'}], (), print)
-            ['--foo=bar baz']
-
-            Options that are quoted will be unquoted, so the quotes aren't interpreted
-            literally by the postgres command
-            >>> Bootstrap.process_user_options('foo', [{'foo': '"bar baz"'}], (), print)
-            ['--foo=bar baz']
-
-        .. note::
-            The *error_handler* is called when any of these conditions are met:
-
-            * Key, value dictionaries in the list form contains multiple keys.
-            * If a key is listed in *not_allowed_options*.
-            * If the options list is not in the required structure.
-
-        :param tool: The name of the tool used in error reports to *error_handler*
-        :param options: Options to parse as a list of key, values or single values, or a dictionary
-        :param not_allowed_options: List of keys that cannot be used in the list of key, value formatted options
-        :param error_handler: A function which will be called when an error condition is encountered
-        :returns: List of long form arguments to pass to the named tool
-        """
-        user_options: List[str] = []
-
-        def option_is_allowed(name: str) -> bool:
-            ret = name not in not_allowed_options
-            if not ret:
-                error_handler('{0} option for {1} is not allowed'.format(name, tool))
-            return ret
-
-        if isinstance(options, dict):
-            for key, val in cast(Dict[str, str], options).items():
-                if key and val:
-                    user_options.append('--{0}={1}'.format(key, unquote(val)))
-        elif isinstance(options, list):
-            for opt in cast(List[Any], options):
-                if isinstance(opt, str) and option_is_allowed(opt):
-                    user_options.append('--{0}'.format(opt))
-                elif isinstance(opt, dict):
-                    args = cast(Dict[str, Any], opt)
-                    keys = list(args.keys())
-                    if len(keys) == 1 and isinstance(args[keys[0]], str) and option_is_allowed(keys[0]):
-                        user_options.append('--{0}={1}'.format(keys[0], unquote(args[keys[0]])))
-                    else:
-                        error_handler('Error when parsing {0} key-value option {1}: only one key-value is allowed'
-                                      ' and value should be a string'.format(tool, args[keys[0]]))
-                else:
-                    error_handler('Error when parsing {0} option {1}: value should be string value'
-                                  ' or a single key-value pair'.format(tool, opt))
-        else:
-            error_handler('{0} options must be list or dict'.format(tool))
-        return user_options
-
     def _initdb(self, config: Any) -> bool:
         self._postgresql.set_state(PostgresqlState.INITDB)
         not_allowed_options = ('pgdata', 'nosync', 'pwfile', 'sync-only', 'version')
@@ -121,13 +40,13 @@ class Bootstrap(object):
         def error_handler(e: str) -> None:
             raise Exception(e)
 
-        options = self.process_user_options('initdb', config or [], not_allowed_options, error_handler)
+        options = process_user_options('initdb', config or [], not_allowed_options, error_handler)
         pwfile = None
 
         if self._postgresql.config.superuser:
             if 'username' in self._postgresql.config.superuser:
                 options.append('--username={0}'.format(self._postgresql.config.superuser['username']))
-            if 'password' in self._postgresql.config.superuser:
+            if isinstance(self._postgresql.config.superuser.get('password'), str):
                 (fd, pwfile) = tempfile.mkstemp()
                 os.write(fd, self._postgresql.config.superuser['password'].encode('utf-8'))
                 os.close(fd)
@@ -341,7 +260,7 @@ class Bootstrap(object):
         ret = 1
         not_allowed_options = ('pgdata', 'format', 'wal-method', 'xlog-method', 'gzip',
                                'version', 'compress', 'dbname', 'host', 'port', 'username', 'password')
-        user_options = self.process_user_options('basebackup', options, not_allowed_options, logger.error)
+        user_options = process_user_options('basebackup', options, not_allowed_options, logger.error)
         cmd = [
             self._postgresql.pgcommand("pg_basebackup"),
             "--pgdata=" + self._postgresql.data_dir,

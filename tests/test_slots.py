@@ -453,3 +453,16 @@ class TestSlotsHandler(BaseTestPostgresql):
             mock_error.assert_called_once_with("Failed to drop replication slot '%s'", 'testslot')
             self.assertTrue(self.s._schedule_load_slots)
             self.assertIn('testslot', self.s._replication_slots)
+
+    @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
+    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=170000))
+    @patch.object(Postgresql, '_query',
+                  Mock(return_value=[('ls', 'logical', 1, 104, 'b', 'a', 5, 12345, 105, True, False)]))
+    def test__drop_incorrect_failover_synced_slots(self):
+        config = ClusterConfig(1, {}, 1)
+        cluster = Cluster(True, config, self.leader, Status(0, {}, []),
+                          [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
+        with patch('patroni.postgresql.slots.logger.info') as mock_info:
+            self.s.sync_replication_slots(cluster, self.tags)
+            self.assertEqual(mock_info.call_args_list[0][0],
+                             ("Trying to drop logical replication slot '%s' with failover=true and synced=false", 'ls'))
