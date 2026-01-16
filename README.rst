@@ -5,6 +5,47 @@ Patroni: A Template for PostgreSQL HA with ZooKeeper, etcd or Consul
 
 You can find a version of this documentation that is searchable and also easier to navigate at `patroni.readthedocs.io <https://patroni.readthedocs.io>`__.
 
+**Important!**
+  Running Patroni on **memory-restricted systems with Python 3.11+**
+
+----
+
+If you run Patroni on a system with strict memory limits, for example with ``vm.overcommit_memory=2`` (recommended for PostgreSQL), and use Python 3.11 or newer, you may observe unexpected behavior:
+
+- Patroni appears healthy
+- PostgreSQL continues to run
+- Patroni **REST API becomes unresponsive**
+- The operating system reports that Patroni is listening on the REST API port
+- Patroni logs look normal; however, following messages may appear once: ``Exception ignored in thread started by: <object repr() failed>``, ``MemoryError``
+- Kernel logs may contain messages such as   ``not enough memory for the allocation``
+
+This behavior is caused by a `bug in Python 3.11+ <https://github.com/python/cpython/issues/140746>`__.
+Under strict memory conditions, starting a new thread may hang indefinitely when there is not enough free memory.
+
+Recommended solution
+--------------------
+
+Recent Patroni releases (4.1.1+, 4.0.8+) reduce the impact of this issue by starting all required threads early during startup, before the system is under memory pressure.
+
+Additional recommendations (Linux, glibc)
+-----------------------------------------
+
+When running with ``vm.overcommit_memory=2`` (recommended for PostgreSQL), we also recommend starting Patroni with the following environment variables configured:
+
+- ``MALLOC_ARENA_MAX=1`` - reduces the amount of virtual memory allocated by glibc for multi-threaded
+  applications
+- ``PG_MALLOC_ARENA_MAX=`` - resets the value of ``MALLOC_ARENA_MAX`` for PostgreSQL processes started by Patroni.
+
+In addition, you may tune the following Patroni configuration parameters:
+
+- ``thread_stack_size`` - stack size used for threads started by Patroni. Lowering this value reduces memory usage of the Patroni process. The default value set by Patroni is ``512kB``. Increase ``thread_stack_size`` if Patroni experience stack-related crashes; otherwise the default value is sufficient.
+- ``thread_pool_size`` - size of the thread pool used by Patroni for asynchronous tasks and REST API communication with other members during leader race or failsafe checks. The default value is ``5``, which is sufficient for three-node clusters.
+- ``restapi.thread_pool_size`` - size of the thread pool used to process REST API requests. The default value is ``5``, allowing up to five parallel REST API requests. Note that requests involving SQL queries are effectively serialized because a single database connection is used, so increasing this value typically provides no benefit.
+
+----
+
+PostgreSQL High Availability and Patroni
+----------------------------------------
 
 There are many ways to run high availability with PostgreSQL; for a list, see the `PostgreSQL Documentation <https://wiki.postgresql.org/wiki/Replication,_Clustering,_and_Connection_Pooling>`__.
 
