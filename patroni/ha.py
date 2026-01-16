@@ -694,6 +694,7 @@ class Ha(object):
                 node_to_follow = self._get_node_to_follow(self.cluster)
 
             if self.is_synchronous_mode():
+                logger.debug("HA: Calling set_synchronous_standby_names(empty) from recover() - synchronous mode enabled")
                 self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
 
         if self._async_executor.try_run_async('restarting after failure', self.state_handler.follow,
@@ -843,10 +844,12 @@ class Ha(object):
         # If synchronous_mode was turned off, we need to update synchronous_standby_names in Postgres
         if not self.cluster.sync.is_empty and self.dcs.delete_sync_state(version=self.cluster.sync.version):
             logger.info("Disabled synchronous replication")
+            logger.debug("HA: Calling sync_handler.set_synchronous_standby_names(empty) from disable_synchronous_replication() - sync turned off")
             self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
 
         # As synchronous_mode is off, check if the user configured Postgres synchronous replication instead
         ssn = self.state_handler.config.synchronous_standby_names
+        logger.debug("HA: Calling config.set_synchronous_standby_names('%s') from disable_synchronous_replication() - user config fallback", ssn)
         self.state_handler.config.set_synchronous_standby_names(ssn)
 
     def _process_quorum_replication(self) -> None:
@@ -903,6 +906,7 @@ class Ha(object):
                         logger.warning("Replication factor %d requested, but %d synchronous standbys available."
                                        " Commits will be delayed.", min_sync + 1, num)
                         num = min_sync
+                    logger.debug("HA: Calling sync_handler.set_synchronous_standby_names(%s, %s) from _process_quorum_replication() - quorum sync", list(nodes), num)
                     self.state_handler.sync_handler.set_synchronous_standby_names(nodes, num)
             if transition != 'restart' or _check_timeout(1):
                 return
@@ -965,6 +969,7 @@ class Ha(object):
 
         # Update postgresql.conf and wait 2 secs for changes to become active
         logger.info("Assigning synchronous standby status to %s", list(picked))
+        logger.debug("HA: Calling sync_handler.set_synchronous_standby_names(%s) from _process_multisync_replication() - multisync", list(picked))
         self.state_handler.sync_handler.set_synchronous_standby_names(picked)
 
         if picked and picked != CaseInsensitiveSet('*') and allow_promote != picked:
@@ -1029,6 +1034,7 @@ class Ha(object):
             if not self.dcs.write_sync_state(self.state_handler.name, None, 0, version=self.cluster.sync.version):
                 return False
 
+        logger.debug("HA: Calling sync_handler.set_synchronous_standby_names(%s, %s) from process_sync_replication_prepromote() - pre-promote", list(sync), numsync)
         self.state_handler.sync_handler.set_synchronous_standby_names(sync, numsync)
         return True
 
@@ -1682,6 +1688,7 @@ class Ha(object):
                 node_to_follow, leader = None, None
 
         if self.is_synchronous_mode():
+            logger.debug("HA: Calling sync_handler.set_synchronous_standby_names(empty) from demote() - demoting")
             self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
 
         role = PostgresqlRole.STANDBY_LEADER if is_standby_leader else PostgresqlRole.REPLICA
@@ -2111,8 +2118,9 @@ class Ha(object):
         self.dcs.take_leader()
         self.set_is_leader(True)
         if self.is_synchronous_mode():
-            self.state_handler.sync_handler.set_synchronous_standby_names(
-                CaseInsensitiveSet('*') if global_config.is_synchronous_mode_strict else CaseInsensitiveSet())
+            sync_value = CaseInsensitiveSet('*') if global_config.is_synchronous_mode_strict else CaseInsensitiveSet()
+            logger.debug("HA: Calling sync_handler.set_synchronous_standby_names(%s) from post_bootstrap() - bootstrap complete, sync_mode_strict=%s", list(sync_value), global_config.is_synchronous_mode_strict)
+            self.state_handler.sync_handler.set_synchronous_standby_names(sync_value)
         self.state_handler.call_nowait(CallbackAction.ON_START)
         self.load_cluster_from_dcs()
 
