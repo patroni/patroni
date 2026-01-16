@@ -98,7 +98,7 @@ case "$1" in
         --chdir `eval echo ~$USER` \
         --exec $PATRONI \
         --startas /bin/sh -- \
-        -c "/usr/bin/env PATH=$PGPATH /usr/bin/python $PATRONI $CONF >> $LOGFILE 2>&1"
+        -c "/usr/bin/env PATH=$PGPATH MALLOC_ARENA_MAX=1 PG_MALLOC_ARENA_MAX= /usr/bin/python $PATRONI $CONF >> $LOGFILE 2>&1"
     ;;
 
   stop)
