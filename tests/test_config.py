@@ -284,3 +284,33 @@ class TestConfig(unittest.TestCase):
         cluster = get_cluster_initialized_with_only_leader(cluster_config=ClusterConfig(1, config, 1))
         test_config = global_config.from_cluster(cluster)
         self.assertFalse(test_config.is_synchronous_mode)
+
+    def test_dynamic_synchronized_standby_slots_enabled(self):
+        # Test default value (should be False - opt-in)
+        cluster = get_cluster_initialized_with_only_leader()
+        test_config = global_config.from_cluster(cluster)
+        self.assertFalse(test_config.dynamic_synchronized_standby_slots_enabled)
+
+        # Test when explicitly enabled
+        config = {'dynamic_synchronized_standby_slots': True}
+        cluster = get_cluster_initialized_with_only_leader(cluster_config=ClusterConfig(1, config, 1))
+        test_config = global_config.from_cluster(cluster)
+        self.assertTrue(test_config.dynamic_synchronized_standby_slots_enabled)
+
+        # Test when explicitly disabled
+        config = {'dynamic_synchronized_standby_slots': False}
+        cluster = get_cluster_initialized_with_only_leader(cluster_config=ClusterConfig(1, config, 1))
+        test_config = global_config.from_cluster(cluster)
+        self.assertFalse(test_config.dynamic_synchronized_standby_slots_enabled)
+
+        # Test with string 'true'
+        config = {'dynamic_synchronized_standby_slots': 'true'}
+        cluster = get_cluster_initialized_with_only_leader(cluster_config=ClusterConfig(1, config, 1))
+        test_config = global_config.from_cluster(cluster)
+        self.assertTrue(test_config.dynamic_synchronized_standby_slots_enabled)
+
+        # Test with string 'false'
+        config = {'dynamic_synchronized_standby_slots': 'false'}
+        cluster = get_cluster_initialized_with_only_leader(cluster_config=ClusterConfig(1, config, 1))
+        test_config = global_config.from_cluster(cluster)
+        self.assertFalse(test_config.dynamic_synchronized_standby_slots_enabled)

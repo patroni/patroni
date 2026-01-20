@@ -1318,6 +1318,11 @@ class ConfigHandler(object):
 
         This ensures logical replication slots are synchronized to the same physical standbys
         that are used for synchronous replication.
+        
+        .. note::
+            This feature is designed for PostgreSQL 17's native logical slot synchronization.
+            It requires logical slots to be excluded from Patroni management via ``ignore_slots``
+            configuration.
 
         :param synchronous_standby_names: The value being set for synchronous_standby_names
         """
@@ -1325,6 +1330,22 @@ class ConfigHandler(object):
         if not global_config.dynamic_synchronized_standby_slots_enabled:
             logger.debug("dynamic_synchronized_standby_slots is disabled, skipping synchronized_standby_slots update for node %s",
                          self._postgresql.name)
+            return
+
+        # Check if logical slots are being ignored (required to avoid conflicts with Patroni's slot management)
+        logical_slots_ignored = any(
+            matcher.get('type') == 'logical'
+            for matcher in global_config.ignore_slots_matchers
+        )
+        
+        if not logical_slots_ignored:
+            logger.error(
+                "dynamic_synchronized_standby_slots is enabled on node %s but logical slots are not "
+                "in ignore_slots configuration. This creates a conflict between Patroni's logical slot "
+                "management and PostgreSQL 17's native synchronization. Please add 'ignore_slots: [{type: logical}]' "
+                "to your global configuration to use this feature.",
+                self._postgresql.name
+            )
             return
 
         logger.debug("dynamic_synchronized_standby_slots is enabled, updating synchronized_standby_slots for node %s",

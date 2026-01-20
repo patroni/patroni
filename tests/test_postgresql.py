@@ -718,6 +718,89 @@ class TestPostgresql(BaseTestPostgresql):
             self.p.reload_config(config, True)
             self.assertEqual(mock_warning.call_args_list[-1][0][0], 'Exception %r when running query')
 
+    @patch('patroni.postgresql.config.logger.error')
+    @patch('patroni.postgresql.config.logger.debug')
+    def test_update_synchronized_standby_slots_from_ssn(self, mock_debug, mock_error):
+        """Test _update_synchronized_standby_slots_from_ssn method"""
+        # Setup: Make sure we're on PG 17+
+        with patch.object(self.p.config, 'pg_version', 170000):
+            # Test 1: Feature disabled (default)
+            with patch.object(global_config, 'dynamic_synchronized_standby_slots_enabled', False):
+                self.p.config._update_synchronized_standby_slots_from_ssn('node1,node2')
+                mock_debug.assert_called_with(
+                    "dynamic_synchronized_standby_slots is disabled, skipping synchronized_standby_slots update for node %s",
+                    self.p.name
+                )
+                self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
+
+            mock_debug.reset_mock()
+            mock_error.reset_mock()
+
+            # Test 2: Feature enabled but no ignore_slots configured (should error and return)
+            with patch.object(global_config, 'dynamic_synchronized_standby_slots_enabled', True), \
+                 patch.object(global_config, 'ignore_slots_matchers', []):
+                self.p.config._update_synchronized_standby_slots_from_ssn('node1,node2')
+                mock_error.assert_called_once()
+                self.assertIn('conflict', mock_error.call_args[0][0])
+                self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
+
+            mock_debug.reset_mock()
+            mock_error.reset_mock()
+
+            # Test 3: Feature enabled with ignore_slots configured - empty synchronous_standby_names
+            with patch.object(global_config, 'dynamic_synchronized_standby_slots_enabled', True), \
+                 patch.object(global_config, 'ignore_slots_matchers', [{'type': 'logical'}]):
+                self.p.config._update_synchronized_standby_slots_from_ssn('')
+                self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
+                # Check that it logged the clear operation
+                debug_calls = [call[0][0] for call in mock_debug.call_args_list]
+                self.assertTrue(any('Cleared synchronized_standby_slots' in msg for msg in debug_calls))
+
+            mock_debug.reset_mock()
+
+            # Test 4: Feature enabled with ignore_slots - wildcard synchronous_standby_names
+            with patch.object(global_config, 'dynamic_synchronized_standby_slots_enabled', True), \
+                 patch.object(global_config, 'ignore_slots_matchers', [{'type': 'logical'}]):
+                self.p.config._update_synchronized_standby_slots_from_ssn('*')
+                self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
+                debug_calls = [call[0][0] for call in mock_debug.call_args_list]
+                self.assertTrue(any('wildcard' in msg for msg in debug_calls))
+
+            mock_debug.reset_mock()
+
+            # Test 5: Feature enabled with ignore_slots - specific member names
+            with patch.object(global_config, 'dynamic_synchronized_standby_slots_enabled', True), \
+                 patch.object(global_config, 'ignore_slots_matchers', [{'type': 'logical'}]):
+                self.p.config._update_synchronized_standby_slots_from_ssn('node1,node2')
+                self.assertIn('synchronized_standby_slots', self.p.config._server_parameters)
+                # slot_name_from_member_name converts to lowercase and replaces hyphens
+                self.assertEqual(self.p.config._server_parameters['synchronized_standby_slots'], 'node1,node2')
+
+            mock_debug.reset_mock()
+
+            # Test 6: Feature enabled with ignore_slots - FIRST 2 (node1, node2)
+            with patch.object(global_config, 'dynamic_synchronized_standby_slots_enabled', True), \
+                 patch.object(global_config, 'ignore_slots_matchers', [{'type': 'logical'}]):
+                self.p.config._update_synchronized_standby_slots_from_ssn('FIRST 2 (node1, node2)')
+                self.assertIn('synchronized_standby_slots', self.p.config._server_parameters)
+                # Should extract node1 and node2
+                slots = self.p.config._server_parameters['synchronized_standby_slots']
+                self.assertIn('node1', slots)
+                self.assertIn('node2', slots)
+
+            mock_debug.reset_mock()
+
+            # Test 7: Feature enabled with ignore_slots - ANY 2 (node1, node2, node3)
+            with patch.object(global_config, 'dynamic_synchronized_standby_slots_enabled', True), \
+                 patch.object(global_config, 'ignore_slots_matchers', [{'type': 'logical'}]):
+                self.p.config._update_synchronized_standby_slots_from_ssn('ANY 2 (node1, node2, node3)')
+                self.assertIn('synchronized_standby_slots', self.p.config._server_parameters)
+                # Should extract all three nodes
+                slots = self.p.config._server_parameters['synchronized_standby_slots']
+                self.assertIn('node1', slots)
+                self.assertIn('node2', slots)
+                self.assertIn('node3', slots)
+
     def test_resolve_connection_addresses(self):
         self.p.config._config['use_unix_socket'] = self.p.config._config['use_unix_socket_repl'] = True
         self.p.config.resolve_connection_addresses()

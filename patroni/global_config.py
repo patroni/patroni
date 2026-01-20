@@ -250,10 +250,10 @@ class GlobalConfig(types.ModuleType):
         logical replication slots are synchronized to the same physical standbys that are used for
         synchronous replication.
 
-        Defaults to ``True`` if not explicitly configured.
+        Defaults to ``False`` (disabled) if not explicitly configured. Users must opt-in by setting
+        ``dynamic_synchronized_standby_slots: true`` in the global configuration.
         """
-        value = self.get('dynamic_synchronized_standby_slots')
-        return parse_bool(value) if value is not None else True
+        return bool(parse_bool(self.get('dynamic_synchronized_standby_slots')))
 
 
 sys.modules[__name__] = GlobalConfig()
