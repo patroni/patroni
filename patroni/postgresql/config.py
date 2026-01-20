@@ -1318,7 +1318,7 @@ class ConfigHandler(object):
 
         This ensures logical replication slots are synchronized to the same physical standbys
         that are used for synchronous replication.
-        
+
         .. note::
             This feature is designed for PostgreSQL 17's native logical slot synchronization.
             It requires logical slots to be excluded from Patroni management via ``ignore_slots``
@@ -1328,28 +1328,28 @@ class ConfigHandler(object):
         """
         # Check if dynamic synchronized_standby_slots is enabled
         if not global_config.dynamic_synchronized_standby_slots_enabled:
-            logger.debug("dynamic_synchronized_standby_slots is disabled, skipping synchronized_standby_slots update for node %s",
-                         self._postgresql.name)
+            logger.debug("dynamic_synchronized_standby_slots is disabled, skipping "
+                         "synchronized_standby_slots update for node %s", self._postgresql.name)
             return
 
-        # Check if logical slots are being ignored (required to avoid conflicts with Patroni's slot management)
+        # Check if logical slots are being ignored (required to avoid conflicts)
         logical_slots_ignored = any(
             matcher.get('type') == 'logical'
             for matcher in global_config.ignore_slots_matchers
         )
-        
+
         if not logical_slots_ignored:
             logger.error(
                 "dynamic_synchronized_standby_slots is enabled on node %s but logical slots are not "
                 "in ignore_slots configuration. This creates a conflict between Patroni's logical slot "
-                "management and PostgreSQL 17's native synchronization. Please add 'ignore_slots: [{type: logical}]' "
-                "to your global configuration to use this feature.",
+                "management and PostgreSQL 17's native synchronization. "
+                "Please add 'ignore_slots: [{type: logical}]' to your global configuration.",
                 self._postgresql.name
             )
             return
 
-        logger.debug("dynamic_synchronized_standby_slots is enabled, updating synchronized_standby_slots for node %s",
-                     self._postgresql.name)
+        logger.debug("dynamic_synchronized_standby_slots is enabled, updating "
+                     "synchronized_standby_slots for node %s", self._postgresql.name)
 
         try:
             from .sync import parse_sync_standby_names
@@ -1377,8 +1377,8 @@ class ConfigHandler(object):
                 slot_names = [slot_name_from_member_name(member) for member in ssn_data.members]
                 synchronized_value = ','.join(sorted(slot_names))
                 self._server_parameters['synchronized_standby_slots'] = synchronized_value
-                logger.debug("Updated synchronized_standby_slots to '%s' (matching synchronous_standby_names) for node %s",
-                             synchronized_value, self._postgresql.name)
+                logger.debug("Updated synchronized_standby_slots to '%s' (matching synchronous_standby_names) "
+                             "for node %s", synchronized_value, self._postgresql.name)
             else:
                 # No specific members, clear synchronized_standby_slots
                 self._server_parameters.pop('synchronized_standby_slots', None)
@@ -1408,8 +1408,8 @@ class ConfigHandler(object):
             # with synchronous_standby_names to ensure logical slots are synchronized to the same
             # physical standbys that are used for synchronous replication
             if self.pg_version >= 170000:
-                logger.debug("PostgreSQL 17+ detected, checking dynamic synchronized_standby_slots config on node %s",
-                             self._postgresql.name)
+                logger.debug("PostgreSQL 17+ detected, checking dynamic synchronized_standby_slots "
+                             "config on node %s", self._postgresql.name)
                 self._update_synchronized_standby_slots_from_ssn(value)
 
             if self._postgresql.state == PostgresqlState.RUNNING:

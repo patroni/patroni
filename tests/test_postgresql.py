@@ -723,22 +723,24 @@ class TestPostgresql(BaseTestPostgresql):
     def test_update_synchronized_standby_slots_from_ssn(self, mock_debug, mock_error):
         """Test _update_synchronized_standby_slots_from_ssn method"""
         # Setup: Make sure we're on PG 17+
-        with patch.object(self.p.config, 'pg_version', 170000):
+        with patch.object(type(self.p.config), 'pg_version', new_callable=PropertyMock, return_value=170000):
             # Test 1: Feature disabled (default)
-            with patch.object(global_config, 'dynamic_synchronized_standby_slots_enabled', False):
+            with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                              new_callable=PropertyMock, return_value=False):
                 self.p.config._update_synchronized_standby_slots_from_ssn('node1,node2')
                 mock_debug.assert_called_with(
-                    "dynamic_synchronized_standby_slots is disabled, skipping synchronized_standby_slots update for node %s",
-                    self.p.name
-                )
+                    "dynamic_synchronized_standby_slots is disabled, skipping "
+                    "synchronized_standby_slots update for node %s", self.p.name)
                 self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
 
             mock_debug.reset_mock()
             mock_error.reset_mock()
 
             # Test 2: Feature enabled but no ignore_slots configured (should error and return)
-            with patch.object(global_config, 'dynamic_synchronized_standby_slots_enabled', True), \
-                 patch.object(global_config, 'ignore_slots_matchers', []):
+            with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                              new_callable=PropertyMock, return_value=True), \
+                 patch.object(type(global_config), 'ignore_slots_matchers',
+                              new_callable=PropertyMock, return_value=[]):
                 self.p.config._update_synchronized_standby_slots_from_ssn('node1,node2')
                 mock_error.assert_called_once()
                 self.assertIn('conflict', mock_error.call_args[0][0])
@@ -748,8 +750,10 @@ class TestPostgresql(BaseTestPostgresql):
             mock_error.reset_mock()
 
             # Test 3: Feature enabled with ignore_slots configured - empty synchronous_standby_names
-            with patch.object(global_config, 'dynamic_synchronized_standby_slots_enabled', True), \
-                 patch.object(global_config, 'ignore_slots_matchers', [{'type': 'logical'}]):
+            with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                              new_callable=PropertyMock, return_value=True), \
+                 patch.object(type(global_config), 'ignore_slots_matchers',
+                              new_callable=PropertyMock, return_value=[{'type': 'logical'}]):
                 self.p.config._update_synchronized_standby_slots_from_ssn('')
                 self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
                 # Check that it logged the clear operation
@@ -759,8 +763,10 @@ class TestPostgresql(BaseTestPostgresql):
             mock_debug.reset_mock()
 
             # Test 4: Feature enabled with ignore_slots - wildcard synchronous_standby_names
-            with patch.object(global_config, 'dynamic_synchronized_standby_slots_enabled', True), \
-                 patch.object(global_config, 'ignore_slots_matchers', [{'type': 'logical'}]):
+            with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                              new_callable=PropertyMock, return_value=True), \
+                 patch.object(type(global_config), 'ignore_slots_matchers',
+                              new_callable=PropertyMock, return_value=[{'type': 'logical'}]):
                 self.p.config._update_synchronized_standby_slots_from_ssn('*')
                 self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
                 debug_calls = [call[0][0] for call in mock_debug.call_args_list]
@@ -769,8 +775,10 @@ class TestPostgresql(BaseTestPostgresql):
             mock_debug.reset_mock()
 
             # Test 5: Feature enabled with ignore_slots - specific member names
-            with patch.object(global_config, 'dynamic_synchronized_standby_slots_enabled', True), \
-                 patch.object(global_config, 'ignore_slots_matchers', [{'type': 'logical'}]):
+            with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                              new_callable=PropertyMock, return_value=True), \
+                 patch.object(type(global_config), 'ignore_slots_matchers',
+                              new_callable=PropertyMock, return_value=[{'type': 'logical'}]):
                 self.p.config._update_synchronized_standby_slots_from_ssn('node1,node2')
                 self.assertIn('synchronized_standby_slots', self.p.config._server_parameters)
                 # slot_name_from_member_name converts to lowercase and replaces hyphens
@@ -779,8 +787,10 @@ class TestPostgresql(BaseTestPostgresql):
             mock_debug.reset_mock()
 
             # Test 6: Feature enabled with ignore_slots - FIRST 2 (node1, node2)
-            with patch.object(global_config, 'dynamic_synchronized_standby_slots_enabled', True), \
-                 patch.object(global_config, 'ignore_slots_matchers', [{'type': 'logical'}]):
+            with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                              new_callable=PropertyMock, return_value=True), \
+                 patch.object(type(global_config), 'ignore_slots_matchers',
+                              new_callable=PropertyMock, return_value=[{'type': 'logical'}]):
                 self.p.config._update_synchronized_standby_slots_from_ssn('FIRST 2 (node1, node2)')
                 self.assertIn('synchronized_standby_slots', self.p.config._server_parameters)
                 # Should extract node1 and node2
@@ -791,8 +801,10 @@ class TestPostgresql(BaseTestPostgresql):
             mock_debug.reset_mock()
 
             # Test 7: Feature enabled with ignore_slots - ANY 2 (node1, node2, node3)
-            with patch.object(global_config, 'dynamic_synchronized_standby_slots_enabled', True), \
-                 patch.object(global_config, 'ignore_slots_matchers', [{'type': 'logical'}]):
+            with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                              new_callable=PropertyMock, return_value=True), \
+                 patch.object(type(global_config), 'ignore_slots_matchers',
+                              new_callable=PropertyMock, return_value=[{'type': 'logical'}]):
                 self.p.config._update_synchronized_standby_slots_from_ssn('ANY 2 (node1, node2, node3)')
                 self.assertIn('synchronized_standby_slots', self.p.config._server_parameters)
                 # Should extract all three nodes
