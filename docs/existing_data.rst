@@ -38,7 +38,7 @@ You can find below an overview of steps for converting an existing Postgres clus
 
    #. Create a YAML configuration file for Patroni. You can use :ref:`Patroni configuration generation and validation tooling <validate_generate_config>` for that.
 
-      * **Note (specific for the primary node):** If you have replication slots being used for replication between cluster members, then it is recommended that you enable ``use_slots`` and configure the existing replication slots as permanent via the ``slots`` configuration item. Be aware that Patroni automatically creates replication slots for replication between members, and drops replication slots that it does not recognize, when ``use_slots`` is enabled. The idea of using permanent slots here is to allow your existing slots to persist while the migration to Patroni is in progress. See :ref:`YAML Configuration Settings <yaml_configuration>` for details.
+      * **Note (specific for the primary node):** If you have replication slots being used for replication between cluster members, then it is recommended that you enable ``use_slots`` and configure the existing replication slots as permanent via the ``slots`` configuration item. Be aware that Patroni automatically creates replication slots for replication between members, and drops replication slots that it does not recognize, when ``use_slots`` is enabled. The idea of using permanent slots here is to allow your existing slots to persist while the migration to Patroni is in progress. See :ref:`Dynamic Configuration Settings <dynamic_configuration>` for details.
 
    #. Start Patroni using the ``patroni`` systemd service unit. It automatically detects that Postgres is already running and starts monitoring the instance.
 
