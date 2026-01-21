@@ -883,29 +883,33 @@ class IntValidator(object):
     :ivar min: minimum allowed value for the setting, if any.
     :ivar max: maximum allowed value for the setting, if any.
     :ivar base_unit: the base unit to convert the value to before checking if it's within *min* and *max* range.
+    :ivar aligned: require value to be aligned.
     :ivar expected_type: the expected Python type.
     :ivar raise_assert: if an ``assert`` test should be performed regarding expected type and valid range.
     """
 
-    def __init__(self, min: OptionalType[int] = None, max: OptionalType[int] = None,
-                 base_unit: OptionalType[str] = None, expected_type: Any = None, raise_assert: bool = False) -> None:
+    def __init__(self, *, min: OptionalType[int] = None, max: OptionalType[int] = None,
+                 base_unit: OptionalType[str] = None, aligned: OptionalType[int] = None,
+                 expected_type: Any = None, raise_assert: bool = False) -> None:
         """Create an :class:`IntValidator` object with the given rules.
 
         :param min: minimum allowed value for the setting, if any.
         :param max: maximum allowed value for the setting, if any.
         :param base_unit: the base unit to convert the value to before checking if it's within *min* and *max* range.
+        :param aligned: require value to be aligned.
         :param expected_type: the expected Python type.
         :param raise_assert: if an ``assert`` test should be performed regarding expected type and valid range.
         """
         self.min = min
         self.max = max
         self.base_unit = base_unit
+        self.aligned = aligned
         if expected_type:
             self.expected_type = expected_type
         self.raise_assert = raise_assert
 
     def __call__(self, value: Any) -> bool:
-        """Check if *value* is a valid integer and within the expected range.
+        """Check if *value* is a valid integer within the expected range and properly aligned if required.
 
         .. note::
             If ``raise_assert`` is ``True`` and *value* is not valid, then an :class:`AssertionError` will be triggered.
@@ -917,7 +921,8 @@ class IntValidator(object):
         value = parse_int(value, self.base_unit)
         ret = isinstance(value, int)\
             and (self.min is None or value >= self.min)\
-            and (self.max is None or value <= self.max)
+            and (self.max is None or value <= self.max)\
+            and (self.aligned is None or value % self.aligned == 0)
 
         if self.raise_assert:
             assert_(ret)
@@ -995,6 +1000,9 @@ validate_etcd = {
 schema = Schema({
     "name": str,
     "scope": str,
+    Optional("thread_pool_size"): IntValidator(min=5, expected_type=int, raise_assert=True),
+    Optional("thread_stack_size"): IntValidator(min=65536, base_unit='B', aligned=65535,
+                                                expected_type=int, raise_assert=True),
     Optional("log"): {
         Optional("type"): EnumValidator(('plain', 'json'), case_sensitive=True, raise_assert=True),
         Optional("level"): EnumValidator(('DEBUG', 'INFO', 'WARN', 'WARNING', 'ERROR', 'FATAL', 'CRITICAL'),
@@ -1019,6 +1027,7 @@ schema = Schema({
         Optional("keyfile_password"): str
     },
     "restapi": {
+        Optional("thread_pool_size"): IntValidator(min=5, expected_type=int, raise_assert=True),
         "listen": validate_host_port_listen,
         "connect_address": validate_connect_address,
         Optional("authentication"): {
@@ -1050,12 +1059,12 @@ schema = Schema({
             Optional('member_slots_ttl'): IntValidator(min=0, base_unit='s', raise_assert=True),
             Optional("postgresql"): {
                 Optional("parameters"): {
-                    Optional("max_connections"): IntValidator(1, 262143, raise_assert=True),
-                    Optional("max_locks_per_transaction"): IntValidator(10, 2147483647, raise_assert=True),
-                    Optional("max_prepared_transactions"): IntValidator(0, 262143, raise_assert=True),
-                    Optional("max_replication_slots"): IntValidator(0, 262143, raise_assert=True),
-                    Optional("max_wal_senders"): IntValidator(0, 262143, raise_assert=True),
-                    Optional("max_worker_processes"): IntValidator(0, 262143, raise_assert=True),
+                    Optional("max_connections"): IntValidator(min=1, max=262143, raise_assert=True),
+                    Optional("max_locks_per_transaction"): IntValidator(min=10, max=2147483647, raise_assert=True),
+                    Optional("max_prepared_transactions"): IntValidator(min=0, max=262143, raise_assert=True),
+                    Optional("max_replication_slots"): IntValidator(min=0, max=262143, raise_assert=True),
+                    Optional("max_wal_senders"): IntValidator(min=0, max=262143, raise_assert=True),
+                    Optional("max_worker_processes"): IntValidator(min=0, max=262143, raise_assert=True),
                 },
                 Optional("use_pg_rewind"): bool,
                 Optional("rewind"): [Or(str, dict)],

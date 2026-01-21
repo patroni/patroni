@@ -487,7 +487,7 @@ class Config(object):
             """
             return os.environ.pop(PATRONI_ENV_PREFIX + name.upper(), None)
 
-        for param in ('name', 'namespace', 'scope'):
+        for param in ('name', 'namespace', 'scope', 'thread_pool_size', 'thread_stack_size'):
             value = _popenv(param)
             if value:
                 ret[param] = value
@@ -559,7 +559,7 @@ class Config(object):
                 if value is not None:
                     ret[first][second] = value
 
-        for first, params in (('restapi', ('request_queue_size',)),
+        for first, params in (('restapi', ('request_queue_size', 'thread_pool_size')),
                               ('log', ('max_queue_size', 'file_size', 'file_num', 'mode'))):
             for second in params:
                 value = ret.get(first, {}).pop(second, None)

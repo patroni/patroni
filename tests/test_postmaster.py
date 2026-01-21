@@ -170,6 +170,7 @@ class TestPostmasterProcess(unittest.TestCase):
     @patch('os.setsid', Mock(), create=True)
     @patch('multiprocessing.Process', MockProcess)
     @patch('multiprocessing.get_context', Mock(return_value=multiprocessing), create=True)
+    @patch('os.environ', {'PG_MALLOC_ARENA_MAX': ''})
     @patch.object(PostmasterProcess, 'from_pid')
     @patch.object(PostmasterProcess, '_from_pidfile')
     def test_start(self, mock_frompidfile, mock_frompid, mock_popen):

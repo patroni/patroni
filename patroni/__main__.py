@@ -50,6 +50,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
 
         :param config: Patroni configuration.
         """
+        from patroni import thread_pool
         from patroni.api import RestApiServer
         from patroni.dcs import get_dcs
         from patroni.ha import Ha
@@ -57,6 +58,14 @@ class Patroni(AbstractPatroniDaemon, Tags):
         from patroni.request import PatroniRequest
         from patroni.version import __version__
         from patroni.watchdog import Watchdog
+
+        try:
+            thread_pool_size = max(5, int(config.get('thread_pool_size', 5)))
+        except Exception as e:
+            logger.warning('Failed to parse thread_pool_size value "%s": %r', config.get('thread_pool_size'), e)
+            thread_pool_size = 5
+        logger.info('Patroni global thread_pool_size = %d', thread_pool_size)
+        thread_pool.configure_global_pool(thread_pool_size)
 
         super(Patroni, self).__init__(config)
 
@@ -230,6 +239,10 @@ class Patroni(AbstractPatroniDaemon, Tags):
 
         Shut down the REST API and the HA handler.
         """
+        from patroni import thread_pool
+
+        thread_pool.get_executor().shutdown(wait=False)
+
         try:
             self.api.shutdown()
         except Exception:

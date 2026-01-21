@@ -24,13 +24,13 @@ class TestTags(Tags):
 
 @patch('subprocess.call', Mock(return_value=0))
 @patch('patroni.psycopg.connect', psycopg_connect)
-@patch.object(Thread, 'start', Mock())
 @patch.object(Postgresql, 'is_running', Mock(return_value=True))
 class TestSlotsHandler(BaseTestPostgresql):
 
     @patch('subprocess.call', Mock(return_value=0))
     @patch('os.rename', Mock())
     @patch('patroni.postgresql.CallbackExecutor', Mock())
+    @patch.object(Thread, 'start', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=130000))
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
     def setUp(self):
@@ -229,14 +229,14 @@ class TestSlotsHandler(BaseTestPostgresql):
         with patch.object(SlotsHandler, '_query', Mock(return_value=[('ls', 'logical', 1, 499, 'b',
                                                                       'a', 5, 100, 500)])), \
                 patch.object(MockCursor, 'execute', Mock(side_effect=psycopg.OperationalError)), \
-                patch.object(SlotsAdvanceThread, 'schedule', Mock(return_value=(True, ['ls']))):
+                patch.object(SlotsAdvanceThread, 'schedule') as advance_mock:
+            advance_mock.return_value = (True, ['ls'])
             # copy invalidated slot
             with patch.object(psycopg.OperationalError, 'diag') as mock_diag:
                 type(mock_diag).sqlstate = PropertyMock(return_value='58P01')
                 self.assertEqual(self.s.sync_replication_slots(self.cluster, self.tags), ['ls'])
             # advance slots based on the replay lsn value
-            with patch.object(Postgresql, 'replay_lsn', Mock(side_effect=[200, 700, 900])), \
-                 patch.object(SlotsHandler, 'schedule_advance_slots') as advance_mock:
+            with patch.object(Postgresql, 'replay_lsn', Mock(side_effect=[200, 700, 900])):
                 self.s.sync_replication_slots(self.cluster, self.tags)
                 advance_mock.assert_called_with(dict())
                 self.s.sync_replication_slots(self.cluster, self.tags)
@@ -278,7 +278,7 @@ class TestSlotsHandler(BaseTestPostgresql):
     @patch.object(Postgresql, 'start', Mock(return_value=True))
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     def test_on_promote(self):
-        self.s.schedule_advance_slots({'foo': {'bar': 100}})
+        self.s._advance.schedule({'foo': {'bar': 100}})
         self.s.copy_logical_slots(self.cluster, self.tags, ['ls'])
         self.s.on_promote()
 
@@ -294,11 +294,11 @@ class TestSlotsHandler(BaseTestPostgresql):
                 patch.object(psycopg.OperationalError, 'diag') as mock_diag:
             for err in ('58P01', '55000'):
                 type(mock_diag).sqlstate = PropertyMock(return_value=err)
-                self.s.schedule_advance_slots({'foo': {'bar': 100}})
+                self.s._advance.schedule({'foo': {'bar': 100}})
                 self.s._advance.sync_slots()
                 self.assertEqual(self.s._advance._copy_slots, ["bar"])
                 # we don't want to make attempts to advance slots that are to be copied
-                self.s.schedule_advance_slots({'foo': {'bar': 101}})
+                self.s._advance.schedule({'foo': {'bar': 101}})
                 self.assertEqual(self.s._advance._scheduled, {})
                 self.s._advance.clean()
 
@@ -307,7 +307,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.assertRaises(Exception, self.s._advance.run)
 
         with patch.object(SlotsHandler, 'get_local_connection_cursor', Mock(side_effect=Exception)):
-            self.s.schedule_advance_slots({'foo': {'bar': 100}})
+            self.s._advance.schedule({'foo': {'bar': 100}})
             self.s._advance.sync_slots()
 
     def test_advance_physical_primary(self):
