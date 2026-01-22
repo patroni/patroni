@@ -404,6 +404,53 @@ END;$$""")
             sync_confirmed,
             active)
 
+    def update_synchronized_standby_slots(self, sync_members: Collection[str]) -> None:
+        """Update ``synchronized_standby_slots`` based on sync members for PostgreSQL 17+.
+
+        This method updates the ``synchronized_standby_slots`` parameter to match the physical replication
+        slots of synchronous standbys, enabling PostgreSQL 17's native logical slot synchronization.
+
+        :param sync_members: Collection of member names that are synchronous standbys (e.g., {'node2', 'node3'})
+        """
+        # Only applicable for PostgreSQL 17+
+        if self._postgresql.major_version < 170000:
+            return
+
+        # Check if dynamic synchronized_standby_slots is enabled
+        if not global_config.dynamic_synchronized_standby_slots_enabled:
+            return
+
+        # Check if logical slots are being ignored (required to avoid conflicts)
+        logical_slots_ignored = any(
+            matcher.get('type') == 'logical'
+            for matcher in global_config.ignore_slots_matchers
+        )
+
+        if not logical_slots_ignored:
+            logger.error(
+                "dynamic_synchronized_standby_slots is enabled on node %s but logical slots are not "
+                "in ignore_slots configuration. This creates a conflict between Patroni's logical slot "
+                "management and PostgreSQL 17's native synchronization. "
+                "Please add 'ignore_slots: [{type: logical}]' to your global configuration.",
+                self._postgresql.name
+            )
+            return
+
+        # Handle empty or wildcard case - clear synchronized_standby_slots
+        if not sync_members or '*' in sync_members:
+            self._postgresql.config._server_parameters.pop('synchronized_standby_slots', None)
+            logger.debug("Cleared synchronized_standby_slots (no specific members) for node %s",
+                         self._postgresql.name)
+            return
+
+        # Convert member names to slot names
+        from ..dcs import slot_name_from_member_name
+        slot_names = [slot_name_from_member_name(member) for member in sync_members]
+        synchronized_value = ','.join(sorted(slot_names))
+        self._postgresql.config._server_parameters['synchronized_standby_slots'] = synchronized_value
+        logger.debug("Updated synchronized_standby_slots to '%s' for node %s",
+                     synchronized_value, self._postgresql.name)
+
     def set_synchronous_standby_names(self, sync: Collection[str], num: Optional[int] = None) -> None:
         """Constructs and sets ``synchronous_standby_names`` GUC value.
 
@@ -431,6 +478,9 @@ END;$$""")
         if self._postgresql.supports_multiple_sync and (global_config.is_quorum_commit_mode and sync or len(sync) > 1):
             prefix = 'ANY ' if global_config.is_quorum_commit_mode and self._postgresql.supports_quorum_commit else ''
             sync_param = f'{prefix}{num} ({sync_param})'
+
+        # Update synchronized_standby_slots to match sync members (PostgreSQL 17+)
+        self.update_synchronized_standby_slots(sync)
 
         if not (self._postgresql.config.set_synchronous_standby_names(sync_param)
                 and self._postgresql.state == PostgresqlState.RUNNING
