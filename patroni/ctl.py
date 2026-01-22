@@ -1253,7 +1253,7 @@ def reinit(cluster_name: str, group: Optional[int], member_names: List[str], for
 
 def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[int], candidate: Optional[str],
                                force: bool, switchover_leader: Optional[str] = None,
-                               switchover_scheduled: Optional[str] = None) -> None:
+                               switchover_scheduled: Optional[str] = None, mode: Optional[str] = None) -> None:
     """Perform a failover or a switchover operation in the cluster.
 
     Informational messages are printed in the console during the operation, as well as the list of members before and
@@ -1365,6 +1365,8 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
         failover_value['leader'] = switchover_leader
     if scheduled_at_str:
         failover_value['scheduled_at'] = scheduled_at_str
+    if mode:
+        failover_value['mode'] = mode
 
     logging.debug(failover_value)
 
@@ -1404,7 +1406,7 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
         logging.exception(r)
         logging.warning('Failing over to DCS')
         click.echo('{0} Could not {1} using Patroni api, falling back to DCS'.format(timestamp(), action))
-        dcs.manual_failover(switchover_leader, candidate, scheduled_at=scheduled_at)
+        dcs.manual_failover(switchover_leader, candidate, scheduled_at=scheduled_at, mode=mode)
 
     output_members(cluster, cluster_name, group=group)
 
@@ -1413,8 +1415,9 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
 @arg_cluster_name
 @option_citus_group
 @click.option('--candidate', help='The name of the candidate', default=None)
+@click.option('--mode', type=click.Choice(['graceful', 'immediate']), help='Demote mode', default=None)
 @option_force
-def failover(cluster_name: str, group: Optional[int], candidate: Optional[str], force: bool) -> None:
+def failover(cluster_name: str, group: Optional[int], candidate: Optional[str], mode: Optional[str], force: bool) -> None:
     """Process ``failover`` command of ``patronictl`` utility.
 
     Perform a failover operation immediately in the cluster.
@@ -1426,9 +1429,10 @@ def failover(cluster_name: str, group: Optional[int], candidate: Optional[str], 
         prompted for filling it -- unless *force* is ``True``, in which case an exception is raised by
         :func:`_do_failover_or_switchover`.
     :param candidate: name of a standby member to be promoted. Nodes that are tagged with ``nofailover`` cannot be used.
+    :param mode: demote mode - either 'graceful' or 'immediate'.
     :param force: perform the failover or switchover without asking for confirmations.
     """
-    _do_failover_or_switchover('failover', cluster_name, group, candidate, force)
+    _do_failover_or_switchover('failover', cluster_name, group, candidate, force, mode=mode)
 
 
 @ctl.command('switchover', help='Switchover to a replica')
@@ -1438,9 +1442,10 @@ def failover(cluster_name: str, group: Optional[int], candidate: Optional[str], 
 @click.option('--candidate', help='The name of the candidate', default=None)
 @click.option('--scheduled', help='Timestamp of a scheduled switchover in unambiguous format (e.g. ISO 8601)',
               default=None)
+@click.option('--mode', type=click.Choice(['graceful', 'immediate']), help='Demote mode', default=None)
 @option_force
 def switchover(cluster_name: str, group: Optional[int], leader: Optional[str],
-               candidate: Optional[str], force: bool, scheduled: Optional[str]) -> None:
+               candidate: Optional[str], force: bool, scheduled: Optional[str], mode: Optional[str]) -> None:
     """Process ``switchover`` command of ``patronictl`` utility.
 
     Perform a switchover operation in the cluster.
@@ -1456,8 +1461,9 @@ def switchover(cluster_name: str, group: Optional[int], leader: Optional[str],
     :param candidate: name of a standby member to be promoted. Nodes that are tagged with ``nofailover`` cannot be used.
     :param force: perform the switchover without asking for confirmations.
     :param scheduled: timestamp when the switchover should be scheduled to occur. If ``now`` perform immediately.
+    :param mode: demote mode - either 'graceful' or 'immediate'.
     """
-    _do_failover_or_switchover('switchover', cluster_name, group, candidate, force, leader, scheduled)
+    _do_failover_or_switchover('switchover', cluster_name, group, candidate, force, leader, scheduled, mode)
 
 
 def generate_topology(level: int, member: Dict[str, Any],

@@ -481,6 +481,7 @@ class Failover(NamedTuple):
     leader: Optional[str]
     candidate: Optional[str]
     scheduled_at: Optional[datetime.datetime]
+    mode: str = 'graceful'  # Demote mode: 'graceful' (default) or 'immediate'
 
     @staticmethod
     def from_node(version: _Version, value: Union[str, Dict[str, str]]) -> 'Failover':
@@ -515,7 +516,8 @@ class Failover(NamedTuple):
         if data.get('scheduled_at'):
             data['scheduled_at'] = dateutil.parser.parse(data['scheduled_at'])
 
-        return Failover(version, data.get('leader'), data.get('member'), data.get('scheduled_at'))
+        return Failover(version, data.get('leader'), data.get('member'), data.get('scheduled_at'),
+                        data.get('mode', 'graceful'))
 
     def __len__(self) -> int:
         """Implement ``len`` function capability.
@@ -1998,13 +2000,15 @@ class AbstractDCS(abc.ABC):
         """
 
     def manual_failover(self, leader: Optional[str], candidate: Optional[str],
-                        scheduled_at: Optional[datetime.datetime] = None, version: Optional[Any] = None) -> bool:
+                        scheduled_at: Optional[datetime.datetime] = None, version: Optional[Any] = None,
+                        mode: Optional[str] = None) -> bool:
         """Prepare dictionary with given values and set ``/failover`` key in DCS.
 
         :param leader: value to set for ``leader``.
         :param candidate: value to set for ``member``.
         :param scheduled_at: value converted to ISO date format for ``scheduled_at``.
         :param version: for conditional update of the key/object.
+        :param mode: value to set for ``mode`` ('graceful' or 'immediate').
 
         :returns: ``True`` if successfully committed to DCS.
         """
@@ -2017,6 +2021,9 @@ class AbstractDCS(abc.ABC):
 
         if scheduled_at:
             failover_value['scheduled_at'] = scheduled_at.isoformat()
+
+        if mode:
+            failover_value['mode'] = mode
         return self.set_failover_value(json.dumps(failover_value, separators=(',', ':')), version)
 
     @abc.abstractmethod
