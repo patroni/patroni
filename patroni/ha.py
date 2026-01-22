@@ -233,7 +233,7 @@ class Ha(object):
         self._leader_expiry_lock = RLock()
         self._failsafe = Failsafe(patroni.dcs)
         self._was_paused = False
-        self._promote_timestamp = 0
+        self._synchronous_strict_mode_activated = False
         self._leader_timeline = None
         self.recovering = False
         self._async_response = CriticalTask()
@@ -301,8 +301,6 @@ class Ha(object):
         """
         with self._leader_expiry_lock:
             self._leader_expiry = time.time() + self.dcs.ttl if value else 0
-            if not value:
-                self._promote_timestamp = 0
 
     def sync_mode_is_active(self) -> bool:
         """Check whether synchronous replication is requested and already active.
@@ -842,12 +840,62 @@ class Ha(object):
         """
         # If synchronous_mode was turned off, we need to update synchronous_standby_names in Postgres
         if not self.cluster.sync.is_empty and self.dcs.delete_sync_state(version=self.cluster.sync.version):
-            logger.info("Disabled synchronous replication")
             self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet())
+            logger.info("Disabled synchronous replication")
 
         # As synchronous_mode is off, check if the user configured Postgres synchronous replication instead
         ssn = self.state_handler.config.synchronous_standby_names
         self.state_handler.config.set_synchronous_standby_names(ssn)
+
+    def _handle_synchronous_strict_mode(self, dcs_state: SyncState, replication_state: Any) -> bool:
+        """Handle strict synchronous mode.
+
+        In case if synchronous_mode_strict is set and we don't have active replication connections we need to set
+        synchronous_standby_names GUC to something which will guaranty minimal replication factor > 1.
+        There are two options:
+        1. Use values stored in a /sync key
+        2. Use magical value '__patroni_strict_sync_replica_placeholder__', as a fallback.
+
+        In case if strict synchronous mode is disabled and there are not good candidates, we just
+        remove synchronous_standby_names GUC from postgresql.conf.
+
+        :param dcs_state: :class:`~patroni.dcs.SyncState` object that represents current state of /sync key.
+        :param replication_state: current state of synchronous replication returned by
+                                  :meth:`SyncHandler.current_state` method.
+
+        :returns: ``True`` in case if strict synchronous mode is active, otherwise ``False``.
+        """
+        if len(replication_state.active) < global_config.min_synchronous_nodes:
+            # We don't have enough replication connections to satisfy min_synchronous_nodes.
+            sync_type = 'quorum' if self.quorum_commit_mode_is_active() else 'priority'
+            quorum = dcs_state.quorum if self.quorum_commit_mode_is_active() else 0
+            voters = CaseInsensitiveSet(dcs_state.voters)
+            numsync = max(global_config.min_synchronous_nodes, len(voters) - quorum)
+
+            msg = ''
+            if voters != replication_state.sync or \
+                    numsync != replication_state.numsync or \
+                    sync_type != replication_state.sync_type:
+                self.state_handler.sync_handler.set_synchronous_standby_names(voters, numsync)
+            elif voters:
+                msg = 'Continue using old value of synchronous_standby_names="{0}". '.format(
+                    self.state_handler.synchronous_standby_names())
+
+            # We use self._synchronous_strict_mode_activated to show warning only once.
+            if not self._synchronous_strict_mode_activated:
+                logger.warning('No active replication connections and synchronous_mode_strict is requested.'
+                               ' %sCommits will be delayed.', msg)
+
+            self._synchronous_strict_mode_activated = True
+        else:
+            if global_config.min_synchronous_nodes == 0 and not replication_state.active and \
+                    not dcs_state.voters and (replication_state.sync or replication_state.numsync):
+                # For non-strict mode remove synchronous_standby_names name from postgresql.conf if there is
+                # something, but there are no active nodes which could be added to synchronous_standby_names later.
+                self.state_handler.sync_handler.set_synchronous_standby_names([])
+            self._synchronous_strict_mode_activated = False
+
+        return self._synchronous_strict_mode_activated
 
     def _process_quorum_replication(self) -> None:
         """Process synchronous replication state when quorum commit is requested.
@@ -861,9 +909,6 @@ class Ha(object):
         """
         start_time = time.time()
 
-        min_sync = global_config.min_synchronous_nodes
-        sync_wanted = global_config.synchronous_node_count
-
         sync = self._maybe_enable_synchronous_mode()
         if not sync or not sync.leader:
             return
@@ -876,6 +921,11 @@ class Ha(object):
         while True:
             transition = 'break'  # we need define transition value if `QuorumStateResolver` produced no changes
             sync_state = self.state_handler.sync_handler.current_state(self.cluster)
+
+            if leader == self.state_handler.name and \
+                    self._handle_synchronous_strict_mode(sync, sync_state):
+                return
+
             for transition, leader, num, nodes in QuorumStateResolver(leader=leader,
                                                                       quorum=sync.quorum,
                                                                       voters=sync.voters,
@@ -883,27 +933,23 @@ class Ha(object):
                                                                       sync=sync_state.sync,
                                                                       numsync_confirmed=len(sync_state.sync_confirmed),
                                                                       active=sync_state.active,
-                                                                      sync_wanted=sync_wanted,
+                                                                      sync_wanted=global_config.synchronous_node_count,
                                                                       leader_wanted=self.state_handler.name):
                 if _check_timeout():
                     return
 
                 if transition == 'quorum':
-                    logger.info("Setting leader to %s, quorum to %d of %d (%s)",
-                                leader, num, len(nodes), ", ".join(sorted(nodes)))
+                    logger.info("Setting leader to %s, quorum to %d of (%s)", leader, num, ", ".join(sorted(nodes)))
                     sync = self.dcs.write_sync_state(leader, nodes, num, version=sync.version)
                     if not sync:
                         return logger.info('Synchronous replication key updated by someone else.')
                 elif transition == 'sync':
-                    logger.info("Setting synchronous replication to %d of %d (%s)",
-                                num, len(nodes), ", ".join(sorted(nodes)))
-                    # Bump up number of num nodes to meet minimum replication factor. Commits will have to wait until
-                    # we have enough nodes to meet replication target.
-                    if num < min_sync:
-                        logger.warning("Replication factor %d requested, but %d synchronous standbys available."
-                                       " Commits will be delayed.", min_sync + 1, num)
-                        num = min_sync
                     self.state_handler.sync_handler.set_synchronous_standby_names(nodes, num)
+
+            if transition == 'break' and sync_state.sync_type != 'quorum':
+                # FIRST -> ANY
+                self.state_handler.sync_handler.set_synchronous_standby_names(sync_state.sync, sync_state.numsync)
+
             if transition != 'restart' or _check_timeout(1):
                 return
             # synchronous_standby_names was transitioned from empty to non-empty and it may take
@@ -946,28 +992,27 @@ class Ha(object):
                 return logger.warning("Updating sync state failed")
             voters = CaseInsensitiveSet(sync.voters)
 
+        if self._handle_synchronous_strict_mode(sync, current_state):
+            return
+
         if picked == voters == current_state.sync and current_state.numsync == len(picked):
+            if current_state.sync_type != 'priority':
+                # ANY -> FIRST
+                self.state_handler.sync_handler.set_synchronous_standby_names(picked)
             return
 
         # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
         sync_common = voters & allow_promote
         if sync_common != voters:
-            logger.info("Updating synchronous privilege temporarily from %s to %s",
-                        list(voters), list(sync_common))
+            logger.info("Updating /sync key temporarily from %s to %s", list(voters), list(sync_common))
             sync = self.dcs.write_sync_state(self.state_handler.name, sync_common, 0, version=sync.version)
             if not sync:
                 return logger.info('Synchronous replication key updated by someone else.')
 
-        # When strict mode and no suitable replication connections put "*" to synchronous_standby_names
-        if global_config.is_synchronous_mode_strict and not picked:
-            picked = CaseInsensitiveSet('*')
-            logger.warning("No standbys available!")
-
         # Update postgresql.conf and wait 2 secs for changes to become active
-        logger.info("Assigning synchronous standby status to %s", list(picked))
         self.state_handler.sync_handler.set_synchronous_standby_names(picked)
 
-        if picked and picked != CaseInsensitiveSet('*') and allow_promote != picked:
+        if picked and allow_promote != picked:
             # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
             time.sleep(2)
             allow_promote = self.state_handler.sync_handler.current_state(self.cluster).sync_confirmed
@@ -981,55 +1026,74 @@ class Ha(object):
     def process_sync_replication(self) -> None:
         """Process synchronous replication behavior on the primary."""
         if self.is_quorum_commit_mode():
-            # The synchronous_standby_names was adjusted right before promote.
-            # After that, when postgres has become a primary, we need to reflect this change
-            # in the /sync key. Further changes of synchronous_standby_names and /sync key should
-            # be postponed for `loop_wait` seconds, to give a chance to some replicas to start streaming.
-            # In opposite case the /sync key will end up without synchronous nodes.
-            if self.state_handler.is_primary():
-                if self._promote_timestamp == 0 or time.time() - self._promote_timestamp > self.dcs.loop_wait:
-                    self._process_quorum_replication()
-                if self._promote_timestamp == 0:
-                    self._promote_timestamp = time.time()
+            self._process_quorum_replication()
         elif self.is_synchronous_mode():
             self._process_multisync_replication()
         else:
             self.disable_synchronous_replication()
 
-    def process_sync_replication_prepromote(self) -> bool:
-        """Handle sync replication state before promote.
+    def _process_multisync_prepromote(self) -> bool:
+        """Handle synchronous replication state before promote with one or more sync standbys.
 
-        If quorum replication is requested, and we can keep syncing to enough nodes satisfying the quorum invariant
-        we can promote immediately and let normal quorum resolver process handle any membership changes later.
-        Otherwise, we will just reset DCS state to ourselves and add replicas as they connect.
+        In non strict synchronous mode we just set ourselves as the authoritative source of truth and
+        make changes to /sync key and synchronous_standby_names when standbys connect.
+
+        In strict synchronous mode we want to keep syncing to enough nodes satisfying invariant of /sync key.
 
         :returns: ``True`` if on success or ``False`` if failed to update /sync key in DCS.
         """
-        if not self.is_synchronous_mode():
-            self.disable_synchronous_replication()
-            return True
-
-        if self.quorum_commit_mode_is_active():
+        if global_config.min_synchronous_nodes > 0:
             sync = CaseInsensitiveSet(self.cluster.sync.members)
-            numsync = len(sync) - self.cluster.sync.quorum - 1
-            if self.state_handler.name not in sync:  # Node outside voters achieved quorum and got leader
-                numsync += 1
-            else:
+            if self.state_handler.name in sync:
                 sync.discard(self.state_handler.name)
+
+            # Manual failover to non-sync node with Postgres 9.5.
+            # We need to chose sync node. Prefer the old known leader.
+            if self.cluster.sync.leader and not self.state_handler.supports_multiple_sync and len(sync) > 1:
+                sync = CaseInsensitiveSet([self.cluster.sync.leader
+                                           if self.cluster.sync.leader in sync else list(sync)[0]])
         else:
             sync = CaseInsensitiveSet()
-            numsync = global_config.min_synchronous_nodes
 
-        if not self.is_quorum_commit_mode() or not self.state_handler.supports_multiple_sync and numsync > 1:
-            sync = CaseInsensitiveSet()
-            numsync = global_config.min_synchronous_nodes
+        numsync = global_config.min_synchronous_nodes if global_config.min_synchronous_nodes > 0 and not sync else None
 
-            # Just set ourselves as the authoritative source of truth for now. We don't want to wait for standbys
-            # to connect. We will try finding a synchronous standby in the next cycle.
-            if not self.dcs.write_sync_state(self.state_handler.name, None, 0, version=self.cluster.sync.version):
-                return False
+        if not self.dcs.write_sync_state(self.state_handler.name, sync, 0, version=self.cluster.sync.version):
+            return False
 
         self.state_handler.sync_handler.set_synchronous_standby_names(sync, numsync)
+        return True
+
+    def _process_quorum_prepromote(self) -> None:
+        """Handle synchronous replication state before promote when quorum commit is requested.
+
+        Just set synchronous_standby_names to satisfy invariant of the /sync key and let quorum replication
+        state machine handle membership changes later.
+
+        .. note::
+            We don't do anything special here for non strict synchronous mode.
+        """
+        quorum = self.cluster.sync.quorum if self.quorum_commit_mode_is_active() else 0
+        sync = CaseInsensitiveSet(self.cluster.sync.members)
+        numsync = len(sync) - quorum - 1  # -1 because sync includes former leader
+        if self.state_handler.name in sync:
+            sync.discard(self.state_handler.name)
+        else:  # Node outside voters is being promoted because of manual failover or it achieved quorum
+            numsync += 1
+        numsync = max(numsync, global_config.min_synchronous_nodes)
+
+        self.state_handler.sync_handler.set_synchronous_standby_names(sync, numsync)
+
+    def process_sync_replication_prepromote(self) -> bool:
+        """Handle sync replication state before promote.
+
+        :returns: ``True`` if on success or ``False`` if failed to update /sync key in DCS.
+        """
+        if self.is_quorum_commit_mode():
+            self._process_quorum_prepromote()
+        elif self.is_synchronous_mode():
+            return self._process_multisync_prepromote()
+        elif not self.is_synchronous_mode():
+            self.disable_synchronous_replication()
         return True
 
     def is_sync_standby(self, cluster: Cluster) -> bool:
@@ -2111,8 +2175,7 @@ class Ha(object):
         self.dcs.take_leader()
         self.set_is_leader(True)
         if self.is_synchronous_mode():
-            self.state_handler.sync_handler.set_synchronous_standby_names(
-                CaseInsensitiveSet('*') if global_config.is_synchronous_mode_strict else CaseInsensitiveSet())
+            self.state_handler.sync_handler.set_synchronous_standby_names([], global_config.min_synchronous_nodes)
         self.state_handler.call_nowait(CallbackAction.ON_START)
         self.load_cluster_from_dcs()
 
