@@ -1316,15 +1316,26 @@ class ConfigHandler(object):
     def set_synchronous_standby_names(self, value: Optional[str]) -> Optional[bool]:
         """Updates synchronous_standby_names and reloads if necessary.
         :returns: True if value was updated."""
-        if value != self._server_parameters.get('synchronous_standby_names'):
+        current_value = self._server_parameters.get('synchronous_standby_names')
+        logger.debug("set_synchronous_standby_names called on node %s: current='%s', new='%s', pg_state='%s'",
+                     self._postgresql.name, current_value, value, self._postgresql.state)
+
+        if value != current_value:
+            logger.debug("Updating synchronous_standby_names on node %s from '%s' to '%s'",
+                         self._postgresql.name, current_value, value)
+
             if value is None:
                 self._server_parameters.pop('synchronous_standby_names', None)
             else:
                 self._server_parameters['synchronous_standby_names'] = value
+
             if self._postgresql.state == PostgresqlState.RUNNING:
                 self.write_postgresql_conf()
                 self._postgresql.reload()
             return True
+        else:
+            logger.debug("No change needed for synchronous_standby_names on node %s (already '%s')",
+                         self._postgresql.name, current_value)
 
     @property
     def effective_configuration(self) -> CaseInsensitiveDict:
