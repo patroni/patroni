@@ -577,7 +577,6 @@ class Ha(object):
             self._async_response.complete(result)
         if result:
             self.state_handler.set_role(PostgresqlRole.STANDBY_LEADER)
-            self.state_handler.apply_role_based_config_if_needed(PostgresqlRole.STANDBY_LEADER)
 
         return result
 
@@ -795,7 +794,6 @@ class Ha(object):
                 if role == PostgresqlRole.STANDBY_LEADER and self.state_handler.role != role:
                     self.state_handler.set_role(role)
                     self.state_handler.call_nowait(CallbackAction.ON_ROLE_CHANGE)
-                    self.state_handler.apply_role_based_config_if_needed(role)
 
                 if self._last_timeline and self._leader_timeline and self._last_timeline < self._leader_timeline:
                     self._rewind.trigger_check_diverged_lsn()

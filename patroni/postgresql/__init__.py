@@ -691,21 +691,6 @@ class Postgresql(object):
             except Exception:
                 logger.exception('callback %s %r %s %s failed', cmd, cb_type, role, self.scope)
 
-    def apply_role_based_config_if_needed(self, role: Optional[PostgresqlRole] = None) -> None:
-        """Apply role-based config for a given role.
-
-        Regenerates and writes all config files, then reloads PostgreSQL to apply them.
-        Called during role changes to ensure access rules are in place before
-        promotion/demotion completes.
-
-        :param role: Role to use for override lookup. Defaults to self.role.
-        """
-        if not self.config.has_role_based_config:
-            return
-
-        self.config.write_all_config_files(role=role)
-        self.reload(block_callbacks=True)
-
     @property
     def role(self) -> PostgresqlRole:
         with self._role_lock:
@@ -790,8 +775,10 @@ class Postgresql(object):
             return None
 
         self.config.check_directories()
-        self.config.write_all_config_files(configuration, role=role)
+        self.config.write_postgresql_conf(configuration)
         self.config.resolve_connection_addresses()
+        self.config.replace_pg_hba()
+        self.config.replace_pg_ident()
 
         options = ['--{0}={1}'.format(p, configuration[p]) for p in self.config.CMDLINE_OPTIONS
                    if p in configuration and p not in ('wal_keep_segments', 'wal_keep_size')]
@@ -1178,7 +1165,7 @@ class Postgresql(object):
         ret = True
         if self.is_running():
             if do_reload:
-                self.config.write_all_config_files(role=role if change_role else None)
+                self.config.write_postgresql_conf()
                 ret = self.reload(block_callbacks=change_role)
                 if ret and change_role:
                     self.set_role(role)
@@ -1257,7 +1244,6 @@ class Postgresql(object):
         if ret:
             self.set_role(PostgresqlRole.PROMOTED)
             self.call_nowait(CallbackAction.ON_ROLE_CHANGE)
-            self.apply_role_based_config_if_needed(role=PostgresqlRole.PRIMARY)
             ret = self._wait_promote(wait_seconds)
         return ret
 

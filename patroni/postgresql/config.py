@@ -423,30 +423,6 @@ class ConfigHandler(object):
 
         self._server_parameters = CaseInsensitiveDict({**server_parameters, **keep_values})
 
-    @property
-    def has_role_based_config(self) -> bool:
-        """Check if config contains role-based overrides.
-
-        :returns: ``True`` if any ``*_primary``, ``*_replica``, or ``*_standby_leader`` keys exist.
-        """
-        return any(key + suffix in self._config
-                   for key in ('parameters', 'pg_hba', 'pg_ident')
-                   for suffix in ('_primary', '_replica', '_standby_leader'))
-
-    def write_all_config_files(self, configuration: Optional[CaseInsensitiveDict] = None,
-                               role: Optional[PostgresqlRole] = None) -> None:
-        """Write all PostgreSQL config files with optional role-specific overrides.
-
-        Regenerates and writes postgresql.conf, pg_hba.conf, and pg_ident.conf.
-        If role is provided and role-based config exists, uses role-specific values.
-
-        :param configuration: Server parameters to write. If None, generates from current config.
-        :param role: Role to use for override lookup. Defaults to self._postgresql.role.
-        """
-        self.write_postgresql_conf(configuration, role=role)
-        self.replace_pg_hba(role=role)
-        self.replace_pg_ident(role=role)
-
     def setup_server_parameters(self) -> None:
         self._server_parameters = self.get_server_parameters(self._config)
         self._adjust_recovery_parameters()
@@ -562,23 +538,12 @@ class ConfigHandler(object):
         except IOError:
             logger.exception('unable to restore configuration files from backup')
 
-    def write_postgresql_conf(self, configuration: Optional[CaseInsensitiveDict] = None,
-                              role: Optional[PostgresqlRole] = None) -> None:
-        """Write postgresql.conf with optional role-specific overrides.
-
-        :param configuration: Server parameters to write. If None, generates from current config.
-        :param role: Role to use for generating parameters. Defaults to self._postgresql.role.
-        """
+    def write_postgresql_conf(self, configuration: Optional[CaseInsensitiveDict] = None) -> None:
         # rename the original configuration if it is necessary
         if 'custom_conf' not in self._config and not os.path.exists(self._postgresql_base_conf):
             os.rename(self._postgresql_conf, self._postgresql_base_conf)
 
-        if configuration is None:
-            configuration = self.get_server_parameters(self._config, role=role)
-        else:
-            configuration = configuration.copy()
-            self._apply_role_based_server_parameters(configuration, self._config, role)
-
+        configuration = configuration or self._server_parameters.copy()
         # Due to the permanent logical replication slots configured we have to enable hot_standby_feedback
         if self._postgresql.enforce_hot_standby_feedback:
             configuration['hot_standby_feedback'] = 'on'
@@ -596,9 +561,9 @@ class ConfigHandler(object):
             # and in order to be able to change it, we are opening trust access from a certain address
             # therefore we need to make sure that hba_file is not overridden
             # after changing superuser password we will "revert" all these "changes"
-            if self._postgresql.bootstrap.running_custom_bootstrap or 'hba_file' not in configuration:
+            if self._postgresql.bootstrap.running_custom_bootstrap or 'hba_file' not in self._server_parameters:
                 f.write_param('hba_file', self._pg_hba_conf)
-            if 'ident_file' not in configuration:
+            if 'ident_file' not in self._server_parameters:
                 f.write_param('ident_file', self._pg_ident_conf)
 
             if self._postgresql.major_version >= 120000:
@@ -616,53 +581,11 @@ class ConfigHandler(object):
             self.set_file_permissions(self._pg_hba_conf)
         return True
 
-    def _get_role_based_conf(self, base_key: str,
-                             config: Optional[Dict[str, Any]] = None,
-                             role: Optional[PostgresqlRole] = None) -> Optional[List[Optional[str]]]:
-        """Get config list entries for current role (with role-specific override).
-
-        :param base_key: Base configuration key (e.g., 'pg_hba' or 'pg_ident').
-        :param config: Config dict. Defaults to self._config.
-        :param role: Role to use for override lookup. Defaults to self._postgresql.role.
-        :returns: ``{base_key}_{role}`` if exists, else ``{base_key}``, else ``None``.
-        """
-        if config is None:
-            config = self._config
-        if role is None:
-            role = self._postgresql.role
-
-        # Try role-specific first, then fall back to base
-        role_key = base_key + '_' + role
-        if role_key in config:
-            return list(config[role_key])
-        return list(config[base_key]) if base_key in config else None
-
-    def _get_pg_hba(self, config: Optional[Dict[str, Any]] = None,
-                    role: Optional[PostgresqlRole] = None) -> Optional[List[Optional[str]]]:
-        """Get pg_hba entries for current role (with role-specific override).
-
-        :param config: Config dict. Defaults to self._config.
-        :param role: Role to use for override lookup. Defaults to self._postgresql.role.
-        :returns: ``pg_hba_{role}`` if exists, else ``pg_hba``, else ``None``.
-        """
-        return self._get_role_based_conf('pg_hba', config, role)
-
-    def _get_pg_ident(self, config: Optional[Dict[str, Any]] = None,
-                      role: Optional[PostgresqlRole] = None) -> Optional[List[Optional[str]]]:
-        """Get pg_ident entries for current role (with role-specific override).
-
-        :param config: Config dict. Defaults to self._config.
-        :param role: Role to use for override lookup. Defaults to self._postgresql.role.
-        :returns: ``pg_ident_{role}`` if exists, else ``pg_ident``, else ``None``.
-        """
-        return self._get_role_based_conf('pg_ident', config, role)
-
-    def replace_pg_hba(self, role: Optional[PostgresqlRole] = None) -> Optional[bool]:
+    def replace_pg_hba(self) -> Optional[bool]:
         """
         Replace pg_hba.conf content in the PGDATA if hba_file is not defined in the
         `postgresql.parameters` and pg_hba is defined in `postgresql` configuration section.
 
-        :param role: Role to use for override lookup. Defaults to self._postgresql.role.
         :returns: True if pg_hba.conf was rewritten.
         """
 
@@ -682,28 +605,23 @@ class ConfigHandler(object):
                         '{0}\treplication\t{1}\t{3}\ttrust\n'
                         '{0}\tall\t{2}\t{3}\ttrust'
                     ).format(t, self.replication['username'], self._superuser.get('username') or 'all', address))
-        elif not self.hba_file:
-            pg_hba_entries = self._get_pg_hba(role=role)
-            if pg_hba_entries:
-                with self.config_writer(self._pg_hba_conf) as f:
-                    f.writelines(pg_hba_entries)
-                return True
+        elif not self.hba_file and self._config.get('pg_hba'):
+            with self.config_writer(self._pg_hba_conf) as f:
+                f.writelines(self._config['pg_hba'])
+            return True
 
-    def replace_pg_ident(self, role: Optional[PostgresqlRole] = None) -> Optional[bool]:
+    def replace_pg_ident(self) -> Optional[bool]:
         """
         Replace pg_ident.conf content in the PGDATA if ident_file is not defined in the
         `postgresql.parameters` and pg_ident is defined in the `postgresql` section.
 
-        :param role: Role to use for override lookup. Defaults to self._postgresql.role.
         :returns: True if pg_ident.conf was rewritten.
         """
 
-        if not self.ident_file:
-            pg_ident_entries = self._get_pg_ident(role=role)
-            if pg_ident_entries:
-                with self.config_writer(self._pg_ident_conf) as f:
-                    f.writelines(pg_ident_entries)
-                return True
+        if not self.ident_file and self._config.get('pg_ident'):
+            with self.config_writer(self._pg_ident_conf) as f:
+                f.writelines(self._config['pg_ident'])
+            return True
 
     def primary_conninfo_params(self, member: Union[Leader, Member, None]) -> Optional[Dict[str, Any]]:
         if not member or not member.conn_url or member.name == self._postgresql.name:
@@ -1140,25 +1058,8 @@ class ConfigHandler(object):
             if self.triggerfile_good_name not in self._config['recovery_conf'] and value:
                 self._config['recovery_conf'][self.triggerfile_good_name] = value
 
-    def _apply_role_based_server_parameters(self, parameters: CaseInsensitiveDict,
-                                            config: Dict[str, Any], role: Optional[PostgresqlRole] = None) -> None:
-        """Apply role-specific parameter overrides to the given parameters dict.
-
-        :param parameters: Parameters dict to update in-place.
-        :param config: Config dict to look for role-specific overrides.
-        :param role: Role to use for override lookup. Defaults to self._postgresql.role.
-        """
-        if role is None:
-            role = self._postgresql.role
-        role_key = 'parameters_' + role
-        if role_key in config:
-            parameters.update(config[role_key])
-
-    def get_server_parameters(self, config: Dict[str, Any],
-                              role: Optional[PostgresqlRole] = None) -> CaseInsensitiveDict:
+    def get_server_parameters(self, config: Dict[str, Any]) -> CaseInsensitiveDict:
         parameters = config['parameters'].copy()
-        self._apply_role_based_server_parameters(parameters, config, role)
-
         listen_addresses, port = split_host_port(config['listen'], 5432)
         parameters.update(cluster_name=self._postgresql.scope, listen_addresses=listen_addresses, port=str(port))
         if global_config.is_synchronous_mode:
@@ -1352,11 +1253,13 @@ class ConfigHandler(object):
                         logger.warning('Removing invalid parameter `%s` from postgresql.parameters', param)
                         server_parameters.pop(param)
 
-            if not server_parameters.get('hba_file') or server_parameters['hba_file'] == self._pg_hba_conf:
-                hba_changed = self._get_pg_hba(self._config) != self._get_pg_hba(config)
+            if (not server_parameters.get('hba_file') or server_parameters['hba_file'] == self._pg_hba_conf) \
+                    and config.get('pg_hba'):
+                hba_changed = self._config.get('pg_hba', []) != config['pg_hba']
 
-            if not server_parameters.get('ident_file') or server_parameters['ident_file'] == self._pg_ident_conf:
-                ident_changed = self._get_pg_ident(self._config) != self._get_pg_ident(config)
+            if (not server_parameters.get('ident_file') or server_parameters['ident_file'] == self._pg_ident_conf) \
+                    and config.get('pg_ident'):
+                ident_changed = self._config.get('pg_ident', []) != config['pg_ident']
 
         self._config = config
         self._server_parameters = server_parameters

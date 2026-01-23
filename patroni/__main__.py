@@ -168,7 +168,8 @@ class Patroni(AbstractPatroniDaemon, Tags):
             if local or sighup and self.api.reload_local_certificate():
                 self.api.reload_config(self.config['restapi'])
             self.watchdog.reload_config(self.config)
-            self.postgresql.reload_config(self.config['postgresql'], sighup)
+            self.postgresql.reload_config(
+                self.config.effective_postgresql_configuration, sighup)
             self.dcs.reload_config(self.config)
         except Exception:
             logger.exception('Failed to reload config_file=%s', self.config.config_file)
@@ -217,7 +218,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
         logger.info(self.ha.run_cycle())
 
         if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
-                and self.config.set_dynamic_configuration(self.dcs.cluster.config):
+                and self.config.set_dynamic_configuration(self.dcs.cluster.config, self.postgresql.role):
             self.reload_config()
 
         if self.postgresql.role != PostgresqlRole.UNINITIALIZED:

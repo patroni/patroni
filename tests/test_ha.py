@@ -488,7 +488,6 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEqual(self.ha._get_node_to_follow(self.ha.cluster), None)
 
-    @patch.object(ConfigHandler, 'write_all_config_files', Mock())
     @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_follow(self):
         self.p.is_primary = false
@@ -1202,7 +1201,6 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader(Failover(0, '', self.p.name, None))
         self.assertEqual(self.ha.run_cycle(), 'PAUSE: waiting to become primary after promote...')
 
-    @patch.object(ConfigHandler, 'write_all_config_files', Mock())
     @patch('patroni.postgresql.mtime', Mock(return_value=1588316884))
     @patch('builtins.open', mock_open(read_data='1\t0/40159C0\tno recovery target specified\n'))
     def test_process_healthy_standby_cluster_as_standby_leader(self):
