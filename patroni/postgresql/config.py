@@ -513,7 +513,7 @@ class ConfigHandler(object):
             try:
                 for f in self._configuration_to_save:
                     config_file = os.path.join(self._config_dir, f)
-                    backup_file = os.path.join(self._postgresql.data_dir, f + '.backup')
+                    backup_file = os.path.join(self._config_dir, f + '.backup')
                     if os.path.isfile(config_file):
                         shutil.copy(config_file, backup_file)
                         self.set_file_permissions(backup_file)
@@ -526,7 +526,7 @@ class ConfigHandler(object):
         try:
             for f in self._configuration_to_save:
                 config_file = os.path.join(self._config_dir, f)
-                backup_file = os.path.join(self._postgresql.data_dir, f + '.backup')
+                backup_file = os.path.join(self._config_dir, f + '.backup')
                 if not os.path.isfile(config_file):
                     if os.path.isfile(backup_file):
                         shutil.copy(backup_file, config_file)
