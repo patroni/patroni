@@ -101,9 +101,9 @@ class Patroni(AbstractPatroniDaemon, Tags):
         config_changed = False
 
         # Check if the config itself changed
-        if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data and \
-            self.config.set_dynamic_configuration(self.dcs.cluster.config):
-                config_changed = True
+        if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
+                and self.config.set_dynamic_configuration(self.dcs.cluster.config):
+            config_changed = True
 
         # Check if effective configuration changed because of a role change
         effective_role = ROLE_CONFIG_SUFFIX_MAP.get(self.postgresql.role)
