@@ -51,6 +51,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
         :param config: Patroni configuration.
         """
         from patroni.api import RestApiServer
+        from patroni.config import ROLE_CONFIG_SUFFIX_MAP
         from patroni.dcs import get_dcs
         from patroni.ha import Ha
         from patroni.postgresql import Postgresql
@@ -80,6 +81,39 @@ class Patroni(AbstractPatroniDaemon, Tags):
         self._tags = self._get_tags()
         self.next_run = time.time()
         self.scheduled_restart: Dict[str, Any] = {}
+
+        self._last_effective_role = ROLE_CONFIG_SUFFIX_MAP.get(self.postgresql.role)
+        self._last_effective_pg_config = \
+            self.config.build_effective_postgresql_configuration(self.postgresql.role)
+
+    def _config_changed(self) -> bool:
+        """Check if configuration changed and needs reloading.
+
+        Detects two types of changes:
+        1. Configuration itself changed, either in DCS or locally
+        2. Effective configuration changed due to role change
+
+        :returns: ``True`` if configuration changed and reload is needed, ``False`` otherwise.
+        """
+        from patroni.config import ROLE_CONFIG_SUFFIX_MAP
+        from patroni.utils import deep_compare
+
+        config_changed = False
+
+        # Check if the config itself changed
+        if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data and \
+            self.config.set_dynamic_configuration(self.dcs.cluster.config):
+                config_changed = True
+
+        # Check if effective configuration changed because of a role change
+        effective_role = ROLE_CONFIG_SUFFIX_MAP.get(self.postgresql.role)
+        if effective_role != self._last_effective_role:
+            self._last_effective_role = effective_role
+            new_effective_pg_config = self.config.build_effective_postgresql_configuration(self.postgresql.role)
+            if not deep_compare(self._last_effective_pg_config, new_effective_pg_config):
+                config_changed = True
+
+        return config_changed
 
     def ensure_dcs_access(self, sleep_time: int = 5) -> 'Cluster':
         """Continuously attempt to retrieve cluster from DCS with delay.
@@ -168,8 +202,9 @@ class Patroni(AbstractPatroniDaemon, Tags):
             if local or sighup and self.api.reload_local_certificate():
                 self.api.reload_config(self.config['restapi'])
             self.watchdog.reload_config(self.config)
-            self.postgresql.reload_config(
-                self.config.effective_postgresql_configuration, sighup)
+            self._last_effective_pg_config = \
+                self.config.build_effective_postgresql_configuration(self.postgresql.role)
+            self.postgresql.reload_config(self._last_effective_pg_config, sighup)
             self.dcs.reload_config(self.config)
         except Exception:
             logger.exception('Failed to reload config_file=%s', self.config.config_file)
@@ -217,8 +252,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
 
         logger.info(self.ha.run_cycle())
 
-        if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
-                and self.config.set_dynamic_configuration(self.dcs.cluster.config, self.postgresql.role):
+        if self._config_changed():
             self.reload_config()
 
         if self.postgresql.role != PostgresqlRole.UNINITIALIZED:

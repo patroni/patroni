@@ -304,34 +304,34 @@ class TestConfig(unittest.TestCase):
         }
 
         # Test PRIMARY role - should apply _primary overrides
-        result = self.config._build_effective_postgresql_configuration(PostgresqlRole.PRIMARY)
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.PRIMARY)
         self.assertEqual(result['parameters']['shared_buffers'], '512MB')
         self.assertEqual(result['parameters']['work_mem'], '4MB')  # unchanged
         self.assertIn('scram-sha-256', result['pg_hba'][0])
         self.assertEqual(result['pg_ident'], ['mymap postgres postgres'])  # no _primary override
 
         # Test REPLICA role - should apply _replica overrides
-        result = self.config._build_effective_postgresql_configuration(PostgresqlRole.REPLICA)
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.REPLICA)
         self.assertEqual(result['parameters']['shared_buffers'], '128MB')
         self.assertIn('md5', result['pg_hba'][0])  # no _replica override
         self.assertEqual(result['pg_ident'], ['mymap replicator replicator'])
 
         # Test STANDBY_LEADER role - should apply _standby_leader overrides
-        result = self.config._build_effective_postgresql_configuration(PostgresqlRole.STANDBY_LEADER)
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.STANDBY_LEADER)
         self.assertEqual(result['parameters']['shared_buffers'], '384MB')
         self.assertIn('trust', result['pg_hba'][0])
         self.assertEqual(result['pg_ident'], ['mymap postgres postgres'])  # no _standby_leader override
 
         # Test PROMOTED role - should be treated as PRIMARY
-        result = self.config._build_effective_postgresql_configuration(PostgresqlRole.PROMOTED)
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.PROMOTED)
         self.assertEqual(result['parameters']['shared_buffers'], '512MB')
 
         # Test DEMOTED role - should be treated as REPLICA
-        result = self.config._build_effective_postgresql_configuration(PostgresqlRole.DEMOTED)
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.DEMOTED)
         self.assertEqual(result['parameters']['shared_buffers'], '128MB')
 
         # Test UNINITIALIZED role - no overrides applied
-        result = self.config._build_effective_postgresql_configuration(PostgresqlRole.UNINITIALIZED)
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.UNINITIALIZED)
         self.assertEqual(result['parameters']['shared_buffers'], '256MB')  # base value
 
     def test_build_effective_postgresql_configuration_protected_params(self):
@@ -344,7 +344,7 @@ class TestConfig(unittest.TestCase):
         }
 
         with patch('patroni.config.logger.warning') as mock_warning:
-            result = self.config._build_effective_postgresql_configuration(PostgresqlRole.PRIMARY)
+            result = self.config.build_effective_postgresql_configuration(PostgresqlRole.PRIMARY)
             # max_connections should NOT be overridden (protected parameter)
             self.assertEqual(result['parameters']['max_connections'], '100')
             # shared_buffers should be overridden (not protected)
@@ -352,120 +352,13 @@ class TestConfig(unittest.TestCase):
             # Warning should have been logged
             mock_warning.assert_called()
 
-    def test_set_dynamic_configuration_with_role(self):
-        """Test that set_dynamic_configuration detects role-based config changes."""
-        # Set up config with role-based overrides in local config
-        self.config._local_configuration = {
-            'postgresql': {
-                'data_dir': 'foo',
-                'parameters': {'shared_buffers': '256MB'},
-                'parameters_primary': {'shared_buffers': '512MB'},
-                'parameters_replica': {'shared_buffers': '128MB'},
-            }
+    def test_build_effective_postgresql_configuration_returns_deep_copy(self):
+        """Test that build_effective_postgresql_configuration returns a deep copy."""
+        self.config._Config__effective_configuration = {
+            'postgresql': {'parameters': {'shared_buffers': '256MB'}}
         }
-        # Rebuild effective configuration
-        self.config._Config__effective_configuration = self.config._build_effective_configuration(
-            {}, self.config._local_configuration)
 
-        # First call with PRIMARY role - should detect change (first time, cache is None)
-        result = self.config.set_dynamic_configuration({}, PostgresqlRole.PRIMARY)
-        self.assertTrue(result)
-
-        # Check that effective config for PRIMARY has the primary override
-        effective_config = self.config.effective_postgresql_configuration
-        self.assertEqual(effective_config['parameters']['shared_buffers'], '512MB')
-
-        # Different role - should return True (different effective config for replica)
-        result = self.config.set_dynamic_configuration({}, PostgresqlRole.REPLICA)
-        self.assertTrue(result)
-
-        # Check that effective config for REPLICA has the replica override
-        effective_config = self.config.effective_postgresql_configuration
-        self.assertEqual(effective_config['parameters']['shared_buffers'], '128MB')
-
-        # Same role and version - should return False (no change detected)
-        cluster_config = ClusterConfig(1, {}, 1)
-        self.config.set_dynamic_configuration(cluster_config, PostgresqlRole.REPLICA)
-        # Second call with same version and role should return False
-        result = self.config.set_dynamic_configuration(cluster_config, PostgresqlRole.REPLICA)
-        self.assertFalse(result)
-
-    def test_effective_postgresql_configuration(self):
-        """Test getting effective postgresql configuration returns a deep copy."""
-        # Directly set the cache to a known value
-        test_config = {'parameters': {'shared_buffers': '512MB'}}
-        self.config._effective_postgresql_configuration = test_config
-
-        # effective_postgresql_configuration returns a copy of the cached value
-        result = self.config.effective_postgresql_configuration
-        self.assertEqual(result, test_config)
-
-        # Each call returns a different object (deep copy, not the cached reference)
-        result2 = self.config.effective_postgresql_configuration
-        self.assertEqual(result2, test_config)
-        self.assertIsNot(result, result2)
-
-        # Modifying the returned value should not affect the internal cache
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.PRIMARY)
+        # Modifying the result should not affect the config
         result['parameters']['shared_buffers'] = '1GB'
-        self.assertEqual(self.config._effective_postgresql_configuration['parameters']['shared_buffers'], '512MB')
-
-    @patch.object(Config, '_load_config_file')
-    def test_reload_local_configuration_rebuilds_effective_postgresql_configuration(self, mock_load):
-        """Test that reload_local_configuration rebuilds role-based effective pg config."""
-        # Set up initial config with role-based parameters
-        initial_config = {
-            'postgresql': {
-                'data_dir': 'foo',
-                'parameters': {'shared_buffers': '256MB'},
-                'parameters_primary': {'shared_buffers': '512MB'},
-            }
-        }
-
-        # Mock config file and set initial local configuration
-        self.config._config_file = 'test.yml'
-        self.config._local_configuration = initial_config
-        self.config._Config__effective_configuration = self.config._build_effective_configuration(
-            {}, initial_config)
-
-        # Set a role and build initial effective pg config
-        self.config._effective_role = PostgresqlRole.PRIMARY
-        self.config._effective_postgresql_configuration = self.config._build_effective_postgresql_configuration(
-            PostgresqlRole.PRIMARY)
-
-        # Verify initial state - PRIMARY should have 512MB from parameters_primary
-        self.assertEqual(self.config._effective_postgresql_configuration['parameters']['shared_buffers'], '512MB')
-
-        # Mock a changed config file with different role-based parameters
-        changed_config = {
-            'postgresql': {
-                'data_dir': 'foo',
-                'parameters': {'shared_buffers': '256MB'},
-                'parameters_primary': {'shared_buffers': '1GB'},  # Changed from 512MB to 1GB
-            }
-        }
-
-        mock_load.return_value = changed_config
-        result = self.config.reload_local_configuration()
-        self.assertTrue(result)
-
-        # Verify that effective_postgresql_configuration was rebuilt with the new role-based parameters
-        # The role is still PRIMARY, so it should pick up the new 1GB value
-        self.assertEqual(self.config._effective_postgresql_configuration['parameters']['shared_buffers'], '1GB')
-
-        # Also test with a different role to ensure it works correctly
-        self.config._effective_role = PostgresqlRole.REPLICA
-        changed_config_replica = {
-            'postgresql': {
-                'data_dir': 'foo',
-                'parameters': {'shared_buffers': '256MB'},
-                'parameters_primary': {'shared_buffers': '1GB'},
-                'parameters_replica': {'shared_buffers': '128MB'},
-            }
-        }
-
-        mock_load.return_value = changed_config_replica
-        result = self.config.reload_local_configuration()
-        self.assertTrue(result)
-
-        # Verify REPLICA role gets the replica-specific value
-        self.assertEqual(self.config._effective_postgresql_configuration['parameters']['shared_buffers'], '128MB')
+        self.assertEqual(self.config['postgresql']['parameters']['shared_buffers'], '256MB')
