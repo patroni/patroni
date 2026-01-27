@@ -1,5 +1,9 @@
 |Tests Status| |Coverage Status|
 
+.. image:: docs/_static/patroni-logo.svg
+   :height: 128px
+   :width: 128px
+
 Patroni: A Template for PostgreSQL HA with ZooKeeper, etcd or Consul
 --------------------------------------------------------------------
 
