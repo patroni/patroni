@@ -310,14 +310,23 @@ PostgreSQL
    -  **recovery\_conf**: additional configuration settings written to recovery.conf when configuring follower.
    -  **custom\_conf** : path to an optional custom ``postgresql.conf`` file, that will be used in place of ``postgresql.base.conf``. The file must exist on all cluster nodes, be readable by PostgreSQL and will be included from its location on the real ``postgresql.conf``. Note that Patroni will not monitor this file for changes, nor backup it. However, its settings can still be overridden by Patroni's own configuration facilities - see :ref:`dynamic configuration <patroni_configuration>` for details.
    -  **parameters**: configuration parameters (GUCs) for Postgres in format ``{ssl: "on", ssl_cert_file: "cert_file"}``.
+   -  **parameters_primary**: (optional) role-specific parameter overrides for primary. These values are merged with and override the base **parameters**.
+   -  **parameters_replica**: (optional) role-specific parameter overrides for replica. These values are merged with and override the base **parameters**.
+   -  **parameters_standby_leader**: (optional) role-specific parameter overrides for standby_leader. These values are merged with and override the base **parameters**.
    -  **pg\_hba**: list of lines that Patroni will use to generate ``pg_hba.conf``. Patroni ignores this parameter if ``hba_file`` PostgreSQL parameter is set to a non-default value. Together with :ref:`dynamic configuration <dynamic_configuration>` this parameter simplifies management of ``pg_hba.conf``.
 
       -  **- host all all 0.0.0.0/0 md5**
       -  **- host replication replicator 127.0.0.1/32 md5**: A line like this is required for replication.
+   -  **pg\_hba\_primary**: (optional) role-specific pg_hba entries for primary. These completely replace **pg_hba** (no merging). If not defined, **pg_hba** is used.
+   -  **pg\_hba\_replica**: (optional) role-specific pg_hba entries for replica. These completely replace **pg_hba** (no merging). If not defined, **pg_hba** is used.
+   -  **pg\_hba\_standby\_leader**: (optional) role-specific pg_hba entries for standby_leader. These completely replace **pg_hba** (no merging). If not defined, **pg_hba** is used.
    -  **pg\_ident**: list of lines that Patroni will use to generate ``pg_ident.conf``. Patroni ignores this parameter if ``ident_file`` PostgreSQL parameter is set to a non-default value. Together with :ref:`dynamic configuration <dynamic_configuration>` this parameter simplifies management of ``pg_ident.conf``.
 
       -  **- mapname1 systemname1 pguser1**
       -  **- mapname1 systemname2 pguser2**
+   -  **pg\_ident\_primary**: (optional) role-specific pg_ident entries for primary. These completely replace **pg_ident** (no merging). If not defined, **pg_ident** is used.
+   -  **pg\_ident\_replica**: (optional) role-specific pg_ident entries for replica. These completely replace **pg_ident** (no merging). If not defined, **pg_ident** is used.
+   -  **pg\_ident\_standby\_leader**: (optional) role-specific pg_ident entries for standby_leader. These completely replace **pg_ident** (no merging). If not defined, **pg_ident** is used.
    -  **pg\_ctl\_timeout**: How long should pg_ctl wait when doing ``start``, ``stop`` or ``restart``. Default value is 60 seconds.
    -  **use\_pg\_rewind**: try to use pg\_rewind on the former leader when it joins cluster as a replica. Either the cluster must be initialized with ``data page checksums`` (``--data-checksums`` option for ``initdb``) and/or ``wal_log_hints`` must be set to ``on``, or ``pg_rewind`` will not work.
    -  **rewind**: (optional) custom options to pass to the ``pg_rewind`` command. Can be specified as a list of strings and/or single key-value dictionaries. Not allowed options include: ``target-pgdata``, ``source-pgdata``, ``source-server``, ``write-recovery-conf``, ``dry-run``, ``restore-target-wal``, ``config-file``, ``no-ensure-shutdown``, ``version``, and ``help``. Example usage:
