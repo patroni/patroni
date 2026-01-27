@@ -3,7 +3,7 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-.. image:: _static/patroni-logo.svg
+.. image:: _static/patroni-logo.png
    :height: 128px
    :width: 128px
 
