@@ -428,6 +428,15 @@ class TestRestApiHandler(unittest.TestCase):
         # Test with failsafe_mode enabled
         with patch.object(MockHa, 'is_failsafe_mode', Mock(return_value=True)):
             self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
+        # Test with node as a member of failsafe topology
+        type(mock_dcs).failsafe = PropertyMock(return_value={'test': 'http://foo:8080/patroni'})
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
+        # Test with node not in failsafe topology
+        type(mock_dcs).failsafe = PropertyMock(return_value={'other_node': 'http://foo:8080/patroni'})
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
+        # Test with failsafe as None
+        type(mock_dcs).failsafe = PropertyMock(return_value=None)
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_PATCH_config(self, mock_dcs):
