@@ -614,6 +614,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
               ``15.2``;
             * ``patroni_cluster_unlocked``: ``1`` if no one holds the leader lock, else ``0``;
             * ``patroni_failsafe_mode_is_active``: ``1`` if ``failsafe_mode`` is currently active, else ``0``;
+            * ``patroni_failsafe_mode_enabled``: ``1`` if ``failsafe_mode`` is enabled in configuration, else ``0``;
             * ``patroni_postgres_timeline``: PostgreSQL timeline based on current WAL file name;
             * ``patroni_dcs_last_seen``: epoch timestamp when DCS was last contacted successfully;
             * ``patroni_pending_restart``: ``1`` if this PostgreSQL node is pending a restart, else ``0``;
@@ -722,6 +723,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_failsafe_mode_is_active gauge")
         metrics.append("patroni_failsafe_mode_is_active{0} {1}"
                        .format(labels, int(postgres.get('failsafe_mode_is_active', 0))))
+
+        metrics.append("# HELP patroni_failsafe_mode_enabled Value is 1 if failsafe_mode is enabled, 0 otherwise.")
+        metrics.append("# TYPE patroni_failsafe_mode_enabled gauge")
+        metrics.append("patroni_failsafe_mode_enabled{0} {1}".format(labels, int(patroni.ha.is_failsafe_mode())))
 
         metrics.append("# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_timeline counter")

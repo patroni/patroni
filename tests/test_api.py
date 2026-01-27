@@ -99,6 +99,10 @@ class MockHa(object):
         return True
 
     @staticmethod
+    def is_failsafe_mode():
+        return False
+
+    @staticmethod
     def is_leader():
         return False
 
@@ -421,6 +425,9 @@ class TestRestApiHandler(unittest.TestCase):
     @patch.object(MockPatroni, 'dcs')
     def test_do_GET_metrics(self, mock_dcs):
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
+        # Test with failsafe_mode enabled
+        with patch.object(MockHa, 'is_failsafe_mode', Mock(return_value=True)):
+            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_PATCH_config(self, mock_dcs):
