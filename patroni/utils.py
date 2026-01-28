@@ -1337,7 +1337,7 @@ def process_user_options(tool: str, options: Any,
 
     if isinstance(options, dict):
         for key, val in cast(Dict[str, str], options).items():
-            if key and val:
+            if key and val and option_is_allowed(key):
                 user_options.append('--{0}={1}'.format(key, unquote(val)))
     elif isinstance(options, list):
         for opt in cast(List[Any], options):
