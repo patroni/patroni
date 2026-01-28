@@ -108,6 +108,24 @@ class TestBootstrap(BaseTestPostgresql):
                 ['pg_basebackup', f'--pgdata={self.p.data_dir}', '-X', 'stream', '--dbname=', '--foo=bar'],
             )
 
+        # Test compress option: server-side compression should be allowed (issue #3532)
+        with patch('patroni.postgresql.bootstrap.logger.debug') as mock_debug:
+            self.p.cancellable.reset_is_cancelled()
+            self.b.basebackup("", None, {'compress': 'server-zstd'})
+            mock_debug.assert_called_with(
+                'calling: %r',
+                ['pg_basebackup', f'--pgdata={self.p.data_dir}', '-X', 'stream', '--dbname=', '--compress=server-zstd'],
+            )
+
+        # Test compress option: client-side compression should be rejected
+        with patch('patroni.postgresql.bootstrap.logger.error') as mock_error:
+            self.p.cancellable.reset_is_cancelled()
+            self.b.basebackup("", None, {'compress': 'gzip'})
+            mock_error.assert_called_with(
+                'compress option for basebackup must use server-side compression '
+                '(e.g., server-gzip, server-zstd). Client-side compression is not allowed.'
+            )
+
     def test__initdb(self):
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': [{'pgdata': 'bar'}]})
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': [{'foo': 'bar', 1: 2}]})
