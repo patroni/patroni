@@ -143,8 +143,18 @@ class Config(object):
                 raise ConfigParseError("\n".join(errors))
 
         self.__effective_configuration = self._build_effective_configuration({}, self._local_configuration)
-        self._data_dir = self.__effective_configuration.get('postgresql', {}).get('data_dir', "")
-        self._cache_file = os.path.join(self._data_dir, self.__CACHE_FILENAME)
+        data_dir = self.__effective_configuration.get('postgresql', {}).get('data_dir', "")
+        data_dir_template = self.__effective_configuration.get('postgresql', {}).get('data_dir_template', "")
+        if data_dir_template:
+            # TODO: handle data_dir_template. A bit tricky due to cyclical dependency. Until then state file location
+            # will be good enough?
+            state_file = self.__effective_configuration.get('postgresql', {}).get('state_file', "")
+            if state_file:
+                self._cache_file = os.path.join(os.path.dirname(state_file), self.__CACHE_FILENAME)
+            else:
+                raise ConfigParseError("State file is required if data dir template is being used")
+        else:
+            self._cache_file = os.path.join(data_dir, self.__CACHE_FILENAME)
         if validator:  # patronictl uses validator=None
             self._load_cache()  # we don't want to load anything from local cache for ctl
             self._validate_contradictory_tags()  # irrelevant for ctl
@@ -239,8 +249,8 @@ class Config(object):
         if self._cache_needs_saving:
             tmpfile = fd = None
             try:
-                pg_perm.set_permissions_from_data_directory(self._data_dir)
-                (fd, tmpfile) = tempfile.mkstemp(prefix=self.__CACHE_FILENAME, dir=self._data_dir)
+                pg_perm.set_permissions_from_data_directory(os.path.dirname(self._cache_file))
+                (fd, tmpfile) = tempfile.mkstemp(prefix=self.__CACHE_FILENAME, dir=os.path.dirname(self._cache_file))
                 with os.fdopen(fd, 'w') as f:
                     fd = None
                     json.dump(self.dynamic_configuration, f)

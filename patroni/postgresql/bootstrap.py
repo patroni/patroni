@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import shlex
@@ -14,7 +15,7 @@ from ..utils import deep_compare, process_user_options
 from .misc import PostgresqlState
 
 if TYPE_CHECKING:  # pragma: no cover
-    from . import Postgresql
+    from . import Postgresql, DataDirStatus
 
 logger = logging.getLogger(__name__)
 
@@ -318,7 +319,10 @@ class Bootstrap(object):
         else:
             method = 'initdb'
             do_initialize = self._initdb
-        return do_initialize(config.get(method)) and self._postgresql.config.append_pg_hba(pg_hba) \
+        from . import DataDirStatus
+        return do_initialize(config.get(method)) \
+            and  self._postgresql.update_state(self._postgresql.major_version, DataDirStatus.READY) \
+            and self._postgresql.config.append_pg_hba(pg_hba) \
             and self._postgresql.config.save_configuration_files() and bool(self._postgresql.start())
 
     def create_or_update_role(self, name: str, password: Optional[str], options: List[str]) -> None:

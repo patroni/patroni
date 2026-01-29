@@ -20,6 +20,7 @@ from .postgresql.callback_executor import CallbackAction
 from .postgresql.misc import postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .postgresql.postmaster import PostmasterProcess
 from .postgresql.rewind import Rewind
+from .postgresql.upgrade import InplaceUpgrade, UpgradeFailure, ReplicaSyncStatus
 from .quorum import QuorumStateResolver
 from .tags import Tags
 from .utils import parse_int, polling_loop, tzutc
@@ -226,6 +227,7 @@ class Ha(object):
         self.patroni = patroni
         self.state_handler = patroni.postgresql
         self._rewind = Rewind(self.state_handler)
+        self._upgrade: Optional[InplaceUpgrade] = None
         self.dcs = patroni.dcs
         self.cluster = Cluster.empty()
         self.old_cluster = Cluster.empty()
@@ -2022,6 +2024,111 @@ class Ha(object):
 
         self._async_executor.run_async(self._do_reinitialize, args=(cluster, from_leader))
 
+    def upgrade(self, desired_version: str, check_only=False) -> Tuple[bool, str]:
+        config = global_config.get('upgrade')
+        if config is None:
+            return False, 'Upgrade configuration is missing from global config'
+
+        validation_errors = list(InplaceUpgrade.check_config(config))
+        if validation_errors:
+            return False, 'Upgrade configuration has problems:' + ', '.join(validation_errors)
+
+        upgrade = InplaceUpgrade.start_new(self.state_handler, self, config, desired_version)
+
+        with self._async_executor:
+            prev = self._async_executor.schedule('upgrade')
+            if prev is not None:
+                return (False, prev + ' already in progress')
+
+        self._upgrade = upgrade
+
+        # TODO: refactor this into HA class
+        #if self.upgrade_required:
+            # we want to reduce tcp timeouts and keepalives and therefore tune loop_wait, retry_timeout, and ttl
+            #self.dcs = get_dcs({**config.copy(), 'loop_wait': 0, 'ttl': 10, 'retry_timeout': 10, 'patronictl': True})
+            #self.request = PatroniRequest(config, True)
+
+        self._async_executor.run_async(self._upgrade.do_upgrade, args=(check_only,))
+        action = 'upgrade to' if not check_only else 'upgrade check for'
+        return True, f'{action} {desired_version} started successful'
+
+    def process_upgrade(self) -> Optional[str]:
+        """There is an active upgrade process in DCS, but there is no leader in the cluster.
+
+        No async actions are running.
+        """
+        if self.cluster.is_unlocked():
+            if self.is_paused():
+                # Allow for normal pause handling to recover from a bad upgrade
+                return None
+            self.refresh_upgrade()
+            if self._upgrade.should_recover():
+                if self.acquire_lock():
+                    self.recover_upgrade()
+                    return 'Found interrupted upgrade, trying to recover'
+            else:
+                self._upgrade = None
+            return 'Not healthy enough to recover upgrade'
+        elif self.has_lock(False):
+            if self._upgrade and self._upgrade.too_many_failures():
+                self.release_leader_key_voluntarily()
+                time.sleep(10)
+            else:
+                self.recover_upgrade()
+            return 'trying to recover upgrade'
+        else:
+            return 'waiting for leader to upgrade'
+
+
+    def refresh_upgrade(self):
+        if not self._upgrade or self._upgrade.desired_version != self.cluster.status.upgrade.target_version:
+            self._upgrade = InplaceUpgrade(self.state_handler, self, self.cluster.status.upgrade)
+
+    def recover_upgrade(self):
+        self.refresh_upgrade()
+        with self._async_executor:
+            prev = self._async_executor.schedule('upgrade recovery')
+            if prev is not None:
+                logger.warning("Can't recover upgrade, %s alredy in progress", prev)
+                return
+
+        self._async_executor.run_async(self._upgrade.recover_failed_upgrade)
+
+    def is_upgrade_running(self) -> bool:
+        if not self.cluster.status.upgrade:
+            return False
+        return self.cluster.status.upgrade and self.cluster.status.upgrade.state.is_active()
+
+    def start_rsync_from_primary(self, primary_ip: str) -> Optional[str]:
+        with self._async_executor:
+            prev = self._async_executor.schedule('rsync from primary')
+            if prev is not None:
+                return (False, prev + ' already in progress')
+
+        if not self.cluster.status.upgrade:
+            # TODO: avoid race with having a stale cluster value
+            return 'Upgrade is not in progress'
+
+        try:
+            # TODO: Should primary_ip come from cluster state or from API?
+            self._upgrade = InplaceUpgrade(self.state_handler, self, self.cluster.status.upgrade)
+            self._async_executor.run_async(self._upgrade.do_run_rsync_from_primary, (primary_ip,))
+            return None
+        except UpgradeFailure as e:
+            return str(e)
+
+    def get_rsync_completion_status(self, timeout: int) -> 'ReplicaSyncStatus':
+        if not self._upgrade:
+            return ReplicaSyncStatus.NOT_RUNNING
+        # TODO: Should we handle checking that the sync result is from the correct sync round?
+
+        return self._upgrade.get_rsync_completion_status(timeout)
+
+    def update_postgres(self, postgresql):
+        logger.debug('Updating postgres to %s running in %s', postgresql.major_version, postgresql.data_dir)
+        self.state_handler = postgresql
+        self.patroni.postgresql = postgresql
+
     def handle_long_action_in_progress(self) -> str:
         """Figure out what to do with the task AsyncExecutor is performing."""
         if self.has_lock() and self.update_lock():
@@ -2206,6 +2313,11 @@ class Ha(object):
 
             if self._async_executor.busy:
                 return self.handle_long_action_in_progress()
+
+            if self.is_upgrade_running():
+                msg = self.process_upgrade()
+                if msg is not None:
+                    return msg
 
             msg = self.handle_starting_instance()
             if msg is not None:
