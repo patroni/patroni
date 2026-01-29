@@ -259,8 +259,20 @@ class Bootstrap(object):
         maxfailures = 2
         ret = 1
         not_allowed_options = ('pgdata', 'format', 'wal-method', 'xlog-method', 'gzip',
-                               'version', 'compress', 'dbname', 'host', 'port', 'username', 'password')
+                               'version', 'dbname', 'host', 'port', 'username', 'password')
         user_options = process_user_options('basebackup', options, not_allowed_options, logger.error)
+        # Validate compress option: only server-side compression is allowed (PG15+)
+        validated_options = []
+        for opt in user_options:
+            if opt.startswith('--compress='):
+                if opt.startswith('--compress=server'):
+                    validated_options.append(opt)
+                else:
+                    logger.error('compress option for basebackup must use server-side compression '
+                                 '(e.g., server-gzip, server-zstd). Client-side compression is not allowed.')
+            else:
+                validated_options.append(opt)
+        user_options = validated_options
         cmd = [
             self._postgresql.pgcommand("pg_basebackup"),
             "--pgdata=" + self._postgresql.data_dir,
