@@ -229,8 +229,8 @@ class Patroni(AbstractPatroniDaemon, Tags):
         if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
                 and self.config.set_dynamic_configuration(self.dcs.cluster.config):
             self.reload_config()
-        elif self._last_effective_role != (new_effective_role := ROLE_CONFIG_SUFFIX_MAP.get(self.postgresql.role)):
-            self._last_effective_role = new_effective_role
+        elif self._last_effective_role != ROLE_CONFIG_SUFFIX_MAP.get(self.postgresql.role):
+            self._last_effective_role = ROLE_CONFIG_SUFFIX_MAP.get(self.postgresql.role)
             new_effective_pg_config = self.config.build_effective_postgresql_configuration(self.postgresql.role)
             if not deep_compare(self._last_effective_pg_config, new_effective_pg_config):
                 self._last_effective_pg_config = new_effective_pg_config

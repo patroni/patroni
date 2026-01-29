@@ -297,6 +297,7 @@ class TestPatroni(unittest.TestCase):
     def test_run_cycle_role_change_triggers_reload(self, mock_pg_reload):
         """Test that _run_cycle detects role changes and reloads PostgreSQL config."""
         self.p.ha.run_cycle = Mock(return_value='no action')
+        self.p.ha.dcs.watch = Mock(return_value=True)
 
         # Start with _last_effective_role = None (simulating startup)
         self.p._last_effective_role = None
@@ -324,6 +325,7 @@ class TestPatroni(unittest.TestCase):
     def test_run_cycle_no_reload_when_role_unchanged(self, mock_pg_reload):
         """Test that _run_cycle does not reload when role hasn't changed."""
         self.p.ha.run_cycle = Mock(return_value='no action')
+        self.p.ha.dcs.watch = Mock(return_value=True)
 
         # Set role to REPLICA and mark it as already processed
         self.p.postgresql.set_role(PostgresqlRole.REPLICA)
@@ -344,6 +346,7 @@ class TestPatroni(unittest.TestCase):
     def test_run_cycle_role_change_replica_to_primary(self, mock_pg_reload):
         """Test that _run_cycle handles role transition from REPLICA to PRIMARY."""
         self.p.ha.run_cycle = Mock(return_value='no action')
+        self.p.ha.dcs.watch = Mock(return_value=True)
 
         # Start as REPLICA
         self.p.postgresql.set_role(PostgresqlRole.REPLICA)
