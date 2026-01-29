@@ -202,3 +202,64 @@ class TestSync(BaseTestPostgresql):
                                                                               'on', pg_stat_replication]):
             self.assertEqual(self.s.current_state(cluster), ('priority', 1, CaseInsensitiveSet([self.leadermem.name]),
                                                              CaseInsensitiveSet(), CaseInsensitiveSet([self.me.name])))
+
+    @patch('patroni.postgresql.sync.logger')
+    def test_update_synchronized_standby_slots(self, mock_logger):
+        """Test update_synchronized_standby_slots method"""
+        from unittest.mock import PropertyMock
+
+        # Test 1: PostgreSQL version < 17 - should return early
+        with patch.object(Postgresql, 'major_version', 160000):
+            self.s.update_synchronized_standby_slots({'node1', 'node2'})
+            self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
+
+        # Test 2: Feature disabled - should return early
+        with patch.object(Postgresql, 'major_version', 170000), \
+             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=False):
+            self.s.update_synchronized_standby_slots({'node1', 'node2'})
+            self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
+
+        # Test 3: Feature enabled but logical slots not ignored - should error
+        with patch.object(Postgresql, 'major_version', 170000), \
+             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=True), \
+             patch.object(type(global_config), 'ignore_slots_matchers',
+                          new_callable=PropertyMock, return_value=[]):
+            self.s.update_synchronized_standby_slots({'node1', 'node2'})
+            mock_logger.error.assert_called()
+            self.assertIn('conflict', mock_logger.error.call_args[0][0])
+            self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
+
+        mock_logger.reset_mock()
+
+        # Test 4: Feature enabled with ignore_slots - empty members
+        with patch.object(Postgresql, 'major_version', 170000), \
+             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=True), \
+             patch.object(type(global_config), 'ignore_slots_matchers',
+                          new_callable=PropertyMock, return_value=[{'type': 'logical'}]):
+            self.s.update_synchronized_standby_slots(set())
+            self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
+
+        # Test 5: Feature enabled with ignore_slots - wildcard
+        with patch.object(Postgresql, 'major_version', 170000), \
+             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=True), \
+             patch.object(type(global_config), 'ignore_slots_matchers',
+                          new_callable=PropertyMock, return_value=[{'type': 'logical'}]):
+            self.s.update_synchronized_standby_slots({'*'})
+            self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
+
+        # Test 6: Feature enabled with ignore_slots - specific members
+        with patch.object(Postgresql, 'major_version', 170000), \
+             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=True), \
+             patch.object(type(global_config), 'ignore_slots_matchers',
+                          new_callable=PropertyMock, return_value=[{'type': 'logical'}]):
+            self.s.update_synchronized_standby_slots({'node1', 'node2'})
+            self.assertIn('synchronized_standby_slots', self.p.config._server_parameters)
+            # slot_name_from_member_name converts to lowercase
+            slots = self.p.config._server_parameters['synchronized_standby_slots']
+            self.assertIn('node1', slots)
+            self.assertIn('node2', slots)
