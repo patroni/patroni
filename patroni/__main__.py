@@ -81,6 +81,9 @@ class Patroni(AbstractPatroniDaemon, Tags):
         self.next_run = time.time()
         self.scheduled_restart: Dict[str, Any] = {}
 
+        self._last_effective_role = None
+        self._last_effective_pg_config = self.config['postgresql']
+
     def ensure_dcs_access(self, sleep_time: int = 5) -> 'Cluster':
         """Continuously attempt to retrieve cluster from DCS with delay.
 
@@ -160,6 +163,8 @@ class Patroni(AbstractPatroniDaemon, Tags):
         :param sighup: if it is related to a SIGHUP signal.
         :param local: if there has been changes to the local configuration file.
         """
+        from patroni.config import ROLE_CONFIG_SUFFIX_MAP
+
         try:
             super(Patroni, self).reload_config(sighup, local)
             if local:
@@ -168,7 +173,10 @@ class Patroni(AbstractPatroniDaemon, Tags):
             if local or sighup and self.api.reload_local_certificate():
                 self.api.reload_config(self.config['restapi'])
             self.watchdog.reload_config(self.config)
-            self.postgresql.reload_config(self.config['postgresql'], sighup)
+            self._last_effective_role = ROLE_CONFIG_SUFFIX_MAP.get(self.postgresql.role)
+            self._last_effective_pg_config = \
+                self.config.build_effective_postgresql_configuration(self.postgresql.role)
+            self.postgresql.reload_config(self._last_effective_pg_config, sighup)
             self.dcs.reload_config(self.config)
         except Exception:
             logger.exception('Failed to reload config_file=%s', self.config.config_file)
@@ -212,13 +220,21 @@ class Patroni(AbstractPatroniDaemon, Tags):
         the change and cache the new dynamic configuration values in ``patroni.dynamic.json`` file under Postgres data
         directory.
         """
+        from patroni.config import ROLE_CONFIG_SUFFIX_MAP
         from patroni.postgresql.misc import PostgresqlRole
+        from patroni.utils import deep_compare
 
         logger.info(self.ha.run_cycle())
 
         if self.dcs.cluster and self.dcs.cluster.config and self.dcs.cluster.config.data \
                 and self.config.set_dynamic_configuration(self.dcs.cluster.config):
             self.reload_config()
+        elif self._last_effective_role != ROLE_CONFIG_SUFFIX_MAP.get(self.postgresql.role):
+            self._last_effective_role = ROLE_CONFIG_SUFFIX_MAP.get(self.postgresql.role)
+            new_effective_pg_config = self.config.build_effective_postgresql_configuration(self.postgresql.role)
+            if not deep_compare(self._last_effective_pg_config, new_effective_pg_config):
+                self._last_effective_pg_config = new_effective_pg_config
+                self.postgresql.reload_config(self._last_effective_pg_config)
 
         if self.postgresql.role != PostgresqlRole.UNINITIALIZED:
             self.config.save_cache()
