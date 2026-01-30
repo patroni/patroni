@@ -260,7 +260,7 @@ class Bootstrap(object):
         ret = 1
         not_allowed_options = ['pgdata', 'format', 'wal-method', 'xlog-method', 'gzip',
                                'version', 'dbname', 'host', 'port', 'username', 'password']
-        pg_major_version = self._postgresql.major_version
+        pg_version = self._postgresql.config.pg_version
         if pg_major_version < 150000:
             not_allowed_options.append('compress')
         user_options = process_user_options('basebackup', options, tuple(not_allowed_options), logger.error)
