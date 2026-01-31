@@ -339,9 +339,15 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.
 	# TYPE patroni_cluster_unlocked gauge
 	patroni_cluster_unlocked{scope="batman",name="patroni1"} 0
-	# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.
-	# TYPE patroni_postgres_timeline counter
+	# HELP patroni_failsafe_mode_is_active Value is 1 if failsafe mode is active, 0 otherwise.
+	# TYPE patroni_failsafe_mode_is_active gauge
 	patroni_failsafe_mode_is_active{scope="batman",name="patroni1"} 0
+	# HELP patroni_failsafe_mode_enabled Value is 1 if failsafe_mode is enabled, 0 otherwise.
+	# TYPE patroni_failsafe_mode_enabled gauge
+	patroni_failsafe_mode_enabled{scope="batman",name="patroni1"} 0
+	# HELP patroni_failsafe_member Value is 1 if this node is a member of failsafe, 0 otherwise.
+	# TYPE patroni_failsafe_member gauge
+	patroni_failsafe_member{scope="batman",name="patroni1"} 0
 	# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.
 	# TYPE patroni_postgres_timeline counter
 	patroni_postgres_timeline{scope="batman",name="patroni1"} 24
