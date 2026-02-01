@@ -241,5 +241,19 @@ class GlobalConfig(types.ModuleType):
         """
         return self.get_int('member_slots_ttl', 1800, base_unit='s')
 
+    @property
+    def dynamic_synchronized_standby_slots_enabled(self) -> bool:
+        """``True`` if dynamic ``synchronized_standby_slots`` management is enabled.
+
+        When enabled, Patroni will automatically manage the ``synchronized_standby_slots`` parameter
+        for PostgreSQL 17+ to keep it in sync with ``synchronous_standby_names``. This ensures that
+        logical replication slots are synchronized to the same physical standbys that are used for
+        synchronous replication.
+
+        Defaults to ``False`` (disabled) if not explicitly configured. Users must opt-in by setting
+        ``dynamic_synchronized_standby_slots: true`` in the global configuration.
+        """
+        return bool(parse_bool(self.get('dynamic_synchronized_standby_slots')))
+
 
 sys.modules[__name__] = GlobalConfig()
