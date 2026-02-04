@@ -656,7 +656,7 @@ Switchover
 
 When calling ``/switchover`` endpoint a candidate can be specified but is not required, in contrast to ``/failover`` endpoint. If a candidate is not provided, all the eligible nodes of the cluster will participate in the leader race after the leader stepped down.
 
-In the JSON body of the ``POST`` request you must specify the ``leader`` field. The ``candidate`` and the ``scheduled_at`` fields are optional and can be used to schedule a switchover at a specific time.
+In the JSON body of the ``POST`` request you must specify the ``leader`` field. The ``candidate``, ``scheduled_at``, and ``mode`` fields are optional. The ``mode`` field controls the shutdown behavior of the primary (``graceful`` is the default, ``immediate`` for faster demotions with less data consistency checks).
 
 Depending on the situation, requests might return different HTTP status codes and bodies. Status code **200** is returned when the switchover or failover successfully completed. If the switchover was successfully scheduled, Patroni will return HTTP status code **202**. In case something went wrong, the error status code (one of **400**, **412**, or **503**) will be returned with some details in the response body.
 
@@ -694,6 +694,11 @@ Failover
 ``/failover`` endpoint can be used to perform a manual failover when there are no healthy nodes (e.g. to an asynchronous standby if all synchronous standbys are not healthy enough to promote). However there is no requirement for a cluster not to have leader - failover can also be run on a healthy cluster.
 
 In the JSON body of the ``POST`` request you must specify the ``candidate`` field. If the ``leader`` field is specified, a switchover is triggered instead.
+
+The optional ``mode`` field can be used to control how the primary is shut down during the failover:
+
+- ``graceful`` (default): PostgreSQL performs a clean and fast shutdown.
+- ``immediate``: PostgreSQL performs an immediate shutdown.
 
 **Example:**
 

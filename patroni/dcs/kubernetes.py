@@ -1341,9 +1341,11 @@ class Kubernetes(AbstractDCS):
         raise NotImplementedError  # pragma: no cover
 
     def manual_failover(self, leader: Optional[str], candidate: Optional[str],
-                        scheduled_at: Optional[datetime.datetime] = None, version: Optional[str] = None) -> bool:
+                        scheduled_at: Optional[datetime.datetime] = None, version: Optional[str] = None,
+                        mode: Optional[str] = None) -> bool:
         annotations = {'leader': leader or None, 'member': candidate or None,
-                       'scheduled_at': scheduled_at and scheduled_at.isoformat()}
+                       'scheduled_at': scheduled_at and scheduled_at.isoformat(),
+                       'mode': mode or None}
         patch = bool(self.cluster and isinstance(self.cluster.failover, Failover) and self.cluster.failover.version)
         return bool(self.patch_or_create(self.failover_path, annotations, version, bool(version or patch), False))
 
