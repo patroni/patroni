@@ -351,6 +351,18 @@ def check_psycopg() -> None:
     sys.exit(error)
 
 
+def setup_init_logging() -> logging.Logger:
+    """Configure simple logging for parent init process."""
+    init_logger = logging.getLogger('patroni.init')
+    if not init_logger.handlers:
+        handler = logging.StreamHandler(sys.stderr)
+        formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
+        handler.setFormatter(formatter)
+        init_logger.addHandler(handler)
+        init_logger.setLevel(logging.INFO)
+    return init_logger
+
+
 def main() -> None:
     """Main entrypoint of :mod:`patroni.__main__`.
 
@@ -378,6 +390,7 @@ def main() -> None:
     # Patroni started with PID=1, it looks like we are in the container
     from types import FrameType
     pid = 0
+    init_logger = setup_init_logging()
 
     # Looks like we are in a docker, so we will act like init
     def sigchld_handler(signo: int, stack_frame: Optional[FrameType]) -> None:
@@ -393,7 +406,7 @@ def main() -> None:
                 if ret == (0, 0):
                     break
                 elif ret[0] != pid:
-                    logger.info('Reaped pid=%s, exit status=%s', *ret)
+                    init_logger.info('Reaped pid=%s, exit status=%s', *ret)
         except OSError:
             pass
 

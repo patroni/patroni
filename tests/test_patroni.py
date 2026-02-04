@@ -12,7 +12,7 @@ import etcd
 
 import patroni.config as config
 
-from patroni.__main__ import check_psycopg, main as _main, Patroni
+from patroni.__main__ import check_psycopg, main as _main, Patroni, setup_init_logging
 from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
 from patroni.dcs import Cluster, ClusterConfig, Member
@@ -146,11 +146,13 @@ class TestPatroni(unittest.TestCase):
 
         with patch('signal.signal', mock_signal), patch('os.kill') as mock_kill:
             with patch('os.waitpid', Mock(side_effect=[(1, 0), (0, 0)])), \
-                 patch('patroni.__main__.logger') as mock_logger:
+                 patch('patroni.__main__.setup_init_logging') as mock_setup_init_logging:
+                mock_init_logger = Mock()
+                mock_setup_init_logging.return_value = mock_init_logger
                 _main()
                 mock_kill.assert_called_with(mock_process.return_value.pid, signal.SIGTERM)
                 if os.name != 'nt':
-                    mock_logger.info.assert_called_with('Reaped pid=%s, exit status=%s', 1, 0)
+                    mock_init_logger.info.assert_called_with('Reaped pid=%s, exit status=%s', 1, 0)
             with patch('os.waitpid', Mock(side_effect=OSError)):
                 _main()
 
@@ -341,3 +343,12 @@ class TestPatroni(unittest.TestCase):
             result = self.p.ensure_dcs_access()
             self.assertEqual(result, None)
             self.assertEqual(mock_logger.call_count, 2)
+
+    def test_setup_init_logging(self):
+        init_logger = setup_init_logging()
+        self.assertEqual(init_logger.name, 'patroni.init')
+        self.assertTrue(len(init_logger.handlers) > 0)
+
+        # Test multiple calls return same logger instance
+        init_logger2 = setup_init_logging()
+        self.assertIs(init_logger, init_logger2)
