@@ -300,9 +300,9 @@ def load_config(path: str, dcs_url: Optional[str], etcd_username: Optional[str],
     if 'etcd3' in config or 'etcd' in config:
         etcd_type = 'etcd3' if 'etcd3' in config else 'etcd'
         if etcd_username:
-            config['etcd3']['username'] = etcd_username
+            config[etcd_type]['username'] = etcd_username
         if etcd_password:
-            config['etcd3']['password'] = etcd_password
+            config[etcd_type]['password'] = etcd_password
 
     return config
 
