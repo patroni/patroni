@@ -207,7 +207,8 @@ class PatronictlPrettyTable(PrettyTable):
 def parse_dcs(dcs: Optional[str]) -> Optional[Dict[str, Any]]:
     """Parse a DCS URL.
 
-    :param dcs: the DCS URL in the format ``DCS://HOST:PORT/NAMESPACE``. ``DCS`` can be one among:
+    :param dcs: the DCS URL in the format ``DCS://HOST:PORT/NAMESPACE`` or ``DCS://USERNAME:PASSWORD@HOST:PORT/NAMESPACE``. 
+    ``DCS`` can be one among:
 
         * ``consul``
         * ``etcd``
@@ -217,7 +218,9 @@ def parse_dcs(dcs: Optional[str]) -> Optional[Dict[str, Any]]:
 
         If ``DCS`` is not specified, assume ``etcd`` by default. If ``HOST`` is not specified, assume ``localhost`` by
         default. If ``PORT`` is not specified, assume the default port of the given ``DCS``. If ``NAMESPACE`` is not
-        specified, use whatever is in config.
+        specified, use whatever is in config. IF ``USERNAME`` is not specified then user whatever is in the config.
+        If ``PASSWORD`` is not specified then use whatever is in the config. ``USERNAME`` and ``PASSWORD`` are only
+        valid optons for ``etcd`` and ``etcd3`` ``DCS``.
 
     :returns: ``None`` if *dcs* is ``None``, otherwise a dictionary. The dictionary represents *dcs* as if it were
         parsed from the Patroni configuration file. Additionally, if a namespace is specified in *dcs*, return a
@@ -242,6 +245,9 @@ def parse_dcs(dcs: Optional[str]) -> Optional[Dict[str, Any]]:
 
         >>> parse_dcs('etcd3://random.com:2399/customnamespace')
         {'etcd3': {'host': 'random.com:2399'}, 'namespace': '/customnamespace'}
+
+        >>> parse_dcs('etcd3://username_test:password_test@random.com:2399/customnamespace')
+        {'etcd3': {'host': 'random.com:2399', 'username': 'username_test', 'password': 'password_test'}, 'namespace': '/customnamespace'}
     """
     if dcs is None:
         return None
@@ -259,6 +265,12 @@ def parse_dcs(dcs: Optional[str]) -> Optional[Dict[str, Any]]:
 
     default = DCS_DEFAULTS[scheme]
     ret = yaml.safe_load(default['template'].format(host=parsed.hostname or 'localhost', port=port or default['port']))
+
+    if parsed.username:
+        ret[scheme]['username'] = parsed.username
+
+    if parsed.password:
+        ret[scheme]['password'] = parsed.password
 
     if parsed.path and parsed.path.strip() != '/':
         ret['namespace'] = parsed.path.strip()
