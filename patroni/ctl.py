@@ -242,6 +242,9 @@ def parse_dcs(dcs: Optional[str]) -> Optional[Dict[str, Any]]:
 
         >>> parse_dcs('etcd3://random.com:2399/customnamespace')
         {'etcd3': {'host': 'random.com:2399'}, 'namespace': '/customnamespace'}
+
+        >>> parse_dcs('etcd3://username_test:password_test@random.com:2399/customnamespace')
+        {'etcd3': {'host': 'random.com:2399', 'username': 'username_test', 'password': 'password_test'}, 'namespace': '/customnamespace'}
     """
     if dcs is None:
         return None
@@ -259,6 +262,12 @@ def parse_dcs(dcs: Optional[str]) -> Optional[Dict[str, Any]]:
 
     default = DCS_DEFAULTS[scheme]
     ret = yaml.safe_load(default['template'].format(host=parsed.hostname or 'localhost', port=port or default['port']))
+
+    if parsed.username:
+        ret[scheme]['username'] = parsed.username
+
+    if parsed.password:
+        ret[scheme]['password'] = parsed.password
 
     if parsed.path and parsed.path.strip() != '/':
         ret['namespace'] = parsed.path.strip()
