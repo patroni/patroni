@@ -65,11 +65,11 @@ class TestCtl(unittest.TestCase):
     def test_load_config(self, mock_logger_debug):
         runner = CliRunner()
         with runner.isolated_filesystem():
-            self.assertRaises(PatroniCtlException, load_config, './non-existing-config-file', None)
+            self.assertRaises(PatroniCtlException, load_config, './non-existing-config-file', None, None, None)
 
         with patch('os.path.exists', Mock(return_value=True)), \
                 patch('patroni.config.Config._load_config_path', Mock(return_value={})):
-            load_config(CONFIG_FILE_PATH, None)
+            load_config(CONFIG_FILE_PATH, None, None, None)
             mock_logger_debug.assert_called_once()
             self.assertEqual(('Ignoring configuration file "%s". It does not exists or is not readable.',
                               CONFIG_FILE_PATH),
@@ -77,7 +77,7 @@ class TestCtl(unittest.TestCase):
             mock_logger_debug.reset_mock()
 
             with patch('os.access', Mock(return_value=True)):
-                load_config(CONFIG_FILE_PATH, '')
+                load_config(CONFIG_FILE_PATH, '', None, None)
                 mock_logger_debug.assert_called_once()
                 self.assertEqual(('Loading configuration from file %s', CONFIG_FILE_PATH),
                                  mock_logger_debug.call_args[0])
