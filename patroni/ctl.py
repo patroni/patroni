@@ -266,13 +266,15 @@ def parse_dcs(dcs: Optional[str]) -> Optional[Dict[str, Any]]:
     return ret
 
 
-def load_config(path: str, dcs_url: Optional[str]) -> Dict[str, Any]:
+def load_config(path: str, dcs_url: Optional[str], etcd_username: Optional[str], etcd_password: Optional[str]) -> Dict[str, Any]:
     """Load configuration file from *path* and optionally override its DCS configuration with *dcs_url*.
 
     :param path: path to the configuration file.
     :param dcs_url: the DCS URL in the format ``DCS://HOST:PORT/NAMESPACE``, e.g. ``etcd3://random.com:2399/service``.
         If given, override whatever DCS and ``namespace`` that are set in the configuration file. See :func:`parse_dcs`
         for more information.
+    :param etcd_username:
+    :param etcd_password:
 
     :returns: a dictionary representing the configuration.
 
@@ -294,6 +296,14 @@ def load_config(path: str, dcs_url: Optional[str]) -> Dict[str, Any]:
         for d in DCS_DEFAULTS:
             config.pop(d, None)
         config.update(dcs_kwargs)
+
+    if 'etcd3' in config or 'etcd' in config:
+        etcd_type = 'etcd3' if 'etcd3' in config else 'etcd'
+        if etcd_username:
+            config['etcd3']['username'] = etcd_username
+        if etcd_password:
+            config['etcd3']['password'] = etcd_password
+
     return config
 
 
@@ -322,9 +332,11 @@ role_choice = click.Choice([role.value for role in CtlPostgresqlRole])
 @click.option('--config-file', '-c', help='Configuration file',
               envvar='PATRONICTL_CONFIG_FILE', default=CONFIG_FILE_PATH)
 @click.option('--dcs-url', '--dcs', '-d', 'dcs_url', help='The DCS connect url', envvar='DCS_URL')
+@click.option('--etcd-username', 'etcd_username', help='The etcd connect username', envvar='ETCD_USERNAME')
+@click.option('--etcd-password', 'etcd_password', help='The etcd connect password', envvar='ETCD_PASSWORD')
 @click.option('-k', '--insecure', is_flag=True, help='Allow connections to SSL sites without certs')
 @click.pass_context
-def ctl(ctx: click.Context, config_file: str, dcs_url: Optional[str], insecure: bool) -> None:
+def ctl(ctx: click.Context, config_file: str, dcs_url: Optional[str], etcd_username: Optional[str], etcd_password: Optional[str], insecure: bool) -> None:
     """Command-line interface for interacting with Patroni.
     \f
     Entry point of ``patronictl`` utility.
@@ -343,6 +355,8 @@ def ctl(ctx: click.Context, config_file: str, dcs_url: Optional[str], insecure: 
     :param config_file: path to the configuration file.
     :param dcs_url: the DCS URL in the format ``DCS://HOST:PORT``, e.g. ``etcd3://random.com:2399``. If given override
         whatever DCS is set in the configuration file.
+    :param etcd_username: 
+    :param etcd_password: 
     :param insecure: if ``True`` allow SSL connections without client certificates. Override what is configured through
         ``ctl.insecure` in the configuration file.
     """
@@ -351,7 +365,7 @@ def ctl(ctx: click.Context, config_file: str, dcs_url: Optional[str], insecure: 
         level = os.environ.get(name, level)
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=level)
     logging.captureWarnings(True)  # Capture eventual SSL warning
-    config = load_config(config_file, dcs_url)
+    config = load_config(config_file, dcs_url, etcd_username, etcd_password)
     # backward compatibility for configuration file where ctl section is not defined
     config.setdefault('ctl', {})['insecure'] = config.get('ctl', {}).get('insecure') or insecure
     ctx.obj = {'__config': config, '__mpp': get_mpp(config)}
