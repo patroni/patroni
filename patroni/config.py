@@ -18,6 +18,7 @@ from .dcs import ClusterConfig
 from .exceptions import ConfigParseError
 from .file_perm import pg_perm
 from .postgresql.config import ConfigHandler
+from .postgresql.misc import PostgresqlRole
 from .utils import deep_compare, parse_bool, parse_int, patch_config
 from .validator import IntValidator
 
@@ -37,6 +38,14 @@ _AUTH_ALLOWED_PARAMETERS = (
     'channel_binding',
     'sslnegotiation'
 )
+
+ROLE_CONFIG_SUFFIX_MAP: Dict[PostgresqlRole, PostgresqlRole] = {
+    PostgresqlRole.PRIMARY: PostgresqlRole.PRIMARY,
+    PostgresqlRole.PROMOTED: PostgresqlRole.PRIMARY,
+    PostgresqlRole.REPLICA: PostgresqlRole.REPLICA,
+    PostgresqlRole.DEMOTED: PostgresqlRole.REPLICA,
+    PostgresqlRole.STANDBY_LEADER: PostgresqlRole.STANDBY_LEADER,
+}
 
 
 def default_validator(conf: Dict[str, Any]) -> List[str]:
@@ -126,7 +135,7 @@ class Config(object):
             :class:`ConfigParseError`: if any issue is reported by *validator*.
         """
         self._modify_version = -1
-        self._dynamic_configuration = {}
+        self._dynamic_configuration: Dict[str, Any] = {}
 
         self.__environment_configuration = self._build_environment_configuration()
 
@@ -803,6 +812,53 @@ class Config(object):
         :returns: a deep copy of the Patroni configuration.
         """
         return deepcopy(self.__effective_configuration)
+
+    def build_effective_postgresql_configuration(self, role: PostgresqlRole) -> Dict[str, Any]:
+        """Build effective postgresql configuration with role-based overrides applied.
+
+        This method assembles the complete postgresql configuration by:
+
+        1. Starting with the base postgresql configuration from effective_configuration
+        2. Applying role-specific parameter overrides (parameters_primary, etc.) - merged with base
+        3. Applying role-specific pg_hba overrides (pg_hba_primary, etc.) - full replacement
+        4. Applying role-specific pg_ident overrides (pg_ident_primary, etc.) - full replacement
+
+        .. note::
+            Protected parameters from ConfigHandler.CMDLINE_OPTIONS are never overridden.
+
+        :param role: Current PostgresqlRole to determine which overrides to apply.
+        :returns: Deep copy of postgresql configuration with role-specific overrides applied.
+        """
+        pg_config = deepcopy(self['postgresql'])
+
+        # Map current role to the correct role suffix
+        role_suffix = ROLE_CONFIG_SUFFIX_MAP.get(role)
+        if not role_suffix:
+            return pg_config
+
+        # Merge role-based parameter overrides with base, excluding protected params
+        role_params_key = f'parameters_{role_suffix}'
+        if role_params_key in pg_config:
+            role_params = pg_config[role_params_key]
+            base_params = pg_config.get('parameters', {})
+            for param, value in role_params.items():
+                if param not in ConfigHandler.CMDLINE_OPTIONS:
+                    base_params[param] = value
+                else:
+                    logger.warning("Role-based config attempted to override protected parameter '%s', ignoring", param)
+            pg_config['parameters'] = base_params
+
+        # Fully replace pg_hba, not merge
+        role_hba_key = f'pg_hba_{role_suffix}'
+        if role_hba_key in pg_config:
+            pg_config['pg_hba'] = pg_config[role_hba_key]
+
+        # Fully replace pg_ident, not merge
+        role_ident_key = f'pg_ident_{role_suffix}'
+        if role_ident_key in pg_config:
+            pg_config['pg_ident'] = pg_config[role_ident_key]
+
+        return pg_config
 
     def _validate_contradictory_tags(self) -> None:
         """Check boolean/priority tags' config and warn user if it's contradictory.
