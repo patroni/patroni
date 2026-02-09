@@ -2266,10 +2266,10 @@ def version(cluster_name: str, group: Optional[int], member_names: List[str]) ->
 
 
 @ctl.command('history', help="Show the history of failovers/switchovers")
-@arg_cluster_name
+@click.argument('cluster_names', nargs=-1)
 @option_default_citus_group
 @option_format
-def history(cluster_name: str, group: Optional[int], fmt: str) -> None:
+def history(cluster_names: str, group: Optional[int], fmt: str) -> None:
     """Process ``history`` command of ``patronictl`` utility.
 
     Show the history of failover/switchover events in the cluster.
@@ -2285,16 +2285,17 @@ def history(cluster_name: str, group: Optional[int], fmt: str) -> None:
     :param group: filter which Citus group we should get events from. Refer to the module note for more details.
     :param fmt: the output table printing format. See :func:`print_output` for available options.
     """
-    cluster = get_dcs(cluster_name, group).get_cluster()
-    cluster_history = cluster.history.lines if cluster.history else []
-    history: List[List[Any]] = list(map(list, cluster_history))
-    table_header_row = ['TL', 'LSN', 'Reason', 'Timestamp', 'New Leader']
-    for line in history:
-        if len(line) < len(table_header_row):
-            add_column_num = len(table_header_row) - len(line)
-            for _ in range(add_column_num):
-                line.append('')
-    print_output(table_header_row, history, {'TL': 'r', 'LSN': 'r'}, fmt)
+    for cluster_name in cluster_names:
+        cluster = get_dcs(cluster_name, group).get_cluster()
+        cluster_history = cluster.history.lines if cluster.history else []
+        history: List[List[Any]] = list(map(list, cluster_history))
+        table_header_row = ['TL', 'LSN', 'Reason', 'Timestamp', 'New Leader']
+        for line in history:
+            if len(line) < len(table_header_row):
+                add_column_num = len(table_header_row) - len(line)
+                for _ in range(add_column_num):
+                    line.append('')
+        print_output(table_header_row, history, {'TL': 'r', 'LSN': 'r'}, fmt)
 
 
 def format_pg_version(version: int) -> str:
