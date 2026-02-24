@@ -261,7 +261,7 @@ class GlobalConfig(types.ModuleType):
         Defaults to ``False`` (disabled) if not explicitly configured. Users must opt-in by setting
         ``dynamic_synchronized_standby_slots: true`` in the global configuration.
         """
-        return bool(parse_bool(self.get('dynamic_synchronized_standby_slots')))
+        return self.check_mode('dynamic_synchronized_standby_slots')
 
 
 sys.modules[__name__] = GlobalConfig()

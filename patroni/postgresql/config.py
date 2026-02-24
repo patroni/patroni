@@ -1320,26 +1320,32 @@ class ConfigHandler(object):
     def set_synchronous_standby_names(self, value: Optional[str]) -> Optional[bool]:
         """Updates synchronous_standby_names and reloads if necessary.
         :returns: True if value was updated."""
-        current_value = self._server_parameters.get('synchronous_standby_names')
-        logger.debug("set_synchronous_standby_names called on node %s: current='%s', new='%s', pg_state='%s'",
-                     self._postgresql.name, current_value, value, self._postgresql.state)
-
-        if value != current_value:
-            logger.debug("Updating synchronous_standby_names on node %s from '%s' to '%s'",
-                         self._postgresql.name, current_value, value)
-
+        if value != self._server_parameters.get('synchronous_standby_names'):
             if value is None:
                 self._server_parameters.pop('synchronous_standby_names', None)
             else:
                 self._server_parameters['synchronous_standby_names'] = value
-
             if self._postgresql.state == PostgresqlState.RUNNING:
                 self.write_postgresql_conf()
                 self._postgresql.reload()
             return True
-        else:
-            logger.debug("No change needed for synchronous_standby_names on node %s (already '%s')",
-                         self._postgresql.name, current_value)
+
+    def set_synchronized_standby_slots(self, value: Optional[str], reload: bool = False) -> bool:
+        """Updates synchronized_standby_slots parameter.
+
+        :param value: The new value for synchronized_standby_slots, or None to remove it.
+        :param reload: If True, write config and reload PostgreSQL when value changes.
+        :returns: True if value was updated, False otherwise."""
+        if value != self._server_parameters.get('synchronized_standby_slots'):
+            if value is None:
+                self._server_parameters.pop('synchronized_standby_slots', None)
+            else:
+                self._server_parameters['synchronized_standby_slots'] = value
+            if reload and self._postgresql.state == PostgresqlState.RUNNING:
+                self.write_postgresql_conf()
+                self._postgresql.reload()
+            return True
+        return False
 
     @property
     def effective_configuration(self) -> CaseInsensitiveDict:
