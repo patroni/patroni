@@ -269,9 +269,28 @@ class Ha(object):
         # used only in backoff after failing a pre_promote script
         self._released_leader_key_timestamp = 0
 
-
         # Track the last known state of dynamic_synchronized_standby_slots feature to detect toggles
         self._last_dynamic_sync_slots_enabled: Optional[bool] = None
+
+    def _handle_dynamic_sync_slots_toggle(self, sync_members: Collection[str]) -> bool:
+        """Handle dynamic_synchronized_standby_slots feature toggle.
+
+        Checks if the feature state changed and updates synchronized_standby_slots accordingly.
+
+        :param sync_members: Current set of synchronous standby members.
+        :returns: ``True`` if the feature state changed and was handled, ``False`` otherwise.
+        """
+        feature_enabled = global_config.dynamic_synchronized_standby_slots_enabled
+        if feature_enabled == self._last_dynamic_sync_slots_enabled:
+            return False
+
+        logger.info("dynamic_synchronized_standby_slots changed to %s, updating slots", feature_enabled)
+        if feature_enabled:
+            self.state_handler.sync_handler.update_synchronized_standby_slots(sync_members)
+        else:
+            self.state_handler.sync_handler.update_synchronized_standby_slots(set())
+        self._last_dynamic_sync_slots_enabled = feature_enabled
+        return True
 
     def primary_stop_timeout(self) -> Union[int, None]:
         """:returns: "primary_stop_timeout" from the global configuration or `None` when not in synchronous mode."""
@@ -912,16 +931,7 @@ class Ha(object):
             if transition != 'restart' or _check_timeout(1):
                 # Check if dynamic_synchronized_standby_slots feature state changed even when no sync changes
                 if transition == 'break':
-                    feature_enabled = global_config.dynamic_synchronized_standby_slots_enabled
-                    if feature_enabled != self._last_dynamic_sync_slots_enabled:
-                        logger.info("dynamic_synchronized_standby_slots changed to %s, updating slots",
-                                    feature_enabled)
-                        if feature_enabled:
-                            self.state_handler.sync_handler.update_synchronized_standby_slots(sync_state.active)
-                        else:
-                            # Feature disabled - clear synchronized_standby_slots
-                            self.state_handler.sync_handler.update_synchronized_standby_slots(set())
-                        self._last_dynamic_sync_slots_enabled = feature_enabled
+                    self._handle_dynamic_sync_slots_toggle(sync_state.active)
                 return
             # synchronous_standby_names was transitioned from empty to non-empty and it may take
             # some time for nodes to become synchronous. In this case we want to restart state machine
@@ -963,22 +973,10 @@ class Ha(object):
                 return logger.warning("Updating sync state failed")
             voters = CaseInsensitiveSet(sync.voters)
 
-        # Check if dynamic_synchronized_standby_slots feature state changed
-        feature_enabled = global_config.dynamic_synchronized_standby_slots_enabled
-        feature_changed = (feature_enabled != self._last_dynamic_sync_slots_enabled)
-
         if picked == voters == current_state.sync and current_state.numsync == len(picked):
-            if not feature_changed:
+            # Check if dynamic_synchronized_standby_slots feature state changed
+            if not self._handle_dynamic_sync_slots_toggle(picked):
                 return  # Nothing changed, no action needed
-
-            # Feature toggled but sync names didn't change - update synchronized_standby_slots anyway
-            logger.info("dynamic_synchronized_standby_slots changed to %s, updating slots", feature_enabled)
-            if feature_enabled:
-                self.state_handler.sync_handler.update_synchronized_standby_slots(picked)
-            else:
-                # Feature disabled - clear synchronized_standby_slots
-                self.state_handler.sync_handler.update_synchronized_standby_slots(set())
-            self._last_dynamic_sync_slots_enabled = feature_enabled
             return
 
         # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
@@ -998,7 +996,7 @@ class Ha(object):
         # Update postgresql.conf and wait 2 secs for changes to become active
         logger.info("Assigning synchronous standby status to %s", list(picked))
         self.state_handler.sync_handler.set_synchronous_standby_names(picked)
-        self._last_dynamic_sync_slots_enabled = feature_enabled
+        self._last_dynamic_sync_slots_enabled = global_config.dynamic_synchronized_standby_slots_enabled
 
         if picked and picked != CaseInsensitiveSet('*') and allow_promote != picked:
             # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
