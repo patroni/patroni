@@ -166,6 +166,16 @@ class TestBootstrap(BaseTestPostgresql):
                 ),
                 ['--checkpoint=fast', '--gzip', '--label=standby'],
             )
+            # not allowed options in dict format are also filtered out (issue #3533)
+            self.assertEqual(
+                self.b.process_user_options(
+                    'pg_basebackup',
+                    {'checkpoint': 'fast', 'dbname': 'dbname=postgres', 'label': 'standby'},
+                    ('dbname',),
+                    print
+                ),
+                ['--checkpoint=fast', '--label=standby'],
+            )
 
     @patch.object(CancellableSubprocess, 'call', Mock())
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
