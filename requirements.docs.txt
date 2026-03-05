@@ -1,5 +1,4 @@
-setuptools
-sphinx>=4,<8.2.0
+sphinx>=4
 sphinx_rtd_theme>1
 sphinxcontrib-apidoc
 sphinx-github-style
