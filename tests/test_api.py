@@ -352,7 +352,9 @@ class TestRestApiHandler(unittest.TestCase):
         mock_dcs.ttl.return_value = PropertyMock(30)
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /liveness HTTP/1.0'))
 
-    def test_do_GET_readiness(self):
+    @patch.object(MockPatroni, 'dcs')
+    def test_do_GET_readiness(self, mock_dcs):
+        mock_dcs.cluster.status.last_lsn = 5
         MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0')
         with patch.object(MockHa, 'is_leader', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0')
@@ -380,7 +382,7 @@ class TestRestApiHandler(unittest.TestCase):
             response_mock.assert_called_with(503)
 
         # DCS not available
-        MockPatroni.dcs.cluster = None
+        mock_dcs.cluster = None
         with patch_query(None, None, None), \
                 patch.object(RestApiHandler, '_write_status_code_only') as response_mock:
             # Failsafe active
