@@ -259,7 +259,7 @@ class Bootstrap(object):
         maxfailures = 2
         ret = 1
         not_allowed_options = ('pgdata', 'format', 'wal-method', 'xlog-method', 'gzip',
-                               'version', 'dbname', 'host', 'port', 'username', 'password')
+                               'version', 'compress', 'dbname', 'host', 'port', 'username', 'password')
         user_options = process_user_options('basebackup', options, not_allowed_options, logger.error)
         # Validate compress option: only server-side compression is allowed (PG15+)
         validated_options = []
