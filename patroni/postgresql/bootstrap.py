@@ -266,7 +266,7 @@ class Bootstrap(object):
         user_options = process_user_options('basebackup', options, tuple(not_allowed_options), logger.error)
         # Validate compress option on PG15+: only server-side compression is allowed
         if pg_version >= 150000:
-            validated_options = []
+            validated_options: List[str] = []
             for opt in user_options:
                 if opt.startswith('--compress='):
                     if opt.startswith('--compress=server'):
