@@ -166,6 +166,16 @@ class TestUtils(unittest.TestCase):
                 ),
                 ['--checkpoint=fast', '--gzip', '--label=standby'],
             )
+            # not allowed options in dict format are also filtered out (issue #3533)
+            self.assertEqual(
+                process_user_options(
+                    'pg_basebackup',
+                    {'checkpoint': 'fast', 'dbname': 'dbname=postgres', 'label': 'standby'},
+                    ('dbname',),
+                    print
+                ),
+                ['--checkpoint=fast', '--label=standby'],
+            )
 
 
 @patch('time.sleep', Mock())
