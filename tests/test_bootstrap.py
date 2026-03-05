@@ -95,6 +95,7 @@ class TestBootstrap(BaseTestPostgresql):
 
     @patch.object(CancellableSubprocess, 'call', Mock(return_value=0))
     @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=True))
+    @patch.object(ConfigHandler, 'pg_version', PropertyMock(return_value=150000))
     def test_basebackup(self):
         with patch('patroni.postgresql.bootstrap.logger.debug') as mock_debug:
             self.p.cancellable.cancel()
@@ -109,20 +110,18 @@ class TestBootstrap(BaseTestPostgresql):
             )
 
         # Test compress option: server-side compression should be allowed on PG15+ (issue #3532)
-        with patch('patroni.postgresql.bootstrap.logger.debug') as mock_debug, \
-                patch.object(type(self.p), 'major_version', PropertyMock(return_value=150000)):
+        with patch('patroni.postgresql.bootstrap.logger.debug') as mock_debug:
             self.p.cancellable.reset_is_cancelled()
-            self.b.basebackup("", None, [{'compress': 'server-zstd'}])
+            self.b.basebackup("", None, {'compress': 'server-zstd'})
             mock_debug.assert_called_with(
                 'calling: %r',
                 ['pg_basebackup', f'--pgdata={self.p.data_dir}', '-X', 'stream', '--dbname=', '--compress=server-zstd'],
             )
 
         # Test compress option: client-side compression should be rejected on PG15+
-        with patch('patroni.postgresql.bootstrap.logger.error') as mock_error, \
-                patch.object(type(self.p), 'major_version', PropertyMock(return_value=150000)):
+        with patch('patroni.postgresql.bootstrap.logger.error') as mock_error:
             self.p.cancellable.reset_is_cancelled()
-            self.b.basebackup("", None, [{'compress': 'gzip'}])
+            self.b.basebackup("", None, {'compress': 'gzip'})
             mock_error.assert_called_with(
                 'compress option for basebackup must use server-side compression '
                 '(e.g., server-gzip, server-zstd). Client-side compression is not allowed.'
@@ -130,9 +129,9 @@ class TestBootstrap(BaseTestPostgresql):
 
         # Test compress option: should be rejected on PG < 15
         with patch('patroni.postgresql.bootstrap.logger.error') as mock_error, \
-                patch.object(type(self.p), 'major_version', PropertyMock(return_value=140000)):
+                patch.object(ConfigHandler, 'pg_version', PropertyMock(return_value=140000)):
             self.p.cancellable.reset_is_cancelled()
-            self.b.basebackup("", None, [{'compress': 'server-zstd'}])
+            self.b.basebackup("", None, {'compress': 'server-zstd'})
             # compress is in not_allowed_options for PG < 15, error logged via process_user_options
             mock_error.assert_any_call('compress option for basebackup is not allowed')
 
