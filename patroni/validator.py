@@ -984,6 +984,36 @@ def validate_name(value: Any) -> None:
         raise ConfigParseError(f"Node 'name' can't be set to '{SYNC_STRICT_PLACEHOLDER}'")
 
 
+def validate_positive_num(value: Any) -> bool:
+    """Validate that *value* is a positive number (int or float).
+
+    :param value: value to be validated.
+
+    :returns: ``True`` if *value* is a positive number.
+
+    :raises:
+        :class:`~patroni.exceptions.PatroniAssertionError`: if *value* is not a positive number.
+    """
+    assert_(isinstance(value, (int, float)) and not isinstance(value, bool), "is not a number")
+    assert_(value > 0, "must be a positive number")
+    return True
+
+
+def validate_non_negative_num(value: Any) -> bool:
+    """Validate that *value* is a non-negative number (int or float).
+
+    :param value: value to be validated.
+
+    :returns: ``True`` if *value* is a non-negative number.
+
+    :raises:
+        :class:`~patroni.exceptions.PatroniAssertionError`: if *value* is negative.
+    """
+    assert_(isinstance(value, (int, float)) and not isinstance(value, bool), "is not a number")
+    assert_(value >= 0, "must be a non-negative number")
+    return True
+
+
 userattributes = {"username": "", Optional("password"): ""}
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 setattr(validate_host_port_list, 'expected_type', list)
@@ -1142,7 +1172,13 @@ schema = Schema({
             Optional("bind_addr"): validate_host_port_listen,
             "partner_addrs": validate_host_port_list,
             Optional("data_dir"): str,
-            Optional("password"): str
+            Optional("password"): str,
+            Optional("min_timeout"): validate_positive_num,
+            Optional("max_timeout"): validate_positive_num,
+            Optional("connection_timeout"): validate_positive_num,
+            Optional("append_entries_period"): validate_positive_num,
+            Optional("connection_retry_time"): validate_non_negative_num,
+            Optional("leader_fallback_timeout"): validate_positive_num,
         },
         "zookeeper": {
             "hosts": Or(comma_separated_host_port, [validate_host_port]),

@@ -556,7 +556,9 @@ class Config(object):
         _set_section_values('log', ['type', 'level', 'traceback_level', 'format', 'dateformat', 'static_fields',
                                     'max_queue_size', 'dir', 'mode', 'file_size', 'file_num', 'loggers',
                                     'deduplicate_heartbeat_logs'])
-        _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs', 'password', 'bind_addr'])
+        _set_section_values('raft', ['data_dir', 'self_addr', 'partner_addrs', 'password', 'bind_addr',
+                                     'min_timeout', 'max_timeout', 'connection_timeout',
+                                     'append_entries_period', 'connection_retry_time', 'leader_fallback_timeout'])
 
         for binary in ('pg_ctl', 'initdb', 'pg_controldata', 'pg_basebackup', 'postgres', 'pg_isready', 'pg_rewind'):
             value = _popenv('POSTGRESQL_BIN_' + binary)
@@ -580,6 +582,15 @@ class Config(object):
                     value = parse_int(value)
                     if value is not None:
                         ret[first][second] = value
+
+        for param in ('min_timeout', 'max_timeout', 'connection_timeout',
+                      'append_entries_period', 'connection_retry_time', 'leader_fallback_timeout'):
+            value = ret.get('raft', {}).pop(param, None)
+            if value is not None:
+                try:
+                    ret.setdefault('raft', {})[param] = float(value)
+                except (TypeError, ValueError):
+                    logger.warning('Ignoring invalid PATRONI_RAFT_%s value: %r', param.upper(), value)
 
         def _parse_list(value: str) -> Optional[List[str]]:
             """Parse an YAML list *value* as a :class:`list`.
