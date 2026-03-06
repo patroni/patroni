@@ -45,34 +45,33 @@ class Rewind(object):
     def enabled(self) -> bool:
         return bool(self._postgresql.config.get('use_pg_rewind'))
 
-    def can_rewind_reason(self) -> str:
-        """Return a human-readable reason why pg_rewind cannot be used, or empty string if it can."""
-        if not self.enabled:
-            return 'use_pg_rewind is not enabled in Patroni configuration'
-
-        cmd = self._postgresql.pgcommand('pg_rewind')
-        try:
-            ret = subprocess.call([cmd, '--help'], stdout=open(os.devnull, 'w'), stderr=subprocess.STDOUT)
-            if ret != 0:
-                return 'pg_rewind command {0} returned non-zero exit code {1}'.format(cmd, ret)
-        except OSError as e:
-            return 'pg_rewind command {0} is not accessible: {1}'.format(cmd, e)
-
-        data = self._postgresql.controldata()
-        if not self.configuration_allows_rewind(data):
-            return ('neither wal_log_hints nor data checksums are enabled'
-                    ' (wal_log_hints={0}, data_checksums={1})').format(
-                data.get('wal_log_hints setting', 'off'),
-                data.get('Data page checksum version', '0'))
-
-        return ''
-
     @property
     def can_rewind(self) -> bool:
         """ check if pg_rewind executable is there and that pg_controldata indicates
             we have either wal_log_hints or checksums turned on
         """
-        return not self.can_rewind_reason()
+        # low-hanging fruit: check if pg_rewind configuration is there
+        if not self.enabled:
+            logger.debug('pg_rewind is not possible: use_pg_rewind is not enabled in Patroni configuration')
+            return False
+
+        cmd = [self._postgresql.pgcommand('pg_rewind'), '--help']
+        try:
+            ret = subprocess.call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+            if ret != 0:  # pg_rewind is not there, close up the shop and go home
+                logger.debug('pg_rewind is not possible: pg_rewind command returned non-zero exit code %s', ret)
+                return False
+        except OSError as e:
+            logger.debug('pg_rewind is not possible: pg_rewind command is not accessible: %s', e)
+            return False
+        data = self._postgresql.controldata()
+        if not self.configuration_allows_rewind(data):
+            logger.debug('pg_rewind is not possible: neither wal_log_hints nor data checksums are enabled'
+                         ' (wal_log_hints=%s, data_checksums=%s)',
+                         data.get('wal_log_hints setting', 'off'),
+                         data.get('Data page checksum version', '0'))
+            return False
+        return True
 
     @property
     def should_remove_data_directory_on_diverged_timelines(self) -> bool:
@@ -83,12 +82,12 @@ class Rewind(object):
         return self.should_remove_data_directory_on_diverged_timelines or self.can_rewind
 
     def trigger_check_diverged_lsn(self) -> None:
-        if self.can_rewind_or_reinitialize_allowed and self._state != REWIND_STATUS.NEED:
+        allowed = self.can_rewind_or_reinitialize_allowed
+        if allowed and self._state != REWIND_STATUS.NEED:
             self._state = REWIND_STATUS.CHECK
-        elif not self.can_rewind_or_reinitialize_allowed:
-            logger.debug('not checking diverged timeline: %s and '
-                         'remove_data_directory_on_diverged_timelines is not enabled',
-                         self.can_rewind_reason() or 'pg_rewind is not possible')
+        elif not allowed:
+            logger.debug('not checking diverged timeline: pg_rewind is not possible'
+                         ' and remove_data_directory_on_diverged_timelines is not enabled')
         with self._checkpoint_task_lock:
             self._checkpoint_task = None
 
@@ -546,9 +545,7 @@ class Rewind(object):
         else:
             if not self.check_leader_is_not_in_recovery(r):
                 logger.warning('Failed to rewind because primary %s become unreachable', leader.name)
-                reason = self.can_rewind_reason()
-                if reason:  # It is possible that the previous attempt damaged pg_control file!
-                    logger.debug('pg_rewind is no longer possible: %s', reason)
+                if not self.can_rewind:  # It is possible that the previous attempt damaged pg_control file!
                     self._state = REWIND_STATUS.FAILED
             else:
                 logger.error('Failed to rewind from healthy primary: %s', leader.name)

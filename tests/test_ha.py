@@ -374,17 +374,6 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEqual(self.ha.run_cycle(), 'reinitializing due to diverged timelines')
 
-    @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
-    def test_handle_rewind_or_reinitialize_logs_reason(self):
-        self.p.is_running = false
-        self.ha.cluster = get_cluster_initialized_with_leader()
-        with patch.object(Rewind, 'can_rewind_reason',
-                          Mock(return_value='use_pg_rewind is not enabled in Patroni configuration')), \
-                patch('patroni.ha.logger.debug') as mock_debug:
-            self.ha.run_cycle()
-            mock_debug.assert_any_call('pg_rewind is not possible: %s',
-                                       'use_pg_rewind is not enabled in Patroni configuration')
-
     @patch('sys.exit', return_value=1)
     @patch('patroni.ha.Ha.sysid_valid', MagicMock(return_value=True))
     def test_sysid_no_match(self, exit_mock):

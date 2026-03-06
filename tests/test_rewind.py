@@ -63,34 +63,41 @@ class TestRewind(BaseTestPostgresql):
         self.p.config._config['use_pg_rewind'] = False
         self.assertFalse(self.r.can_rewind)
 
-    def test_can_rewind_reason(self):
-        with patch.object(Postgresql, 'controldata', Mock(return_value={'wal_log_hints setting': 'on'})):
-            self.assertEqual(self.r.can_rewind_reason(), '')
+    def test_can_rewind_logs_reason(self):
+        with patch('patroni.postgresql.rewind.logger.debug') as mock_debug:
+            self.p.config._config['use_pg_rewind'] = False
+            self.r.can_rewind
+            mock_debug.assert_called_with('pg_rewind is not possible: use_pg_rewind is not enabled'
+                                          ' in Patroni configuration')
 
-        self.p.config._config['use_pg_rewind'] = False
-        self.assertIn('use_pg_rewind is not enabled', self.r.can_rewind_reason())
         self.p.config._config['use_pg_rewind'] = True
+        with patch('subprocess.call', Mock(return_value=1)), \
+                patch('patroni.postgresql.rewind.logger.debug') as mock_debug:
+            self.r.can_rewind
+            mock_debug.assert_called_with('pg_rewind is not possible: pg_rewind command returned'
+                                          ' non-zero exit code %s', 1)
 
-        with patch('subprocess.call', Mock(return_value=1)):
-            self.assertIn('returned non-zero exit code', self.r.can_rewind_reason())
-
-        with patch('subprocess.call', side_effect=OSError('No such file or directory')):
-            reason = self.r.can_rewind_reason()
-            self.assertIn('is not accessible', reason)
-            self.assertIn('No such file or directory', reason)
+        with patch('subprocess.call', side_effect=OSError('No such file')), \
+                patch('patroni.postgresql.rewind.logger.debug') as mock_debug:
+            self.r.can_rewind
+            args = mock_debug.call_args[0]
+            self.assertEqual(args[0], 'pg_rewind is not possible: pg_rewind command is not accessible: %s')
+            self.assertIsInstance(args[1], OSError)
 
         with patch.object(Postgresql, 'controldata',
                           Mock(return_value={'wal_log_hints setting': 'off',
-                                             'Data page checksum version': '0'})):
-            self.assertIn('neither wal_log_hints nor data checksums', self.r.can_rewind_reason())
+                                             'Data page checksum version': '0'})), \
+                patch('patroni.postgresql.rewind.logger.debug') as mock_debug:
+            self.r.can_rewind
+            mock_debug.assert_called_with('pg_rewind is not possible: neither wal_log_hints nor data checksums'
+                                          ' are enabled (wal_log_hints=%s, data_checksums=%s)', 'off', '0')
 
     def test_trigger_check_diverged_lsn_logs_when_blocked(self):
         self.p.config._config['use_pg_rewind'] = False
         with patch('patroni.postgresql.rewind.logger.debug') as mock_debug:
             self.r.trigger_check_diverged_lsn()
-            mock_debug.assert_any_call('not checking diverged timeline: %s and '
-                                       'remove_data_directory_on_diverged_timelines is not enabled',
-                                       'use_pg_rewind is not enabled in Patroni configuration')
+            mock_debug.assert_any_call('not checking diverged timeline: pg_rewind is not possible'
+                                       ' and remove_data_directory_on_diverged_timelines is not enabled')
 
     def test_pg_rewind(self):
         r = {'user': '', 'host': '', 'port': '', 'database': '', 'password': ''}
@@ -218,21 +225,6 @@ class TestRewind(BaseTestPostgresql):
 
         with patch.object(Postgresql, 'is_running', Mock(return_value=True)):
             self.r.execute(self.leader)
-
-    @patch.object(CancellableSubprocess, 'call', mock_cancellable_call)
-    @patch.object(Postgresql, 'get_guc_value', Mock(return_value=''))
-    @patch.object(Postgresql, 'checkpoint', Mock(return_value=''))
-    @patch.object(Postgresql, 'stop', Mock(return_value=False))
-    @patch.object(Rewind, 'pg_rewind', Mock(return_value=False))
-    @patch.object(Rewind, 'check_leader_is_not_in_recovery', Mock(return_value=False))
-    def test_execute_logs_can_rewind_reason(self):
-        with patch.object(Rewind, 'can_rewind_reason',
-                          Mock(return_value='use_pg_rewind is not enabled in Patroni configuration')) as mock_reason, \
-                patch('patroni.postgresql.rewind.logger.debug') as mock_debug:
-            self.r.execute(self.leader)
-            mock_reason.assert_called_once()
-            mock_debug.assert_any_call('pg_rewind is no longer possible: %s',
-                                       'use_pg_rewind is not enabled in Patroni configuration')
 
     @patch('patroni.postgresql.rewind.logger.info')
     def test__log_primary_history(self, mock_logger):
