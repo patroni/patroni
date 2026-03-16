@@ -183,6 +183,7 @@ def run_async(self, func, args=()):
     'Latest checkpoint location': '0/12345678',
     "Latest checkpoint's TimeLineID": '2'}))
 @patch.object(SlotsHandler, 'load_replication_slots', Mock(side_effect=Exception))
+@patch.object(ConfigHandler, 'pg_version', PropertyMock(return_value=180000))
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_pgpass', Mock(return_value={}))
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())
