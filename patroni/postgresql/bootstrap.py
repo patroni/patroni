@@ -333,10 +333,25 @@ class Bootstrap(object):
         # supports additional user-supplied options, those are not validated
         maxfailures = 2
         ret = 1
-        not_allowed_options = ('pgdata', 'format', 'wal-method', 'xlog-method', 'gzip',
-                               'version', 'compress', 'dbname', 'host', 'port', 'username', 'password')
-        user_options = self.process_user_options('basebackup', options, not_allowed_options, logger.error)
-
+        not_allowed_options = ['pgdata', 'format', 'wal-method', 'xlog-method', 'gzip',
+                               'version', 'dbname', 'host', 'port', 'username', 'password']
+        pg_version = self._postgresql.config.pg_version
+        if pg_version < 150000:
+            not_allowed_options.append('compress')
+        user_options = self.process_user_options('basebackup', options, tuple(not_allowed_options), logger.error)
+        # Validate compress option on PG15+: only server-side compression is allowed
+        if pg_version >= 150000:
+            validated_options: List[str] = []
+            for opt in user_options:
+                if opt.startswith('--compress='):
+                    if opt.startswith('--compress=server'):
+                        validated_options.append(opt)
+                    else:
+                        logger.error('compress option for basebackup must use server-side compression '
+                                     '(e.g., server-gzip, server-zstd). Client-side compression is not allowed.')
+                else:
+                    validated_options.append(opt)
+            user_options = validated_options
         for bbfailures in range(0, maxfailures):
             if self._postgresql.cancellable.is_cancelled:
                 break
