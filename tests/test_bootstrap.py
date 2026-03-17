@@ -291,11 +291,15 @@ class TestBootstrap(BaseTestPostgresql):
 
         self.b.bootstrap(config)
         self.p.set_state('stopped')
-        self.p.reload_config({'authentication': {'superuser': {'username': 'p', 'password': 'p'},
-                                                 'replication': {'username': 'r', 'password': 'r'},
-                                                 'rewind': {'username': 'rw', 'password': 'rw'}},
-                              'listen': '*', 'retry_timeout': 10,
-                              'parameters': {'wal_level': '', 'hba_file': 'foo', 'max_prepared_transactions': 10}})
+        with patch('patroni.postgresql.config.logger.info') as mock_logger:
+            self.p.reload_config({'authentication': {'superuser': {'username': 'p', 'password': 'p'},
+                                                     'replication': {'username': 'r', 'password': 'r'},
+                                                     'rewind': {'username': 'rw', 'password': 'rw'}},
+                                  'listen': '*', 'retry_timeout': 10,
+                                  'parameters': {'wal_level': '', 'hba_file': 'foo', 'max_prepared_transactions': 10}})
+            mock_logger.assert_called_once()
+            self.assertEqual(mock_logger.call_args[0][0],
+                             'Skipping PostgreSQL configuration update while in custom bootstrap.')
         with patch.object(Postgresql, 'major_version', PropertyMock(return_value=110000)), \
                 patch.object(Postgresql, 'restart', Mock()) as mock_restart:
             self.b.post_bootstrap({}, task)

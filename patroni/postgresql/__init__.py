@@ -84,11 +84,11 @@ class Postgresql(object):
         self._bin_dir = config.get('bin_dir') or ''
         self._role_lock = Lock()
         self.set_role('uninitialized')
+        self.bootstrap = Bootstrap(self)
+        self.bootstrapping = False
         self.config = ConfigHandler(self, config)
         self.config.check_directories()
 
-        self.bootstrap = Bootstrap(self)
-        self.bootstrapping = False
         self.__thread_ident = current_thread().ident
 
         self.slots_handler = SlotsHandler(self)
