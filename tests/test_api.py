@@ -99,6 +99,10 @@ class MockHa(object):
         return True
 
     @staticmethod
+    def is_failsafe_mode():
+        return False
+
+    @staticmethod
     def is_leader():
         return False
 
@@ -352,7 +356,9 @@ class TestRestApiHandler(unittest.TestCase):
         mock_dcs.ttl.return_value = PropertyMock(30)
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /liveness HTTP/1.0'))
 
-    def test_do_GET_readiness(self):
+    @patch.object(MockPatroni, 'dcs')
+    def test_do_GET_readiness(self, mock_dcs):
+        mock_dcs.cluster.status.last_lsn = 5
         MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0')
         with patch.object(MockHa, 'is_leader', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0')
@@ -380,7 +386,7 @@ class TestRestApiHandler(unittest.TestCase):
             response_mock.assert_called_with(503)
 
         # DCS not available
-        MockPatroni.dcs.cluster = None
+        mock_dcs.cluster = None
         with patch_query(None, None, None), \
                 patch.object(RestApiHandler, '_write_status_code_only') as response_mock:
             # Failsafe active
@@ -420,6 +426,18 @@ class TestRestApiHandler(unittest.TestCase):
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_GET_metrics(self, mock_dcs):
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
+        # Test with failsafe_mode enabled
+        with patch.object(MockHa, 'is_failsafe_mode', Mock(return_value=True)):
+            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
+        # Test with node as a member of failsafe topology
+        type(mock_dcs).failsafe = PropertyMock(return_value={'test': 'http://foo:8080/patroni'})
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
+        # Test with node not in failsafe topology
+        type(mock_dcs).failsafe = PropertyMock(return_value={'other_node': 'http://foo:8080/patroni'})
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
+        # Test with failsafe as None
+        type(mock_dcs).failsafe = PropertyMock(return_value=None)
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
 
     @patch.object(MockPatroni, 'dcs')
