@@ -162,7 +162,7 @@ def _raise_for_data(data: Union[bytes, str, Dict[str, Any]], status_code: Option
         data_error: Optional[Dict[str, Any]] = data.get('error') or data.get('Error')
         if isinstance(data_error, dict):  # streaming response
             status_code = data_error.get('http_code')
-            code: Optional[int] = data_error['grpc_code']
+            code: Optional[int] = data_error.get('code') or data_error['grpc_code']
             error: str = data_error['message']
         else:
             data_code = data.get('code') or data.get('Code')
