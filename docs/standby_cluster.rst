@@ -76,3 +76,23 @@ standby cluster or from a standby member of the primary cluster: for that, you
 need to define a single host in the ``standby_cluster.host`` section. However,
 you need to beware that in this case ``pg_rewind`` will fail to execute on the
 standby cluster.
+
+
+
+.. warning::
+       Member names (the ``name`` field in each node's Patroni configuration) must 
+       be unique across the primary cluster and all standby clusters connected to it.
+
+   Patroni sets ``synchronous_standby_names`` on the primary using member names,
+   which also become the ``application_name`` of each replication connection in
+   ``pg_stat_replication``. If a standby cluster node shares the same name as a
+   primary cluster member, PostgreSQL will see two connections with identical
+   ``application_name`` values. This ambiguity can cause PostgreSQL to satisfy
+   the synchronous replication requirement using the standby cluster's connection
+   instead of the intended primary cluster member, leading PostgreSQL to prematurely 
+   acknowledge transactions as synchronously committed when they are not durable on the
+   correct standby.
+
+   This is a silent failure — replication continues and no errors are logged, but
+   the cluster is effectively operating without a valid synchronous standby, which
+   is a potential data loss scenario if the primary fails.
