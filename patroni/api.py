@@ -1145,7 +1145,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     return 503, action.title() + ' failed'
             except Exception as e:
                 logger.debug('Exception occurred during polling %s result: %s', action, e)
-        return 503, action.title() + ' status unknown'
+        return 503, '{0} status unknown after {1} seconds; operation may still be in progress'.format(
+            action.title(), timeout * 2)
 
     def is_failover_possible(self, cluster: Cluster, leader: Optional[str], candidate: Optional[str],
                              action: str) -> Optional[str]:
