@@ -115,3 +115,18 @@ Note: When running PostgreSQL v11 or newer Patroni maintains physical replicatio
 
 .. warning::
    Setting ``nostream`` tag on standby disables copying and synchronization of permanent logical replication slots on the node itself and all its cascading replicas if any.
+
+- **upgrade**: Configuration to use for in place major version upgrades. See :ref:`Major version upgrade <upgrades>` for details.
+
+   - **prepare**: List of of prepare plugins to prepare the database for upgrade. The plugins will be executed in the order specified. Each entry is a string that is the plugin name, or a single entry map where the key is the plugin name and value is configuration for the plugin.
+   - **replica_upgrade_method**: Which method to use to upgrade replicas. Only supported value is currently `rsync`.
+   - **rsync**: Configuration for rsync based upgrade.
+      - **conf_dir**: Temporary storage location for rsync daemon configuration. Default values is `/tmp/patroni_rsyncd_config`,
+      - **feedback_dir**: Temporary status storage location for rsyncd. Default is `<conf_dir>/feedback`.
+      - **port**: Port number to start rsyncd on. It is safe to reuse PostgreSQL port as rsyncd will only run while primary is shut down. Default: `8100`
+      - **timeout**: How long to try to synchronize a replica before giving up. Default: `300`
+   - **maximum\_lag**: Integer for how much replicas are allowed to be behind to not cancel the upgrade before start. Default: `16MB`
+   - **parameters**: Mapping of parameter values that pg_upgrade should pass to PostgreSQL.
+   - **upgrade\_dir**: Working directory for pg_upgrade containing the logs. Defaults to `<<data_dir>>_upgrade`
+   - **start_timeout**: Timeout in seconds to start the primary after upgrade before the upgrade is rolled back. Default is `300`
+   - **post\_upgrade**: List of plugins to execute after a successful upgrade. Same format as **prepare**.

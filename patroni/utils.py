@@ -16,6 +16,7 @@ import os
 import platform
 import random
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -1073,6 +1074,14 @@ def data_directory_is_empty(data_dir: str) -> bool:
     if not os.path.exists(data_dir):
         return True
     return all(os.name != 'nt' and (n.startswith('.') or n == 'lost+found') for n in os.listdir(data_dir))
+
+
+def remove_directory_if_exists(data_dir: str) -> bool:
+    """Check if a directory exists and unlink it recursively."""
+    if os.path.exists(data_dir):
+        logger.info('Deleting directory %s', data_dir)
+        shutil.rmtree(data_dir)
+    return True
 
 
 def apply_keepalive_limit(option: str, value: int) -> int:

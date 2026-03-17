@@ -67,6 +67,7 @@ Bootstrap configuration
 
 -  **bootstrap**:
 
+   - **version**: The major version to use to initialize the database. Required if ``bin_dir_template`` is used for support major version upgrades.
    -  **dcs**: This section will be written into `/<namespace>/<scope>/config` of the given configuration store after initializing the new cluster. The global dynamic configuration for the cluster. You can put any of the parameters described in the :ref:`Dynamic Configuration settings <dynamic_configuration>` under ``bootstrap.dcs`` and after Patroni has initialized (bootstrapped) the new cluster, it will write this section into `/<namespace>/<scope>/config` of the configuration store.
    -  **method**: custom script to use for bootstrapping this cluster.
 
@@ -292,8 +293,12 @@ PostgreSQL
       "basebackup" is the default method; other methods are assumed to refer to scripts, each of which is configured as its
       own config item. See :ref:`custom replica creation methods documentation <custom_replica_creation>` for further explanation.
    -  **data\_dir**: The location of the Postgres data directory, either :ref:`existing <existing_data>` or to be initialized by Patroni.
+   -  **data\_dir\_template**: Template for constructing the PostgreSQL data directory location. Variable placeholders recognized are ``{major_version}``, ``{scope}``, ``{name}``.
+   -  **state\_file**: Filename to store information about data directory state. Required when **data\_dir\_template`` is in use to be able to change currently active data directory on the fly.
    -  **config\_dir**: The location of the Postgres configuration directory, defaults to the data directory. Must be writable by Patroni.
+   -  **config\_dir\_template**: Template for constructing the location of the Postgres configuration directory. Variable placeholders recognized are ``{major_version}``, ``{scope}``, ``{name}``.
    -  **bin\_dir**: (optional) Path to PostgreSQL binaries (pg_ctl, initdb, pg_controldata, pg_basebackup, postgres, pg_isready, pg_rewind). If not provided or is an empty string, PATH environment variable will be used to find the executables.
+   -  **bin\_dir\_template**: (optional) Template for constructing the path to PostgreSQL binaries for a database version. In the template the string ``{major_version}`` will be replaced with the required version. This configuration parameter is required for running major version upgrades.
    -  **bin\_name**: (optional) Make it possible to override Postgres binary names, if you are using a custom Postgres distribution:
 
       - **pg\_ctl**: (optional) Custom name for ``pg_ctl`` binary.

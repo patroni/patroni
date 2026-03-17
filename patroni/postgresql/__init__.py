@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -9,10 +10,11 @@ import time
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime
-from enum import IntEnum
+from enum import IntEnum, Enum
 from threading import current_thread, Lock
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
 
+import psutil
 from dateutil import tz
 from psutil import TimeoutExpired
 
@@ -20,15 +22,17 @@ from .. import global_config, psycopg
 from ..async_executor import CriticalTask
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet, EMPTY_DICT
 from ..dcs import Cluster, Leader, Member, slot_name_from_member_name
-from ..exceptions import PostgresConnectionException
+from ..exceptions import PostgresConnectionException, PatroniException
 from ..tags import Tags
-from ..utils import data_directory_is_empty, parse_int, polling_loop, Retry, RetryFailedError
+from ..utils import data_directory_is_empty, parse_int, polling_loop, Retry, RetryFailedError, \
+    remove_directory_if_exists
 from .bootstrap import Bootstrap
 from .callback_executor import CallbackAction, CallbackExecutor
 from .cancellable import CancellableSubprocess
 from .config import ConfigHandler, mtime
 from .connection import ConnectionPool, get_connection_cursor
-from .misc import parse_history, parse_lsn, postgres_major_version_to_int, PostgresqlRole, PostgresqlState
+from .misc import parse_history, parse_lsn, postgres_major_version_to_int, PostgresqlRole, PostgresqlState, \
+    format_major_version, common_prefix
 from .mpp import AbstractMPP
 from .postmaster import PostmasterProcess
 from .slots import SlotsHandler
@@ -57,6 +61,22 @@ class PgIsReadyStatus(IntEnum):
     NO_RESPONSE = 2
     UNKNOWN = 3
 
+class DataDirStatus(Enum):
+    """Possible PostgreSQL data dir status values.
+
+    :cvar UNKNOWN: data directory state is not known.
+    :cvar READY: data directory is ready for use.
+    :cvar UPGRADING: data directory is in the middle of an upgrade
+    :cvar SWAPPING: data directory is upgraded and might be swapped or not
+    :cvar SYNCING: data directory is being synced
+    """
+    UNKNOWN = ''
+    READY = 'ready'
+    UPGRADING = 'upgrading'
+    SWAPPING = 'swapping'
+    SYNCING = 'syncing'
+    SYNC_SWAP = 'sync_swap'
+    SYNC_SWAP_BACK = 'sync_swap_back'
 
 @contextmanager
 def null_context():
@@ -75,39 +95,107 @@ class Postgresql(object):
               "pg_catalog.pg_{0}_{1}_diff(COALESCE(pg_catalog.pg_last_{0}_receive_{1}(), '0/0'), '0/0')::bigint, "
               "pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused()")
 
-    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
+    def __init__(self, config: Dict[str, Any], mpp: AbstractMPP, bootstrap_version: Optional[str]) -> None:
+        self._init(config, mpp, bootstrap_version)
+        self._startup(config)
+
+    def new_version(self, version: str, data_dir: str):
+        config = self.config._config
+
+        copy = type(self).__new__(type(self))
+        copy._init(config,
+                   self.mpp_handler.get_unbound(),
+                   bin_dir_template_required=True,
+                   explicit_version=version,
+                   data_dir_override=data_dir,
+                   existing=self,
+                   )
+        copy.set_role(PostgresqlRole.UNINITIALIZED)
+        copy.set_state(PostgresqlState.STOPPED)
+
+        return copy
+
+    def _init(self, config: Dict[str, Any], mpp: AbstractMPP,
+              bootstrap_version: Optional[str]=None,
+              bin_dir_template_required: bool=False,
+              explicit_version: Optional[str]=None,
+              data_dir_override: Optional[str]=None,
+              existing: Optional['Postgresql']=None) -> None:
         self.name: str = config['name']
         self.scope: str = config['scope']
-        self._data_dir: str = config['data_dir']
+
+        # Main Config also uses data dir and state file locations from dynamic config cache. Keep it in sync.
+        self.state_file = config.get('state_file')
+        detected_version: Optional[str] = None
+        if config.get('data_dir_template'):
+            self.has_versioned_data_dir = True
+            data_dir_template = config.get('data_dir_template')
+            if explicit_version:
+                detected_version = explicit_version
+            else:
+                if not self.state_file:
+                    raise Exception("State file is required if data_dir_template is used")
+                state = self.read_state_file()
+
+                if state['status'] != DataDirStatus.UNKNOWN:
+                    detected_version = state['version']
+                else:
+                    if not bootstrap_version:
+                        raise Exception("Can't determine version")
+
+                    detected_version = str(bootstrap_version)
+            data_dir = data_dir_template.format(major_version=detected_version,
+                                                name=self.name,
+                                                scope=self.scope)
+        else:
+            self.has_versioned_data_dir = False
+            data_dir = data_dir_override or config['data_dir']
+
+        self.set_data_dir(data_dir, _from_init=True)
         self._database = config.get('database', 'postgres')
-        self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
-        self._pg_control = os.path.join(self._data_dir, 'global', 'pg_control')
         self.connection_string: str
         self.proxy_url: Optional[str]
-        self._major_version = self.get_major_version()
+        if explicit_version:
+            self._major_version = postgres_major_version_to_int(explicit_version)
+        elif detected_version:
+            self._major_version= postgres_major_version_to_int(detected_version)
+        else:
+            self._major_version = self.get_major_version()
 
         self._state_lock = Lock()
         self.set_state(PostgresqlState.STOPPED)
 
         self._pending_restart_reason = CaseInsensitiveDict()
-        self.connection_pool = ConnectionPool()
+        self.connection_pool = ConnectionPool() #TODO: should this be copied on upgrade?
         self._connection = self.connection_pool.get('heartbeat')
         self.mpp_handler = mpp.get_handler_impl(self)
-        self._bin_dir = config.get('bin_dir') or ''
+        if config.get('bin_dir_template'):
+            # TODO: move construction from existing data dir to a separate method
+            if self._major_version:
+                version = format_major_version(self._major_version)
+            else:
+                version = str(bootstrap_version)
+            if not explicit_version:
+                logger.info(f"Picking version {version}")
+            self._bin_dir = config['bin_dir_template'].format(major_version=version) if version else ''
+        elif bin_dir_template_required:
+            raise Exception("Upgrading version requires a bin_dir_template") # TODO: pick correct error
+        else:
+            self._bin_dir = config.get('bin_dir') or ''
         self._role_lock = Lock()
-        self.set_role(PostgresqlRole.UNINITIALIZED)
+        self.set_role(PostgresqlRole.UNINITIALIZED if not existing else existing.role)
         self.config = ConfigHandler(self, config)
         self.config.check_directories()
 
         self.bootstrap = Bootstrap(self)
         self.bootstrapping = False
-        self.__thread_ident = current_thread().ident
+        self.__thread_ident = current_thread().ident if not existing else existing.__thread_ident
 
-        self.slots_handler = SlotsHandler(self)
+        self.slots_handler = SlotsHandler(self) #TODO: handle background thread
         self.sync_handler = SyncHandler(self)
 
         self._callback_executor = CallbackExecutor()
-        self.__cb_called = False
+        self.__cb_called = False if not existing else existing.__cb_called #TODO: guaranteed to be true if existing?
         self.__cb_pending = None
 
         self.cancellable = CancellableSubprocess()
@@ -120,7 +208,6 @@ class Postgresql(object):
         self._is_leader_retry = Retry(max_tries=1, deadline=config['retry_timeout'] / 2.0, max_delay=1,
                                       retry_exceptions=PostgresConnectionException)
 
-        self.set_role(self.get_postgres_role_from_data_directory())
         self._state_entry_timestamp = 0
 
         self._cluster_info_state = {}
@@ -132,6 +219,16 @@ class Postgresql(object):
         self._postmaster_proc = None
 
         self._available_gucs = None
+
+    def set_data_dir(self, data_dir, _from_init=False):
+        self._data_dir = data_dir
+        self._version_file = os.path.join(self._data_dir, 'PG_VERSION')
+        self._pg_control = os.path.join(self._data_dir, 'global', 'pg_control')
+        if not _from_init:
+            self.config.set_data_dir(data_dir)
+
+    def _startup(self, config: Dict[str, Any]):
+        self.set_role(self.get_postgres_role_from_data_directory())
 
         if self.is_running():
             # If we found postmaster process we need to figure out whether postgres is accepting connections
@@ -1404,3 +1501,251 @@ class Postgresql(object):
         return CaseInsensitiveSet({
             line.split('\t')[0] for line in subprocess.check_output(cmd).decode('utf-8').strip().split('\n')
         })
+
+    def get_cluster_version(self) -> str:
+        with open(self._version_file) as f:
+            return f.read().strip()
+
+    def prepare_new_pgdata(self, oldpg: "Postgresql"):
+        #from spilo_commons import append_extensions
+
+        locale = oldpg.query("SELECT datcollate FROM pg_database WHERE datname='template1';")[0][0]
+        encoding = oldpg.query('SHOW server_encoding')[0][0]
+        initdb_config = [{'locale': locale}, {'encoding': encoding}]
+        if oldpg.query("SELECT current_setting('data_checksums')::bool")[0][0]:
+            initdb_config.append('data-checksums')
+        elif self.major_version >= 180000:
+            initdb_config.append('no-data-checksums')
+
+        if oldpg.major_version >= 110000:
+            segsize_setting = oldpg.query("SELECT current_setting('wal_segment_size')")[0][0]
+            if segsize_setting.endswith('GB'):
+                initdb_config.append({'wal-segsize': str(int(segsize_setting[:-2])*1024)})
+            elif segsize_setting.endswith('MB'):
+                initdb_config.append({'wal-segsize': segsize_setting[:-2]})
+
+        #TODO: locale-provider ICU handling?
+
+        logger.info('initdb config: %s', initdb_config)
+
+        #TODO: evaluate if waldir needs some more handling
+
+        # Catch when someone has postgres already running in the target directory. That could be a configuration
+        # error so we should not delete it.
+        if self.is_running():
+            logger.error('Upgrade target %s has a running PostgreSQL server', self.data_dir)
+            return False
+        self.remove_data_directory()
+
+        # TODO: plugin API for determining shared preload libraries during upgrade and after upgrade
+        # for the new version we maybe need to add some libs to the shared_preload_libraries
+        #shared_preload_libraries = self.config.get('parameters').get('shared_preload_libraries')
+        #if shared_preload_libraries:
+        #    self._old_shared_preload_libraries = self.config.get('parameters')['shared_preload_libraries'] =\
+        #        shared_preload_libraries
+                #append_extensions(shared_preload_libraries, float(version))
+            #self.no_bg_mon()
+
+        # TODO: avoid using private interface
+        if not self.bootstrap._initdb(initdb_config):
+            return False
+        # TODO: should be no-op: self.bootstrap._running_custom_bootstrap = False
+        # Remove if verified
+        if self.bootstrap._running_custom_bootstrap != False:
+            raise Exception('Should not happen!')
+
+        # Copy old configs. XXX: some parameters might be incompatible!
+        self.config.copy_configs_from(oldpg.config)
+        self.config.write_postgresql_conf()
+        self.configure_server_parameters()
+        return True
+
+    @staticmethod
+    def _remove_upgrade_dir_if_safe(upgrade_dir: str, indicator_file: str) -> None:
+        """Verifies that upgrade directory was empty before upgrade was started
+
+        Empty upgrade directoreis get tagged with an indicator file to avoid accidentally deleting
+        user data in case of misconfiguration.
+        """
+        if os.path.exists(upgrade_dir) and os.path.isdir(upgrade_dir):
+            if os.path.exists(indicator_file):
+                shutil.rmtree(upgrade_dir)
+            else:
+                logger.warning('Upgrade directory %s does not have PATRONI_UPGRADE, keeping', indicator_file)
+
+    def pg_upgrade(self, src: "Postgresql", check=False, upgrade_dir: Optional[str]=None,
+                   parameters: Optional[Dict[str, Any]]=None, jobs: Optional[int]=None) -> bool:
+        if upgrade_dir is None:
+            if self.has_versioned_data_dir:
+                data_dir_parent = common_prefix(src.data_dir, self._data_dir)
+                upgrade_dir_name = f'{self.scope}-upgrade-{src.major_version}-to-{self.major_version}'
+                upgrade_dir = os.path.join(data_dir_parent, upgrade_dir_name)
+
+            else:
+                upgrade_dir = src._data_dir + '_upgrade'
+
+        indicator_file = os.path.join(upgrade_dir, 'PATRONI_UPGRADE')
+
+        # Clean up existing upgrade directory
+        self._remove_upgrade_dir_if_safe(upgrade_dir, indicator_file)
+
+        os.makedirs(upgrade_dir)
+        # Tag with indicator file only if target is empty
+        if not os.listdir(upgrade_dir):
+            with open(indicator_file, 'w') as f:
+                pass
+
+        pg_upgrade_args = ['-k', '-j', jobs or str(psutil.cpu_count()),
+                           '-b', src._bin_dir, '-B', self._bin_dir,
+                           '-d', os.path.abspath(src._data_dir), '-D', os.path.abspath(self._data_dir),]
+
+        #TODO: also pass command line postgresql options to pg_upgrade.
+        if parameters:
+            for key, value in parameters.items():
+                pg_upgrade_args += ['-O', f"-c {key}='{value}'"]
+        if 'username' in self.config.superuser:
+            pg_upgrade_args += ['-U', self.config.superuser['username']]
+
+        if check:
+            pg_upgrade_args += ['--check']
+        else:
+            self.config.write_postgresql_conf()
+
+        logger.info('Executing pg_upgrade%s', (' --check' if check else ''))
+        try:
+            if subprocess.call([self.pgcommand('pg_upgrade')] + pg_upgrade_args, cwd=upgrade_dir) == 0:
+                self._remove_upgrade_dir_if_safe(upgrade_dir, indicator_file)
+                return True
+        except OSError as e:
+            logger.warning("Failed to execute pg_upgrade: %s", e)
+        return False
+
+    def switch_pgdata(self, other: "Postgresql", suffix="_old", move_source=False, move_target: bool=True) -> bool:
+        replaced_data_dir = other._data_dir + suffix
+
+        if move_target:
+            # If previous upgrade attempt has left an old datadir behind, remove it now.
+            remove_directory_if_exists(replaced_data_dir)
+
+            # Move target data dir out of the way
+            os.rename(other._data_dir, replaced_data_dir)
+        # Replace target datadir with self
+        if os.path.exists(self._data_dir):
+            os.rename(self._data_dir, other._data_dir)
+
+        # Replace data dir locations
+        self.set_data_dir(other._data_dir)
+        other.set_data_dir(replaced_data_dir)
+
+        self.configure_server_parameters()
+        return True
+
+    @property
+    def local_conn_kwargs(self):
+        conn_kwargs = self.connection_pool.conn_kwargs
+        conn_kwargs['options'] = '-c synchronous_commit=local -c statement_timeout=0 -c search_path='
+        conn_kwargs.pop('connect_timeout', None)
+        return conn_kwargs
+
+    def get_all_databases(self) -> List[str]:
+        return [d[0] for d in self.query('SELECT datname FROM pg_catalog.pg_database WHERE datallowconn')]
+
+    def analyze(self, in_stages=False, missing_stats_only=True):
+        vacuumdb_args = ['--analyze-in-stages'] if in_stages else []
+        if missing_stats_only and self.major_version >= 180000:
+            vacuumdb_args += ['--missing-stats-only']
+        logger.info('Rebuilding statistics (vacuumdb%s)', (' ' + vacuumdb_args[0] if in_stages else ''))
+
+        conn_kwargs = self.connection_pool.conn_kwargs
+        env = self.config.write_pgpass(conn_kwargs)
+
+        vacuumdb_args += ['-Z', '-j']
+
+        # vacuumdb is processing databases sequantially, while we better do them in parallel,
+        # because it will help with the case when there are multiple databases in the same cluster.
+        single_worker_dbs = ('postgres', 'template1')
+        databases = self.get_all_databases()
+        db_count = len([d for d in databases if d not in single_worker_dbs])
+        # calculate concurrency per database, except always existing "single_worker_dbs" (they'll get always 1 worker)
+        concurrency = str(max(1, int(psutil.cpu_count()/max(1, db_count))))
+        procs = []
+        for d in databases:
+            j = '1' if d in single_worker_dbs else concurrency
+            dsn = self.config.format_dsn({**conn_kwargs, 'password': None, 'dbname': d})
+            try:
+                procs.append(subprocess.Popen([self.pgcommand('vacuumdb')] + vacuumdb_args + [j, '-d', dsn], env=env))
+            except OSError as e:
+                logger.warning("Error executing vacuumdb: %s", e)
+                pass
+        for proc in procs:
+            try:
+                proc.wait()
+            except OSError:
+                logger.warning("Error executing vacuumdb: %s", e)
+                pass
+
+    @property
+    def pg_control(self) -> str:
+        return os.path.join(self.data_dir, 'global/pg_control')
+
+    def update_state(self, version: int, status: DataDirStatus) -> bool:
+        """Update file in known location to determine currently active PostgreSQL data directory
+
+        With version specific data directories we need to know the version to determine where the data
+        directory is. This is done by storing a file determining currently active PostgreSQL version
+        in a statically known location.
+
+        :returns: true if state file was updated or state file is not in use.
+        """
+        if not self.state_file:
+            return True
+
+        state = {
+            'version': format_major_version(version),
+            'status': status.value,
+        }
+
+        try:
+            created_new_file = not os.path.exists(self.state_file)
+            json_data = json.dumps(state)
+            with open(self.state_file, 'w') as fd:
+                fd.write(json_data)
+                fd.flush()
+                os.fsync(fd)
+
+            if os.name != 'nt' and created_new_file:
+                fd = os.open(os.path.dirname(self.state_file), os.O_DIRECTORY)
+                try:
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+            return True
+        except OSError as e:
+            logger.warning("Error writing state file: %s", e)
+            return False
+
+    def read_state_file(self) -> dict[Any, Any]:
+        """Read data directory state.
+
+        See update_state() for details about state.
+
+        :returns: dictionary of data directory state, or empty dictionary on failure
+        """
+        state = {
+            'status': DataDirStatus.UNKNOWN,
+        }
+        if os.path.exists(self.state_file):
+            try:
+                with open(self.state_file) as fd:
+                    state_file_contents = fd.read()
+                    state = json.loads(state_file_contents)
+                    try:
+                        state['status'] = DataDirStatus(state.get('status', DataDirStatus.UNKNOWN))
+                    except ValueError:
+                        state['status'] = DataDirStatus.UNKNOWN
+            except OSError:
+                pass
+            except json.JSONDecodeError:
+                logger.warning("Invalid JSON in state file %s", self.state_file)
+                pass
+        return state

@@ -29,6 +29,7 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from enum import Enum
+from json import JSONDecodeError
 from typing import Any, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
 from urllib.parse import urlparse
 
@@ -39,6 +40,8 @@ import urllib3
 import yaml
 
 from prettytable import PrettyTable
+
+from .postgresql.upgrade import UpgradeState
 
 try:  # pragma: no cover
     from prettytable import HRuleStyle
@@ -2431,3 +2434,83 @@ def promote_cluster(cluster_name: str, force: bool) -> None:
     :param force: if ``True`` run cluster demotion without asking for confirmation.
     """
     change_cluster_role(cluster_name, force, None)
+
+@ctl.command('upgrade', help="Run major version upgrade on the cluster")
+@arg_cluster_name
+@option_force
+@click.option('--check', is_flag=True, help='Run check only')
+@click.option('--new-version', required=True, help='Version to upgrade to')
+def upgrade(cluster_name: str, new_version: str, force: bool, check: bool) -> None:
+    """Process ``upgrade`` command of ``patronictl`` utility.
+
+    Run pg_upgrade on the cluster.
+
+    :param cluster_name: name of the Patroni cluster.
+    :param new_version: new version to upgrade to
+    :param force: if ``True`` run upgrade without asking for confirmation.
+    :param check: if ``True`` run only checks.
+    """
+    click.echo('Current cluster topology')
+
+    group = None
+
+    dcs = get_dcs(cluster_name, group)
+    cluster = dcs.get_cluster()
+    output_members(cluster, cluster_name, group=group)
+
+    if is_citus_cluster():
+        raise PatroniCtlException('Upgrading Citus clusters is not supported')
+
+    config = global_config.from_cluster(cluster)
+
+    cluster_leader = cluster.leader and cluster.leader.name
+
+    if not cluster_leader:
+        raise PatroniCtlException('This cluster has no leader')
+
+    if config.is_standby_cluster:
+        raise PatroniCtlException('Upgrading standby clusters is not supported')
+
+    if not force:
+        if not click.confirm(f'Are you sure you want to upgrade cluster '
+                             f'{cluster_name} to version {new_version}?'):
+            # action as a var to catch a regression in the tests
+            raise PatroniCtlException('Aborting upgrade')
+
+    r = None
+    try:
+        member = cluster.leader.member
+        if TYPE_CHECKING:  # pragma: no cover
+            assert isinstance(member, Member)
+
+        upgrade_request = {
+            'desired_version': new_version,
+        }
+        r = request_patroni(member, 'post', 'upgrade', json.dumps(upgrade_request))
+
+        if r.status in (200, 202):
+            click.echo('Upgrade started')
+
+            high_water_mark = ''
+            while True:
+                cluster = dcs.get_cluster()
+                upgrade = cluster.status.upgrade
+                if not upgrade:
+                    raise PatroniCtlException('Upgrade state lost unexpectedly')
+                for tstamp, state, message in upgrade.progress:
+                    if tstamp > high_water_mark:
+                        click.echo(f"[{tstamp}] [{state}] {message}")
+                        high_water_mark = tstamp
+                if upgrade.state in (UpgradeState.FAILED, UpgradeState.CHECKED):
+                    raise PatroniCtlException('Upgrade failed')
+                if upgrade.state == UpgradeState.SUCCESS:
+                    break
+                time.sleep(2)
+        else:
+            click.echo('starting upgrade failed, details: {0}, {1}'.format(r.status, r.data.decode('utf-8')))
+            return
+    except Exception as e:
+        logging.warning('Error %s when executing upgrade', e)
+        #TODO: trigger upgrade via DCS by inserting upgrade state?
+
+    output_members(cluster, cluster_name, group=group)
