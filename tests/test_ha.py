@@ -503,6 +503,14 @@ class TestHa(PostgresInit):
         self.assertIsNotNone(node_to_follow)
         self.assertEqual(node_to_follow.name, 'leader')
 
+    def test_get_node_to_follow_replicatefrom_any_fallback_when_no_running_standby(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.cluster.members[1].data['state'] = 'stopped'
+        self.ha.patroni.replicatefrom = 'any'
+        node_to_follow = self.ha._get_node_to_follow(self.ha.cluster)
+        self.assertIsNotNone(node_to_follow)
+        self.assertEqual(node_to_follow.name, 'leader')
+
     @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_follow(self):
         self.p.is_primary = false

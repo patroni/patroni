@@ -730,8 +730,9 @@ class Ha(object):
         elif self.patroni.replicatefrom and self.patroni.replicatefrom != self.state_handler.name:
             if self.patroni.replicatefrom in ('any', 'standby', 'replica'):
                 leader_name = cluster.leader.name if cluster.leader else None
-                node_to_follow = next((m for m in cluster.members if m.name not in (self.state_handler.name,
-                                                                                     leader_name)), None)
+                node_to_follow = next((m for m in cluster.members
+                                       if m.name not in (self.state_handler.name, leader_name)
+                                       and m.is_running and m.conn_url), None)
             else:
                 node_to_follow = cluster.get_member(self.patroni.replicatefrom)
             if not node_to_follow:
