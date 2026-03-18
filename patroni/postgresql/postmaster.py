@@ -294,6 +294,8 @@ class PostmasterProcess(psutil.Process):
         # On Windows, in order to run a side-by-side assembly the specified env must include a valid SYSTEMROOT.
         env = {p: os.environ[p] for p in os.environ if not p.startswith(
             PATRONI_ENV_PREFIX) and not p.startswith(KUBERNETES_ENV_PREFIX)}
+        if 'PG_MALLOC_ARENA_MAX' in env:
+            env['MALLOC_ARENA_MAX'] = env.pop('PG_MALLOC_ARENA_MAX')
         try:
             proc = PostmasterProcess._from_pidfile(data_dir)
             if proc and not proc._is_postmaster_process(pgcommand, data_dir):

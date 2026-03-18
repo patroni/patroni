@@ -208,7 +208,7 @@ def main():
         license=LICENSE,
         license_files=('LICENSE',),
         keywords=KEYWORDS,
-        long_description=read('README.rst'),
+        long_description=read('README.rst').replace('**Important!**', '.. warning::\n'),
         classifiers=CLASSIFIERS,
         packages=find_packages(exclude=['tests', 'tests.*']),
         package_data={MAIN_PACKAGE: [

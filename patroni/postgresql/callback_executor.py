@@ -5,6 +5,7 @@ from enum import Enum
 from threading import Condition, Thread
 from typing import Any, Dict, List
 
+from .. import thread_pool
 from .cancellable import CancellableExecutor, CancellableSubprocess
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ class OnReloadExecutor(CancellableSubprocess):
         with self._lock:
             started = self._start_process(cmd, close_fds=True)
         if started and self._process is not None:
-            Thread(target=self._process.wait).start()
+            thread_pool.get_executor().submit(self._process.wait)
 
 
 class CallbackExecutor(CancellableExecutor, Thread):
