@@ -157,6 +157,16 @@ How can I change my environment configuration?
 
     Take care to not cause a failover in the cluster! You might be interested in checking :ref:`patronictl_pause`.
 
+How can I reduce repetitive heartbeat log lines during normal operation?
+    If your logs are too noisy because of repeated lines like ``Lock owner: ...`` and ``no action. I am ...``,
+    configure ``log.deduplicate_heartbeat_logs: true``.
+
+    You can set it either in the Patroni YAML file (:ref:`log_settings`) or with
+    ``PATRONI_LOG_DEDUPLICATE_HEARTBEAT_LOGS=true``.
+
+    Keep in mind this reduces log volume by suppressing repeated heartbeat messages, but you also lose per-loop
+    heartbeat visibility that can help during failover diagnostics.
+
 What occurs if I change a Postgres GUC that requires a reload?
     When you change the dynamic or the local configuration as explained in the previous questions, Patroni will take care of reloading the Postgres configuration for you.
 
