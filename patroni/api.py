@@ -21,7 +21,6 @@ import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import ip_address, ip_network, IPv4Network, IPv6Network
 from socketserver import ThreadingMixIn
-from threading import Thread
 from urllib.parse import urlparse, parse_qs
 
 from typing import Any, Callable, cast, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
@@ -31,6 +30,7 @@ from .__main__ import Patroni
 from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
 from .postgresql.misc import postgres_version_to_int
+from .thread_pool import PatroniThreadPoolExecutor
 from .utils import deep_compare, enable_keepalive, parse_bool, patch_config, Retry, \
     RetryFailedError, parse_int, split_host_port, tzutc, uri, cluster_as_json
 
@@ -1373,14 +1373,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
         logger.debug("API thread: %s - - %s latency: %0.3f ms", self.client_address[0], format % args, latency)
 
 
-class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
+class RestApiServer(ThreadingMixIn, HTTPServer):
     """Patroni REST API server.
 
-    An asynchronous thread-based HTTP server.
+    An asynchronous thread-pool-based HTTP server.
     """
-
-    # On 3.7+ the `ThreadingMixIn` gathers all non-daemon worker threads in order to join on them at server close.
-    daemon_threads = True  # Make worker threads "fire and forget" to prevent a memory leak.
 
     def __init__(self, patroni: Patroni, config: Dict[str, Any]) -> None:
         """Establish patroni configuration for the REST API daemon.
@@ -1398,6 +1395,13 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.patroni = patroni
         self.__listen = None
         self.request_queue_size = int(config.get('request_queue_size', 5))
+        try:
+            thread_pool_size = max(5, int(config.get('thread_pool_size', 5)))
+        except Exception as e:
+            logger.warning('Failed to parse restapi.thread_pool_size value "%s": %r', config.get('thread_pool_size'), e)
+            thread_pool_size = 5
+        logger.info('REST API thread_pool_size = %d', thread_pool_size)
+        self._executor = PatroniThreadPoolExecutor(max_workers=thread_pool_size + 1, thread_name_prefix='RestAPI')
         self.__ssl_options: Dict[str, Any] = {}
         self.__ssl_serial_number = None
         self._received_new_cert = False
@@ -1631,8 +1635,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         reloading_config = self.__listen is not None  # changing config in runtime
         if reloading_config:
-            self.shutdown()
-            # Rely on ThreadingMixIn.server_close() to have all requests terminate before we continue
+            HTTPServer.shutdown(self)
+            # Rely on TCPServer.server_close() to have all requests terminate before we continue
             self.server_close()
 
         self.__listen = listen
@@ -1640,7 +1644,6 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self._received_new_cert = False  # reset to False after reload_config()
 
         self.__httpserver_init(host, port)
-        Thread.__init__(self, target=self.serve_forever)
         self._set_fd_cloexec(self.socket)
 
         # wrap socket with ssl if 'certfile' is defined in a config.yaml
@@ -1665,6 +1668,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if reloading_config:
             self.start()
 
+    def start(self) -> None:
+        self._executor.submit(self.serve_forever)
+
     def process_request_thread(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
                                client_address: Tuple[str, int]) -> None:
         """Process a request to the REST API.
@@ -1684,6 +1690,14 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             if isinstance(request, SSLSocket):  # pyright
                 request.do_handshake()
         super(RestApiServer, self).process_request_thread(request, client_address)
+
+    def process_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
+                        client_address: Tuple[str, int]) -> None:
+        self._executor.submit(self.process_request_thread, request, client_address)
+
+    def shutdown(self) -> None:
+        super(RestApiServer, self).shutdown()
+        self._executor.shutdown(wait=True)
 
     def shutdown_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]]) -> None:
         """Shut down a request to the REST API.

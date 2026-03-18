@@ -1,5 +1,7 @@
 import psutil
 import unittest
+
+from unittest import mock
 from unittest.mock import Mock, patch
 
 from patroni.postgresql.callback_executor import CallbackExecutor
@@ -34,7 +36,13 @@ class TestCallbackExecutor(unittest.TestCase):
         ce._condition.wait = Mock(side_effect=[None, Exception])
         ce._invoke_excepthook = Mock()
         self.assertIsNone(ce.call(callback))
+        ce.join()
+        mock_popen.reset_mock()
 
         mock_popen.side_effect = [Mock()]
-        self.assertIsNone(ce.call(['test.sh', 'on_reload', 'replica', 'foo']))
+        with patch('patroni.thread_pool.get_executor') as mock_executor:
+            mock_executor.return_value.submit = lambda f: f()
+            self.assertIsNone(ce.call(['test.sh', 'on_reload', 'replica', 'foo']))
+            self.assertEqual(mock_popen.call_args_list[0],
+                             mock.call(['test.sh', 'on_reload', 'replica', 'foo'], close_fds=True))
         ce.join()

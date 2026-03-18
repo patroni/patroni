@@ -22,7 +22,6 @@ class TestCitus(BaseTestPostgresql):
     @patch('patroni.postgresql.mpp.citus.logger.exception', Mock(side_effect=SleepException))
     @patch('patroni.postgresql.mpp.citus.logger.warning')
     @patch('patroni.postgresql.mpp.citus.PgDistNode.wait', Mock())
-    @patch.object(CitusHandler, 'is_alive', Mock(return_value=True))
     def test_run(self, mock_logger_warning):
         # `before_demote` or `before_promote` REST API calls starting a
         # transaction. We want to make sure that it finishes during
@@ -39,7 +38,6 @@ class TestCitus(BaseTestPostgresql):
         self.assertTrue(mock_logger_warning.call_args[0][0].startswith('Rolling back transaction'))
         self.assertTrue(repr(mock_logger_warning.call_args[0][1]).startswith('PgDistNode'))
 
-    @patch.object(CitusHandler, 'is_alive', Mock(return_value=False))
     @patch.object(CitusHandler, 'start', Mock())
     def test_sync_meta_data(self):
         with patch.object(CitusHandler, 'is_enabled', Mock(return_value=False)):
@@ -47,10 +45,10 @@ class TestCitus(BaseTestPostgresql):
         self.c.sync_meta_data(self.cluster)
 
     def test_handle_event(self):
-        self.c.handle_event(self.cluster, {})
-        with patch.object(CitusHandler, 'is_alive', Mock(return_value=True)):
-            self.c.handle_event(self.cluster, {'type': 'after_promote', 'group': 2,
-                                               'leader': 'leader', 'timeout': 30, 'cooldown': 10})
+        with patch.object(CitusHandler, 'is_coordinator', Mock(return_value=False)):
+            self.c.handle_event(self.cluster, {})
+        self.c.handle_event(self.cluster, {'type': 'after_promote', 'group': 2,
+                                           'leader': 'leader', 'timeout': 30, 'cooldown': 10})
 
     def test_add_task(self):
         with patch('patroni.postgresql.mpp.citus.logger.error') as mock_logger, \
