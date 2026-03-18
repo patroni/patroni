@@ -21,6 +21,7 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
 - ``GET /replica``: replica health check endpoint. It returns HTTP status code **200** only when the Patroni node is in the state ``running``, the role is ``replica`` and ``noloadbalance`` tag is not set.
 
+- ``GET /replica?replication_state=<required state>``: replica check endpoint. In addition to checks from ``replica``, it also checks if the replication state matches the required one. Mainly useful with ``replication_state=streaming``, to exclude replicas still catching up in archive recovery.
 - ``GET /replica?lag=<max-lag>``: replica check endpoint. In addition to checks from ``replica``, it also checks replication latency and returns status code **200** only when it is below specified value. The key cluster.last_leader_operation from DCS is used for Leader wal position and compute latency on replica for performance reasons. max-lag can be specified in bytes (integer) or in human readable values, for e.g. 16kB, 64MB, 1GB.
 
   - ``GET /replica?lag=1048576``
@@ -338,9 +339,15 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.
 	# TYPE patroni_cluster_unlocked gauge
 	patroni_cluster_unlocked{scope="batman",name="patroni1"} 0
-	# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.
-	# TYPE patroni_postgres_timeline counter
+	# HELP patroni_failsafe_mode_is_active Value is 1 if failsafe mode is active, 0 otherwise.
+	# TYPE patroni_failsafe_mode_is_active gauge
 	patroni_failsafe_mode_is_active{scope="batman",name="patroni1"} 0
+	# HELP patroni_failsafe_mode_enabled Value is 1 if failsafe_mode is enabled, 0 otherwise.
+	# TYPE patroni_failsafe_mode_enabled gauge
+	patroni_failsafe_mode_enabled{scope="batman",name="patroni1"} 0
+	# HELP patroni_failsafe_member Value is 1 if this node is a member of failsafe, 0 otherwise.
+	# TYPE patroni_failsafe_member gauge
+	patroni_failsafe_member{scope="batman",name="patroni1"} 0
 	# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.
 	# TYPE patroni_postgres_timeline counter
 	patroni_postgres_timeline{scope="batman",name="patroni1"} 24

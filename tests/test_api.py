@@ -5,7 +5,6 @@ import unittest
 
 from http.server import HTTPServer
 from io import BytesIO as IO
-from socketserver import ThreadingMixIn
 from unittest.mock import Mock, patch, PropertyMock
 
 from patroni import global_config
@@ -97,6 +96,10 @@ class MockHa(object):
     @staticmethod
     def failsafe_is_active(*args):
         return True
+
+    @staticmethod
+    def is_failsafe_mode():
+        return False
 
     @staticmethod
     def is_leader():
@@ -198,6 +201,7 @@ class MockRestApiServer(RestApiServer):
 
 @patch('ssl.SSLContext.load_cert_chain', Mock())
 @patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
+@patch('patroni.api.PatroniThreadPoolExecutor', Mock())
 @patch.object(HTTPServer, '__init__', Mock())
 class TestRestApiHandler(unittest.TestCase):
 
@@ -211,6 +215,8 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=1M')
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=10MB')
         MockRestApiServer(RestApiHandler, 'GET /replica?lag=10485760')
+        MockRestApiServer(RestApiHandler, 'GET /replica?lag=replication_state=streaming')
+        MockRestApiServer(RestApiHandler, 'GET /replica?lag=10485760&replication_state=streaming')
         MockRestApiServer(RestApiHandler, 'GET /read-only')
         with patch.object(RestApiHandler, 'get_postgresql_status', Mock(return_value={})):
             MockRestApiServer(RestApiHandler, 'GET /replica')
@@ -231,6 +237,7 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(RestApiHandler, 'get_postgresql_status',
                           Mock(return_value={'role': PostgresqlRole.REPLICA})):
             MockRestApiServer(RestApiHandler, 'GET /asynchronous')
+            MockRestApiServer(RestApiHandler, 'GET /replica?replication_state=streaming')
         with patch.object(MockHa, 'is_leader', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /replica')
             MockRestApiServer(RestApiHandler, 'GET /read-only-sync')
@@ -349,7 +356,9 @@ class TestRestApiHandler(unittest.TestCase):
         mock_dcs.ttl.return_value = PropertyMock(30)
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /liveness HTTP/1.0'))
 
-    def test_do_GET_readiness(self):
+    @patch.object(MockPatroni, 'dcs')
+    def test_do_GET_readiness(self, mock_dcs):
+        mock_dcs.cluster.status.last_lsn = 5
         MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0')
         with patch.object(MockHa, 'is_leader', Mock(return_value=True)):
             MockRestApiServer(RestApiHandler, 'GET /readiness HTTP/1.0')
@@ -377,7 +386,7 @@ class TestRestApiHandler(unittest.TestCase):
             response_mock.assert_called_with(503)
 
         # DCS not available
-        MockPatroni.dcs.cluster = None
+        mock_dcs.cluster = None
         with patch_query(None, None, None), \
                 patch.object(RestApiHandler, '_write_status_code_only') as response_mock:
             # Failsafe active
@@ -417,6 +426,18 @@ class TestRestApiHandler(unittest.TestCase):
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_GET_metrics(self, mock_dcs):
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
+        # Test with failsafe_mode enabled
+        with patch.object(MockHa, 'is_failsafe_mode', Mock(return_value=True)):
+            self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
+        # Test with node as a member of failsafe topology
+        type(mock_dcs).failsafe = PropertyMock(return_value={'test': 'http://foo:8080/patroni'})
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
+        # Test with node not in failsafe topology
+        type(mock_dcs).failsafe = PropertyMock(return_value={'other_node': 'http://foo:8080/patroni'})
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
+        # Test with failsafe as None
+        type(mock_dcs).failsafe = PropertyMock(return_value=None)
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
 
     @patch.object(MockPatroni, 'dcs')
@@ -735,12 +756,13 @@ class TestRestApiServer(unittest.TestCase):
     @patch('ssl.SSLContext.load_cert_chain', Mock())
     @patch('ssl.SSLContext.set_ciphers', Mock())
     @patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
+    @patch('patroni.api.PatroniThreadPoolExecutor', Mock())
     @patch.object(HTTPServer, '__init__', Mock())
     def setUp(self):
         self.srv = MockRestApiServer(Mock(), '', {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required',
                                                   'ciphers': '!SSLv1:!SSLv2:!SSLv3:!TLSv1:!TLSv1.1',
                                                   'allowlist': ['127.0.0.1', '::1/128', '::1/zxc'],
-                                                  'allowlist_include_members': True})
+                                                  'allowlist_include_members': True, 'thread_pool_size': 'a'})
 
     @patch.object(HTTPServer, '__init__', Mock())
     def test_reload_config(self):
@@ -788,9 +810,9 @@ class TestRestApiServer(unittest.TestCase):
             pass
         return sock
 
-    @patch.object(ThreadingMixIn, 'process_request_thread', Mock())
-    def test_process_request_thread(self):
-        self.srv.process_request_thread(self.__create_socket(), ('2', 54321))
+    def test_process_request(self):
+        with patch.object(self.srv._executor, 'submit', lambda f, r, c: f(r, c)):
+            self.srv.process_request(self.__create_socket(), ('2', 54321))
 
     @patch.object(MockRestApiServer, 'process_request', Mock(side_effect=RuntimeError))
     @patch.object(MockRestApiServer, 'get_request')

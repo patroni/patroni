@@ -96,11 +96,11 @@ class Postgresql(object):
         self._bin_dir = config.get('bin_dir') or ''
         self._role_lock = Lock()
         self.set_role(PostgresqlRole.UNINITIALIZED)
+        self.bootstrap = Bootstrap(self)
+        self.bootstrapping = False
         self.config = ConfigHandler(self, config)
         self.config.check_directories()
 
-        self.bootstrap = Bootstrap(self)
-        self.bootstrapping = False
         self.__thread_ident = current_thread().ident
 
         self.slots_handler = SlotsHandler(self)
@@ -667,7 +667,7 @@ class Postgresql(object):
         # we noticed that postgres was restarted, force syncing of replication slots and check of logical slots
         self.slots_handler.schedule()
 
-        self._postmaster_proc = PostmasterProcess.from_pidfile(self._data_dir)
+        self._postmaster_proc = PostmasterProcess.from_pidfile(self.pgcommand('postgres'), self._data_dir)
         return self._postmaster_proc
 
     @property

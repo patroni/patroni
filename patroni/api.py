@@ -20,7 +20,6 @@ import traceback
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import ip_address, ip_network, IPv4Network, IPv6Network
 from socketserver import ThreadingMixIn
-from threading import Thread
 from typing import Any, Callable, cast, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
 from urllib.parse import parse_qs, urlparse
 
@@ -31,6 +30,7 @@ from .__main__ import Patroni
 from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
 from .postgresql.misc import postgres_version_to_int, PostgresqlRole, PostgresqlState
+from .thread_pool import PatroniThreadPoolExecutor
 from .utils import cluster_as_json, deep_compare, enable_keepalive, parse_bool, \
     parse_int, patch_config, Retry, RetryFailedError, split_host_port, tzutc, uri
 
@@ -268,6 +268,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     * ``lag``: only accept replication lag up to ``lag``. Accepts either an :class:`int`, which
                         represents lag in bytes, or a :class:`str` representing lag in human-readable format (e.g.
                         ``10MB``).
+                    * ``replication_state``: only return HTTP status ``200`` if the node's state matches the
+                        requested one (e.g. "streaming")
                     * Any custom parameter: will attempt to match them against node tags.
 
                 * HTTP status ``200``: if up and running as a standby and without ``noloadbalance`` tag.
@@ -333,8 +335,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
             max_replica_lag = sys.maxsize
         is_lagging = leader_optime and leader_optime > replayed_location + max_replica_lag
 
+        wanted_replication_state = self.path_query.get('replication_state', [None])[0]
+        matches_replication_state = response.get('replication_state') == wanted_replication_state \
+            if wanted_replication_state else True
+
         replica_status_code = 200 if not patroni.noloadbalance and not is_lagging and \
-            response.get('role') == PostgresqlRole.REPLICA and response.get('state') == PostgresqlState.RUNNING else 503
+            response.get('role') == PostgresqlRole.REPLICA and \
+            response.get('state') == PostgresqlState.RUNNING and \
+            matches_replication_state else 503
 
         if not cluster and response.get('pause'):
             leader_status_code = 200 if response.get('role') in (PostgresqlRole.PRIMARY,
@@ -606,6 +614,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
               ``15.2``;
             * ``patroni_cluster_unlocked``: ``1`` if no one holds the leader lock, else ``0``;
             * ``patroni_failsafe_mode_is_active``: ``1`` if ``failsafe_mode`` is currently active, else ``0``;
+            * ``patroni_failsafe_mode_enabled``: ``1`` if ``failsafe_mode`` is enabled in configuration, else ``0``;
+            * ``patroni_failsafe_member``: ``1`` if this node is a member of failsafe topology, else ``0``;
             * ``patroni_postgres_timeline``: PostgreSQL timeline based on current WAL file name;
             * ``patroni_dcs_last_seen``: epoch timestamp when DCS was last contacted successfully;
             * ``patroni_pending_restart``: ``1`` if this PostgreSQL node is pending a restart, else ``0``;
@@ -714,6 +724,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_failsafe_mode_is_active gauge")
         metrics.append("patroni_failsafe_mode_is_active{0} {1}"
                        .format(labels, int(postgres.get('failsafe_mode_is_active', 0))))
+
+        metrics.append("# HELP patroni_failsafe_mode_enabled Value is 1 if failsafe_mode is enabled, 0 otherwise.")
+        metrics.append("# TYPE patroni_failsafe_mode_enabled gauge")
+        metrics.append("patroni_failsafe_mode_enabled{0} {1}".format(labels, int(patroni.ha.is_failsafe_mode())))
+
+        failsafe = patroni.dcs.failsafe
+        is_failsafe_member = isinstance(failsafe, dict) and patroni.postgresql.name in failsafe
+        metrics.append("# HELP patroni_failsafe_member Value is 1 if this node is a member of failsafe, 0 otherwise.")
+        metrics.append("# TYPE patroni_failsafe_member gauge")
+        metrics.append("patroni_failsafe_member{0} {1}".format(labels, int(is_failsafe_member)))
 
         metrics.append("# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_timeline counter")
@@ -1470,14 +1490,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
         logger.debug("API thread: %s - - %s latency: %0.3f ms", self.client_address[0], format % args, latency)
 
 
-class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
+class RestApiServer(ThreadingMixIn, HTTPServer):
     """Patroni REST API server.
 
-    An asynchronous thread-based HTTP server.
+    An asynchronous thread-pool-based HTTP server.
     """
-
-    # On 3.7+ the `ThreadingMixIn` gathers all non-daemon worker threads in order to join on them at server close.
-    daemon_threads = True  # Make worker threads "fire and forget" to prevent a memory leak.
 
     def __init__(self, patroni: Patroni, config: Dict[str, Any]) -> None:
         """Establish patroni configuration for the REST API daemon.
@@ -1495,6 +1512,13 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.patroni = patroni
         self.__listen = None
         self.request_queue_size = int(config.get('request_queue_size', 5))
+        try:
+            thread_pool_size = max(5, int(config.get('thread_pool_size', 5)))
+        except Exception as e:
+            logger.warning('Failed to parse restapi.thread_pool_size value "%s": %r', config.get('thread_pool_size'), e)
+            thread_pool_size = 5
+        logger.info('REST API thread_pool_size = %d', thread_pool_size)
+        self._executor = PatroniThreadPoolExecutor(max_workers=thread_pool_size + 1, thread_name_prefix='RestAPI')
         self.__ssl_options: Dict[str, Any] = {}
         self.__ssl_serial_number = None
         self._received_new_cert = False
@@ -1755,8 +1779,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         reloading_config = self.__listen is not None  # changing config in runtime
         if reloading_config:
-            self.shutdown()
-            # Rely on ThreadingMixIn.server_close() to have all requests terminate before we continue
+            HTTPServer.shutdown(self)
+            # Rely on TCPServer.server_close() to have all requests terminate before we continue
             self.server_close()
 
         self.__listen = listen
@@ -1764,7 +1788,6 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self._received_new_cert = False  # reset to False after reload_config()
 
         self.__httpserver_init(host, port)
-        Thread.__init__(self, target=self.serve_forever)
         self._set_fd_cloexec(self.socket)
 
         # wrap socket with ssl if 'certfile' is defined in a config.yaml
@@ -1789,6 +1812,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if reloading_config:
             self.start()
 
+    def start(self) -> None:
+        self._executor.submit(self.serve_forever)
+
     def process_request_thread(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
                                client_address: Tuple[str, int]) -> None:
         """Process a request to the REST API.
@@ -1808,6 +1834,14 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             if isinstance(request, SSLSocket):  # pyright
                 request.do_handshake()
         super(RestApiServer, self).process_request_thread(request, client_address)
+
+    def process_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
+                        client_address: Tuple[str, int]) -> None:
+        self._executor.submit(self.process_request_thread, request, client_address)
+
+    def shutdown(self) -> None:
+        super(RestApiServer, self).shutdown()
+        self._executor.shutdown(wait=True)
 
     def shutdown_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]]) -> None:
         """Shut down a request to the REST API.

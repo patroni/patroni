@@ -6,12 +6,14 @@ import shutil
 import subprocess
 
 from enum import IntEnum
-from threading import Lock, Thread
+from threading import Lock
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+from .. import thread_pool
 from ..async_executor import CriticalTask
 from ..collections import EMPTY_DICT
 from ..dcs import Leader, RemoteMember
+from ..utils import process_user_options
 from . import Postgresql
 from .connection import get_connection_cursor
 from .misc import format_lsn, fsync_dir, parse_history, parse_lsn, PostgresqlRole
@@ -51,16 +53,26 @@ class Rewind(object):
         """
         # low-hanging fruit: check if pg_rewind configuration is there
         if not self.enabled:
+            logger.debug('pg_rewind is not possible: use_pg_rewind is not enabled in Patroni configuration')
             return False
 
         cmd = [self._postgresql.pgcommand('pg_rewind'), '--help']
         try:
             ret = subprocess.call(cmd, stdout=open(os.devnull, 'w'), stderr=subprocess.STDOUT)
             if ret != 0:  # pg_rewind is not there, close up the shop and go home
+                logger.debug('pg_rewind is not possible: pg_rewind command returned non-zero exit code %s', ret)
                 return False
-        except OSError:
+        except OSError as e:
+            logger.debug('pg_rewind is not possible: pg_rewind command is not accessible: %s', e)
             return False
-        return self.configuration_allows_rewind(self._postgresql.controldata())
+        data = self._postgresql.controldata()
+        if not self.configuration_allows_rewind(data):
+            logger.debug('pg_rewind is not possible: neither wal_log_hints nor data checksums are enabled'
+                         ' (wal_log_hints=%s, data_checksums=%s)',
+                         data.get('wal_log_hints setting', 'off'),
+                         data.get('Data page checksum version', '0'))
+            return False
+        return True
 
     @property
     def should_remove_data_directory_on_diverged_timelines(self) -> bool:
@@ -71,8 +83,12 @@ class Rewind(object):
         return self.should_remove_data_directory_on_diverged_timelines or self.can_rewind
 
     def trigger_check_diverged_lsn(self) -> None:
-        if self.can_rewind_or_reinitialize_allowed and self._state != REWIND_STATUS.NEED:
+        allowed = self.can_rewind_or_reinitialize_allowed
+        if allowed and self._state != REWIND_STATUS.NEED:
             self._state = REWIND_STATUS.CHECK
+        elif not allowed:
+            logger.debug('not checking diverged timeline: pg_rewind is not possible'
+                         ' and remove_data_directory_on_diverged_timelines is not enabled')
         with self._checkpoint_task_lock:
             self._checkpoint_task = None
 
@@ -322,7 +338,7 @@ class Rewind(object):
                     self._state = REWIND_STATUS.CHECKPOINT
                 else:
                     self._checkpoint_task = CriticalTask()
-                    Thread(target=self.__checkpoint, args=(self._checkpoint_task, wakeup)).start()
+                    thread_pool.get_executor().submit(self.__checkpoint, self._checkpoint_task, wakeup)
 
     def checkpoint_after_promote(self) -> bool:
         return self._state == REWIND_STATUS.CHECKPOINT
@@ -443,6 +459,10 @@ class Rewind(object):
 
         :returns: ``True`` if ``pg_rewind`` finished successfully, ``False`` otherwise.
         """
+        options = self._postgresql.config.get('rewind', [])
+        not_allowed_options = ('target-pgdata', 'source-pgdata', 'source-server', 'write-recovery-conf', 'dry-run',
+                               'restore-target-wal', 'config-file', 'no-ensure-shutdown', 'version', 'help')
+        user_options = process_user_options('rewind', options, not_allowed_options, logger.error)
         # prepare pg_rewind connection string
         env = self._postgresql.config.write_pgpass(conn_kwargs)
         env.update(LANG='C', LC_ALL='C', PGOPTIONS='-c statement_timeout=0')
@@ -466,6 +486,7 @@ class Rewind(object):
                 cmd.append('--config-file={0}'.format(self._postgresql.config.postgresql_conf))
 
         cmd.extend(['-D', self._postgresql.data_dir, '--source-server', dsn])
+        cmd.extend(user_options)
 
         while True:
             results: Dict[str, bytes] = {}

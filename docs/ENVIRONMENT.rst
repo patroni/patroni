@@ -8,9 +8,12 @@ It is possible to override some of the configuration parameters defined in the P
 Global/Universal
 ----------------
 -  **PATRONI\_CONFIGURATION**: it is possible to set the entire configuration for the Patroni via ``PATRONI_CONFIGURATION`` environment variable. In this case any other environment variables will not be considered!
+-  **PATRONI\_THREAD\_POOL\_SIZE**: size of thread pool used by Patroni to execute asynchronous tasks and communicate via REST API with other members during leader race or failsafe checks. Minimal value is ``5``, default value is ``5``.
+-  **PATRONI\_THREAD\_STACK\_SIZE**: specifies the stack size to be used for threads started by Patroni. Value must be aligned by ``64kB``. Minimal value is ``64kB``,  default value (set by Patroni) is ``512kB``.
 -  **PATRONI\_NAME**: name of the node where the current instance of Patroni is running. Must be unique for the cluster.
 -  **PATRONI\_NAMESPACE**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service"
 -  **PATRONI\_SCOPE**: cluster name
+-  **PG\_MALLOC\_ARENA\_MAX**: custom value for ``MALLOC_ARENA_MAX`` environment variable for  ``postmaster`` process. If not set, ``postmaster`` will inherit ``MALLOC_ARENA_MAX`` value.
 
 Log
 ---
@@ -97,7 +100,7 @@ ZooKeeper
 -  **PATRONI\_ZOOKEEPER\_KEY**: (optional) File with the client key.
 -  **PATRONI\_ZOOKEEPER\_KEY\_PASSWORD**: (optional) The client key password.
 -  **PATRONI\_ZOOKEEPER\_VERIFY**: (optional) Whether to verify certificate or not. Defaults to ``true``.
--  **PATRONI\_ZOOKEEPER\_SET\_ACLS**: (optional) If set, configure Kazoo to apply a default ACL to each ZNode that it creates. ACLs will assume 'x509' schema and should be specified as a dictionary with the principal as the key and one or more permissions as a list in the value.  Permissions may be one of ``CREATE``, ``READ``, ``WRITE``, ``DELETE`` or ``ADMIN``.  For example, ``set_acls: {CN=principal1: [CREATE, READ], CN=principal2: [ALL]}``.
+-  **PATRONI\_ZOOKEEPER\_SET\_ACLS**: (optional) If set, configures Kazoo to apply a default ACL to each ZNode that it creates. ACLs can use either the `x509` schema (default) or other supported ZooKeeper schemes such as `digest`. They should be specified as a dictionary where the key is the full principal (optionally prefixed with the scheme) and the value is a list of permissions. Permissions may be one or more of ``CREATE``, ``READ``, ``WRITE``, ``DELETE``, ``ADMIN``, or ``ALL``. For example, ``set_acls: {CN=principal1: [CREATE, READ], digest:principal2:+pjROuBuuwNNSujKyH8dGcEnFPQ=: [ALL]}``.
 -  **PATRONI\_ZOOKEEPER\_AUTH\_DATA**: (optional) Authentication credentials to use for the connection. Should be a dictionary in the form that `scheme` is the key and `credential` is the value. Defaults to empty dictionary.
 
 .. note::
@@ -193,6 +196,7 @@ PostgreSQL
 
 REST API
 --------
+-  **PATRONI\_RESTAPI\_THREAD\_POOL\_SIZE**: size of thread pool used by Patroni to process REST API requests. Minimal value is ``5``, default value is ``5``.
 -  **PATRONI\_RESTAPI\_CONNECT\_ADDRESS**: IP address and port to access the REST API.
 -  **PATRONI\_RESTAPI\_LISTEN**: IP address and port that Patroni will listen to, to provide health-check information for HAProxy.
 -  **PATRONI\_RESTAPI\_USERNAME**: Basic-auth username to protect unsafe REST API endpoints.
