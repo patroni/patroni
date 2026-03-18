@@ -274,6 +274,105 @@ class TestPatroni(unittest.TestCase):
         self.p._get_tags = Mock(side_effect=Exception)
         self.p.reload_config(local=True)
 
+    def test_reload_config_updates_effective_role(self):
+        """Test that reload_config updates _last_effective_role based on current role."""
+        # When role is UNINITIALIZED, _last_effective_role should be None
+        self.p.postgresql.set_role(PostgresqlRole.UNINITIALIZED)
+        self.p.reload_config()
+        self.assertIsNone(self.p._last_effective_role)
+
+        # When role is REPLICA, _last_effective_role should be REPLICA
+        self.p.postgresql.set_role(PostgresqlRole.REPLICA)
+        self.p.reload_config()
+        self.assertEqual(self.p._last_effective_role, PostgresqlRole.REPLICA)
+
+        # When role is PRIMARY, _last_effective_role should be PRIMARY
+        self.p.postgresql.set_role(PostgresqlRole.PRIMARY)
+        self.p.reload_config()
+        self.assertEqual(self.p._last_effective_role, PostgresqlRole.PRIMARY)
+
+    @patch('patroni.config.Config.save_cache', Mock())
+    @patch('patroni.config.Config.set_dynamic_configuration', Mock(return_value=False))
+    @patch.object(Postgresql, 'reload_config')
+    def test_run_cycle_role_change_triggers_reload(self, mock_pg_reload):
+        """Test that _run_cycle detects role changes and reloads PostgreSQL config."""
+        self.p.ha.run_cycle = Mock(return_value='no action')
+        self.p.ha.dcs.watch = Mock(return_value=True)
+
+        # Start with _last_effective_role = None (simulating startup)
+        self.p._last_effective_role = None
+        self.p._last_effective_pg_config = self.p.config['postgresql']
+
+        # Set role to REPLICA
+        self.p.postgresql.set_role(PostgresqlRole.REPLICA)
+
+        # Add role-specific parameters to config to ensure effective config differs
+        self.p.config._local_configuration.setdefault('postgresql', {})['parameters_replica'] = {
+            'work_mem': '32MB'
+        }
+
+        # Run a cycle - should detect role change and reload
+        mock_pg_reload.reset_mock()
+        self.p._run_cycle()
+
+        # Should have called postgresql.reload_config due to role change
+        self.assertTrue(mock_pg_reload.called)
+        self.assertEqual(self.p._last_effective_role, PostgresqlRole.REPLICA)
+
+    @patch('patroni.config.Config.save_cache', Mock())
+    @patch('patroni.config.Config.set_dynamic_configuration', Mock(return_value=False))
+    @patch.object(Postgresql, 'reload_config')
+    def test_run_cycle_no_reload_when_role_unchanged(self, mock_pg_reload):
+        """Test that _run_cycle does not reload when role hasn't changed."""
+        self.p.ha.run_cycle = Mock(return_value='no action')
+        self.p.ha.dcs.watch = Mock(return_value=True)
+
+        # Set role to REPLICA and mark it as already processed
+        self.p.postgresql.set_role(PostgresqlRole.REPLICA)
+        self.p._last_effective_role = PostgresqlRole.REPLICA
+        self.p._last_effective_pg_config = \
+            self.p.config.build_effective_postgresql_configuration(PostgresqlRole.REPLICA)
+
+        # Run a cycle - should NOT reload since role hasn't changed
+        mock_pg_reload.reset_mock()
+        self.p._run_cycle()
+
+        # Should NOT have called postgresql.reload_config
+        self.assertFalse(mock_pg_reload.called)
+
+    @patch('patroni.config.Config.save_cache', Mock())
+    @patch('patroni.config.Config.set_dynamic_configuration', Mock(return_value=False))
+    @patch.object(Postgresql, 'reload_config')
+    def test_run_cycle_role_change_replica_to_primary(self, mock_pg_reload):
+        """Test that _run_cycle handles role transition from REPLICA to PRIMARY."""
+        self.p.ha.run_cycle = Mock(return_value='no action')
+        self.p.ha.dcs.watch = Mock(return_value=True)
+
+        # Start as REPLICA
+        self.p.postgresql.set_role(PostgresqlRole.REPLICA)
+        self.p._last_effective_role = PostgresqlRole.REPLICA
+        self.p._last_effective_pg_config = \
+            self.p.config.build_effective_postgresql_configuration(PostgresqlRole.REPLICA)
+
+        # Add role-specific parameters to ensure configs differ
+        self.p.config._local_configuration.setdefault('postgresql', {})['parameters_primary'] = {
+            'work_mem': '128MB'
+        }
+        self.p.config._local_configuration['postgresql']['parameters_replica'] = {
+            'work_mem': '32MB'
+        }
+
+        # Transition to PRIMARY
+        self.p.postgresql.set_role(PostgresqlRole.PRIMARY)
+
+        # Run a cycle - should detect role change and reload
+        mock_pg_reload.reset_mock()
+        self.p._run_cycle()
+
+        # Should have called postgresql.reload_config due to role change
+        self.assertTrue(mock_pg_reload.called)
+        self.assertEqual(self.p._last_effective_role, PostgresqlRole.PRIMARY)
+
     def test_nosync(self):
         self.p.tags['nosync'] = True
         self.assertTrue(self.p.nosync)
