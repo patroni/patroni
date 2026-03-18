@@ -15,6 +15,12 @@ Group=postgres
 # Read in configuration file if it exists, otherwise proceed
 EnvironmentFile=-/etc/patroni_env.conf
 
+# Limit glibc malloc arenas to reduce virtual memory.
+# This is essential when running with vm.overcommit_memory=2.
+Environment=MALLOC_ARENA_MAX=1
+# Reset or set another MALLOC_ARENA_MAX value when starting up postmaster.
+Environment=PG_MALLOC_ARENA_MAX=
+
 # The default is the user's home directory, and if you want to change it, you must provide an absolute path.
 # WorkingDirectory=/home/sameuser
 
