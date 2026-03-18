@@ -489,6 +489,20 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.assertEqual(self.ha._get_node_to_follow(self.ha.cluster), None)
 
+    def test_get_node_to_follow_replicatefrom_any(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.patroni.replicatefrom = 'any'
+        node_to_follow = self.ha._get_node_to_follow(self.ha.cluster)
+        self.assertIsNotNone(node_to_follow)
+        self.assertEqual(node_to_follow.name, 'other')
+
+    def test_get_node_to_follow_replicatefrom_fallback_to_leader(self):
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.patroni.replicatefrom = 'non-existing-member'
+        node_to_follow = self.ha._get_node_to_follow(self.ha.cluster)
+        self.assertIsNotNone(node_to_follow)
+        self.assertEqual(node_to_follow.name, 'leader')
+
     @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_follow(self):
         self.p.is_primary = false

@@ -431,6 +431,8 @@ Tags
 -  **clonefrom**: ``true`` or ``false``. If set to ``true`` other nodes might prefer to use this node for bootstrap (take ``pg_basebackup`` from). If there are several nodes with ``clonefrom`` tag set to ``true`` the node to bootstrap from will be chosen randomly. The default value is ``false``.
 -  **noloadbalance**: ``true`` or ``false``. If set to ``true`` the node will return HTTP Status Code 503 for the ``GET /replica`` REST API health-check and therefore will be excluded from the load-balancing. Defaults to ``false``.
 -  **replicatefrom**: The name of another replica to replicate from. Used to support cascading replication.
+   Special values ``any``, ``standby``, or ``replica`` can be used to follow any available standby, with fallback
+   to the leader if no standby source is available.
 -  **nosync**: ``true`` or ``false``. If set to ``true`` the node will never be selected as a synchronous replica.
 -  **sync_priority**: integer, controls the priority this node should have during synchronous replica selection when ``synchronous_mode`` is set to ``on``. Nodes with higher priority will be preferred over lower-priority nodes. If the ``sync_priority`` is 0 or negative - such node is not allowed to be written to ``synchronous_standby_names`` PostgreSQL parameter (similar to ``nosync: true``). Keep in mind, that this parameter has the opposite meaning to ``sync_priority`` value reported in ``pg_stat_replication`` view.
 -  **nofailover**: ``true`` or ``false``, controls whether this node is allowed to participate in the leader race and become a leader. Defaults to ``false``, meaning this node _can_ participate in leader races. 
