@@ -190,6 +190,7 @@ def run_async(self, func, args=()):
     'Latest checkpoint location': '0/12345678',
     "Latest checkpoint's TimeLineID": '2'}))
 @patch.object(SlotsHandler, 'load_replication_slots', Mock(side_effect=Exception))
+@patch.object(ConfigHandler, 'pg_version', PropertyMock(return_value=180000))
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_pgpass', Mock(return_value={}))
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())
@@ -1671,9 +1672,25 @@ class TestHa(PostgresInit):
         self.ha.has_lock = true
         self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
 
+    @patch.object(global_config.__class__, 'primary_race_backoff', PropertyMock(return_value=3))
+    def test_primary_race_backoff(self):
+        self.p.is_primary = false
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.run_cycle()
+        self.assertEqual(self.ha.run_cycle(),
+                         'no action. I am (postgresql0), a secondary, and following a leader (leader)')
+        self.ha.cluster = get_cluster_initialized_without_leader()
+        with patch('patroni.postgresql.Postgresql.replication_state', return_value='streaming'), \
+                patch('patroni.postgresql.Postgresql.last_operation', return_value=11), \
+                patch('patroni.dcs.AbstractDCS.watch', Mock()):
+            self.assertTrue(self.ha.run_cycle().startswith('My (postgresql0) wal position moved'))
+            self.ha.watch(10)
+
     def test_watch(self):
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.ha.watch(0)
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
+            self.ha.watch(0)
 
     def test_wakeup(self):
         self.ha.wakeup()

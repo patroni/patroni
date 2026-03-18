@@ -53,16 +53,26 @@ class Rewind(object):
         """
         # low-hanging fruit: check if pg_rewind configuration is there
         if not self.enabled:
+            logger.debug('pg_rewind is not possible: use_pg_rewind is not enabled in Patroni configuration')
             return False
 
         cmd = [self._postgresql.pgcommand('pg_rewind'), '--help']
         try:
             ret = subprocess.call(cmd, stdout=open(os.devnull, 'w'), stderr=subprocess.STDOUT)
             if ret != 0:  # pg_rewind is not there, close up the shop and go home
+                logger.debug('pg_rewind is not possible: pg_rewind command returned non-zero exit code %s', ret)
                 return False
-        except OSError:
+        except OSError as e:
+            logger.debug('pg_rewind is not possible: pg_rewind command is not accessible: %s', e)
             return False
-        return self.configuration_allows_rewind(self._postgresql.controldata())
+        data = self._postgresql.controldata()
+        if not self.configuration_allows_rewind(data):
+            logger.debug('pg_rewind is not possible: neither wal_log_hints nor data checksums are enabled'
+                         ' (wal_log_hints=%s, data_checksums=%s)',
+                         data.get('wal_log_hints setting', 'off'),
+                         data.get('Data page checksum version', '0'))
+            return False
+        return True
 
     @property
     def should_remove_data_directory_on_diverged_timelines(self) -> bool:
@@ -73,8 +83,12 @@ class Rewind(object):
         return self.should_remove_data_directory_on_diverged_timelines or self.can_rewind
 
     def trigger_check_diverged_lsn(self) -> None:
-        if self.can_rewind_or_reinitialize_allowed and self._state != REWIND_STATUS.NEED:
+        allowed = self.can_rewind_or_reinitialize_allowed
+        if allowed and self._state != REWIND_STATUS.NEED:
             self._state = REWIND_STATUS.CHECK
+        elif not allowed:
+            logger.debug('not checking diverged timeline: pg_rewind is not possible'
+                         ' and remove_data_directory_on_diverged_timelines is not enabled')
         with self._checkpoint_task_lock:
             self._checkpoint_task = None
 
