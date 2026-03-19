@@ -241,8 +241,6 @@ class Patroni(AbstractPatroniDaemon, Tags):
         """
         from patroni import thread_pool
 
-        thread_pool.get_executor().shutdown(wait=False)
-
         try:
             self.api.shutdown()
         except Exception:
@@ -251,6 +249,8 @@ class Patroni(AbstractPatroniDaemon, Tags):
             self.ha.shutdown()
         except Exception:
             logger.exception('Exception during Ha.shutdown')
+
+        thread_pool.get_executor().shutdown(wait=False)
 
 
 def patroni_main(configfile: str) -> None:
