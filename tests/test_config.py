@@ -184,12 +184,20 @@ class TestConfig(unittest.TestCase):
                     ''')
             elif fname.endswith('00-empty.yml'):
                 return io.StringIO(u'''---''')
+            elif fname.endswith('00-nondict-parameters.yml'):
+                return io.StringIO(
+                    u'''
+                    postgresql:
+                      parameters:
+                      - abc: 3
+                    ''')
 
         with patch('builtins.open', MagicMock(side_effect=open_mock)):
             self.assertRaises(ConfigParseError, Config, 'postgres0')
             mock_logger.error.assert_called_once_with(
                 '%s does not contain a dict',
                 'postgres0\\00-empty.yml' if sys.platform == 'win32' else 'postgres0/00-empty.yml')
+            self.assertRaises(ConfigParseError, Config, '00-nondict-parameters.yml')
 
     @patch.object(Config, 'get')
     @patch('patroni.config.logger')
