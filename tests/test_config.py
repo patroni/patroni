@@ -356,6 +356,19 @@ class TestConfig(unittest.TestCase):
             # Warning should have been logged
             mock_warning.assert_called()
 
+    def test_build_effective_postgresql_configuration_invalid_role_params_type(self):
+        """Test that non-dict parameters_<role> does not break config assembly."""
+        self.config._Config__effective_configuration = {
+            'postgresql': {
+                'parameters': {'shared_buffers': '256MB', 'work_mem': '4MB'},
+                'parameters_primary': ['not', 'a', 'dict'],
+            }
+        }
+
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.PRIMARY)
+        self.assertEqual(result['parameters']['shared_buffers'], '256MB')
+        self.assertEqual(result['parameters']['work_mem'], '4MB')
+
     def test_build_effective_postgresql_configuration_returns_deep_copy(self):
         """Test that build_effective_postgresql_configuration returns a deep copy."""
         self.config._Config__effective_configuration = {
