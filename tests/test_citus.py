@@ -44,7 +44,6 @@ class TestCitusDatabase(BaseTestPostgresql):
         self.c.add_task('after_promote', 2, self.cluster, self.cluster.leader_name, 'postgres://host3:5432/postgres')
         self.c._bootstrapped = True
         self.assertRaises(SleepException, self.c.run)
-        mock_boostrap.assert_called()
         mock_logger_warning.assert_called_once()
         self.assertTrue(mock_logger_warning.call_args[0][0].startswith('Rolling back transaction'))
         self.assertTrue(repr(mock_logger_warning.call_args[0][1]).startswith('PgDistTask'))

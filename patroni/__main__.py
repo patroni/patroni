@@ -83,7 +83,6 @@ class Patroni(AbstractPatroniDaemon, Tags):
         global_config.update(None, self.config.dynamic_configuration)
 
         self.postgresql = Postgresql(self.config['postgresql'], self.dcs.mpp)
-        self.postgresql.mpp_handler.reload_config(self.config)
         self.api = RestApiServer(self, self.config['restapi'])
         self.ha = Ha(self)
 
@@ -188,7 +187,6 @@ class Patroni(AbstractPatroniDaemon, Tags):
                 self.config.build_effective_postgresql_configuration(self.postgresql.role)
             self.postgresql.reload_config(self._last_effective_pg_config, sighup)
             self.dcs.reload_config(self.config)
-            self.postgresql.mpp_handler.reload_config(self.config)
         except Exception:
             logger.exception('Failed to reload config_file=%s', self.config.config_file)
 

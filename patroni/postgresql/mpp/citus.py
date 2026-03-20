@@ -13,7 +13,6 @@ from ..misc import PostgresqlRole, PostgresqlState
 from . import AbstractMPP, AbstractMPPHandler
 
 if TYPE_CHECKING:  # pragma: no cover
-    from ...config import Config
     from .. import Postgresql
 
 CITUS_COORDINATOR_GROUP_ID = 0
