@@ -381,7 +381,7 @@ class Config(object):
                 logger.exception('Exception when reloading local configuration from %s', self.config_file)
 
     @staticmethod
-    def _process_postgresql_parameters(parameters: Dict[str, Any], is_local: bool = False) -> Dict[str, Any]:
+    def _process_postgresql_parameters(parameters: Any, is_local: bool = False) -> Dict[str, Any]:
         """Process Postgres *parameters*.
 
         .. note::
@@ -413,9 +413,12 @@ class Config(object):
 
         :returns: new value for ``postgresql.parameters`` after processing and validating *parameters*.
         """
+        if not isinstance(parameters or {}, dict):
+            raise ConfigParseError('postgresql.parameters is not a dictionary')
+
         pg_params: Dict[str, Any] = {}
 
-        for name, value in (parameters or {}).items():
+        for name, value in cast(Dict[str, Any], parameters or {}).items():
             if name not in ConfigHandler.CMDLINE_OPTIONS:
                 pg_params[name] = value
             elif not is_local:
