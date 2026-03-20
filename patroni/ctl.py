@@ -1399,10 +1399,8 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
             click.echo('{0} {1}'.format(timestamp(), r.data.decode('utf-8')))
         else:
             details = r.data.decode('utf-8')
-            message = '{0} failed, details: {1}, {2}'
-            if 'status unknown' in details.lower():
-                message = '{0} result unknown, details: {1}, {2}'
-            click.echo(message.format(action.title(), r.status, details))
+            result = 'result unknown' if 'status unknown' in details.lower() else 'failed'
+            click.echo('{0} {1}, details: {2}, {3}'.format(action.title(), result, r.status, details))
             return
     except Exception:
         logging.exception(r)
