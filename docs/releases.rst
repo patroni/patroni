@@ -3,6 +3,187 @@
 Release notes
 =============
 
+Version 4.1.0
+-------------
+
+Released 2025-09-23
+
+**New features**
+
+- Add support for systemd "notify" unit type (Ronan Dunklau)
+
+  Without a notify unit type, it is possible to start Patroni and immediately send it a SIGHUP signal using systemd, effectively killing it before it had time to set up its signal handlers.
+
+- Provide receive and replay LSN/lag information in API and ctl (Polina Bungina)
+
+  Patroni REST API ``/cluster`` endpoint and ``patronictl list`` command now provide receive LSN, replay LSN, receive lag, and replay lag information for each replica member.
+
+- Ensure clean demotion to standby cluster (Polina Bungina)
+
+  Make sure the introduction of the ``standby_cluster`` section in the dynamic configuration leads to a clean cluster demotion.
+
+- Implement ``patronictl demote-cluster`` and ``promote-cluster`` commands (Polina Bungina)
+
+  New commands for cluster demotion and promotion handle both the dynamic configuration editing and checking the result status.
+
+- Implement ``sync_priority`` tag (Polina Bungina)
+
+  This parameter controls the priority a member should have during synchronous replica selection when ``synchronous_mode`` is set to ``on``.
+
+- Implement ``--print`` option for ``--validate-config`` (Polina Bungina)
+
+  Print out local configuration (including environment configuration overrides) after it has been successfully validated.
+
+- Implement ``kubernetes.bootstrap_labels`` (Polina Bungina)
+
+  This feature allows you to define labels that will be assigned to a member pod when in ``initializing new cluster``, ``running custom bootstrap script``, ``starting after custom bootstrap``, or ``creating replica`` state.
+
+- Add configuration option to suppress duplicate heartbeat logs (Michael Morris)
+
+  If set to ``true``, successive heartbeat logs that are identical shall not be output.
+
+- Add optional ``cluster_type`` attribute to permanent replication slots (Michael Banck)
+
+  This allows you to set whether a particular permanent replication slot should always be created, or just on a primary or standby cluster.
+
+- Make HTTP Server header configurable (David Grierson)
+
+  Introduce the ``restapi.server_tokens`` configuration parameter that allows you to restrict information disclosed in the HTTP Server header.
+
+- Implement readiness API checks for replication on replica members (Ants Aasma)
+
+  The previous implementation considered replicas ready as soon as PostgreSQL was started. With this change, a replica pod is only considered ready when PostgreSQL is replicating and is not too far behind the leader.
+
+
+**Improvements**
+
+- Reduce log level of watchdog configuration failure (Ants Aasma)
+
+  Show the `Could not activate Linux watchdog device` log line on debug logging level, unless the watchdog is configured with ``required`` mode. It was previously shown on info level.
+
+- Take advantage of ``written_lsn`` and ``latest_end_lsn`` from ``pg_stat_wal_receiver`` (Alexander Kukushkin)
+
+  ``written_lsn``, the actual write LSN, is now preferred over the one returned by ``pg_last_wal_receive_lsn()``, which is in fact the flush LSN. ``latest_end_lsn`` points to WAL flush on the source host. In case of a primary, it allows better calculation of the replay lag, because values stored in DCS are updated only every ``loop_wait`` seconds.
+
+- Avoid interactions with slots created with the ``failover=true`` option (Alexander Kukushkin)
+
+  This change is required to make the logical failover slots feature fully functional.
+
+- Add PostgreSQL state to ``/metrics`` REST API endpoint (Ivan Filianin)
+
+  PostgreSQL instance state information is now available in the Prometheus format output of the ``/metrics`` REST API endpoint.
+
+
+Version 4.0.7
+-------------
+
+Released 2025-09-22
+
+**New features**
+
+- Add support for PostgreSQL 18 RC1 (Alexander Kukushkin)
+
+  GUC's validator rules were extended. Patroni now properly handles the new background I/O worker.
+
+
+**Bugfixes**
+
+- Fix potential issue around resolving localhost to IPv6 on Windows (András Váczi)
+
+  When configuring ``listen_addresses`` in PostgreSQL, using ``0.0.0.0`` or ``127.0.0.1`` will restrict listening to IPv4 only, excluding IPv6. On typical Windows systems, however, ``localhost`` often resolves to the IPv6 address ``::1`` by default. To ensure compatibility, Patroni now configures PostgreSQL to listen on ``127.0.0.1``, instead of ``localhost``, on Windows systems.
+
+- Return global config only when ``/config`` key exists in DCS (Alexander Kukushkin)
+
+  Patroni REST API was returning an empty configuration instead of raising an error if the ``/config`` key was missing in DCS.
+
+- Fix the issue of failsafe mode not being triggered in case of Etcd unavailability (Alexander Kukushkin)
+
+  Patroni was not always properly handling ``etcd3`` exceptions, which resulted in failsafe mode not being triggered.
+
+- Fix signal handler reentrancy deadlock (Waynerv)
+
+  Patroni running in a Docker container with ``PID=1`` in some special cases was experiencing deadlock after receiving ``SIGCHLD``.
+
+- Recreate (permanent) physical slot when it doesn't reserve WAL (Israel Barth Rubio)
+
+  Permanent physical replication slots created outside of Patroni scope without reserving WALs were causing a ``replication slot cannot be advanced`` error. To avoid this, Patroni now recreates such slots.
+
+- Handle watch cancelation messages in ``etcd3`` properly (Alexander Kukushkin)
+
+  When ``etcd3`` sends a cancelation message to the watch channel, it doesn't close the connection. This results in Patroni using stale data. Patroni now solves it by breaking a loop of reading chunked response and closing the connection on the Patroni side.
+
+- Handle case when ``HTTPConnection`` socket is wrapped with ``pyopenssl`` (Alexander Kukushkin)
+
+  Patroni was not correctly using ``pyopenssl`` interfaces, enforced in ``python-etcd``.
+
+
+**Documentation improvements**
+
+- Improve 2-node cluster guidance (Nikolay Samokhvalov)
+
+  Clarify behaviour during failover and DCS requirements.
+
+
+Version 4.0.6
+-------------
+
+Released 2025-06-06
+
+**Bugfixes**
+
+- Fix bug in failover from a leader with a higher priority (Alexander Kukushkin)
+
+  Make sure Patroni ignores the former leader with higher priority when it reports the same ``LSN`` as the current node.
+
+- Fix permissions for the ``postgresql.conf`` file created outside of ``PGDATA`` (Michael Banck)
+
+  Respect the system-wide umask value when creating the ``postgresql.conf`` file outside of the ``PGDATA`` directory.
+
+- Fix bug with switchover in ``synchronous_mode=quorum`` (Alexander Kukushkin)
+
+  Do not check quorum requirements when a candidate is specified.
+
+- Ignore stale Etcd nodes by comparing cluster term (Alexander Kukushkin)
+
+  Memorize the last known "raft_term" of the Etcd cluster, and when executing client requests, compare it with the "raft_term" reported by an Etcd node.
+
+- Update PostgreSQL configuration files on ``SIGHUP`` (Alexander Kukushkin)
+
+  Previously, Patroni was only replacing PostgreSQL configuration files if a change in global or local configuration was detected.
+
+- Properly handle ``Unavailable`` exception raised by ``etcd3`` (Alexander Kukushkin)
+
+  Patroni used to retry such requests on the same ``etcd3`` node, while switching to another node is a better strategy.
+
+- Improve ``etcd3`` lease handling (Alexander Kukushkin)
+
+  Make sure Patroni refreshes the ``etcd3`` lease at least once per HA loop.
+
+- Recheck annotations on 409 status code when attempting to acquire leader lock (Alexander Kukushkin)
+
+  Implement the same behavior as was done for the leader object read in Patroni version 4.0.3.
+
+- Consider ``replay_lsn`` when advancing slots (Polina Bungina)
+
+  Do not try to advance slots on replicas past the ``replay_lsn``. Additionally, advance the slot to the ``replay_lsn`` position if it is already past the ``confirmed_flush_lsn`` of this slot on the replica but the replica has still not replayed the actual ``LSN`` at which this slot is on the primary.
+
+- Make sure ``CHECKPOINT`` is executed after promote (Alexander Kukushkin)
+
+  It was possible that checkpoint task wasn't reset on demote because ``CHECKPOINT`` wasn't yet finished. This resulted in using a stale ``result`` when the next promote is triggered.
+
+- Avoid running "offline" demotion concurrently (Alexander Kukushkin)
+
+  In case of a slow shutdown, it might happen that the next heartbeat loop hits the DCS error handling method again, resulting in ``AsyncExecutor is busy, demoting from the main thread`` warning and starting offline demotion again.
+
+- Normalize the ``data_dir`` value before renaming the data directory on initialization failure (Waynerv)
+
+  Prevent a trailing slash in the ``data_dir`` parameter value from breaking the renaming process after an initialization failure.
+
+- Check that ``synchronous_standby_names`` contains the expected value (Alexander Kukushkin)
+
+  Previously, the mechanism implementing the state machine for non-quorum synchronous replication didn't check the actual value of ``synchronous_standby_names``, what resulted in a stale value of ``synchronous_standby_names`` being used when ``pg_stat_replication`` is a subset of ``synchronous_standby_names``.
+
+
 Version 4.0.5
 -------------
 

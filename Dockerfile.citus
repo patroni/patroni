@@ -1,6 +1,6 @@
 ## This Dockerfile is meant to aid in the building and debugging patroni whilst developing on your local machine
 ## It has all the necessary components to play/debug with a single node appliance, running etcd
-ARG PG_MAJOR=16
+ARG PG_MAJOR=17
 ARG COMPRESS=false
 ARG PGHOME=/home/postgres
 ARG PGDATA=$PGHOME/data
@@ -40,7 +40,7 @@ RUN set -ex \
         echo "deb [signed-by=/etc/apt/trusted.gpg.d/citusdata_community.gpg] https://packagecloud.io/citusdata/community/debian/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/citusdata_community.list \
         && curl -sL https://packagecloud.io/citusdata/community/gpgkey | gpg --dearmor > /etc/apt/trusted.gpg.d/citusdata_community.gpg \
         && apt-get update -y \
-        && apt-get -y install postgresql-$PG_MAJOR-citus-12.1; \
+        && apt-get -y install postgresql-$PG_MAJOR-citus-13.1; \
     fi \
 \
     # Cleanup all locales but en_US.UTF-8

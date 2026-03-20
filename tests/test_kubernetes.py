@@ -24,7 +24,7 @@ from . import MockResponse, SleepException
 def mock_list_namespaced_config_map(*args, **kwargs):
     k8s_group_label = get_mpp({'citus': {'group': 0, 'database': 'postgres'}}).k8s_group_label
     metadata = {'resource_version': '1', 'labels': {'f': 'b'}, 'name': 'test-config',
-                'annotations': {'initialize': '123', 'config': '{}'}}
+                'annotations': {'initialize': '123', 'config': '[]', 'history': '{}'}}
     items = [k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(**metadata))]
     metadata.update({'name': 'test-leader',
                      'annotations': {'optime': '1234x', 'leader': 'p-0', 'ttl': '30s',
@@ -113,16 +113,16 @@ class TestK8sConfig(unittest.TestCase):
                 patch('builtins.open', Mock(side_effect=[
                     mock_open(read_data='cert')(), mock_open(read_data='a')(),
                     mock_open()(), mock_open(read_data='b')(), mock_open(read_data='c')()])):
-            k8s_config.load_incluster_config(token_refresh_interval=datetime.timedelta(milliseconds=100))
+            k8s_config.load_incluster_config(token_refresh_interval=datetime.timedelta(milliseconds=1))
             self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer a')
-            time.sleep(0.1)
+            time.sleep(0.001)
             # token file doesn't exist
             self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer a')
             # token file is empty
             self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer a')
             # token refreshed
             self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer b')
-            time.sleep(0.1)
+            time.sleep(0.001)
             # token refreshed
             self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer c')
             # no need to refresh token
@@ -395,6 +395,7 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
     def test_watch(self):
         self.k.set_ttl(10)
         self.k.watch(None, 0)
+        self.k.event.set()
         self.k.watch('5', 0)
 
     def test_set_history_value(self):
@@ -445,6 +446,7 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         self.k._kinds._object_cache['test'].metadata.annotations['leader'] = 'p-1'
         self.assertFalse(self.k.update_leader(cluster, '123'))
 
+    @patch('time.sleep', Mock())
     @patch.object(k8s_client.CoreV1Api, 'read_namespaced_endpoints', create=True)
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', create=True)
     def test__update_leader_with_retry(self, mock_patch, mock_read):
@@ -473,6 +475,7 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         mock_read.side_effect = Exception
         self.assertFalse(self.k.update_leader(cluster, '123'))
 
+    @patch('time.sleep', Mock())
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints',
                   Mock(side_effect=[k8s_client.rest.ApiException(500, ''),
                                     k8s_client.rest.ApiException(502, '')]), create=True)

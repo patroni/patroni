@@ -11,23 +11,34 @@ logger = logging.getLogger(__name__)
 
 
 class PostgresqlState(str, Enum):
-    """Possible values of :attr:`Postgresql.state`."""
+    """Possible values of :attr:`Postgresql.state`.
 
-    INITDB = 'initializing new cluster'
-    INITDB_FAILED = 'initdb failed'
-    CUSTOM_BOOTSTRAP = 'running custom bootstrap script'
-    CUSTOM_BOOTSTRAP_FAILED = 'custom bootstrap failed'
-    CREATING_REPLICA = 'creating replica'
-    RUNNING = 'running'
-    STARTING = 'starting'
-    BOOTSTRAP_STARTING = 'starting after custom bootstrap'
-    START_FAILED = 'start failed'
-    RESTARTING = 'restarting'
-    RESTART_FAILED = 'restart failed'
-    STOPPING = 'stopping'
-    STOPPED = 'stopped'
-    STOP_FAILED = 'stop failed'
-    CRASHED = 'crashed'
+    Numeric indexes should NEVER change once assigned to maintain
+    backward compatibility with existing monitoring systems.
+    """
+
+    INITDB = ('initializing new cluster', 0)
+    INITDB_FAILED = ('initdb failed', 1)
+    CUSTOM_BOOTSTRAP = ('running custom bootstrap script', 2)
+    CUSTOM_BOOTSTRAP_FAILED = ('custom bootstrap failed', 3)
+    CREATING_REPLICA = ('creating replica', 4)
+    RUNNING = ('running', 5)
+    STARTING = ('starting', 6)
+    BOOTSTRAP_STARTING = ('starting after custom bootstrap', 7)
+    START_FAILED = ('start failed', 8)
+    RESTARTING = ('restarting', 9)
+    RESTART_FAILED = ('restart failed', 10)
+    STOPPING = ('stopping', 11)
+    STOPPED = ('stopped', 12)
+    STOP_FAILED = ('stop failed', 13)
+    CRASHED = ('crashed', 14)
+
+    def __new__(cls, value: str, index: int) -> 'PostgresqlState':
+        obj = str.__new__(cls, value)
+        obj._value_ = value
+        # Use setattr to avoid pyright type checking issues
+        setattr(obj, 'index', index)
+        return obj
 
     def __repr__(self) -> str:
         """Get an "official" string representation of a :class:`PostgresqlState` member."""

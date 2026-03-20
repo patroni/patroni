@@ -9,7 +9,8 @@ import etcd
 from patroni import global_config
 from patroni.collections import CaseInsensitiveSet
 from patroni.config import Config
-from patroni.dcs import Cluster, ClusterConfig, Failover, get_dcs, Leader, Member, Status, SyncState, TimelineHistory
+from patroni.dcs import Cluster, ClusterConfig, Failover, get_dcs, \
+    Leader, Member, RemoteMember, Status, SyncState, TimelineHistory
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover
 from patroni.exceptions import DCSError, PatroniFatalException, PostgresConnectionException
 from patroni.ha import _MemberStatus, Ha
@@ -20,9 +21,10 @@ from patroni.postgresql.cancellable import CancellableSubprocess
 from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.postmaster import PostmasterProcess
-from patroni.postgresql.rewind import Rewind
+from patroni.postgresql.rewind import Rewind, REWIND_STATUS
 from patroni.postgresql.slots import SlotsHandler
 from patroni.postgresql.sync import _SyncState
+from patroni.thread_pool import PatroniThreadPoolExecutor
 from patroni.utils import tzutc
 from patroni.watchdog import Watchdog
 
@@ -84,7 +86,7 @@ def get_cluster_initialized_with_only_leader(failover=None, cluster_config=None)
 
 
 def get_standby_cluster_initialized_with_only_leader(failover=None, sync=None):
-    return get_cluster_initialized_with_only_leader(
+    cluster = get_cluster_initialized_with_only_leader(
         cluster_config=ClusterConfig(1, {
             "standby_cluster": {
                 "host": "localhost",
@@ -92,11 +94,17 @@ def get_standby_cluster_initialized_with_only_leader(failover=None, sync=None):
                 "primary_slot_name": "",
             }}, 1)
     )
+    cluster.leader.data['role'] = PostgresqlRole.STANDBY_LEADER
+    return cluster
 
 
 def get_cluster_initialized_with_leader_and_failsafe():
     return get_cluster_initialized_without_leader(leader=True, failsafe=True,
                                                   cluster_config=ClusterConfig(1, {'failsafe_mode': True}, 1))
+
+
+def _check_timeline_and_lsn(self, *args):
+    self._state = REWIND_STATUS.NEED
 
 
 def get_node_status(reachable=True, in_recovery=True, dcs_last_seen=0,
@@ -182,6 +190,7 @@ def run_async(self, func, args=()):
     'Latest checkpoint location': '0/12345678',
     "Latest checkpoint's TimeLineID": '2'}))
 @patch.object(SlotsHandler, 'load_replication_slots', Mock(side_effect=Exception))
+@patch.object(ConfigHandler, 'pg_version', PropertyMock(return_value=180000))
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_pgpass', Mock(return_value={}))
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())
@@ -200,8 +209,7 @@ def run_async(self, func, args=()):
 @patch('patroni.postgresql.polling_loop', Mock(return_value=range(1)))
 @patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=False))
 @patch('patroni.async_executor.AsyncExecutor.run_async', run_async)
-@patch('patroni.postgresql.rewind.Thread', Mock())
-@patch('patroni.postgresql.mpp.citus.CitusDatabaseHandler.start', Mock())
+@patch('patroni.thread_pool.get_executor', Mock(return_value=PatroniThreadPoolExecutor(max_workers=3)))
 @patch('subprocess.call', Mock(return_value=0))
 @patch('time.sleep', Mock())
 class TestHa(PostgresInit):
@@ -503,18 +511,18 @@ class TestHa(PostgresInit):
         self.p.is_primary = false
         self.assertEqual(self.ha.run_cycle(), 'PAUSE: no action. I am (postgresql0)')
 
-    @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
+    @patch.object(Rewind, '_check_timeline_and_lsn', _check_timeline_and_lsn)
+    @patch.object(ConfigHandler, 'check_recovery_conf', Mock(return_value=(False, False)))
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
     def test_follow_triggers_rewind(self):
         self.p.is_primary = false
-        self.ha._rewind.trigger_check_diverged_lsn()
         self.ha.cluster = get_cluster_initialized_with_leader()
+        self.p.timeline_wal_position = Mock(return_value=(0, 1, 0, 1, 1))
+        self.ha._leader_timeline = 11
         self.assertEqual(self.ha.run_cycle(), 'running pg_rewind from leader')
 
     def test_no_dcs_connection_primary_demote(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
-        self.assertEqual(self.ha.run_cycle(), 'demoting self because DCS is not accessible and I was a leader')
-        self.ha._async_executor.schedule('dummy')
         self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
 
     def test_check_failsafe_topology(self):
@@ -522,7 +530,7 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
         global_config.update(self.ha.cluster)
         self.ha.dcs._last_failsafe = self.ha.cluster.failsafe
-        self.assertEqual(self.ha.run_cycle(), 'demoting self because DCS is not accessible and I was a leader')
+        self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
         self.ha.state_handler.name = self.ha.cluster.leader.name
         self.assertFalse(self.ha.failsafe_is_active())
         self.assertEqual(self.ha.run_cycle(),
@@ -530,7 +538,7 @@ class TestHa(PostgresInit):
         self.assertTrue(self.ha.failsafe_is_active())
         with patch.object(Postgresql, 'slots', Mock(side_effect=Exception)):
             self.ha.patroni.request = Mock(side_effect=Exception)
-            self.assertEqual(self.ha.run_cycle(), 'demoting self because DCS is not accessible and I was a leader')
+            self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
             self.assertFalse(self.ha.failsafe_is_active())
         self.ha.dcs._last_failsafe.clear()
         self.ha.dcs._last_failsafe[self.ha.cluster.leader.name] = self.ha.cluster.leader.member.api_url
@@ -667,7 +675,7 @@ class TestHa(PostgresInit):
         self.assertIsNotNone(self.ha.reinitialize())
 
         self.ha.cluster = get_cluster_initialized_with_leader()
-        self.assertIsNone(self.ha.reinitialize(True))
+        self.assertIsNone(self.ha.reinitialize(True, True))
         self.ha._async_executor.schedule('reinitialize')
         self.assertIsNotNone(self.ha.reinitialize())
 
@@ -789,21 +797,22 @@ class TestHa(PostgresInit):
         with patch('patroni.ha.logger.info') as mock_info:
             self.ha.fetch_node_status = get_node_status(nofailover=True)
             self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
-            self.assertEqual(mock_info.call_args_list[0][0], ('Member %s is %s', 'leader', 'not allowed to promote'))
+            self.assertEqual(mock_info.call_args_list[0][0][0::2], ('Member %s is %s', 'not allowed to promote'))
         with patch('patroni.ha.logger.info') as mock_info:
             self.ha.fetch_node_status = get_node_status(watchdog_failed=True)
             self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
-            self.assertEqual(mock_info.call_args_list[0][0], ('Member %s is %s', 'leader', 'not watchdog capable'))
+            self.assertEqual(mock_info.call_args_list[0][0][0::2], ('Member %s is %s', 'not watchdog capable'))
         with patch('patroni.ha.logger.info') as mock_info:
             self.ha.fetch_node_status = get_node_status(timeline=1)
             self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
-            self.assertEqual(mock_info.call_args_list[0][0],
-                             ('Timeline %s of member %s is behind the cluster timeline %s', 1, 'leader', 2))
+            self.assertEqual(mock_info.call_args_list[0][0][0],
+                             'Timeline %s of member %s is behind the cluster timeline %s')
+            self.assertEqual(mock_info.call_args_list[0][0][1::2], (1, 2))
         with patch('patroni.ha.logger.info') as mock_info:
             self.ha.fetch_node_status = get_node_status(wal_position=1)
             self.ha.cluster.config.data.update({'maximum_lag_on_failover': 5})
             self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
-            self.assertEqual(mock_info.call_args_list[0][0], ('Member %s exceeds maximum replication lag', 'leader'))
+            self.assertEqual(mock_info.call_args_list[0][0][0], 'Member %s exceeds maximum replication lag')
 
     @patch('patroni.postgresql.mpp.AbstractMPPHandler.is_coordinator', Mock(return_value=False))
     def test_scheduled_switchover_from_leader(self):
@@ -963,8 +972,7 @@ class TestHa(PostgresInit):
         with patch('patroni.ha.logger.info') as mock_info:
             self.ha.fetch_node_status = get_node_status(reachable=False)  # inaccessible, in_recovery
             self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
-            self.assertEqual(mock_info.call_args_list[0][0], ('Member %s is %s', 'leader', 'not reachable'))
-            self.assertEqual(mock_info.call_args_list[1][0], ('Member %s is %s', 'other', 'not reachable'))
+            self.assertEqual(mock_info.call_args_list[0][0][0::2], ('Member %s is %s', 'not reachable'))
 
     def test_manual_failover_process_no_leader_in_synchronous_mode(self):
         self.ha.is_synchronous_mode = true
@@ -981,7 +989,6 @@ class TestHa(PostgresInit):
         with patch('patroni.ha.logger.warning') as mock_warning:
             self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'other', None),
                                                                      sync=('leader1', 'postgresql0'))
-            self.p.sync_handler.current_state = Mock(return_value=(CaseInsensitiveSet(), CaseInsensitiveSet()))
             self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
             self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
             self.assertEqual(mock_warning.call_args_list[0][0],
@@ -992,8 +999,6 @@ class TestHa(PostgresInit):
         self.p.set_role(PostgresqlRole.REPLICA)
         self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, '', 'postgresql0', None),
                                                                  sync=('leader1', 'other'))
-        self.p.sync_handler.current_state = Mock(return_value=(CaseInsensitiveSet(['leader1']),
-                                                               CaseInsensitiveSet(['leader1'])))
         self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
 
     def test_manual_switchover_process_no_leader_in_synchronous_mode(self):
@@ -1061,6 +1066,8 @@ class TestHa(PostgresInit):
         self.ha.dcs._last_failsafe = None
         with patch.object(Watchdog, 'is_healthy', PropertyMock(return_value=False)):
             self.assertFalse(self.ha.is_healthiest_node())
+        with patch('patroni.postgresql.Postgresql.is_starting', return_value=True):
+            self.assertFalse(self.ha.is_healthiest_node())
         self.ha.is_paused = true
         self.assertFalse(self.ha.is_healthiest_node())
 
@@ -1083,9 +1090,19 @@ class TestHa(PostgresInit):
         self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members, leader=self.ha.old_cluster.leader))
         self.ha.fetch_node_status = get_node_status(wal_position=11)  # accessible, in_recovery, wal position ahead
         self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
-        # in synchronous_mode consider itself healthy if the former leader is accessible in read-only and ahead of us
         with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=True)):
+            # in synchronous_mode consider us healthy if the former leader is accessible in read-only and ahead of us
             self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+            self.ha.cluster = get_cluster_initialized_without_leader(sync=('postgresql1', self.p.name + ',other'))
+            self.ha.fetch_node_status = get_node_status(failover_priority=10, wal_position=10)
+            # in synchronous_mode we need to respect failover_priority
+            with patch('patroni.ha.logger.info') as mock_info:
+                self.assertFalse(self.ha._is_healthiest_node(self.ha.cluster.members))
+                self.assertEqual(
+                    mock_info.call_args_list[0][0][0],
+                    '%s has equally tolerable WAL position and priority %s, while this node has priority %s')
+                self.assertEqual(mock_info.call_args_list[0][0][2:], (10, 1))
+        self.ha.fetch_node_status = get_node_status(wal_position=11)  # accessible, in_recovery, wal position ahead
         self.ha.cluster.config.data.update({'maximum_lag_on_failover': 5})
         global_config.update(self.ha.cluster)
         with patch('patroni.postgresql.Postgresql.last_operation', return_value=1):
@@ -1252,7 +1269,13 @@ class TestHa(PostgresInit):
                          'PAUSE: continue to run as primary after failing to update leader lock in DCS')
 
     def test_postgres_unhealthy_in_pause(self):
+        self.p.is_primary = false
         self.ha.is_paused = true
+        with patch.object(Postgresql, 'cb_called', PropertyMock(return_value=True)), \
+                patch.object(Rewind, 'trigger_check_diverged_lsn') as mock_rewind_check:
+            self.ha.patroni.nofailover = True
+            self.assertEqual(self.ha.run_cycle(), 'PAUSE: no action. I am (postgresql0)')
+            mock_rewind_check.assert_not_called()
         self.p.is_healthy = false
         self.assertEqual(self.ha.run_cycle(), 'PAUSE: postgres is not running')
         self.ha.has_lock = true
@@ -1336,7 +1359,59 @@ class TestHa(PostgresInit):
         self.ha.has_lock = true
         self.e.get_cluster = Mock(return_value=get_cluster_initialized_without_leader())
         self.ha.demote('immediate')
-        follow.assert_called_once_with(None)
+        follow.assert_called_once_with(None, PostgresqlRole.REPLICA)
+
+    @patch.object(Rewind, 'archive_shutdown_checkpoint_wal')
+    @patch.object(Postgresql, 'follow')
+    @patch.object(Postgresql, 'latest_checkpoint_locations', Mock(return_value=(7, 7)))
+    @patch.object(Postgresql, 'get_guc_value',
+                  Mock(side_effect=['off', 'command %f'] * 3 + ['on', 'command %f'] * 2))
+    def test_demote_cluster(self, follow_mock, archive_mock):
+        self.ha.has_lock = true
+        self.p.name = 'leader'
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.e.get_cluster = Mock(return_value=self.ha.cluster)
+        global_config.update(self.ha.cluster)
+        self.p.set_role(PostgresqlRole.PRIMARY)
+        self.ha.cluster.config.data.update({'standby_cluster': {'port': 5432}})
+
+        # archiving is off
+        self.assertEqual(self.ha.run_cycle(), 'cannot be a real primary in standby cluster')
+        self.assertEqual(follow_mock.call_args[0][1], PostgresqlRole.STANDBY_LEADER)
+        self.assertIsInstance(follow_mock.call_args[0][0], RemoteMember)
+        archive_mock.assert_not_called()
+
+        # archiving is off, long shut down, failover is not possible
+        self.ha.is_failover_possible = false
+        self.assertEqual(self.ha.run_cycle(), 'cannot be a real primary in standby cluster')
+        self.assertEqual(follow_mock.call_args[0][1], PostgresqlRole.STANDBY_LEADER)
+        self.assertIsInstance(follow_mock.call_args[0][0], RemoteMember)
+        archive_mock.assert_not_called()
+
+        # archiving is off, long shut down, failover is possible
+        new_leader = Leader(0, 0,
+                            Member(0, 'l', 2, {"version": "1.6", "conn_url": "postgres://a", "role": "primary"}))
+        self.e.get_cluster.return_value = get_cluster(SYSID, new_leader, [new_leader], None, None)
+        self.p.controldata = lambda: {'Database cluster state': 'shut down',
+                                      'Database system identifier': SYSID, "Latest checkpoint's TimeLineID": '7'}
+        self.ha.is_failover_possible = true
+        self.assertEqual(self.ha.run_cycle(), 'cannot be a real primary in standby cluster')
+        self.assertEqual(follow_mock.call_args[0], (new_leader, PostgresqlRole.REPLICA))
+        archive_mock.assert_not_called()
+
+        # archiving is on
+        self.e.get_cluster.return_value = self.ha.cluster
+        self.assertEqual(self.ha.run_cycle(), 'cannot be a real primary in standby cluster')
+        self.assertEqual(follow_mock.call_args[0][1], PostgresqlRole.STANDBY_LEADER)
+        self.assertIsInstance(follow_mock.call_args[0][0], RemoteMember)
+        archive_mock.assert_called_once()
+        archive_mock.reset_mock()
+
+        self.ha.cluster.config.data.update({'standby_cluster': {'restore_command': 'foo', 'port': None}})
+        self.assertEqual(self.ha.run_cycle(), 'cannot be a real primary in standby cluster')
+        self.assertEqual(follow_mock.call_args[0][1], PostgresqlRole.STANDBY_LEADER)
+        self.assertIsInstance(follow_mock.call_args[0][0], RemoteMember)
+        archive_mock.assert_called_once()
 
     def test__process_multisync_replication(self):
         self.ha.has_lock = true
@@ -1368,7 +1443,8 @@ class TestHa(PostgresInit):
         self.ha.is_synchronous_mode = true
 
         # Test sync standby not touched when picking the same node
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1, 1,
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1,
+                                                                         CaseInsensitiveSet(['other']),
                                                                          CaseInsensitiveSet(['other']),
                                                                          CaseInsensitiveSet(['other'])))
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
@@ -1379,7 +1455,8 @@ class TestHa(PostgresInit):
         mock_cfg_set_sync.reset_mock()
 
         # Test sync standby is replaced when switching standbys
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, 0, CaseInsensitiveSet(),
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, CaseInsensitiveSet(),
+                                                                         CaseInsensitiveSet(),
                                                                          CaseInsensitiveSet(['other2'])))
         self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
         self.ha.run_cycle()
@@ -1387,7 +1464,8 @@ class TestHa(PostgresInit):
         mock_cfg_set_sync.assert_not_called()
 
         # Test sync standby is replaced when new standby is joined
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1, 1,
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1,
+                                                                         CaseInsensitiveSet(['other2']),
                                                                          CaseInsensitiveSet(['other2']),
                                                                          CaseInsensitiveSet(['other2', 'other3'])))
         self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
@@ -1410,7 +1488,8 @@ class TestHa(PostgresInit):
         self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
         self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('leader', 'other')))
         # self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1, 1,
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1,
+                                                                         CaseInsensitiveSet(['other2']),
                                                                          CaseInsensitiveSet(['other2']),
                                                                          CaseInsensitiveSet(['other2'])))
         self.ha.run_cycle()
@@ -1435,8 +1514,8 @@ class TestHa(PostgresInit):
         # Test sync set to '*' when synchronous_mode_strict is enabled
         mock_set_sync.reset_mock()
         mock_cfg_set_sync.reset_mock()
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, 0, CaseInsensitiveSet(),
-                                                                         CaseInsensitiveSet()))
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, CaseInsensitiveSet(),
+                                                                         CaseInsensitiveSet(), CaseInsensitiveSet()))
         with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
             self.ha.run_cycle()
         mock_set_sync.assert_called_once_with(CaseInsensitiveSet('*'))
@@ -1547,7 +1626,7 @@ class TestHa(PostgresInit):
         self.ha.is_synchronous_mode = true
         self.ha.has_lock = true
         self.p.name = 'leader'
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, 0,
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, CaseInsensitiveSet(),
                                                                          CaseInsensitiveSet(), CaseInsensitiveSet()))
         self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
         with patch('patroni.ha.logger.info') as mock_logger:
@@ -1564,18 +1643,21 @@ class TestHa(PostgresInit):
         self.ha.has_lock = true
         self.p.name = 'leader'
         self.ha.cluster = get_cluster_initialized_without_leader(sync=('leader', 'a'))
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, 0,
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, CaseInsensitiveSet(),
                                                                          CaseInsensitiveSet(), CaseInsensitiveSet('a')))
-        self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
-        mock_set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock()
-        with patch('patroni.ha.logger.warning') as mock_logger:
-            self.ha.run_cycle()
-            mock_set_sync.assert_called_once()
-            self.assertTrue(mock_logger.call_args_list[0][0][0].startswith('Inconsistent state between '))
-        self.ha.dcs.write_sync_state = Mock(return_value=None)
-        with patch('patroni.ha.logger.warning') as mock_logger:
-            self.ha.run_cycle()
-            self.assertEqual(mock_logger.call_args[0][0], 'Updating sync state failed')
+        for leader_name in ('other', 'leader'):
+            with self.subTest(leader_name=leader_name):
+                self.p.name = leader_name
+                self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
+                mock_set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock()
+                with patch('patroni.ha.logger.warning') as mock_logger:
+                    self.ha.run_cycle()
+                    mock_set_sync.assert_called_once()
+                    self.assertTrue(mock_logger.call_args_list[0][0][0].startswith('Inconsistent state '))
+                self.ha.dcs.write_sync_state = Mock(return_value=None)
+                with patch('patroni.ha.logger.warning') as mock_logger:
+                    self.ha.run_cycle()
+                    self.assertEqual(mock_logger.call_args[0][0], 'Updating sync state failed')
 
     def test_effective_tags(self):
         self.ha._disable_sync = True
@@ -1590,9 +1672,25 @@ class TestHa(PostgresInit):
         self.ha.has_lock = true
         self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
 
+    @patch.object(global_config.__class__, 'primary_race_backoff', PropertyMock(return_value=3))
+    def test_primary_race_backoff(self):
+        self.p.is_primary = false
+        self.ha.cluster = get_cluster_initialized_with_leader()
+        self.ha.run_cycle()
+        self.assertEqual(self.ha.run_cycle(),
+                         'no action. I am (postgresql0), a secondary, and following a leader (leader)')
+        self.ha.cluster = get_cluster_initialized_without_leader()
+        with patch('patroni.postgresql.Postgresql.replication_state', return_value='streaming'), \
+                patch('patroni.postgresql.Postgresql.last_operation', return_value=11), \
+                patch('patroni.dcs.AbstractDCS.watch', Mock()):
+            self.assertTrue(self.ha.run_cycle().startswith('My (postgresql0) wal position moved'))
+            self.ha.watch(10)
+
     def test_watch(self):
         self.ha.cluster = get_cluster_initialized_with_leader()
         self.ha.watch(0)
+        with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
+            self.ha.watch(0)
 
     def test_wakeup(self):
         self.ha.wakeup()
@@ -1641,9 +1739,10 @@ class TestHa(PostgresInit):
     @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_update_cluster_history(self):
         self.ha.has_lock = true
-        for tl in (1, 3):
-            self.p.get_primary_timeline = Mock(return_value=tl)
-            self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
+        with patch('patroni.thread_pool.get_executor', Mock()):
+            for tl in (1, 3):
+                self.p.get_primary_timeline = Mock(return_value=tl)
+                self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
 
     @patch('sys.exit', return_value=1)
     def test_abort_join(self, exit_mock):
@@ -1792,7 +1891,8 @@ class TestHa(PostgresInit):
 
         mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=None)
         # Test /sync key is attempted to set and failed when missing or invalid
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1, 1, CaseInsensitiveSet(['other']),
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1, CaseInsensitiveSet(['other']),
+                                                                         CaseInsensitiveSet(['other']),
                                                                          CaseInsensitiveSet(['other'])))
         self.ha.run_cycle()
         self.assertEqual(mock_write_sync.call_count, 1)
@@ -1812,9 +1912,11 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_write_sync.call_args_list[1][1], {'version': None})
         self.assertEqual(mock_set_sync.call_count, 0)
 
-        self.p.sync_handler.current_state = Mock(side_effect=[_SyncState('quorum', 1, 0, CaseInsensitiveSet(['foo']),
+        self.p.sync_handler.current_state = Mock(side_effect=[_SyncState('quorum', 1, CaseInsensitiveSet(['foo']),
+                                                                         CaseInsensitiveSet(),
                                                                          CaseInsensitiveSet(['other'])),
-                                                              _SyncState('quorum', 1, 1, CaseInsensitiveSet(['foo']),
+                                                              _SyncState('quorum', 1, CaseInsensitiveSet(['foo']),
+                                                                         CaseInsensitiveSet(['foo']),
                                                                          CaseInsensitiveSet(['foo']))])
         mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=SyncState(1, 'leader', 'foo', 0))
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo'))
@@ -1829,8 +1931,9 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (other)',))
 
         # Test ANY 1 (*) when synchronous_mode_strict and no nodes available
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1, 0,
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1,
                                                                          CaseInsensitiveSet(['other', 'foo']),
+                                                                         CaseInsensitiveSet(),
                                                                          CaseInsensitiveSet()))
         mock_write_sync.reset_mock()
         mock_set_sync.reset_mock()

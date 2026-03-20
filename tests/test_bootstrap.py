@@ -1,5 +1,4 @@
 import os
-import sys
 
 from unittest.mock import Mock, patch, PropertyMock
 
@@ -96,6 +95,7 @@ class TestBootstrap(BaseTestPostgresql):
 
     @patch.object(CancellableSubprocess, 'call', Mock(return_value=0))
     @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=True))
+    @patch.object(ConfigHandler, 'pg_version', PropertyMock(return_value=150000))
     def test_basebackup(self):
         with patch('patroni.postgresql.bootstrap.logger.debug') as mock_debug:
             self.p.cancellable.cancel()
@@ -109,63 +109,37 @@ class TestBootstrap(BaseTestPostgresql):
                 ['pg_basebackup', f'--pgdata={self.p.data_dir}', '-X', 'stream', '--dbname=', '--foo=bar'],
             )
 
+        # Test compress option: server-side compression should be allowed on PG15+ (issue #3532)
+        with patch('patroni.postgresql.bootstrap.logger.debug') as mock_debug:
+            self.p.cancellable.reset_is_cancelled()
+            self.b.basebackup("", None, {'compress': 'server-zstd'})
+            mock_debug.assert_called_with(
+                'calling: %r',
+                ['pg_basebackup', f'--pgdata={self.p.data_dir}', '-X', 'stream', '--dbname=', '--compress=server-zstd'],
+            )
+
+        # Test compress option: client-side compression should be rejected on PG15+
+        with patch('patroni.postgresql.bootstrap.logger.error') as mock_error:
+            self.p.cancellable.reset_is_cancelled()
+            self.b.basebackup("", None, {'compress': 'gzip'})
+            mock_error.assert_called_with(
+                'compress option for basebackup must use server-side compression '
+                '(e.g., server-gzip, server-zstd). Client-side compression is not allowed.'
+            )
+
+        # Test compress option: should be rejected on PG < 15
+        with patch('patroni.postgresql.bootstrap.logger.error') as mock_error, \
+                patch.object(ConfigHandler, 'pg_version', PropertyMock(return_value=140000)):
+            self.p.cancellable.reset_is_cancelled()
+            self.b.basebackup("", None, {'compress': 'server-zstd'})
+            # compress is in not_allowed_options for PG < 15, error logged via process_user_options
+            mock_error.assert_any_call('compress option for basebackup is not allowed')
+
     def test__initdb(self):
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': [{'pgdata': 'bar'}]})
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': [{'foo': 'bar', 1: 2}]})
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': [1]})
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': 1})
-
-    def test__process_user_options(self):
-        def error_handler(msg):
-            raise Exception(msg)
-
-        self.assertEqual(self.b.process_user_options('initdb', ['string'], (), error_handler), ['--string'])
-        self.assertEqual(
-            self.b.process_user_options(
-                'initdb',
-                [{'key': 'value'}],
-                (), error_handler
-            ),
-            ['--key=value'])
-        if sys.platform != 'win32':
-            self.assertEqual(
-                self.b.process_user_options(
-                    'initdb',
-                    [{'key': 'value with spaces'}],
-                    (), error_handler
-                ),
-                ["--key=value with spaces"])
-            self.assertEqual(
-                self.b.process_user_options(
-                    'initdb',
-                    [{'key': "'value with spaces'"}],
-                    (), error_handler
-                ),
-                ["--key=value with spaces"])
-            self.assertEqual(
-                self.b.process_user_options(
-                    'initdb',
-                    {'key': 'value with spaces'},
-                    (), error_handler
-                ),
-                ["--key=value with spaces"])
-            self.assertEqual(
-                self.b.process_user_options(
-                    'initdb',
-                    {'key': "'value with spaces'"},
-                    (), error_handler
-                ),
-                ["--key=value with spaces"])
-            # not allowed options in list of dicts/strs are filtered out
-            self.assertEqual(
-                self.b.process_user_options(
-                    'pg_basebackup',
-                    [{'checkpoint': 'fast'}, {'dbname': 'dbname=postgres'}, 'gzip', {'label': 'standby'}, 'verbose'],
-                    ('dbname', 'verbose'),
-                    print
-                ),
-                ['--checkpoint=fast', '--gzip', '--label=standby'],
-            )
 
     @patch.object(CancellableSubprocess, 'call', Mock())
     @patch.object(Postgresql, 'is_running', Mock(return_value=True))
@@ -240,7 +214,7 @@ class TestBootstrap(BaseTestPostgresql):
     @patch('os.unlink', Mock())
     @patch('shutil.copy', Mock())
     @patch('os.path.isfile', Mock(return_value=True))
-    @patch('patroni.postgresql.bootstrap.quote_ident', Mock())
+    @patch('patroni.psycopg.__quote_ident', Mock(), create=True)
     @patch.object(Bootstrap, 'call_post_bootstrap', Mock(return_value=True))
     @patch.object(Bootstrap, '_custom_bootstrap', Mock(return_value=True))
     @patch.object(Postgresql, 'start', Mock(return_value=True))
@@ -271,11 +245,15 @@ class TestBootstrap(BaseTestPostgresql):
 
         self.b.bootstrap(config)
         self.p.set_state(PostgresqlState.STOPPED)
-        self.p.reload_config({'authentication': {'superuser': {'username': 'p', 'password': 'p'},
-                                                 'replication': {'username': 'r', 'password': 'r'},
-                                                 'rewind': {'username': 'rw', 'password': 'rw'}},
-                              'listen': '*', 'retry_timeout': 10,
-                              'parameters': {'wal_level': '', 'hba_file': 'foo', 'max_prepared_transactions': 10}})
+        with patch('patroni.postgresql.config.logger.info') as mock_logger:
+            self.p.reload_config({'authentication': {'superuser': {'username': 'p', 'password': 'p'},
+                                                     'replication': {'username': 'r', 'password': 'r'},
+                                                     'rewind': {'username': 'rw', 'password': 'rw'}},
+                                  'listen': '*', 'retry_timeout': 10,
+                                  'parameters': {'wal_level': '', 'hba_file': 'foo', 'max_prepared_transactions': 10}})
+            mock_logger.assert_called_once()
+            self.assertEqual(mock_logger.call_args[0][0],
+                             'Skipping PostgreSQL configuration update while in custom bootstrap.')
         with patch.object(Postgresql, 'major_version', PropertyMock(return_value=110000)), \
                 patch.object(Postgresql, 'restart', Mock()) as mock_restart:
             self.b.post_bootstrap({}, task)

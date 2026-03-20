@@ -3,8 +3,6 @@
 This module implements abstraction classes and functions for creating and managing daemon processes in Patroni.
 Currently it is only used for the main "Thread" of ``patroni`` and ``patroni_raft_controller`` commands.
 """
-from __future__ import print_function
-
 import abc
 import argparse
 import logging
@@ -12,13 +10,25 @@ import os
 import signal
 import sys
 
-from threading import Lock
+from threading import Lock, stack_size
 from typing import Any, Optional, Type, TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover
     from .config import Config
 
 logger = logging.getLogger(__name__)
+
+try:  # pragma: no cover
+    from systemd import daemon  # pyright: ignore
+
+    def notify_systemd(msg: str) -> None:
+        daemon.notify(msg)  # pyright: ignore
+
+except ImportError:  # pragma: no cover
+    logger.info("Systemd integration is not supported")
+
+    def notify_systemd(msg: str) -> None:
+        pass
 
 
 def get_base_arg_parser() -> argparse.ArgumentParser:
@@ -69,6 +79,7 @@ class AbstractPatroniDaemon(abc.ABC):
         Flag the daemon as "SIGHUP received".
         """
         self._received_sighup = True
+        notify_systemd("RELOADING=1")
 
     def api_sigterm(self) -> bool:
         """Guarantee only a single SIGTERM is being processed.
@@ -137,16 +148,13 @@ class AbstractPatroniDaemon(abc.ABC):
         Start the logger thread and keep running execution cycles until a SIGTERM is eventually received. Also reload
         configuration upon receiving SIGHUP.
         """
-        try:  # pragma: no cover
-            from systemd import daemon  # pyright: ignore
-            daemon.notify("READY=1")  # pyright: ignore
-        except ImportError:  # pragma: no cover
-            logger.info("Systemd integration is not supported")
+        notify_systemd("READY=1")
         self.logger.start()
         while not self.received_sigterm:
             if self._received_sighup:
                 self._received_sighup = False
                 self.reload_config(True, self.config.reload_local_configuration())
+                notify_systemd("READY=1")
 
             self._run_cycle()
 
@@ -172,10 +180,27 @@ def abstract_main(cls: Type[AbstractPatroniDaemon], configfile: str) -> None:
     :param configfile:
     """
     from .config import Config, ConfigParseError
+    from .utils import parse_int
     try:
         config = Config(configfile)
     except ConfigParseError as e:
         sys.exit(e.value)
+
+    thread_stack_size = None
+    if 'thread_stack_size' in config:
+        thread_stack_size = parse_int(config.get('thread_stack_size'), 'B')
+        if thread_stack_size is None:
+            logger.warning('Failed to parse thread_stack_size value "%s"', config.get('thread_stack_size'))
+
+    if thread_stack_size is None:
+        thread_stack_size = 524288
+        logger.info('Using default value thread_stack_size=%s', thread_stack_size)
+
+    thread_stack_size = max(65536, thread_stack_size)
+    try:
+        stack_size(thread_stack_size)
+    except Exception as e:
+        logger.warning('Failed to set threading.stack_size(%s): %r', thread_stack_size, e)
 
     controller = cls(config)
     try:

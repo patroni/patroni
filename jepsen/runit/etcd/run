@@ -1,0 +1,12 @@
+#!/bin/bash
+
+exec 2>&1
+cd /home/postgres
+exec chpst -u postgres \
+    /usr/bin/etcd --auto-compaction-retention=1 \
+    --name "$HOSTNAME" \
+    --initial-advertise-peer-urls "http://$HOSTNAME:2380" \
+    --advertise-client-urls "http://$HOSTNAME:2379" \
+    --listen-peer-urls http://0.0.0.0:2380 \
+    --listen-client-urls http://0.0.0.0:2379 \
+    --initial-cluster-state new

@@ -13,14 +13,14 @@ env:
 
 jobs:
   unit:
-    runs-on: ${{ fromJson('{"ubuntu":"ubuntu-22.04","windows":"windows-latest","macos":"macos-latest"}')[matrix.os] }}
+    runs-on: ${{ fromJson('{"ubuntu":"ubuntu-22.04","windows":"windows-latest","macos":"macos-15"}')[matrix.os] }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu, windows, macos]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Set up Python 3.7
       uses: actions/setup-python@v5
@@ -91,21 +91,28 @@ jobs:
       run: python .github/workflows/run_tests.py
       if: matrix.os != 'macos'
 
+    - name: Set up Python 3.14
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.14
+      if: matrix.os != 'macos'
+    - name: Install dependencies
+      run: python .github/workflows/install_deps.py
+      if: matrix.os != 'macos'
+    - name: Run tests and flake8
+      run: python .github/workflows/run_tests.py
+      if: matrix.os != 'macos'
+
     - name: Combine coverage
       run: python .github/workflows/run_tests.py combine
 
-    - name: Install coveralls
-      run: python -m pip install coveralls
-
-    - name: Upload Coverage
-      env:
-        COVERALLS_FLAG_NAME: unit-${{ matrix.os }}
-        COVERALLS_PARALLEL: 'true'
-        GITHUB_TOKEN: ${{ secrets.github_token }}
-      run: python -m coveralls --service=github
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        flags: unit-${{ matrix.os }}
 
   behave:
-    runs-on: ${{ fromJson('{"ubuntu":"ubuntu-22.04","windows":"windows-latest","macos":"macos-latest"}')[matrix.os] }}
+    runs-on: ${{ fromJson('{"ubuntu":"ubuntu-22.04","windows":"windows-latest","macos":"macos-14"}')[matrix.os] }}
     env:
       DCS: ${{ matrix.dcs }}
       ETCDVERSION: 3.4.23
@@ -114,7 +121,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu]
-        python-version: [3.7, 3.13]
+        python-version: [3.7, 3.14]
         dcs: [etcd, etcd3, consul, exhibitor, kubernetes, raft]
         include:
         - os: macos
@@ -128,12 +135,14 @@ jobs:
           dcs: etcd3
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
     - uses: nolar/setup-k3d-k3s@v1
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
       if: matrix.dcs == 'kubernetes'
     - name: Add postgresql and citus apt repo
       run: |
@@ -164,17 +173,6 @@ jobs:
       run: bash <(curl -Ls https://coverage.codacy.com/get.sh) report -r cobertura.xml -l Python --partial
       if: ${{ env.SECRETS_AVAILABLE == 'true' }}
 
-  coveralls-finish:
-    name: Finalize coveralls.io
-    needs: unit
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/setup-python@v5
-    - run: python -m pip install coveralls
-    - run: python -m coveralls --service=github --finish
-      env:
-        GITHUB_TOKEN: ${{ secrets.github_token }}
-
   codacy-final:
     name: Finalize Codacy
     needs: behave
@@ -186,25 +184,25 @@ jobs:
   pyright:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
-    - name: Set up Python 3.13
+    - name: Set up Python 3.14
       uses: actions/setup-python@v5
       with:
-        python-version: 3.13
+        python-version: 3.14
 
     - name: Install dependencies
       run: python -m pip install -r requirements.txt psycopg2-binary psycopg
 
     - uses: jakebailey/pyright-action@v2
       with:
-        version: 1.1.394
+        version: 1.1.405
 
   ydiff:
     name: Test compatibility with the latest version of ydiff
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Set up Python 3.13
       uses: actions/setup-python@v5
@@ -220,7 +218,7 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Set up Python 3.11
       uses: actions/setup-python@v5
@@ -244,7 +242,7 @@ jobs:
   isort:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Set up Python 3.12
       uses: actions/setup-python@v5

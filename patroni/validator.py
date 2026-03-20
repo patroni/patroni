@@ -13,7 +13,7 @@ from typing import Any, cast, Dict, Iterator, List, Optional as OptionalType, Tu
 
 from .collections import CaseInsensitiveSet, EMPTY_DICT
 from .dcs import dcs_modules
-from .exceptions import ConfigParseError
+from .exceptions import ConfigParseError, PatroniAssertionError
 from .log import type_logformat
 from .utils import data_directory_is_empty, get_major_version, parse_int, split_host_port
 
@@ -173,9 +173,12 @@ def validate_host_port_list(value: List[str]) -> bool:
     :param value: list of host(s) and port items to be validated.
 
     :returns: ``True`` if all items are valid.
+
+    .. note::
+        :func:`validate_host_port` will raise an exception if validation failed.
     """
-    assert all([validate_host_port(v) for v in value]), "didn't pass the validation"
-    return True
+
+    return all(validate_host_port(v) for v in value)
 
 
 def comma_separated_host_port(string: str) -> bool:
@@ -870,7 +873,8 @@ def assert_(condition: bool, message: str = "Wrong value") -> None:
     :param condition: result of a condition to be asserted.
     :param message: message to be thrown if the condition is ``False``.
     """
-    assert condition, message
+    if not condition:
+        raise PatroniAssertionError(message)
 
 
 class IntValidator(object):
@@ -879,29 +883,33 @@ class IntValidator(object):
     :ivar min: minimum allowed value for the setting, if any.
     :ivar max: maximum allowed value for the setting, if any.
     :ivar base_unit: the base unit to convert the value to before checking if it's within *min* and *max* range.
+    :ivar aligned: require value to be aligned.
     :ivar expected_type: the expected Python type.
     :ivar raise_assert: if an ``assert`` test should be performed regarding expected type and valid range.
     """
 
-    def __init__(self, min: OptionalType[int] = None, max: OptionalType[int] = None,
-                 base_unit: OptionalType[str] = None, expected_type: Any = None, raise_assert: bool = False) -> None:
+    def __init__(self, *, min: OptionalType[int] = None, max: OptionalType[int] = None,
+                 base_unit: OptionalType[str] = None, aligned: OptionalType[int] = None,
+                 expected_type: Any = None, raise_assert: bool = False) -> None:
         """Create an :class:`IntValidator` object with the given rules.
 
         :param min: minimum allowed value for the setting, if any.
         :param max: maximum allowed value for the setting, if any.
         :param base_unit: the base unit to convert the value to before checking if it's within *min* and *max* range.
+        :param aligned: require value to be aligned.
         :param expected_type: the expected Python type.
         :param raise_assert: if an ``assert`` test should be performed regarding expected type and valid range.
         """
         self.min = min
         self.max = max
         self.base_unit = base_unit
+        self.aligned = aligned
         if expected_type:
             self.expected_type = expected_type
         self.raise_assert = raise_assert
 
     def __call__(self, value: Any) -> bool:
-        """Check if *value* is a valid integer and within the expected range.
+        """Check if *value* is a valid integer within the expected range and properly aligned if required.
 
         .. note::
             If ``raise_assert`` is ``True`` and *value* is not valid, then an :class:`AssertionError` will be triggered.
@@ -913,7 +921,8 @@ class IntValidator(object):
         value = parse_int(value, self.base_unit)
         ret = isinstance(value, int)\
             and (self.min is None or value >= self.min)\
-            and (self.max is None or value <= self.max)
+            and (self.max is None or value <= self.max)\
+            and (self.aligned is None or value % self.aligned == 0)
 
         if self.raise_assert:
             assert_(ret)
@@ -991,6 +1000,9 @@ validate_etcd = {
 schema = Schema({
     "name": str,
     "scope": str,
+    Optional("thread_pool_size"): IntValidator(min=5, expected_type=int, raise_assert=True),
+    Optional("thread_stack_size"): IntValidator(min=65536, base_unit='B', aligned=65535,
+                                                expected_type=int, raise_assert=True),
     Optional("log"): {
         Optional("type"): EnumValidator(('plain', 'json'), case_sensitive=True, raise_assert=True),
         Optional("level"): EnumValidator(('DEBUG', 'INFO', 'WARN', 'WARNING', 'ERROR', 'FATAL', 'CRITICAL'),
@@ -1015,6 +1027,7 @@ schema = Schema({
         Optional("keyfile_password"): str
     },
     "restapi": {
+        Optional("thread_pool_size"): IntValidator(min=5, expected_type=int, raise_assert=True),
         "listen": validate_host_port_listen,
         "connect_address": validate_connect_address,
         Optional("authentication"): {
@@ -1032,7 +1045,9 @@ schema = Schema({
         Optional("allowlist_include_members"): bool,
         Optional("http_extra_headers"): dict,
         Optional("https_extra_headers"): dict,
-        Optional("request_queue_size"): IntValidator(min=0, max=4096, expected_type=int, raise_assert=True)
+        Optional("request_queue_size"): IntValidator(min=0, max=4096, expected_type=int, raise_assert=True),
+        Optional("server_tokens"): EnumValidator(('minimal', 'productonly', 'original'),
+                                                 case_sensitive=False, raise_assert=True)
     },
     Optional("bootstrap"): {
         "dcs": {
@@ -1044,14 +1059,16 @@ schema = Schema({
             Optional('member_slots_ttl'): IntValidator(min=0, base_unit='s', raise_assert=True),
             Optional("postgresql"): {
                 Optional("parameters"): {
-                    Optional("max_connections"): IntValidator(1, 262143, raise_assert=True),
-                    Optional("max_locks_per_transaction"): IntValidator(10, 2147483647, raise_assert=True),
-                    Optional("max_prepared_transactions"): IntValidator(0, 262143, raise_assert=True),
-                    Optional("max_replication_slots"): IntValidator(0, 262143, raise_assert=True),
-                    Optional("max_wal_senders"): IntValidator(0, 262143, raise_assert=True),
-                    Optional("max_worker_processes"): IntValidator(0, 262143, raise_assert=True),
+                    Optional("max_connections"): IntValidator(min=1, max=262143, raise_assert=True),
+                    Optional("max_locks_per_transaction"): IntValidator(min=10, max=2147483647, raise_assert=True),
+                    Optional("max_prepared_transactions"): IntValidator(min=0, max=262143, raise_assert=True),
+                    Optional("max_replication_slots"): IntValidator(min=0, max=262143, raise_assert=True),
+                    Optional("max_wal_senders"): IntValidator(min=0, max=262143, raise_assert=True),
+                    Optional("max_worker_processes"): IntValidator(min=0, max=262143, raise_assert=True),
                 },
                 Optional("use_pg_rewind"): bool,
+                Optional("rewind"): [Or(str, dict)],
+                Optional("basebackup"): [Or(str, dict)],
                 Optional("pg_hba"): [str],
                 Optional("pg_ident"): [str],
                 Optional("pg_ctl_timeout"): IntValidator(min=0, raise_assert=True),
@@ -1175,7 +1192,9 @@ schema = Schema({
         Optional("pg_hba"): [str],
         Optional("pg_ident"): [str],
         Optional("pg_ctl_timeout"): IntValidator(min=0, raise_assert=True),
-        Optional("use_pg_rewind"): bool
+        Optional("use_pg_rewind"): bool,
+        Optional("rewind"): [Or(str, dict)],
+        Optional("basebackup"): [Or(str, dict)],
     },
     Optional("watchdog"): {
         Optional("mode"): validate_watchdog_mode,

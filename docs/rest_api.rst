@@ -21,6 +21,7 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
 - ``GET /replica``: replica health check endpoint. It returns HTTP status code **200** only when the Patroni node is in the state ``running``, the role is ``replica`` and ``noloadbalance`` tag is not set.
 
+- ``GET /replica?replication_state=<required state>``: replica check endpoint. In addition to checks from ``replica``, it also checks if the replication state matches the required one. Mainly useful with ``replication_state=streaming``, to exclude replicas still catching up in archive recovery.
 - ``GET /replica?lag=<max-lag>``: replica check endpoint. In addition to checks from ``replica``, it also checks replication latency and returns status code **200** only when it is below specified value. The key cluster.last_leader_operation from DCS is used for Leader wal position and compute latency on replica for performance reasons. max-lag can be specified in bytes (integer) or in human readable values, for e.g. 16kB, 64MB, 1GB.
 
   - ``GET /replica?lag=1048576``
@@ -63,9 +64,11 @@ For all health check ``GET`` requests Patroni returns a JSON document with the s
 
 - ``GET /liveness``: returns HTTP status code **200** if Patroni heartbeat loop is properly running and **503** if the last run was more than ``ttl`` seconds ago on the primary or ``2*ttl`` on the replica. Could be used for ``livenessProbe``.
 
-- ``GET /readiness``: returns HTTP status code **200** when the Patroni node is running as the leader or when PostgreSQL is up and running. The endpoint could be used for ``readinessProbe`` when it is not possible to use Kubernetes endpoints for leader elections (OpenShift).
+- ``GET /readiness?lag=<max-lag>&mode=apply|write``: returns HTTP status code **200** when the Patroni node is running as the leader or when PostgreSQL is up, replicating and not too far behind the leader. The lag parameter sets how far a standby is allowed to be behind, it defaults to ``maximum_lag_on_failover``. Lag can be specified in bytes or in human readable values, for e.g. 16kB, 64MB, 1GB. Mode sets whether the WAL needs to be replayed (apply) or just received (write). The default is apply.
 
-Both, ``readiness`` and ``liveness`` endpoints are very light-weight and not executing any SQL. Probes should be configured in such a way that they start failing about time when the leader key is expiring. With the default value of ``ttl``, which is ``30s`` example probes would look like:
+  When used as Kubernetes ``readinessProbe`` it will make sure freshly started pods only become ready when they have caught up to the leader. This combined with a PodDisruptionBudget will protect against leader being terminated too early during a rolling restart of nodes. It will also make sure that replicas that cannot keep up with replication do not service read-only traffic. The endpoint could be used for ``readinessProbe`` when it is not possible to use Kubernetes endpoints for leader elections (OpenShift).
+
+The ``liveness`` endpoint is very light-weight and not executing any SQL. Probes should be configured in such a way that they start failing about time when the leader key is expiring. With the default value of ``ttl``, which is ``30s`` example probes would look like:
 
 .. code-block:: yaml
 
@@ -284,7 +287,7 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 .. code-block:: bash
 
 	$ curl http://localhost:8008/metrics
-	
+
 	# HELP patroni_version Patroni semver without periods. \
 	# TYPE patroni_version gauge
 	patroni_version{scope="batman",name="patroni1"} 040000
@@ -336,9 +339,15 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.
 	# TYPE patroni_cluster_unlocked gauge
 	patroni_cluster_unlocked{scope="batman",name="patroni1"} 0
-	# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.
-	# TYPE patroni_postgres_timeline counter
+	# HELP patroni_failsafe_mode_is_active Value is 1 if failsafe mode is active, 0 otherwise.
+	# TYPE patroni_failsafe_mode_is_active gauge
 	patroni_failsafe_mode_is_active{scope="batman",name="patroni1"} 0
+	# HELP patroni_failsafe_mode_enabled Value is 1 if failsafe_mode is enabled, 0 otherwise.
+	# TYPE patroni_failsafe_mode_enabled gauge
+	patroni_failsafe_mode_enabled{scope="batman",name="patroni1"} 0
+	# HELP patroni_failsafe_member Value is 1 if this node is a member of failsafe, 0 otherwise.
+	# TYPE patroni_failsafe_member gauge
+	patroni_failsafe_member{scope="batman",name="patroni1"} 0
 	# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.
 	# TYPE patroni_postgres_timeline counter
 	patroni_postgres_timeline{scope="batman",name="patroni1"} 24
@@ -351,6 +360,71 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# HELP patroni_is_paused Value is 1 if auto failover is disabled, 0 otherwise.
 	# TYPE patroni_is_paused gauge
 	patroni_is_paused{scope="batman",name="patroni1"} 1
+	# HELP patroni_postgres_state Numeric representation of Postgres state.
+	# Values: 0=initdb, 1=initdb_failed, 2=custom_bootstrap, 3=custom_bootstrap_failed, 4=creating_replica, 5=running, 6=starting, 7=bootstrap_starting, 8=start_failed, 9=restarting, 10=restart_failed, 11=stopping, 12=stopped, 13=stop_failed, 14=crashed
+	# TYPE patroni_postgres_state gauge
+	patroni_postgres_state{scope="batman",name="patroni1"} 5
+
+PostgreSQL State Values
+^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``patroni_postgres_state`` metric provides a numeric representation of the current PostgreSQL instance state. This is useful for monitoring and alerting systems that need to track state changes over time. The numeric values are generated using the ``PostgresqlState.get_metrics_description()`` static method.
+
+.. list-table:: PostgreSQL State Values
+   :widths: 10 20 50
+   :header-rows: 1
+
+   * - Value
+     - State Name
+     - Description
+   * - 0
+     - initdb
+     - Initializing new cluster
+   * - 1
+     - initdb_failed
+     - Initialization of new cluster failed
+   * - 2
+     - custom_bootstrap
+     - Running custom bootstrap script
+   * - 3
+     - custom_bootstrap_failed
+     - Custom bootstrap script failed
+   * - 4
+     - creating_replica
+     - Creating replica from primary
+   * - 5
+     - running
+     - PostgreSQL is running normally
+   * - 6
+     - starting
+     - PostgreSQL is starting up
+   * - 7
+     - bootstrap_starting
+     - Starting after custom bootstrap
+   * - 8
+     - start_failed
+     - PostgreSQL start failed
+   * - 9
+     - restarting
+     - PostgreSQL is restarting
+   * - 10
+     - restart_failed
+     - PostgreSQL restart failed
+   * - 11
+     - stopping
+     - PostgreSQL is stopping
+   * - 12
+     - stopped
+     - PostgreSQL is stopped
+   * - 13
+     - stop_failed
+     - PostgreSQL stop failed
+   * - 14
+     - crashed
+     - PostgreSQL has crashed
+
+.. note::
+   These numeric values are fixed and will never change to maintain backward compatibility with existing monitoring systems. If new states are added in the future, they will be assigned new numeric values without changing existing ones.
 
 
 Cluster status endpoints
@@ -635,7 +709,7 @@ In the JSON body of the ``POST`` request you must specify the ``candidate`` fiel
 	Successfully failed over to "postgresql1"
 
 .. warning::
-	:ref:`Be very careful <failover_healthcheck>` when using this endpoint, as this can cause data loss in certain situations. In most cases, :ref:`the switchover endpoint <switchover_api>` satisfies the administrator's needs. 
+	:ref:`Be very careful <failover_healthcheck>` when using this endpoint, as this can cause data loss in certain situations. In most cases, :ref:`the switchover endpoint <switchover_api>` satisfies the administrator's needs.
 
 
 ``POST /switchover`` and ``POST /failover`` endpoints are used by :ref:`patronictl_switchover` and :ref:`patronictl_failover`, respectively.
@@ -718,5 +792,7 @@ Reinitialize endpoint
 ``POST /reinitialize``: reinitialize the PostgreSQL data directory on the specified node. It is allowed to be executed only on replicas. Once called, it will remove the data directory and start ``pg_basebackup`` or some alternative :ref:`replica creation method <custom_replica_creation>`.
 
 The call might fail if Patroni is in a loop trying to recover (restart) a failed Postgres. In order to overcome this problem one can specify ``{"force":true}`` in the request body.
+
+You can specify {"from-leader":true} in the request body to directly get basebackup from leader node. This is useful when executing reinit during all replica nodes fail.
 
 The reinitialize endpoint is used by :ref:`patronictl_reinit`.

@@ -66,7 +66,7 @@ systemd
     `systemd-python` in order to use sd_notify integration
 all
     all of the above (except psycopg family)
-psycopg
+psycopg3
     `psycopg[binary]>=3.0.0` module
 psycopg2
     `psycopg2>=2.5.4` module

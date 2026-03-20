@@ -9,7 +9,7 @@ def start_patroni_with_a_name_value_tag(context, name, tag_name, tag_value):
     return context.pctl.start(name, custom_config={'tags': {tag_name: tag_value}})
 
 
-@then('There is a {label} with "{content}" in {name:name} data directory')
+@then('there is a {label} with "{content}" in {name:name} data directory')
 def check_label(context, label, content, name):
     value = (context.pctl.read_label(name, label) or '').replace('\n', '\\n')
     assert content in value, "\"{0}\" in {1} doesn't contain {2}".format(value, label, content)

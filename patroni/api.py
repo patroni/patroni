@@ -20,7 +20,6 @@ import traceback
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import ip_address, ip_network, IPv4Network, IPv6Network
 from socketserver import ThreadingMixIn
-from threading import Thread
 from typing import Any, Callable, cast, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
 from urllib.parse import parse_qs, urlparse
 
@@ -31,6 +30,7 @@ from .__main__ import Patroni
 from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
 from .postgresql.misc import postgres_version_to_int, PostgresqlRole, PostgresqlState
+from .thread_pool import PatroniThreadPoolExecutor
 from .utils import cluster_as_json, deep_compare, enable_keepalive, parse_bool, \
     parse_int, patch_config, Retry, RetryFailedError, split_host_port, tzutc, uri
 
@@ -118,6 +118,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
         self.server: 'RestApiServer' = server  # pyright: ignore [reportIncompatibleVariableOverride]
         self.__start_time: float = 0.0
         self.path_query: Dict[str, List[str]] = {}
+
+    def version_string(self) -> str:
+        """Override the default version string to return the server header as specified in the configuration.
+
+        If the server header is not set, then it returns the default version string of the HTTP server.
+
+        :return: ``Server`` version string, which is either the server header or the default version string
+            from the :class:`BaseHTTPRequestHandler`.
+        """
+        return self.server.server_header or super().version_string()
 
     def _write_status_code_only(self, status_code: int) -> None:
         """Write a response that is composed only of the HTTP status.
@@ -258,6 +268,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     * ``lag``: only accept replication lag up to ``lag``. Accepts either an :class:`int`, which
                         represents lag in bytes, or a :class:`str` representing lag in human-readable format (e.g.
                         ``10MB``).
+                    * ``replication_state``: only return HTTP status ``200`` if the node's state matches the
+                        requested one (e.g. "streaming")
                     * Any custom parameter: will attempt to match them against node tags.
 
                 * HTTP status ``200``: if up and running as a standby and without ``noloadbalance`` tag.
@@ -323,8 +335,14 @@ class RestApiHandler(BaseHTTPRequestHandler):
             max_replica_lag = sys.maxsize
         is_lagging = leader_optime and leader_optime > replayed_location + max_replica_lag
 
+        wanted_replication_state = self.path_query.get('replication_state', [None])[0]
+        matches_replication_state = response.get('replication_state') == wanted_replication_state \
+            if wanted_replication_state else True
+
         replica_status_code = 200 if not patroni.noloadbalance and not is_lagging and \
-            response.get('role') == PostgresqlRole.REPLICA and response.get('state') == PostgresqlState.RUNNING else 503
+            response.get('role') == PostgresqlRole.REPLICA and \
+            response.get('state') == PostgresqlState.RUNNING and \
+            matches_replication_state else 503
 
         if not cluster and response.get('pause'):
             leader_status_code = 200 if response.get('role') in (PostgresqlRole.PRIMARY,
@@ -448,27 +466,73 @@ class RestApiHandler(BaseHTTPRequestHandler):
         status_code = 200 if patroni.ha.is_paused() or patroni.next_run + liveness_threshold > time.time() else 503
         self._write_status_code_only(status_code)
 
+    def _readiness(self) -> Optional[str]:
+        """Check if readiness conditions are met.
+
+        :returns: None if node can be considered ready or diagnostic message if not."""
+
+        patroni = self.server.patroni
+        if patroni.ha.is_leader():
+            # We only become leader after bootstrap or once up as a standby, so we are definitely ready.
+            return
+
+        # When postgres is not running we are not ready.
+        if patroni.postgresql.state != PostgresqlState.RUNNING:
+            return 'PostgreSQL is not running'
+
+        postgres = self.get_postgresql_status(True)
+        latest_end_lsn = postgres.get('latest_end_lsn', 0)
+
+        if postgres.get('replication_state') != 'streaming':
+            return 'PostgreSQL replication state is not streaming'
+
+        cluster = patroni.dcs.cluster
+
+        if not cluster and not latest_end_lsn:
+            if patroni.ha.failsafe_is_active():
+                return
+            return 'DCS is not accessible'
+
+        leader_optime = max(cluster and cluster.status.last_lsn or 0, latest_end_lsn)
+
+        mode = 'write' if self.path_query.get('mode', [None])[0] == 'write' else 'apply'
+        location = 'received_location' if mode == 'write' else 'replayed_location'
+        lag = leader_optime - postgres.get('xlog', {}).get(location, 0)
+
+        max_replica_lag = parse_int(self.path_query.get('lag', [None])[0], 'B')
+        if max_replica_lag is None:
+            max_replica_lag = global_config.maximum_lag_on_failover
+
+        if lag > max_replica_lag:
+            return f'Replication {mode} lag {lag} exceeds maximum allowable {max_replica_lag}'
+
     def do_GET_readiness(self) -> None:
         """Handle a ``GET`` request to ``/readiness`` path.
+
+            * Query parameters:
+
+                * ``lag``: only accept replication lag up to ``lag``. Accepts either an :class:`int`, which
+                    represents lag in bytes, or a :class:`str` representing lag in human-readable format (e.g.
+                    ``10MB``).
+                * ``mode``: allowed values ``write``, ``apply``. Base replication lag off of received WAL or
+                    replayed WAL. Defaults to ``apply``.
 
         Write a simple HTTP response which HTTP status can be:
 
             * ``200``:
 
-                * If this Patroni node holds the DCS leader lock; or
-                * If this PostgreSQL instance is up and running;
+                * If this Patroni node considers itself the leader; or
+                * If PostgreSQL is running, replicating and not lagging;
 
             * ``503``: if none of the previous conditions apply.
 
         """
-        patroni = self.server.patroni
-        if patroni.ha.is_leader():
-            status_code = 200
-        elif patroni.postgresql.state == PostgresqlState.RUNNING:
-            status_code = 200 if patroni.dcs.cluster else 503
-        else:
-            status_code = 503
-        self._write_status_code_only(status_code)
+        failure_reason = self._readiness()
+
+        if failure_reason:
+            logger.debug("Readiness check failure: %s", failure_reason)
+
+        self._write_status_code_only(200 if not failure_reason else 503)
 
     def do_GET_patroni(self) -> None:
         """Handle a ``GET`` request to ``/patroni`` path.
@@ -521,7 +585,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         ``502`` instead.
         """
         cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
-        if cluster.config:
+        if cluster.config and cluster.config.modify_version:
             self._write_json_response(200, cluster.config.data)
         else:
             self.send_error(502)
@@ -550,6 +614,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
               ``15.2``;
             * ``patroni_cluster_unlocked``: ``1`` if no one holds the leader lock, else ``0``;
             * ``patroni_failsafe_mode_is_active``: ``1`` if ``failsafe_mode`` is currently active, else ``0``;
+            * ``patroni_failsafe_mode_enabled``: ``1`` if ``failsafe_mode`` is enabled in configuration, else ``0``;
+            * ``patroni_failsafe_member``: ``1`` if this node is a member of failsafe topology, else ``0``;
             * ``patroni_postgres_timeline``: PostgreSQL timeline based on current WAL file name;
             * ``patroni_dcs_last_seen``: epoch timestamp when DCS was last contacted successfully;
             * ``patroni_pending_restart``: ``1`` if this PostgreSQL node is pending a restart, else ``0``;
@@ -659,6 +725,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("patroni_failsafe_mode_is_active{0} {1}"
                        .format(labels, int(postgres.get('failsafe_mode_is_active', 0))))
 
+        metrics.append("# HELP patroni_failsafe_mode_enabled Value is 1 if failsafe_mode is enabled, 0 otherwise.")
+        metrics.append("# TYPE patroni_failsafe_mode_enabled gauge")
+        metrics.append("patroni_failsafe_mode_enabled{0} {1}".format(labels, int(patroni.ha.is_failsafe_mode())))
+
+        failsafe = patroni.dcs.failsafe
+        is_failsafe_member = isinstance(failsafe, dict) and patroni.postgresql.name in failsafe
+        metrics.append("# HELP patroni_failsafe_member Value is 1 if this node is a member of failsafe, 0 otherwise.")
+        metrics.append("# TYPE patroni_failsafe_member gauge")
+        metrics.append("patroni_failsafe_member{0} {1}".format(labels, int(is_failsafe_member)))
+
         metrics.append("# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_timeline counter")
         metrics.append("patroni_postgres_timeline{0} {1}".format(labels, postgres.get('timeline') or 0))
@@ -676,6 +752,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# HELP patroni_is_paused Value is 1 if auto failover is disabled, 0 otherwise.")
         metrics.append("# TYPE patroni_is_paused gauge")
         metrics.append("patroni_is_paused{0} {1}".format(labels, int(postgres.get('pause', 0))))
+
+        metrics.append("# HELP patroni_postgres_state Numeric representation of Postgres state.")
+        # Generate description of all state values for metrics documentation
+        state_descriptions = [f"{state.index}={state.name.lower()}" for state in PostgresqlState]
+        metrics.append(f"# Values: {', '.join(state_descriptions)}")
+        metrics.append("# TYPE patroni_postgres_state gauge")
+        current_state = postgres['state']
+        state_value = current_state.index if isinstance(current_state, PostgresqlState) else -1
+        metrics.append(f"patroni_postgres_state{labels} {state_value}")
 
         self.write_response(200, '\n'.join(metrics) + '\n', content_type='text/plain')
 
@@ -900,7 +985,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             # failed to parse the json
             return
         if request:
-            logger.debug("received restart request: {0}".format(request))
+            logger.debug("received restart request: %s", request)
 
         if global_config.from_cluster(cluster).is_paused and 'schedule' in request:
             self.write_response(status_code, "Can't schedule restart in the paused state")
@@ -1005,6 +1090,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         The request body may contain a JSON dictionary with the following key:
 
             * ``force``: ``True`` if we want to cancel an already running task in order to reinit a replica.
+            * ``from_leader``: ``True`` if we want to reinit a replica and get basebackup from the leader node.
 
         Response HTTP status codes:
 
@@ -1017,8 +1103,9 @@ class RestApiHandler(BaseHTTPRequestHandler):
             logger.debug('received reinitialize request: %s', request)
 
         force = isinstance(request, dict) and parse_bool(request.get('force')) or False
+        from_leader = isinstance(request, dict) and parse_bool(request.get('from_leader')) or False
 
-        data = self.server.patroni.ha.reinitialize(force)
+        data = self.server.patroni.ha.reinitialize(force, from_leader)
         if data is None:
             status_code = 200
             data = 'reinitialize started'
@@ -1403,14 +1490,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
         logger.debug("API thread: %s - - %s latency: %0.3f ms", self.client_address[0], format % args, latency)
 
 
-class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
+class RestApiServer(ThreadingMixIn, HTTPServer):
     """Patroni REST API server.
 
-    An asynchronous thread-based HTTP server.
+    An asynchronous thread-pool-based HTTP server.
     """
-
-    # On 3.7+ the `ThreadingMixIn` gathers all non-daemon worker threads in order to join on them at server close.
-    daemon_threads = True  # Make worker threads "fire and forget" to prevent a memory leak.
 
     def __init__(self, patroni: Patroni, config: Dict[str, Any]) -> None:
         """Establish patroni configuration for the REST API daemon.
@@ -1428,11 +1512,45 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self.patroni = patroni
         self.__listen = None
         self.request_queue_size = int(config.get('request_queue_size', 5))
+        try:
+            thread_pool_size = max(5, int(config.get('thread_pool_size', 5)))
+        except Exception as e:
+            logger.warning('Failed to parse restapi.thread_pool_size value "%s": %r', config.get('thread_pool_size'), e)
+            thread_pool_size = 5
+        logger.info('REST API thread_pool_size = %d', thread_pool_size)
+        self._executor = PatroniThreadPoolExecutor(max_workers=thread_pool_size + 1, thread_name_prefix='RestAPI')
         self.__ssl_options: Dict[str, Any] = {}
         self.__ssl_serial_number = None
         self._received_new_cert = False
         self.reload_config(config)
         self.daemon = True
+
+    def construct_server_tokens(self, token_config: str) -> str:
+        """Construct the value for the ``Server`` HTTP header based on *server_tokens*.
+
+        :param server_tokens: the value of ``restapi.server_tokens`` configuration option.
+
+        :returns: a string to be used as the value of ``Server`` HTTP header.
+        """
+        token = token_config.lower()
+        logger.debug('restapi.server_tokens is set to "%s".', token_config)
+
+        # If 'original' is set, we do not modify the Server header.
+        # This is useful for compatibility with existing setups that expect the original header.
+        if token == 'original':
+            return ""
+
+        # If 'productonly', or 'minimal' is set, we construct the header accordingly.
+        if token == 'productonly':  # Show only the product name, without versions.
+            return 'Patroni'
+        elif token == 'minimal':    # Show only the product name and version, without PostgreSQL version.
+            return f'Patroni/{self.patroni.version}'
+        else:
+            # Token is not valid (one of 'original', 'productonly', 'minimal') so report a warning and
+            # return an empty string.
+            logger.warning('restapi.server_tokens is set to "%s". Patroni will not modify the Server header. '
+                           'Valid values are: "Minimal", "ProductOnly".', token_config)
+            return ""
 
     def query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
         """Execute *sql* query with *params* and optionally return results.
@@ -1661,8 +1779,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
 
         reloading_config = self.__listen is not None  # changing config in runtime
         if reloading_config:
-            self.shutdown()
-            # Rely on ThreadingMixIn.server_close() to have all requests terminate before we continue
+            HTTPServer.shutdown(self)
+            # Rely on TCPServer.server_close() to have all requests terminate before we continue
             self.server_close()
 
         self.__listen = listen
@@ -1670,7 +1788,6 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         self._received_new_cert = False  # reset to False after reload_config()
 
         self.__httpserver_init(host, port)
-        Thread.__init__(self, target=self.serve_forever)
         self._set_fd_cloexec(self.socket)
 
         # wrap socket with ssl if 'certfile' is defined in a config.yaml
@@ -1695,6 +1812,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if reloading_config:
             self.start()
 
+    def start(self) -> None:
+        self._executor.submit(self.serve_forever)
+
     def process_request_thread(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
                                client_address: Tuple[str, int]) -> None:
         """Process a request to the REST API.
@@ -1714,6 +1834,14 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
             if isinstance(request, SSLSocket):  # pyright
                 request.do_handshake()
         super(RestApiServer, self).process_request_thread(request, client_address)
+
+    def process_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
+                        client_address: Tuple[str, int]) -> None:
+        self._executor.submit(self.process_request_thread, request, client_address)
+
+    def shutdown(self) -> None:
+        super(RestApiServer, self).shutdown()
+        self._executor.shutdown(wait=True)
 
     def shutdown_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]]) -> None:
         """Shut down a request to the REST API.
@@ -1811,6 +1939,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer, Thread):
         if TYPE_CHECKING:  # pragma: no cover
             assert isinstance(self.__listen, str)
         self.connection_string = uri(self.__protocol, config.get('connect_address') or self.__listen, 'patroni')
+
+        # Define the Server header response using the server_tokens option.
+        self.server_header = self.construct_server_tokens(config.get('server_tokens', 'original'))
 
     def handle_error(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
                      client_address: Tuple[str, int]) -> None:

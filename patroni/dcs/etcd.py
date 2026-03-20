@@ -1,5 +1,3 @@
-from __future__ import absolute_import
-
 import abc
 import json
 import logging
@@ -101,13 +99,51 @@ class DnsCachingResolver(Thread):
             return []
 
 
-class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
+class StaleEtcdNodeGuard(object):
+
+    def __init__(self) -> None:
+        self._reset_cluster_raft_term()
+
+    def _reset_cluster_raft_term(self) -> None:
+        self._cluster_id = None
+        self._raft_term = 0
+
+    def _check_cluster_raft_term(self, cluster_id: Optional[str], value: Union[None, str, int]) -> None:
+        """Check that observed Raft Term in Etcd cluster is increasing.
+
+        :param cluster_id: last observed Etcd Cluster ID
+        :param raft_term: last observed Raft Term
+
+        :raises:
+            :exc::`StaleEtcdNode` if last observed *raft_term* is smaller than previously known *raft_term*.
+        """
+        if not (cluster_id and value):
+            return
+
+        # We need to reset the memorized value when we notice that Cluster ID changed.
+        if self._cluster_id and self._cluster_id != cluster_id:
+            logger.warning('Etcd Cluster ID changed from %s to %s', self._cluster_id, cluster_id)
+            self._raft_term = 0
+        self._cluster_id = cluster_id
+
+        try:
+            raft_term = int(value)
+        except Exception:
+            return
+
+        if raft_term < self._raft_term:
+            logger.warning('Connected to Etcd node with term %d. Old known term %d. Switching to another node.',
+                           raft_term, self._raft_term)
+            raise StaleEtcdNode
+        self._raft_term = raft_term
+
+
+class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
 
     ERROR_CLS: Type[Exception]
 
     def __init__(self, config: Dict[str, Any], dns_resolver: DnsCachingResolver, cache_ttl: int = 300) -> None:
-        self._cluster_id = None
-        self._raft_term = 0
+        StaleEtcdNodeGuard.__init__(self)
         self._dns_resolver = dns_resolver
         self.set_machines_cache_ttl(cache_ttl)
         self._machines_cache_updated = 0
@@ -124,32 +160,6 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
         self._comparison_conditions.add('retry')
         self._read_options.add('retry')
         self._del_conditions.add('retry')
-
-    def _check_cluster_raft_term(self, cluster_id: Optional[str], value: Union[None, str, int]) -> None:
-        """Check that observed Raft Term in Etcd cluster is increasing.
-
-        If we observe that the new value is smaller than the previously known one, it could be an
-        indicator that we connected to a stale node and should switch to some other node.
-        However, we need to reset the memorized value when we notice that Cluster ID changed.
-        """
-        if not (cluster_id and value):
-            return
-
-        if self._cluster_id and self._cluster_id != cluster_id:
-            logger.warning('Etcd Cluster ID changed from %s to %s', self._cluster_id, cluster_id)
-            self._raft_term = 0
-        self._cluster_id = cluster_id
-
-        try:
-            raft_term = int(value)
-        except Exception:
-            return
-
-        if raft_term < self._raft_term:
-            logger.warning('Connected to Etcd node with term %d. Old known term %d. Switching to another node.',
-                           raft_term, self._raft_term)
-            raise StaleEtcdNode
-        self._raft_term = raft_term
 
     def _calculate_timeouts(self, etcd_nodes: int, timeout: Optional[float] = None) -> Tuple[int, float, int]:
         """Calculate a request timeout and number of retries per single etcd node.
@@ -305,7 +315,12 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client):
 
         # Update machines_cache if previous attempt of update has failed
         if self._update_machines_cache:
-            self._load_machines_cache()
+            try:
+                self._load_machines_cache()
+            except etcd.EtcdException as e:
+                # If etcd cluster isn't accessible _load_machines_cache() -> _refresh_machines_cache() may raise
+                # etcd.EtcdException. We need to convert it to etcd.EtcdConnectionFailed for failsafe_mode to work.
+                raise etcd.EtcdConnectionFailed('No more machines in the cluster') from e
         elif not self._use_proxies and time.time() - self._machines_cache_updated > self._machines_cache_ttl:
             self._refresh_machines_cache()
 

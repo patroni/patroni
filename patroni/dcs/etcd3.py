@@ -1,5 +1,3 @@
-from __future__ import absolute_import
-
 import base64
 import json
 import logging
@@ -21,10 +19,12 @@ from urllib3.exceptions import ProtocolError, ReadTimeoutError
 from ..collections import EMPTY_DICT
 from ..exceptions import DCSError, PatroniException
 from ..postgresql.mpp import AbstractMPP
-from ..utils import deep_compare, enable_keepalive, iter_response_objects, RetryFailedError, USER_AGENT
+from ..utils import deep_compare, enable_keepalive, iter_response_objects, \
+    parse_bool, RetryFailedError, USER_AGENT, WHITESPACE_RE
 from . import catch_return_false_exception, Cluster, ClusterConfig, \
     Failover, Leader, Member, Status, SyncState, TimelineHistory
-from .etcd import AbstractEtcd, AbstractEtcdClientWithFailover, catch_etcd_errors, DnsCachingResolver, Retry
+from .etcd import AbstractEtcd, AbstractEtcdClientWithFailover, catch_etcd_errors, \
+    DnsCachingResolver, Retry, StaleEtcdNode, StaleEtcdNodeGuard
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +65,15 @@ class Etcd3Exception(etcd.EtcdException):
     pass
 
 
+class Etcd3WatchCanceled(Etcd3Exception):
+    pass
+
+
 class Etcd3ClientError(Etcd3Exception):
 
     def __init__(self, code: Optional[int] = None, error: Optional[str] = None, status: Optional[int] = None) -> None:
+        if not hasattr(self, 'code'):
+            self.code = code
         if not hasattr(self, 'error'):
             self.error = error and error.strip()
         self.codeText = GRPCcodeToText.get(code) if code is not None else None
@@ -75,7 +81,7 @@ class Etcd3ClientError(Etcd3Exception):
 
     def __repr__(self) -> str:
         return "<{0} error: '{1}', code: {2}>"\
-            .format(self.__class__.__name__, getattr(self, 'error', None), getattr(self, 'code', None))
+            .format(self.codeText, getattr(self, 'error', None), getattr(self, 'code', None))
 
     __str__ = __repr__
 
@@ -158,18 +164,18 @@ def _raise_for_data(data: Union[bytes, str, Dict[str, Any]], status_code: Option
         data_error: Optional[Dict[str, Any]] = data.get('error') or data.get('Error')
         if isinstance(data_error, dict):  # streaming response
             status_code = data_error.get('http_code')
-            code: Optional[int] = data_error['grpc_code']
+            code: Optional[int] = data_error.get('code') or data_error['grpc_code']
             error: str = data_error['message']
         else:
             data_code = data.get('code') or data.get('Code')
             if TYPE_CHECKING:  # pragma: no cover
                 assert not isinstance(data_code, dict)
             code = data_code
-            error = str(data_error)
+            error = str(data_error or data.get('message') or data)
     except Exception:
         error = str(data)
         code = GRPCCode.Unknown
-    err = errStringToClientError.get(error) or errCodeToClientError.get(code) or Unknown
+    err = errStringToClientError.get(error) or errCodeToClientError.get(code) or Etcd3ClientError
     return err(code, error, status_code)
 
 
@@ -212,6 +218,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     ERROR_CLS = Etcd3Error
 
     def __init__(self, config: Dict[str, Any], dns_resolver: DnsCachingResolver, cache_ttl: int = 300) -> None:
+        self._decoder = json.JSONDecoder()
         self._reauthenticate = False
         self._token = None
         self._cluster_version: Tuple[int, ...] = tuple()
@@ -240,7 +247,8 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         data = response.data
         try:
             data = data.decode('utf-8')
-            ret: Dict[str, Any] = json.loads(data)
+            idx = WHITESPACE_RE.match(data, 0).end()  # pyright: ignore [reportOptionalMemberAccess]
+            ret: Dict[str, Any] = self._decoder.raw_decode(data, idx)[0]
 
             header = ret.get('header', EMPTY_DICT)
             self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
@@ -249,7 +257,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
                 return ret
         except (TypeError, ValueError, UnicodeError) as e:
             if response.status < 400:
-                raise etcd.EtcdException('Server response was not valid JSON: %r' % e)
+                raise etcd.EtcdException("Server response '%s' was not valid JSON: %r" % (data, e))
             ret = {}
         ex = _raise_for_data(ret or data, response.status)
         if isinstance(ex, Unavailable):
@@ -355,7 +363,6 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
                 exc = e
             self._reauthenticate = True
             if retry:
-                logger.error('retry = %s', retry)
                 retry.ensure_deadline(0.5, exc)
             elif reauthenticated:
                 raise exc
@@ -432,10 +439,11 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         return self.watchrange(key, prefix_range_end(key), start_revision, filters, read_timeout)
 
 
-class KVCache(Thread):
+class KVCache(StaleEtcdNodeGuard, Thread):
 
     def __init__(self, dcs: 'Etcd3', client: 'PatroniEtcd3Client') -> None:
-        super(KVCache, self).__init__()
+        Thread.__init__(self)
+        StaleEtcdNodeGuard.__init__(self)
         self.daemon = True
         self._dcs = dcs
         self._client = client
@@ -505,7 +513,12 @@ class KVCache(Thread):
         logger.debug('Received message: %s', message)
         if 'error' in message:
             raise _raise_for_data(message)
-        events: List[Dict[str, Any]] = message.get('result', {}).get('events', [])
+        result = message.get('result', EMPTY_DICT)
+        if parse_bool(result.get('canceled')):
+            raise Etcd3WatchCanceled('Watch canceled')
+        header = result.get('header', EMPTY_DICT)
+        self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
+        events: List[Dict[str, Any]] = result.get('events', [])
         for event in events:
             self._process_event(event)
 
@@ -539,16 +552,21 @@ class KVCache(Thread):
 
     def _build_cache(self) -> None:
         result = self._dcs.retry(self._client.prefix, self._dcs.cluster_prefix)
+        header = result.get('header', EMPTY_DICT)
         with self._object_cache_lock:
+            self._reset_cluster_raft_term()
             self._object_cache = {node['key']: node for node in result.get('kvs', [])}
+            self._check_cluster_raft_term(header.get('cluster_id'), header.get('raft_term'))
         with self.condition:
             self._is_ready = True
             self.condition.notify()
 
         try:
             self._do_watch(result['header']['revision'])
+        except Etcd3WatchCanceled:
+            logger.info('Watch request canceled')
         except Exception as e:
-            # Following exceptions are expected on Windows because the /watch request  is done with `read_timeout`
+            # Following exceptions are expected on Windows because the /watch request is done with `read_timeout`
             if not (os.name == 'nt' and isinstance(e, (ReadTimeoutError, ProtocolError))):
                 logger.error('watchprefix failed: %r', e)
         finally:
@@ -568,16 +586,21 @@ class KVCache(Thread):
                 time.sleep(1)
 
     def kill_stream(self) -> None:
-        sock = None
+        conn_sock: Any = None
         with self._response_lock:
             if isinstance(self._response, urllib3.response.HTTPResponse):
                 try:
-                    sock = self._response.connection.sock if self._response.connection else None
+                    conn_sock = self._response.connection.sock if self._response.connection else None
                 except Exception:
-                    sock = None
+                    conn_sock = None
             else:
                 self._response = False
-        if sock:
+        if conn_sock:
+            # python-etcd forces usage of pyopenssl if the last one is available.
+            # In this case HTTPConnection.socket is not inherited from socket.socket, but urllib3 uses custom
+            # class `WrappedSocket`, which shutdown() method could be incompatible with socket.shutdown().
+            # Therefore we use WrappedSocket.socket, which points to original `socket` object.
+            sock: socket.socket = conn_sock.socket if conn_sock.__class__.__name__ == 'WrappedSocket' else conn_sock
             try:
                 sock.shutdown(socket.SHUT_RDWR)
                 sock.close()
@@ -586,6 +609,12 @@ class KVCache(Thread):
 
     def is_ready(self) -> bool:
         """Must be called only when holding the lock on `condition`"""
+        if self._is_ready:
+            try:
+                self._client._check_cluster_raft_term(self._cluster_id, self._raft_term)
+            except StaleEtcdNode:
+                self._is_ready = False
+                self.kill_stream()
         return self._is_ready
 
 

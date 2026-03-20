@@ -1,0 +1,60 @@
+networks:
+  jepsen:
+
+services:
+  test: &test
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: jepsen
+    networks: [ jepsen ]
+    environment: &env
+      ETCDCTL_ENDPOINTS: http://etcd1:2379,http://etcd2:2379,http://etcd3:2379
+    container_name: jepsen-test
+    hostname: test
+
+  etcd1: &etcd
+    <<: *test
+    build:
+      target: etcd
+    image: jepsen-etcd:latest
+    privileged: true
+    environment:
+      ETCD_INITIAL_CLUSTER: etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      ETCD_INITIAL_CLUSTER_TOKEN: jepsen
+      ETCD_UNSUPPORTED_ARCH: arm64
+    container_name: jepsen-etcd1
+    hostname: etcd1
+
+  etcd2:
+    <<: *etcd
+    container_name: jepsen-etcd2
+    hostname: etcd2
+
+  etcd3:
+    <<: *etcd
+    container_name: jepsen-etcd3
+    hostname: etcd3
+
+  patroni1: &patroni
+    <<: *test
+    build:
+      target: patroni
+    image: jepsen-patroni:latest
+    privileged: true
+    environment:
+      <<: *env
+      PATRONI_ETCD3_HOSTS: "'etcd1:2379','etcd2:2379','etcd3:2379'"
+      PATRONI_SCOPE: jepsen
+    container_name: jepsen-patroni1
+    hostname: patroni1
+
+  patroni2:
+    <<: *patroni
+    hostname: patroni2
+    container_name: jepsen-patroni2
+
+  patroni3:
+    <<: *patroni
+    container_name: jepsen-patroni3
+    hostname: patroni3

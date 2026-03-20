@@ -125,9 +125,6 @@ class AbstractMPP(abc.ABC):
                 return cls(postgresql, self._config)
         raise PatroniException(f'Failed to initialize {cls_name} object')
 
-    def reload_config(self, config: Union['Config', Dict[str, Any]]) -> None:
-        self._config = config.get(self.type.lower(), {})
-
 
 class AbstractMPPHandler(AbstractMPP):
     """An abstract class which defines interfaces that should be implemented by real handlers."""

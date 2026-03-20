@@ -123,6 +123,12 @@ class PatroniController(AbstractController):
         except IOError:
             return None
 
+    def read_config(self):
+        config = dict()
+        with open(self._config) as r:
+            config = yaml.safe_load(r)
+        return config
+
     @staticmethod
     def recursive_update(dst, src):
         for k, v in src.items():
@@ -132,11 +138,10 @@ class PatroniController(AbstractController):
                 dst[k] = v
 
     def update_config(self, custom_config):
-        with open(self._config) as r:
-            config = yaml.safe_load(r)
-            self.recursive_update(config, custom_config)
-            with open(self._config, 'w') as w:
-                yaml.safe_dump(config, w, default_flow_style=False)
+        config = self.read_config()
+        self.recursive_update(config, custom_config)
+        with open(self._config, 'w') as w:
+            yaml.safe_dump(config, w, default_flow_style=False)
         self._scope = config.get('scope', 'batman')
 
     def add_tag_to_config(self, tag, value):
@@ -857,7 +862,7 @@ class PatroniPoolController(object):
         self._processes[name].start(max_wait_limit)
 
     def __getattr__(self, func):
-        if func not in ['stop', 'query', 'write_label', 'read_label', 'check_role_has_changed_to',
+        if func not in ['stop', 'query', 'write_label', 'read_label', 'read_config', 'check_role_has_changed_to',
                         'add_tag_to_config', 'get_watchdog', 'patroni_hang', 'backup', 'read_patroni_log']:
             raise AttributeError("PatroniPoolController instance has no attribute '{0}'".format(func))
 
@@ -964,6 +969,12 @@ class PatroniPoolController(object):
             self._dcs = os.environ.pop('DCS', 'etcd')
             assert self._dcs in self.known_dcs, 'Unsupported dcs: ' + self._dcs
         return self._dcs
+
+    @property
+    def server_version(self):
+        for p in self._processes.values():
+            if p._conn:
+                return p._conn.server_version
 
 
 class WatchdogMonitor(object):
@@ -1168,17 +1179,16 @@ def after_feature(context, feature):
 
 
 def before_scenario(context, scenario):
-    for tag in scenario.effective_tags:
-        if tag.startswith('pg') and 6 < len(tag) < 9:
-            try:
-                ver = int(tag[2:])
-            except Exception:
-                ver = 0
-            if not ver:
-                continue
-            for p in context.pctl._processes.values():
-                if p._conn and p._conn.server_version < ver:
-                    scenario.skip('not supported on {0}'.format(p._conn.server_version))
+    server_version = context.pctl.server_version
+    if server_version:
+        for tag in scenario.effective_tags:
+            if tag.startswith('pg') and 6 < len(tag) < 9:
+                try:
+                    ver = int(tag[2:])
+                except Exception:
+                    ver = 0
+                if ver and server_version < ver:
+                    scenario.skip('not supported on {0}'.format(server_version))
                     break
     if 'dcs-failsafe' in scenario.effective_tags and not context.dcs_ctl._handle:
         scenario.skip('it is not possible to control state of {0} from tests'.format(context.dcs_ctl.name()))

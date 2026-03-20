@@ -96,11 +96,11 @@ class Postgresql(object):
         self._bin_dir = config.get('bin_dir') or ''
         self._role_lock = Lock()
         self.set_role(PostgresqlRole.UNINITIALIZED)
+        self.bootstrap = Bootstrap(self)
+        self.bootstrapping = False
         self.config = ConfigHandler(self, config)
         self.config.check_directories()
 
-        self.bootstrap = Bootstrap(self)
-        self.bootstrapping = False
         self.__thread_ident = current_thread().ident
 
         self.slots_handler = SlotsHandler(self)
@@ -623,7 +623,7 @@ class Postgresql(object):
                 return match.group(1), match.group(2), match.group(3), match.group(4)
         return None, None, None, None
 
-    def _checkpoint_locations_from_controldata(self, data: Dict[str, str]) -> Optional[Tuple[int, int]]:
+    def latest_checkpoint_locations(self, data: Optional[Dict[str, str]] = None) -> Tuple[Optional[int], Optional[int]]:
         """Get shutdown checkpoint location.
 
         :param data: :class:`dict` object with values returned by `pg_controldata` tool.
@@ -631,6 +631,8 @@ class Postgresql(object):
         :returns: a tuple of checkpoint LSN for the cleanly shut down primary, and LSN of prev wal record (SWITCH)
                   if we know that the checkpoint was written to the new WAL file due to the archive_mode=on.
         """
+        if data is None:
+            data = self.controldata()
         timeline = data.get("Latest checkpoint's TimeLineID")
         lsn = checkpoint_lsn = data.get('Latest checkpoint location')
         prev_lsn = None
@@ -651,19 +653,7 @@ class Postgresql(object):
                 logger.error('Exception when parsing WAL pg_%sdump output: %r', self.wal_name, e)
             if isinstance(checkpoint_lsn, int):
                 return checkpoint_lsn, (prev_lsn or checkpoint_lsn)
-
-    def latest_checkpoint_location(self) -> Optional[int]:
-        """Get shutdown checkpoint location.
-
-        .. note::
-            In case if checkpoint was written to the new WAL file due to the archive_mode=on
-            we return LSN of the previous wal record (SWITCH).
-
-        :returns: checkpoint LSN for the cleanly shut down primary.
-        """
-        checkpoint_locations = self._checkpoint_locations_from_controldata(self.controldata())
-        if checkpoint_locations:
-            return checkpoint_locations[1]
+        return None, None
 
     def is_running(self) -> Optional[PostmasterProcess]:
         """Returns PostmasterProcess if one is running on the data directory or None. If most recently seen process
@@ -677,7 +667,7 @@ class Postgresql(object):
         # we noticed that postgres was restarted, force syncing of replication slots and check of logical slots
         self.slots_handler.schedule()
 
-        self._postmaster_proc = PostmasterProcess.from_pidfile(self._data_dir)
+        self._postmaster_proc = PostmasterProcess.from_pidfile(self.pgcommand('postgres'), self._data_dir)
         return self._postmaster_proc
 
     @property
@@ -922,9 +912,9 @@ class Postgresql(object):
             while postmaster.is_running():
                 data = self.controldata()
                 if data.get('Database cluster state', '') == 'shut down':
-                    checkpoint_locations = self._checkpoint_locations_from_controldata(data)
-                    if checkpoint_locations:
-                        on_shutdown(*checkpoint_locations)
+                    checkpoint_lsn, prev_lsn = self.latest_checkpoint_locations(data)
+                    if checkpoint_lsn is not None and prev_lsn is not None:
+                        on_shutdown(checkpoint_lsn, prev_lsn)
                     break
                 elif data.get('Database cluster state', '').startswith('shut down'):  # shut down in recovery
                     break
@@ -1357,7 +1347,7 @@ class Postgresql(object):
                     os.unlink(source)
                     os.symlink(new_name, source)
 
-                new_name = '{0}.{1}'.format(self._data_dir, postfix)
+                new_name = '{0}.{1}'.format(self._data_dir.rstrip(os.sep), postfix)
                 logger.info('renaming data directory to %s', new_name)
                 if os.path.exists(new_name):
                     shutil.rmtree(new_name)

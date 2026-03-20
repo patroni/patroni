@@ -209,6 +209,8 @@ class MockCursor(object):
 
 class MockConnect(object):
 
+    pgconn = None
+    connection = None
     server_version = 99999
     autocommit = False
     closed = 0
@@ -248,6 +250,8 @@ class PostgresInit(unittest.TestCase):
 
     @patch('patroni.psycopg._connect', psycopg_connect)
     @patch('patroni.postgresql.CallbackExecutor', Mock())
+    @patch('patroni.postgresql.mpp.citus.CitusDatabaseHandler.start', Mock())
+    @patch('patroni.postgresql.slots.SlotsAdvanceThread.start', Mock())
     @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
     @patch.object(ConfigHandler, 'replace_pg_hba', Mock())
     @patch.object(ConfigHandler, 'replace_pg_ident', Mock())

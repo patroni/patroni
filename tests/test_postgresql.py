@@ -1,8 +1,10 @@
 import datetime
 import os
 import re
+import stat
 import subprocess
 import time
+import unittest
 
 from copy import deepcopy
 from pathlib import Path
@@ -18,6 +20,7 @@ from patroni.async_executor import CriticalTask
 from patroni.collections import CaseInsensitiveDict, CaseInsensitiveSet
 from patroni.dcs import RemoteMember
 from patroni.exceptions import PatroniException, PostgresConnectionException
+from patroni.file_perm import pg_perm
 from patroni.postgresql import PgIsReadyStatus, Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
@@ -240,7 +243,7 @@ class TestPostgresql(BaseTestPostgresql):
     @patch('time.sleep', Mock())
     @patch.object(Postgresql, 'is_running', MockPostmaster)
     @patch.object(Postgresql, '_wait_for_connection_close', Mock())
-    @patch.object(Postgresql, 'latest_checkpoint_location', Mock(return_value='7'))
+    @patch.object(Postgresql, 'latest_checkpoint_locations', Mock(return_value=(7, 7)))
     def test__do_stop(self):
         mock_callback = Mock()
         with patch.object(Postgresql, 'controldata',
@@ -307,6 +310,7 @@ class TestPostgresql(BaseTestPostgresql):
             self.p.config.write_postgresql_conf()
             self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
             with patch.object(Postgresql, 'primary_conninfo', Mock(return_value='host=1')):
+                mock_get_pg_settings.return_value['primary_conninfo'][1] = 'host=1 dbname=postgres password=a'
                 mock_get_pg_settings.return_value['primary_slot_name'] = [
                     'primary_slot_name', '', '', 'string', 'postmaster', self.p.config._postgresql_conf]
                 self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
@@ -398,13 +402,13 @@ class TestPostgresql(BaseTestPostgresql):
                                                                 'Latest checkpoint location': '0/1ADBC18',
                                                                 "Latest checkpoint's TimeLineID": '1'}))
     @patch('subprocess.Popen')
-    def test_latest_checkpoint_location(self, mock_popen):
+    def test_latest_checkpoint_locations(self, mock_popen):
         mock_popen.return_value.communicate.return_value = (None, None)
-        self.assertEqual(self.p.latest_checkpoint_location(), 28163096)
+        self.assertEqual(self.p.latest_checkpoint_locations(), (28163096, 28163096))
         with patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'shut down',
                                                                         'Latest checkpoint location': 'k/1ADBC18',
                                                                         "Latest checkpoint's TimeLineID": '1'})):
-            self.assertIsNone(self.p.latest_checkpoint_location())
+            self.assertEqual(self.p.latest_checkpoint_locations(), (None, None))
         # 9.3 and 9.4 format
         mock_popen.return_value.communicate.side_effect = [
             (b'rmgr: XLOG        len (rec/tot):     72/   104, tx:          0, lsn: 0/01ADBC18, prev 0/01ADBBB8, '
@@ -412,14 +416,14 @@ class TestPostgresql(BaseTestPostgresql):
              + b' 1; offset 0; oldest xid 715 in DB 1; oldest multi 1 in DB 1; oldest running xid 0; shutdown', None),
             (b'rmgr: Transaction len (rec/tot):     64/    96, tx:        726, lsn: 0/01ADBBB8, prev 0/01ADBB70, '
              + b'bkp: 0000, desc: commit: 2021-02-26 11:19:37.900918 CET; inval msgs: catcache 11 catcache 10', None)]
-        self.assertEqual(self.p.latest_checkpoint_location(), 28163096)
+        self.assertEqual(self.p.latest_checkpoint_locations(), (28163096, 28163096))
         mock_popen.return_value.communicate.side_effect = [
             (b'rmgr: XLOG        len (rec/tot):     72/   104, tx:          0, lsn: 0/01ADBC18, prev 0/01ADBBB8, '
              + b'bkp: 0000, desc: checkpoint: redo 0/1ADBC18; tli 1; prev tli 1; fpw true; xid 0/727; oid 16386; multi'
              + b' 1; offset 0; oldest xid 715 in DB 1; oldest multi 1 in DB 1; oldest running xid 0; shutdown', None),
             (b'rmgr: XLOG        len (rec/tot):      0/    32, tx:          0, lsn: 0/01ADBBB8, prev 0/01ADBBA0, '
              + b'bkp: 0000, desc: xlog switch ', None)]
-        self.assertEqual(self.p.latest_checkpoint_location(), 28163000)
+        self.assertEqual(self.p.latest_checkpoint_locations(), (28163096, 28163000))
         # 9.5+ format
         mock_popen.return_value.communicate.side_effect = [
             (b'rmgr: XLOG        len (rec/tot):    114/   114, tx:          0, lsn: 0/01ADBC18, prev 0/018260F8, '
@@ -428,7 +432,7 @@ class TestPostgresql(BaseTestPostgresql):
              + b' oldest running xid 0; shutdown', None),
             (b'rmgr: XLOG        len (rec/tot):     24/    24, tx:          0, lsn: 0/018260F8, prev 0/01826080, '
              + b'desc: SWITCH ', None)]
-        self.assertEqual(self.p.latest_checkpoint_location(), 25321720)
+        self.assertEqual(self.p.latest_checkpoint_locations(), (28163096, 25321720))
 
     def test_reload(self):
         self.assertTrue(self.p.reload())
@@ -1147,6 +1151,19 @@ class TestPostgresql(BaseTestPostgresql):
                 "directory:", mock_warning.call_args[0][0]
             )
 
+    @patch('os.chmod')
+    @patch('os.stat')
+    @patch('os.umask')
+    def test_set_file_permissions(self, mock_umask, mock_stat, mock_chmod):
+        pg_conf = os.path.join(self.p.data_dir, 'postgresql.conf')
+        mock_stat.return_value.st_mode = stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP   # MODE_GROUP
+        self.p.config.set_file_permissions(pg_conf)
+        mock_chmod.assert_called_with(pg_conf, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP)
+
+        pg_conf = os.path.join(os.path.abspath(os.sep) + 'tmp', 'postgresql.conf')
+        self.p.config.set_file_permissions(pg_conf)
+        mock_chmod.assert_called_with(pg_conf, 0o666 & ~pg_perm.orig_umask)
+
 
 @patch('subprocess.call', Mock(return_value=0))
 @patch('patroni.psycopg.connect', psycopg_connect)
@@ -1207,3 +1224,51 @@ class TestPostgresql2(BaseTestPostgresql):
         self.assertEqual(self.p.config.format_dsn(params),
                          'host=1 port=2 sslpassword=pwd sslcrldir=/ gssencmode=prefer channel_binding=prefer '
                          'target_session_attrs=read-write sslnegotiation=postgres')
+
+
+class TestPostgresqlStateMetrics(unittest.TestCase):
+    """Test PostgreSQL state metrics consistency."""
+
+    def test_postgresql_state_metrics_uniqueness(self):
+        """Test that all metrics values are unique."""
+        # Collect all metrics values
+        metrics_values = []
+        for state in PostgresqlState:
+            value = state.index
+            metrics_values.append(value)
+
+        # Check for duplicates
+        unique_values = set(metrics_values)
+        self.assertEqual(len(metrics_values), len(unique_values),
+                         f"Duplicate metrics values found: {metrics_values}")
+
+    def test_postgresql_state_metrics_stability(self):
+        """Test that metrics values are stable and don't change unexpectedly."""
+        # Test specific known values to ensure they don't change
+        expected_values = {
+            PostgresqlState.INITDB: 0,
+            PostgresqlState.INITDB_FAILED: 1,
+            PostgresqlState.CUSTOM_BOOTSTRAP: 2,
+            PostgresqlState.CUSTOM_BOOTSTRAP_FAILED: 3,
+            PostgresqlState.CREATING_REPLICA: 4,
+            PostgresqlState.RUNNING: 5,
+            PostgresqlState.STARTING: 6,
+            PostgresqlState.BOOTSTRAP_STARTING: 7,
+            PostgresqlState.START_FAILED: 8,
+            PostgresqlState.RESTARTING: 9,
+            PostgresqlState.RESTART_FAILED: 10,
+            PostgresqlState.STOPPING: 11,
+            PostgresqlState.STOPPED: 12,
+            PostgresqlState.STOP_FAILED: 13,
+            PostgresqlState.CRASHED: 14,
+        }
+
+        # Iterate over all states to ensure we don't miss any new ones
+        for state in PostgresqlState:
+            with self.subTest(state=state):
+                self.assertIn(state, expected_values,
+                              f"New state {state} added but not included in expected_values test")
+                expected_value = expected_values[state]
+                actual_value = state.index
+                self.assertEqual(actual_value, expected_value,
+                                 f"Metrics value for {state} changed from {expected_value} to {actual_value}")
