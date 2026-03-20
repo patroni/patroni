@@ -23,6 +23,7 @@ class TestCitus(BaseTestPostgresql):
     @patch('patroni.postgresql.mpp.citus.logger.warning')
     @patch('patroni.postgresql.mpp.citus.PgDistNode.wait', Mock())
     def test_run(self, mock_logger_warning):
+        self.c._ready_to_run.set()
         # `before_demote` or `before_promote` REST API calls starting a
         # transaction. We want to make sure that it finishes during
         # certain timeout. In case if it is not, we want to roll it back
@@ -45,8 +46,8 @@ class TestCitus(BaseTestPostgresql):
         self.c.sync_meta_data(self.cluster)
 
     def test_handle_event(self):
-        with patch.object(CitusHandler, 'is_coordinator', Mock(return_value=False)):
-            self.c.handle_event(self.cluster, {})
+        self.c.handle_event(self.cluster, {})
+        self.c._ready_to_run.set()
         self.c.handle_event(self.cluster, {'type': 'after_promote', 'group': 2,
                                            'leader': 'leader', 'timeout': 30, 'cooldown': 10})
 
