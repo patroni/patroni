@@ -1330,6 +1330,23 @@ class ConfigHandler(object):
                 self._postgresql.reload()
             return True
 
+    def set_synchronized_standby_slots(self, value: Optional[str], reload: bool = False) -> bool:
+        """Updates synchronized_standby_slots parameter.
+
+        :param value: The new value for synchronized_standby_slots, or None to remove it.
+        :param reload: If True, write config and reload PostgreSQL when value changes.
+        :returns: True if value was updated, False otherwise."""
+        if value != self._server_parameters.get('synchronized_standby_slots'):
+            if value is None:
+                self._server_parameters.pop('synchronized_standby_slots', None)
+            else:
+                self._server_parameters['synchronized_standby_slots'] = value
+            if reload and self._postgresql.state == PostgresqlState.RUNNING:
+                self.write_postgresql_conf()
+                self._postgresql.reload()
+            return True
+        return False
+
     @property
     def effective_configuration(self) -> CaseInsensitiveDict:
         """It might happen that the current value of one (or more) below parameters stored in
