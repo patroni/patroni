@@ -841,7 +841,7 @@ class Config(object):
 
         # Merge role-based parameter overrides with base, excluding protected params
         role_params_key = f'parameters_{role_suffix}'
-        if role_params_key in pg_config:
+        if role_params_key in pg_config and isinstance(pg_config[role_params_key], dict):
             role_params = pg_config[role_params_key]
             base_params = pg_config.get('parameters', {})
             for param, value in role_params.items():
