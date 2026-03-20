@@ -30,6 +30,15 @@ There are only a few simple rules you need to follow:
         citus:
           group: X  # 0 for coordinator and 1, 2, 3, etc for workers
           database: citus  # must be the same on all nodes
+          
+
+or
+
+.. code:: YAML
+
+        citus:
+          group: X  # 0 for coordinator and 1, 2, 3, etc for workers
+          databases: ["database1","database2", ...]   # must be the same on all nodes
 
 
 After that you just need to start Patroni and it will handle the rest:
@@ -44,7 +53,7 @@ After that you just need to start Patroni and it will handle the rest:
    value that Patroni is using in order to connect to the local PostgreSQL
    instance. The value sometimes should be different from the ``localhost``
    because PostgreSQL might be not listening on it.
-4. The ``citus.database`` will be automatically created followed by ``CREATE EXTENSION citus``.
+4. The ``citus.database`` or ``citus.databases`` will be automatically created followed by ``CREATE EXTENSION citus``.
 5. Current superuser :ref:`credentials <postgresql_settings>` will be added to the ``pg_dist_authinfo``
    table to allow cross-node communication. Don't forget to update them if
    later you decide to change superuser username/password/sslcert/sslkey!
@@ -53,6 +62,21 @@ After that you just need to start Patroni and it will handle the rest:
    ``citus_add_node()`` function.
 7. Patroni will also maintain ``pg_dist_node`` in case failover/switchover
    on the coordinator or worker clusters occurs.
+
+
+If you just want to add or remove databases in existing cluster:
+
+1. Update ``patroni.yaml`` on all nodes.
+
+    .. code:: YAML
+
+        citus:
+          group: X  # 0 for coordinator and 1, 2, 3, etc for workers
+          databases: ["citus","new_database"]   # must be the same on all nodes
+
+2. Reload cluster configuration with  ``patronictl reload`` or ``systemctl reload patroni``
+3. Patroni will automatically create new databases and citus extensions. 
+4. Also patroni will just stop managing databases which are no longer listed, but will not remove anything.
 
 patronictl
 ----------
@@ -281,6 +305,8 @@ A couple of examples of Patroni configuration using Pods environment variables:
               value: '{application: patroni}'
             - name: PATRONI_CITUS_DATABASE
               value: citus
+            #- name: PATRONI_CITUS_DATABASES
+            #  value: '["database1", "database2"]'
             - name: PATRONI_CITUS_GROUP
               value: "0"
 
@@ -322,6 +348,8 @@ A couple of examples of Patroni configuration using Pods environment variables:
               value: '{application: patroni}'
             - name: PATRONI_CITUS_DATABASE
               value: citus
+            #- name: PATRONI_CITUS_DATABASES
+            #  value: '["database1", "database2"]'
             - name: PATRONI_CITUS_GROUP
               value: "2"
 
