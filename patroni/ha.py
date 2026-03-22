@@ -10,7 +10,7 @@ import uuid
 from threading import RLock
 from typing import Any, Callable, cast, Collection, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING, Union
 
-from . import global_config, psycopg
+from . import global_config, psycopg, thread_pool
 from .__main__ import Patroni
 from .async_executor import AsyncExecutor, CriticalTask
 from .collections import CaseInsensitiveSet
@@ -256,6 +256,11 @@ class Ha(object):
         # and trigger pg_rewind state machine.
         self._last_timeline = None
 
+        # receive/flush/replay LSN from last cycle, is used to detect false positives of dead primary
+        self._prev_wal_lsn: Optional[int] = None
+        # timestamp when primary_race_backoff was triggered
+        self._primary_race_backoff_timestamp = 0
+
         # Count of concurrent sync disabling requests. Value above zero means that we don't want to be synchronous
         # standby. Changes protected by _member_state_lock.
         self._disable_sync = 0
@@ -340,6 +345,10 @@ class Ha(object):
         if self.cluster.is_unlocked() and self.is_failsafe_mode():
             # If failsafe mode is enabled we want to inject the "real" leader to the cluster
             self.cluster = cluster = self._failsafe.update_cluster(cluster)
+
+        if not self.cluster.is_unlocked():
+            # Reset primary_race_backoff if there is a leader
+            self._primary_race_backoff_timestamp = 0
 
         if not self.has_lock(False):
             self.set_is_leader(False)
@@ -1183,11 +1192,10 @@ class Ha(object):
         if not members:
             return []
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(members)) as executor:
-            futures = [executor.submit(self.fetch_node_status, member) for member in members]
-            # Run API calls on members in parallel
-            results = [future.result() for future in concurrent.futures.as_completed(futures)]
-            return results
+        futures = [thread_pool.get_executor().submit(self.fetch_node_status, member) for member in members]
+        # Run API calls on members in parallel
+        results = [future.result() for future in concurrent.futures.as_completed(futures)]
+        return results
 
     def update_failsafe(self, data: Dict[str, Any]) -> Union[int, str, None]:
         """Update failsafe state.
@@ -1267,15 +1275,14 @@ class Ha(object):
         if not members:  # A single node cluster
             return True
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(members)) as executor:
-            futures = [executor.submit(self.call_failsafe_member, data, member) for member in members]
-            results = [future.result() for future in concurrent.futures.as_completed(futures)]
-            ret = all(r.accepted for r in results)
-            if ret:
-                # The LSN feedback will be later used to advance position of replication slots
-                # for nodes that are doing cascading replication from other nodes.
-                self._failsafe.update_slots({r.member_name: r.lsn for r in results if r.lsn})
-            return ret
+        futures = [thread_pool.get_executor().submit(self.call_failsafe_member, data, member) for member in members]
+        results = [future.result() for future in concurrent.futures.as_completed(futures)]
+        ret = all(r.accepted for r in results)
+        if ret:
+            # The LSN feedback will be later used to advance position of replication slots
+            # for nodes that are doing cascading replication from other nodes.
+            self._failsafe.update_slots({r.member_name: r.lsn for r in results if r.lsn})
+        return ret
 
     def is_lagging(self, wal_position: int) -> bool:
         """Check if node should consider itself unhealthy to be promoted due to replication lag.
@@ -1773,7 +1780,23 @@ class Ha(object):
 
     def process_unhealthy_cluster(self) -> str:
         """Cluster has no leader key"""
+        # First, we want to handle primary_race_backoff. Do it only for non-standby cluster,
+        # not in maintenance mode and when there is no manual failover/switchover in progress.
+        if not self.is_paused() and not self.is_standby_cluster() and \
+                not (self.cluster.failover and self.cluster.failover.candidate) and \
+                global_config.primary_race_backoff > 0 and self._prev_wal_lsn is not None:
+            if self._primary_race_backoff_timestamp == 0:
+                self._primary_race_backoff_timestamp = time.time()
+            time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.time()
+            # We want to protect from leader key expiring shortly after the last heartbeat loop, and therefore
+            # also postpone leader race whe time_left is greater than primary_race_backoff - loop_wait.
+            if time_left > 0 and self.state_handler.replication_state() == 'streaming' and \
+                    self.state_handler.last_operation() > self._prev_wal_lsn or \
+                    time_left > global_config.primary_race_backoff - self.dcs.loop_wait:
+                return 'My ({0}) wal position moved since last heart beat loop, {1:.0f} seconds until leader race'\
+                    .format(self.state_handler.name, time_left)
 
+        # Now do the leader race
         if self.is_healthiest_node():
             if self.acquire_lock():
                 failover = self.cluster.failover
@@ -2165,6 +2188,7 @@ class Ha(object):
         self._start_timeout = value
 
     def _run_cycle(self) -> str:
+        self._prev_wal_lsn = self._last_wal_lsn
         dcs_failed = False
         try:
             try:
@@ -2451,7 +2475,13 @@ class Ha(object):
 
     def watch(self, timeout: float) -> bool:
         # watch on leader key changes if the postgres is running and leader is known and current node is not lock owner
-        if self._async_executor.busy or not self.cluster or self.cluster.is_unlocked() or self.has_lock(False):
+        if not self._async_executor.busy and (not self.cluster or self.cluster.is_unlocked()):
+            leader_version = None
+            time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.time()
+            # Take into account primary_race_backoff
+            if 0 < time_left < timeout:
+                timeout = time_left
+        elif self._async_executor.busy or self.has_lock(False):
             leader_version = None
         else:
             leader_version = self.cluster.leader.version if self.cluster.leader else None

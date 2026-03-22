@@ -1203,7 +1203,8 @@ class ConfigHandler(object):
 
         conf_changed = hba_changed = ident_changed = local_connection_address_changed = False
         param_diff = CaseInsensitiveDict()
-        if self._postgresql.state == PostgresqlState.RUNNING:
+        if not self._postgresql.bootstrap.running_custom_bootstrap and \
+                self._postgresql.state == PostgresqlState.RUNNING:
             changes = CaseInsensitiveDict({p: v for p, v in server_parameters.items()
                                            if p not in params_skip_changes})
             changes.update({p: None for p in self._server_parameters.keys()
@@ -1275,6 +1276,9 @@ class ConfigHandler(object):
 
         proxy_addr = config.get('proxy_address')
         self._postgresql.proxy_url = uri('postgres', proxy_addr, self._postgresql.database) if proxy_addr else None
+
+        if self._postgresql.bootstrap.running_custom_bootstrap:
+            return logger.info('Skipping PostgreSQL configuration update while in custom bootstrap.')
 
         if conf_changed or sighup:
             self.write_postgresql_conf()

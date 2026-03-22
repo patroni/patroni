@@ -188,7 +188,7 @@ class SlotsHandler:
         self._force_readiness_check = False
         self._schedule_load_slots = False
         self._postgresql = postgresql
-        self._advance = None
+        self._advance = SlotsAdvanceThread(self)
         self._replication_slots: Dict[str, Dict[str, Any]] = {}  # already existing replication slots
         self._logical_slots_processing_queue: Dict[str, Optional[int]] = {}
         self.pg_replslot_dir = os.path.join(self._postgresql.data_dir, 'pg_replslot')
@@ -508,17 +508,6 @@ class SlotsHandler:
                         slots.pop(name)
                     self._schedule_load_slots = True
 
-    def schedule_advance_slots(self, slots: Dict[str, Dict[str, int]]) -> Tuple[bool, List[str]]:
-        """Wrapper to ensure slots advance daemon thread is started if not already.
-
-        :param slots: dictionary containing slot information.
-
-        :return: tuple with the result of the scheduling of slot advancement: ``failed`` and list of slots to copy.
-        """
-        if not self._advance:
-            self._advance = SlotsAdvanceThread(self)
-        return self._advance.schedule(slots)
-
     def _ensure_logical_slots_replica(self, slots: Dict[str, Any]) -> List[str]:
         """Update logical *slots* on replicas.
 
@@ -562,7 +551,7 @@ class SlotsHandler:
         for name in create_slots:
             slots.pop(name)
 
-        error, copy_slots = self.schedule_advance_slots(advance_slots)
+        error, copy_slots = self._advance.schedule(advance_slots)
         if error:
             self._schedule_load_slots = True
         return create_slots + copy_slots

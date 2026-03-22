@@ -173,7 +173,7 @@ def check_http_response(context, url, value, timeout, negate=False):
                 if negate:
                     if key not in data or data[key] != val:
                         break
-                elif key in data and data[key] == val:
+                elif key in data and str(data[key]) == val:
                     break
             except Exception:
                 pass

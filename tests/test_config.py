@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from patroni import global_config
 from patroni.config import ClusterConfig, Config, ConfigParseError
+from patroni.postgresql.misc import PostgresqlRole
 
 from .test_ha import get_cluster_initialized_with_only_leader
 
@@ -34,6 +35,9 @@ class TestConfig(unittest.TestCase):
             'PATRONI_NAME': 'postgres0',
             'PATRONI_NAMESPACE': '/patroni/',
             'PATRONI_SCOPE': 'batman2',
+            'PATRONI_THREAD_POOL_SIZE': '5',
+            'PATRONI_THREAD_STACK_SIZE': '262144',
+            'PATRONI_SCOPE': 'batman2',
             'PATRONI_LOGLEVEL': 'ERROR',
             'PATRONI_LOG_FORMAT': '["message", {"levelname": "level"}]',
             'PATRONI_LOG_LOGGERS': 'patroni.postmaster: WARNING, urllib3: DEBUG',
@@ -42,6 +46,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_CITUS_DATABASE': 'citus',
             'PATRONI_CITUS_GROUP': '0',
             'PATRONI_CITUS_HOST': '0',
+            'PATRONI_RESTAPI_THREAD_POOL_SIZE': '5',
             'PATRONI_RESTAPI_USERNAME': 'username',
             'PATRONI_RESTAPI_PASSWORD': 'password',
             'PATRONI_RESTAPI_LISTEN': '0.0.0.0:8008',
@@ -180,12 +185,20 @@ class TestConfig(unittest.TestCase):
                     ''')
             elif fname.endswith('00-empty.yml'):
                 return io.StringIO(u'''---''')
+            elif fname.endswith('00-nondict-parameters.yml'):
+                return io.StringIO(
+                    u'''
+                    postgresql:
+                      parameters:
+                      - abc: 3
+                    ''')
 
         with patch('builtins.open', MagicMock(side_effect=open_mock)):
             self.assertRaises(ConfigParseError, Config, 'postgres0')
             mock_logger.error.assert_called_once_with(
                 '%s does not contain a dict',
                 'postgres0\\00-empty.yml' if sys.platform == 'win32' else 'postgres0/00-empty.yml')
+            self.assertRaises(ConfigParseError, Config, '00-nondict-parameters.yml')
 
     @patch.object(Config, 'get')
     @patch('patroni.config.logger')
@@ -284,3 +297,93 @@ class TestConfig(unittest.TestCase):
         cluster = get_cluster_initialized_with_only_leader(cluster_config=ClusterConfig(1, config, 1))
         test_config = global_config.from_cluster(cluster)
         self.assertFalse(test_config.is_synchronous_mode)
+
+    def test_build_effective_postgresql_configuration(self):
+        """Test role-based configuration assembly."""
+        # Set up config with role-based overrides
+        self.config.set_dynamic_configuration({
+            'postgresql': {
+                'parameters': {'shared_buffers': '256MB', 'work_mem': '4MB'},
+                'parameters_primary': {'shared_buffers': '512MB'},
+                'parameters_replica': {'shared_buffers': '128MB'},
+                'parameters_standby_leader': {'shared_buffers': '384MB'},
+                'pg_hba': ['host all all 0.0.0.0/0 md5'],
+                'pg_hba_primary': ['host all all 0.0.0.0/0 scram-sha-256'],
+                'pg_hba_standby_leader': ['host all all 0.0.0.0/0 trust'],
+                'pg_ident': ['mymap postgres postgres'],
+                'pg_ident_replica': ['mymap replicator replicator'],
+            }
+        })
+
+        # Test PRIMARY role - should apply _primary overrides
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.PRIMARY)
+        self.assertEqual(result['parameters']['shared_buffers'], '512MB')
+        self.assertEqual(result['parameters']['work_mem'], '4MB')  # unchanged
+        self.assertIn('scram-sha-256', result['pg_hba'][0])
+        self.assertEqual(result['pg_ident'], ['mymap postgres postgres'])  # no _primary override
+
+        # Test REPLICA role - should apply _replica overrides
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.REPLICA)
+        self.assertEqual(result['parameters']['shared_buffers'], '128MB')
+        self.assertIn('md5', result['pg_hba'][0])  # no _replica override
+        self.assertEqual(result['pg_ident'], ['mymap replicator replicator'])
+
+        # Test STANDBY_LEADER role - should apply _standby_leader overrides
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.STANDBY_LEADER)
+        self.assertEqual(result['parameters']['shared_buffers'], '384MB')
+        self.assertIn('trust', result['pg_hba'][0])
+        self.assertEqual(result['pg_ident'], ['mymap postgres postgres'])  # no _standby_leader override
+
+        # Test PROMOTED role - should be treated as PRIMARY
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.PROMOTED)
+        self.assertEqual(result['parameters']['shared_buffers'], '512MB')
+
+        # Test DEMOTED role - should be treated as REPLICA
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.DEMOTED)
+        self.assertEqual(result['parameters']['shared_buffers'], '128MB')
+
+        # Test UNINITIALIZED role - no overrides applied
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.UNINITIALIZED)
+        self.assertEqual(result['parameters']['shared_buffers'], '256MB')  # base value
+
+    def test_build_effective_postgresql_configuration_protected_params(self):
+        """Test that protected parameters are not overridden."""
+        self.config.set_dynamic_configuration({
+            'postgresql': {
+                'parameters': {'max_connections': '100', 'shared_buffers': '256MB'},
+                'parameters_primary': {'max_connections': '200', 'shared_buffers': '512MB'},
+            }
+        })
+
+        with patch('patroni.config.logger.warning') as mock_warning:
+            result = self.config.build_effective_postgresql_configuration(PostgresqlRole.PRIMARY)
+            # max_connections should NOT be overridden (protected parameter)
+            self.assertEqual(result['parameters']['max_connections'], 100)
+            # shared_buffers should be overridden (not protected)
+            self.assertEqual(result['parameters']['shared_buffers'], '512MB')
+            # Warning should have been logged
+            mock_warning.assert_called()
+
+    def test_build_effective_postgresql_configuration_invalid_role_params_type(self):
+        """Test that non-dict parameters_<role> does not break config assembly."""
+        self.config.set_dynamic_configuration({
+            'postgresql': {
+                'parameters': {'shared_buffers': '256MB', 'work_mem': '4MB'},
+                'parameters_primary': ['not', 'a', 'dict'],
+            }
+        })
+
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.PRIMARY)
+        self.assertEqual(result['parameters']['shared_buffers'], '256MB')
+        self.assertEqual(result['parameters']['work_mem'], '4MB')
+
+    def test_build_effective_postgresql_configuration_returns_deep_copy(self):
+        """Test that build_effective_postgresql_configuration returns a deep copy."""
+        self.config.set_dynamic_configuration({
+            'postgresql': {'parameters': {'shared_buffers': '256MB'}}
+        })
+
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.PRIMARY)
+        # Modifying the result should not affect the config
+        result['parameters']['shared_buffers'] = '1GB'
+        self.assertEqual(self.config['postgresql']['parameters']['shared_buffers'], '256MB')
