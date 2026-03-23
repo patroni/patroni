@@ -74,7 +74,7 @@ If you just want to add or remove databases in existing cluster:
           group: X  # 0 for coordinator and 1, 2, 3, etc for workers
           databases: ["citus","new_database"]   # must be the same on all nodes
 
-2. Reload cluster configuration with  ``patronictl reload`` or ``systemctl reload patroni``
+2. Restart cluster configuration with  ``patronictl restart`` or ``systemctl restart patroni``
 3. Patroni will automatically create new databases and citus extensions. 
 4. Also patroni will just stop managing databases which are no longer listed, but will not remove anything.
 
