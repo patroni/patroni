@@ -301,7 +301,7 @@ class TestConfig(unittest.TestCase):
     def test_build_effective_postgresql_configuration(self):
         """Test role-based configuration assembly."""
         # Set up config with role-based overrides
-        self.config._Config__effective_configuration = {
+        self.config.set_dynamic_configuration({
             'postgresql': {
                 'parameters': {'shared_buffers': '256MB', 'work_mem': '4MB'},
                 'parameters_primary': {'shared_buffers': '512MB'},
@@ -313,7 +313,7 @@ class TestConfig(unittest.TestCase):
                 'pg_ident': ['mymap postgres postgres'],
                 'pg_ident_replica': ['mymap replicator replicator'],
             }
-        }
+        })
 
         # Test PRIMARY role - should apply _primary overrides
         result = self.config.build_effective_postgresql_configuration(PostgresqlRole.PRIMARY)
@@ -348,27 +348,40 @@ class TestConfig(unittest.TestCase):
 
     def test_build_effective_postgresql_configuration_protected_params(self):
         """Test that protected parameters are not overridden."""
-        self.config._Config__effective_configuration = {
+        self.config.set_dynamic_configuration({
             'postgresql': {
                 'parameters': {'max_connections': '100', 'shared_buffers': '256MB'},
                 'parameters_primary': {'max_connections': '200', 'shared_buffers': '512MB'},
             }
-        }
+        })
 
         with patch('patroni.config.logger.warning') as mock_warning:
             result = self.config.build_effective_postgresql_configuration(PostgresqlRole.PRIMARY)
             # max_connections should NOT be overridden (protected parameter)
-            self.assertEqual(result['parameters']['max_connections'], '100')
+            self.assertEqual(result['parameters']['max_connections'], 100)
             # shared_buffers should be overridden (not protected)
             self.assertEqual(result['parameters']['shared_buffers'], '512MB')
             # Warning should have been logged
             mock_warning.assert_called()
 
+    def test_build_effective_postgresql_configuration_invalid_role_params_type(self):
+        """Test that non-dict parameters_<role> does not break config assembly."""
+        self.config.set_dynamic_configuration({
+            'postgresql': {
+                'parameters': {'shared_buffers': '256MB', 'work_mem': '4MB'},
+                'parameters_primary': ['not', 'a', 'dict'],
+            }
+        })
+
+        result = self.config.build_effective_postgresql_configuration(PostgresqlRole.PRIMARY)
+        self.assertEqual(result['parameters']['shared_buffers'], '256MB')
+        self.assertEqual(result['parameters']['work_mem'], '4MB')
+
     def test_build_effective_postgresql_configuration_returns_deep_copy(self):
         """Test that build_effective_postgresql_configuration returns a deep copy."""
-        self.config._Config__effective_configuration = {
+        self.config.set_dynamic_configuration({
             'postgresql': {'parameters': {'shared_buffers': '256MB'}}
-        }
+        })
 
         result = self.config.build_effective_postgresql_configuration(PostgresqlRole.PRIMARY)
         # Modifying the result should not affect the config

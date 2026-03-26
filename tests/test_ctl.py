@@ -224,6 +224,12 @@ class TestCtl(unittest.TestCase):
             result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
             self.assertIn('Switchover failed', result.output)
 
+            mock_api_request.return_value.status = 503
+            mock_api_request.return_value.data = b'Switchover status unknown after 20 seconds'
+            result = self.runner.invoke(ctl, ['switchover', 'dummy', '--group', '0'], input='leader\nother\n\ny')
+            self.assertIn('Switchover result unknown, details: 503, Switchover status unknown after 20 seconds',
+                          result.output)
+
         # No members available
         with patch('patroni.dcs.AbstractDCS.get_cluster',
                    Mock(return_value=get_cluster_initialized_with_only_leader())):
@@ -850,7 +856,8 @@ class TestCtl(unittest.TestCase):
         # success
         mock_patch.return_value.status = 200
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(side_effect=[standby_cluster, standby_cluster,
-                                                                            only_leader_cluster])):
+                                                                            only_leader_cluster])), \
+                patch('time.sleep', Mock()):
             result = self.runner.invoke(ctl, ['promote-cluster', 'dummy', '--force'])
             assert result.exit_code == 0
 

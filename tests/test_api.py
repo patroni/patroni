@@ -655,7 +655,10 @@ class TestRestApiHandler(unittest.TestCase):
         with patch.object(RestApiHandler, 'write_response') as response_mock:
             dcs.get_cluster.side_effect = [cluster]
             MockRestApiServer(RestApiHandler, request)
-            response_mock.assert_called_with(503, 'Switchover status unknown')
+            response_mock.assert_called_with(
+                503,
+                'Switchover status unknown after 20 seconds; operation may still be in progress'
+            )
 
         # Switchover to a node different from the candidate specified
         with patch.object(RestApiHandler, 'write_response') as response_mock:
