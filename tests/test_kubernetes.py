@@ -452,6 +452,11 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         self.assertRaises(KubernetesError, self.k.update_leader, cluster, '123')
         mock_read.side_effect = Exception
         self.assertFalse(self.k.update_leader(cluster, '123'))
+        # Ensure 403 is retried by _retry_403
+        mock_patch.reset_mock()
+        mock_patch.side_effect = [k8s_client.rest.ApiException(403, ''), mock_namespaced_kind()]
+        self.assertTrue(self.k._update_leader_with_retry({}, '1', []))
+        self.assertEqual(mock_patch.call_count, 2)
 
     @patch('time.sleep', Mock())
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints',
