@@ -925,6 +925,10 @@ class Etcd3(AbstractEtcd):
         return ret
 
     @catch_etcd_errors
+    def set_sync_switchover_value(self, value: str, version: Optional[str] = None) -> bool:
+        return bool(self._client.put(self.sync_switchover_path, value, mod_revision=version))
+
+    @catch_etcd_errors
     def set_failover_value(self, value: str, version: Optional[str] = None) -> bool:
         return bool(self._client.put(self.failover_path, value, mod_revision=version))
 

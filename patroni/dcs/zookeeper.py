@@ -340,6 +340,9 @@ class ZooKeeper(AbstractDCS):
             logger.exception('Failed to update %s', key)
         return False
 
+    def set_sync_switchover_value(self, value: str, version: Optional[int] = None) -> bool:
+        return self._set_or_create(self.sync_switchover_path, value, version) is not False
+
     def set_failover_value(self, value: str, version: Optional[int] = None) -> bool:
         return self._set_or_create(self.failover_path, value, version) is not False
 

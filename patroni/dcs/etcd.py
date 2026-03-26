@@ -27,7 +27,7 @@ from ..postgresql.mpp import AbstractMPP
 from ..request import get as requests_get
 from ..utils import Retry, RetryFailedError, split_host_port, uri, USER_AGENT
 from . import AbstractDCS, catch_return_false_exception, Cluster, ClusterConfig, \
-    Failover, Leader, Member, ReturnFalseException, Status, SyncState, TimelineHistory
+    Failover, Leader, Member, ReturnFalseException, Status, SyncState, TimelineHistory, SyncSwitchover
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
@@ -754,6 +754,11 @@ class Etcd(AbstractEtcd):
         if failover:
             failover = Failover.from_node(failover.modifiedIndex, failover.value)
 
+        # sync switchover key
+        sync_switch = nodes.get(self._SYNC_SWITCHOVER)
+        if sync_switch:
+            sync_switch = SyncSwitchover.from_node(sync_switch.modifiedIndex, sync_switch.value)
+
         # get synchronization state
         sync = nodes.get(self._SYNC)
         sync = SyncState.from_node(sync and sync.modifiedIndex, sync and sync.value)
@@ -765,7 +770,7 @@ class Etcd(AbstractEtcd):
         except Exception:
             failsafe = None
 
-        return Cluster(initialize, config, leader, status, members, failover, sync, history, failsafe)
+        return Cluster(initialize, config, leader, status, members, failover, sync_switch, sync, history, failsafe)
 
     def _postgresql_cluster_loader(self, path: str) -> Cluster:
         """Load and build the :class:`Cluster` object from DCS, which represents a single PostgreSQL cluster.
@@ -832,6 +837,10 @@ class Etcd(AbstractEtcd):
     @catch_return_false_exception
     def attempt_to_acquire_leader(self) -> bool:
         return self._run_and_handle_exceptions(self._do_attempt_to_acquire_leader, retry=None)
+
+    @catch_etcd_errors
+    def set_sync_switchover_value(self, value: str, version: Optional[int] = None) -> bool:
+        return bool(self._client.write(self.sync_switchover_path, value, prevIndex=version or 0))
 
     @catch_etcd_errors
     def set_failover_value(self, value: str, version: Optional[int] = None) -> bool:

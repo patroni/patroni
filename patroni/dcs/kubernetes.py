@@ -1346,6 +1346,10 @@ class Kubernetes(AbstractDCS):
         """Unused"""
         raise NotImplementedError  # pragma: no cover
 
+    def set_sync_switchover_value(self, value: str, version: Optional[str] = None) -> bool:
+        """Unused"""
+        raise NotImplementedError # pragma: no cover
+
     def manual_failover(self, leader: Optional[str], candidate: Optional[str],
                         scheduled_at: Optional[datetime.datetime] = None, version: Optional[str] = None) -> bool:
         annotations = {'leader': leader or None, 'member': candidate or None,
