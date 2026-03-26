@@ -10,7 +10,7 @@ Global/Universal
 -  **PATRONI\_CONFIGURATION**: it is possible to set the entire configuration for the Patroni via ``PATRONI_CONFIGURATION`` environment variable. In this case any other environment variables will not be considered!
 -  **PATRONI\_THREAD\_POOL\_SIZE**: size of thread pool used by Patroni to execute asynchronous tasks and communicate via REST API with other members during leader race or failsafe checks. Minimal value is ``5``, default value is ``5``.
 -  **PATRONI\_THREAD\_STACK\_SIZE**: specifies the stack size to be used for threads started by Patroni. Value must be aligned by ``64kB``. Minimal value is ``64kB``,  default value (set by Patroni) is ``512kB``.
--  **PATRONI\_NAME**: name of the node where the current instance of Patroni is running. Must be unique for the cluster.
+-  **PATRONI\_NAME**: name of the node where the current instance of Patroni is running. Must be unique for the cluster. The value ``__patroni_strict_sync_replica_placeholder__`` is reserved for internal use by Patroni and cannot be used as a node name.
 -  **PATRONI\_NAMESPACE**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service"
 -  **PATRONI\_SCOPE**: cluster name
 -  **PG\_MALLOC\_ARENA\_MAX**: custom value for ``MALLOC_ARENA_MAX`` environment variable for  ``postmaster`` process. If not set, ``postmaster`` will inherit ``MALLOC_ARENA_MAX`` value.
