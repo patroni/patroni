@@ -404,6 +404,35 @@ END;$$""")
             sync_confirmed,
             active)
 
+    def update_synchronized_standby_slots(self, sync_members: Collection[str], reload: bool = False) -> bool:
+        """Update ``synchronized_standby_slots`` based on sync members for PostgreSQL 17+.
+
+        This method updates the ``synchronized_standby_slots`` parameter to match the physical replication
+        slots of synchronous standbys, enabling PostgreSQL 17's native logical slot synchronization.
+
+        :param sync_members: Collection of member names that are synchronous standbys (e.g., {'node2', 'node3'})
+        :param reload: If True, write config and reload PostgreSQL when value changes.
+        :returns: ``True`` if the parameter was changed, ``False`` otherwise.
+        """
+        # Only applicable for PostgreSQL 17+
+        if self._postgresql.major_version < 170000:
+            return False
+
+        # Check if dynamic synchronized_standby_slots is enabled
+        if not global_config.dynamic_synchronized_standby_slots_enabled:
+            return False
+
+        # Handle empty or wildcard case - clear synchronized_standby_slots
+        if not sync_members or '*' in sync_members:
+            return self._postgresql.config.set_synchronized_standby_slots(None, reload=reload)
+
+        # Convert member names to slot names
+        from ..dcs import slot_name_from_member_name
+        slot_names = [slot_name_from_member_name(member) for member in sync_members]
+        new_value = ','.join(sorted(slot_names))
+
+        return self._postgresql.config.set_synchronized_standby_slots(new_value, reload=reload)
+
     def set_synchronous_standby_names(self, sync: Collection[str], num: Optional[int] = None) -> None:
         """Constructs and sets ``synchronous_standby_names`` GUC value.
 
@@ -432,7 +461,14 @@ END;$$""")
             prefix = 'ANY ' if global_config.is_quorum_commit_mode and self._postgresql.supports_quorum_commit else ''
             sync_param = f'{prefix}{num} ({sync_param})'
 
-        if not (self._postgresql.config.set_synchronous_standby_names(sync_param)
+        # Update synchronous_standby_names - this will reload if SSN changed
+        ssn_changed = self._postgresql.config.set_synchronous_standby_names(sync_param)
+
+        # Update synchronized_standby_slots to match sync members (PostgreSQL 17+)
+        # Only reload if SSN didn't change (to avoid double reload)
+        self.update_synchronized_standby_slots(sync, reload=not ssn_changed)
+
+        if not (ssn_changed
                 and self._postgresql.state == PostgresqlState.RUNNING
                 and self._postgresql.is_primary()) or has_asterisk:
             return

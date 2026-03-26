@@ -85,6 +85,18 @@ In order to change the dynamic configuration you can use either :ref:`patronictl
    -  **database**: the database name (when matching a ``logical`` slot).
    -  **plugin**: the logical decoding plugin (when matching a ``logical`` slot).
 
+-  **dynamic\_synchronized\_standby\_slots**: (PostgreSQL 17+ only) When enabled, Patroni automatically manages the ``synchronized_standby_slots`` parameter to keep it in sync with ``synchronous_standby_names``. This ensures that logical replication slots with ``failover=true`` are synchronized to the same physical standbys used for synchronous replication. Defaults to ``false`` (opt-in).
+
+   .. note::
+       This feature requires ``synchronous_mode: true`` or ``synchronous_mode: quorum`` to be enabled, as it manages which standbys receive synchronized logical slots based on the current synchronous replication topology.
+
+   Example configuration:
+
+   .. code:: YAML
+
+       synchronous_mode: true
+       dynamic_synchronized_standby_slots: true
+
 Note: **slots** is a hashmap while **ignore_slots** is an array. For example:
 
 .. code:: YAML
