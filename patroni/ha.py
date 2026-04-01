@@ -3,6 +3,7 @@ import datetime
 import functools
 import json
 import logging
+import os
 import sys
 import time
 import uuid
@@ -590,6 +591,10 @@ class Ha(object):
         return result
 
     def _handle_crash_recovery(self) -> Optional[str]:
+        if os.path.isfile(os.path.join(self.state_handler.data_dir, 'backup_label')):
+            logger.info('Skipping single-user crash recovery because backup_label exists;'
+                        ' PostgreSQL will handle it during normal startup')
+            return None
         if self._crash_recovery_started == 0 and (self.cluster.is_unlocked() or self._rewind.can_rewind):
             self._crash_recovery_started = time.time()
             msg = 'doing crash recovery in a single user mode'
