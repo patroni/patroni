@@ -673,7 +673,7 @@ class Ha(object):
         self.watchdog.disable()
 
         if data.get('Database cluster state') in ('in production', 'shutting down', 'in crash recovery'):
-            if self.state_handler.backup_label_exists():
+            if self.state_handler.was_restored_from_backup():
                 logger.info('Skipping single-user crash recovery because backup_label exists;'
                             ' PostgreSQL will handle it during normal startup')
             else:
