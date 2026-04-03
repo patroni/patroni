@@ -336,14 +336,14 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.run_cycle(), 'terminated crash recovery because of startup timeout')
 
     @patch.object(Rewind, 'ensure_clean_shutdown')
+    @patch.object(Postgresql, 'backup_label_exists', Mock(return_value=True))
     def test_crash_recovery_skip_when_backup_label_exists(self, mock_ensure_clean_shutdown):
         self.ha.has_lock = true
         self.p.is_running = false
         self.p.controldata = lambda: {'Database cluster state': 'in production', 'Database system identifier': SYSID}
-        with patch('patroni.ha.os.path.isfile', side_effect=lambda path: path.endswith('backup_label')):
-            msg = self.ha.run_cycle()
-            self.assertNotEqual(msg, 'doing crash recovery in a single user mode')
-            mock_ensure_clean_shutdown.assert_not_called()
+        msg = self.ha.run_cycle()
+        self.assertNotEqual(msg, 'doing crash recovery in a single user mode')
+        mock_ensure_clean_shutdown.assert_not_called()
 
     @patch.object(Rewind, 'ensure_clean_shutdown', Mock())
     @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))

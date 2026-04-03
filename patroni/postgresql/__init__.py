@@ -426,6 +426,9 @@ class Postgresql(object):
         except RetryFailedError as exc:
             raise PostgresConnectionException(str(exc)) from exc
 
+    def backup_label_exists(self) -> bool:
+        return self._major_version >= 150000 and os.path.isfile(os.path.join(self._data_dir, 'backup_label'))
+
     def pg_control_exists(self) -> bool:
         return os.path.isfile(self._pg_control)
 
