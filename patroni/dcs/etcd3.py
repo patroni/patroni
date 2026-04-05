@@ -300,6 +300,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         self._prepare_request(kwargs, {})
         return kwargs
 
+    @_handle_auth_errors
     def _get_members(self, base_uri: str, **kwargs: Any) -> List[str]:
         self._ensure_version_prefix(base_uri, **kwargs)
         resp = self.http.urlopen(self._MPOST, base_uri + self.version_prefix + '/cluster/member/list', **kwargs)
@@ -381,6 +382,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     def lease_grant(self, ttl: int, *, retry: Optional[Retry] = None) -> str:
         return self.call_rpc('/lease/grant', {'TTL': ttl}, retry)['ID']
 
+    @_handle_auth_errors
     def lease_keepalive(self, ID: str, *, retry: Optional[Retry] = None) -> Optional[str]:
         return self.call_rpc('/lease/keepalive', {'ID': ID}, retry).get('result', {}).get('TTL')
 
