@@ -18,8 +18,15 @@ Released 2026-03-26
 
   These Etcd releases addressed CVEs and changed behavior so cluster topology reads and lease keepalive are no longer allowed without authentication. Patroni now handles this by authenticating in member-discovery and lease-keepalive paths, re-authenticating on auth failures, and retrying requests accordingly.
 
+- Improvements for Etcd3 error handling (Alexander Kukushkin)
+
+  Handle broken JSON responses, be flexible in how JSON error is parsed, and improve reporting for etcd internal errors.
 
 **Bugfixes**
+
+- Retry leader update on temporary Kubernetes ``403`` error (Sophia Ruan, Alexander Kukushkin)
+
+  When the Kubernetes API temporarily returns ``403 Permission Denied`` (for example during transient RBAC issues), Patroni now verifies whether the current node still holds leadership and retries the leader update within ``retry_timeout`` instead of immediately demoting.
 
 - Fix issue with renaming leader node in sync mode and pause (Alexander Kukushkin)
 
@@ -64,13 +71,6 @@ Released 2026-03-26
 - Check that ``postgresql.parameters`` is a dictionary (Alexander Kukushkin)
 
   Discard new config if ``postgresql.parameters`` is not a dictionary.
-
-
-**Improvements**
-
-- Improvements for Etcd3 error handling (Alexander Kukushkin)
-
-  Handle broken JSON responses, be flexible in how JSON error is parsed, and improve reporting for etcd internal errors.
 
 
 Version 4.1.0
