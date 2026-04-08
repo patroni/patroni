@@ -1,5 +1,6 @@
 import base64
 import etcd
+import functools
 import json
 import logging
 import os
@@ -221,9 +222,19 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         self._token = None
         self._cluster_version: Tuple[int, ...] = tuple()
         super(Etcd3Client, self).__init__({**config, 'version_prefix': '/v3beta'}, dns_resolver, cache_ttl)
+        if self._use_proxies and not self._cluster_version:
+            kwargs = self._prepare_common_parameters(1)
+            self._ensure_version_prefix(self._base_uri, **kwargs)
+            self.authenticate_on_start()
 
+    def authenticate_on_start(self, auth_request_func: Optional[Callable[..., Dict[str, Any]]] = None):
+        """Authenticate with Etcd v3 at startup and exit on invalid credentials.
+
+        :param auth_request_func: optional custom authentication request function,
+                                  if not provided, :meth:`call_rpc` will be used.
+        """
         try:
-            self.authenticate()
+            self.authenticate(auth_request_func=auth_request_func)
         except AuthFailed as e:
             logger.fatal('Etcd3 authentication failed: %r', e)
             sys.exit(1)
@@ -298,26 +309,82 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         self._prepare_request(kwargs, {})
         return kwargs
 
+    def _do_auth_request(self, base_uri: str, kwargs: Dict[str, Any],
+                         method: str, fields: Dict[str, Any], retry: Optional[Retry] = None) -> Dict[str, Any]:
+        """Special method for handling authentication when discovering cluster members.
+
+        We can't use `call_rpc()` method for this purpose because it may cause infinite recursion.
+
+        :param base_uri: base url for authentication request, e.g. `http://etcd:2379/v3`
+        :param kwargs: common request parameters, e.g. headers.
+        :param method: `/auth/authenticate`
+        :param fields: authentication fields, e.g. `{'name': 'user', 'password': 'pass'}`.
+        :param retry: optional retry configuration, ignored.
+        """
+        request_kwargs = kwargs.copy()
+        request_kwargs['headers'] = {k: v for k, v in kwargs['headers'].items() if k != 'authorization'}
+        self._prepare_request(request_kwargs, fields)
+        response = self.http.urlopen(self._MPOST, base_uri + method, **request_kwargs)
+        return self._handle_server_response(response)
+
+    def _do_member_list_request(self, url: str, retry: Optional[Retry] = None, **kwargs: Any) -> Any:
+        """Special method for handling member list requests.
+
+        :param url: base url for member list request, e.g. `http://etcd:2379/v3/cluster/member/list`
+        :param kwargs: common request parameters, e.g. headers.
+        :param retry: optional retry configuration, ignored.
+        """
+        request_kwargs = kwargs.copy()
+        request_kwargs['headers'] = kwargs['headers'].copy()
+        # We want to update headers with authentication token if it was obtained during authentication request.
+        request_kwargs['headers'].update(self._get_headers())
+        response = self.http.urlopen(self._MPOST, url, **request_kwargs)
+        return self._handle_server_response(response)
+
     def _get_members(self, base_uri: str, **kwargs: Any) -> List[str]:
         self._ensure_version_prefix(base_uri, **kwargs)
-        resp = self.http.urlopen(self._MPOST, base_uri + self.version_prefix + '/cluster/member/list', **kwargs)
-        members = self._handle_server_response(resp)['members']
-        return [url for member in members for url in member.get('clientURLs', [])]
+        base_uri += self.version_prefix
+
+        retry = None
+        if self._update_machines_cache:
+            retry = Retry(deadline=self._config['retry_timeout'], max_delay=1, max_tries=-1)
+            # handle_auth_errors() calls retry.ensure_deadline(), which expects Retry.__call__()
+            # to have initialized the internal deadline state first.
+            retry(lambda: None)
+
+        # custom authentication request function, because we can't use `call_rpc()` method
+        # for this purpose as it may cause infinite recursion
+        auth_request_func = functools.partial(self._do_auth_request, base_uri, kwargs)
+
+        # if _machine_cache is empty, it means we are just starting and want to exit early if authentication fails.
+        if not self._machines_cache:
+            self.authenticate_on_start(auth_request_func)
+
+        response = self.handle_auth_errors(Etcd3Client._do_member_list_request, base_uri + '/cluster/member/list',
+                                           auth_request_func=auth_request_func, retry=retry, **kwargs)
+        return [url for member in response['members'] for url in member.get('clientURLs', [])]
 
     def call_rpc(self, method: str, fields: Dict[str, Any], retry: Optional[Retry] = None) -> Dict[str, Any]:
         fields['retry'] = retry
         return self.api_execute(self.version_prefix + method, self._MPOST, fields)
 
-    def authenticate(self, *, retry: Optional[Retry] = None) -> bool:
-        if self._use_proxies and not self._cluster_version:
-            kwargs = self._prepare_common_parameters(1)
-            self._ensure_version_prefix(self._base_uri, **kwargs)
+    def authenticate(self, *, retry: Optional[Retry] = None,
+                     auth_request_func: Optional[Callable[..., Dict[str, Any]]] = None) -> bool:
+        """Authenticate with the Etcd v3 cluster.
+
+        :param retry: optional retry configuration.
+        :param auth_request_func: optional custom authentication request function,
+                                  if not provided, `call_rpc()` method will be used.
+        """
         if not (self._cluster_version >= (3, 3) and self.username and self.password):
             return False
+        if not auth_request_func:
+            auth_request_func = self.call_rpc
         logger.info('Trying to authenticate on Etcd...')
         old_token, self._token = self._token, None
         try:
-            response = self.call_rpc('/auth/authenticate', {'name': self.username, 'password': self.password}, retry)
+            response = auth_request_func('/auth/authenticate',
+                                         {'name': self.username, 'password': self.password}, retry)
         except AuthNotEnabled:
             logger.info('Etcd authentication is not enabled')
             self._token = None
@@ -329,13 +396,23 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
         return old_token != self._token
 
     def handle_auth_errors(self: 'Etcd3Client', func: Callable[..., Any], *args: Any,
+                           auth_request_func: Optional[Callable[..., Dict[str, Any]]] = None,
                            retry: Optional[Retry] = None, **kwargs: Any) -> Any:
+        """Handle authentication errors for the given function.
+
+        :param func: function to call.
+        :param args: positional arguments for the function.
+        :param auth_request_func: optional custom authentication request function,
+                                  if not provided, `call_rpc()` method will be used.
+        :param retry: optional retry configuration.
+        :param kwargs: keyword arguments for the function.
+        """
         reauthenticated = False
         exc = None
         while True:
             if self._reauthenticate:
                 if self.username and self.password:
-                    self.authenticate(retry=retry)
+                    self.authenticate(retry=retry, auth_request_func=auth_request_func)
                     self._reauthenticate = False
                 else:
                     msg = 'Username or password not set, authentication is not possible'
@@ -379,6 +456,7 @@ class Etcd3Client(AbstractEtcdClientWithFailover):
     def lease_grant(self, ttl: int, *, retry: Optional[Retry] = None) -> str:
         return self.call_rpc('/lease/grant', {'TTL': ttl}, retry)['ID']
 
+    @_handle_auth_errors
     def lease_keepalive(self, ID: str, *, retry: Optional[Retry] = None) -> Optional[str]:
         return self.call_rpc('/lease/keepalive', {'ID': ID}, retry).get('result', {}).get('TTL')
 
