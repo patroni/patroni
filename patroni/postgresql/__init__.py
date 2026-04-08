@@ -427,6 +427,15 @@ class Postgresql(object):
             raise PostgresConnectionException(str(exc)) from exc
 
     def was_restored_from_backup(self) -> bool:
+        """Check whether the data directory was restored from a base backup.
+
+        The presence of a ``backup_label`` file in the data directory indicates that PostgreSQL has not yet
+        completed recovery from a base backup. It is checked only for PostgreSQL 15+, because earlier versions
+        supported exclusive backups which could leave a stale ``backup_label`` behind after a primary crash.
+
+        :returns: ``True`` if running on PostgreSQL 15 or newer and the ``backup_label`` file exists in the
+            data directory, ``False`` otherwise.
+        """
         return self._major_version >= 150000 and os.path.isfile(os.path.join(self._data_dir, 'backup_label'))
 
     def pg_control_exists(self) -> bool:
