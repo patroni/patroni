@@ -14,6 +14,10 @@ Released 2026-03-26
 
   Avoid starting/stopping threads at runtime. Introduce thread pools for REST API and for executing async tasks. Allow configuring global ``thread_pool_size`` and ``restapi.thread_pool_size``.
 
+- Compatibility with python 3.14 (Alexander Kukushkin)
+
+  Run tests against python 3.14 and fix compatibility issues.
+
 - Compatibility with Etcd security fixes in v3.6.9, v3.5.28, and v3.4.42 (Alexander Kukushkin)
 
   These Etcd releases addressed CVEs and changed behavior so cluster topology reads and lease keepalive are no longer allowed without authentication. Patroni now handles this by authenticating in member-discovery and lease-keepalive paths, re-authenticating on auth failures, and retrying requests accordingly.
