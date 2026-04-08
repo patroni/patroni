@@ -6,7 +6,7 @@ Release notes
 Version 4.1.1
 -------------
 
-Released 2026-03-26
+Released 2026-04-08
 
 **Stability improvements**
 
