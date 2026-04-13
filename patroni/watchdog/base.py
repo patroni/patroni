@@ -28,7 +28,7 @@ def parse_mode(mode: Union[bool, str]) -> str:
         return MODE_AUTOMATIC
     else:
         if mode not in ['off', 'disable', 'disabled']:
-            logger.warning("Watchdog mode {0} not recognized, disabling watchdog".format(mode))
+            logger.warning("Watchdog mode %s not recognized, disabling watchdog", mode)
         return MODE_OFF
 
 
@@ -132,8 +132,8 @@ class Watchdog(object):
         self.active_config = self.config
 
         if self.config.timing_slack < 0:
-            logger.warning('Watchdog not supported because leader TTL {0} is less than 2x loop_wait {1}'
-                           .format(self.config.ttl, self.config.loop_wait))
+            logger.warning('Watchdog not supported because leader TTL %s is less than 2x loop_wait %s',
+                           self.config.ttl, self.config.loop_wait)
             self.impl = NullWatchdog()
 
         try:
@@ -154,18 +154,17 @@ class Watchdog(object):
                 if self.impl.is_null:
                     logger.error("Configuration requires watchdog, but watchdog could not be configured.")
                 else:
-                    logger.error("Configuration requires watchdog, but a safe watchdog timeout {0} could"
-                                 " not be configured. Watchdog timeout is {1}.".format(
-                                     self.config.timeout, actual_timeout))
+                    logger.error("Configuration requires watchdog, but a safe watchdog timeout %s could"
+                                 " not be configured. Watchdog timeout is %s.", self.config.timeout, actual_timeout)
                 return False
             else:
                 if not self.impl.is_null:
-                    logger.warning("Watchdog timeout {0} seconds does not ensure safe termination within {1} seconds"
-                                   .format(actual_timeout, self.config.timeout))
+                    logger.warning("Watchdog timeout %s seconds does not ensure safe termination within %s seconds",
+                                   actual_timeout, self.config.timeout)
 
         if self.is_running:
-            logger.info("{0} activated with {1} second timeout, timing slack {2} seconds"
-                        .format(self.impl.describe(), actual_timeout, self.config.timing_slack))
+            logger.info("%s activated with %s second timeout, timing slack %s seconds",
+                        self.impl.describe(), actual_timeout, self.config.timing_slack)
         else:
             if self.config.mode == MODE_REQUIRED:
                 logger.error("Configuration requires watchdog, but watchdog could not be activated")
@@ -180,8 +179,8 @@ class Watchdog(object):
         # Safety checks for watchdog implementations that don't support configurable timeouts
         actual_timeout = self.impl.get_timeout()
         if self.impl.is_running and actual_timeout < self.config.loop_wait:
-            logger.error('loop_wait of {0} seconds is too long for watchdog {1} second timeout'
-                         .format(self.config.loop_wait, actual_timeout))
+            logger.error('loop_wait of %s seconds is too long for watchdog %s second timeout',
+                         self.config.loop_wait, actual_timeout)
             if self.impl.can_be_disabled:
                 logger.info('Disabling watchdog due to unsafe timeout.')
                 self.impl.close()
@@ -200,7 +199,7 @@ class Watchdog(object):
                 # Give sysadmin some extra time to clean stuff up.
                 self.impl.keepalive()
                 logger.warning("Watchdog implementation can't be disabled. System will reboot after "
-                               "{0} seconds when watchdog times out.".format(self.impl.get_timeout()))
+                               "%s seconds when watchdog times out.", self.impl.get_timeout())
             self.impl.close()
         except WatchdogError as e:
             logger.error("Error while disabling watchdog: %s", e)
@@ -223,8 +222,8 @@ class Watchdog(object):
                 if self.config.timeout != self.active_config.timeout:
                     self.impl.set_timeout(self.config.timeout)
                     if self.is_running:
-                        logger.info("{0} updated with {1} second timeout, timing slack {2} seconds"
-                                    .format(self.impl.describe(), self.impl.get_timeout(), self.config.timing_slack))
+                        logger.info("%s updated with %s second timeout, timing slack %s seconds",
+                                    self.impl.describe(), self.impl.get_timeout(), self.config.timing_slack)
                 self.active_config = self.config
         except WatchdogError as e:
             logger.error("Error while sending keepalive: %s", e)

@@ -34,6 +34,9 @@ class TestConfig(unittest.TestCase):
             'PATRONI_NAME': 'postgres0',
             'PATRONI_NAMESPACE': '/patroni/',
             'PATRONI_SCOPE': 'batman2',
+            'PATRONI_THREAD_POOL_SIZE': '5',
+            'PATRONI_THREAD_STACK_SIZE': '262144',
+            'PATRONI_SCOPE': 'batman2',
             'PATRONI_LOGLEVEL': 'ERROR',
             'PATRONI_LOG_FORMAT': '["message", {"levelname": "level"}]',
             'PATRONI_LOG_LOGGERS': 'patroni.postmaster: WARNING, urllib3: DEBUG',
@@ -42,6 +45,7 @@ class TestConfig(unittest.TestCase):
             'PATRONI_CITUS_DATABASE': 'citus',
             'PATRONI_CITUS_GROUP': '0',
             'PATRONI_CITUS_HOST': '0',
+            'PATRONI_RESTAPI_THREAD_POOL_SIZE': '5',
             'PATRONI_RESTAPI_USERNAME': 'username',
             'PATRONI_RESTAPI_PASSWORD': 'password',
             'PATRONI_RESTAPI_LISTEN': '0.0.0.0:8008',
@@ -180,12 +184,20 @@ class TestConfig(unittest.TestCase):
                     ''')
             elif fname.endswith('00-empty.yml'):
                 return io.StringIO(u'''---''')
+            elif fname.endswith('00-nondict-parameters.yml'):
+                return io.StringIO(
+                    u'''
+                    postgresql:
+                      parameters:
+                      - abc: 3
+                    ''')
 
         with patch('builtins.open', MagicMock(side_effect=open_mock)):
             self.assertRaises(ConfigParseError, Config, 'postgres0')
             mock_logger.error.assert_called_once_with(
                 '%s does not contain a dict',
                 'postgres0\\00-empty.yml' if sys.platform == 'win32' else 'postgres0/00-empty.yml')
+            self.assertRaises(ConfigParseError, Config, '00-nondict-parameters.yml')
 
     @patch.object(Config, 'get')
     @patch('patroni.config.logger')

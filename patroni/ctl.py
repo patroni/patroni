@@ -12,7 +12,6 @@
     If it is also missing in the configuration file we assume that this is just a normal Patroni cluster (not Citus).
 """
 
-import codecs
 import copy
 import datetime
 import difflib
@@ -2129,7 +2128,7 @@ def invoke_editor(before_editing: str, cluster_name: str) -> Tuple[str, Dict[str
         if ret:
             raise PatroniCtlException("Editor exited with return code {0}".format(ret))
 
-        with codecs.open(tmpfile, encoding='utf-8') as fd:
+        with open(tmpfile, encoding='utf-8') as fd:
             after_editing = fd.read()
 
         return after_editing, yaml.safe_load(after_editing)

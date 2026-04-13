@@ -34,6 +34,12 @@ def mock_import(*args, **kwargs):
 
 
 def mock_import2(*args, **kwargs):
+    ret = Mock()
+    ret.__version__ = '2.8.3.dev1 a b c'
+    return ret
+
+
+def mock_import3(*args, **kwargs):
     if args[0] == 'psycopg2':
         raise ImportError
     ret = Mock()
@@ -76,6 +82,8 @@ class TestPatroni(unittest.TestCase):
     @patch('pkgutil.iter_importers', Mock(return_value=[MockFrozenImporter()]))
     @patch('urllib3.PoolManager.request', Mock(side_effect=Exception))
     @patch('sys.frozen', Mock(return_value=True), create=True)
+    @patch('patroni.api.PatroniThreadPoolExecutor', Mock())
+    @patch('patroni.thread_pool.PatroniThreadPoolExecutor', Mock())
     @patch.object(HTTPServer, '__init__', Mock())
     @patch.object(etcd.Client, 'read', etcd_read)
     @patch.object(Thread, 'start', Mock())
@@ -111,6 +119,7 @@ class TestPatroni(unittest.TestCase):
 
     @patch('sys.argv', ['patroni.py', 'postgres0.yml'])
     @patch('time.sleep', Mock(side_effect=SleepException))
+    @patch('patroni.daemon.stack_size', Mock(side_effect=Exception))
     @patch.object(etcd.Client, 'delete', Mock())
     @patch.object(AbstractEtcdClientWithFailover, '_get_machines_list', Mock(return_value=['http://remotehost:2379']))
     @patch.object(Thread, 'join', Mock())
@@ -118,6 +127,8 @@ class TestPatroni(unittest.TestCase):
     def test_patroni_patroni_main(self):
         with patch('subprocess.call', Mock(return_value=1)):
             with patch.object(Patroni, 'run', Mock(side_effect=SleepException)):
+                os.environ['PATRONI_THREAD_STACK_SIZE'] = 'a'
+                os.environ['PATRONI_THREAD_POOL_SIZE'] = 'a'
                 os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
                 self.assertRaises(SleepException, _main)
             with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
@@ -296,6 +307,8 @@ class TestPatroni(unittest.TestCase):
         with patch('builtins.__import__', mock_import):
             self.assertIsNone(check_psycopg())
         with patch('builtins.__import__', mock_import2):
+            self.assertIsNone(check_psycopg())
+        with patch('builtins.__import__', mock_import3):
             self.assertRaises(SystemExit, check_psycopg)
 
     def test_ensure_unique_name(self):

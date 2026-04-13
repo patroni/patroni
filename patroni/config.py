@@ -371,7 +371,7 @@ class Config(object):
                 logger.exception('Exception when reloading local configuration from %s', self.config_file)
 
     @staticmethod
-    def _process_postgresql_parameters(parameters: Dict[str, Any], is_local: bool = False) -> Dict[str, Any]:
+    def _process_postgresql_parameters(parameters: Any, is_local: bool = False) -> Dict[str, Any]:
         """Process Postgres *parameters*.
 
         .. note::
@@ -403,9 +403,12 @@ class Config(object):
 
         :returns: new value for ``postgresql.parameters`` after processing and validating *parameters*.
         """
+        if not isinstance(parameters or {}, dict):
+            raise ConfigParseError('postgresql.parameters is not a dictionary')
+
         pg_params: Dict[str, Any] = {}
 
-        for name, value in (parameters or {}).items():
+        for name, value in cast(Dict[str, Any], parameters or {}).items():
             if name not in ConfigHandler.CMDLINE_OPTIONS:
                 pg_params[name] = value
             elif not is_local:
@@ -487,7 +490,7 @@ class Config(object):
             """
             return os.environ.pop(PATRONI_ENV_PREFIX + name.upper(), None)
 
-        for param in ('name', 'namespace', 'scope'):
+        for param in ('name', 'namespace', 'scope', 'thread_pool_size', 'thread_stack_size'):
             value = _popenv(param)
             if value:
                 ret[param] = value
@@ -559,7 +562,7 @@ class Config(object):
                 if value is not None:
                     ret[first][second] = value
 
-        for first, params in (('restapi', ('request_queue_size',)),
+        for first, params in (('restapi', ('request_queue_size', 'thread_pool_size')),
                               ('log', ('max_queue_size', 'file_size', 'file_num', 'mode'))):
             for second in params:
                 value = ret.get(first, {}).pop(second, None)

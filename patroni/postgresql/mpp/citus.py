@@ -403,7 +403,10 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
         self._in_flight: Optional[PgDistTask] = None  # Reference to the `PgDistTask` being changed in a transaction
         self._schedule_load_pg_dist_group = True  # Flag that "pg_dist_group" should be queried from the database
         self._condition = Condition()  # protects _pg_dist_group, _tasks, _in_flight, and _schedule_load_pg_dist_group
+        self._ready_to_run = Event()
         self.schedule_cache_rebuild()
+        if self.is_coordinator():
+            self.start()
 
     def schedule_cache_rebuild(self) -> None:
         """Cache rebuild handler.
@@ -468,9 +471,8 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
         if not self.is_coordinator():
             return
 
-        with self._condition:
-            if not self.is_alive():
-                self.start()
+        # notify run() method that it should start doing its job
+        self._ready_to_run.set()
 
         self.add_task('after_promote', CITUS_COORDINATOR_GROUP_ID, cluster,
                       self._postgresql.name, self._postgresql.connection_string)
@@ -604,6 +606,9 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
             task.wakeup()
 
     def run(self) -> None:
+        # we want to postpone "start" until first attempt to sync_meta_data
+        self._ready_to_run.wait()
+
         while True:
             try:
                 with self._condition:
@@ -683,7 +688,7 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
         return task if self._add_task(task) else None
 
     def handle_event(self, cluster: Cluster, event: Dict[str, Any]) -> None:
-        if not self.is_alive():
+        if not self._ready_to_run.is_set():
             return
 
         worker = cluster.workers.get(event['group'])

@@ -850,7 +850,8 @@ class TestCtl(unittest.TestCase):
         # success
         mock_patch.return_value.status = 200
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(side_effect=[standby_cluster, standby_cluster,
-                                                                            only_leader_cluster])):
+                                                                            only_leader_cluster])), \
+                patch('time.sleep', Mock()):
             result = self.runner.invoke(ctl, ['promote-cluster', 'dummy', '--force'])
             assert result.exit_code == 0
 

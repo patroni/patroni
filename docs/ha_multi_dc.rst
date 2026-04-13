@@ -4,7 +4,7 @@
 HA multi datacenter
 ===================
 
-The high availability of a PostgreSQL cluster deployed in multiple data centers is based on replication, which can be synchronous or asynchronous (`replication_modes <replication_modes.rst>`_).
+The high availability of a PostgreSQL cluster deployed in multiple data centers is based on replication, which can be synchronous or asynchronous (see :ref:`replication modes <replication_modes>`).
 
 In both cases, it is important to be clear about the following concepts:
 

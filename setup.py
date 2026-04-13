@@ -50,6 +50,7 @@ CLASSIFIERS = [
     'Programming Language :: Python :: 3.11',
     'Programming Language :: Python :: 3.12',
     'Programming Language :: Python :: 3.13',
+    'Programming Language :: Python :: 3.14',
     'Programming Language :: Python :: Implementation :: CPython',
 ]
 
@@ -207,7 +208,7 @@ def main():
         license=LICENSE,
         license_files=('LICENSE',),
         keywords=KEYWORDS,
-        long_description=read('README.rst'),
+        long_description=read('README.rst').replace('**Important!**', '.. warning::\n'),
         classifiers=CLASSIFIERS,
         packages=find_packages(exclude=['tests', 'tests.*']),
         package_data={MAIN_PACKAGE: [

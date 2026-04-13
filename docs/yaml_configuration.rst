@@ -7,6 +7,8 @@ YAML Configuration Settings
 
 Global/Universal
 ----------------
+-  **thread\_pool\_size**: size of thread pool used by Patroni to execute asynchronous tasks and communicate via REST API with other members during leader race or failsafe checks. Minimal value is ``5``, default value is ``5``.
+-  **thread\_stack\_size**: specifies the stack size to be used for threads started by Patroni. Value must be aligned by ``64kB``. Minimal value is ``64kB``,  default value (set by Patroni) is ``512kB``.
 -  **name**: the name of the host. Must be unique for the cluster.
 -  **namespace**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service"
 -  **scope**: cluster name
@@ -332,6 +334,7 @@ REST API
 --------
 -  **restapi**:
 
+   -  **thread\_pool\_size**: size of thread pool used by Patroni to process REST API requests. Minimal value is ``5``, default value is ``5``.
    -  **connect\_address**: IP address (or hostname) and port, to access the Patroni's :ref:`REST API <rest_api>`. All the members of the cluster must be able to connect to this address, so unless the Patroni setup is intended for a demo inside the localhost, this address must be a non "localhost" or loopback address (ie: "localhost" or "127.0.0.1"). It can serve as an endpoint for HTTP health checks (read below about the "listen" REST API parameter), and also for user queries (either directly or via the REST API), as well as for the health checks done by the cluster members during leader elections (for example, to determine whether the leader is still running, or if there is a node which has a WAL position that is ahead of the one doing the query; etc.) The connect_address is put in the member key in DCS, making it possible to translate the member name into the address to connect to its REST API.
    -  **listen**: IP address (or hostname) and port that Patroni will listen to for the REST API - to provide also the same health checks and cluster messaging between the participating nodes, as described above. to provide health-check information for HAProxy (or any other load balancer capable of doing a HTTP "OPTION" or "GET" checks).
    -  **authentication**: (optional)
@@ -412,7 +415,7 @@ Tags
 -  **nosync**: ``true`` or ``false``. If set to ``true`` the node will never be selected as a synchronous replica.
 -  **sync_priority**: integer, controls the priority this node should have during synchronous replica selection when ``synchronous_mode`` is set to ``on``. Nodes with higher priority will be preferred over lower-priority nodes. If the ``sync_priority`` is 0 or negative - such node is not allowed to be written to ``synchronous_standby_names`` PostgreSQL parameter (similar to ``nosync: true``). Keep in mind, that this parameter has the opposite meaning to ``sync_priority`` value reported in ``pg_stat_replication`` view.
 -  **nofailover**: ``true`` or ``false``, controls whether this node is allowed to participate in the leader race and become a leader. Defaults to ``false``, meaning this node _can_ participate in leader races. 
--  **failover_priority**: integer, controls the priority this node should have during failover. Nodes with higher priority will be preferred over lower-priority nodes if they received/replayed the same amount of WAL. However, nodes with higher values of receive/replay LSN are preferred regardless of their priority. If the ``failover_priority`` is 0 or negative - such node is not allowed to participate in the leader race and to become a leader (similar to ``nofailover: true``).
+-  **failover_priority**: integer, controls the priority this node should have during failover. Nodes with higher priority will be preferred over lower-priority nodes if they received/replayed the same amount of WAL. However, nodes with higher values of receive/replay LSN are preferred regardless of their priority. If the ``failover_priority`` is 0 or negative - such node is not allowed to participate in the leader race and to become a leader (similar to ``nofailover: true``). Known limitation: ``failover_priority`` currently doesn't work with :ref:`quorum-based synchronous replication <quorum_mode>`.
 -  **nostream**: ``true`` or ``false``. If set to ``true`` the node will not use replication protocol to stream WAL. It will rely instead on archive recovery (if ``restore_command`` is configured) and ``pg_wal``/``pg_xlog`` polling. It also disables copying and synchronization of permanent logical replication slots on the node itself and all its cascading replicas. Setting this tag on primary node has no effect.
 
 .. warning::

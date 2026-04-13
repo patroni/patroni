@@ -1,3 +1,4 @@
+import concurrent.futures
 import datetime
 import functools
 import json
@@ -6,11 +7,10 @@ import sys
 import time
 import uuid
 
-from multiprocessing.pool import ThreadPool
 from threading import RLock
 from typing import Any, Callable, cast, Collection, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING, Union
 
-from . import global_config, psycopg
+from . import global_config, psycopg, thread_pool
 from .__main__ import Patroni
 from .async_executor import AsyncExecutor, CriticalTask
 from .collections import CaseInsensitiveSet
@@ -250,6 +250,11 @@ class Ha(object):
         # We update this value from update_lock() and touch_member() methods, because they fetch it anyway.
         # This value is used to notify the leader when the failsafe_mode is active without performing any queries.
         self._last_wal_lsn = None
+        # The last known value of current timeline on this standby node.
+        # We update this value from touch_member() and _is_healthiest_node() methods, because they fetch it anyway.
+        # This value is used to detect cases of timeline bump with actual leader remaining on the same node
+        # and trigger pg_rewind state machine.
+        self._last_timeline = None
 
         # Count of concurrent sync disabling requests. Value above zero means that we don't want to be synchronous
         # standby. Changes protected by _member_state_lock.
@@ -472,6 +477,8 @@ class Ha(object):
                             data['replication_state'] = replication_state
                         # try pg_stat_wal_receiver to get the timeline
                         timeline = self.state_handler.received_timeline()
+                        if timeline:
+                            self._last_timeline = timeline
                     if not timeline:
                         # So far the only way to get the current timeline on the standby is from
                         # the replication connection. In order to avoid opening the replication
@@ -484,6 +491,8 @@ class Ha(object):
                             timeline = pg_control_timeline or self.state_handler.pg_control_timeline()
                         else:
                             timeline = self.state_handler.replica_cached_timeline(self._leader_timeline) or 0
+                        if timeline:
+                            self._last_timeline = timeline
                     if timeline:
                         data['timeline'] = timeline
                 except Exception:
@@ -731,14 +740,14 @@ class Ha(object):
         if refresh:
             self.load_cluster_from_dcs()
 
-        is_leader = self.state_handler.is_primary()
+        is_primary = self.state_handler.is_primary()
 
         node_to_follow = self._get_node_to_follow(self.cluster)
 
         if self.is_paused():
             if not (self._rewind.is_needed and self._rewind.can_rewind_or_reinitialize_allowed)\
                     or self.cluster.is_unlocked():
-                if is_leader:
+                if is_primary:
                     self.state_handler.set_role(PostgresqlRole.PRIMARY)
                     return 'continue to run as primary without lock'
                 elif self.state_handler.role != PostgresqlRole.STANDBY_LEADER:
@@ -746,7 +755,7 @@ class Ha(object):
 
                 if not node_to_follow:
                     return 'no action. I am ({0})'.format(self.state_handler.name)
-        elif is_leader:
+        elif is_primary:
             if self.is_standby_cluster():
                 self._async_executor.try_run_async('demoting to a standby cluster', self.demote, ('demote-cluster',))
             else:
@@ -781,9 +790,17 @@ class Ha(object):
                 else:
                     self.state_handler.follow(node_to_follow, role, do_reload=True)
                 self._rewind.trigger_check_diverged_lsn()
-            elif role == PostgresqlRole.STANDBY_LEADER and self.state_handler.role != role:
-                self.state_handler.set_role(role)
-                self.state_handler.call_nowait(CallbackAction.ON_ROLE_CHANGE)
+            else:
+                if role == PostgresqlRole.STANDBY_LEADER and self.state_handler.role != role:
+                    self.state_handler.set_role(role)
+                    self.state_handler.call_nowait(CallbackAction.ON_ROLE_CHANGE)
+
+                if self._last_timeline and self._leader_timeline and self._last_timeline < self._leader_timeline:
+                    self._rewind.trigger_check_diverged_lsn()
+                    if not self.state_handler.is_starting():
+                        msg = self._handle_rewind_or_reinitialize()
+                        if msg:
+                            return msg
 
         return follow_reason
 
@@ -912,6 +929,14 @@ class Ha(object):
         picked = current_state.active
         allow_promote = current_state.sync_confirmed
         voters = CaseInsensitiveSet(sync.voters)
+
+        if self.state_handler.name != sync.leader:
+            logger.warning("Inconsistent state of /sync key detected, leader = %s doesn't match %s, "
+                           "updating synchronous replication key", sync.leader, self.state_handler.name)
+            sync = self.dcs.write_sync_state(self.state_handler.name, None, 0, version=sync.version)
+            if not sync:
+                return logger.warning("Updating sync state failed")
+            voters = CaseInsensitiveSet()
 
         if picked == voters and voters != allow_promote:
             logger.warning('Inconsistent state between synchronous_standby_names = %s and /sync = %s key '
@@ -1123,6 +1148,7 @@ class Ha(object):
             if self.state_handler.role not in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
                 # reset failsafe state when promote
                 self._failsafe.set_is_active(0)
+                self._last_timeline = None
 
                 def before_promote():
                     self._rewind.reset_state()  # make sure we will trigger checkpoint after promote
@@ -1156,10 +1182,10 @@ class Ha(object):
     def fetch_nodes_statuses(self, members: List[Member]) -> List[_MemberStatus]:
         if not members:
             return []
-        pool = ThreadPool(len(members))
-        results = pool.map(self.fetch_node_status, members)  # Run API calls on members in parallel
-        pool.close()
-        pool.join()
+
+        futures = [thread_pool.get_executor().submit(self.fetch_node_status, member) for member in members]
+        # Run API calls on members in parallel
+        results = [future.result() for future in concurrent.futures.as_completed(futures)]
         return results
 
     def update_failsafe(self, data: Dict[str, Any]) -> Union[int, str, None]:
@@ -1239,11 +1265,9 @@ class Ha(object):
                    for name, url in failsafe.items() if name != self.state_handler.name]
         if not members:  # A single node cluster
             return True
-        pool = ThreadPool(len(members))
-        call_failsafe_member = functools.partial(self.call_failsafe_member, data)
-        results: List[_FailsafeResponse] = pool.map(call_failsafe_member, members)
-        pool.close()
-        pool.join()
+
+        futures = [thread_pool.get_executor().submit(self.call_failsafe_member, data, member) for member in members]
+        results = [future.result() for future in concurrent.futures.as_completed(futures)]
         ret = all(r.accepted for r in results)
         if ret:
             # The LSN feedback will be later used to advance position of replication slots
@@ -1275,14 +1299,16 @@ class Ha(object):
                   themselves as the healthiest because they received/replayed up to the same LSN,
                   but this is totally fine.
         """
+        cluster_timeline = self.cluster.timeline
+        my_timeline = self.state_handler.replica_cached_timeline(cluster_timeline)
+        if my_timeline:
+            self._last_timeline = my_timeline
         my_wal_position = self.state_handler.last_operation()
         if check_replication_lag and self.is_lagging(my_wal_position):
             logger.info('My wal position exceeds maximum replication lag')
             return False  # Too far behind last reported wal position on primary
 
         if not self.is_standby_cluster() and self.check_timeline():
-            cluster_timeline = self.cluster.timeline
-            my_timeline = self.state_handler.replica_cached_timeline(cluster_timeline)
             if my_timeline is None:
                 logger.info('Can not figure out my timeline')
                 return False
@@ -1340,7 +1366,7 @@ class Ha(object):
                                     leader_name, st.failover_priority, self.patroni.failover_priority)
                         low_priority = False
 
-                    if low_priority and (not self.sync_mode_is_active() or quorum_vote):
+                    if low_priority and (not self.quorum_commit_mode_is_active() or quorum_vote):
                         # There's a higher priority non-lagging replica
                         logger.info(
                             '%s has equally tolerable WAL position and priority %s, while this node has priority %s',
@@ -1457,8 +1483,10 @@ class Ha(object):
 
             # at this point we assume that our node is a candidate for a failover among all nodes except former leader
 
-        # exclude former leader from the list (failover.leader can be None)
-        members = [m for m in self.cluster.members if m.name != failover.leader]
+        # exclude former leader (failover.leader can be None) and non-sync nodes in case of sync replication from list
+        members = [m for m in self.cluster.members if m.name != failover.leader
+                   and (not self.sync_mode_is_active() or self.cluster.sync.matches(m.name))]
+
         return self._is_healthiest_node(members, check_replication_lag=False)
 
     def is_healthiest_node(self) -> bool:
@@ -1477,6 +1505,9 @@ class Ha(object):
             ret = self.manual_failover_process_no_leader()
             if ret is not None:  # continue if we just deleted the stale failover key as a leader
                 return ret
+
+        if self.state_handler.is_starting():  # postgresql still starting up is unhealthy
+            return False
 
         if self.state_handler.is_primary():
             if self.is_paused():
@@ -1528,7 +1559,7 @@ class Ha(object):
         # Special handling if synchronous mode was requested and activated (the leader in /sync is not empty)
         if self.sync_mode_is_active():
             # In quorum commit mode we allow nodes outside of "voters" to take part in
-            # the leader race. They just need to get enough votes to `reach quorum + 1`.
+            # the leader race. They just need to get enough votes to reach `quorum + 1`.
             if not self.is_quorum_commit_mode() and not self.cluster.sync.matches(self.state_handler.name, True):
                 return False
             # pick between synchronous candidates so we minimize unnecessary failovers/demotions
@@ -1691,7 +1722,7 @@ class Ha(object):
 
                 # The value is very close to now
                 time.sleep(max(delta, 0))
-                logger.info('Manual scheduled {0} at %s'.format(action_name), scheduled_at.isoformat())
+                logger.info('Manual scheduled %s at %s', action_name, scheduled_at.isoformat())
                 return True
             except TypeError:
                 logger.warning('Incorrect value of scheduled_at: %s', scheduled_at)
@@ -1768,9 +1799,11 @@ class Ha(object):
                 return self.follow('demoted self after trying and failing to obtain lock',
                                    'following new leader after trying and failing to obtain lock')
         else:
-            # when we are doing manual failover there is no guaranty that new leader is ahead of any other node
-            # node tagged as nofailover can be ahead of the new leader either, but it is always excluded from elections
-            if bool(self.cluster.failover) or self.patroni.nofailover:
+            # When we are doing manual failover there is no guaranty that new leader is ahead of any other node.
+            # Node tagged as nofailover can be also ahead of the new leader, but it is always excluded from elections
+            # and therefore we trigger rewind checks on it, but only if not in pause, because there is no race in pause.
+            if self.cluster.failover and self.cluster.failover.candidate or \
+                    self.patroni.nofailover and not self.is_paused():
                 self._rewind.trigger_check_diverged_lsn()
                 time.sleep(2)  # Give a time to somebody to take the leader lock
 

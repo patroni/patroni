@@ -44,7 +44,9 @@ class TestCallbackExecutor(unittest.TestCase):
         mock_popen.reset_mock()
 
         mock_popen.side_effect = [Mock()]
-        self.assertIsNone(ce.call(['test.sh', CallbackAction.ON_RELOAD, PostgresqlRole.REPLICA, 'foo']))
-        self.assertEqual(mock_popen.call_args_list[0],
-                         mock.call(['test.sh', 'on_reload', 'replica', 'foo'], close_fds=True))
+        with patch('patroni.thread_pool.get_executor') as mock_executor:
+            mock_executor.return_value.submit = lambda f: f()
+            self.assertIsNone(ce.call(['test.sh', CallbackAction.ON_RELOAD, PostgresqlRole.REPLICA, 'foo']))
+            self.assertEqual(mock_popen.call_args_list[0],
+                             mock.call(['test.sh', 'on_reload', 'replica', 'foo'], close_fds=True))
         ce.join()

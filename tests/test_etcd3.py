@@ -79,6 +79,40 @@ class TestEtcd3Client(unittest.TestCase):
                             DnsCachingResolver())
         self.assertIsNotNone(etcd3._cluster_version)
 
+    @patch.object(urllib3.PoolManager, 'urlopen')
+    def test_get_members_retries_auth_errors(self, mock_urlopen):
+        auth_requests = []
+        member_list_requests = []
+
+        def urlopen_side_effect(method, url, **kwargs):
+            ret = MockResponse()
+            if method == 'GET' and url.endswith('/version'):
+                ret.content = '{"etcdserver": "3.6.10", "etcdcluster": "3.6.0"}'
+            elif url.endswith('/auth/authenticate'):
+                auth_requests.append(kwargs)
+                ret.content = '{{"token":"authtoken{0}"}}'.format(len(auth_requests))
+            elif url.endswith('/cluster/member/list'):
+                member_list_requests.append(kwargs)
+                if 1 < len(member_list_requests) < 4:
+                    ret.status_code = 401
+                    ret.content = '{"code":16,"error":"etcdserver: invalid auth token"}'
+                else:
+                    ret.content = '{"members":[{"clientURLs":["http://localhost:2379"]}]}'
+            return ret
+
+        mock_urlopen.side_effect = urlopen_side_effect
+        client = Etcd3Client({'host': '127.0.0.1', 'port': 2379, 'retry_timeout': 10, 'patronictl': True,
+                              'username': 'etcduser', 'password': 'etcdpassword'}, DnsCachingResolver())
+        client._update_machines_cache = True
+
+        kwargs = client._prepare_get_members(1)
+        self.assertEqual(client._get_members('http://127.0.0.1:2379', **kwargs), ['http://localhost:2379'])
+        self.assertEqual(len(auth_requests), 3)
+        self.assertEqual(json.loads(auth_requests[-1]['body']), {'name': 'etcduser', 'password': 'etcdpassword'})
+        self.assertNotIn('authorization', auth_requests[-1]['headers'])
+        self.assertEqual(len(member_list_requests), 4)
+        self.assertEqual(member_list_requests[-1]['headers']['authorization'], 'authtoken3')
+
 
 class BaseTestEtcd3(unittest.TestCase):
 
@@ -197,13 +231,13 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         self.assertRaises(etcd.EtcdException, self.client._handle_server_response, response)
         response.status_code = 400
         self.assertRaises(Unknown, self.client._handle_server_response, response)
-        response.content = '{"error":{"grpc_code":14,"message":"","http_code":400}}'
+        response.content = '{"error":{"code":14,"message":"","http_code":400}}'
         self.assertRaises(socket.timeout, self.client._handle_server_response, response)
         response.content = '{"error":{"grpc_code":0,"message":"","http_code":400}}'
         try:
             self.client._handle_server_response(response)
-        except Unknown as e:
-            self.assertEqual(e.as_dict(), {'code': 2, 'codeText': 'OK', 'error': u'', 'status': 400})
+        except Etcd3ClientError as e:
+            self.assertEqual(e.as_dict(), {'code': 0, 'codeText': 'OK', 'error': u'', 'status': 400})
 
     @patch.object(urllib3.PoolManager, 'urlopen')
     def test__ensure_version_prefix(self, mock_urlopen):
