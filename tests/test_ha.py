@@ -658,6 +658,7 @@ class TestHa(PostgresInit):
     @patch('patroni.postgresql.mpp.citus.connect', psycopg_connect)
     @patch('patroni.postgresql.mpp.citus.quote_ident', Mock())
     @patch.object(Postgresql, 'connection', Mock(return_value=None))
+    @patch.object(Postgresql, '_wait_for_connection_close', Mock())
     def test_bootstrap_release_initialize_key_on_watchdog_failure(self):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.e.initialize = true
@@ -671,6 +672,7 @@ class TestHa(PostgresInit):
                                                                    ' watchdog activation failed'))
 
     @patch('patroni.psycopg.connect', psycopg_connect)
+    @patch.object(Postgresql, '_wait_for_connection_close', Mock())
     def test_reinitialize(self):
         self.assertIsNotNone(self.ha.reinitialize())
 
@@ -1810,6 +1812,7 @@ class TestHa(PostgresInit):
     @patch('builtins.open', mock_open())
     @patch.object(ConfigHandler, 'check_recovery_conf', Mock(return_value=(False, False)))
     @patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000))
+    @patch.object(Postgresql, '_wait_for_connection_close', Mock())
     @patch.object(SlotsHandler, 'sync_replication_slots', Mock(return_value=['ls']))
     def test_follow_copy(self):
         self.ha.cluster.config.data['slots'] = {'ls': {'database': 'a', 'plugin': 'b'}}
