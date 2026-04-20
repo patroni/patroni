@@ -1452,7 +1452,7 @@ Parameters
 ``--pending``
     Select only members which are flagged as ``Pending restart``.
 
-``timeout``
+``--timeout``
     Abort the restart if it takes more than the specified timeout, and fail over to a replica if the issue is on the primary.
 
     ``TIMEOUT`` is the amount of seconds to wait before aborting the restart.
