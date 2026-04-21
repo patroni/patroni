@@ -3,6 +3,26 @@
 Release notes
 =============
 
+Version 4.1.2
+-------------
+
+Released 2026-04-21
+
+**Systemd support improvements**
+
+- Add support for ``notify-reload`` systemd unit type (Ronan Dunklau)
+
+  Allows ``systemctl reload`` to wait until Patroni has actually processed the configuration reload by sending ``RELOADING=1`` and ``READY=1`` notifications to systemd.
+
+- Send ``STOPPING=1`` notification to systemd on shutdown (Alexander Kukushkin)
+
+  Patroni now properly notifies systemd that it is shutting down, following the systemd notify protocol.
+
+- Do not let PostgreSQL to notify systemd (Alexander Kukushkin)
+
+  Remove ``NotifyAccess=all`` from the example systemd unit file. Filter ``NOTIFY_SOCKET`` from the environment when starting PostgreSQL so it doesn't send ``READY=1`` or ``STOPPING=1`` to systemd. When taking over a PostgreSQL that was started before Patroni and already has ``NOTIFY_SOCKET``, re-assert ``READY=1`` during PostgreSQL shutdown to counteract its ``STOPPING=1``.
+
+
 Version 4.1.1
 -------------
 

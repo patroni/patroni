@@ -124,6 +124,7 @@ class TestPatroni(unittest.TestCase):
     @patch.object(AbstractEtcdClientWithFailover, '_get_machines_list', Mock(return_value=['http://remotehost:2379']))
     @patch.object(Thread, 'join', Mock())
     @patch.object(Postgresql, '_get_gucs', Mock(return_value={'foo': True, 'bar': True}))
+    @patch.object(Postgresql, '_wait_for_connection_close', Mock())
     def test_patroni_patroni_main(self):
         with patch('subprocess.call', Mock(return_value=1)):
             with patch.object(Patroni, 'run', Mock(side_effect=SleepException)):
