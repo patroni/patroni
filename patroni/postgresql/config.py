@@ -1317,35 +1317,27 @@ class ConfigHandler(object):
 
         self._postgresql.set_pending_restart_reason(param_diff)
 
-    def set_synchronous_standby_names(self, value: Optional[str]) -> Optional[bool]:
-        """Updates synchronous_standby_names and reloads if necessary.
-        :returns: True if value was updated."""
-        if value != self._server_parameters.get('synchronous_standby_names'):
+    def _set_server_parameter(self, name: str, value: Optional[str], reload: bool = False) -> bool:
+        """Update a server parameter and optionally write config and reload PostgreSQL."""
+        if value != self._server_parameters.get(name):
             if value is None:
-                self._server_parameters.pop('synchronous_standby_names', None)
+                self._server_parameters.pop(name, None)
             else:
-                self._server_parameters['synchronous_standby_names'] = value
-            if self._postgresql.state == PostgresqlState.RUNNING:
-                self.write_postgresql_conf()
-                self._postgresql.reload()
-            return True
-
-    def set_synchronized_standby_slots(self, value: Optional[str], reload: bool = False) -> bool:
-        """Updates synchronized_standby_slots parameter.
-
-        :param value: The new value for synchronized_standby_slots, or None to remove it.
-        :param reload: If True, write config and reload PostgreSQL when value changes.
-        :returns: True if value was updated, False otherwise."""
-        if value != self._server_parameters.get('synchronized_standby_slots'):
-            if value is None:
-                self._server_parameters.pop('synchronized_standby_slots', None)
-            else:
-                self._server_parameters['synchronized_standby_slots'] = value
+                self._server_parameters[name] = value
             if reload and self._postgresql.state == PostgresqlState.RUNNING:
                 self.write_postgresql_conf()
                 self._postgresql.reload()
             return True
         return False
+
+    def set_synchronous_standby_names(self, value: Optional[str]) -> Optional[bool]:
+        """Updates synchronous_standby_names and reloads if necessary.
+        :returns: True if value was updated."""
+        return self._set_server_parameter('synchronous_standby_names', value, reload=True) or None
+
+    def set_synchronized_standby_slots(self, value: Optional[str], reload: bool = False) -> bool:
+        """Update ``synchronized_standby_slots`` parameter."""
+        return self._set_server_parameter('synchronized_standby_slots', value, reload=reload)
 
     @property
     def effective_configuration(self) -> CaseInsensitiveDict:

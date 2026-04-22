@@ -278,22 +278,16 @@ class Ha(object):
         self._last_dynamic_sync_slots_enabled: Optional[bool] = None
 
     def _handle_dynamic_sync_slots_toggle(self, sync_members: Collection[str]) -> bool:
-        """Handle dynamic_synchronized_standby_slots feature toggle.
-
-        Checks if the feature state changed and updates synchronized_standby_slots accordingly.
-
-        :param sync_members: Current set of synchronous standby members.
-        :returns: ``True`` if the feature state changed and was handled, ``False`` otherwise.
-        """
+        """Handle dynamic_synchronized_standby_slots feature toggle."""
         feature_enabled = global_config.dynamic_synchronized_standby_slots_enabled
         if feature_enabled == self._last_dynamic_sync_slots_enabled:
             return False
 
         logger.info("dynamic_synchronized_standby_slots changed to %s, updating slots", feature_enabled)
         if feature_enabled:
-            self.state_handler.sync_handler.update_synchronized_standby_slots(sync_members)
+            self.state_handler.slots_handler.update_synchronized_standby_slots(sync_members)
         else:
-            self.state_handler.sync_handler.update_synchronized_standby_slots(set())
+            self.state_handler.slots_handler.update_synchronized_standby_slots(set())
         self._last_dynamic_sync_slots_enabled = feature_enabled
         return True
 
