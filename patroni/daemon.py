@@ -169,6 +169,7 @@ class AbstractPatroniDaemon(abc.ABC):
         """
         with self._sigterm_lock:
             self._received_sigterm = True
+        notify_systemd("STOPPING=1")
         self._shutdown()
         self.logger.shutdown()
 
