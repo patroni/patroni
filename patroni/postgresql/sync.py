@@ -432,7 +432,14 @@ END;$$""")
             prefix = 'ANY ' if global_config.is_quorum_commit_mode and self._postgresql.supports_quorum_commit else ''
             sync_param = f'{prefix}{num} ({sync_param})'
 
-        if not (self._postgresql.config.set_synchronous_standby_names(sync_param)
+        # Update synchronous_standby_names - this will reload if SSN changed
+        ssn_changed = self._postgresql.config.set_synchronous_standby_names(sync_param)
+
+        # Update synchronized_standby_slots to match sync members (PostgreSQL 17+)
+        # Only reload if SSN didn't change (to avoid double reload)
+        self._postgresql.slots_handler.update_synchronized_standby_slots(sync, reload=not ssn_changed)
+
+        if not (ssn_changed
                 and self._postgresql.state == PostgresqlState.RUNNING
                 and self._postgresql.is_primary()) or has_asterisk:
             return

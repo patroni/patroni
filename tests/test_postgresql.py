@@ -833,6 +833,27 @@ class TestPostgresql(BaseTestPostgresql):
                 self.p.config.set_synchronous_standby_names('foo')
                 self.assertTrue(str(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
 
+    def test_set_synchronized_standby_slots(self):
+        # Setting a value should return True
+        self.assertTrue(self.p.config.set_synchronized_standby_slots('slot1,slot2'))
+        self.assertEqual(self.p.config._server_parameters['synchronized_standby_slots'], 'slot1,slot2')
+
+        # Setting the same value should return False
+        self.assertFalse(self.p.config.set_synchronized_standby_slots('slot1,slot2'))
+
+        # Setting None should remove the parameter and return True
+        self.assertTrue(self.p.config.set_synchronized_standby_slots(None))
+        self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
+
+        # Setting None again when already absent should return False
+        self.assertFalse(self.p.config.set_synchronized_standby_slots(None))
+
+        # Setting with reload=True when running should trigger reload
+        with patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.RUNNING)), \
+             patch.object(Postgresql, 'reload', Mock()) as mock_reload:
+            self.assertTrue(self.p.config.set_synchronized_standby_slots('slot1', reload=True))
+            mock_reload.assert_called_once()
+
     @patch('time.sleep', Mock())
     def test__wait_for_connection_close(self):
         mock_postmaster = MockPostmaster()
