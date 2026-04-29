@@ -1524,15 +1524,66 @@ class TestHa(PostgresInit):
         self.ha.run_cycle()
         self.assertEqual(self.ha.dcs.write_sync_state.call_count, 2)
 
-        # Test sync set to '*' when synchronous_mode_strict is enabled
+        # Test sync set to '*' when synchronous_mode_strict is enabled and /sync voters preserved
         mock_set_sync.reset_mock()
         mock_cfg_set_sync.reset_mock()
         self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, CaseInsensitiveSet(),
                                                                          CaseInsensitiveSet(), CaseInsensitiveSet()))
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
         with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
             self.ha.run_cycle()
         mock_set_sync.assert_called_once_with(CaseInsensitiveSet('*'))
         mock_cfg_set_sync.assert_not_called()
+        # In strict mode with no connected standbys, /sync should NOT be cleared (preserving voters for re-election)
+        self.ha.dcs.write_sync_state.assert_not_called()
+
+        # Test strict mode: /sync is updated (not blocked) when a new replica C replaces departed replica B.
+        # Scenario: /sync has ['other'] as voter, 'other' is gone but 'other2' has connected and is confirmed sync.
+        # The fix must NOT block updates when allow_promote has members -- only when it would write an empty set.
+        mock_set_sync.reset_mock()
+        mock_cfg_set_sync.reset_mock()
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1,
+                                                                         CaseInsensitiveSet(['other2']),
+                                                                         CaseInsensitiveSet(['other2']),
+                                                                         CaseInsensitiveSet(['other2'])))
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
+        with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
+            self.ha.run_cycle()
+        # sync_common = {'other'} & {'other2'} = {} but allow_promote = {'other2'} is not empty,
+        # so we skip the empty DCS write but later write allow_promote={'other2'} to /sync.
+        # synchronous_standby_names should be updated to include 'other2'.
+        mock_set_sync.assert_called_once_with(CaseInsensitiveSet(['other2']))
+        # The DCS should be written once with allow_promote='other2' (the final write at the end of the method)
+        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
+
+        # Test non-strict mode still clears /sync normally when sync_common is empty
+        mock_set_sync.reset_mock()
+        mock_cfg_set_sync.reset_mock()
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 0, CaseInsensitiveSet(),
+                                                                         CaseInsensitiveSet(), CaseInsensitiveSet()))
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
+        self.ha.run_cycle()
+        # Without strict mode, the DCS write should happen to clear /sync (write empty sync_common)
+        self.ha.dcs.write_sync_state.assert_called()
+        mock_set_sync.assert_called_once_with(CaseInsensitiveSet())
+
+        # Test strict mode with multiple voters: some overlap exists, should update normally
+        mock_set_sync.reset_mock()
+        mock_cfg_set_sync.reset_mock()
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('priority', 1,
+                                                                         CaseInsensitiveSet(['other']),
+                                                                         CaseInsensitiveSet(['other']),
+                                                                         CaseInsensitiveSet(['other'])))
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other,other2'))
+        self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
+        with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
+            self.ha.run_cycle()
+        # sync_common = {'other', 'other2'} & {'other'} = {'other'}, which is not empty.
+        # So the DCS write should happen (narrow from 2 voters to 1), not be blocked.
+        self.ha.dcs.write_sync_state.assert_called()
 
         # Test the value configured by the user for synchronous_standby_names is used when synchronous mode is disabled
         self.ha.is_synchronous_mode = false

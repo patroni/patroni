@@ -965,11 +965,15 @@ class Ha(object):
         # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
         sync_common = voters & allow_promote
         if sync_common != voters:
-            logger.info("Updating synchronous privilege temporarily from %s to %s",
-                        list(voters), list(sync_common))
-            sync = self.dcs.write_sync_state(self.state_handler.name, sync_common, 0, version=sync.version)
-            if not sync:
-                return logger.info('Synchronous replication key updated by someone else.')
+            if global_config.is_synchronous_mode_strict and not sync_common:
+                logger.info("Keeping existing sync replicas in /sync to maintain strict mode invariant: %s",
+                            list(voters))
+            else:
+                logger.info("Updating synchronous privilege temporarily from %s to %s",
+                            list(voters), list(sync_common))
+                sync = self.dcs.write_sync_state(self.state_handler.name, sync_common, 0, version=sync.version)
+                if not sync:
+                    return logger.info('Synchronous replication key updated by someone else.')
 
         # When strict mode and no suitable replication connections put "*" to synchronous_standby_names
         if global_config.is_synchronous_mode_strict and not picked:
