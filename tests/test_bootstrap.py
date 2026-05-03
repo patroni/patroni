@@ -259,6 +259,22 @@ class TestBootstrap(BaseTestPostgresql):
             self.b.post_bootstrap({}, task)
             mock_restart.assert_called_once()
 
+    @patch('time.sleep', Mock())
+    @patch('patroni.psycopg.__quote_ident', Mock(), create=True)
+    @patch.object(Bootstrap, 'call_post_bootstrap', Mock(return_value=True))
+    @patch.object(Postgresql, 'start', Mock(return_value=True))
+    @patch.object(Postgresql, 'get_major_version', Mock(return_value=110000))
+    def test_post_bootstrap_initdb_writes_pg_ident(self):
+        # Regression test: the initdb branch of post_bootstrap must flush
+        # configured pg_ident entries to pg_ident.conf, mirroring the
+        # custom bootstrap branch.
+        self.assertFalse(self.b.running_custom_bootstrap)
+        task = CriticalTask()
+        with patch.object(ConfigHandler, 'replace_pg_ident') as mock_replace_pg_ident, \
+                patch.object(self.p.mpp_handler, 'bootstrap', Mock()):
+            self.b.post_bootstrap({}, task)
+            mock_replace_pg_ident.assert_called_once()
+
     @patch.object(CancellableSubprocess, 'call')
     def test_call_post_bootstrap(self, mock_cancellable_subprocess_call):
         mock_cancellable_subprocess_call.return_value = 1
