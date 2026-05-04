@@ -49,12 +49,51 @@ When ``synchronous_mode`` is on and a standby crashes, commits will block until 
 
 When it is absolutely necessary to guarantee that each write is stored durably
 on at least two nodes, enable ``synchronous_mode_strict`` in addition to the
-``synchronous_mode``. This parameter prevents Patroni from switching off the
+``synchronous_mode``. This parameter prevents Patroni from disabling
 synchronous replication on the primary when no synchronous standby candidates
-are available. As a downside, the primary is not be available for writes
-(unless the Postgres transaction explicitly turns off ``synchronous_commit``),
+unless the Postgres transaction explicitly turns off ``synchronous_commit``),
 blocking all client write requests until at least one synchronous replica comes
 up.
+
+When ``synchronous_mode_strict`` is enabled and no active replication
+connections satisfy the minimum replication factor, Patroni determines
+the value of ``synchronous_standby_names`` as follows:
+
+1. **Last known sync nodes are available in the** ``/sync`` key in DCS Patroni
+   sets (or keeps) ``synchronous_standby_names`` to the nodes stored there.
+   For example, if ``/sync`` contains ``leader=node1, sync_standby=node2,node3``
+   and both standbys stop streaming, Patroni will continue using::
+
+       synchronous_standby_names = 'node2,node3'
+
+   because those nodes are the last ones known to have received the latest
+   commit. Commits will block until at least one of them reconnects.
+
+2. **Manual failover to an asynchronous node** – When a node that was not in the
+   ``/sync`` key is promoted (e.g. via ``patronictl failover --force``), it sets
+   ``synchronous_standby_names`` to the former primary, because the former
+   primary is the only node guaranteed to have the latest committed data.
+
+3. **The** ``/sync`` **key is empty** (e.g. strict mode just enabled, cluster
+   freshly bootstrapped with no replicas yet) – Patroni sets::
+
+       synchronous_standby_names = '__patroni_strict_sync_replica_placeholder__'
+
+   This is a built-in sentinel value that does not match any real node name,
+   causing all writes to block until an eligible replica starts streaming from
+   the primary. The placeholder replaces the former ``'*'`` wildcard, which
+   could inadvertently allow an unqualified node to satisfy the sync
+   requirement.
+
+.. warning::
+
+   The value ``__patroni_strict_sync_replica_placeholder__`` is reserved by
+   Patroni and **must not** be used as the ``name`` of a Patroni node in
+   ``patroni.yaml``. Patroni will refuse to start if this name is configured.
+
+When strict mode is active, Patroni emits a log warning:
+``"No active replication connections and synchronous_mode_strict is requested. Commits will be delayed."``
+This warning is emitted once per activation event, not on every HA loop iteration.
 
 You can ensure that a standby never becomes the synchronous standby by setting ``nosync`` tag to true. This is recommended to set for standbys that are behind slow network connections and would cause performance degradation when becoming a synchronous standby. Setting tag ``nostream`` to true will also have the same effect.
 
@@ -141,6 +180,8 @@ Quorum commit helps to reduce worst case latencies, even during normal operation
 The quorum-based synchronous mode could be enabled by setting ``synchronous_mode`` to ``quorum`` using ``patronictl edit-config`` command or via Patroni REST interface. See :ref:`dynamic configuration <dynamic_configuration>` for instructions.
 
 Other parameters, like ``synchronous_node_count``, ``maximum_lag_on_syncnode``, and ``synchronous_mode_strict`` continue to work the same way as with ``synchronous_mode=on``.
+
+In quorum commit mode with ``synchronous_mode_strict``, when no active replicas are available, Patroni sets ``synchronous_standby_names`` to ``ANY N (<last known voters>)`` (preserving the last known quorum voters from ``/sync``) or to ``ANY 1 (__patroni_strict_sync_replica_placeholder__)`` when no voters are stored in ``/sync`` key.
 
 Example:
 ---------
