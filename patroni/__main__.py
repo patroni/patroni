@@ -13,12 +13,14 @@ from argparse import Namespace
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from patroni import global_config, MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
+from patroni.collections import EMPTY_DICT
 from patroni.daemon import abstract_main, AbstractPatroniDaemon, get_base_arg_parser
 from patroni.tags import Tags
 
 if TYPE_CHECKING:  # pragma: no cover
     from .config import Config
     from .dcs import Cluster
+    from .log import PatroniLogger
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
         * ``postmaster_start_time``: timestamp when Postgres was last started.
     """
 
-    def __init__(self, config: 'Config') -> None:
+    def __init__(self, config: 'Config', patroni_logger: 'PatroniLogger') -> None:
         """Create a :class:`Patroni` instance with the given *config*.
 
         Get a connection to the DCS, configure watchdog (if required), set up Patroni interface with Postgres, configure
@@ -49,6 +51,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
             Expected to be instantiated and run through :func:`~patroni.daemon.abstract_main`.
 
         :param config: Patroni configuration.
+        :param patroni_logger: the logging handler for this daemon.
         """
         from patroni import thread_pool
         from patroni.api import RestApiServer
@@ -67,7 +70,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
         logger.info('Patroni global thread_pool_size = %d', thread_pool_size)
         thread_pool.configure_global_pool(thread_pool_size)
 
-        super(Patroni, self).__init__(config)
+        super(Patroni, self).__init__(config, patroni_logger)
 
         self.version = __version__
         self.dcs = get_dcs(self.config)
@@ -141,15 +144,15 @@ class Patroni(AbstractPatroniDaemon, Tags):
         member = cluster.get_member(self.config['name'], False)
         if not isinstance(member, Member):
             return
+        # Silence annoying WARNING: Retrying (...) messages when Patroni is quickly restarted.
+        configured_loggers: Dict[str, Any] = (self.config.get('log') or EMPTY_DICT).get('loggers') or {}
         try:
-            # Silence annoying WARNING: Retrying (...) messages when Patroni is quickly restarted.
-            # At this moment we don't have custom log levels configured and hence shouldn't lose anything useful.
-            self.logger.update_loggers({'urllib3.connectionpool': 'ERROR'})
+            self.logger.update_loggers({**configured_loggers, 'urllib3.connectionpool': 'ERROR'})
             _ = self.request(member, endpoint="/liveness", timeout=3)
             logger.fatal("Can't start; there is already a node named '%s' running", self.config['name'])
             sys.exit(1)
         except Exception:
-            self.logger.update_loggers({})
+            self.logger.update_loggers(configured_loggers)
 
     def _get_tags(self) -> Dict[str, Any]:
         """Get tags configured for this node, if any.
