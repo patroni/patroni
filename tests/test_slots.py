@@ -466,3 +466,44 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.s.sync_replication_slots(cluster, self.tags)
             self.assertEqual(mock_info.call_args_list[0][0],
                              ("Trying to drop logical replication slot '%s' with failover=true and synced=false", 'ls'))
+
+    def test_update_synchronized_standby_slots(self):
+        """Test update_synchronized_standby_slots method."""
+        # Test: PostgreSQL version < 17 - should return False
+        with patch.object(Postgresql, 'major_version', 160000):
+            self.assertFalse(self.s.update_synchronized_standby_slots({'node1', 'node2'}))
+
+        # Test: Feature disabled - should return False
+        with patch.object(Postgresql, 'major_version', 170000), \
+             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=False):
+            self.assertFalse(self.s.update_synchronized_standby_slots({'node1', 'node2'}))
+
+        # Test: Feature enabled - empty members clears the parameter (no-op when already absent)
+        with patch.object(Postgresql, 'major_version', 170000), \
+             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=True):
+            self.assertFalse(self.s.update_synchronized_standby_slots(set()))
+            self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
+
+        # Test: Feature enabled - wildcard clears the parameter (no-op when already absent)
+        with patch.object(Postgresql, 'major_version', 170000), \
+             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=True):
+            self.assertFalse(self.s.update_synchronized_standby_slots({'*'}))
+
+        # Test: Feature enabled - specific members sets the parameter
+        with patch.object(Postgresql, 'major_version', 170000), \
+             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=True):
+            self.assertTrue(self.s.update_synchronized_standby_slots({'node1', 'node2'}))
+            slots = self.p.config._server_parameters['synchronized_standby_slots']
+            self.assertIn('node1', slots)
+            self.assertIn('node2', slots)
+
+        # Test: Feature enabled with reload - should trigger reload
+        with patch.object(Postgresql, 'major_version', 170000), \
+             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=True):
+            self.p.config._server_parameters.pop('synchronized_standby_slots', None)
+            self.assertTrue(self.s.update_synchronized_standby_slots({'node3'}, reload=True))
