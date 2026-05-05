@@ -13,6 +13,31 @@ import sys
 from threading import Lock, stack_size
 from typing import Any, Optional, Type, TYPE_CHECKING
 
+try:  # pragma: no cover
+    from time import monotonic_ns
+
+    def monotonic_us() -> int:
+        """Return the current monotonic clock value in microseconds.
+
+        .. note::
+            Uses :func:`time.monotonic_ns` available since Python 3.7.
+
+        :returns: monotonic time in microseconds.
+        """
+        return monotonic_ns() // 1000
+except ImportError:  # pragma: no cover
+    from time import monotonic
+
+    def monotonic_us() -> int:
+        """Return the current monotonic clock value in microseconds.
+
+        .. note::
+            Fallback for Python 3.6 where :func:`time.monotonic_ns` is not available.
+
+        :returns: monotonic time in microseconds.
+        """
+        return int(monotonic() * 1000000)
+
 if TYPE_CHECKING:  # pragma: no cover
     from .config import Config
     from .log import PatroniLogger
@@ -78,7 +103,7 @@ class AbstractPatroniDaemon(abc.ABC):
         Flag the daemon as "SIGHUP received".
         """
         self._received_sighup = True
-        notify_systemd("RELOADING=1")
+        notify_systemd("RELOADING=1\nMONOTONIC_USEC={0}".format(monotonic_us()))
 
     def api_sigterm(self) -> bool:
         """Guarantee only a single SIGTERM is being processed.
