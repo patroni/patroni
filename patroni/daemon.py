@@ -15,6 +15,7 @@ from typing import Any, Optional, Type, TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover
     from .config import Config
+    from .log import PatroniLogger
 
 logger = logging.getLogger(__name__)
 
@@ -48,18 +49,16 @@ class AbstractPatroniDaemon(abc.ABC):
     :ivar config: configuration options for this daemon.
     """
 
-    def __init__(self, config: 'Config') -> None:
+    def __init__(self, config: 'Config', patroni_logger: 'PatroniLogger') -> None:
         """Set up signal handlers, logging handler and configuration.
 
         :param config: configuration options for this daemon.
+        :param patroni_logger: the logging handler for this daemon.
         """
-        from patroni.log import PatroniLogger
-
         self.setup_signal_handlers()
 
-        self.logger = PatroniLogger()
+        self.logger = patroni_logger
         self.config = config
-        AbstractPatroniDaemon.reload_config(self, local=True)
 
     def sighup_handler(self, *_: Any) -> None:
         """Handle SIGHUP signals.
@@ -165,11 +164,15 @@ def abstract_main(cls: Type[AbstractPatroniDaemon], configfile: str) -> None:
     :param configfile:
     """
     from .config import Config, ConfigParseError
+    from .log import PatroniLogger
     from .utils import parse_int
+
+    patroni_logger = PatroniLogger()
     try:
         config = Config(configfile)
     except ConfigParseError as e:
         sys.exit(e.value)
+    patroni_logger.reload_config(config.get('log', {}))
 
     thread_stack_size = None
     if 'thread_stack_size' in config:
@@ -179,7 +182,7 @@ def abstract_main(cls: Type[AbstractPatroniDaemon], configfile: str) -> None:
 
     if thread_stack_size is None:
         thread_stack_size = 524288
-        logger.info('Using default value thread_stack_size=%s', thread_stack_size)
+        logger.info('Using default value thread_stack_size = %s', thread_stack_size)
 
     thread_stack_size = max(65536, thread_stack_size)
     try:
@@ -187,7 +190,7 @@ def abstract_main(cls: Type[AbstractPatroniDaemon], configfile: str) -> None:
     except Exception as e:
         logger.warning('Failed to set threading.stack_size(%s): %r', thread_stack_size, e)
 
-    controller = cls(config)
+    controller = cls(config, patroni_logger)
     try:
         controller.run()
     except KeyboardInterrupt:
