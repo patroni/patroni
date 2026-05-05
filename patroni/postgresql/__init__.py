@@ -11,7 +11,7 @@ from copy import deepcopy
 from datetime import datetime
 from enum import IntEnum
 from threading import current_thread, Lock
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Callable, Dict, Generator, List, Optional, Tuple, TYPE_CHECKING, Union
 
 from dateutil import tz
 from psutil import TimeoutExpired
@@ -1105,7 +1105,7 @@ class Postgresql(object):
 
     @contextmanager
     def get_replication_connection_cursor(self, host: Optional[str] = None, port: Union[int, str] = 5432,
-                                          **kwargs: Any) -> Iterator[Union['cursor', 'Cursor[Any]']]:
+                                          **kwargs: Any) -> Generator[Union['cursor', 'Cursor[Any]'], None, None]:
         conn_kwargs = self.config.replication.copy()
         conn_kwargs.update(host=host, port=int(port) if port else None, user=conn_kwargs.pop('username'),
                            connect_timeout=3, replication=1, options='-c statement_timeout=2000')
