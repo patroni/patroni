@@ -18,6 +18,7 @@ from patroni.async_executor import AsyncExecutor
 from patroni.dcs import Cluster, ClusterConfig, Member
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover
 from patroni.exceptions import DCSError
+from patroni.log import PatroniLogger
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
@@ -96,7 +97,7 @@ class TestPatroni(unittest.TestCase):
         RestApiServer.socket = 0
         os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
         conf = config.Config('postgres0.yml')
-        self.p = Patroni(conf)
+        self.p = Patroni(conf, PatroniLogger())
 
     def tearDown(self):
         logging.getLogger().handlers[:] = self._handlers
