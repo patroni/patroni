@@ -45,7 +45,7 @@ Example configuration:
         version: 15
 
     postgresql:
-        data_dir_tempalte: /var/lib/pgsql/{major_version/data/
+        data_dir_tempalte: /var/lib/pgsql/{major_version}/data/
         bin_dir_template: /usr/pgsql-{major_version}/bin
         state_file: /var/lib/pgsql/patroni.state  # Required to find the correct data dir location
 
