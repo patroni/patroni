@@ -9,7 +9,7 @@ import yaml
 
 from getpass import getuser, getpass
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Optional, TextIO, Tuple, TYPE_CHECKING, Union
+from typing import Any, Dict, Iterator, Generator, List, Optional, TextIO, Tuple, TYPE_CHECKING, Union
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
     from psycopg2 import cursor
@@ -349,7 +349,7 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
             raise PatroniException("Obtained postmaster pid doesn't exist.")
 
     @contextmanager
-    def _get_connection_cursor(self) -> Iterator[Union['cursor', 'Cursor[Any]']]:
+    def _get_connection_cursor(self) -> Generator[Union['cursor', 'Cursor[Any]'], None, None]:
         """Get cursor for the PG connection established based on the stored information.
 
         :raises:

@@ -43,7 +43,7 @@ except ImportError:  # pragma: no cover
     from prettytable import ALL as hrule_all, FRAME as hrule_frame
 
 from urllib.parse import urlparse
-from typing import Any, Dict, Iterator, List, Optional, Union, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Iterator, Generator, List, Optional, Union, Tuple, TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
     from psycopg2 import cursor
@@ -1875,7 +1875,7 @@ def resume(cluster_name: str, group: Optional[int], wait: bool) -> None:
 
 
 @contextmanager
-def temporary_file(contents: bytes, suffix: str = '', prefix: str = 'tmp') -> Iterator[str]:
+def temporary_file(contents: bytes, suffix: str = '', prefix: str = 'tmp') -> Generator[str, None, None]:
     """Create a temporary file with specified contents that persists for the context.
 
     :param contents: binary string that will be written to the file.
