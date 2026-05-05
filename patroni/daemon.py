@@ -50,11 +50,12 @@ try:  # pragma: no cover
     def notify_systemd(msg: str) -> None:
         daemon.notify(msg)  # pyright: ignore
 
+    __systemd_available = True
 except ImportError:  # pragma: no cover
-    logger.info("Systemd integration is not supported")
-
     def notify_systemd(msg: str) -> None:
         pass
+
+    __systemd_available = False
 
 
 def get_base_arg_parser() -> argparse.ArgumentParser:
@@ -214,6 +215,9 @@ def abstract_main(cls: Type[AbstractPatroniDaemon], configfile: str) -> None:
     except ConfigParseError as e:
         sys.exit(e.value)
     patroni_logger.reload_config(config.get('log', {}))
+
+    if not __systemd_available and os.environ.get('NOTIFY_SOCKET'):
+        logger.warning('Running under systemd but python-systemd package is not installed')
 
     thread_stack_size = None
     if 'thread_stack_size' in config:
