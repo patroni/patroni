@@ -7,7 +7,7 @@ import sys
 
 from contextlib import contextmanager
 from getpass import getpass, getuser
-from typing import Any, Dict, Iterator, List, Optional, TextIO, Tuple, TYPE_CHECKING, Union
+from typing import Any, Dict, Generator, Iterator, List, Optional, TextIO, Tuple, TYPE_CHECKING, Union
 
 import psutil
 import yaml
@@ -352,7 +352,7 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
             raise PatroniException("Obtained postmaster pid doesn't exist.")
 
     @contextmanager
-    def _get_connection_cursor(self) -> Iterator[Union['cursor', 'Cursor[Any]']]:
+    def _get_connection_cursor(self) -> Generator[Union['cursor', 'Cursor[Any]'], None, None]:
         """Get cursor for the PG connection established based on the stored information.
 
         :raises:

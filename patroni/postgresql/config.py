@@ -8,7 +8,7 @@ import time
 
 from contextlib import contextmanager
 from types import TracebackType
-from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
+from typing import Any, Callable, Collection, Dict, Generator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 from urllib.parse import parse_qsl, unquote, urlparse
 
 from .. import global_config
@@ -496,7 +496,7 @@ class ConfigHandler(object):
             os.chmod(filename, 0o666 & ~pg_perm.orig_umask)
 
     @contextmanager
-    def config_writer(self, filename: str) -> Iterator[ConfigWriter]:
+    def config_writer(self, filename: str) -> Generator[ConfigWriter, None, None]:
         """Create :class:`ConfigWriter` object and set permissions on a *filename*.
 
         :param filename: path to a config file.
