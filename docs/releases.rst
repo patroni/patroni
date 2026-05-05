@@ -3,6 +3,34 @@
 Release notes
 =============
 
+Version 3.3.10
+--------------
+
+Released 2026-05-05
+
+**Stability improvements**
+
+- Properly handle mislabeled Etcd error (Ants Aasma)
+
+  Current Etcd versions raise ``Unknown`` error when Etcd leader is lost while updating the lease. Patroni will now override the reported error code to ``Unavailable``.
+
+**Bugfixes**
+
+- Use binary version when ``PG_VERSION`` file does not exist (Polina Bungina)
+
+  In some cases, for example when using custom bootstrap, the ``PG_VERSION`` file may not be present in the data directory. In this case, Patroni was treating the version as 0.0, which was causing issues with some of the version-specific logic. With this fix, Patroni will try to get the version from the binary in such cases.
+
+- Refactor logger intialization to avoid missing early log messages (Alexander Kukushkin)
+
+  Create ``PatroniLogger`` before loading ``Config`` to capture early log messages.
+
+**Improvements**
+
+- Skip single-user crash recovery when ``backup_label`` exists (Vadim Ponomarev)
+
+  Skip single-user crash recovery and let PostgreSQL handle it during normal startup when starting a replica restored from an external backup (not using a custom bootstrap method).
+
+
 Version 3.3.9
 -------------
 

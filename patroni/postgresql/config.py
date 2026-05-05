@@ -9,7 +9,7 @@ import time
 from contextlib import contextmanager
 from urllib.parse import urlparse, parse_qsl, unquote
 from types import TracebackType
-from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Union, Tuple, Type, TYPE_CHECKING
+from typing import Any, Callable, Collection, Dict, Generator, List, Optional, Union, Tuple, Type, TYPE_CHECKING
 
 from .misc import get_major_from_minor_version, postgres_version_to_int
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
@@ -496,7 +496,7 @@ class ConfigHandler(object):
             os.chmod(filename, 0o666 & ~pg_perm.orig_umask)
 
     @contextmanager
-    def config_writer(self, filename: str) -> Iterator[ConfigWriter]:
+    def config_writer(self, filename: str) -> Generator[ConfigWriter, None, None]:
         """Create :class:`ConfigWriter` object and set permissions on a *filename*.
 
         :param filename: path to a config file.

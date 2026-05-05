@@ -9,7 +9,7 @@ import shutil
 from collections import defaultdict
 from contextlib import contextmanager
 from threading import Condition, Thread
-from typing import Any, Dict, Iterator, List, Optional, Union, Tuple, TYPE_CHECKING, Collection
+from typing import Any, Dict, Generator, List, Optional, Union, Tuple, TYPE_CHECKING, Collection
 
 from .connection import get_connection_cursor
 from .misc import format_lsn, fsync_dir
@@ -419,7 +419,7 @@ class SlotsHandler:
                         logger.error("Error while advancing replication slot %s to position '%s': %r", name, lsn, exc)
 
     @contextmanager
-    def get_local_connection_cursor(self, **kwargs: Any) -> Iterator[Union['cursor', 'Cursor[Any]']]:
+    def get_local_connection_cursor(self, **kwargs: Any) -> Generator[Union['cursor', 'Cursor[Any]'], None, None]:
         """Create a new database connection to local server.
 
         Create a non-blocking connection cursor to avoid the situation where an execution of the query of
@@ -556,7 +556,7 @@ class SlotsHandler:
         return ret
 
     @contextmanager
-    def _get_leader_connection_cursor(self, leader: Leader) -> Iterator[Union['cursor', 'Cursor[Any]']]:
+    def _get_leader_connection_cursor(self, leader: Leader) -> Generator[Union['cursor', 'Cursor[Any]'], None, None]:
         """Create a new database connection to the leader.
 
         .. note::
