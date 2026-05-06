@@ -432,12 +432,18 @@ END;$$""")
             prefix = 'ANY ' if global_config.is_quorum_commit_mode and self._postgresql.supports_quorum_commit else ''
             sync_param = f'{prefix}{num} ({sync_param})'
 
-        # Update synchronous_standby_names - this will reload if SSN changed
+        # Update synchronized_standby_slots in _server_parameters first (no reload yet) so
+        # that the subsequent set_synchronous_standby_names() reload picks up both changes.
+        slots_changed = self._postgresql.slots_handler.update_synchronized_standby_slots(sync)
+
+        # Update synchronous_standby_names - this will reload if SSN changed,
+        # which also applies any pending synchronized_standby_slots change.
         ssn_changed = self._postgresql.config.set_synchronous_standby_names(sync_param)
 
-        # Update synchronized_standby_slots to match sync members (PostgreSQL 17+)
-        # Only reload if SSN didn't change (to avoid double reload)
-        self._postgresql.slots_handler.update_synchronized_standby_slots(sync, reload=not ssn_changed)
+        # If only synchronized_standby_slots changed (SSN didn't), trigger a reload to apply it.
+        if slots_changed and not ssn_changed and self._postgresql.state == PostgresqlState.RUNNING:
+            self._postgresql.config.write_postgresql_conf()
+            self._postgresql.reload()
 
         if not (ssn_changed
                 and self._postgresql.state == PostgresqlState.RUNNING
