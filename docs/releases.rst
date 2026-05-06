@@ -3,6 +3,56 @@
 Release notes
 =============
 
+Version 4.2.0
+-------------
+
+Released 2026-X-X
+
+**New features**
+
+- Support digest ACLs in Patroni ZooKeeper ``set_acls`` configuration (Igor Vasilkov)
+
+  Previously, set_acls always applied ACLs with the x509 scheme. Now, users canspecify other supported ZooKeeper schemes, such as digest, directly in the key.
+
+- Add ``replication_state`` query parameter to ``/replica`` endpoint (Gunnar "Nick" Bluth)
+
+  This allows filtering replicas based on their replication state. Mainly useful with ``replication_state=streaming``, to exclude replicas still catching up in archive recovery.
+
+- Add support for custom ``pg_rewind`` options (Israel Barth Rubio)
+
+  Introduces the ``postgresql.rewind`` configuration parameter, allowing users to pass custom command-line options to ``pg_rewind``.
+
+- Primary race backoff - preventing false-positive failovers (Alexander Kukushkin)
+
+  This feature allows to postpone leader race on standbys by ``primary_race_backoff`` seconds if WAL replication from the primary is still advancing. This minimizes unnecessary failovers caused by briefly unresponsive Patroni.
+
+- Extend failsafe mode Prometheus metrics (Huseyin Demir)
+
+  Add ``patroni_failsafe_mode_enabled`` and ``patroni_failsafe_member`` metrics to provide more visibility into the state of the cluster when failsafe mode is activated. 
+
+- Support for role-based configuration (Will Morland)
+
+  Adds support for specifying role-based configuration for postgresql parameters, ``pg_hba``, and ``pg_ident`` settings. These can be specified by appending ``_primary``, ``_replica``, or ``_standby_leader`` to the end of the configuration name (ex. ``pg_hba_primary``).
+
+**Improvements**
+
+- Drop failover slots with ``synced=false`` on standbys after a switchover (Alexander Kukushkin)
+
+  Overcome the bug in the PostgreSQL failover slots implementation, when ``slotsync`` worker refuses to synchronize such logical slots.
+
+- Improve reliability of ``_is_postmaster_process()`` checks (Alexander Kukushkin)
+
+  When parsing postmaster.pid to determine whether a PostgreSQL cluster is running for a given $PGDATA, Patroni previously relied solely on comparing the start time recorded in ``postmaster.pid`` with the process creation time reported by the OS. In some cases, the difference between these timestamps can exceed 3 seconds. In this case, Patroni incorrectly assumes PostgreSQL is not running and attempts to start a second instance. The improved check additionally verifies the process executable reported by the OS and the process' current working directory, which must match ``$PGDATA``.
+
+- Add ``DEBUG`` logging for ``pg_rewind`` decisions (Marcelo Henrique Neppel)
+
+  Provide more visibility into the decision-making process of whether to use ``pg_rewind`` or not, by logging the relevant information at the ``DEBUG`` level.
+
+- Improve switchover unknown-status messaging (Muhammad Umair Ali)
+
+  Extend API timeout response with the timeout duration and report ``result unknown`` instead of ``failed`` in ctl when the API returns a ``status unknown``.
+
+
 Version 4.1.3
 -------------
 
