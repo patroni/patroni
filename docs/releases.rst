@@ -3,6 +3,42 @@
 Release notes
 =============
 
+Version 4.1.3
+-------------
+
+Released 2026-05-05
+
+**Stability improvements**
+
+- Properly handle mislabeled Etcd error (Ants Aasma)
+
+  Current Etcd versions raise ``Unknown`` error when Etcd leader is lost while updating the lease. Patroni will now override the reported error code to ``Unavailable``.
+
+**Bugfixes**
+
+- Use binary version when ``PG_VERSION`` file does not exist (Polina Bungina)
+
+  In some cases, for example when using custom bootstrap, the ``PG_VERSION`` file may not be present in the data directory. In this case, Patroni was treating the version as 0.0, which was causing issues with some of the version-specific logic. With this fix, Patroni will try to get the version from the binary in such cases.
+
+- Refactor logger intialization to avoid missing early log messages (Alexander Kukushkin)
+
+  Create ``PatroniLogger`` before loading ``Config`` to capture early log messages.
+
+- Include ``MONOTONIC_USEC`` in ``RELOADING=1`` systemd notification (Alexander Kukushkin)
+
+  systemd 257+ requires ``MONOTONIC_USEC`` alongside ``RELOADING=1`` for ``Type=notify-reload`` services. Without it, ``systemctl reload`` hangs indefinitely.
+
+**Improvements**
+
+- Skip single-user crash recovery when ``backup_label`` exists (Vadim Ponomarev)
+
+  Skip single-user crash recovery and let PostgreSQL handle it during normal startup when starting a replica restored from an external backup (not using a custom bootstrap method).
+
+- Warn when running under ``systemd`` without ``python-systemd`` package (Alexander Kukushkin)
+
+  Instead of logging "systemd integration is not supported" at startup, check for ``NOTIFY_SOCKET`` and warn only when actually running under ``systemd`` without the ``python-systemd`` package installed.
+
+
 Version 4.1.2
 -------------
 

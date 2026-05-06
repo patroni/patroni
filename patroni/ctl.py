@@ -29,7 +29,7 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from enum import Enum
-from typing import Any, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Dict, Generator, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
 from urllib.parse import urlparse
 
 import click
@@ -1919,7 +1919,7 @@ def resume(cluster_name: str, group: Optional[int], wait: bool) -> None:
 
 
 @contextmanager
-def temporary_file(contents: bytes, suffix: str = '', prefix: str = 'tmp') -> Iterator[str]:
+def temporary_file(contents: bytes, suffix: str = '', prefix: str = 'tmp') -> Generator[str, None, None]:
     """Create a temporary file with specified contents that persists for the context.
 
     :param contents: binary string that will be written to the file.

@@ -13,8 +13,34 @@ import sys
 from threading import Lock, stack_size
 from typing import Any, Optional, Type, TYPE_CHECKING
 
+try:  # pragma: no cover
+    from time import monotonic_ns
+
+    def monotonic_us() -> int:
+        """Return the current monotonic clock value in microseconds.
+
+        .. note::
+            Uses :func:`time.monotonic_ns` available since Python 3.7.
+
+        :returns: monotonic time in microseconds.
+        """
+        return monotonic_ns() // 1000
+except ImportError:  # pragma: no cover
+    from time import monotonic
+
+    def monotonic_us() -> int:
+        """Return the current monotonic clock value in microseconds.
+
+        .. note::
+            Fallback for Python 3.6 where :func:`time.monotonic_ns` is not available.
+
+        :returns: monotonic time in microseconds.
+        """
+        return int(monotonic() * 1000000)
+
 if TYPE_CHECKING:  # pragma: no cover
     from .config import Config
+    from .log import PatroniLogger
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +50,12 @@ try:  # pragma: no cover
     def notify_systemd(msg: str) -> None:
         daemon.notify(msg)  # pyright: ignore
 
+    __systemd_available = True
 except ImportError:  # pragma: no cover
-    logger.info("Systemd integration is not supported")
-
     def notify_systemd(msg: str) -> None:
         pass
+
+    __systemd_available = False
 
 
 def get_base_arg_parser() -> argparse.ArgumentParser:
@@ -60,18 +87,16 @@ class AbstractPatroniDaemon(abc.ABC):
     :ivar config: configuration options for this daemon.
     """
 
-    def __init__(self, config: 'Config') -> None:
+    def __init__(self, config: 'Config', patroni_logger: 'PatroniLogger') -> None:
         """Set up signal handlers, logging handler and configuration.
 
         :param config: configuration options for this daemon.
+        :param patroni_logger: the logging handler for this daemon.
         """
-        from patroni.log import PatroniLogger
-
         self.setup_signal_handlers()
 
-        self.logger = PatroniLogger()
+        self.logger = patroni_logger
         self.config = config
-        AbstractPatroniDaemon.reload_config(self, local=True)
 
     def sighup_handler(self, *_: Any) -> None:
         """Handle SIGHUP signals.
@@ -79,7 +104,7 @@ class AbstractPatroniDaemon(abc.ABC):
         Flag the daemon as "SIGHUP received".
         """
         self._received_sighup = True
-        notify_systemd("RELOADING=1")
+        notify_systemd("RELOADING=1\nMONOTONIC_USEC={0}".format(monotonic_us()))
 
     def api_sigterm(self) -> bool:
         """Guarantee only a single SIGTERM is being processed.
@@ -181,11 +206,18 @@ def abstract_main(cls: Type[AbstractPatroniDaemon], configfile: str) -> None:
     :param configfile:
     """
     from .config import Config, ConfigParseError
+    from .log import PatroniLogger
     from .utils import parse_int
+
+    patroni_logger = PatroniLogger()
     try:
         config = Config(configfile)
     except ConfigParseError as e:
         sys.exit(e.value)
+    patroni_logger.reload_config(config.get('log', {}))
+
+    if not __systemd_available and os.environ.get('NOTIFY_SOCKET'):
+        logger.warning('Running under systemd but python-systemd package is not installed')
 
     thread_stack_size = None
     if 'thread_stack_size' in config:
@@ -195,7 +227,7 @@ def abstract_main(cls: Type[AbstractPatroniDaemon], configfile: str) -> None:
 
     if thread_stack_size is None:
         thread_stack_size = 524288
-        logger.info('Using default value thread_stack_size=%s', thread_stack_size)
+        logger.info('Using default value thread_stack_size = %s', thread_stack_size)
 
     thread_stack_size = max(65536, thread_stack_size)
     try:
@@ -203,7 +235,7 @@ def abstract_main(cls: Type[AbstractPatroniDaemon], configfile: str) -> None:
     except Exception as e:
         logger.warning('Failed to set threading.stack_size(%s): %r', thread_stack_size, e)
 
-    controller = cls(config)
+    controller = cls(config, patroni_logger)
     try:
         controller.run()
     except KeyboardInterrupt:

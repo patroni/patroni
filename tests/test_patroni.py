@@ -18,6 +18,7 @@ from patroni.async_executor import AsyncExecutor
 from patroni.dcs import Cluster, ClusterConfig, Member
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover
 from patroni.exceptions import DCSError
+from patroni.log import PatroniLogger
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
@@ -96,7 +97,7 @@ class TestPatroni(unittest.TestCase):
         RestApiServer.socket = 0
         os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
         conf = config.Config('postgres0.yml')
-        self.p = Patroni(conf)
+        self.p = Patroni(conf, PatroniLogger())
 
     def tearDown(self):
         logging.getLogger().handlers[:] = self._handlers
@@ -127,15 +128,17 @@ class TestPatroni(unittest.TestCase):
     @patch.object(Postgresql, '_wait_for_connection_close', Mock())
     def test_patroni_patroni_main(self):
         with patch('subprocess.call', Mock(return_value=1)):
-            with patch.object(Patroni, 'run', Mock(side_effect=SleepException)):
-                os.environ['PATRONI_THREAD_STACK_SIZE'] = 'a'
-                os.environ['PATRONI_THREAD_POOL_SIZE'] = 'a'
-                os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
+            with patch.object(Patroni, 'run', Mock(side_effect=SleepException)), \
+                patch('patroni.daemon.__systemd_available', False), \
+                patch.dict(os.environ, {'PATRONI_THREAD_STACK_SIZE': 'a',
+                                        'PATRONI_THREAD_POOL_SIZE': 'a',
+                                        'PATRONI_POSTGRESQL_DATA_DIR': 'data/test0',
+                                        'NOTIFY_SOCKET': '/run/systemd/notify'}):
                 self.assertRaises(SleepException, _main)
-            with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())):
-                with patch('patroni.ha.Ha.is_paused', Mock(return_value=True)):
-                    os.environ['PATRONI_POSTGRESQL_DATA_DIR'] = 'data/test0'
-                    _main()
+            with patch.object(Patroni, 'run', Mock(side_effect=KeyboardInterrupt())), \
+                    patch.dict(os.environ, {'PATRONI_POSTGRESQL_DATA_DIR': 'data/test0'}), \
+                    patch('patroni.ha.Ha.is_paused', Mock(return_value=True)):
+                _main()
 
     @patch('os.getpid')
     @patch('multiprocessing.Process')
