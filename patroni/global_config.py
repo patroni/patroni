@@ -108,13 +108,36 @@ class GlobalConfig(types.ModuleType):
     @property
     def is_quorum_commit_mode(self) -> bool:
         """:returns: ``True`` if quorum commit replication is requested"""
-        return str(self.get('synchronous_mode')).lower() == 'quorum'
+        value = self.get('synchronous_mode')
+        return isinstance(value, str) and value.lower() == 'quorum'
 
     @property
     def is_synchronous_mode(self) -> bool:
-        """``True`` if synchronous replication is requested and it is not a standby cluster config."""
-        return (self.check_mode('synchronous_mode') is True or self.is_quorum_commit_mode) \
-            and not self.is_standby_cluster
+        """``True`` if synchronous replication is requested and it is not a standby cluster config.
+
+        Synchronous replication is enabled when ``synchronous_mode`` is set to:
+        - ``True`` or ``"on"`` (standard synchronous mode)
+        - ``"quorum"`` (quorum-based synchronous mode)
+
+        It is disabled when set to ``False`` or ``"off"``.
+        """
+        if self.is_standby_cluster:
+            return False
+
+        value = self.get('synchronous_mode')
+
+        # Handle explicit boolean values
+        if isinstance(value, bool):
+            return value
+
+        # Handle string values
+        if isinstance(value, str):
+            if value.lower() == 'quorum':
+                return True
+            # parse_bool handles 'on'/'true'/'yes' -> True, 'off'/'false'/'no' -> False
+            return parse_bool(value) is True
+
+        return False
 
     @property
     def is_synchronous_mode_strict(self) -> bool:
