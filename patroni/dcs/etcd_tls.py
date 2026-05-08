@@ -55,7 +55,7 @@ def apply_tls_config(http_pool: Any, config: Dict[str, Any]) -> None:
 
     # ---- Path 1: verification fully disabled (last resort, opt-in) ----
     if not verify:
-        ctx = ssl._create_unverified_context()
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         pool_kw['ssl_context'] = ctx
