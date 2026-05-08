@@ -185,6 +185,24 @@ class TestSync(BaseTestPostgresql):
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = '\"a-1\"'")
 
+        # PG17+ with dynamic_synchronized_standby_slots: ensure a manual reload happens
+        # when only synchronized_standby_slots changes (synchronous_standby_names unchanged).
+        from unittest.mock import PropertyMock
+        self.p._major_version = 170000
+        self.cluster.config.data['synchronous_mode'] = True
+        self.cluster.config.data['dynamic_synchronized_standby_slots'] = True
+        global_config.update(self.cluster)
+        # Pre-populate SSN so it won't change, but leave synchronized_standby_slots unset.
+        self.p.config._server_parameters['synchronous_standby_names'] = "'n1'"
+        self.p.config._server_parameters.pop('synchronized_standby_slots', None)
+        mock_reload.reset_mock()
+        with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=True):
+            self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1']))
+        # SSN didn't change, but slots did, so a manual reload is expected.
+        mock_reload.assert_called()
+        self.assertEqual(self.p.config._server_parameters.get('synchronized_standby_slots'), 'n1')
+
     @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
     def test_do_not_prick_yourself(self):
         self.p.name = self.leadermem.name

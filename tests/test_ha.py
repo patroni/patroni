@@ -1459,6 +1459,8 @@ class TestHa(PostgresInit):
                                                                          CaseInsensitiveSet(['other']),
                                                                          CaseInsensitiveSet(['other'])))
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        # dynamic_synchronized_standby_slots feature state matches last seen → toggle returns False
+        self.ha._last_dynamic_sync_slots_enabled = False
         self.ha.run_cycle()
         mock_set_sync.assert_not_called()
 
