@@ -3,6 +3,136 @@
 Release notes
 =============
 
+Version 4.1.3
+-------------
+
+Released 2026-05-05
+
+**Stability improvements**
+
+- Properly handle mislabeled Etcd error (Ants Aasma)
+
+  Current Etcd versions raise ``Unknown`` error when Etcd leader is lost while updating the lease. Patroni will now override the reported error code to ``Unavailable``.
+
+**Bugfixes**
+
+- Use binary version when ``PG_VERSION`` file does not exist (Polina Bungina)
+
+  In some cases, for example when using custom bootstrap, the ``PG_VERSION`` file may not be present in the data directory. In this case, Patroni was treating the version as 0.0, which was causing issues with some of the version-specific logic. With this fix, Patroni will try to get the version from the binary in such cases.
+
+- Refactor logger intialization to avoid missing early log messages (Alexander Kukushkin)
+
+  Create ``PatroniLogger`` before loading ``Config`` to capture early log messages.
+
+- Include ``MONOTONIC_USEC`` in ``RELOADING=1`` systemd notification (Alexander Kukushkin)
+
+  systemd 257+ requires ``MONOTONIC_USEC`` alongside ``RELOADING=1`` for ``Type=notify-reload`` services. Without it, ``systemctl reload`` hangs indefinitely.
+
+**Improvements**
+
+- Skip single-user crash recovery when ``backup_label`` exists (Vadim Ponomarev)
+
+  Skip single-user crash recovery and let PostgreSQL handle it during normal startup when starting a replica restored from an external backup (not using a custom bootstrap method).
+
+- Warn when running under ``systemd`` without ``python-systemd`` package (Alexander Kukushkin)
+
+  Instead of logging "systemd integration is not supported" at startup, check for ``NOTIFY_SOCKET`` and warn only when actually running under ``systemd`` without the ``python-systemd`` package installed.
+
+
+Version 4.1.2
+-------------
+
+Released 2026-04-21
+
+**Systemd support improvements**
+
+- Add support for ``notify-reload`` systemd unit type (Ronan Dunklau)
+
+  Allows ``systemctl reload`` to wait until Patroni has actually processed the configuration reload by sending ``RELOADING=1`` and ``READY=1`` notifications to systemd.
+
+- Send ``STOPPING=1`` notification to systemd on shutdown (Alexander Kukushkin)
+
+  Patroni now properly notifies systemd that it is shutting down, following the systemd notify protocol.
+
+- Do not let PostgreSQL to notify systemd (Alexander Kukushkin)
+
+  Remove ``NotifyAccess=all`` from the example systemd unit file. Filter ``NOTIFY_SOCKET`` from the environment when starting PostgreSQL so it doesn't send ``READY=1`` or ``STOPPING=1`` to systemd. When taking over a PostgreSQL that was started before Patroni and already has ``NOTIFY_SOCKET``, re-assert ``READY=1`` during PostgreSQL shutdown to counteract its ``STOPPING=1``.
+
+
+Version 4.1.1
+-------------
+
+Released 2026-04-08
+
+**Stability improvements**
+
+- Compatibility with threading changes in python 3.11+ (Alexander Kukushkin)
+
+  Avoid starting/stopping threads at runtime. Introduce thread pools for REST API and for executing async tasks. Allow configuring global ``thread_pool_size`` and ``restapi.thread_pool_size``.
+
+- Compatibility with python 3.14 (Alexander Kukushkin)
+
+  Run tests against python 3.14 and fix compatibility issues.
+
+- Compatibility with Etcd security fixes in v3.6.9, v3.5.28, and v3.4.42 (Alexander Kukushkin)
+
+  These Etcd releases addressed CVEs and changed behavior so cluster topology reads and lease keepalive are no longer allowed without authentication. Patroni now handles this by authenticating in member-discovery and lease-keepalive paths, re-authenticating on auth failures, and retrying requests accordingly.
+
+- Improvements for Etcd3 error handling (Alexander Kukushkin)
+
+  Handle broken JSON responses, be flexible in how JSON error is parsed, and improve reporting for etcd internal errors.
+
+**Bugfixes**
+
+- Retry leader update on temporary Kubernetes ``403`` error (Sophia Ruan, Alexander Kukushkin)
+
+  When the Kubernetes API temporarily returns ``403 Permission Denied`` (for example during transient RBAC issues), Patroni now verifies whether the current node still holds leadership and retries the leader update within ``retry_timeout`` instead of immediately demoting.
+
+- Fix issue with renaming leader node in sync mode and pause (Alexander Kukushkin)
+
+  ``/sync`` key wasn't updated after renaming the leader node with Patroni restart in pause (without Postgres restart). It prevented Patroni from promoting after the next restart without pause.
+
+- Trigger ``pg_rewind`` check when the same primary increased timeline (Alexander Kukushkin)
+
+  Such timeline increase may happen as a result of crash recovery in a single user mode + promote after taking a leader key while other replica nodes are isolated from DCS. In this case replica nodes didn't trigger ``pg_rewind`` state machine because the leader and therefore ``primary_conninfo`` didn't change.
+
+- Only write superuser password during ``initdb`` bootstrap if it is non-empty (Michael Banck)
+
+  Writing an empty password during ``initdb`` bootstrap was causing issues.
+
+- Fix bug with ``failover_priority`` with ``synchronous_mode=on`` (Alexander Kukushkin)
+
+  ``tag.failover_priority`` values were ignored when ``synchronous_node_count > 1``.
+
+- Fix bug with ``primary_conninfo`` password comparison (Alexander Kukushkin)
+
+  Starting from PostgreSQL 10, Patroni uses passfile in ``primary_conninfo`` and failed to update the passfile after the replication password was updated in yaml-file configuration with reload.
+
+- Don't restart replica with ``nofailover`` tag in pause mode (Alexander Kukushkin)
+
+  Patroni used to start a manually shut down PostgreSQL replica in pause mode when it had ``nofailover`` tag set to ``true``.
+
+- Fix ``check_recovery_conf()`` when PostgreSQL is in the starting state (Alexander Kukushkin)
+
+  For PostgreSQL v12 and newer, ``pg_settings`` cannot be queried while the server is still starting and not yet accepting connections. Missing recovery parameters are now added to the internal state when writing ``postgresql.conf``. Additionally, restore the ``Postgresql.is_starting()`` check in ``Ha.is_healthiest_node()``.
+
+- Validate user options in dictionary format for ``initdb``/``basebackup`` (m4rrypro)
+
+  When ``initdb`` or ``basebackup`` options were provided as a dictionary (instead of a list), the ``option_is_allowed()`` validation was bypassed, allowing blocked options to be used.
+
+- Allow server-side compression for ``basebackup`` option (m4rrypro)
+
+  The ``compress`` option was completely blocked for ``basebackup``, but since PostgreSQL 15, server-side compression is useful and works transparently with plain format. Client-side compression is still rejected.
+
+- Don't reload PostgreSQL config while running custom bootstrap (Alexander Kukushkin)
+
+  Custom bootstrap could be complex and involve PosgreSQL starting and stopping multiple times. Reloads of PostgreSQL config during this process could lead to unexpected behavior.
+
+- Check that ``postgresql.parameters`` is a dictionary (Alexander Kukushkin)
+
+  Discard new config if ``postgresql.parameters`` is not a dictionary.
+
+
 Version 4.1.0
 -------------
 

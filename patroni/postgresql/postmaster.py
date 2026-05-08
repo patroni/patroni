@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 import psutil
 
 from patroni import KUBERNETES_ENV_PREFIX, PATRONI_ENV_PREFIX
+from patroni.daemon import SOCKET_ENV_VARIABLE
 
 # avoid spawning the resource tracker process
 if sys.version_info >= (3, 8):  # pragma: no cover
@@ -292,8 +293,10 @@ class PostmasterProcess(psutil.Process):
         # In order to make everything portable we can't use fork&exec approach here, so  we will call
         # ourselves and pass list of arguments which must be used to start postgres.
         # On Windows, in order to run a side-by-side assembly the specified env must include a valid SYSTEMROOT.
-        env = {p: os.environ[p] for p in os.environ if not p.startswith(
-            PATRONI_ENV_PREFIX) and not p.startswith(KUBERNETES_ENV_PREFIX)}
+        # We also remove NOTIFY_SOCKET environment variable so that PostgreSQL doesn't send READY=1 or STOPPING=1
+        # to systemd, because it is exclusively responsibility of Patroni to do it.
+        env = {p: os.environ[p] for p in os.environ if p != SOCKET_ENV_VARIABLE
+               and not p.startswith(PATRONI_ENV_PREFIX) and not p.startswith(KUBERNETES_ENV_PREFIX)}
         if 'PG_MALLOC_ARENA_MAX' in env:
             env['MALLOC_ARENA_MAX'] = env.pop('PG_MALLOC_ARENA_MAX')
         try:

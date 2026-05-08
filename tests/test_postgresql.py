@@ -490,6 +490,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertIsNone(self.p.call_nowait(CallbackAction.ON_START))
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
+    @patch.object(Postgresql, '_wait_for_connection_close', Mock())
     def test_is_primary_exception(self):
         self.p.start()
         self.p.query = Mock(side_effect=psycopg.OperationalError("not supported"))
@@ -548,10 +549,14 @@ class TestPostgresql(BaseTestPostgresql):
 
     def test_pg_version(self):
         self.assertEqual(self.p.config.pg_version, 99999)  # server_version
+
         with patch.object(Postgresql, 'server_version', PropertyMock(side_effect=AttributeError)):
             self.assertEqual(self.p.config.pg_version, 140000)  # PG_VERSION==14, postgres --version == 12.1
             with patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 14.1")):
                 self.assertEqual(self.p.config.pg_version, 140001)
+
+            with patch.object(Postgresql, 'major_version', PropertyMock(return_value=0)):  # no PG_VERSION
+                self.assertEqual(self.p.config.pg_version, 120001)
 
     @patch('os.path.isfile', Mock(return_value=True))
     @patch('shutil.copy', Mock(side_effect=IOError))

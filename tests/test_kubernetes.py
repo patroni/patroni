@@ -109,20 +109,21 @@ class TestK8sConfig(unittest.TestCase):
 
     def test_refresh_token(self):
         with patch('os.environ', {SERVICE_HOST_ENV_NAME: 'a', SERVICE_PORT_ENV_NAME: '1'}), \
+                patch('patroni.dcs.kubernetes.datetime') as mock_datetime, \
                 patch('os.path.isfile', Mock(side_effect=[True, True, False, True, True, True])), \
                 patch('builtins.open', Mock(side_effect=[
                     mock_open(read_data='cert')(), mock_open(read_data='a')(),
                     mock_open()(), mock_open(read_data='b')(), mock_open(read_data='c')()])):
-            k8s_config.load_incluster_config(token_refresh_interval=datetime.timedelta(milliseconds=1))
+            mock_datetime.datetime.now.side_effect = [datetime.datetime(1, 1, 1, 0, 0, 0)] * 2 + \
+                [datetime.datetime(1, 1, 1, 0, 0, 1)] * 4 + [datetime.datetime(1, 1, 1, 0, 0, 2)] * 3
+            k8s_config.load_incluster_config(token_refresh_interval=datetime.timedelta(milliseconds=100))
             self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer a')
-            time.sleep(0.001)
             # token file doesn't exist
             self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer a')
             # token file is empty
             self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer a')
             # token refreshed
             self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer b')
-            time.sleep(0.001)
             # token refreshed
             self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer c')
             # no need to refresh token

@@ -8,7 +8,7 @@ import time
 
 from contextlib import contextmanager
 from types import TracebackType
-from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
+from typing import Any, Callable, Collection, Dict, Generator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
 from urllib.parse import parse_qsl, unquote, urlparse
 
 from .. import global_config
@@ -450,11 +450,15 @@ class ConfigHandler(object):
 
     @property
     def pg_version(self) -> int:
-        """Current full postgres version if instance is running, major version otherwise.
+        """Return current postgres version.
 
-        We can only use ``postgres --version`` output if major version there equals to the one
-        in data directory. If it is not the case, we should use major version from the ``PG_VERSION``
-        file.
+        If instance is running, try to get version from the server. If it is not possible, get minor version
+        from the binary.
+        However, we can only use ``postgres --version`` output if major version there equals to the one in data
+        directory. If it is not the case, use major version from the ``PG_VERSION`` file.
+        If ``PG_VERSION`` file is missing, inaccessible, or contains invalid value, use minor version from the binary.
+
+        :returns: integer representation of the current postgres version.
         """
         if self._postgresql.state == PostgresqlState.RUNNING:
             try:
@@ -464,7 +468,7 @@ class ConfigHandler(object):
         bin_minor = postgres_version_to_int(get_postgres_version(bin_name=self._postgresql.pgcommand('postgres')))
         bin_major = get_major_from_minor_version(bin_minor)
         datadir_major = self._postgresql.major_version
-        return datadir_major if bin_major != datadir_major else bin_minor
+        return datadir_major if datadir_major and bin_major != datadir_major else bin_minor
 
     @property
     def _configuration_to_save(self) -> List[str]:
@@ -493,7 +497,7 @@ class ConfigHandler(object):
             os.chmod(filename, 0o666 & ~pg_perm.orig_umask)
 
     @contextmanager
-    def config_writer(self, filename: str) -> Iterator[ConfigWriter]:
+    def config_writer(self, filename: str) -> Generator[ConfigWriter, None, None]:
         """Create :class:`ConfigWriter` object and set permissions on a *filename*.
 
         :param filename: path to a config file.

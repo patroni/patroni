@@ -41,7 +41,7 @@ class CancellableExecutor(object):
                 try:
                     self._process.suspend()  # Suspend the process before getting list of children
                 except psutil.Error as e:
-                    logger.info('Failed to suspend the process: %s', e.msg)
+                    logger.info('Failed to suspend the process: %s', e)
 
                 try:
                     self._process_children = self._process.children(recursive=True)

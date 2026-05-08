@@ -7,7 +7,6 @@ After=syslog.target network.target
 
 [Service]
 Type=notify
-NotifyAccess=all
 
 User=postgres
 Group=postgres
