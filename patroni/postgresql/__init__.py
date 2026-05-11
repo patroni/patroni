@@ -1107,7 +1107,7 @@ class Postgresql(object):
     def get_replication_connection_cursor(self, host: Optional[str] = None, port: Union[int, str] = 5432,
                                           **kwargs: Any) -> Generator[Union['cursor', 'Cursor[Any]'], None, None]:
         conn_kwargs = self.config.replication.copy()
-        conn_kwargs.update(host=host, port=int(port) if port else None, user=conn_kwargs.pop('username'),
+        conn_kwargs.update(host=host, port=port if port else None, user=conn_kwargs.pop('username'),
                            connect_timeout=3, replication=1, options='-c statement_timeout=2000')
         with get_connection_cursor(**conn_kwargs) as cur:
             yield cur
