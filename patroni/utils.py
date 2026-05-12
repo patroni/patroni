@@ -25,7 +25,7 @@ import time
 from collections import OrderedDict
 from json import JSONDecoder
 from shlex import split
-from typing import Any, Callable, cast, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union, Mapping
+from typing import Any, Callable, cast, Dict, Iterator, List, Mapping, Optional, Tuple, Type, TYPE_CHECKING, Union
 
 from dateutil import tz
 from urllib3.response import HTTPResponse
