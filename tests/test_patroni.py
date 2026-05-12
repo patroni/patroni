@@ -316,7 +316,7 @@ class TestPatroni(unittest.TestCase):
         self.p.postgresql.set_role(PostgresqlRole.REPLICA)
 
         # Add role-specific parameters to config to ensure effective config differs
-        self.p.config._local_configuration.setdefault('postgresql', {})['parameters_replica'] = {
+        self.p.config._Config__effective_configuration.setdefault('postgresql', {})['parameters_replica'] = {
             'work_mem': '32MB'
         }
 
@@ -364,10 +364,10 @@ class TestPatroni(unittest.TestCase):
             self.p.config.build_effective_postgresql_configuration(PostgresqlRole.REPLICA)
 
         # Add role-specific parameters to ensure configs differ
-        self.p.config._local_configuration.setdefault('postgresql', {})['parameters_primary'] = {
+        self.p.config._Config__effective_configuration.setdefault('postgresql', {})['parameters_primary'] = {
             'work_mem': '128MB'
         }
-        self.p.config._local_configuration['postgresql']['parameters_replica'] = {
+        self.p.config._Config__effective_configuration['postgresql']['parameters_replica'] = {
             'work_mem': '32MB'
         }
 
