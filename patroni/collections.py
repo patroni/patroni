@@ -32,10 +32,10 @@ class CaseInsensitiveSet(MutableSet[str]):
 
         :Example:
 
-            >>> repr(CaseInsensitiveSet(('1', 'test', 'Test', 'TESt', 'test2')))  # doctest: +ELLIPSIS
-            "<CaseInsensitiveSet('1', 'TESt', 'test2') at ..."
+            >>> repr(CaseInsensitiveSet(('1', 'test', 'Test', 'TESt', 'test2')))
+            "<CaseInsensitiveSet('1', 'TESt', 'test2')>"
         """
-        return '<{0}{1} at {2:x}>'.format(type(self).__name__, tuple(self._values.values()), id(self))
+        return '<{0}{1}>'.format(type(self).__name__, tuple(self._values.values()))
 
     def __str__(self) -> str:
         """Get set values for printing.
