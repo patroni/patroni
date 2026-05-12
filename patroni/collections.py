@@ -209,6 +209,18 @@ class CaseInsensitiveDict(MutableMapping[str, Any]):
         """
         return '<{0}{1}>'.format(type(self).__name__, dict(self.items()))
 
+    def __str__(self) -> str:
+        """Get dict keys and values for printing.
+
+        :returns: dict of keys and values in string format.
+
+        :Example:
+
+            >>> str(CaseInsensitiveDict({'a': 'b', 'A': 'B', 'c': 'd'}))
+            "{'A': 'B', 'c': 'd'}"
+        """
+        return str({v[0]: v[1] for v in self._values.values()})
+
 
 class _FrozenDict(Mapping[str, Any]):
     """Frozen dictionary object."""
