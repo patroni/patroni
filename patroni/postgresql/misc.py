@@ -135,6 +135,29 @@ def get_major_from_minor_version(version: int) -> int:
     return version // 100 * 100
 
 
+_CVE_2026_6475_FIXED_VERSIONS = {
+    140000: 140023,
+    150000: 150018,
+    160000: 160014,
+    170000: 170010,
+    180000: 180004,
+}
+
+
+def is_cve_2026_6475_vulnerable(version: int) -> bool:
+    """Check whether a PostgreSQL client binary is vulnerable to CVE-2026-6475.
+
+    CVE-2026-6475 affects ``pg_basebackup`` plain format and ``pg_rewind`` in
+    PostgreSQL 14 through 18 before 14.23, 15.18, 16.14, 17.10, and 18.4.
+
+    :param version: integer representation of PostgreSQL full version.
+
+    :returns: ``True`` if the version is known to be vulnerable.
+    """
+    fixed_version = _CVE_2026_6475_FIXED_VERSIONS.get(get_major_from_minor_version(version))
+    return fixed_version is not None and version < fixed_version
+
+
 def parse_lsn(lsn: str) -> int:
     t = lsn.split('/')
     return int(t[0], 16) * 0x100000000 + int(t[1], 16)

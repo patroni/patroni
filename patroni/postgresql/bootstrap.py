@@ -10,8 +10,8 @@ from ..async_executor import CriticalTask
 from ..collections import EMPTY_DICT
 from ..dcs import Leader, Member, RemoteMember
 from ..psycopg import quote_ident, quote_literal
-from ..utils import deep_compare, process_user_options
-from .misc import PostgresqlState
+from ..utils import deep_compare, get_postgres_version, process_user_options
+from .misc import is_cve_2026_6475_vulnerable, postgres_version_to_int, PostgresqlState
 
 if TYPE_CHECKING:  # pragma: no cover
     from . import Postgresql
@@ -250,6 +250,19 @@ class Bootstrap(object):
         self._postgresql.set_state(PostgresqlState.STOPPED)
         return ret
 
+    def _maybe_warn_about_vulnerable_basebackup(self) -> None:
+        try:
+            version = get_postgres_version(bin_name=self._postgresql.pgcommand('pg_basebackup'))
+            is_vulnerable = is_cve_2026_6475_vulnerable(postgres_version_to_int(version))
+        except Exception as e:
+            logger.warning('Could not determine pg_basebackup version while checking CVE-2026-6475: %s', e)
+            return
+
+        if is_vulnerable:
+            logger.warning('pg_basebackup version %s is vulnerable to CVE-2026-6475 and may overwrite files outside '
+                           'PGDATA when cloning from a malicious or compromised source server. Upgrade PostgreSQL '
+                           'client binaries to 14.23, 15.18, 16.14, 17.10, 18.4, or newer.', version)
+
     def basebackup(self, conn_url: str, env: Dict[str, str], options: Dict[str, Any]) -> Optional[int]:
         # creates a replica data dir using pg_basebackup.
         # this is the default, built-in create_replica_methods
@@ -284,6 +297,8 @@ class Bootstrap(object):
             "stream",
             "--dbname=" + conn_url,
         ] + user_options
+
+        self._maybe_warn_about_vulnerable_basebackup()
 
         for bbfailures in range(0, maxfailures):
             if self._postgresql.cancellable.is_cancelled:

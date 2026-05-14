@@ -13,10 +13,11 @@ from .. import thread_pool
 from ..async_executor import CriticalTask
 from ..collections import EMPTY_DICT
 from ..dcs import Leader, RemoteMember
-from ..utils import process_user_options
+from ..utils import get_postgres_version, process_user_options
 from . import Postgresql
 from .connection import get_connection_cursor
-from .misc import format_lsn, fsync_dir, parse_history, parse_lsn, PostgresqlRole
+from .misc import (format_lsn, fsync_dir, is_cve_2026_6475_vulnerable, parse_history, parse_lsn,
+                   postgres_version_to_int, PostgresqlRole)
 
 logger = logging.getLogger(__name__)
 
@@ -447,6 +448,19 @@ class Rewind(object):
             except Exception as e:
                 logger.warning('Unable to clean %s: %r', replslot_dir, e)
 
+    def _maybe_warn_about_vulnerable_pg_rewind(self) -> None:
+        try:
+            version = get_postgres_version(bin_name=self._postgresql.pgcommand('pg_rewind'))
+            is_vulnerable = is_cve_2026_6475_vulnerable(postgres_version_to_int(version))
+        except Exception as e:
+            logger.warning('Could not determine pg_rewind version while checking CVE-2026-6475: %s', e)
+            return
+
+        if is_vulnerable:
+            logger.warning('pg_rewind version %s is vulnerable to CVE-2026-6475 and may overwrite files outside '
+                           'PGDATA when rewinding from a malicious or compromised source server. Upgrade PostgreSQL '
+                           'client binaries to 14.23, 15.18, 16.14, 17.10, 18.4, or newer.', version)
+
     def pg_rewind(self, conn_kwargs: Dict[str, Any]) -> bool:
         """Do pg_rewind.
 
@@ -477,6 +491,8 @@ class Rewind(object):
                                                      or (self._postgresql.major_version >= 130000
                                                          and self._postgresql.config.config_dir
                                                          == self._postgresql.data_dir))
+
+        self._maybe_warn_about_vulnerable_pg_rewind()
 
         cmd = [self._postgresql.pgcommand('pg_rewind')]
         if pg_rewind_can_restore:

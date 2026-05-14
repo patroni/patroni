@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from patroni.exceptions import PatroniException
+from patroni.postgresql.misc import is_cve_2026_6475_vulnerable
 from patroni.utils import apply_keepalive_limit, enable_keepalive, get_major_version, get_postgres_version, \
     polling_loop, process_user_options, Retry, RetryFailedError, unquote, validate_directory
 
@@ -95,6 +96,21 @@ class TestUtils(unittest.TestCase):
             self.assertEqual(get_postgres_version(), '10.0')
         with patch('subprocess.check_output', Mock(side_effect=OSError)):
             self.assertRaises(PatroniException, get_postgres_version, 'postgres')
+
+    def test_is_cve_2026_6475_vulnerable(self):
+        self.assertTrue(is_cve_2026_6475_vulnerable(140022))
+        self.assertTrue(is_cve_2026_6475_vulnerable(150017))
+        self.assertTrue(is_cve_2026_6475_vulnerable(160013))
+        self.assertTrue(is_cve_2026_6475_vulnerable(170009))
+        self.assertTrue(is_cve_2026_6475_vulnerable(180003))
+
+        self.assertFalse(is_cve_2026_6475_vulnerable(140023))
+        self.assertFalse(is_cve_2026_6475_vulnerable(150018))
+        self.assertFalse(is_cve_2026_6475_vulnerable(160014))
+        self.assertFalse(is_cve_2026_6475_vulnerable(170010))
+        self.assertFalse(is_cve_2026_6475_vulnerable(180004))
+        self.assertFalse(is_cve_2026_6475_vulnerable(130020))
+        self.assertFalse(is_cve_2026_6475_vulnerable(190000))
 
     def test_get_major_version(self):
         with patch('subprocess.check_output', Mock(return_value=b'postgres (PostgreSQL) 9.6.24\n')):
