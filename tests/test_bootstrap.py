@@ -135,6 +135,24 @@ class TestBootstrap(BaseTestPostgresql):
             # compress is in not_allowed_options for PG < 15, error logged via process_user_options
             mock_error.assert_any_call('compress option for basebackup is not allowed')
 
+    def test_maybe_warn_about_vulnerable_basebackup(self):
+        with patch('patroni.postgresql.bootstrap.get_postgres_version', Mock(return_value='17.9')), \
+                patch('patroni.postgresql.bootstrap.logger.warning') as mock_warning:
+            self.b._maybe_warn_about_vulnerable_basebackup()
+            mock_warning.assert_called_once()
+
+        with patch('patroni.postgresql.bootstrap.get_postgres_version', Mock(return_value='17.10')), \
+                patch('patroni.postgresql.bootstrap.logger.warning') as mock_warning:
+            self.b._maybe_warn_about_vulnerable_basebackup()
+            mock_warning.assert_not_called()
+
+        with patch('patroni.postgresql.bootstrap.get_postgres_version', Mock(side_effect=Exception('boom'))), \
+                patch('patroni.postgresql.bootstrap.logger.warning') as mock_warning:
+            self.b._maybe_warn_about_vulnerable_basebackup()
+            mock_warning.assert_called_once()
+            self.assertEqual('Could not determine pg_basebackup version while checking CVE-2026-6475: %s',
+                             mock_warning.call_args[0][0])
+
     def test__initdb(self):
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': [{'pgdata': 'bar'}]})
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': [{'foo': 'bar', 1: 2}]})

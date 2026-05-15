@@ -16,8 +16,8 @@ from ..dcs import Leader, RemoteMember
 from ..utils import get_postgres_version, process_user_options
 from . import Postgresql
 from .connection import get_connection_cursor
-from .misc import (format_lsn, fsync_dir, is_cve_2026_6475_vulnerable, parse_history, parse_lsn,
-                   postgres_version_to_int, PostgresqlRole)
+from .misc import format_lsn, fsync_dir, is_cve_2026_6475_vulnerable, \
+    parse_history, parse_lsn, postgres_version_to_int, PostgresqlRole
 
 logger = logging.getLogger(__name__)
 

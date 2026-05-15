@@ -89,6 +89,24 @@ class TestRewind(BaseTestPostgresql):
             mock_debug.assert_any_call('not checking diverged timeline: pg_rewind is not possible'
                                        ' and remove_data_directory_on_diverged_timelines is not enabled')
 
+    def test_maybe_warn_about_vulnerable_pg_rewind(self):
+        with patch('patroni.postgresql.rewind.get_postgres_version', Mock(return_value='17.9')), \
+                patch('patroni.postgresql.rewind.logger.warning') as mock_warning:
+            self.r._maybe_warn_about_vulnerable_pg_rewind()
+            mock_warning.assert_called_once()
+
+        with patch('patroni.postgresql.rewind.get_postgres_version', Mock(return_value='17.10')), \
+                patch('patroni.postgresql.rewind.logger.warning') as mock_warning:
+            self.r._maybe_warn_about_vulnerable_pg_rewind()
+            mock_warning.assert_not_called()
+
+        with patch('patroni.postgresql.rewind.get_postgres_version', Mock(side_effect=Exception('boom'))), \
+                patch('patroni.postgresql.rewind.logger.warning') as mock_warning:
+            self.r._maybe_warn_about_vulnerable_pg_rewind()
+            mock_warning.assert_called_once()
+            self.assertEqual('Could not determine pg_rewind version while checking CVE-2026-6475: %s',
+                             mock_warning.call_args[0][0])
+
     def test_pg_rewind(self):
         r = {'user': '', 'host': '', 'port': '', 'database': '', 'password': ''}
         with patch.object(Postgresql, 'major_version', PropertyMock(return_value=150000)), \
