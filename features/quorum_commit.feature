@@ -15,22 +15,22 @@ Feature: quorum commit
     When I start postgres-0
     Then postgres-0 role is the primary after 10 seconds
     When I issue a PATCH request to http://127.0.0.1:8008/config with {"synchronous_mode_strict": true}
-    Then synchronous_standby_names on postgres-0 is set to 'ANY 1 (*)' after 10 seconds
+    Then synchronous_standby_names on postgres-0 is set to 'ANY 1 (__patroni_strict_sync_replica_placeholder__)' after 10 seconds
 
-  Scenario: check failover with one quorum standby
+  Scenario: check that synchronous_mode_strict forces primary to keep old synchronous_standby_names
     Given I start postgres-1
     Then sync key in DCS has sync_standby=postgres-1 after 10 seconds
     And synchronous_standby_names on postgres-0 is set to 'ANY 1 ("postgres-1")' after 2 seconds
     When I shut down postgres-0
     Then postgres-1 role is the primary after 10 seconds
-    And sync key in DCS has quorum=0 after 10 seconds
-    Then synchronous_standby_names on postgres-1 is set to 'ANY 1 (*)' after 10 seconds
-    When I start postgres-0
+    And there is one of ["No active replication connections and synchronous_mode_strict is requested"] WARNING in the postgres-1 patroni log after 5 seconds
     Then sync key in DCS has leader=postgres-1 after 10 seconds
     Then sync key in DCS has sync_standby=postgres-0 after 10 seconds
-    And synchronous_standby_names on postgres-1 is set to 'ANY 1 ("postgres-0")' after 2 seconds
+    And sync key in DCS has quorum=0 after 10 seconds
+    And synchronous_standby_names on postgres-1 is set to 'ANY 1 ("postgres-0")' after 10 seconds
 
   Scenario: check behavior with three nodes and different replication factor
+    Given I start postgres-0
     Given I start postgres-2
     Then sync key in DCS has sync_standby=postgres-0,postgres-2 after 10 seconds
     And sync key in DCS has quorum=1 after 2 seconds

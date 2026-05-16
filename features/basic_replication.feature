@@ -7,9 +7,12 @@ Feature: basic replication
     And there is a non empty initialize key in DCS after 15 seconds
     When I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 20, "synchronous_mode": true}
     Then I receive a response code 200
+    And sync key in DCS has leader=postgres-0 after 20 seconds
+    And synchronous_standby_names on postgres-0 is set to '_empty_str_' after 2 seconds
+    When I issue a PATCH request to http://127.0.0.1:8008/config with {"synchronous_mode_strict": true}
+    Then synchronous_standby_names on postgres-0 is set to '__patroni_strict_sync_replica_placeholder__' after 10 seconds
     When I start postgres-1
     And I configure and start postgres-2 with a tag replicatefrom postgres-0
-    And "sync" key in DCS has leader=postgres-0 after 20 seconds
     And I add the table foo to postgres-0
     Then table foo is present on postgres-1 after 20 seconds
     Then table foo is present on postgres-2 after 20 seconds
@@ -17,9 +20,11 @@ Feature: basic replication
   Scenario: check restart of sync replica
     Given I shut down postgres-2
     Then "sync" key in DCS has sync_standby=postgres-1 after 5 seconds
+    Then synchronous_standby_names on postgres-0 is set to '"postgres-1"' after 10 seconds
     When I start postgres-2
     And I shut down postgres-1
     Then "sync" key in DCS has sync_standby=postgres-2 after 10 seconds
+    Then synchronous_standby_names on postgres-0 is set to '"postgres-2"' after 10 seconds
     When I start postgres-1
     Then "members/postgres-1" key in DCS has state=running after 10 seconds
     And Status code on GET http://127.0.0.1:8010/sync is 200 after 3 seconds
@@ -42,7 +47,7 @@ Feature: basic replication
     And I drop table on postgres-0
 
   Scenario: check multi sync replication
-    Given I issue a PATCH request to http://127.0.0.1:8008/config with {"synchronous_node_count": 2}
+    Given I issue a PATCH request to http://127.0.0.1:8008/config with {"synchronous_node_count": 2, "synchronous_mode_strict": null}
     Then I receive a response code 200
     Then "sync" key in DCS has sync_standby=postgres-1,postgres-2 after 10 seconds
     And Status code on GET http://127.0.0.1:8010/sync is 200 after 3 seconds
@@ -83,3 +88,17 @@ Feature: basic replication
   Scenario: check graceful rejection when two nodes have the same name
     Given I start duplicate postgres-0 on port 8011
     Then there is one of ["Can't start; there is already a node named 'postgres-0' running"] CRITICAL in the dup-postgres-0 patroni log after 5 seconds
+
+  Scenario: check that synchronous_mode_strict forces primary to keep old synchronous_standby_names
+    Given I set nosync tag in postgres-0 config
+    And I issue an empty POST request to http://127.0.0.1:8008/reload
+    Then I receive a response code 202
+    When I issue a PATCH request to http://127.0.0.1:8010/config with {"synchronous_mode": true, "synchronous_mode_strict": true}
+    Then "sync" key in DCS has sync_standby=postgres-1 after 5 seconds
+    And synchronous_standby_names on postgres-2 is set to '"postgres-1"' after 10 seconds
+    When I shut down postgres-2
+    Then postgres-1 role is the primary after 10 seconds
+    And there is one of ["No active replication connections and synchronous_mode_strict is requested"] WARNING in the postgres-1 patroni log after 5 seconds
+    And sync key in DCS has leader=postgres-1 after 10 seconds
+    And  sync key in DCS has sync_standby=postgres-2 after 10 seconds
+    And synchronous_standby_names on postgres-1 is set to '"postgres-2"' after 10 seconds
