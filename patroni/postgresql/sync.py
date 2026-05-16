@@ -287,32 +287,69 @@ class SyncHandler(object):
     def __init__(self, postgresql: 'Postgresql') -> None:
         self._postgresql = postgresql
         self._synchronous_standby_names = ''  # last known value of synchronous_standby_names
+        # names from synchronous_standby_names that are counted as synchronous according to pg_stat_replication
+        self._active_synchronous_standby_names_members = CaseInsensitiveSet()
         self._ssn_data = deepcopy(_EMPTY_SSN)
         self._primary_flush_lsn = 0
         # "sync" replication connections, that were verified to reach self._primary_flush_lsn at some point
         self._ready_replicas = CaseInsensitiveDict({})  # keys: member names, values: connection pids
 
-    def _handle_synchronous_standby_names_change(self) -> None:
+    def _set_active_synchronous_standby_names_members(self, members: CaseInsensitiveSet) -> None:
+        """Record nodes from synchronous_standby_names that are counted as synchronous according to pg_stat_replication.
+
+        :param members: new value for :attr:`_active_synchronous_standby_names_members`
+        """
+        self._active_synchronous_standby_names_members = members
+
+        # Invalidate cache of "sync" connections
+        for app_name in list(self._ready_replicas.keys()):
+            if app_name not in self._active_synchronous_standby_names_members:
+                del self._ready_replicas[app_name]
+
+    def _handle_synchronous_standby_names_change(self) -> Optional[bool]:
         """Handles changes of "synchronous_standby_names" GUC.
 
         If "synchronous_standby_names" was changed, we need to check that newly added replicas have
         reached `self._primary_flush_lsn`. Only after that they could be counted as synchronous.
+
+        :returns: `True` if we detect that some nodes were removed from synchronous_standby_names and
+                  caller needs to wait until changes becomes active after reload.
         """
         synchronous_standby_names = self._postgresql.synchronous_standby_names()
-        if synchronous_standby_names == self._synchronous_standby_names:
+
+        if synchronous_standby_names != self._synchronous_standby_names:
+            self._synchronous_standby_names = synchronous_standby_names
+
+            try:
+                ssn_data = parse_sync_standby_names(synchronous_standby_names)
+            except ValueError as e:
+                logger.warning('%r', e)
+                ssn_data = deepcopy(_EMPTY_SSN)
+
+            # It takes some time before synchronous_standby_names names change propagates via checkpointer.
+            # Therefore only old subset of synchronous_standby_names could be counted as sync.
+            self._set_active_synchronous_standby_names_members(
+                CaseInsensitiveSet(self._ssn_data.members & ssn_data.members))
+
+            self._ssn_data = ssn_data
+
+        if self._active_synchronous_standby_names_members == self._ssn_data.members:
             return
 
-        self._synchronous_standby_names = synchronous_standby_names
-        try:
-            self._ssn_data = parse_sync_standby_names(synchronous_standby_names)
-        except ValueError as e:
-            logger.warning('%s', e)
-            self._ssn_data = deepcopy(_EMPTY_SSN)
+        replication = CaseInsensitiveSet(
+            [row['application_name'] for row in self._postgresql.pg_stat_replication()
+             if self._ssn_data.sync_type == 'priority' and row['sync_state'] in ('potential', 'sync')
+                or self._ssn_data.sync_type == 'quorum' and row['sync_state'] == 'quorum'])
 
-        # Invalidate cache of "sync" connections
-        for app_name in list(self._ready_replicas.keys()):
-            if app_name not in self._ssn_data.members:
-                del self._ready_replicas[app_name]
+        # Nodes listed in synchronous_standby_names should have corresponding sync_state in pg_stat_replication.
+        # Only from this moment we count synchronous_standby_names effectively applied.
+        if replication != self._ssn_data.members:
+            # If some (not ALL) nodes were removed from synchronous_standby_names we need to notify caller
+            # that it has to wait until synchronous_standby_names change becomes active after reload.
+            return bool(self._ssn_data.members and not self._ssn_data.has_star
+                        and len(replication - self._ssn_data.members))
+
+        self._set_active_synchronous_standby_names_members(self._ssn_data.members)
 
         # Newly connected replicas will be counted as sync only when reached self._primary_flush_lsn
         self._primary_flush_lsn = self._postgresql.last_operation()
@@ -334,7 +371,7 @@ END;$$""")
             # if standby name is listed in the /sync key we can count it as synchronous, otherwise
             # it becomes really synchronous when sync_state = 'sync' and it is known that it managed to catch up
             if replica.application_name not in self._ready_replicas\
-                    and replica.application_name in self._ssn_data.members:
+                    and replica.application_name in self._active_synchronous_standby_names_members:
                 if global_config.is_quorum_commit_mode:
                     # When quorum commit is enabled we can't check against cluster.sync because nodes
                     # are written there when at least one of them caught up with _primary_flush_lsn.
@@ -349,7 +386,7 @@ END;$$""")
                     # "really" synchronous when sync_state = 'sync' and we known that it managed to catch up
                     self._ready_replicas[replica.application_name] = replica.pid
 
-    def current_state(self, cluster: Cluster) -> _SyncState:
+    def current_state(self, cluster: Cluster) -> Optional[_SyncState]:
         """Find the best candidates to be the synchronous standbys.
 
         Current synchronous standby is always preferred, unless it has disconnected or does not want to be a
@@ -366,9 +403,11 @@ END;$$""")
 
         :param cluster: current cluster topology from DCS
 
-        :returns: current synchronous replication state as a :class:`_SyncState` object
+        :returns: current synchronous replication state as a :class:`_SyncState` object or `None` in case if we detect
+                  that some nodes were removed from synchronous_standby_names and change is not yet active after reload.
         """
-        self._handle_synchronous_standby_names_change()
+        if self._handle_synchronous_standby_names_change():
+            return None
 
         replica_list = _ReplicaList(self._postgresql, cluster)
         self._process_replica_readiness(cluster, replica_list)
@@ -404,7 +443,7 @@ END;$$""")
             sync_confirmed,
             active)
 
-    def set_synchronous_standby_names(self, sync: Collection[str], num: Optional[int] = None) -> None:
+    def set_synchronous_standby_names(self, sync: Collection[str], num: Optional[int] = None) -> Optional[bool]:
         """Constructs and sets ``synchronous_standby_names`` GUC value.
 
         .. note::
@@ -412,6 +451,9 @@ END;$$""")
 
         :param sync: set of nodes to sync to
         :param num: specifies number of nodes to sync to. The *num* is set only in case if quorum commit is enabled
+
+        :returns: `True` if we detect that some nodes were removed from synchronous_standby_names and
+                  caller needs to wait until changes becomes active after reload.
         """
         # Special case. If sync nodes set is empty but requested num of sync nodes >= 1
         # we want to set synchronous_standby_names to '*'
@@ -444,4 +486,4 @@ END;$$""")
 
         # timeline == 0 -- indicates that this is the replica
         if self._postgresql.get_primary_timeline() > 0:
-            self._handle_synchronous_standby_names_change()
+            return self._handle_synchronous_standby_names_change()
