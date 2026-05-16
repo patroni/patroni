@@ -298,6 +298,48 @@ class TestConfig(unittest.TestCase):
         test_config = global_config.from_cluster(cluster)
         self.assertFalse(test_config.is_synchronous_mode)
 
+        # Test with boolean True
+        config = {'synchronous_mode': True}
+        cluster = get_cluster_initialized_with_only_leader(cluster_config=ClusterConfig(1, config, 1))
+        test_config = global_config.from_cluster(cluster)
+        self.assertTrue(test_config.is_synchronous_mode)
+        self.assertFalse(test_config.is_quorum_commit_mode)
+
+        # Test with boolean False
+        config = {'synchronous_mode': False}
+        cluster = get_cluster_initialized_with_only_leader(cluster_config=ClusterConfig(1, config, 1))
+        test_config = global_config.from_cluster(cluster)
+        self.assertFalse(test_config.is_synchronous_mode)
+        self.assertFalse(test_config.is_quorum_commit_mode)
+
+        # Test with string "quorum"
+        config = {'synchronous_mode': 'quorum'}
+        cluster = get_cluster_initialized_with_only_leader(cluster_config=ClusterConfig(1, config, 1))
+        test_config = global_config.from_cluster(cluster)
+        self.assertTrue(test_config.is_synchronous_mode)
+        self.assertTrue(test_config.is_quorum_commit_mode)
+
+        # Test with string "on"
+        config = {'synchronous_mode': 'on'}
+        cluster = get_cluster_initialized_with_only_leader(cluster_config=ClusterConfig(1, config, 1))
+        test_config = global_config.from_cluster(cluster)
+        self.assertTrue(test_config.is_synchronous_mode)
+        self.assertFalse(test_config.is_quorum_commit_mode)
+
+        # Test with string "off"
+        config = {'synchronous_mode': 'off'}
+        cluster = get_cluster_initialized_with_only_leader(cluster_config=ClusterConfig(1, config, 1))
+        test_config = global_config.from_cluster(cluster)
+        self.assertFalse(test_config.is_synchronous_mode)
+        self.assertFalse(test_config.is_quorum_commit_mode)
+
+        # Test with invalid string (should be treated as False)
+        config = {'synchronous_mode': 'invalid'}
+        cluster = get_cluster_initialized_with_only_leader(cluster_config=ClusterConfig(1, config, 1))
+        test_config = global_config.from_cluster(cluster)
+        self.assertFalse(test_config.is_synchronous_mode)
+        self.assertFalse(test_config.is_quorum_commit_mode)
+
     def test_build_effective_postgresql_configuration(self):
         """Test role-based configuration assembly."""
         # Set up config with role-based overrides
