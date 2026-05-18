@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, urlparse
 
 import dateutil.parser
 
-from . import global_config, psycopg
+from . import global_config, metrics_collector, psycopg
 from .__main__ import Patroni
 from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
@@ -767,6 +767,18 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# HELP patroni_failover_priority Failover priority of this node.")
         metrics.append("# TYPE patroni_failover_priority gauge")
         metrics.append("patroni_failover_priority{0} {1}".format(labels, patroni.failover_priority))
+
+        metrics_collector.refresh_history()
+        loop_avg, loop_99th = metrics_collector.get_loop_duration_stats()
+        metrics.append("# HELP patroni_ha_loop_duration_avg Average duration of the HA loop cycle over "
+                       "the last 60 minutes in seconds.")
+        metrics.append("# TYPE patroni_ha_loop_duration_avg gauge")
+        metrics.append("patroni_ha_loop_duration_avg{0} {1}".format(labels, loop_avg))
+
+        metrics.append("# HELP patroni_ha_loop_duration_p99 99th percentile of HA loop cycle duration "
+                       "over the last 60 minutes in seconds.")
+        metrics.append("# TYPE patroni_ha_loop_duration_p99 gauge")
+        metrics.append("patroni_ha_loop_duration_p99{0} {1}".format(labels, loop_99th))
 
         self.write_response(200, '\n'.join(metrics) + '\n', content_type='text/plain')
 
