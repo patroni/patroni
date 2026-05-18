@@ -416,10 +416,13 @@ END;$$""")
         # Special case. If sync nodes set is empty but requested num of sync nodes >= 1
         # we want to set synchronous_standby_names to '*'
         has_asterisk = '*' in sync or num and num >= 1 and not sync
+        # Keep the original (unquoted) member names for synchronized_standby_slots, which uses
+        # slot_name_from_member_name() and mustn't see the output of quote_standby_name().
+        sync_members = ['*'] if has_asterisk else sorted(sync)
         if has_asterisk:
             sync = ['*']
         else:
-            sync = [quote_standby_name(x) for x in sorted(sync)]
+            sync = [quote_standby_name(x) for x in sync_members]
 
         if self._postgresql.supports_multiple_sync and len(sync) > 1:
             if num is None:
@@ -434,7 +437,7 @@ END;$$""")
 
         # Update synchronized_standby_slots in _server_parameters first (no reload yet) so
         # that the subsequent set_synchronous_standby_names() reload picks up both changes.
-        slots_changed = self._postgresql.slots_handler.update_synchronized_standby_slots(sync)
+        slots_changed = self._postgresql.slots_handler.update_synchronized_standby_slots(sync_members)
 
         # Update synchronous_standby_names - this will reload if SSN changed,
         # which also applies any pending synchronized_standby_slots change.

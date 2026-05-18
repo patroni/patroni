@@ -90,6 +90,12 @@ In order to change the dynamic configuration you can use either :ref:`patronictl
    .. note::
        This feature requires ``synchronous_mode: true`` or ``synchronous_mode: quorum`` to be enabled, as it manages which standbys receive synchronized logical slots based on the current synchronous replication topology.
 
+   .. note::
+       In ``quorum`` mode Patroni lists **all** sync standbys in ``synchronized_standby_slots``. Because PostgreSQL blocks logical slot advancement until **every** listed physical slot has caught up, logical replication may wait longer than the commit semantics require (which only need ``synchronous_node_count`` standbys to confirm). This is a conservative default that guarantees no data loss for logical replication; a permanently lagging standby will however permanently block logical slot advancement.
+
+   .. note::
+       When this feature is disabled, Patroni restores ``synchronized_standby_slots`` to whatever value the user has configured under ``postgresql.parameters`` (or removes the parameter entirely if none is set).
+
    Example configuration:
 
    .. code:: YAML

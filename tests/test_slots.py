@@ -507,3 +507,16 @@ class TestSlotsHandler(BaseTestPostgresql):
                           new_callable=PropertyMock, return_value=True):
             self.p.config._server_parameters.pop('synchronized_standby_slots', None)
             self.assertTrue(self.s.update_synchronized_standby_slots({'node3'}, reload=True))
+
+        # Regression: member names with characters that require quoting (e.g. dashes) must
+        # be converted to valid slot names via slot_name_from_member_name and NOT contain
+        # any quote_standby_name artefacts (e.g. u0034 from encoded double quotes).
+        with patch.object(Postgresql, 'major_version', 170000), \
+             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=True):
+            self.p.config._server_parameters.pop('synchronized_standby_slots', None)
+            self.assertTrue(self.s.update_synchronized_standby_slots({'postgres-1', 'postgres-2'}))
+            slots = self.p.config._server_parameters['synchronized_standby_slots']
+            self.assertEqual(set(slots.split(',')), {'postgres_1', 'postgres_2'})
+            self.assertNotIn('u0034', slots)
+            self.assertNotIn('-', slots)

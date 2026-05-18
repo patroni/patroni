@@ -203,6 +203,40 @@ class TestSync(BaseTestPostgresql):
         mock_reload.assert_called()
         self.assertEqual(self.p.config._server_parameters.get('synchronized_standby_slots'), 'n1')
 
+        # Regression: member names containing characters that require quoting (e.g. dashes)
+        # must NOT be passed through quote_standby_name() before being converted to slot names.
+        # Otherwise slot_name_from_member_name() encodes the quotes as unicode codepoints
+        # (e.g. u0034postgres_1u0034), yielding a slot name that doesn't match pg_replication_slots.
+        self.p.config._server_parameters.pop('synchronous_standby_names', None)
+        self.p.config._server_parameters.pop('synchronized_standby_slots', None)
+        mock_reload.reset_mock()
+        with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=True):
+            self.s.set_synchronous_standby_names(CaseInsensitiveSet(['postgres-1', 'postgres-2']))
+        slots_value = self.p.config._server_parameters.get('synchronized_standby_slots')
+        self.assertIsNotNone(slots_value)
+        self.assertEqual(set(slots_value.split(',')), {'postgres_1', 'postgres_2'})
+        self.assertNotIn('u0034', slots_value)
+        # synchronous_standby_names is built from QUOTED names, so we expect them quoted here:
+        self.assertEqual(self.p.config._server_parameters.get('synchronous_standby_names'),
+                         '2 ("postgres-1","postgres-2")')
+
+        # Regression: same check with quorum mode (different sync_param building path).
+        self.cluster.config.data['synchronous_mode'] = 'quorum'
+        global_config.update(self.cluster)
+        self.p.config._server_parameters.pop('synchronous_standby_names', None)
+        self.p.config._server_parameters.pop('synchronized_standby_slots', None)
+        mock_reload.reset_mock()
+        with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=True):
+            self.s.set_synchronous_standby_names(CaseInsensitiveSet(['postgres-1', 'postgres-2']), 1)
+        slots_value = self.p.config._server_parameters.get('synchronized_standby_slots')
+        self.assertIsNotNone(slots_value)
+        self.assertEqual(set(slots_value.split(',')), {'postgres_1', 'postgres_2'})
+        self.assertNotIn('u0034', slots_value)
+        self.assertEqual(self.p.config._server_parameters.get('synchronous_standby_names'),
+                         'ANY 1 ("postgres-1","postgres-2")')
+
     @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
     def test_do_not_prick_yourself(self):
         self.p.name = self.leadermem.name

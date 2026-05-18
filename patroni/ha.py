@@ -287,8 +287,8 @@ class Ha(object):
         if feature_enabled:
             self.state_handler.slots_handler.update_synchronized_standby_slots(sync_members, reload=True)
         else:
-            # Feature was disabled - clear our override so PG can fall back to the user-configured value.
-            self.state_handler.config.set_synchronized_standby_slots(None, reload=True)
+            # Feature was disabled - restore the user-configured value (or clear if none configured).
+            self.state_handler.config.restore_synchronized_standby_slots(reload=True)
         self._last_dynamic_sync_slots_enabled = feature_enabled
         return True
 

@@ -858,6 +858,35 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertTrue(self.p.config.set_synchronized_standby_slots('slot1', reload=True))
             mock_reload.assert_called_once()
 
+    def test_restore_synchronized_standby_slots(self):
+        # Pretend Patroni's dynamic feature has set synchronized_standby_slots to some value.
+        self.p.config._server_parameters['synchronized_standby_slots'] = 'dynamic_value'
+
+        # No user-configured value: restore should clear the parameter.
+        self.p.config._config.setdefault('parameters', {}).pop('synchronized_standby_slots', None)
+        self.assertTrue(self.p.config.restore_synchronized_standby_slots())
+        self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
+
+        # User-configured value present: restore should set the parameter to that value.
+        self.p.config._server_parameters['synchronized_standby_slots'] = 'dynamic_value'
+        self.p.config._config['parameters']['synchronized_standby_slots'] = 'user_slot_a,user_slot_b'
+        self.assertTrue(self.p.config.restore_synchronized_standby_slots())
+        self.assertEqual(self.p.config._server_parameters['synchronized_standby_slots'],
+                         'user_slot_a,user_slot_b')
+
+        # Idempotent: calling again with the same already-set value returns False.
+        self.assertFalse(self.p.config.restore_synchronized_standby_slots())
+
+        # reload=True with running state should trigger a reload
+        self.p.config._server_parameters['synchronized_standby_slots'] = 'something_else'
+        with patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.RUNNING)), \
+             patch.object(Postgresql, 'reload', Mock()) as mock_reload:
+            self.assertTrue(self.p.config.restore_synchronized_standby_slots(reload=True))
+            mock_reload.assert_called_once()
+
+        # Cleanup so other tests don't see the change.
+        self.p.config._config['parameters'].pop('synchronized_standby_slots', None)
+
     @patch('time.sleep', Mock())
     def test__wait_for_connection_close(self):
         mock_postmaster = MockPostmaster()
