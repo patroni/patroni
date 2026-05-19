@@ -111,7 +111,7 @@ class TestKVStoreTTL(unittest.TestCase):
         def test(callback):
             callback(True, return_values.pop(0))
 
-        with patch('patroni.dcs.raft.get_monotonic_time', Mock(side_effect=[1, 100])):
+        with patch('time.monotonic', Mock(side_effect=[1, 100])):
             self.assertRaises(RaftError, self.so.retry, test)
 
         self.assertTrue(self.so.retry(test))

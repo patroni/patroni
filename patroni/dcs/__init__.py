@@ -4,6 +4,7 @@ import datetime
 import json
 import logging
 import re
+import time
 
 from collections import defaultdict
 from copy import deepcopy
@@ -19,7 +20,6 @@ from .. import global_config
 from ..dynamic_loader import iter_classes, iter_modules
 from ..exceptions import PatroniAssertionError, PatroniFatalException
 from ..tags import Tags
-from ..time_utils import get_monotonic_time, get_system_time
 from ..utils import deep_compare, parse_int, uri
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -1766,9 +1766,11 @@ class AbstractDCS(abc.ABC):
 
         with self._cluster_thread_lock:
             self._cluster = cluster
-            self._cluster_valid_till = get_monotonic_time() + self.ttl
+            self._cluster_valid_till = time.monotonic() + self.ttl
 
-            self._last_seen = int(get_system_time())
+            # Intentionally use wall-clock time: _last_seen is exposed via the REST API and may
+            # be compared with timestamps from other nodes, so it must be a real (system) timestamp.
+            self._last_seen = int(time.time())
             self._last_status = {self._OPTIME: cluster.status.last_lsn, 'retain_slots': cluster.status.retain_slots}
             if cluster.status.slots:
                 self._last_status['slots'] = cluster.status.slots
@@ -1780,7 +1782,7 @@ class AbstractDCS(abc.ABC):
     def cluster(self) -> Optional[Cluster]:
         """Cached DCS cluster information that has not yet expired."""
         with self._cluster_thread_lock:
-            return self._cluster if self._cluster_valid_till > get_monotonic_time() else None
+            return self._cluster if self._cluster_valid_till > time.monotonic() else None
 
     def reset_cluster(self) -> None:
         """Clear cached state of DCS."""
@@ -1884,7 +1886,7 @@ class AbstractDCS(abc.ABC):
 
         :returns: the list of replication slots to be written to ``/status`` key or ``None``.
         """
-        timestamp = get_system_time()
+        timestamp = time.monotonic()
 
         if slots:  # if slots is not empty it implies we are running v11+
             members: Set[str] = set()
@@ -1982,7 +1984,7 @@ class AbstractDCS(abc.ABC):
         """
         ret = self.attempt_to_acquire_leader()
         if ret:
-            timestamp = get_system_time()
+            timestamp = time.monotonic()
             # every time we promote we need to reset retention time for slots recorded in the /status key
             self._last_retain_slots = {name: timestamp for name in self._last_status['retain_slots']}
         return ret

@@ -25,7 +25,6 @@ from urllib3.exceptions import HTTPError, ProtocolError, ReadTimeoutError
 from ..exceptions import DCSError
 from ..postgresql.mpp import AbstractMPP
 from ..request import get as requests_get
-from ..time_utils import get_monotonic_time
 from ..utils import Retry, RetryFailedError, split_host_port, uri, USER_AGENT
 from . import AbstractDCS, catch_return_false_exception, Cluster, ClusterConfig, \
     Failover, Leader, Member, ReturnFalseException, Status, SyncState, TimelineHistory
@@ -68,14 +67,14 @@ class DnsCachingResolver(Thread):
             (host, port), attempt = self._resolve_queue.get()
             response = self._do_resolve(host, port)
             if response:
-                self._cache[(host, port)] = (get_monotonic_time(), response)
+                self._cache[(host, port)] = (time.monotonic(), response)
             else:
                 if attempt < 10:
                     self.resolve_async(host, port, attempt + 1)
                     time.sleep(1)
 
     def resolve(self, host: str, port: int) -> List[_AddrInfo]:
-        current_time = get_monotonic_time()
+        current_time = time.monotonic()
         cached_time, response = self._cache.get((host, port), (0, []))
         time_passed = current_time - cached_time
         if time_passed > self._cache_time or (not response and time_passed > self._cache_fail_time):
@@ -322,7 +321,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
                 # If etcd cluster isn't accessible _load_machines_cache() -> _refresh_machines_cache() may raise
                 # etcd.EtcdException. We need to convert it to etcd.EtcdConnectionFailed for failsafe_mode to work.
                 raise etcd.EtcdConnectionFailed('No more machines in the cluster') from e
-        elif not self._use_proxies and get_monotonic_time() - self._machines_cache_updated > self._machines_cache_ttl:
+        elif not self._use_proxies and time.monotonic() - self._machines_cache_updated > self._machines_cache_ttl:
             self._refresh_machines_cache()
 
         machines_cache = self.machines_cache
@@ -346,7 +345,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
                 if TYPE_CHECKING:  # pragma: no cover
                     assert isinstance(retry, Retry)  # etcd.EtcdConnectionFailed is raised only if retry is not None!
                 sleeptime = retry.sleeptime
-                remaining_time = retry.stoptime - sleeptime - get_monotonic_time()
+                remaining_time = retry.stoptime - sleeptime - time.monotonic()
                 nodes, timeout, retries = self._calculate_timeouts(etcd_nodes, remaining_time)
                 if nodes == 0:
                     self._update_machines_cache = True
@@ -485,7 +484,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
 
         if self._base_uri not in self._machines_cache:
             self.set_base_uri(self._machines_cache[0])
-        self._machines_cache_updated = get_monotonic_time()
+        self._machines_cache_updated = time.monotonic()
         return ret
 
     def set_base_uri(self, value: str) -> None:
@@ -899,7 +898,7 @@ class Etcd(AbstractEtcd):
             return True
 
         if leader_version:
-            end_time = get_monotonic_time() + timeout
+            end_time = time.monotonic() + timeout
 
             while timeout >= 1:  # when timeout is too small urllib3 doesn't have enough time to connect
                 try:
@@ -919,7 +918,7 @@ class Etcd(AbstractEtcd):
                 except etcd.EtcdException as e:
                     self._handle_exception(e, 'watch', True)
 
-                timeout = end_time - get_monotonic_time()
+                timeout = end_time - time.monotonic()
 
         try:
             return super(Etcd, self).watch(None, timeout)

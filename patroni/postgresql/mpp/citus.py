@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 
 from threading import Condition, Event, Thread
 from typing import Any, cast, Collection, Dict, Iterator, List, Optional, Set, Tuple, TYPE_CHECKING, Union
@@ -7,7 +8,6 @@ from urllib.parse import urlparse
 
 from ...dcs import Cluster
 from ...psycopg import connect, ProgrammingError, quote_ident
-from ...time_utils import get_monotonic_time
 from ...utils import parse_int
 from ..misc import PostgresqlRole, PostgresqlState
 from . import AbstractMPP, AbstractMPPHandler
@@ -571,7 +571,7 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
             return True
         else:  # before_demote, before_promote
             if task.timeout:
-                task.deadline = get_monotonic_time() + task.timeout
+                task.deadline = time.monotonic() + task.timeout
             if not self._in_flight:
                 self.query('BEGIN')
             self.update_group(task, True)
@@ -615,7 +615,7 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
                     if self._schedule_load_pg_dist_group:
                         timeout = -1
                     elif self._in_flight:
-                        timeout = self._in_flight.deadline - get_monotonic_time() if self._tasks else None
+                        timeout = self._in_flight.deadline - time.monotonic() if self._tasks else None
                     else:
                         timeout = -1 if self._tasks else None
 
@@ -644,7 +644,7 @@ class CitusHandler(Citus, AbstractMPPHandler, Thread):
                 # based on the outdated values of "state"/"role". To solve it we introduce an artificial timeout.
                 # Only when the timeout is reached new tasks could be scheduled from sync_meta_data()
                 if self._in_flight and self._in_flight.groupid == task.groupid and self._in_flight.timeout is not None\
-                        and self._in_flight.deadline > get_monotonic_time():
+                        and self._in_flight.deadline > time.monotonic():
                     return False
 
             # Override already existing task for the same worker groupid

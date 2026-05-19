@@ -16,7 +16,6 @@ from patroni import global_config, MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
 from patroni.collections import EMPTY_DICT
 from patroni.daemon import abstract_main, AbstractPatroniDaemon, get_base_arg_parser
 from patroni.tags import Tags
-from patroni.time_utils import get_monotonic_time
 
 if TYPE_CHECKING:  # pragma: no cover
     from .config import Config
@@ -91,7 +90,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
         self.ha = Ha(self)
 
         self._tags = self._get_tags()
-        self.next_run = get_monotonic_time()
+        self.next_run = time.monotonic()
         self.scheduled_restart: Dict[str, Any] = {}
 
         self._last_effective_role = None
@@ -206,19 +205,8 @@ class Patroni(AbstractPatroniDaemon, Tags):
         already been exceeded, run the next cycle immediately.
         """
         self.next_run += self.dcs.loop_wait
-        current_time = get_monotonic_time()
+        current_time = time.monotonic()
         nap_time = self.next_run - current_time
-
-        # Set max reasonable nap time, loop_wait * 2 is enough
-        max_reasonable_nap = self.dcs.loop_wait * 2
-        if nap_time > max_reasonable_nap:
-            original_nap = nap_time
-            nap_time = self.dcs.loop_wait
-            self.next_run = current_time + nap_time
-
-            logger.warning("Time anomaly detected: nap_time adjusted from %s to %s seconds. "
-                           "This may indicate system time regression.", original_nap, nap_time)
-
         if nap_time <= 0:
             self.next_run = current_time
             # Release the GIL so we don't starve anyone waiting on async_executor lock
@@ -226,7 +214,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
             # Warn user that Patroni is not keeping up
             logger.warning("Loop time exceeded, rescheduling immediately.")
         elif self.ha.watch(nap_time):
-            self.next_run = get_monotonic_time()
+            self.next_run = time.monotonic()
 
     def run(self) -> None:
         """Run ``patroni`` daemon process main loop.
@@ -234,7 +222,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
         Start the REST API and keep running HA cycles every ``loop_wait`` seconds.
         """
         self.api.start()
-        self.next_run = get_monotonic_time()
+        self.next_run = time.monotonic()
         super(Patroni, self).run()
 
     def _run_cycle(self) -> None:

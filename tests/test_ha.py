@@ -1957,7 +1957,7 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (*)',))
 
         # Test that _process_quorum_replication doesn't take longer than loop_wait
-        with patch('patroni.ha.get_monotonic_time', Mock(side_effect=[30, 60, 90, 120])):
+        with patch('time.monotonic', Mock(side_effect=[30, 60, 90, 120])):
             self.ha.process_sync_replication()
 
     def test_is_failover_possible(self):

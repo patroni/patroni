@@ -31,7 +31,6 @@ from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
 from .postgresql.misc import postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .thread_pool import PatroniThreadPoolExecutor
-from .time_utils import get_system_datetime, get_monotonic_time
 from .utils import cluster_as_json, deep_compare, enable_keepalive, parse_bool, \
     parse_int, patch_config, Retry, RetryFailedError, split_host_port, tzutc, uri
 
@@ -464,8 +463,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         liveness_threshold = patroni.dcs.ttl * (1 if is_primary else 2)
 
         # In maintenance mode (pause) we are fine if heartbeat loop stuck.
-        status_code = 200 if patroni.ha.is_paused() \
-            or patroni.next_run + liveness_threshold > get_monotonic_time() else 503
+        status_code = 200 if patroni.ha.is_paused() or patroni.next_run + liveness_threshold > time.monotonic() else 503
         self._write_status_code_only(status_code)
 
     def _readiness(self) -> Optional[str]:
@@ -929,7 +927,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             if scheduled_at.tzinfo is None:
                 error = 'Timezone information is mandatory for the scheduled {0}'.format(action)
                 status_code = 400
-            elif scheduled_at < get_system_datetime(tzutc):
+            elif scheduled_at < datetime.datetime.now(tzutc):
                 error = 'Cannot schedule {0} in the past'.format(action)
                 status_code = 422
             else:
@@ -1478,7 +1476,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         .. note::
             This is only used to keep track of latency when logging messages through :func:`log_message`.
         """
-        self.__start_time = get_monotonic_time()
+        self.__start_time = time.monotonic()
         BaseHTTPRequestHandler.handle_one_request(self)
 
     def log_message(self, format: str, *args: Any) -> None:
@@ -1489,7 +1487,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :param format: printf-style format string message to be logged.
         :param args: arguments to be applied as inputs to *format*.
         """
-        latency = 1000.0 * (get_monotonic_time() - self.__start_time)
+        latency = 1000.0 * (time.monotonic() - self.__start_time)
         logger.debug("API thread: %s - - %s latency: %0.3f ms", self.client_address[0], format % args, latency)
 
 

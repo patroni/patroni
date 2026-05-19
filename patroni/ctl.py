@@ -67,7 +67,6 @@ from .exceptions import PatroniException
 from .postgresql.misc import postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .postgresql.mpp import get_mpp
 from .request import PatroniRequest
-from .time_utils import get_monotonic_time, get_system_datetime, format_timestamp_for_display, get_system_time
 from .utils import cluster_as_json, patch_config, polling_loop
 from .version import __version__
 
@@ -512,14 +511,14 @@ def watching(w: bool, watch: Optional[int], max_count: Optional[int] = None, cle
         return
 
     counter = 1
-    yield_time = get_monotonic_time()
+    yield_time = time.monotonic()
     while watch and counter <= (max_count or counter):
-        elapsed = get_monotonic_time() - yield_time
+        elapsed = time.monotonic() - yield_time
         time.sleep(max(0, watch - elapsed))
         counter += 1
         if clear:
             click.clear()
-        yield_time = get_monotonic_time()
+        yield_time = time.monotonic()
         yield 0
 
 
@@ -1137,7 +1136,7 @@ def restart(cluster_name: str, group: Optional[int], member_names: List[str],
 
     members = get_members(cluster, cluster_name, member_names, role, force, 'restart', False, group=group)
     if scheduled is None and not force:
-        next_hour = (get_system_datetime() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
+        next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
         scheduled = click.prompt('When should the restart take place (e.g. ' + next_hour + ') ',
                                  type=str, default='now')
 
@@ -1351,7 +1350,7 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
 
     if action == 'switchover':
         if switchover_scheduled is None and not force:
-            next_hour = (get_system_datetime() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
+            next_hour = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
             switchover_scheduled = click.prompt('When should the switchover take place (e.g. ' + next_hour + ' ) ',
                                                 type=str, default='now')
 
@@ -1761,7 +1760,7 @@ def timestamp(precision: int = 6) -> str:
 
     :returns: the current timestamp with given *precision*.
     """
-    return format_timestamp_for_display(get_system_time(), precision)
+    return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:precision - 7]
 
 
 @ctl.command('flush', help='Discard scheduled events')
@@ -2373,10 +2372,10 @@ def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional
         if not is_unlocked and leader_role == target_role and leader_state == PostgresqlState.RUNNING:
             if not demote or old_leader_state == PostgresqlState.RUNNING:
                 click.echo(
-                    f'{get_system_datetime().strftime("%Y-%m-%d %H:%M:%S")} cluster is successfully {action_name}ed')
+                    f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")} cluster is successfully {action_name}ed')
                 break
 
-        state_prts = [f'{get_system_datetime().strftime("%Y-%m-%d %H:%M:%S")} cluster is unlocked: {is_unlocked}',
+        state_prts = [f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")} cluster is unlocked: {is_unlocked}',
                       f'leader role: {leader_role}',
                       f'leader state: {leader_state}']
         if demote and cluster.leader and leader_name != cluster.leader.name and old_leader_state:

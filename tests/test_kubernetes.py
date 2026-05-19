@@ -109,12 +109,12 @@ class TestK8sConfig(unittest.TestCase):
 
     def test_refresh_token(self):
         with patch('os.environ', {SERVICE_HOST_ENV_NAME: 'a', SERVICE_PORT_ENV_NAME: '1'}), \
-                patch('patroni.dcs.kubernetes.get_system_datetime') as mock_get_sys_dt, \
+                patch('patroni.dcs.kubernetes.datetime') as mock_datetime, \
                 patch('os.path.isfile', Mock(side_effect=[True, True, False, True, True, True])), \
                 patch('builtins.open', Mock(side_effect=[
                     mock_open(read_data='cert')(), mock_open(read_data='a')(),
                     mock_open()(), mock_open(read_data='b')(), mock_open(read_data='c')()])):
-            mock_get_sys_dt.side_effect = [datetime.datetime(1, 1, 1, 0, 0, 0)] * 2 + \
+            mock_datetime.datetime.now.side_effect = [datetime.datetime(1, 1, 1, 0, 0, 0)] * 2 + \
                 [datetime.datetime(1, 1, 1, 0, 0, 1)] * 4 + [datetime.datetime(1, 1, 1, 0, 0, 2)] * 3
             k8s_config.load_incluster_config(token_refresh_interval=datetime.timedelta(milliseconds=100))
             self.assertEqual(k8s_config.headers.get('authorization'), 'Bearer a')
@@ -255,13 +255,13 @@ class BaseTestKubernetes(unittest.TestCase):
 @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', mock_namespaced_kind, create=True)
 class TestKubernetesConfigMaps(BaseTestKubernetes):
 
-    @patch('time.time', Mock(side_effect=[1, 10.9, 100]))
+    @patch('time.monotonic', Mock(side_effect=[1, 10.9, 100]))
     def test__wait_caches(self):
         self.k._pods._is_ready = False
         with self.k._condition:
-            self.assertRaises(RetryFailedError, self.k._wait_caches, time.time() + 10)
+            self.assertRaises(RetryFailedError, self.k._wait_caches, time.monotonic() + 10)
 
-    @patch('time.time', Mock(return_value=time.time() + 100))
+    @patch('time.monotonic', Mock(return_value=time.monotonic() + 100))
     def test_get_cluster(self):
         self.k.get_cluster()
 
@@ -460,8 +460,8 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         mock_patch.side_effect = [k8s_client.rest.ApiException(409, ''),
                                   k8s_client.rest.ApiException(409, ''), mock_namespaced_kind()]
         mock_read.return_value.metadata.resource_version = '2'
-        mock_time = Mock(side_effect=[0, 0, 100, 200, 0, 0, 0, 0, 0, 100, 200])
-        with patch('patroni.utils.get_monotonic_time', mock_time):
+        mock_time = Mock(side_effect=[0, 0, 100, 0, 0, 0, 0, 100])
+        with patch('time.monotonic', mock_time), patch('time.monotonic_ns', mock_time, create=True):
             self.assertFalse(self.k.update_leader(cluster, '123'))
             self.assertFalse(self.k.update_leader(cluster, '123'))
         mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
