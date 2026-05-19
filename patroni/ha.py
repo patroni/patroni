@@ -138,7 +138,7 @@ class Failsafe(object):
         :param data: deserialized JSON document from REST API call that contains information about current leader.
         """
         with self._lock:
-            self._last_update = time.time()
+            self._last_update = time.monotonic()
             self._name = data['name']
             self._conn_url = data['conn_url']
             self._api_url = data['api_url']
@@ -156,7 +156,7 @@ class Failsafe(object):
     def leader(self) -> Optional[Leader]:
         """Return information about current cluster leader if the failsafe mode is active."""
         with self._lock:
-            if self._last_update + self._dcs.ttl > time.time():
+            if self._last_update + self._dcs.ttl > time.monotonic():
                 return Leader('', '', RemoteMember(self._name, {'api_url': self._api_url,
                                                                 'conn_url': self._conn_url,
                                                                 'slots': self._slots}))
@@ -202,7 +202,7 @@ class Failsafe(object):
         """
 
         with self._lock:
-            return self._last_update + self._dcs.ttl > time.time()
+            return self._last_update + self._dcs.ttl > time.monotonic()
 
     def set_is_active(self, value: float) -> None:
         """Update :attr:`_last_update` value.
@@ -294,7 +294,7 @@ class Ha(object):
     def is_leader(self) -> bool:
         """:returns: `True` if the current node is the leader, based on expiration set when it last held the key."""
         with self._leader_expiry_lock:
-            return self._leader_expiry > time.time()
+            return self._leader_expiry > time.monotonic()
 
     def set_is_leader(self, value: bool) -> None:
         """Update the current node's view of it's own leadership status.
@@ -305,7 +305,7 @@ class Ha(object):
         :param value: is the current node the leader.
         """
         with self._leader_expiry_lock:
-            self._leader_expiry = time.time() + self.dcs.ttl if value else 0
+            self._leader_expiry = time.monotonic() + self.dcs.ttl if value else 0
             if not value:
                 self._promote_timestamp = 0
 
@@ -591,7 +591,7 @@ class Ha(object):
 
     def _handle_crash_recovery(self) -> Optional[str]:
         if self._crash_recovery_started == 0 and (self.cluster.is_unlocked() or self._rewind.can_rewind):
-            self._crash_recovery_started = time.time()
+            self._crash_recovery_started = time.monotonic()
             msg = 'doing crash recovery in a single user mode'
             return self._async_executor.try_run_async(msg, self._rewind.ensure_clean_shutdown) or msg
 
@@ -872,7 +872,7 @@ class Ha(object):
         In case any of those steps causes an error we can just bail out and let next iteration rediscover the state
         and retry necessary transitions.
         """
-        start_time = time.time()
+        start_time = time.monotonic()
 
         min_sync = global_config.min_synchronous_nodes
         sync_wanted = global_config.synchronous_node_count
@@ -884,7 +884,7 @@ class Ha(object):
         leader = sync.leader
 
         def _check_timeout(offset: float = 0) -> bool:
-            return time.time() - start_time + offset >= self.dcs.loop_wait
+            return time.monotonic() - start_time + offset >= self.dcs.loop_wait
 
         while True:
             transition = 'break'  # we need define transition value if `QuorumStateResolver` produced no changes
@@ -1000,10 +1000,10 @@ class Ha(object):
             # be postponed for `loop_wait` seconds, to give a chance to some replicas to start streaming.
             # In opposite case the /sync key will end up without synchronous nodes.
             if self.state_handler.is_primary():
-                if self._promote_timestamp == 0 or time.time() - self._promote_timestamp > self.dcs.loop_wait:
+                if self._promote_timestamp == 0 or time.monotonic() - self._promote_timestamp > self.dcs.loop_wait:
                     self._process_quorum_replication()
                 if self._promote_timestamp == 0:
-                    self._promote_timestamp = time.time()
+                    self._promote_timestamp = time.monotonic()
         elif self.is_synchronous_mode():
             self._process_multisync_replication()
         else:
@@ -1136,7 +1136,7 @@ class Ha(object):
             with self._async_response:
                 if self._async_response.result is False:
                     logger.warning("Releasing the leader key voluntarily because the pre-promote script failed")
-                    self._released_leader_key_timestamp = time.time()
+                    self._released_leader_key_timestamp = time.monotonic()
                     self.release_leader_key_voluntarily()
                     # discard the result of the failed pre-promote script to be able to re-try promote
                     self._async_response.reset()
@@ -1509,7 +1509,7 @@ class Ha(object):
 
         :returns: `True` if the current node is among the best candidates to become the new leader.
         """
-        if time.time() - self._released_leader_key_timestamp < self.dcs.ttl:
+        if time.monotonic() - self._released_leader_key_timestamp < self.dcs.ttl:
             logger.info('backoff: skip leader race after pre_promote script failure and releasing the lock voluntarily')
             return False
 
@@ -1790,8 +1790,8 @@ class Ha(object):
                 not (self.cluster.failover and self.cluster.failover.candidate) and \
                 global_config.primary_race_backoff > 0 and self._prev_wal_lsn is not None:
             if self._primary_race_backoff_timestamp == 0:
-                self._primary_race_backoff_timestamp = time.time()
-            time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.time()
+                self._primary_race_backoff_timestamp = time.monotonic()
+            time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.monotonic()
             # We want to protect from leader key expiring shortly after the last heartbeat loop, and therefore
             # also postpone leader race whe time_left is greater than primary_race_backoff - loop_wait.
             if time_left > 0 and self.state_handler.replication_state() == 'streaming' and \
@@ -2053,7 +2053,7 @@ class Ha(object):
         """Figure out what to do with the task AsyncExecutor is performing."""
         if self.has_lock() and self.update_lock():
             if self._async_executor.scheduled_action == 'doing crash recovery in a single user mode':
-                time_left = global_config.primary_start_timeout - (time.time() - self._crash_recovery_started)
+                time_left = global_config.primary_start_timeout - (time.monotonic() - self._crash_recovery_started)
                 if time_left <= 0 and self.is_failover_possible():
                     logger.info("Demoting self because crash recovery is taking too long")
                     self.state_handler.cancellable.cancel(True)
@@ -2382,7 +2382,7 @@ class Ha(object):
             if self.state_handler.is_primary():
                 if self.is_failsafe_mode() and self.check_failsafe_topology():
                     self.set_is_leader(True)
-                    self._failsafe.set_is_active(time.time())
+                    self._failsafe.set_is_active(time.monotonic())
                     self.watchdog.keepalive()
                     self._sync_replication_slots(True)
                     return 'continue to run as a leader because failsafe mode is enabled and all members are accessible'
@@ -2481,7 +2481,7 @@ class Ha(object):
         # watch on leader key changes if the postgres is running and leader is known and current node is not lock owner
         if not self._async_executor.busy and (not self.cluster or self.cluster.is_unlocked()):
             leader_version = None
-            time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.time()
+            time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.monotonic()
             # Take into account primary_race_backoff
             if 0 < time_left < timeout:
                 timeout = time_left

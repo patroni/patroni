@@ -330,10 +330,11 @@ class K8sClient(object):
 
             if self._base_uri not in self._api_servers_cache:
                 self.set_base_uri(self._api_servers_cache[0])
-            self._api_servers_cache_updated = time.time()
+            self._api_servers_cache_updated = time.monotonic()
 
         def refresh_api_servers_cache(self) -> None:
-            if self._bypass_api_service and time.time() - self._api_servers_cache_updated > self._api_servers_cache_ttl:
+            if self._bypass_api_service and \
+                    time.monotonic() - self._api_servers_cache_updated > self._api_servers_cache_ttl:
                 self._refresh_api_servers_cache()
 
         def _load_api_servers_cache(self) -> None:
@@ -426,7 +427,7 @@ class K8sClient(object):
                     if TYPE_CHECKING:  # pragma: no cover
                         assert isinstance(retry, Retry)  # K8sConnectionFailed is raised only if retry is not None!
                     sleeptime = retry.sleeptime
-                    remaining_time = (retry.stoptime or time.time()) - sleeptime - time.time()
+                    remaining_time = (retry.stoptime or time.monotonic()) - sleeptime - time.monotonic()
                     nodes, timeout, retries = self._calculate_timeouts(api_servers, remaining_time)
                     if nodes == 0:
                         self._update_api_servers_cache = True
@@ -858,7 +859,7 @@ class Kubernetes(AbstractDCS):
 
     def _wait_caches(self, stop_time: float) -> None:
         while not (self._pods.is_ready() and self._kinds.is_ready()):
-            timeout = stop_time - time.time()
+            timeout = stop_time - time.monotonic()
             if timeout <= 0:
                 raise RetryFailedError('Exceeded retry deadline')
             self._condition.wait(timeout)
@@ -908,6 +909,9 @@ class Kubernetes(AbstractDCS):
         if leader_path == self.leader_path and (leader_record or self._leader_observed_record)\
                 and leader_record != self._leader_observed_record:
             self._leader_observed_record = leader_record
+            # Intentionally use wall-clock time: _leader_observed_time is compared with K8s
+            # renewTime/acquireTime annotations which are wall-clock timestamps, so it must
+            # be a real (system) timestamp for the comparison to be consistent.
             self._leader_observed_time = time.time()
 
         leader = leader_record.get(self._LEADER)
@@ -917,6 +921,7 @@ class Kubernetes(AbstractDCS):
             ttl = self._ttl
 
         # We want to check validity of the leader record only for our own cluster
+        # Using wall-clock time for comparison with _leader_observed_time (see above).
         if leader_path == self.leader_path and\
                 not (metadata and self._leader_observed_time and self._leader_observed_time + ttl >= time.time()):
             leader = None
@@ -976,7 +981,7 @@ class Kubernetes(AbstractDCS):
     ) -> Union[Cluster, Dict[int, Cluster]]:
         if TYPE_CHECKING:  # pragma: no cover
             assert self._retry.deadline is not None
-        stop_time = time.time() + self._retry.deadline
+        stop_time = time.monotonic() + self._retry.deadline
         self._api.refresh_api_servers_cache()
         try:
             with self._condition:

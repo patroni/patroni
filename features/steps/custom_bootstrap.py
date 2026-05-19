@@ -16,10 +16,10 @@ def start_cluster_from_backup(context, name, cluster_name):
 @then('{name:name} is a leader of {cluster_name:w} after {time_limit:d} seconds')
 def is_a_leader(context, name, cluster_name, time_limit):
     time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
+    max_time = time.monotonic() + int(time_limit)
     while (context.dcs_ctl.query("leader", scope=cluster_name) != name):
         time.sleep(1)
-        assert time.time() < max_time, "{0} is not a leader in dcs after {1} seconds".format(name, time_limit)
+        assert time.monotonic() < max_time, "{0} is not a leader in dcs after {1} seconds".format(name, time_limit)
 
 
 @step('I do a backup of {name:name}')

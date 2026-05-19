@@ -723,9 +723,9 @@ class PatroniEtcd3Client(Etcd3Client):
         self._restart_watcher()
 
     def _wait_cache(self, timeout: float) -> None:
-        stop_time = time.time() + timeout
+        stop_time = time.monotonic() + timeout
         while self._kv_cache and not self._kv_cache.is_ready():
-            timeout = stop_time - time.time()
+            timeout = stop_time - time.monotonic()
             if timeout <= 0:
                 raise RetryFailedError('Exceeded retry deadline')
             self._kv_cache.condition.wait(timeout)
@@ -815,7 +815,7 @@ class Etcd3(AbstractEtcd):
         return None
 
     def _do_refresh_lease(self, force: bool = False, retry: Optional[Retry] = None) -> bool:
-        if not force and self._lease and self._last_lease_refresh + self._loop_wait > time.time():
+        if not force and self._lease and self._last_lease_refresh + self._loop_wait > time.monotonic():
             return False
 
         if self._lease and not self._client.lease_keepalive(self._lease, retry=retry):
@@ -825,7 +825,7 @@ class Etcd3(AbstractEtcd):
         if ret:
             self._lease = self._client.lease_grant(self._ttl, retry=retry)
 
-        self._last_lease_refresh = time.time()
+        self._last_lease_refresh = time.monotonic()
         return ret
 
     def refresh_lease(self) -> bool:

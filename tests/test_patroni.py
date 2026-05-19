@@ -206,7 +206,7 @@ class TestPatroni(unittest.TestCase):
         self.p.ha.cluster = Mock()
         self.p.ha.dcs.watch = Mock(return_value=True)
         self.p.schedule_next_run()
-        self.p.next_run = time.time() - self.p.dcs.loop_wait - 1
+        self.p.next_run = time.monotonic() - self.p.dcs.loop_wait - 1
         self.p.schedule_next_run()
 
     def test__filter_tags(self):
