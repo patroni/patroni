@@ -316,9 +316,7 @@ class TestPatroni(unittest.TestCase):
         self.p.postgresql.set_role(PostgresqlRole.REPLICA)
 
         # Add role-specific parameters to config to ensure effective config differs
-        self.p.config._local_configuration.setdefault('postgresql', {})['parameters_replica'] = {
-            'work_mem': '32MB'
-        }
+        self.p.config['postgresql']['parameters_replica'] = {'work_mem': '32MB'}
 
         # Run a cycle - should detect role change and reload
         mock_pg_reload.reset_mock()
@@ -364,12 +362,8 @@ class TestPatroni(unittest.TestCase):
             self.p.config.build_effective_postgresql_configuration(PostgresqlRole.REPLICA)
 
         # Add role-specific parameters to ensure configs differ
-        self.p.config._local_configuration.setdefault('postgresql', {})['parameters_primary'] = {
-            'work_mem': '128MB'
-        }
-        self.p.config._local_configuration['postgresql']['parameters_replica'] = {
-            'work_mem': '32MB'
-        }
+        self.p.config['postgresql']['parameters_primary'] = {'work_mem': '128MB'}
+        self.p.config['postgresql']['parameters_replica'] = {'work_mem': '32MB'}
 
         # Transition to PRIMARY
         self.p.postgresql.set_role(PostgresqlRole.PRIMARY)
