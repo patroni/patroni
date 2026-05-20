@@ -139,6 +139,12 @@ class TestCtl(unittest.TestCase):
                 self.assertIsNone(output_members(cluster, name='abc', fmt=fmt))
 
             with patch('click.echo') as mock_echo:
+                self.assertIsNone(output_members(cluster, name='abc', fmt='pretty'))
+                header = '\n'.join(call[0][0] for call in mock_echo.call_args_list if 'Receive LSN' in call[0][0])
+                self.assertIn('Receive Lag', header)
+                self.assertIn('Replay Lag', header)
+
+            with patch('click.echo') as mock_echo:
                 self.assertIsNone(output_members(cluster, name='abc', fmt='tsv'))
                 self.assertEqual(mock_echo.call_args_list[3][0][0],
                                  'abc\tother\t\tReplica\tstreaming\t\t0/3\t0\tunknown\t')

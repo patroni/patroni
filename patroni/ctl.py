@@ -192,8 +192,8 @@ class PatronictlPrettyTable(PrettyTable):
     def _validate_field_names(self, *args: Any, **kwargs: Any) -> None:
         """Validate field names.
 
-        Remove uniqueness constraint for field names from the original implementation.
-        Required for having shorter ``Lag`` columns without specifying lag's type after ``LSN`` column already did so.
+        Remove uniqueness constraint for field names from the original implementation for backwards compatibility with
+        table layouts that intentionally reuse display names.
         """
         try:
             super(PatronictlPrettyTable, self)._validate_field_names(*args, **kwargs)
@@ -1673,10 +1673,9 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         title_details = f' ({initialize})'
 
     title = f' {title}: {name}{title_details} '
-    if fmt in ('pretty', 'topology'):
-        columns[columns.index('Replay Lag')] = columns[columns.index('Receive Lag')] = 'Lag'
     print_output(columns, rows,
-                 {'Group': 'r', 'Receive LSN': 'r', 'Replay LSN': 'r', 'Lag': 'r', 'TL': 'r'}, fmt, title)
+                 {'Group': 'r', 'Receive LSN': 'r', 'Receive Lag': 'r', 'Replay LSN': 'r', 'Replay Lag': 'r',
+                  'TL': 'r'}, fmt, title)
 
     if fmt not in ('pretty', 'topology'):  # Omit service info when using machine-readable formats
         return
