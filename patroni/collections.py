@@ -204,10 +204,10 @@ class CaseInsensitiveDict(MutableMapping[str, Any]):
 
         :Example:
 
-            >>> repr(CaseInsensitiveDict({'a': 'b', 'A': 'B', 'c': 'd'}))  # doctest: +ELLIPSIS
-            "<CaseInsensitiveDict{'A': 'B', 'c': 'd'} at ..."
+            >>> repr(CaseInsensitiveDict({'a': 'b', 'A': 'B', 'c': 'd'}))
+            "<CaseInsensitiveDict{'A': 'B', 'c': 'd'}>"
         """
-        return '<{0}{1} at {2:x}>'.format(type(self).__name__, dict(self.items()), id(self))
+        return '<{0}{1}>'.format(type(self).__name__, dict(self.items()))
 
 
 class _FrozenDict(Mapping[str, Any]):
