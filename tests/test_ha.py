@@ -1,7 +1,7 @@
 import datetime
-import time
 import os
 import sys
+import time
 
 from unittest.mock import MagicMock, Mock, mock_open, patch, PropertyMock
 
