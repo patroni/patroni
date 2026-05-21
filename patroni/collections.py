@@ -32,10 +32,10 @@ class CaseInsensitiveSet(MutableSet[str]):
 
         :Example:
 
-            >>> repr(CaseInsensitiveSet(('1', 'test', 'Test', 'TESt', 'test2')))  # doctest: +ELLIPSIS
-            "<CaseInsensitiveSet('1', 'TESt', 'test2') at ..."
+            >>> repr(CaseInsensitiveSet(('1', 'test', 'Test', 'TESt', 'test2')))
+            "<CaseInsensitiveSet('1', 'TESt', 'test2')>"
         """
-        return '<{0}{1} at {2:x}>'.format(type(self).__name__, tuple(self._values.values()), id(self))
+        return '<{0}{1}>'.format(type(self).__name__, tuple(self._values.values()))
 
     def __str__(self) -> str:
         """Get set values for printing.
@@ -204,10 +204,22 @@ class CaseInsensitiveDict(MutableMapping[str, Any]):
 
         :Example:
 
-            >>> repr(CaseInsensitiveDict({'a': 'b', 'A': 'B', 'c': 'd'}))  # doctest: +ELLIPSIS
-            "<CaseInsensitiveDict{'A': 'B', 'c': 'd'} at ..."
+            >>> repr(CaseInsensitiveDict({'a': 'b', 'A': 'B', 'c': 'd'}))
+            "<CaseInsensitiveDict{'A': 'B', 'c': 'd'}>"
         """
-        return '<{0}{1} at {2:x}>'.format(type(self).__name__, dict(self.items()), id(self))
+        return '<{0}{1}>'.format(type(self).__name__, dict(self.items()))
+
+    def __str__(self) -> str:
+        """Get dict keys and values for printing.
+
+        :returns: dict of keys and values in string format.
+
+        :Example:
+
+            >>> str(CaseInsensitiveDict({'a': 'b', 'A': 'B', 'c': 'd'}))
+            "{'A': 'B', 'c': 'd'}"
+        """
+        return str({v[0]: v[1] for v in self._values.values()})
 
 
 class _FrozenDict(Mapping[str, Any]):
