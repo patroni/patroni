@@ -274,7 +274,7 @@ class Consul(AbstractDCS):
         self._client = ConsulClient(**kwargs)
         self.set_retry_timeout(config['retry_timeout'])
         self.set_ttl(config.get('ttl') or 30)
-        self._last_session_refresh = 0
+        self._last_session_refresh = float('-inf')
         self.__session_checks = config.get('checks', [])
         self._register_service = config.get('register_service', False)
         self._previous_loop_register_service = self._register_service
@@ -694,7 +694,7 @@ class Consul(AbstractDCS):
         return self.retry(self._client.kv.delete, self.sync_path, cas=version)
 
     def watch(self, leader_version: Optional[int], timeout: float) -> bool:
-        self._last_session_refresh = 0
+        self._last_session_refresh = float('-inf')
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True

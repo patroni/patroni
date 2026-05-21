@@ -311,14 +311,14 @@ class TestEtcd3(BaseTestEtcd3):
         self.etcd3._lease = None
         with patch.object(Etcd3Client, 'txn', Mock(return_value={'succeeded': True})):
             self.etcd3.update_leader(cluster, '123', failsafe={'foo': 'bar'})
-        self.etcd3._last_lease_refresh = 0
+        self.etcd3._last_lease_refresh = float('-inf')
         self.etcd3.update_leader(cluster, '124')
         with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(return_value=True)), \
                 patch('time.monotonic', Mock(side_effect=[0, 100, 200, 300])):
             self.assertRaises(Etcd3Error, self.etcd3.update_leader, cluster, '126')
         self.etcd3._lease = cluster.leader.session
         self.etcd3.update_leader(cluster, '124')
-        self.etcd3._last_lease_refresh = 0
+        self.etcd3._last_lease_refresh = float('-inf')
         with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(side_effect=Unknown)):
             self.assertFalse(self.etcd3.update_leader(cluster, '125'))
 
@@ -339,7 +339,7 @@ class TestEtcd3(BaseTestEtcd3):
 
     @patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(return_value=False))
     def test_refresh_lease(self):
-        self.etcd3._last_lease_refresh = 0
+        self.etcd3._last_lease_refresh = float('-inf')
         self.etcd3.refresh_lease()
 
     @patch('time.sleep', Mock(side_effect=SleepException))
@@ -347,7 +347,7 @@ class TestEtcd3(BaseTestEtcd3):
     @patch.object(PatroniEtcd3Client, 'lease_grant', Mock(side_effect=Etcd3ClientError))
     def test_create_lease(self):
         self.etcd3._lease = None
-        self.etcd3._last_lease_refresh = 0
+        self.etcd3._last_lease_refresh = float('-inf')
         self.assertRaises(SleepException, self.etcd3.create_lease)
 
     def test_set_failover_value(self):

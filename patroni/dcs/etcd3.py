@@ -789,7 +789,7 @@ class Etcd3(AbstractEtcd):
         super(Etcd3, self).__init__(config, mpp, PatroniEtcd3Client, (DeadlineExceeded, FailedPrecondition))
         self.__do_not_watch = False
         self._lease = None
-        self._last_lease_refresh = 0
+        self._last_lease_refresh = float('-inf')
 
         self._client.configure(self)
         if not self._ctl:
@@ -1084,7 +1084,7 @@ class Etcd3(AbstractEtcd):
         return self.retry(self._client.deleterange, self.sync_path, mod_revision=version)
 
     def watch(self, leader_version: Optional[str], timeout: float) -> bool:
-        self._last_lease_refresh = 0
+        self._last_lease_refresh = float('-inf')
         if self.__do_not_watch:
             self.__do_not_watch = False
             return True

@@ -130,7 +130,7 @@ class TestConsul(unittest.TestCase):
     def test_referesh_session(self):
         self.c._session = '1'
         self.assertFalse(self.c.refresh_session())
-        self.c._last_session_refresh = 0
+        self.c._last_session_refresh = float('-inf')
         self.assertRaises(ConsulError, self.c.refresh_session)
 
     @patch.object(KV, 'delete', Mock())
@@ -205,7 +205,7 @@ class TestConsul(unittest.TestCase):
         with patch.object(KV, 'delete', Mock(side_effect=ConsulException)):
             self.assertFalse(self.c.update_leader(cluster, 12347))
         mock_renew.side_effect = RetryFailedError('')
-        self.c._last_session_refresh = 0
+        self.c._last_session_refresh = float('-inf')
         self.assertRaises(ConsulError, self.c.update_leader, cluster, 12346)
         mock_renew.side_effect = ConsulException
         self.assertFalse(self.c.update_leader(cluster, 12347))

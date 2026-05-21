@@ -146,7 +146,7 @@ class Failsafe(object):
 
     def _reset_state(self) -> None:
         """Reset state of the :class:`Failsafe` object."""
-        self._last_update = 0  # holds information when failsafe was triggered last time.
+        self._last_update = float('-inf')  # holds information when failsafe was triggered last time.
         self._name = ''  # name of the cluster leader
         self._conn_url = None  # PostgreSQL conn_url of the leader
         self._api_url = None  # Patroni REST api_url of the leader
@@ -229,15 +229,15 @@ class Ha(object):
         self.dcs = patroni.dcs
         self.cluster = Cluster.empty()
         self.old_cluster = Cluster.empty()
-        self._leader_expiry = 0
+        self._leader_expiry = float('-inf')
         self._leader_expiry_lock = RLock()
         self._failsafe = Failsafe(patroni.dcs)
         self._was_paused = False
-        self._promote_timestamp = 0
+        self._promote_timestamp = float('-inf')
         self._leader_timeline = None
         self.recovering = False
         self._async_response = CriticalTask()
-        self._crash_recovery_started = 0
+        self._crash_recovery_started = float('-inf')
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
         self.watchdog = patroni.watchdog
@@ -259,7 +259,7 @@ class Ha(object):
         # receive/flush/replay LSN from last cycle, is used to detect false positives of dead primary
         self._prev_wal_lsn: Optional[int] = None
         # timestamp when primary_race_backoff was triggered
-        self._primary_race_backoff_timestamp = 0
+        self._primary_race_backoff_timestamp = float('-inf')
 
         # Count of concurrent sync disabling requests. Value above zero means that we don't want to be synchronous
         # standby. Changes protected by _member_state_lock.
@@ -272,7 +272,7 @@ class Ha(object):
         self._join_aborted = False
 
         # used only in backoff after failing a pre_promote script
-        self._released_leader_key_timestamp = 0
+        self._released_leader_key_timestamp = float('-inf')
 
     def primary_stop_timeout(self) -> Union[int, None]:
         """:returns: "primary_stop_timeout" from the global configuration or `None` when not in synchronous mode."""
@@ -305,9 +305,9 @@ class Ha(object):
         :param value: is the current node the leader.
         """
         with self._leader_expiry_lock:
-            self._leader_expiry = time.monotonic() + self.dcs.ttl if value else 0
+            self._leader_expiry = time.monotonic() + self.dcs.ttl if value else float('-inf')
             if not value:
-                self._promote_timestamp = 0
+                self._promote_timestamp = float('-inf')
 
     def sync_mode_is_active(self) -> bool:
         """Check whether synchronous replication is requested and already active.
@@ -348,7 +348,7 @@ class Ha(object):
 
         if not self.cluster.is_unlocked():
             # Reset primary_race_backoff if there is a leader
-            self._primary_race_backoff_timestamp = 0
+            self._primary_race_backoff_timestamp = float('-inf')
 
         if not self.has_lock(False):
             self.set_is_leader(False)
@@ -590,7 +590,7 @@ class Ha(object):
         return result
 
     def _handle_crash_recovery(self) -> Optional[str]:
-        if self._crash_recovery_started == 0 and (self.cluster.is_unlocked() or self._rewind.can_rewind):
+        if self._crash_recovery_started <= 0 and (self.cluster.is_unlocked() or self._rewind.can_rewind):
             self._crash_recovery_started = time.monotonic()
             msg = 'doing crash recovery in a single user mode'
             return self._async_executor.try_run_async(msg, self._rewind.ensure_clean_shutdown) or msg
@@ -1000,9 +1000,9 @@ class Ha(object):
             # be postponed for `loop_wait` seconds, to give a chance to some replicas to start streaming.
             # In opposite case the /sync key will end up without synchronous nodes.
             if self.state_handler.is_primary():
-                if self._promote_timestamp == 0 or time.monotonic() - self._promote_timestamp > self.dcs.loop_wait:
+                if self._promote_timestamp <= 0 or time.monotonic() - self._promote_timestamp > self.dcs.loop_wait:
                     self._process_quorum_replication()
-                if self._promote_timestamp == 0:
+                if self._promote_timestamp <= 0:
                     self._promote_timestamp = time.monotonic()
         elif self.is_synchronous_mode():
             self._process_multisync_replication()
@@ -1789,7 +1789,7 @@ class Ha(object):
         if not self.is_paused() and not self.is_standby_cluster() and \
                 not (self.cluster.failover and self.cluster.failover.candidate) and \
                 global_config.primary_race_backoff > 0 and self._prev_wal_lsn is not None:
-            if self._primary_race_backoff_timestamp == 0:
+            if self._primary_race_backoff_timestamp <= 0:
                 self._primary_race_backoff_timestamp = time.monotonic()
             time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.monotonic()
             # We want to protect from leader key expiring shortly after the last heartbeat loop, and therefore
@@ -2253,7 +2253,7 @@ class Ha(object):
                         return msg
 
                 # Reset some states after postgres successfully started up
-                self._crash_recovery_started = 0
+                self._crash_recovery_started = float('-inf')
                 if self._rewind.executed and not self._rewind.failed:
                     self._rewind.reset_state()
 

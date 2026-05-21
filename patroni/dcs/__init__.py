@@ -1538,7 +1538,7 @@ class AbstractDCS(abc.ABC):
 
         self._ctl = bool(config.get('patronictl', False))
         self._cluster: Optional[Cluster] = None
-        self._cluster_valid_till: float = 0
+        self._cluster_valid_till: float = float('-inf')
         self._cluster_thread_lock = Lock()
         self._last_lsn: int = 0
         self._last_seen: int = 0
@@ -1788,7 +1788,7 @@ class AbstractDCS(abc.ABC):
         """Clear cached state of DCS."""
         with self._cluster_thread_lock:
             self._cluster = None
-            self._cluster_valid_till = 0
+            self._cluster_valid_till = float('-inf')
 
     @abc.abstractmethod
     def _write_leader_optime(self, last_lsn: str) -> bool:

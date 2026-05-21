@@ -122,7 +122,7 @@ class Postgresql(object):
                                       retry_exceptions=PostgresConnectionException)
 
         self.set_role(self.get_postgres_role_from_data_directory())
-        self._state_entry_timestamp = 0
+        self._state_entry_timestamp = float('-inf')
 
         self._cluster_info_state = {}
         self._should_query_slots = True
