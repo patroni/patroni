@@ -75,7 +75,7 @@ class DnsCachingResolver(Thread):
 
     def resolve(self, host: str, port: int) -> List[_AddrInfo]:
         current_time = time.monotonic()
-        cached_time, response = self._cache.get((host, port), (0, []))
+        cached_time, response = self._cache.get((host, port), (float('-inf'), []))
         time_passed = current_time - cached_time
         if time_passed > self._cache_time or (not response and time_passed > self._cache_fail_time):
             new_response = self._do_resolve(host, port)
