@@ -835,7 +835,7 @@ class TestPostgresql(BaseTestPostgresql):
             with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
                 self.p.config.get_server_parameters(config)
                 self.p.config.set_synchronous_standby_names('foo')
-                self.assertTrue(str(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
+                self.assertTrue(repr(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
 
     @patch('time.sleep', Mock())
     def test__wait_for_connection_close(self):
