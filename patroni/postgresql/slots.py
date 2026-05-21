@@ -212,7 +212,8 @@ class SlotsHandler:
         :param dst: destination dictionary to be updated.
         :param keys: optional list of keys to be looked up in the source dictionary.
         """
-        dst.update({key: src[key] for key in keys or ('datoid', 'catalog_xmin', 'confirmed_flush_lsn')})
+        dst.update({key: src[key] for key in keys or (
+            'datoid', 'catalog_xmin', 'confirmed_flush_lsn', 'failover', 'synced') if key in src})
 
     def process_permanent_slots(self, slots: List[Dict[str, Any]]) -> Dict[str, int]:
         """Process replication slot information from the host and prepare information used in subsequent cluster tasks.

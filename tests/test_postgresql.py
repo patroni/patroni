@@ -1191,10 +1191,16 @@ class TestPostgresql2(BaseTestPostgresql):
 
     def test_cluster_info_query(self):
         self.assertIn('diff(pg_catalog.pg_current_wal_flush_lsn(', self.p.cluster_info_query)
+        self.assertIn('WHERE NOT temporary', self.p.cluster_info_query)
+        self.assertNotIn('(NOT failover OR NOT synced)', self.p.cluster_info_query)
         self.p._major_version = 90600
         self.assertIn('diff(pg_catalog.pg_current_xlog_flush_location(', self.p.cluster_info_query)
+        self.assertNotIn('WHERE NOT temporary', self.p.cluster_info_query)
         self.p._major_version = 90500
         self.assertIn('diff(pg_catalog.pg_current_xlog_location(', self.p.cluster_info_query)
+        self.assertNotIn('WHERE NOT temporary', self.p.cluster_info_query)
+        self.p._major_version = 180000
+        self.assertIn('WHERE NOT temporary AND (NOT failover OR NOT synced)', self.p.cluster_info_query)
 
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     @patch.object(Postgresql, '_query', Mock(return_value=[('primary_conninfo', 'host=a port=5433 passfile=/blabla')]))
