@@ -1943,6 +1943,7 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (other)',))
 
         # Test ANY 1 (*) when synchronous_mode_strict and no nodes available
+        self.ha._promote_timestamp = time.monotonic() - self.ha.dcs.loop_wait - 1
         self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1,
                                                                          CaseInsensitiveSet(['other', 'foo']),
                                                                          CaseInsensitiveSet(),
