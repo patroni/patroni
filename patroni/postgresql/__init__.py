@@ -241,17 +241,9 @@ class Postgresql(object):
                         and self.role in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED) else "'on', '', NULL")
 
         if self._major_version >= 90600:
-            filter_columns = ["NOT temporary"] if self._major_version >= 100000 else []
-            filter_columns += ["(NOT failover OR NOT synced)"] if self._major_version >= 170000 else []
-            where_filter = ' AND '.join(filter_columns)
-            where_condition = f' WHERE {where_filter}' if where_filter else ''
+            pg_replication_slots_query = self.slots_handler.pg_replication_slots_query(True)
             extra = ("pg_catalog.current_setting('restore_command')" if self._major_version >= 120000 else "NULL") +\
-                ", " + ("(SELECT pg_catalog.json_agg(s.*) FROM (SELECT slot_name, slot_type as type, datoid::bigint, "
-                        "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint"
-                        " AS confirmed_flush_lsn, pg_catalog.pg_wal_lsn_diff(restart_lsn, '0/0')::bigint"
-                        " AS restart_lsn, xmin"
-                        + (", failover, synced" if self._major_version >= 170000 else "")
-                        + f" FROM pg_catalog.pg_get_replication_slots(){where_condition}) AS s)"
+                ", " + (f"(SELECT pg_catalog.json_agg(s.*) FROM ({pg_replication_slots_query}) AS s)"
                         if self._should_query_slots and self.can_advance_slots else "NULL") + extra
 
             written_lsn = ("pg_catalog.pg_wal_lsn_diff(written_lsn, '0/0')::bigint"

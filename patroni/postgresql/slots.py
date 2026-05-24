@@ -258,33 +258,48 @@ class SlotsHandler:
 
         return ret
 
+    def pg_replication_slots_query(self, use_function: bool = False) -> str:
+        """Get query text for retrieveing slots infromation.
+
+        Query retrieves replication slot's ``name``, ``type``, ``plugin``, ``database`` and ``datoid``.
+        If PostgreSQL version is 10 or newer also retrieves ``catalog_xmin`` and ``confirmed_flush_lsn``.
+        If PostgreSQL version is 17 or above also retrieves ``failover`` and ``synced``.
+
+        :param use_function: whether to use ``pg_get_replication_slots()`` function or ``pg_replication_slots`` view
+                             in the query.
+
+        :return: string containing SQL query text.
+        """
+        pg_wal_lsn_diff = f"pg_catalog.pg_{self._postgresql.wal_name}_{self._postgresql.lsn_name}_diff"
+
+        extra = f", catalog_xmin, {pg_wal_lsn_diff}(confirmed_flush_lsn, '0/0')::bigint AS confirmed_flush_lsn" \
+            if self._postgresql.major_version >= 100000 else ""
+        extra += ", failover, synced" if self._postgresql.major_version >= 170000 else ""
+
+        filter_columns = ["NOT temporary"] if self._postgresql.major_version >= 100000 else []
+        filter_columns += ["(NOT failover OR NOT synced)"] if self._postgresql.major_version >= 170000 else []
+
+        where_filter = ' AND '.join(filter_columns)
+        where_condition = f' WHERE {where_filter}' if where_filter else ''
+
+        database = '' if use_function else ', database'
+        pg_replication_slots_obj = "pg_get_replication_slots()" if use_function else 'pg_replication_slots'
+
+        return "SELECT slot_name, slot_type AS type, xmin, " \
+            f"{pg_wal_lsn_diff}(restart_lsn, '0/0')::bigint AS restart_lsn, plugin{database}, " \
+            f"datoid::bigint{extra} FROM pg_catalog.{pg_replication_slots_obj}{where_condition}"
+
     def load_replication_slots(self) -> None:
         """Query replication slot information from the database and store it for processing by other tasks.
 
         .. note::
             Only supported from PostgreSQL version 9.4 onwards.
 
-        Store replication slot ``name``, ``type``, ``plugin``, ``database`` and ``datoid``.
-        If PostgreSQL version is 10 or newer also store ``catalog_xmin`` and ``confirmed_flush_lsn``.
-        If PostgreSQL version is 17 or above also fetch ``failover`` and ``synced``.
-
-        When using logical slots, store information separately for slot synchronisation  on replica nodes.
+        When using logical slots, store information separately for slot synchronisation on replica nodes.
         """
         if self._postgresql.major_version >= 90400 and self._schedule_load_slots:
             replication_slots: Dict[str, Dict[str, Any]] = {}
-            pg_wal_lsn_diff = f"pg_catalog.pg_{self._postgresql.wal_name}_{self._postgresql.lsn_name}_diff"
-
-            extra = f", catalog_xmin, {pg_wal_lsn_diff}(confirmed_flush_lsn, '0/0')::bigint" \
-                if self._postgresql.major_version >= 100000 else ""
-            extra += ", failover, synced" if self._postgresql.major_version >= 170000 else ""
-
-            filter_columns = ["NOT temporary"] if self._postgresql.major_version >= 100000 else []
-            filter_columns += ["(NOT failover OR NOT synced)"] if self._postgresql.major_version >= 170000 else []
-            where_filter = ' AND '.join(filter_columns)
-            where_condition = f' WHERE {where_filter}' if where_filter else ''
-            for r in self._query("SELECT slot_name, slot_type, xmin, "
-                                 f"{pg_wal_lsn_diff}(restart_lsn, '0/0')::bigint, plugin, database, datoid{extra}"
-                                 f" FROM pg_catalog.pg_replication_slots{where_condition}"):
+            for r in self._query(self.pg_replication_slots_query()):
                 value = {'type': r[1]}
                 if r[1] == 'logical':
                     value.update(plugin=r[4], database=r[5], datoid=r[6])
