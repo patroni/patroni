@@ -10,7 +10,7 @@ import shutil
 from collections import defaultdict
 from contextlib import contextmanager
 from threading import Condition, Thread
-from typing import Any, Collection, Dict, Generator, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Dict, Generator, List, Optional, Tuple, TYPE_CHECKING, Union
 
 from .. import global_config
 from ..dcs import Cluster, Leader
@@ -204,16 +204,20 @@ class SlotsHandler:
         """
         return self._postgresql.query(sql, *params, retry=False)
 
-    @staticmethod
-    def _copy_items(src: Dict[str, Any], dst: Dict[str, Any], keys: Optional[Collection[str]] = None) -> None:
-        """Select values from *src* dictionary to update in *dst* dictionary for optional supplied *keys*.
+    def copy_slot_items(self, src: Dict[str, Any], dst: Dict[str, Any], is_logical: bool = True) -> None:
+        """Select values from *src* slots dictionary to update in *dst* slots dictionary.
 
         :param src: source dictionary that *keys* will be looked up from.
         :param dst: destination dictionary to be updated.
-        :param keys: optional list of keys to be looked up in the source dictionary.
+        :param is_logical: whether the slot type is logical.
         """
-        dst.update({key: src[key] for key in keys or (
-            'datoid', 'catalog_xmin', 'confirmed_flush_lsn', 'failover', 'synced') if key in src})
+        if is_logical:
+            keys = ('datoid', 'catalog_xmin', 'confirmed_flush_lsn')
+            if self._postgresql.major_version >= 17:
+                keys += ('failover', 'synced')
+        else:
+            keys = ('restart_lsn', 'xmin')
+        dst.update({key: src[key] for key in keys if key in src})
 
     def process_permanent_slots(self, slots: List[Dict[str, Any]]) -> Dict[str, int]:
         """Process replication slot information from the host and prepare information used in subsequent cluster tasks.
@@ -245,10 +249,10 @@ class SlotsHandler:
                 if compare_slots(value, self._replication_slots[name], 'datoid'):
                     if value['type'] == 'logical':
                         ret[name] = value['confirmed_flush_lsn']
-                        self._copy_items(value, self._replication_slots[name])
+                        self.copy_slot_items(value, self._replication_slots[name])
                     else:
                         ret[name] = value['restart_lsn']
-                        self._copy_items(value, self._replication_slots[name], ('restart_lsn', 'xmin'))
+                        self.copy_slot_items(value, self._replication_slots[name], is_logical=False)
                 else:
                     self._schedule_load_slots = True
 
@@ -436,7 +440,7 @@ class SlotsHandler:
             # change, which would prevent Postgres from advancing the xmin horizon.
             if self._postgresql.can_advance_slots and name in self._replication_slots and\
                     self._replication_slots[name]['type'] == 'physical':
-                self._copy_items(self._replication_slots[name], value, ('restart_lsn', 'xmin'))
+                self.copy_slot_items(self._replication_slots[name], value, is_logical=False)
                 if clean_inactive_physical_slots and value.get('expected_active') is False and value['xmin']:
                     logger.warning('Dropping physical replication slot %s because of its xmin value %s',
                                    name, value['xmin'])
@@ -505,7 +509,7 @@ class SlotsHandler:
         for name, value in slots.items():
             if value['type'] == 'logical':
                 if self._replication_slots.get(name, {}).get('datoid'):
-                    self._copy_items(self._replication_slots[name], value)
+                    self.copy_slot_items(self._replication_slots[name], value)
                 else:
                     logical_slots[value['database']][name] = value
 
@@ -549,7 +553,7 @@ class SlotsHandler:
 
             # If the logical already exists, copy some information about it into the original structure
             if name in self._replication_slots and compare_slots(value, self._replication_slots[name]):
-                self._copy_items(self._replication_slots[name], value)
+                self.copy_slot_items(self._replication_slots[name], value)
 
                 # The slot has feedback in DCS
                 if 'lsn' in value:
