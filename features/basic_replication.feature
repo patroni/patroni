@@ -98,7 +98,7 @@ Feature: basic replication
     And synchronous_standby_names on postgres-2 is set to '"postgres-1"' after 10 seconds
     When I shut down postgres-2
     Then postgres-1 role is the primary after 10 seconds
-    And there is one of ["No active replication connections and synchronous_mode_strict is requested"] WARNING in the postgres-1 patroni log after 5 seconds
+    And there is one of ["No active replication connections from Patroni members and synchronous_mode_strict is requested"] WARNING in the postgres-1 patroni log after 5 seconds
     And sync key in DCS has leader=postgres-1 after 10 seconds
     And  sync key in DCS has sync_standby=postgres-2 after 10 seconds
     And synchronous_standby_names on postgres-1 is set to '"postgres-2"' after 10 seconds

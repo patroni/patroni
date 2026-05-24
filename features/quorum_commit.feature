@@ -23,7 +23,7 @@ Feature: quorum commit
     And synchronous_standby_names on postgres-0 is set to 'ANY 1 ("postgres-1")' after 2 seconds
     When I shut down postgres-0
     Then postgres-1 role is the primary after 10 seconds
-    And there is one of ["No active replication connections and synchronous_mode_strict is requested"] WARNING in the postgres-1 patroni log after 5 seconds
+    And there is one of ["No active replication connections from Patroni members and synchronous_mode_strict is requested"] WARNING in the postgres-1 patroni log after 5 seconds
     Then sync key in DCS has leader=postgres-1 after 10 seconds
     Then sync key in DCS has sync_standby=postgres-0 after 10 seconds
     And sync key in DCS has quorum=0 after 10 seconds

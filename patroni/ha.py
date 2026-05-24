@@ -896,8 +896,8 @@ class Ha(object):
 
             # We use self._synchronous_strict_mode_activated to show warning only once.
             if not self._synchronous_strict_mode_activated:
-                logger.warning('No active replication connections and synchronous_mode_strict is requested.'
-                               ' %sCommits will be delayed.', msg)
+                logger.warning('No active replication connections from Patroni members and '
+                               'synchronous_mode_strict is requested. %sCommits will be delayed.', msg)
 
             self._synchronous_strict_mode_activated = True
         else:
