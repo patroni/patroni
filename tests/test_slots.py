@@ -405,7 +405,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('test_1', 'physical', 1, 12345, None, None,
                                                                       None, None, None)], Exception])) as mock_query:
             self.s.sync_replication_slots(cluster, self.tags)
-            self.assertTrue(mock_query.call_args[0][0].startswith('SELECT slot_name, slot_type, xmin, '))
+            self.assertTrue(mock_query.call_args[0][0].startswith('SELECT slot_name, slot_type AS type, xmin, '))
 
     def test__drop_replication_slot(self):
         """Test the :meth:~SlotsHandler._drop_replication_slot` method."""
