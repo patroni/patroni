@@ -223,11 +223,9 @@ class Postgresql(object):
                         and self.role in ('master', 'primary', 'promoted') else "'on', '', NULL")
 
         if self._major_version >= 90600:
+            pg_replication_slots_query = self.slots_handler.pg_replication_slots_query(True)
             extra = ("pg_catalog.current_setting('restore_command')" if self._major_version >= 120000 else "NULL") +\
-                ", " + ("(SELECT pg_catalog.json_agg(s.*) FROM (SELECT slot_name, slot_type as type, datoid::bigint, "
-                        "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint"
-                        " AS confirmed_flush_lsn, pg_catalog.pg_wal_lsn_diff(restart_lsn, '0/0')::bigint"
-                        " AS restart_lsn, xmin FROM pg_catalog.pg_get_replication_slots()) AS s)"
+                ", " + (f"(SELECT pg_catalog.json_agg(s.*) FROM ({pg_replication_slots_query}) AS s)"
                         if self._has_permanent_slots and self.can_advance_slots else "NULL") + extra
             extra = (", CASE WHEN latest_end_lsn IS NULL THEN NULL ELSE received_tli END,"
                      " slot_name, conninfo, status, {0} FROM pg_catalog.pg_stat_get_wal_receiver()").format(extra)
