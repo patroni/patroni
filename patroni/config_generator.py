@@ -21,7 +21,7 @@ from .collections import EMPTY_DICT
 from .config import Config
 from .exceptions import PatroniException
 from .log import PatroniLogger
-from .postgresql.config import ConfigHandler, parse_dsn
+from .postgresql.config import AUTH_ALLOWED_PARAMETERS_VERSIONS, ConfigHandler, parse_dsn
 from .postgresql.misc import postgres_major_version_to_int
 from .utils import get_major_version, parse_bool, patch_config, read_stripped
 
@@ -480,6 +480,10 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
 
         with self._get_connection_cursor() as cur:
             self.pg_major = getattr(cur.connection, 'server_version', 0)
+            # Adjust version-specific allowed parameters
+            for param, min_version in AUTH_ALLOWED_PARAMETERS_VERSIONS.items():
+                if self.pg_major < min_version and param in self.config['postgresql']['authentication']['superuser']:
+                    del self.config['postgresql']['authentication']['superuser'][param]
 
             if not parse_bool(getattr(cur.connection, 'get_parameter_status')('is_superuser')):
                 raise PatroniException('The provided user does not have superuser privilege')

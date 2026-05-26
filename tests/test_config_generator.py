@@ -214,6 +214,23 @@ class TestGenerateConfig(unittest.TestCase):
 
     @patch('os.makedirs', Mock())
     @patch('sys.stdout')
+    @patch.object(MockConnect, 'server_version', PropertyMock(return_value=140000))
+    def test_generate_config_running_instance_14(self, mock_sys_stdout):
+        self._set_running_instance_config_vals()
+
+        with patch('builtins.open', Mock(side_effect=self._get_running_instance_open_res())), \
+             patch('sys.argv', ['patroni.py', '--generate-config',
+                                '--dsn', 'host=foo port=bar user=foobar password=qwerty']), \
+                self.assertRaises(SystemExit) as e:
+            _main()
+        self.assertEqual(e.exception.code, 0)
+        config = deepcopy(self.config)
+        del config['postgresql']['authentication']['superuser']['sslnegotiation']
+        self.assertEqual(config, yaml.safe_load(mock_sys_stdout.write.call_args_list[0][0][0]))
+
+    @patch('os.makedirs', Mock())
+    @patch('sys.stdout')
+    @patch.object(MockConnect, 'server_version', PropertyMock(return_value=170000))
     def test_generate_config_running_instance_17(self, mock_sys_stdout):
         self._set_running_instance_config_vals()
 
@@ -227,6 +244,7 @@ class TestGenerateConfig(unittest.TestCase):
 
     @patch('os.makedirs', Mock())
     @patch('sys.stdout')
+    @patch.object(MockConnect, 'server_version', PropertyMock(return_value=170000))
     def test_generate_config_running_instance_17_connect_from_env(self, mock_sys_stdout):
         self._set_running_instance_config_vals()
         # su auth params and connect host from env
