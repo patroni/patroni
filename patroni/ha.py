@@ -278,7 +278,12 @@ class Ha(object):
         self._last_dynamic_sync_slots_enabled: Optional[bool] = None
 
     def _handle_dynamic_sync_slots_toggle(self, sync_members: Collection[str]) -> bool:
-        """Handle dynamic_synchronized_standby_slots feature toggle."""
+        """Handle ``dynamic_synchronized_standby_slots`` feature toggle.
+
+        Detects edges between the feature being enabled and disabled and either pushes
+        a fresh dynamic value (when toggled on) or restores the user-configured value
+        (when toggled off).
+        """
         feature_enabled = global_config.dynamic_synchronized_standby_slots_enabled
         if feature_enabled == self._last_dynamic_sync_slots_enabled:
             return False
@@ -287,8 +292,10 @@ class Ha(object):
         if feature_enabled:
             self.state_handler.slots_handler.update_synchronized_standby_slots(sync_members, reload=True)
         else:
-            # Feature was disabled - restore the user-configured value (or clear if none configured).
-            self.state_handler.config.restore_synchronized_standby_slots(reload=True)
+            # Feature was disabled - restore the user-configured value (or clear if none configured),
+            # mirroring the pattern used for synchronous_standby_names in disable_synchronous_replication.
+            value = self.state_handler.config.synchronized_standby_slots
+            self.state_handler.config.set_synchronized_standby_slots(value, reload=True)
         self._last_dynamic_sync_slots_enabled = feature_enabled
         return True
 
@@ -879,6 +886,10 @@ class Ha(object):
         # As synchronous_mode is off, check if the user configured Postgres synchronous replication instead
         ssn = self.state_handler.config.synchronous_standby_names
         self.state_handler.config.set_synchronous_standby_names(ssn)
+
+        # dynamic_synchronized_standby_slots depends on synchronous_mode, so when sync mode is off
+        # the feature effectively goes off too - restore the user-configured value if needed.
+        self._handle_dynamic_sync_slots_toggle(CaseInsensitiveSet())
 
     def _process_quorum_replication(self) -> None:
         """Process synchronous replication state when quorum commit is requested.

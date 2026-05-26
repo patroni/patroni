@@ -1353,14 +1353,6 @@ class ConfigHandler(object):
         """Update ``synchronized_standby_slots`` parameter."""
         return self._set_server_parameter('synchronized_standby_slots', value, reload=reload)
 
-    def restore_synchronized_standby_slots(self, reload: bool = False) -> bool:
-        """Restore ``synchronized_standby_slots`` to the user-configured value (or clear it).
-
-        Used when ``dynamic_synchronized_standby_slots`` is disabled to undo Patroni's override
-        and fall back to whatever the user specified in ``postgresql.parameters`` (if anything)."""
-        user_value = self._config.get('parameters', {}).get('synchronized_standby_slots')
-        return self._set_server_parameter('synchronized_standby_slots', user_value, reload=reload)
-
     @property
     def effective_configuration(self) -> CaseInsensitiveDict:
         """It might happen that the current value of one (or more) below parameters stored in
@@ -1468,3 +1460,12 @@ class ConfigHandler(object):
             if any, otherwise ``None``.
         """
         return (self.get('parameters') or EMPTY_DICT).get('synchronous_standby_names')
+
+    @property
+    def synchronized_standby_slots(self) -> Optional[str]:
+        """Get ``synchronized_standby_slots`` value configured by the user.
+
+        :returns: value of ``synchronized_standby_slots`` in the Patroni configuration,
+            if any, otherwise ``None``.
+        """
+        return (self.get('parameters') or EMPTY_DICT).get('synchronized_standby_slots')

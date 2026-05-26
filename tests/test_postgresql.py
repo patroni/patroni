@@ -837,6 +837,24 @@ class TestPostgresql(BaseTestPostgresql):
                 self.p.config.set_synchronous_standby_names('foo')
                 self.assertTrue(str(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
 
+        # PG17+ with dynamic_synchronized_standby_slots: cached _server_parameters value must
+        # be preserved (i.e. written back) so subsequent reload_config() doesn't reset it.
+        self.p._major_version = 170000
+        with patch.object(global_config.__class__, 'dynamic_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)):
+            # Value cached -> preserved as-is.
+            self.p.config._server_parameters['synchronized_standby_slots'] = 'dyn_slot_a,dyn_slot_b'
+            params = self.p.config.get_server_parameters(config)
+            self.assertEqual(params.get('synchronized_standby_slots'), 'dyn_slot_a,dyn_slot_b')
+
+            # Value cleared -> parameter removed even if present in user config.
+            self.p.config._server_parameters.pop('synchronized_standby_slots', None)
+            config_with_user_value = {'parameters': {**config['parameters'],
+                                                     'synchronized_standby_slots': 'user_slot'},
+                                      'listen': '0'}
+            params = self.p.config.get_server_parameters(config_with_user_value)
+            self.assertNotIn('synchronized_standby_slots', params)
+
     def test_set_synchronized_standby_slots(self):
         # Setting a value should return True
         self.assertTrue(self.p.config.set_synchronized_standby_slots('slot1,slot2'))
@@ -858,31 +876,14 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertTrue(self.p.config.set_synchronized_standby_slots('slot1', reload=True))
             mock_reload.assert_called_once()
 
-    def test_restore_synchronized_standby_slots(self):
-        # Pretend Patroni's dynamic feature has set synchronized_standby_slots to some value.
-        self.p.config._server_parameters['synchronized_standby_slots'] = 'dynamic_value'
-
-        # No user-configured value: restore should clear the parameter.
+    def test_synchronized_standby_slots_property(self):
+        # No user-configured value -> None
         self.p.config._config.setdefault('parameters', {}).pop('synchronized_standby_slots', None)
-        self.assertTrue(self.p.config.restore_synchronized_standby_slots())
-        self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
+        self.assertIsNone(self.p.config.synchronized_standby_slots)
 
-        # User-configured value present: restore should set the parameter to that value.
-        self.p.config._server_parameters['synchronized_standby_slots'] = 'dynamic_value'
+        # User-configured value present -> exact string
         self.p.config._config['parameters']['synchronized_standby_slots'] = 'user_slot_a,user_slot_b'
-        self.assertTrue(self.p.config.restore_synchronized_standby_slots())
-        self.assertEqual(self.p.config._server_parameters['synchronized_standby_slots'],
-                         'user_slot_a,user_slot_b')
-
-        # Idempotent: calling again with the same already-set value returns False.
-        self.assertFalse(self.p.config.restore_synchronized_standby_slots())
-
-        # reload=True with running state should trigger a reload
-        self.p.config._server_parameters['synchronized_standby_slots'] = 'something_else'
-        with patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.RUNNING)), \
-             patch.object(Postgresql, 'reload', Mock()) as mock_reload:
-            self.assertTrue(self.p.config.restore_synchronized_standby_slots(reload=True))
-            mock_reload.assert_called_once()
+        self.assertEqual(self.p.config.synchronized_standby_slots, 'user_slot_a,user_slot_b')
 
         # Cleanup so other tests don't see the change.
         self.p.config._config['parameters'].pop('synchronized_standby_slots', None)

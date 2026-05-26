@@ -187,17 +187,22 @@ class TestSync(BaseTestPostgresql):
 
         # PG17+ with dynamic_synchronized_standby_slots: ensure a manual reload happens
         # when only synchronized_standby_slots changes (synchronous_standby_names unchanged).
+        from patroni.postgresql import PostgresqlState
         from unittest.mock import PropertyMock
         self.p._major_version = 170000
         self.cluster.config.data['synchronous_mode'] = True
         self.cluster.config.data['dynamic_synchronized_standby_slots'] = True
         global_config.update(self.cluster)
-        # Pre-populate SSN so it won't change, but leave synchronized_standby_slots unset.
-        self.p.config._server_parameters['synchronous_standby_names'] = "'n1'"
+        # Pre-populate SSN with the value set_synchronous_standby_names would produce
+        # (no change there) but leave synchronized_standby_slots unset so they DO change.
+        self.p.config._server_parameters['synchronous_standby_names'] = 'n1'
         self.p.config._server_parameters.pop('synchronized_standby_slots', None)
         mock_reload.reset_mock()
         with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
-                          new_callable=PropertyMock, return_value=True):
+                          new_callable=PropertyMock, return_value=True), \
+            patch.object(type(self.p), 'state',
+                         new_callable=PropertyMock,
+                         return_value=PostgresqlState.RUNNING):
             self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1']))
         # SSN didn't change, but slots did, so a manual reload is expected.
         mock_reload.assert_called()
