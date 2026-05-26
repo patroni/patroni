@@ -83,6 +83,26 @@ class TestSlotsHandler(BaseTestPostgresql):
                 self.p.set_role(PostgresqlRole.REPLICA)
                 self.s.sync_replication_slots(cluster, self.tags)
 
+        config = ClusterConfig(1, {'slots': {'ls': {'type': 'logical', 'plugin': 'b', 'database': 'a'}}}, 1)
+        cluster = Cluster(True, config, self.leader,
+                          Status(0, {'test_3': 10}, []),
+                          [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
+        global_config.update(cluster)
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=170000)), \
+                patch.object(Postgresql, 'is_primary', Mock(side_effect=[False, True])):
+            # as replica
+            self.s.sync_replication_slots(cluster, self.tags)
+            self.assertIn('ls', self.s._replication_slots)
+            self.assertEqual(self.s._replication_slots['ls'],
+                             {'type': 'logical', 'plugin': 'b', 'database': 'a', 'datoid': 5,
+                              'catalog_xmin': 100, 'confirmed_flush_lsn': 500, 'failover': False, 'synced': False})
+            # as primary
+            self.s.sync_replication_slots(cluster, self.tags)
+            self.assertIn('ls', self.s._replication_slots)
+            self.assertEqual(self.s._replication_slots['ls'],
+                             {'type': 'logical', 'plugin': 'b', 'database': 'a', 'datoid': 5,
+                              'catalog_xmin': 100, 'confirmed_flush_lsn': 500, 'failover': False, 'synced': False})
+
     def test_cascading_replica_sync_replication_slots(self):
         """Test sync with a cascading replica so physical slots are present on a replica."""
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}}}, 1)
@@ -405,7 +425,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('test_1', 'physical', 1, 12345, None, None,
                                                                       None, None, None)], Exception])) as mock_query:
             self.s.sync_replication_slots(cluster, self.tags)
-            self.assertTrue(mock_query.call_args[0][0].startswith('SELECT slot_name, slot_type, xmin, '))
+            self.assertTrue(mock_query.call_args[0][0].startswith('SELECT slot_name, slot_type AS type, xmin, '))
 
     def test__drop_replication_slot(self):
         """Test the :meth:~SlotsHandler._drop_replication_slot` method."""
