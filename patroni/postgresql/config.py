@@ -672,7 +672,7 @@ class ConfigHandler(object):
         def escape(value: Any) -> str:
             return re.sub(r'([\'\\ ])', r'\\\1', str(value))
 
-        key_ver = dict({'target_session_attrs': 100000}, **AUTH_ALLOWED_PARAMETERS_VERSIONS)
+        key_ver = {'target_session_attrs': 100000, **AUTH_ALLOWED_PARAMETERS_VERSIONS}
         return ' '.join('{0}={1}'.format(kw, escape(params[kw])) for kw in keywords
                         if params.get(kw) is not None and self._postgresql.major_version >= key_ver.get(kw, 0))
 
