@@ -82,6 +82,75 @@ This is the synopsis for running a command from the ``patronictl``:
 
 In the following sub-sections you can find a description of each command implemented by ``patronictl``. For sake of example, we will use the configuration files present in the GitHub repository of Patroni (files ``postgres0.yml``, ``postgres1.yml`` and ``postgres2.yml``).
 
+.. _patronictl_demote_cluster:
+
+patronictl demote-cluster
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. _patronictl_demote_cluster_synopsis:
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    demote-cluster
+      [ CLUSTER_NAME ]
+      [ --host HOST ]
+      [ --port PORT ]
+      [ --restore-command RESTORE_COMMAND ]
+      [ --primary-slot-name PRIMARY_SLOT_NAME ]
+      [ --force ]
+
+.. _patronictl_demote_cluster_description:
+
+Description
+"""""""""""
+
+``patronictl demote-cluster`` converts a regular Patroni cluster into a :ref:`standby cluster <standby_cluster>`.
+
+The command patches the dynamic configuration with a ``standby_cluster`` section built from the provided remote primary connection options, then waits until the leader is running as a standby leader. It prints the current cluster topology before changing the configuration and asks for confirmation unless ``--force`` is used.
+
+At least one of ``--host``, ``--port`` or ``--restore-command`` must be specified.
+
+.. _patronictl_demote_cluster_parameters:
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+    If not given, ``patronictl`` will attempt to fetch that from the ``scope`` configuration, if it exists.
+
+``--host``
+    Address of the remote node.
+
+``--port``
+    Port of the remote node.
+
+``--restore-command``
+    Command to restore WAL records from the remote primary.
+
+``--primary-slot-name``
+    Name of the replication slot on the remote node to use for replication.
+
+``--force``
+    Flag to skip confirmation prompts when demoting the cluster.
+
+    Useful for scripts.
+
+.. _patronictl_demote_cluster_examples:
+
+Examples
+""""""""
+
+Demote the cluster to a standby cluster that follows a remote primary endpoint:
+
+.. code:: bash
+
+    $ patronictl -c postgres0.yml demote-cluster batman --host 192.0.2.10 --port 5432 --primary-slot-name batman --force
+
 .. _patronictl_dsn:
 
 patronictl dsn
@@ -939,6 +1008,57 @@ Put the cluster in maintenance mode, and wait until all nodes have been paused:
     $ patronictl -c postgres0.yml pause batman --wait
     'pause' request sent, waiting until it is recognized by all nodes
     Success: cluster management is paused
+
+.. _patronictl_promote_cluster:
+
+patronictl promote-cluster
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. _patronictl_promote_cluster_synopsis:
+
+Synopsis
+""""""""
+
+.. code:: text
+
+    promote-cluster
+      [ CLUSTER_NAME ]
+      [ --force ]
+
+.. _patronictl_promote_cluster_description:
+
+Description
+"""""""""""
+
+``patronictl promote-cluster`` converts a standby cluster into a regular Patroni cluster.
+
+The command removes the ``standby_cluster`` section from the dynamic configuration and waits until the leader is running as the primary. It prints the current cluster topology before changing the configuration and asks for confirmation unless ``--force`` is used.
+
+.. _patronictl_promote_cluster_parameters:
+
+Parameters
+""""""""""
+
+``CLUSTER_NAME``
+    Name of the Patroni cluster.
+
+    If not given, ``patronictl`` will attempt to fetch that from the ``scope`` configuration, if it exists.
+
+``--force``
+    Flag to skip confirmation prompts when promoting the cluster.
+
+    Useful for scripts.
+
+.. _patronictl_promote_cluster_examples:
+
+Examples
+""""""""
+
+Promote the standby cluster to run as a regular Patroni cluster:
+
+.. code:: bash
+
+    $ patronictl -c postgres0.yml promote-cluster batman --force
 
 .. _patronictl_query:
 
