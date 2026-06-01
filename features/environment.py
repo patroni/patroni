@@ -975,6 +975,14 @@ class PatroniPoolController(object):
         for p in self._processes.values():
             if p._conn:
                 return p._conn.server_version
+        
+        # Fallback to postgres binary version if no instances are started yet
+        from patroni.postgresql.misc import postgres_major_version_to_int
+        from patroni.utils import get_major_version
+        try:
+            return postgres_major_version_to_int(get_major_version())
+        except Exception:
+            return None
 
 
 class WatchdogMonitor(object):
