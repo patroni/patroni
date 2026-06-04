@@ -197,8 +197,9 @@ class TestSync(BaseTestPostgresql):
 
         # PG17+ with dynamic_synchronized_standby_slots: ensure a manual reload happens
         # when only synchronized_standby_slots changes (synchronous_standby_names unchanged).
-        from patroni.postgresql import PostgresqlState
         from unittest.mock import PropertyMock
+
+        from patroni.postgresql import PostgresqlState
         self.p._major_version = 170000
         self.cluster.config.data['synchronous_mode'] = True
         self.cluster.config.data['dynamic_synchronized_standby_slots'] = True

@@ -19,8 +19,9 @@ import psutil
 import yaml
 
 import patroni.psycopg as psycopg
-
+from patroni.postgresql.misc import postgres_version_to_int
 from patroni.request import PatroniRequest
+from patroni.utils import get_postgres_version
 
 
 class AbstractController(abc.ABC):
@@ -975,12 +976,10 @@ class PatroniPoolController(object):
         for p in self._processes.values():
             if p._conn:
                 return p._conn.server_version
-        
+
         # Fallback to postgres binary version if no instances are started yet
-        from patroni.postgresql.misc import postgres_major_version_to_int
-        from patroni.utils import get_major_version
         try:
-            return postgres_major_version_to_int(get_major_version())
+            return postgres_version_to_int(get_postgres_version())
         except Exception:
             return None
 
