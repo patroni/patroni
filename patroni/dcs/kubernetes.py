@@ -909,10 +909,10 @@ class Kubernetes(AbstractDCS):
         if leader_path == self.leader_path and (leader_record or self._leader_observed_record)\
                 and leader_record != self._leader_observed_record:
             self._leader_observed_record = leader_record
-            # Intentionally use wall-clock time: _leader_observed_time is compared with K8s
-            # renewTime/acquireTime annotations which are wall-clock timestamps, so it must
-            # be a real (system) timestamp for the comparison to be consistent.
-            self._leader_observed_time = time.time()
+            # Use monotonic time: _leader_observed_time is used for a local TTL check
+            # (measuring elapsed time since leader was last observed), not for comparison
+            # with external timestamps, so monotonic time is appropriate.
+            self._leader_observed_time = time.monotonic()
 
         leader = leader_record.get(self._LEADER)
         try:
@@ -921,9 +921,9 @@ class Kubernetes(AbstractDCS):
             ttl = self._ttl
 
         # We want to check validity of the leader record only for our own cluster
-        # Using wall-clock time for comparison with _leader_observed_time (see above).
+        # Using monotonic time for local TTL duration check (see above).
         if leader_path == self.leader_path and\
-                not (metadata and self._leader_observed_time and self._leader_observed_time + ttl >= time.time()):
+                not (metadata and self._leader_observed_time and self._leader_observed_time + ttl >= time.monotonic()):
             leader = None
 
         if metadata:
