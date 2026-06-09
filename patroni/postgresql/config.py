@@ -21,12 +21,21 @@ from ..utils import compare_values, get_postgres_version, is_subpath, \
     maybe_convert_from_base_unit, parse_bool, parse_int, split_host_port, uri, validate_directory
 from ..validator import EnumValidator, IntValidator
 from .misc import get_major_from_minor_version, postgres_version_to_int, PostgresqlRole, PostgresqlState
+from .sync import SYNC_STRICT_PLACEHOLDER
 from .validator import recovery_parameters, transform_postgresql_parameter_value, transform_recovery_parameter_value
 
 if TYPE_CHECKING:  # pragma: no cover
     from . import Postgresql
 
 logger = logging.getLogger(__name__)
+
+AUTH_ALLOWED_PARAMETERS_VERSIONS = {
+    'gssencmode': 120000,
+    'channel_binding': 130000,
+    'sslpassword': 130000,
+    'sslcrldir': 140000,
+    'sslnegotiation': 170000
+}
 
 PARAMETER_RE = re.compile(r'([a-z_]+)\s*=\s*')
 
@@ -633,11 +642,11 @@ class ConfigHandler(object):
         ret = member.conn_kwargs(self.replication)
         ret['application_name'] = self._postgresql.name
         ret.setdefault('sslmode', 'prefer')
-        if self._postgresql.major_version >= 120000:
+        if self._postgresql.major_version >= AUTH_ALLOWED_PARAMETERS_VERSIONS['gssencmode']:
             ret.setdefault('gssencmode', 'prefer')
-        if self._postgresql.major_version >= 130000:
+        if self._postgresql.major_version >= AUTH_ALLOWED_PARAMETERS_VERSIONS['channel_binding']:
             ret.setdefault('channel_binding', 'prefer')
-        if self._postgresql.major_version >= 170000:
+        if self._postgresql.major_version >= AUTH_ALLOWED_PARAMETERS_VERSIONS['sslnegotiation']:
             ret.setdefault('sslnegotiation', 'postgres')
         if self._krbsrvname:
             ret['krbsrvname'] = self._krbsrvname
@@ -664,8 +673,7 @@ class ConfigHandler(object):
         def escape(value: Any) -> str:
             return re.sub(r'([\'\\ ])', r'\\\1', str(value))
 
-        key_ver = {'target_session_attrs': 100000, 'gssencmode': 120000, 'channel_binding': 130000,
-                   'sslpassword': 130000, 'sslcrldir': 140000, 'sslnegotiation': 170000}
+        key_ver = {'target_session_attrs': 100000, **AUTH_ALLOWED_PARAMETERS_VERSIONS}
         return ' '.join('{0}={1}'.format(kw, escape(params[kw])) for kw in keywords
                         if params.get(kw) is not None and self._postgresql.major_version >= key_ver.get(kw, 0))
 
@@ -1071,7 +1079,7 @@ class ConfigHandler(object):
             if synchronous_standby_names is None:
                 if global_config.is_synchronous_mode_strict\
                         and self._postgresql.role in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
-                    parameters['synchronous_standby_names'] = '*'
+                    parameters['synchronous_standby_names'] = SYNC_STRICT_PLACEHOLDER
                 else:
                     parameters.pop('synchronous_standby_names', None)
             else:
