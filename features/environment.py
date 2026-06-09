@@ -19,6 +19,7 @@ import psutil
 import yaml
 
 import patroni.psycopg as psycopg
+
 from patroni.postgresql.misc import postgres_version_to_int
 from patroni.request import PatroniRequest
 from patroni.utils import get_postgres_version
