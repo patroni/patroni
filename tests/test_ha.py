@@ -25,7 +25,7 @@ from patroni.postgresql.rewind import Rewind, REWIND_STATUS
 from patroni.postgresql.slots import SlotsHandler
 from patroni.postgresql.sync import _SyncState
 from patroni.thread_pool import PatroniThreadPoolExecutor
-from patroni.utils import tzutc
+from patroni.utils import SyncCrossSiteMode, tzutc
 from patroni.watchdog import Watchdog
 
 from . import MockPostmaster, PostgresInit, psycopg_connect, requests_get
@@ -47,7 +47,8 @@ def get_cluster(initialize, leader, members, failover, sync, cluster_config=None
     history = TimelineHistory(1, '[[1,67197376,"no recovery target specified","' + t + '","foo"]]',
                               [(1, 67197376, 'no recovery target specified', t, 'foo')])
     cluster_config = cluster_config or ClusterConfig(1, {'check_timeline': True, 'member_slots_ttl': 0}, 1)
-    return Cluster(initialize, cluster_config, leader, Status(10, None, []), members, failover, sync, history, failsafe)
+    return Cluster(initialize, cluster_config, leader,
+                   Status(10, None, [], None), members, failover, sync, history, failsafe)
 
 
 def get_cluster_not_initialized_without_leader(cluster_config=None):
@@ -71,7 +72,7 @@ def get_cluster_initialized_without_leader(leader=False, failover=None, sync=Non
                                  'scheduled_restart': {'schedule': "2100-01-01 10:53:07.560445+00:00",
                                                        'postgres_version': '99.0.0'}})
     syncstate = SyncState(0 if sync else None, sync and sync[0],
-                          sync and sync[1], sync[2] if sync and len(sync) > 2 else 0)
+                          sync and sync[1], sync[2] if sync and len(sync) > 2 else 0, SyncCrossSiteMode.OFF)
     failsafe = {m.name: m.api_url for m in (m1, m2)} if failsafe else None
     return get_cluster(SYSID, leader, [m1, m2], failover, syncstate, cluster_config, failsafe)
 
@@ -168,6 +169,7 @@ zookeeper:
         self.request = lambda *args, **kwargs: requests_get(args[0].api_url, *args[1:], **kwargs)
         self.failover_priority = 1
         self.sync_priority = 1
+        self.site = 'dc1'
 
 
 def run_async(self, func, args=()):
@@ -1571,7 +1573,7 @@ class TestHa(PostgresInit):
         # When we just became primary nobody is sync
         self.assertEqual(self.ha.enforce_primary_role('msg', 'promote msg'), 'promote msg')
         mock_set_sync.assert_called_once_with(CaseInsensitiveSet(), None)
-        mock_write_sync.assert_called_once_with('leader', CaseInsensitiveSet(), 0, version=0)
+        mock_write_sync.assert_called_once_with('leader', CaseInsensitiveSet(), 0, SyncCrossSiteMode.OFF, version=0)
 
         mock_set_sync.reset_mock()
 
@@ -1609,7 +1611,7 @@ class TestHa(PostgresInit):
         mock_acquire.assert_called_once()
         mock_follow.assert_not_called()
         mock_promote.assert_called_once()
-        mock_write_sync.assert_called_once_with('other', CaseInsensitiveSet(), 0, version=0)
+        mock_write_sync.assert_called_once_with('other', CaseInsensitiveSet(), 0, SyncCrossSiteMode.OFF, version=0)
 
     def test_disable_sync_when_restarting(self):
         self.ha.is_synchronous_mode = true
@@ -1871,7 +1873,8 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(),
                          'Postponing promotion because synchronous replication state was updated by somebody else')
         self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
-        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(), 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][0],
+                         (self.p.name, CaseInsensitiveSet(), 0, SyncCrossSiteMode.OFF))
         self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
 
         mock_set_sync = self.p.config.set_synchronous_standby_names = Mock()
@@ -1879,7 +1882,8 @@ class TestHa(PostgresInit):
         # Postgres 9.5, our name is written to leader of the /sync key, while voters list and ssn is empty
         self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
-        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(), 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][0],
+                         (self.p.name, CaseInsensitiveSet(), 0, SyncCrossSiteMode.OFF))
         self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], (None,))
@@ -1892,7 +1896,8 @@ class TestHa(PostgresInit):
         with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
             self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
-        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(['other']), 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][0],
+                         (self.p.name, CaseInsensitiveSet(['other']), 0, SyncCrossSiteMode.OFF))
         self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('other',))
@@ -1905,7 +1910,8 @@ class TestHa(PostgresInit):
         # Voters and synchronous_standby_names are set based on the old value of /sync key.
         with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
             self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
-        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(['foo', 'other']), 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][0],
+                         (self.p.name, CaseInsensitiveSet(['foo', 'other']), 0, SyncCrossSiteMode.OFF))
         self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('2 (foo,other)',))
@@ -1923,7 +1929,7 @@ class TestHa(PostgresInit):
         with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
             self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
         self.assertEqual(mock_write_sync.call_args_list[0][0],
-                         (self.p.name, CaseInsensitiveSet(['foo', 'other', 'postgresql0']), 0))
+                         (self.p.name, CaseInsensitiveSet(['foo', 'other', 'postgresql0']), 0, SyncCrossSiteMode.OFF))
         self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('3 (foo,other,postgresql0)',))
@@ -1975,18 +1981,20 @@ class TestHa(PostgresInit):
                                                                          CaseInsensitiveSet(['other'])))
         self.ha.run_cycle()
         self.assertEqual(mock_write_sync.call_count, 1)
-        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, None, 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, None, 0, SyncCrossSiteMode.OFF))
         self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': None})
         self.assertEqual(mock_set_sync.call_count, 0)
 
-        mock_write_sync = self.ha.dcs.write_sync_state = Mock(side_effect=[SyncState(None, self.p.name, None, 0), None])
+        mock_write_sync = self.ha.dcs.write_sync_state = Mock(side_effect=[SyncState(None, self.p.name, None, 0,
+                                                                                     SyncCrossSiteMode.OFF), None])
         # Test /sync key is attempted to set and succeed when missing or invalid
         with patch.object(SyncState, 'is_empty', Mock(side_effect=[True, False])):
             self.ha.run_cycle()
         self.assertEqual(mock_write_sync.call_count, 2)
-        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, None, 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, None, 0, SyncCrossSiteMode.OFF))
         self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': None})
-        self.assertEqual(mock_write_sync.call_args_list[1][0], (self.p.name, CaseInsensitiveSet(['other']), 0))
+        self.assertEqual(mock_write_sync.call_args_list[1][0], (self.p.name, CaseInsensitiveSet(['other']), 0,
+                                                                SyncCrossSiteMode.OFF))
         self.assertEqual(mock_write_sync.call_args_list[1][1], {'version': None})
         self.assertEqual(mock_set_sync.call_count, 0)
 
@@ -1996,14 +2004,16 @@ class TestHa(PostgresInit):
                                                               _SyncState('quorum', 1, CaseInsensitiveSet(['foo']),
                                                                          CaseInsensitiveSet(['foo']),
                                                                          CaseInsensitiveSet(['foo']))])
-        mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=SyncState(1, 'leader', 'foo', 0))
+        mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=SyncState(1, 'leader', 'foo',
+                                                                                     0, SyncCrossSiteMode.OFF))
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo'))
         # Test the sync node is removed from voters, added to ssn
         with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='other')), \
                 patch('time.sleep', Mock()):
             self.ha.run_cycle()
         self.assertEqual(mock_write_sync.call_count, 1)
-        self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(), 0))
+        self.assertEqual(mock_write_sync.call_args_list[0][0],
+                         (self.p.name, CaseInsensitiveSet(), 0, SyncCrossSiteMode.OFF))
         self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (other)',))

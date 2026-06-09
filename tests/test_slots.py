@@ -38,7 +38,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         self.s = self.p.slots_handler
         self.p.start()
         config = ClusterConfig(1, {'slots': {'ls': {'database': 'a', 'plugin': 'b'}, 'ls2': None}}, 1)
-        self.cluster = Cluster(True, config, self.leader, Status(0, {'ls': 12345, 'ls2': 12345}, []),
+        self.cluster = Cluster(True, config, self.leader, Status(0, {'ls': 12345, 'ls2': 12345}, [], None),
                                [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
         global_config.update(self.cluster)
         self.tags = TestTags()
@@ -47,7 +47,7 @@ class TestSlotsHandler(BaseTestPostgresql):
         config = ClusterConfig(1, {'slots': {'test_3': {'database': 'a', 'plugin': 'b'},
                                              'A': 0, 'ls': 0, 'b': {'type': 'logical', 'plugin': '1'}},
                                    'ignore_slots': [{'name': 'blabla'}]}, 1)
-        cluster = Cluster(True, config, self.leader, Status(0, {'test_3': 10}, []),
+        cluster = Cluster(True, config, self.leader, Status(0, {'test_3': 10}, [], None),
                           [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
         global_config.update(cluster)
         with mock.patch('patroni.postgresql.Postgresql._query', Mock(side_effect=psycopg.OperationalError)):
@@ -85,7 +85,7 @@ class TestSlotsHandler(BaseTestPostgresql):
 
         config = ClusterConfig(1, {'slots': {'ls': {'type': 'logical', 'plugin': 'b', 'database': 'a'}}}, 1)
         cluster = Cluster(True, config, self.leader,
-                          Status(0, {'test_3': 10}, []),
+                          Status(0, {'test_3': 10}, [], None),
                           [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
         global_config.update(cluster)
         with patch.object(Postgresql, 'major_version', PropertyMock(return_value=170000)), \
@@ -110,7 +110,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             'state': PostgresqlState.RUNNING, 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
             'tags': {'replicatefrom': 'postgresql0'}
         })
-        cluster = Cluster(True, config, self.leader, Status(0, {'ls': 10}, []),
+        cluster = Cluster(True, config, self.leader, Status(0, {'ls': 10}, [], None),
                           [self.me, self.other, self.leadermem, cascading_replica], None, SyncState.empty(), None, None)
         self.p.set_role(PostgresqlRole.REPLICA)
         with patch.object(Postgresql, '_query') as mock_query, \
@@ -161,7 +161,7 @@ class TestSlotsHandler(BaseTestPostgresql):
             'state': PostgresqlState.RUNNING, 'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
             'xlog_location': 99})
         cluster = Cluster(
-            True, config, self.leader, Status(100, {'leader': 99, 'test_2': 98, 'test_3': 97, 'test_4': 98}, []),
+            True, config, self.leader, Status(100, {'leader': 99, 'test_2': 98, 'test_3': 97, 'test_4': 98}, [], None),
             [self.leadermem, nostream_node, cascade_node, stream_node], None, SyncState.empty(), None, None)
         global_config.update(cluster)
 
@@ -333,7 +333,7 @@ class TestSlotsHandler(BaseTestPostgresql):
     def test_advance_physical_primary(self):
         self.p.name = self.me.name
         config = ClusterConfig(1, {'member_slots_ttl': 0, 'slots': {'test_1': {'type': 'physical'}}}, 1)
-        cluster = Cluster(True, config, self.leader, Status(0, {}, []),
+        cluster = Cluster(True, config, self.leader, Status(0, {}, [], None),
                           [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
         self.other.data['xlog_location'] = 12346
         global_config.update(cluster)
@@ -359,7 +359,7 @@ class TestSlotsHandler(BaseTestPostgresql):
     @patch.object(Postgresql, 'role', PropertyMock(return_value=PostgresqlRole.REPLICA))
     def test_advance_physical_slots(self):
         config = ClusterConfig(1, {'slots': {'blabla': {'type': 'physical'}, 'leader': None}}, 1)
-        cluster = Cluster(True, config, self.leader, Status(0, {'blabla': 12346}, []),
+        cluster = Cluster(True, config, self.leader, Status(0, {'blabla': 12346}, [], None),
                           [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
         global_config.update(cluster)
         self.s.sync_replication_slots(cluster, self.tags)
@@ -419,7 +419,7 @@ class TestSlotsHandler(BaseTestPostgresql):
     def test_slots_nofailover_tag(self):
         self.p.name = self.leadermem.name
         cluster = Cluster(True, ClusterConfig(1, {}, 1), self.leader,
-                          Status(0, {}, [self.leadermem.name, self.other.name, self.me.name]),
+                          Status(0, {}, [self.leadermem.name, self.other.name, self.me.name], None),
                           [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
         global_config.update(cluster)
         with patch.object(SlotsHandler, '_query', Mock(side_effect=[[('test_1', 'physical', 1, 12345, None, None,
@@ -480,7 +480,7 @@ class TestSlotsHandler(BaseTestPostgresql):
                   Mock(return_value=[('ls', 'logical', 1, 104, 'b', 'a', 5, 12345, 105, True, False)]))
     def test__drop_incorrect_failover_synced_slots(self):
         config = ClusterConfig(1, {}, 1)
-        cluster = Cluster(True, config, self.leader, Status(0, {}, []),
+        cluster = Cluster(True, config, self.leader, Status(0, {}, [], None),
                           [self.me, self.other, self.leadermem], None, SyncState.empty(), None, None)
         with patch('patroni.postgresql.slots.logger.info') as mock_info:
             self.s.sync_replication_slots(cluster, self.tags)

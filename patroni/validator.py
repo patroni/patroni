@@ -972,6 +972,11 @@ def validate_watchdog_mode(value: Any) -> None:
     assert_(value in (False, "off", "automatic", "required"))
 
 
+def validate_synchronous_cross_site(value: Any) -> None:
+    assert_(isinstance(value, (str, bool)), "expected type is not a string")
+    assert_(value in (False, "off", "prefer-local", "prefer-remote", "local-only", "remote-only", "balanced"))
+
+
 def validate_name(value: Any) -> None:
     """Validate ``name`` configuration option.
 
@@ -1014,6 +1019,7 @@ validate_etcd = {
 schema = Schema({
     "name": validate_name,
     "scope": str,
+    Optional("site"): str,
     Optional("thread_pool_size"): IntValidator(min=5, expected_type=int, raise_assert=True),
     Optional("thread_stack_size"): IntValidator(min=65536, base_unit='B', aligned=65535,
                                                 expected_type=int, raise_assert=True),
@@ -1103,6 +1109,7 @@ schema = Schema({
             },
             Optional("synchronous_mode"): bool,
             Optional("synchronous_mode_strict"): bool,
+            Optional("synchronous_cross_site"): validate_synchronous_cross_site,
             Optional("synchronous_node_count"): IntValidator(min=1, raise_assert=True),
         },
         Optional("initdb"): [Or(str, dict)],

@@ -13,7 +13,7 @@ from patroni.dcs import get_dcs
 from patroni.dcs.etcd import AbstractDCS, Cluster, DnsCachingResolver, Etcd, EtcdClient, EtcdError
 from patroni.exceptions import DCSError
 from patroni.postgresql.mpp import get_mpp
-from patroni.utils import Retry
+from patroni.utils import Retry, SyncCrossSiteMode
 
 from . import MockResponse, requests_get, SleepException
 
@@ -374,7 +374,7 @@ class TestEtcd(unittest.TestCase):
         self.assertTrue(self.etcd.watch(None, 1))
 
     def test_sync_state(self):
-        self.assertIsNone(self.etcd.write_sync_state('leader', None, 0))
+        self.assertIsNone(self.etcd.write_sync_state('leader', None, 0, SyncCrossSiteMode.OFF))
         self.assertFalse(self.etcd.delete_sync_state())
 
     def test_set_history_value(self):

@@ -17,6 +17,7 @@ from patroni.dcs.kubernetes import Cluster, k8s_client, k8s_config, K8sConfig, K
     RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.mpp import get_mpp
+from patroni.utils import SyncCrossSiteMode
 
 from . import MockResponse, SleepException
 
@@ -490,7 +491,7 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', mock_namespaced_kind, create=True)
     def test_write_sync_state(self):
-        self.assertIsNotNone(self.k.write_sync_state('a', ['b'], 0, 1))
+        self.assertIsNotNone(self.k.write_sync_state('a', ['b'], 0, SyncCrossSiteMode.OFF, 1))
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod', mock_namespaced_kind, create=True)
     @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints', mock_namespaced_kind, create=True)

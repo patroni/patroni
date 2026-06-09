@@ -20,7 +20,7 @@ from .. import global_config
 from ..dynamic_loader import iter_classes, iter_modules
 from ..exceptions import PatroniAssertionError, PatroniFatalException
 from ..tags import Tags
-from ..utils import deep_compare, parse_int, uri
+from ..utils import deep_compare, parse_int, SyncCrossSiteMode, uri
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
@@ -130,7 +130,7 @@ def get_dcs(config: Union['Config', Dict[str, Any]]) -> 'AbstractDCS':
     for name, dcs_class in iter_dcs_classes(config):
         # Propagate some parameters from top level of config if defined to the DCS specific config section.
         config[name].update({
-            p: config[p] for p in ('namespace', 'name', 'scope', 'loop_wait',
+            p: config[p] for p in ('namespace', 'name', 'scope', 'site', 'loop_wait',
                                    'patronictl', 'ttl', 'retry_timeout')
             if p in config})
 
@@ -334,6 +334,10 @@ class Member(Tags, NamedTuple('Member',
     @property
     def replay_lsn(self) -> Optional[int]:
         return parse_int(self.data.get('replay_lsn'))
+
+    @property
+    def site(self) -> Optional[str]:
+        return self.data.get('site')
 
 
 class RemoteMember(Member):
@@ -593,6 +597,7 @@ class SyncState(NamedTuple):
     leader: Optional[str]
     sync_standby: Optional[str]
     quorum: int
+    cross_site_mode: 'SyncCrossSiteMode'
 
     @staticmethod
     def from_node(version: Optional[_Version], value: Union[str, Dict[str, Any], None]) -> 'SyncState':
@@ -630,7 +635,9 @@ class SyncState(NamedTuple):
                 raise PatroniAssertionError('not a dict')
             leader = value.get('leader')
             quorum = value.get('quorum')
-            return SyncState(version, leader, value.get('sync_standby'), int(quorum) if leader and quorum else 0)
+            cross_site_mode = SyncCrossSiteMode(value.get('cross_site_mode', 'off'))
+            return SyncState(version, leader, value.get('sync_standby'),
+                             int(quorum) if leader and quorum else 0, cross_site_mode)
         except (PatroniAssertionError, TypeError, ValueError):
             return SyncState.empty(version)
 
@@ -642,7 +649,7 @@ class SyncState(NamedTuple):
 
         :returns: empty synchronisation state object.
         """
-        return SyncState(version, None, None, 0)
+        return SyncState(version, None, None, 0, SyncCrossSiteMode.OFF)
 
     @property
     def is_empty(self) -> bool:
@@ -684,7 +691,7 @@ class SyncState(NamedTuple):
                   the sync state.
 
         :Example:
-            >>> s = SyncState(1, 'foo', 'bar,zoo', 0)
+            >>> s = SyncState(1, 'foo', 'bar,zoo', 0, 'off')
 
             >>> s.matches('foo')
             False
@@ -783,6 +790,7 @@ class Status(NamedTuple):
     last_lsn: int
     slots: Optional[Dict[str, int]]
     retain_slots: List[str]
+    current_site: Optional[str]
 
     @staticmethod
     def empty() -> 'Status':
@@ -790,7 +798,7 @@ class Status(NamedTuple):
 
         :returns: empty :class:`Status` object.
         """
-        return Status(0, None, [])
+        return Status(0, None, [], None)
 
     def is_empty(self):
         """Validate definition of all attributes of this :class:`Status` instance.
@@ -814,7 +822,7 @@ class Status(NamedTuple):
             return Status.empty()
 
         if isinstance(value, int):  # legacy
-            return Status(value, None, [])
+            return Status(value, None, [], None)
 
         if not isinstance(value, dict):
             return Status.empty()
@@ -842,7 +850,8 @@ class Status(NamedTuple):
         if not isinstance(retain_slots, list):
             retain_slots = []
 
-        return Status(last_lsn, slots, retain_slots)
+        current_site = value.get('current_site')
+        return Status(last_lsn, slots, retain_slots, current_site)
 
 
 class Cluster(NamedTuple('Cluster',
@@ -918,7 +927,7 @@ class Cluster(NamedTuple('Cluster',
 
            >>> assert bool(cluster) is False
 
-           >>> status = Status(0, None, [])
+           >>> status = Status(0, None, [], 'off')
            >>> cluster = Cluster(None, None, None, status, [1, 2, 3], None, SyncState.empty(), None, None, {})
            >>> len(cluster)
            1
@@ -1769,7 +1778,8 @@ class AbstractDCS(abc.ABC):
             self._cluster_valid_till = time.time() + self.ttl
 
             self._last_seen = int(time.time())
-            self._last_status = {self._OPTIME: cluster.status.last_lsn, 'retain_slots': cluster.status.retain_slots}
+            self._last_status = {self._OPTIME: cluster.status.last_lsn, 'retain_slots': cluster.status.retain_slots,
+                                 'current_site': cluster.status.current_site}
             if cluster.status.slots:
                 self._last_status['slots'] = cluster.status.slots
             self._last_failsafe = cluster.failsafe
@@ -1831,7 +1841,7 @@ class AbstractDCS(abc.ABC):
         """
         # This method is always called with ``optime`` key, rest of the keys are optional.
         # In case if we know old values (stored in self._last_status), we will copy them over.
-        for name in ('slots', 'retain_slots'):
+        for name in ('slots', 'retain_slots', 'current_site'):
             if name not in value and self._last_status.get(name):
                 value[name] = self._last_status[name]
         # if the key is present, but the value is None, we will not write such pair.
@@ -1931,13 +1941,15 @@ class AbstractDCS(abc.ABC):
                       cluster: Cluster,
                       last_lsn: Optional[int],
                       slots: Optional[Dict[str, int]] = None,
-                      failsafe: Optional[Dict[str, str]] = None) -> bool:
+                      failsafe: Optional[Dict[str, str]] = None,
+                      site: Optional[str] = None) -> bool:
         """Update ``leader`` key (or session) ttl, ``/status``, and ``/failsafe`` keys.
 
         :param cluster: :class:`Cluster` object with information about the current cluster state.
         :param last_lsn: absolute WAL LSN in bytes.
         :param slots: dictionary with permanent slots ``confirmed_flush_lsn``.
         :param failsafe: if defined dictionary passed to :meth:`~AbstractDCS.write_failsafe`.
+        :param site: the site to which the leader belongs.
 
         :returns: ``True`` if ``leader`` key (or session) has been updated successfully.
         """
@@ -1946,7 +1958,8 @@ class AbstractDCS(abc.ABC):
         ret = self._update_leader(cluster.leader)
         if ret and last_lsn:
             status: Dict[str, Any] = {self._OPTIME: last_lsn, 'slots': slots or None,
-                                      'retain_slots': self._build_retain_slots(cluster, slots)}
+                                      'retain_slots': self._build_retain_slots(cluster, slots),
+                                      'current_site': site}
             self.write_status(status)
 
         if ret and failsafe is not None:
@@ -2110,7 +2123,7 @@ class AbstractDCS(abc.ABC):
 
     @staticmethod
     def sync_state(leader: Optional[str], sync_standby: Optional[Collection[str]],
-                   quorum: Optional[int]) -> Dict[str, Any]:
+                   quorum: Optional[int], cross_site_mode: 'SyncCrossSiteMode') -> Dict[str, Any]:
         """Build ``sync_state`` dictionary.
 
         :param leader: name of the leader node that manages ``/sync`` key.
@@ -2122,10 +2135,12 @@ class AbstractDCS(abc.ABC):
         :returns: dictionary that later could be serialized to JSON or saved directly to DCS.
         """
         return {'leader': leader, 'quorum': quorum,
-                'sync_standby': ','.join(sorted(sync_standby)) if sync_standby else None}
+                'sync_standby': ','.join(sorted(sync_standby)) if sync_standby else None,
+                'cross_site_mode': cross_site_mode.value}
 
     def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
-                         quorum: Optional[int], version: Optional[Any] = None) -> Optional[SyncState]:
+                         quorum: Optional[int], cross_site_mode: 'SyncCrossSiteMode',
+                         version: Optional[Any] = None) -> Optional[SyncState]:
         """Write the new synchronous state to DCS.
 
         Calls :meth:`~AbstractDCS.sync_state` to build a dictionary and then calls DCS specific
@@ -2140,7 +2155,7 @@ class AbstractDCS(abc.ABC):
 
         :returns: the new :class:`SyncState` object or ``None``.
         """
-        sync_value = self.sync_state(leader, sync_standby, quorum)
+        sync_value = self.sync_state(leader, sync_standby, quorum, cross_site_mode)
         ret = self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), version)
         if not isinstance(ret, bool):
             return SyncState.from_node(ret, sync_value)

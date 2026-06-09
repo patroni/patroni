@@ -25,8 +25,8 @@ from ..collections import EMPTY_DICT
 from ..exceptions import DCSError
 from ..postgresql.misc import PostgresqlRole, PostgresqlState
 from ..postgresql.mpp import AbstractMPP
-from ..utils import deep_compare, iter_response_objects, \
-    keepalive_socket_options, Retry, RetryFailedError, tzutc, uri, USER_AGENT
+from ..utils import deep_compare, iter_response_objects, keepalive_socket_options, \
+    Retry, RetryFailedError, SyncCrossSiteMode, tzutc, uri, USER_AGENT
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, TimelineHistory
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -1246,7 +1246,8 @@ class Kubernetes(AbstractDCS):
         return datetime.datetime.now(tzutc).isoformat()
 
     def update_leader(self, cluster: Cluster, last_lsn: Optional[int],
-                      slots: Optional[Dict[str, int]] = None, failsafe: Optional[Dict[str, str]] = None) -> bool:
+                      slots: Optional[Dict[str, int]] = None, failsafe: Optional[Dict[str, str]] = None,
+                      site: Optional[str] = None) -> bool:
         kind = self._kinds.get(self.leader_path)
         kind_annotations = kind and kind.metadata.annotations or EMPTY_DICT
 
@@ -1266,6 +1267,9 @@ class Kubernetes(AbstractDCS):
 
         if failsafe is not None:
             annotations[self._FAILSAFE] = json.dumps(failsafe, separators=(',', ':')) if failsafe else None
+
+        if site is not None:
+            annotations['current_site'] = site
 
         resource_version = kind and kind.metadata.resource_version
         return self._update_leader_with_retry(annotations, resource_version, self.__ips)
@@ -1440,7 +1444,8 @@ class Kubernetes(AbstractDCS):
         raise NotImplementedError  # pragma: no cover
 
     def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
-                         quorum: Optional[int], version: Optional[str] = None) -> Optional[SyncState]:
+                         quorum: Optional[int], cross_site_mode: 'SyncCrossSiteMode',
+                         version: Optional[str] = None) -> Optional[SyncState]:
         """Prepare and write annotations to $SCOPE-sync Endpoint or ConfigMap.
 
         :param leader: name of the leader node that manages /sync key
@@ -1450,7 +1455,7 @@ class Kubernetes(AbstractDCS):
         :param version: last known `resource_version` for conditional update of the object
         :returns: the new :class:`SyncState` object or None
         """
-        sync_state = self.sync_state(leader, sync_standby, quorum)
+        sync_state = self.sync_state(leader, sync_standby, quorum, cross_site_mode)
         sync_state['quorum'] = str(sync_state['quorum']) if sync_state['quorum'] is not None else None
         ret = self.patch_or_create(self.sync_path, sync_state, version, False)
         if not isinstance(ret, bool):
@@ -1463,7 +1468,7 @@ class Kubernetes(AbstractDCS):
         :param version: last known `resource_version` for conditional update of the object
         :returns: `True` if "delete" was successful
         """
-        return self.write_sync_state(None, None, None, version=version) is not None
+        return self.write_sync_state(None, None, None, SyncCrossSiteMode.OFF, version=version) is not None
 
     def watch(self, leader_version: Optional[str], timeout: float) -> bool:
         if self.__do_not_watch:

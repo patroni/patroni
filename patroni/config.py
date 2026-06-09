@@ -500,7 +500,7 @@ class Config(object):
             """
             return os.environ.pop(PATRONI_ENV_PREFIX + name.upper(), None)
 
-        for param in ('name', 'namespace', 'scope', 'thread_pool_size', 'thread_stack_size'):
+        for param in ('name', 'namespace', 'scope', 'site', 'thread_pool_size', 'thread_stack_size'):
             value = _popenv(param)
             if value:
                 ret[param] = value

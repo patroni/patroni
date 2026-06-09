@@ -226,7 +226,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         response['patroni'] = {
             'version': patroni.version,
             'scope': patroni.postgresql.scope,
-            'name': patroni.postgresql.name
+            'name': patroni.postgresql.name,
+            'site': patroni.site
         }
         if patroni.scheduled_restart:
             response['scheduled_restart'] = patroni.scheduled_restart.copy()
