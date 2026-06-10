@@ -316,6 +316,7 @@ option_default_citus_group = click.option('--group', required=False, type=int, h
                                           default=lambda: _get_configuration().get('citus', {}).get('group'))
 option_citus_group = click.option('--group', required=False, type=int, help='Citus group')
 role_choice = click.Choice([role.value for role in CtlPostgresqlRole])
+option_site = click.option('--site', help='Filter members by site', required=False, type=str, default=None)
 
 
 @click.group(cls=click.Group)
@@ -1251,8 +1252,8 @@ def reinit(cluster_name: str, group: Optional[int], member_names: List[str], for
                 wait_on_members.remove(member)
 
 
-def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[int], candidate: Optional[str],
-                               force: bool, switchover_leader: Optional[str] = None,
+def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[int], site: Optional[str],
+                               candidate: Optional[str], force: bool, switchover_leader: Optional[str] = None,
                                switchover_scheduled: Optional[str] = None) -> None:
     """Perform a failover or a switchover operation in the cluster.
 
@@ -1316,8 +1317,9 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
         if cluster_leader != switchover_leader:
             raise PatroniCtlException(f'Member {switchover_leader} is not the leader of cluster {cluster_name}')
 
+    candidates = list(filter(lambda m: m.site == site, cluster.members)) if site else cluster.members
     # excluding members with nofailover tag
-    candidate_names = [str(m.name) for m in cluster.members if m.name != cluster_leader and not m.nofailover]
+    candidate_names = [str(m.name) for m in candidates if m.name != cluster_leader and not m.nofailover]
     # We sort the names for consistent output to the client
     candidate_names.sort()
 
@@ -1371,6 +1373,11 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
     # By now we have established that the leader exists and the candidate exists
     if not force:
         demote_msg = f', demoting current leader {cluster_leader}' if cluster_leader else ''
+        if cluster_leader and candidate:
+            current_site = cluster.status.current_site
+            candidate_site = list(filter(lambda m: m.name == candidate, cluster.members))[0].site
+            if (current_site or candidate_site) and current_site != candidate_site:
+                demote_msg += f' in site {str(current_site)} and switching to site {str(candidate_site)}'
         if scheduled_at_str:
             # only switchover can be scheduled
             if not click.confirm(f'Are you sure you want to schedule switchover of cluster '
@@ -1378,7 +1385,7 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
                 # action as a var to catch a regression in the tests
                 raise PatroniCtlException('Aborting scheduled ' + action)
         else:
-            if not click.confirm(f'Are you sure you want to {action} cluster {cluster_name}{demote_msg}?'):
+            if not click.confirm(f'Are you sure you want to perform {action} in cluster {cluster_name}{demote_msg}?'):
                 raise PatroniCtlException('Aborting ' + action)
 
     r = None
@@ -1414,9 +1421,11 @@ def _do_failover_or_switchover(action: str, cluster_name: str, group: Optional[i
 @ctl.command('failover', help='Failover to a replica')
 @arg_cluster_name
 @option_citus_group
+@option_site
 @click.option('--candidate', help='The name of the candidate', default=None)
 @option_force
-def failover(cluster_name: str, group: Optional[int], candidate: Optional[str], force: bool) -> None:
+def failover(cluster_name: str, group: Optional[int], site: Optional[str],
+             candidate: Optional[str], force: bool) -> None:
     """Process ``failover`` command of ``patronictl`` utility.
 
     Perform a failover operation immediately in the cluster.
@@ -1430,18 +1439,19 @@ def failover(cluster_name: str, group: Optional[int], candidate: Optional[str], 
     :param candidate: name of a standby member to be promoted. Nodes that are tagged with ``nofailover`` cannot be used.
     :param force: perform the failover or switchover without asking for confirmations.
     """
-    _do_failover_or_switchover('failover', cluster_name, group, candidate, force)
+    _do_failover_or_switchover('failover', cluster_name, group, site, candidate, force)
 
 
 @ctl.command('switchover', help='Switchover to a replica')
 @arg_cluster_name
 @option_citus_group
+@option_site
 @click.option('--leader', '--primary', 'leader', help='The name of the current leader', default=None)
 @click.option('--candidate', help='The name of the candidate', default=None)
 @click.option('--scheduled', help='Timestamp of a scheduled switchover in unambiguous format (e.g. ISO 8601)',
               default=None)
 @option_force
-def switchover(cluster_name: str, group: Optional[int], leader: Optional[str],
+def switchover(cluster_name: str, group: Optional[int], site: Optional[str], leader: Optional[str],
                candidate: Optional[str], force: bool, scheduled: Optional[str]) -> None:
     """Process ``switchover`` command of ``patronictl`` utility.
 
@@ -1459,7 +1469,7 @@ def switchover(cluster_name: str, group: Optional[int], leader: Optional[str],
     :param force: perform the switchover without asking for confirmations.
     :param scheduled: timestamp when the switchover should be scheduled to occur. If ``now`` perform immediately.
     """
-    _do_failover_or_switchover('switchover', cluster_name, group, candidate, force, leader, scheduled)
+    _do_failover_or_switchover('switchover', cluster_name, group, site, candidate, force, leader, scheduled)
 
 
 def generate_topology(level: int, member: Dict[str, Any],
@@ -1702,7 +1712,7 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
 @option_citus_group
 @click.option('--extended', '-e', help='Show some extra information', is_flag=True)
 @click.option('--timestamp', '-t', 'ts', help='Print timestamp', is_flag=True)
-@click.option('--site', '-s', help='Filter members by site', type=str, default=None)
+@option_site
 @option_format
 @option_watch
 @option_watchrefresh
