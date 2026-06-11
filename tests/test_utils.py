@@ -10,8 +10,15 @@ from patroni.utils import apply_keepalive_limit, enable_keepalive, get_major_ver
 
 class TestUtils(unittest.TestCase):
 
+    @patch('time.monotonic', Mock(side_effect=[0, 0, 0.001]))
+    @patch('time.sleep', Mock())
     def test_polling_loop(self):
         self.assertEqual(list(polling_loop(0.001, interval=0.001)), [0])
+
+    @patch('time.monotonic', Mock(side_effect=[0, 0, 0.5, 0.9, 1.0]))
+    @patch('time.sleep', Mock())
+    def test_polling_loop_multiple_iterations(self):
+        self.assertEqual(list(polling_loop(1.0, interval=0.5)), [0, 1, 2])
 
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.path.isdir', Mock(return_value=True))

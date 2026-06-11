@@ -22,8 +22,8 @@ def create_logical_replication_slot(context, slot_type, slot_name, pg_name, plug
 def has_logical_replication_slot(context, slot_type, pg_name, slot_name, plugin, time_limit):
     synced = ', synced' if slot_type == 'synced' and context.pctl.server_version >= 170000 else ''
     time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
-    while time.time() < max_time:
+    max_time = time.monotonic() + int(time_limit)
+    while time.monotonic() < max_time:
         try:
             if synced:
                 try:
@@ -58,11 +58,11 @@ def does_not_have_replication_slot(context, pg_name, slot_name):
       '{pg_name1:name} and {pg_name2:name} after {time_limit:d} seconds')
 def slots_in_sync(context, slot_type, slot_name, pg_name1, pg_name2, time_limit):
     time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
+    max_time = time.monotonic() + int(time_limit)
     column = 'confirmed_flush_lsn' if slot_type.lower() == 'logical' else 'restart_lsn'
     query = f"SELECT {column} FROM pg_replication_slots WHERE slot_name = '{slot_name}'"
     server_version = context.pctl.server_version
-    while time.time() < max_time:
+    while time.monotonic() < max_time:
         if server_version >= 170000 and slot_type.lower() == 'logical':
             try:
                 context.pctl.query(pg_name2, "SELECT pg_sync_replication_slots()")
@@ -93,9 +93,9 @@ def physical_slot_get_changes(context, slot_name, pg_name):
 @step('{pg_name:name} has a physical replication slot named {slot_name} after {time_limit:d} seconds')
 def has_physical_replication_slot(context, pg_name, slot_name, time_limit):
     time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
+    max_time = time.monotonic() + int(time_limit)
     query = f"SELECT * FROM pg_catalog.pg_replication_slots WHERE slot_type = 'physical' AND slot_name = '{slot_name}'"
-    while time.time() < max_time:
+    while time.monotonic() < max_time:
         try:
             row = context.pctl.query(pg_name, query).fetchone()
             if row:
@@ -109,11 +109,11 @@ def has_physical_replication_slot(context, pg_name, slot_name, time_limit):
 @step('physical replication slot named {slot_name} on {pg_name:name} has no xmin value after {time_limit:d} seconds')
 def physical_slot_no_xmin(context, pg_name, slot_name, time_limit):
     time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
+    max_time = time.monotonic() + int(time_limit)
     query = "SELECT xmin FROM pg_catalog.pg_replication_slots WHERE slot_type = 'physical'" +\
         f" AND slot_name = '{slot_name}'"
     exists = False
-    while time.time() < max_time:
+    while time.monotonic() < max_time:
         try:
             row = context.pctl.query(pg_name, query).fetchone()
             exists = bool(row)

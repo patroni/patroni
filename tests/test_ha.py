@@ -1,6 +1,7 @@
 import datetime
 import os
 import sys
+import time
 
 from unittest.mock import MagicMock, Mock, mock_open, patch, PropertyMock
 
@@ -1996,6 +1997,7 @@ class TestHa(PostgresInit):
                                                               _SyncState('quorum', 1, CaseInsensitiveSet(['foo']),
                                                                          CaseInsensitiveSet(['foo']),
                                                                          CaseInsensitiveSet(['foo']))])
+        self.ha._promote_timestamp = time.monotonic() - self.ha.dcs.loop_wait - 1
         mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=SyncState(1, 'leader', 'foo', 0))
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo'))
         # Test the sync node is removed from voters, added to ssn
@@ -2008,7 +2010,8 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (other)',))
 
-        # Test that we stick with last known sync node when synchronous_mode_strict and no nodes available
+        # Test ANY 1 (*) when synchronous_mode_strict and no nodes available
+        self.ha._promote_timestamp = time.monotonic() - self.ha.dcs.loop_wait - 1
         self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1,
                                                                          CaseInsensitiveSet(['other', 'foo']),
                                                                          CaseInsensitiveSet(),

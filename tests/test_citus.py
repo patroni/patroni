@@ -22,7 +22,7 @@ class TestCitus(BaseTestPostgresql):
         self.cluster = get_cluster_initialized_with_leader()
         self.cluster.workers[1] = self.cluster
 
-    @patch('time.time', Mock(side_effect=[100, 130, 160, 190, 220, 250, 280, 310, 340, 370, 400, 430, 460, 490]))
+    @patch('time.monotonic', Mock(side_effect=[100, 130, 160, 190, 220, 250, 280, 310, 340, 370, 400, 430, 460, 490]))
     @patch('patroni.postgresql.mpp.citus.logger.exception', Mock(side_effect=SleepException))
     @patch('patroni.postgresql.mpp.citus.logger.warning')
     @patch('patroni.postgresql.mpp.citus.PgDistTask.wait', Mock())
@@ -79,7 +79,7 @@ class TestCitus(BaseTestPostgresql):
         self.assertIsNone(self.c.add_task('after_promote', 1, self.cluster,
                                           self.cluster.leader_name, 'postgres://host:5432/postgres'))
         self.c._in_flight = self.c._tasks.pop()
-        self.c._in_flight.deadline = self.c._in_flight.timeout + time.time()
+        self.c._in_flight.deadline = self.c._in_flight.timeout + time.monotonic()
         self.assertIsNone(self.c.add_task('after_promote', 1, self.cluster,
                                           self.cluster.leader_name, 'postgres://host:5432/postgres'))
         self.c._in_flight.deadline = 0

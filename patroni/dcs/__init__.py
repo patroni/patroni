@@ -1538,7 +1538,7 @@ class AbstractDCS(abc.ABC):
 
         self._ctl = bool(config.get('patronictl', False))
         self._cluster: Optional[Cluster] = None
-        self._cluster_valid_till: float = 0
+        self._cluster_valid_till: float = float('-inf')
         self._cluster_thread_lock = Lock()
         self._last_lsn: int = 0
         self._last_seen: int = 0
@@ -1766,8 +1766,10 @@ class AbstractDCS(abc.ABC):
 
         with self._cluster_thread_lock:
             self._cluster = cluster
-            self._cluster_valid_till = time.time() + self.ttl
+            self._cluster_valid_till = time.monotonic() + self.ttl
 
+            # Intentionally use wall-clock time: _last_seen is exposed via the REST API and may
+            # be compared with timestamps from other nodes, so it must be a real (system) timestamp.
             self._last_seen = int(time.time())
             self._last_status = {self._OPTIME: cluster.status.last_lsn, 'retain_slots': cluster.status.retain_slots}
             if cluster.status.slots:
@@ -1780,13 +1782,13 @@ class AbstractDCS(abc.ABC):
     def cluster(self) -> Optional[Cluster]:
         """Cached DCS cluster information that has not yet expired."""
         with self._cluster_thread_lock:
-            return self._cluster if self._cluster_valid_till > time.time() else None
+            return self._cluster if self._cluster_valid_till > time.monotonic() else None
 
     def reset_cluster(self) -> None:
         """Clear cached state of DCS."""
         with self._cluster_thread_lock:
             self._cluster = None
-            self._cluster_valid_till = 0
+            self._cluster_valid_till = float('-inf')
 
     @abc.abstractmethod
     def _write_leader_optime(self, last_lsn: str) -> bool:
@@ -1884,7 +1886,7 @@ class AbstractDCS(abc.ABC):
 
         :returns: the list of replication slots to be written to ``/status`` key or ``None``.
         """
-        timestamp = time.time()
+        timestamp = time.monotonic()
 
         if slots:  # if slots is not empty it implies we are running v11+
             members: Set[str] = set()
@@ -1982,7 +1984,7 @@ class AbstractDCS(abc.ABC):
         """
         ret = self.attempt_to_acquire_leader()
         if ret:
-            timestamp = time.time()
+            timestamp = time.monotonic()
             # every time we promote we need to reset retention time for slots recorded in the /status key
             self._last_retain_slots = {name: timestamp for name in self._last_status['retain_slots']}
         return ret

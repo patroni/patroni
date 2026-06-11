@@ -188,7 +188,7 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         self.client.txn({'target': 'MOD', 'mod_revision': '1'},
                         {'request_delete_range': {'key': base64_encode('/patroni/test/leader')}})
 
-    @patch('time.time', Mock(side_effect=[1, 10.9, 100]))
+    @patch('time.monotonic', Mock(side_effect=[1, 10.9, 100]))
     def test__wait_cache(self):
         with self.kv_cache.condition:
             self.assertRaises(RetryFailedError, self.client._wait_cache, 10)
@@ -213,9 +213,9 @@ class TestPatroniEtcd3Client(BaseTestEtcd3):
         self.assertRaises(InvalidAuthToken, self.client.deleteprefix, 'foo')
         with patch.object(PatroniEtcd3Client, 'authenticate', Mock(return_value=True)):
             retry = self.etcd3._retry.copy()
-            with patch('time.time', Mock(side_effect=[0, 10, 20, 30, 40])):
+            with patch('time.monotonic', Mock(side_effect=[0, 10, 20, 30, 40])):
                 self.assertRaises(InvalidAuthToken, retry, self.client.deleteprefix, 'foo', retry=retry)
-            with patch('time.time', Mock(side_effect=[0, 10])):
+            with patch('time.monotonic', Mock(side_effect=[0, 10])):
                 self.assertRaises(InvalidAuthToken, self.client.deleteprefix, 'foo')
             self.client.username = None
             self.client._reauthenticate = False
@@ -311,14 +311,14 @@ class TestEtcd3(BaseTestEtcd3):
         self.etcd3._lease = None
         with patch.object(Etcd3Client, 'txn', Mock(return_value={'succeeded': True})):
             self.etcd3.update_leader(cluster, '123', failsafe={'foo': 'bar'})
-        self.etcd3._last_lease_refresh = 0
+        self.etcd3._last_lease_refresh = float('-inf')
         self.etcd3.update_leader(cluster, '124')
         with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(return_value=True)), \
-                patch('time.time', Mock(side_effect=[0, 100, 200, 300])):
+                patch('time.monotonic', Mock(side_effect=[0, 100, 200, 300])):
             self.assertRaises(Etcd3Error, self.etcd3.update_leader, cluster, '126')
         self.etcd3._lease = cluster.leader.session
         self.etcd3.update_leader(cluster, '124')
-        self.etcd3._last_lease_refresh = 0
+        self.etcd3._last_lease_refresh = float('-inf')
         with patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(side_effect=Unknown)):
             self.assertFalse(self.etcd3.update_leader(cluster, '125'))
 
@@ -327,9 +327,9 @@ class TestEtcd3(BaseTestEtcd3):
 
     def test_attempt_to_acquire_leader(self):
         self.assertFalse(self.etcd3.attempt_to_acquire_leader())
-        with patch('time.time', Mock(side_effect=[0, 0, 0, 0, 0, 100, 200, 300])):
+        with patch('time.monotonic', Mock(side_effect=[0, 0, 0, 0, 0, 100, 200, 300])):
             self.assertFalse(self.etcd3.attempt_to_acquire_leader())
-        with patch('time.time', Mock(side_effect=[0, 100, 200, 300, 400])):
+        with patch('time.monotonic', Mock(side_effect=[0, 100, 200, 300, 400])):
             self.assertRaises(Etcd3Error, self.etcd3.attempt_to_acquire_leader)
         with patch.object(PatroniEtcd3Client, 'put', Mock(return_value=False)):
             self.assertFalse(self.etcd3.attempt_to_acquire_leader())
@@ -339,7 +339,7 @@ class TestEtcd3(BaseTestEtcd3):
 
     @patch.object(PatroniEtcd3Client, 'lease_keepalive', Mock(return_value=False))
     def test_refresh_lease(self):
-        self.etcd3._last_lease_refresh = 0
+        self.etcd3._last_lease_refresh = float('-inf')
         self.etcd3.refresh_lease()
 
     @patch('time.sleep', Mock(side_effect=SleepException))
@@ -347,7 +347,7 @@ class TestEtcd3(BaseTestEtcd3):
     @patch.object(PatroniEtcd3Client, 'lease_grant', Mock(side_effect=Etcd3ClientError))
     def test_create_lease(self):
         self.etcd3._lease = None
-        self.etcd3._last_lease_refresh = 0
+        self.etcd3._last_lease_refresh = float('-inf')
         self.assertRaises(SleepException, self.etcd3.create_lease)
 
     def test_set_failover_value(self):

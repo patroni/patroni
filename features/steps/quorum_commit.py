@@ -8,9 +8,9 @@ from behave import step, then
 @step('sync key in DCS has {key:w}={value} after {time_limit:d} seconds')
 def check_sync(context, key, value, time_limit):
     time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
+    max_time = time.monotonic() + int(time_limit)
     dcs_value = None
-    while time.time() < max_time:
+    while time.monotonic() < max_time:
         try:
             response = json.loads(context.dcs_ctl.query('sync'))
             dcs_value = response.get(key)
@@ -39,7 +39,7 @@ def _parse_synchronous_standby_names(value):
 @then("synchronous_standby_names on {name:2} is set to '{value}' after {time_limit:d} seconds")
 def check_synchronous_standby_names(context, name, value, time_limit):
     time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
+    max_time = time.monotonic() + int(time_limit)
 
     if value == '_empty_str_':
         value = ''
@@ -47,7 +47,7 @@ def check_synchronous_standby_names(context, name, value, time_limit):
     expected_num, expected_value = _parse_synchronous_standby_names(value)
 
     ssn = None
-    while time.time() < max_time:
+    while time.monotonic() < max_time:
         try:
             ssn = context.pctl.query(name, "SHOW synchronous_standby_names").fetchone()[0]
             db_num, db_value = _parse_synchronous_standby_names(ssn)
