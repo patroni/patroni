@@ -26,6 +26,7 @@ from ..exceptions import DCSError
 from ..postgresql.mpp import AbstractMPP
 from ..request import get as requests_get
 from ..utils import Retry, RetryFailedError, split_host_port, uri, USER_AGENT
+from .etcd_tls import apply_tls_config
 from . import AbstractDCS, catch_return_false_exception, Cluster, ClusterConfig, \
     Failover, Leader, Member, ReturnFalseException, Status, SyncState, TimelineHistory
 
@@ -153,6 +154,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
         # For some reason python3-etcd on debian and ubuntu are not based on the latest version
         # Workaround for the case when https://github.com/jplana/python-etcd/pull/196 is not applied
         self.http.connection_pool_kw.pop('ssl_version', None)
+        apply_tls_config(self.http, config)
         self._config = config
         self._load_machines_cache()
         self._allow_reconnect = True
