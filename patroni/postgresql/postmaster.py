@@ -253,7 +253,7 @@ class PostmasterProcess(psutil.Process):
                                  "logical replication tablesync worker for subscription|"
                                  "logical replication parallel apply worker for subscription|"
                                  "logical replication apply worker for subscription|"
-                                 "datachecksum launcher|datachecksum worker|"
+                                 "datachecksums launcher|datachecksums worker|"
                                  "slotsync worker|walsummarizer|io worker|bgworker:) ")
 
         try:
