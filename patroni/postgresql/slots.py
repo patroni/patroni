@@ -10,10 +10,10 @@ import shutil
 from collections import defaultdict
 from contextlib import contextmanager
 from threading import Condition, Thread
-from typing import Any, Dict, Generator, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Collection, Dict, Generator, List, Optional, Tuple, TYPE_CHECKING, Union
 
 from .. import global_config
-from ..dcs import Cluster, Leader
+from ..dcs import Cluster, Leader, slot_name_from_member_name
 from ..file_perm import pg_perm
 from ..psycopg import OperationalError
 from ..tags import Tags
@@ -203,6 +203,20 @@ class SlotsHandler:
         :returns: query response.
         """
         return self._postgresql.query(sql, *params, retry=False)
+
+    def update_synchronized_standby_slots(self, sync_members: Collection[str], reload: bool = False) -> bool:
+        """Update ``synchronized_standby_slots`` based on sync members for PostgreSQL 17+."""
+        if self._postgresql.major_version < 170000:
+            return False
+
+        if not global_config.dynamic_synchronized_standby_slots_enabled:
+            return False
+
+        if not sync_members or '*' in sync_members:
+            return self._postgresql.config.set_synchronized_standby_slots(None, reload=reload)
+
+        slot_names = [slot_name_from_member_name(member) for member in sync_members]
+        return self._postgresql.config.set_synchronized_standby_slots(','.join(sorted(slot_names)), reload=reload)
 
     def copy_slot_items(self, src: Dict[str, Any], dst: Dict[str, Any], is_logical: bool = True) -> None:
         """Select values from *src* slots dictionary to update in *dst* slots dictionary.
