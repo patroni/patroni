@@ -63,6 +63,11 @@ parameters:
     version_from: 90300
     min_val: 0
     max_val: 100
+  autovacuum_analyze_score_weight:
+  - type: Real
+    version_from: 190000
+    min_val: 0
+    max_val: 10
   autovacuum_analyze_threshold:
   - type: Integer
     version_from: 90300
@@ -73,6 +78,16 @@ parameters:
     version_from: 90300
     min_val: 100000
     max_val: 2000000000
+  autovacuum_freeze_score_weight:
+  - type: Real
+    version_from: 190000
+    min_val: 0
+    max_val: 10
+  autovacuum_max_parallel_workers:
+  - type: Integer
+    version_from: 190000
+    min_val: 0
+    max_val: 1024
   autovacuum_max_workers:
   - type: Integer
     version_from: 90300
@@ -88,6 +103,11 @@ parameters:
     version_from: 90300
     min_val: 10000
     max_val: 2000000000
+  autovacuum_multixact_freeze_score_weight:
+  - type: Real
+    version_from: 190000
+    min_val: 0
+    max_val: 10
   autovacuum_naptime:
   - type: Integer
     version_from: 90300
@@ -116,6 +136,11 @@ parameters:
     version_from: 130000
     min_val: 0
     max_val: 100
+  autovacuum_vacuum_insert_score_weight:
+  - type: Real
+    version_from: 190000
+    min_val: 0
+    max_val: 10
   autovacuum_vacuum_insert_threshold:
   - type: Integer
     version_from: 130000
@@ -131,6 +156,11 @@ parameters:
     version_from: 90300
     min_val: 0
     max_val: 100
+  autovacuum_vacuum_score_weight:
+  - type: Real
+    version_from: 190000
+    min_val: 0
+    max_val: 10
   autovacuum_vacuum_threshold:
   - type: Integer
     version_from: 90300
@@ -368,6 +398,9 @@ parameters:
   debug_print_plan:
   - type: Bool
     version_from: 90300
+  debug_print_raw_parse:
+  - type: Bool
+    version_from: 190000
   debug_print_rewritten:
   - type: Bool
     version_from: 90300
@@ -447,6 +480,9 @@ parameters:
   enable_distinct_reordering:
   - type: Bool
     version_from: 180000
+  enable_eager_aggregate:
+  - type: Bool
+    version_from: 190000
   enable_gathermerge:
   - type: Bool
     version_from: 100000
@@ -513,6 +549,7 @@ parameters:
   escape_string_warning:
   - type: Bool
     version_from: 90300
+    version_till: 190000
   event_source:
   - type: String
     version_from: 90300
@@ -543,6 +580,12 @@ parameters:
     possible_values:
     - copy
     - clone
+  file_extend_method:
+  - type: Enum
+    version_from: 190000
+    possible_values:
+    - posix_fallocate
+    - write_zeros
   force_parallel_mode:
   - type: EnumBool
     version_from: 90600
@@ -615,6 +658,9 @@ parameters:
   hba_file:
   - type: String
     version_from: 90300
+  hosts_file:
+  - type: String
+    version_from: 190000
   hot_standby:
   - type: Bool
     version_from: 90300
@@ -699,6 +745,11 @@ parameters:
     version_from: 180000
     min_val: -1
     max_val: 1024
+  io_max_workers:
+  - type: Integer
+    version_from: 190000
+    min_val: 1
+    max_val: 32
   io_method:
   - type: Enum
     version_from: 180000
@@ -706,9 +757,27 @@ parameters:
     - sync
     - worker
     - io_uring
+  io_min_workers:
+  - type: Integer
+    version_from: 190000
+    min_val: 1
+    max_val: 32
+  io_worker_idle_timeout:
+  - type: Integer
+    version_from: 190000
+    min_val: 0
+    max_val: 2147483647
+    unit: ms
+  io_worker_launch_interval:
+  - type: Integer
+    version_from: 190000
+    min_val: 0
+    max_val: 2147483647
+    unit: ms
   io_workers:
   - type: Integer
     version_from: 180000
+    version_till: 190000
     min_val: 1
     max_val: 32
   IntervalStyle:
@@ -797,6 +866,12 @@ parameters:
   lo_compat_privileges:
   - type: Bool
     version_from: 90300
+  log_autoanalyze_min_duration:
+  - type: Integer
+    version_from: 190000
+    min_val: -1
+    max_val: 2147483647
+    unit: ms
   log_autovacuum_min_duration:
   - type: Integer
     version_from: 90300
@@ -894,6 +969,7 @@ parameters:
   log_min_messages:
   - type: Enum
     version_from: 90300
+    version_till: 190000
     possible_values:
     - debug5
     - debug4
@@ -907,6 +983,8 @@ parameters:
     - log
     - fatal
     - panic
+  - type: String
+    version_from: 190000
   log_parameter_max_length:
   - type: Integer
     version_from: 130000
@@ -1097,6 +1175,11 @@ parameters:
     version_from: 90600
     min_val: 0
     max_val: 262143
+  max_repack_replication_slots:
+  - type: Integer
+    version_from: 190000
+    min_val: 0
+    max_val: 262143
   max_replication_slots:
   - type: Integer
     version_from: 90400
@@ -1177,6 +1260,11 @@ parameters:
     min_val: 0
     max_val: 2147483647
     unit: MB
+  min_eager_agg_group_size:
+  - type: Real
+    version_from: 190000
+    min_val: 0
+    max_val: 1.79769e+308
   min_parallel_index_scan_size:
   - type: Integer
     version_from: 100000
@@ -1262,6 +1350,12 @@ parameters:
     possible_values:
     - md5
     - scram-sha-256
+  password_expiration_warning_threshold:
+  - type: Integer
+    version_from: 190000
+    min_val: 0
+    max_val: 2147483647
+    unit: s
   plan_cache_mode:
   - type: Enum
     version_from: 120000
@@ -1466,6 +1560,9 @@ parameters:
     min_val: 0
     max_val: 2147483647
     unit: kB
+  ssl_sni:
+  - type: Bool
+    version_from: 190000
   ssl_tls13_ciphers:
   - type: String
     version_from: 180000
@@ -1598,6 +1695,13 @@ parameters:
   timezone_abbreviations:
   - type: String
     version_from: 90300
+  timing_clock_source:
+  - type: Enum
+    version_from: 190000
+    possible_values:
+    - auto
+    - system
+    - tsc
   trace_connection_negotiation:
   - type: Bool
     version_from: 170000
@@ -1881,6 +1985,12 @@ parameters:
   - type: Integer
     version_from: 90500
     min_val: 1
+    max_val: 2147483647
+    unit: ms
+  wal_sender_shutdown_timeout:
+  - type: Integer
+    version_from: 190000
+    min_val: -1
     max_val: 2147483647
     unit: ms
   wal_sender_timeout:
