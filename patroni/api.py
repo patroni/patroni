@@ -1277,6 +1277,120 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         self.do_POST_failover(action='switchover')
 
+    def poll_sync_switchover_result(self, candidates: Optional[List[str]]) -> Tuple[int, str]:
+        """Poll sync switchover operation until it finishes or times out.
+
+        :param candidates: names of the Patroni node to be promoted to synchronous replica.
+
+        :returns: a tuple composed of 2 items:
+
+            * Response HTTP status codes:
+
+                * ``200``: if the operation succeeded; or
+                * ``503``: if the operation failed or timed out.
+
+            * A status message about the operation.
+
+        """
+        timeout = max(10, self.server.patroni.dcs.loop_wait)
+        for _ in range(0, timeout * 2):
+            time.sleep(1)
+            try:
+                cluster = self.server.patroni.dcs.get_cluster()
+                sync = cluster.sync.sync_standby.split(',')
+                if sync and set(sync) == set(candidates):
+                    return 200, f'Successfully switched synchronous replicas to {candidates}'
+                if not cluster.sync_switchover:
+                    return 503, 'sync switchover failed'
+            except Exception as e:
+                logger.debug('Exception occurred during polling sync switchover result: %s', e)
+        return 503, 'sync switchover status unknown'
+
+    @check_access
+    def do_POST_sync_switchover(self) -> None:
+        """Handle a ``POST`` request to ``/sync_switchover`` path.
+        """
+        request = self._read_json_content()
+        if not request:
+            return
+
+        cluster = self.server.patroni.dcs.get_cluster()
+        leader = request.get('leader')
+        scheduled_at = request.get('scheduled_at')
+
+        err = self.validate_sync_switchover(request)
+        if err:
+            self.write_response(400, err)
+            return
+
+        candidates = list(set(request.get('candidates')))
+
+        if scheduled_at:
+            status_code, err, scheduled_at = self.parse_schedule(scheduled_at, 'sync_switchover')
+            if err:
+                self.write_response(status_code if status_code else 400, err)
+                return
+
+        err = self.is_sync_switchover_possible(cluster, leader, candidates)
+        if err:
+            self.write_response(412, err)
+            return
+
+        if self.server.patroni.dcs.manual_switch_sync(leader, candidates, scheduled_at):
+            self.server.patroni.ha.wakeup()
+            if scheduled_at:
+                self.write_response(202, 'sync switchover scheduled')
+                return
+            code, body = self.poll_sync_switchover_result(candidates)
+            self.write_response(code, body)
+            return
+        else:
+            self.write_response(503, 'failed to write sync_switchover key into DCS')
+            return
+
+    @staticmethod
+    def validate_sync_switchover(request: Dict) -> Optional[str]:
+
+        leader = request.get('leader')
+        candidates = request.get('candidates')
+
+        if not leader or type(leader) is not str:
+            return 'Sync switchover could be performed only from a specific leader'
+        if not candidates:
+            return 'Sync switchover could be performed only to a specific candidates'
+        if type(candidates) is not list:
+            if type(candidates) is str:
+                request['candidates'] = [candidates]
+            else:
+                return 'Sync switchover candidates type unknown'
+        if leader in candidates:
+            return 'Leader cannot be chosen as a synchronous replica'
+
+
+    @staticmethod
+    def is_sync_switchover_possible(cluster: Cluster, leader: Optional[str],
+                                    candidates: Optional[List[str]]) -> Optional[str]:
+        config = global_config.from_cluster(cluster)
+        if leader and (not cluster.leader or cluster.leader.name != leader):
+            return 'leader name does not match'
+        if config.is_paused:
+            # conservative way
+            return 'Sync switchover is unavailable is paused state'
+        if not config.is_synchronous_mode:
+            return 'Synchronous mode disabled'
+        if config.is_quorum_commit_mode:
+            return 'Sync switchover is unavailable is quorum commit mode'
+
+        if config.synchronous_node_count != len(candidates):
+            return (f'Synchronous node count is {config.synchronous_node_count}'
+                    f' but requested count is  {len(candidates)}.')
+
+        allowed_candidates = [str(m.name) for m in cluster.members if m.name != leader and not m.nofailover and
+                                not m.nosync and not m.nostream and not m.noloadbalance]
+        for candidate in candidates:
+            if candidate not in allowed_candidates:
+                return f"Candidate {candidate} either doesn't exist in cluster or has denying tags"
+
     @check_access
     def do_POST_citus(self) -> None:
         """Handle a ``POST`` request to ``/citus`` path.
