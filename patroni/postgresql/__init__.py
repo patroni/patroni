@@ -846,7 +846,7 @@ class Postgresql(object):
                     row = cur.fetchone()
                     if not row or row[0]:
                         return 'is_in_recovery=true'
-                cur.execute('CHECKPOINT')
+                cur.execute('CHECKPOINT (FLUSH_UNLOGGED)' if self.major_version >= 190000 else 'CHECKPOINT')
         except psycopg.Error:
             logger.exception('Exception during CHECKPOINT')
             return 'not accessible or not healthy'
