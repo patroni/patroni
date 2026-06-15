@@ -233,12 +233,11 @@ class Ha(object):
         self._leader_expiry_lock = RLock()
         self._failsafe = Failsafe(patroni.dcs)
         self._was_paused = False
-        self._promote_timestamp = float('-inf')
         self._synchronous_strict_mode_activated = False
         self._leader_timeline = None
         self.recovering = False
         self._async_response = CriticalTask()
-        self._crash_recovery_started = float('-inf')
+        self._crash_recovery_started: Optional[float] = None
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
         self.watchdog = patroni.watchdog
@@ -260,7 +259,7 @@ class Ha(object):
         # receive/flush/replay LSN from last cycle, is used to detect false positives of dead primary
         self._prev_wal_lsn: Optional[int] = None
         # timestamp when primary_race_backoff was triggered
-        self._primary_race_backoff_timestamp = float('-inf')
+        self._primary_race_backoff_timestamp: Optional[float] = None
 
         # Count of concurrent sync disabling requests. Value above zero means that we don't want to be synchronous
         # standby. Changes protected by _member_state_lock.
@@ -347,7 +346,7 @@ class Ha(object):
 
         if not self.cluster.is_unlocked():
             # Reset primary_race_backoff if there is a leader
-            self._primary_race_backoff_timestamp = float('-inf')
+            self._primary_race_backoff_timestamp = None
 
         if not self.has_lock(False):
             self.set_is_leader(False)
@@ -589,7 +588,7 @@ class Ha(object):
         return result
 
     def _handle_crash_recovery(self) -> Optional[str]:
-        if self._crash_recovery_started <= 0 and (self.cluster.is_unlocked() or self._rewind.can_rewind):
+        if self._crash_recovery_started is None and (self.cluster.is_unlocked() or self._rewind.can_rewind):
             self._crash_recovery_started = time.monotonic()
             msg = 'doing crash recovery in a single user mode'
             return self._async_executor.try_run_async(msg, self._rewind.ensure_clean_shutdown) or msg
@@ -1854,9 +1853,10 @@ class Ha(object):
         if not self.is_paused() and not self.is_standby_cluster() and \
                 not (self.cluster.failover and self.cluster.failover.candidate) and \
                 global_config.primary_race_backoff > 0 and self._prev_wal_lsn is not None:
-            if self._primary_race_backoff_timestamp <= 0:
+            if self._primary_race_backoff_timestamp is None:
                 self._primary_race_backoff_timestamp = time.monotonic()
-            time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.monotonic()
+            time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.monotonic() \
+                if self._primary_race_backoff_timestamp is not None else -1
             # We want to protect from leader key expiring shortly after the last heartbeat loop, and therefore
             # also postpone leader race whe time_left is greater than primary_race_backoff - loop_wait.
             if time_left > 0 and self.state_handler.replication_state() == 'streaming' and \
@@ -2317,7 +2317,7 @@ class Ha(object):
                         return msg
 
                 # Reset some states after postgres successfully started up
-                self._crash_recovery_started = float('-inf')
+                self._crash_recovery_started = None
                 if self._rewind.executed and not self._rewind.failed:
                     self._rewind.reset_state()
 
@@ -2545,7 +2545,8 @@ class Ha(object):
         # watch on leader key changes if the postgres is running and leader is known and current node is not lock owner
         if not self._async_executor.busy and (not self.cluster or self.cluster.is_unlocked()):
             leader_version = None
-            time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.monotonic()
+            time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.monotonic() \
+                if self._primary_race_backoff_timestamp is not None else -1
             # Take into account primary_race_backoff
             if 0 < time_left < timeout:
                 timeout = time_left
