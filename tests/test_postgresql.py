@@ -25,6 +25,7 @@ from patroni.postgresql import PgIsReadyStatus, Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
 from patroni.postgresql.config import _false_validator, get_param_diff
+from patroni.postgresql.connection import NamedConnection
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import _get_postgres_guc_validators, _load_postgres_gucs_validators, \
@@ -390,6 +391,13 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.query('select 1')
         self.assertRaises(PostgresConnectionException, self.p.query, 'RetryFailedError')
         self.assertRaises(psycopg.ProgrammingError, self.p.query, 'blabla')
+
+    def test_query_timeout(self):
+        # A statement_timeout cancellation must be wrapped as PostgresConnectionException so that it is retried,
+        # while the connection stays open because it remains healthy and reusable.
+        with patch.object(NamedConnection, 'close') as mock_close:
+            self.assertRaises(PostgresConnectionException, self.p._connection.query, 'QueryCanceled')
+            mock_close.assert_not_called()
 
     @patch.object(Postgresql, 'pg_isready', Mock(return_value=PgIsReadyStatus.REJECT))
     def test_is_primary(self):
@@ -835,7 +843,7 @@ class TestPostgresql(BaseTestPostgresql):
             with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
                 self.p.config.get_server_parameters(config)
                 self.p.config.set_synchronous_standby_names('foo')
-                self.assertTrue(str(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
+                self.assertTrue(repr(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
 
     @patch('time.sleep', Mock())
     def test__wait_for_connection_close(self):
@@ -1191,10 +1199,16 @@ class TestPostgresql2(BaseTestPostgresql):
 
     def test_cluster_info_query(self):
         self.assertIn('diff(pg_catalog.pg_current_wal_flush_lsn(', self.p.cluster_info_query)
+        self.assertIn('WHERE NOT temporary', self.p.cluster_info_query)
+        self.assertNotIn('(NOT failover OR NOT synced)', self.p.cluster_info_query)
         self.p._major_version = 90600
         self.assertIn('diff(pg_catalog.pg_current_xlog_flush_location(', self.p.cluster_info_query)
+        self.assertNotIn('WHERE NOT temporary', self.p.cluster_info_query)
         self.p._major_version = 90500
         self.assertIn('diff(pg_catalog.pg_current_xlog_location(', self.p.cluster_info_query)
+        self.assertNotIn('WHERE NOT temporary', self.p.cluster_info_query)
+        self.p._major_version = 180000
+        self.assertIn('WHERE NOT temporary AND (NOT failover OR NOT synced)', self.p.cluster_info_query)
 
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     @patch.object(Postgresql, '_query', Mock(return_value=[('primary_conninfo', 'host=a port=5433 passfile=/blabla')]))

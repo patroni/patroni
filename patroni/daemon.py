@@ -44,18 +44,20 @@ if TYPE_CHECKING:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
-try:  # pragma: no cover
-    from systemd import daemon  # pyright: ignore
+SOCKET_ENV_VARIABLE = 'NOTIFY_SOCKET'
+__systemd_available = False
 
-    def notify_systemd(msg: str) -> None:
-        daemon.notify(msg)  # pyright: ignore
-
-    __systemd_available = True
-except ImportError:  # pragma: no cover
-    def notify_systemd(msg: str) -> None:
+if os.environ.get(SOCKET_ENV_VARIABLE) is not None:
+    try:  # pragma: no cover
+        from systemd import daemon  # pyright: ignore
+        __systemd_available = True
+    except ImportError:  # pragma: no cover
         pass
 
-    __systemd_available = False
+
+def notify_systemd(msg: str) -> None:
+    if __systemd_available:  # pragma: no cover
+        daemon.notify(msg)  # pyright: ignore
 
 
 def get_base_arg_parser() -> argparse.ArgumentParser:
@@ -216,7 +218,7 @@ def abstract_main(cls: Type[AbstractPatroniDaemon], configfile: str) -> None:
         sys.exit(e.value)
     patroni_logger.reload_config(config.get('log', {}))
 
-    if not __systemd_available and os.environ.get('NOTIFY_SOCKET'):
+    if not __systemd_available and os.environ.get(SOCKET_ENV_VARIABLE):
         logger.warning('Running under systemd but python-systemd package is not installed')
 
     thread_stack_size = None

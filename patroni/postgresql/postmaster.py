@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 import psutil
 
 from patroni import KUBERNETES_ENV_PREFIX, PATRONI_ENV_PREFIX
+from patroni.daemon import SOCKET_ENV_VARIABLE
 
 # avoid spawning the resource tracker process
 if sys.version_info >= (3, 8):  # pragma: no cover
@@ -244,14 +245,15 @@ class PostmasterProcess(psutil.Process):
             return not self.is_running()
 
     def wait_for_user_backends_to_close(self, stop_timeout: Optional[float]) -> None:
-        # These regexps are cross checked against versions PostgreSQL 9.1 .. 18
+        # These regexps are cross checked against versions PostgreSQL 9.1 .. 19
         aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:(?:archiver|startup|autovacuum launcher|autovacuum worker|"
                                  "checkpointer|logger|stats collector|wal receiver|wal writer|writer)(?: process  )?|"
-                                 "walreceiver|wal sender process|walsender|walwriter|background writer|"
+                                 "syslogger|walreceiver|wal sender process|walsender|walwriter|background writer|"
                                  "logical replication launcher|logical replication worker for subscription|"
                                  "logical replication tablesync worker for subscription|"
                                  "logical replication parallel apply worker for subscription|"
                                  "logical replication apply worker for subscription|"
+                                 "datachecksums launcher|datachecksums worker|"
                                  "slotsync worker|walsummarizer|io worker|bgworker:) ")
 
         try:
@@ -294,7 +296,7 @@ class PostmasterProcess(psutil.Process):
         # On Windows, in order to run a side-by-side assembly the specified env must include a valid SYSTEMROOT.
         # We also remove NOTIFY_SOCKET environment variable so that PostgreSQL doesn't send READY=1 or STOPPING=1
         # to systemd, because it is exclusively responsibility of Patroni to do it.
-        env = {p: os.environ[p] for p in os.environ if p != 'NOTIFY_SOCKET'
+        env = {p: os.environ[p] for p in os.environ if p != SOCKET_ENV_VARIABLE
                and not p.startswith(PATRONI_ENV_PREFIX) and not p.startswith(KUBERNETES_ENV_PREFIX)}
         if 'PG_MALLOC_ARENA_MAX' in env:
             env['MALLOC_ARENA_MAX'] = env.pop('PG_MALLOC_ARENA_MAX')

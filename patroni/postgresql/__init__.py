@@ -241,12 +241,9 @@ class Postgresql(object):
                         and self.role in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED) else "'on', '', NULL")
 
         if self._major_version >= 90600:
-            filter_failover = ' WHERE NOT failover' if self._major_version >= 170000 else ''
+            pg_replication_slots_query = self.slots_handler.pg_replication_slots_query(True)
             extra = ("pg_catalog.current_setting('restore_command')" if self._major_version >= 120000 else "NULL") +\
-                ", " + ("(SELECT pg_catalog.json_agg(s.*) FROM (SELECT slot_name, slot_type as type, datoid::bigint, "
-                        "plugin, catalog_xmin, pg_catalog.pg_wal_lsn_diff(confirmed_flush_lsn, '0/0')::bigint"
-                        " AS confirmed_flush_lsn, pg_catalog.pg_wal_lsn_diff(restart_lsn, '0/0')::bigint"
-                        f" AS restart_lsn, xmin FROM pg_catalog.pg_get_replication_slots(){filter_failover}) AS s)"
+                ", " + (f"(SELECT pg_catalog.json_agg(s.*) FROM ({pg_replication_slots_query}) AS s)"
                         if self._should_query_slots and self.can_advance_slots else "NULL") + extra
 
             written_lsn = ("pg_catalog.pg_wal_lsn_diff(written_lsn, '0/0')::bigint"
@@ -849,7 +846,7 @@ class Postgresql(object):
                     row = cur.fetchone()
                     if not row or row[0]:
                         return 'is_in_recovery=true'
-                cur.execute('CHECKPOINT')
+                cur.execute('CHECKPOINT (FLUSH_UNLOGGED)' if self.major_version >= 190000 else 'CHECKPOINT')
         except psycopg.Error:
             logger.exception('Exception during CHECKPOINT')
             return 'not accessible or not healthy'

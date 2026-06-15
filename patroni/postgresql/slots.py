@@ -10,7 +10,7 @@ import shutil
 from collections import defaultdict
 from contextlib import contextmanager
 from threading import Condition, Thread
-from typing import Any, Collection, Dict, Generator, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Dict, Generator, List, Optional, Tuple, TYPE_CHECKING, Union
 
 from .. import global_config
 from ..dcs import Cluster, Leader
@@ -204,15 +204,20 @@ class SlotsHandler:
         """
         return self._postgresql.query(sql, *params, retry=False)
 
-    @staticmethod
-    def _copy_items(src: Dict[str, Any], dst: Dict[str, Any], keys: Optional[Collection[str]] = None) -> None:
-        """Select values from *src* dictionary to update in *dst* dictionary for optional supplied *keys*.
+    def copy_slot_items(self, src: Dict[str, Any], dst: Dict[str, Any], is_logical: bool = True) -> None:
+        """Select values from *src* slots dictionary to update in *dst* slots dictionary.
 
         :param src: source dictionary that *keys* will be looked up from.
         :param dst: destination dictionary to be updated.
-        :param keys: optional list of keys to be looked up in the source dictionary.
+        :param is_logical: whether the slot type is logical.
         """
-        dst.update({key: src[key] for key in keys or ('datoid', 'catalog_xmin', 'confirmed_flush_lsn')})
+        if is_logical:
+            keys = ('datoid', 'catalog_xmin', 'confirmed_flush_lsn')
+            if self._postgresql.major_version >= 17:
+                keys += ('failover', 'synced')
+        else:
+            keys = ('restart_lsn', 'xmin')
+        dst.update({key: src[key] for key in keys if key in src})
 
     def process_permanent_slots(self, slots: List[Dict[str, Any]]) -> Dict[str, int]:
         """Process replication slot information from the host and prepare information used in subsequent cluster tasks.
@@ -244,10 +249,10 @@ class SlotsHandler:
                 if compare_slots(value, self._replication_slots[name], 'datoid'):
                     if value['type'] == 'logical':
                         ret[name] = value['confirmed_flush_lsn']
-                        self._copy_items(value, self._replication_slots[name])
+                        self.copy_slot_items(value, self._replication_slots[name])
                     else:
                         ret[name] = value['restart_lsn']
-                        self._copy_items(value, self._replication_slots[name], ('restart_lsn', 'xmin'))
+                        self.copy_slot_items(value, self._replication_slots[name], is_logical=False)
                 else:
                     self._schedule_load_slots = True
 
@@ -257,33 +262,48 @@ class SlotsHandler:
 
         return ret
 
+    def pg_replication_slots_query(self, use_function: bool = False) -> str:
+        """Get query text for retrieveing slots infromation.
+
+        Query retrieves replication slot's ``name``, ``type``, ``plugin``, ``database`` and ``datoid``.
+        If PostgreSQL version is 10 or newer also retrieves ``catalog_xmin`` and ``confirmed_flush_lsn``.
+        If PostgreSQL version is 17 or above also retrieves ``failover`` and ``synced``.
+
+        :param use_function: whether to use ``pg_get_replication_slots()`` function or ``pg_replication_slots`` view
+                             in the query.
+
+        :return: string containing SQL query text.
+        """
+        pg_wal_lsn_diff = f"pg_catalog.pg_{self._postgresql.wal_name}_{self._postgresql.lsn_name}_diff"
+
+        extra = f", catalog_xmin, {pg_wal_lsn_diff}(confirmed_flush_lsn, '0/0')::bigint AS confirmed_flush_lsn" \
+            if self._postgresql.major_version >= 100000 else ""
+        extra += ", failover, synced" if self._postgresql.major_version >= 170000 else ""
+
+        filter_columns = ["NOT temporary"] if self._postgresql.major_version >= 100000 else []
+        filter_columns += ["(NOT failover OR NOT synced)"] if self._postgresql.major_version >= 170000 else []
+
+        where_filter = ' AND '.join(filter_columns)
+        where_condition = f' WHERE {where_filter}' if where_filter else ''
+
+        database = '' if use_function else ', database'
+        pg_replication_slots_obj = "pg_get_replication_slots()" if use_function else 'pg_replication_slots'
+
+        return "SELECT slot_name, slot_type AS type, xmin, " \
+            f"{pg_wal_lsn_diff}(restart_lsn, '0/0')::bigint AS restart_lsn, plugin{database}, " \
+            f"datoid::bigint{extra} FROM pg_catalog.{pg_replication_slots_obj}{where_condition}"
+
     def load_replication_slots(self) -> None:
         """Query replication slot information from the database and store it for processing by other tasks.
 
         .. note::
             Only supported from PostgreSQL version 9.4 onwards.
 
-        Store replication slot ``name``, ``type``, ``plugin``, ``database`` and ``datoid``.
-        If PostgreSQL version is 10 or newer also store ``catalog_xmin`` and ``confirmed_flush_lsn``.
-        If PostgreSQL version is 17 or above also fetch ``failover`` and ``synced``.
-
-        When using logical slots, store information separately for slot synchronisation  on replica nodes.
+        When using logical slots, store information separately for slot synchronisation on replica nodes.
         """
         if self._postgresql.major_version >= 90400 and self._schedule_load_slots:
             replication_slots: Dict[str, Dict[str, Any]] = {}
-            pg_wal_lsn_diff = f"pg_catalog.pg_{self._postgresql.wal_name}_{self._postgresql.lsn_name}_diff"
-
-            extra = f", catalog_xmin, {pg_wal_lsn_diff}(confirmed_flush_lsn, '0/0')::bigint" \
-                if self._postgresql.major_version >= 100000 else ""
-            extra += ", failover, synced" if self._postgresql.major_version >= 170000 else ""
-
-            filter_columns = ["NOT temporary"] if self._postgresql.major_version >= 100000 else []
-            filter_columns += ["(NOT failover OR NOT synced)"] if self._postgresql.major_version >= 170000 else []
-            where_filter = ' AND '.join(filter_columns)
-            where_condition = f' WHERE {where_filter}' if where_filter else ''
-            for r in self._query("SELECT slot_name, slot_type, xmin, "
-                                 f"{pg_wal_lsn_diff}(restart_lsn, '0/0')::bigint, plugin, database, datoid{extra}"
-                                 f" FROM pg_catalog.pg_replication_slots{where_condition}"):
+            for r in self._query(self.pg_replication_slots_query()):
                 value = {'type': r[1]}
                 if r[1] == 'logical':
                     value.update(plugin=r[4], database=r[5], datoid=r[6])
@@ -420,7 +440,7 @@ class SlotsHandler:
             # change, which would prevent Postgres from advancing the xmin horizon.
             if self._postgresql.can_advance_slots and name in self._replication_slots and\
                     self._replication_slots[name]['type'] == 'physical':
-                self._copy_items(self._replication_slots[name], value, ('restart_lsn', 'xmin'))
+                self.copy_slot_items(self._replication_slots[name], value, is_logical=False)
                 if clean_inactive_physical_slots and value.get('expected_active') is False and value['xmin']:
                     logger.warning('Dropping physical replication slot %s because of its xmin value %s',
                                    name, value['xmin'])
@@ -489,7 +509,7 @@ class SlotsHandler:
         for name, value in slots.items():
             if value['type'] == 'logical':
                 if self._replication_slots.get(name, {}).get('datoid'):
-                    self._copy_items(self._replication_slots[name], value)
+                    self.copy_slot_items(self._replication_slots[name], value)
                 else:
                     logical_slots[value['database']][name] = value
 
@@ -533,7 +553,7 @@ class SlotsHandler:
 
             # If the logical already exists, copy some information about it into the original structure
             if name in self._replication_slots and compare_slots(value, self._replication_slots[name]):
-                self._copy_items(self._replication_slots[name], value)
+                self.copy_slot_items(self._replication_slots[name], value)
 
                 # The slot has feedback in DCS
                 if 'lsn' in value:
