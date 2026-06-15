@@ -25,6 +25,7 @@ from patroni.postgresql import PgIsReadyStatus, Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
 from patroni.postgresql.config import _false_validator, get_param_diff
+from patroni.postgresql.connection import NamedConnection
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import _get_postgres_guc_validators, _load_postgres_gucs_validators, \
@@ -390,6 +391,13 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.query('select 1')
         self.assertRaises(PostgresConnectionException, self.p.query, 'RetryFailedError')
         self.assertRaises(psycopg.ProgrammingError, self.p.query, 'blabla')
+
+    def test_query_timeout(self):
+        # A statement_timeout cancellation must be wrapped as PostgresConnectionException so that it is retried,
+        # while the connection stays open because it remains healthy and reusable.
+        with patch.object(NamedConnection, 'close') as mock_close:
+            self.assertRaises(PostgresConnectionException, self.p._connection.query, 'QueryCanceled')
+            mock_close.assert_not_called()
 
     @patch.object(Postgresql, 'pg_isready', Mock(return_value=PgIsReadyStatus.REJECT))
     def test_is_primary(self):

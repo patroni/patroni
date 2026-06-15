@@ -132,6 +132,8 @@ class MockCursor(object):
             raise psycopg.ProgrammingError()
         elif sql == 'CHECKPOINT' or sql.startswith('SELECT pg_catalog.pg_create_'):
             raise psycopg.OperationalError()
+        elif sql.startswith('QueryCanceled'):
+            raise psycopg.QueryCanceled()
         elif sql.startswith('RetryFailedError'):
             raise RetryFailedError('retry')
         elif sql.startswith('SELECT slot_name, catalog_xmin'):

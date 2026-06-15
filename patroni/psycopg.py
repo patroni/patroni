@@ -11,7 +11,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from psycopg2 import connection, cursor
 
 __all__ = ['connect', 'parse_conninfo', 'quote_ident', 'quote_literal',
-           'DatabaseError', 'Error', 'OperationalError', 'ProgrammingError']
+           'DatabaseError', 'Error', 'OperationalError', 'ProgrammingError', 'QueryCanceled']
 
 _legacy = False
 try:
@@ -21,7 +21,9 @@ try:
     if parse_version(__version__) < MIN_PSYCOPG2:
         raise ImportError
     from psycopg2 import connect as _connect, DatabaseError, Error, OperationalError, ProgrammingError
-    from psycopg2.extensions import adapt
+    # ``psycopg2.errors.QueryCanceled`` only exists since psycopg2 2.8, but the alias in
+    # ``psycopg2.extensions`` has been available for much longer, hence is compatible with MIN_PSYCOPG2.
+    from psycopg2.extensions import adapt, QueryCanceledError as QueryCanceled
 
     try:
         from psycopg2.extensions import parse_dsn, quote_ident as __quote_ident
@@ -73,6 +75,7 @@ except ImportError:
     import types
 
     from psycopg import DatabaseError, Error, OperationalError, ProgrammingError, sql
+    from psycopg.errors import QueryCanceled
     # isort: off
     from psycopg import connect as __connect  # pyright: ignore [reportUnknownVariableType]
     from psycopg.conninfo import conninfo_to_dict as _parse_conninfo

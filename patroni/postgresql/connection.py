@@ -73,6 +73,12 @@ class NamedConnection:
             with self.get().cursor() as cursor:
                 cursor.execute(sql.encode('utf-8'), params or None)
                 return cursor.fetchall() if cursor.rowcount and cursor.rowcount > 0 else []
+        except psycopg.QueryCanceled as exc:
+            # A statement_timeout cancellation (e.g. of Patroni's own monitoring query when PostgreSQL is
+            # overloaded) leaves the connection healthy and reusable, and with `autocommit` there is no aborted
+            # transaction to clean up. We wrap it as PostgresConnectionException so that it is retried the same
+            # way as other transient failures, while keeping the connection open to avoid a needless reconnect.
+            raise PostgresConnectionException('query timeout') from exc
         except psycopg.Error as exc:
             if cursor and cursor.connection.closed == 0:
                 # When connected via unix socket, psycopg2 can't recognize 'connection lost' and leaves
