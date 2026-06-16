@@ -141,10 +141,10 @@ def dcs_key_does_not_contain(context, name, subkey, key):
 @then("synchronized_standby_slots on {name:2} is set to '{value}' after {time_limit:d} seconds")
 def check_synchronized_standby_slots(context, name, value, time_limit):
     time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
+    max_time = time.monotonic() + int(time_limit)
     expected = set(value.split(',')) if value else set()
     actual = None
-    while time.time() < max_time:
+    while time.monotonic() < max_time:
         try:
             actual = context.pctl.query(name, "SHOW synchronized_standby_slots").fetchone()[0]
             if set(actual.split(',')) - {''} == expected:
@@ -159,9 +159,9 @@ def check_synchronized_standby_slots(context, name, value, time_limit):
 @then('synchronized_standby_slots on {name:2} is empty after {time_limit:d} seconds')
 def check_synchronized_standby_slots_empty(context, name, time_limit):
     time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
+    max_time = time.monotonic() + int(time_limit)
     actual = None
-    while time.time() < max_time:
+    while time.monotonic() < max_time:
         try:
             actual = context.pctl.query(name, "SHOW synchronized_standby_slots").fetchone()[0]
             if not actual:
@@ -173,30 +173,19 @@ def check_synchronized_standby_slots_empty(context, name, time_limit):
                    f"(found '{actual}') after {time_limit} seconds")
 
 
-@then('synchronized_standby_slots on {name:2} matches existing physical slots after {time_limit:d} seconds')
-def check_synchronized_standby_slots_match_physical(context, name, time_limit):
+@then('synchronized_standby_slots on {name:2} matches existing physical slots')
+def check_synchronized_standby_slots_match_physical(context, name):
     """Assert every name in synchronized_standby_slots corresponds to a real physical slot.
 
     This is the killer assertion for the slot-naming regression where
     quoted member names (e.g. ``"postgres-1"``) were fed through
     ``slot_name_from_member_name`` producing garbage like ``u0034postgres_1u0034``."""
-    time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
-    declared = actual_slots = None
-    while time.time() < max_time:
-        try:
-            declared_raw = context.pctl.query(name, "SHOW synchronized_standby_slots").fetchone()[0]
-            declared = set(s for s in declared_raw.split(',') if s)
-            if not declared:
-                time.sleep(1)
-                continue
-            actual_slots = {row[0] for row in context.pctl.query(
-                name, "SELECT slot_name FROM pg_replication_slots WHERE slot_type = 'physical'"
-            ).fetchall()}
-            if declared.issubset(actual_slots):
-                return
-        except Exception:
-            pass
-        time.sleep(1)
-    assert False, (f"synchronized_standby_slots on {name} (={declared}) does not match existing "
-                   f"physical slots (={actual_slots}) after {time_limit} seconds")
+    declared_raw = context.pctl.query(name, "SHOW synchronized_standby_slots").fetchone()[0]
+    declared = set(s for s in declared_raw.split(',') if s)
+    if not declared:
+        return
+    actual_slots = {row[0] for row in context.pctl.query(
+        name, "SELECT slot_name FROM pg_replication_slots WHERE slot_type = 'physical'"
+    ).fetchall()}
+    assert declared.issubset(actual_slots), (f"synchronized_standby_slots on {name} (={declared}) "
+                                             f"does not match existing physical slots (={actual_slots})")

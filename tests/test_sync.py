@@ -1,11 +1,11 @@
 import os
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, PropertyMock
 
 from patroni import global_config
 from patroni.collections import CaseInsensitiveSet
 from patroni.dcs import Cluster, ClusterConfig, Status, SyncState
-from patroni.postgresql import Postgresql
+from patroni.postgresql import Postgresql, PostgresqlState
 
 from . import BaseTestPostgresql, mock_available_gucs, psycopg_connect
 
@@ -197,9 +197,6 @@ class TestSync(BaseTestPostgresql):
 
         # PG17+ with dynamic_synchronized_standby_slots: ensure a manual reload happens
         # when only synchronized_standby_slots changes (synchronous_standby_names unchanged).
-        from unittest.mock import PropertyMock
-
-        from patroni.postgresql import PostgresqlState
         self.p._major_version = 170000
         self.cluster.config.data['synchronous_mode'] = True
         self.cluster.config.data['dynamic_synchronized_standby_slots'] = True

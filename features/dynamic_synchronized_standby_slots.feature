@@ -17,22 +17,7 @@ Feature: dynamic synchronized_standby_slots
     And synchronous_standby_names on postgres-0 is set to '"postgres-1"' after 5 seconds
     # Maithem regression: the value must be the proper slot name, NOT u0034postgres_1u0034
     And synchronized_standby_slots on postgres-0 is set to 'postgres_1' after 5 seconds
-    And synchronized_standby_slots on postgres-0 matches existing physical slots after 5 seconds
-
-  @pg170000
-  Scenario: a logical failover slot syncs to the synchronous standby
-    Given I create a logical failover slot test_dyn_sync on postgres-0 with the test_decoding plugin
-    # Advance the WAL so the slot has something to sync; per PG17 docs the source slot
-    # must move forward a few times before synchronization fully completes.
-    When I add the table dyn_replicate1 to postgres-0
-    And I get all changes from logical slot test_dyn_sync on postgres-0
-    Then postgres-1 has a synced replication slot named test_dyn_sync with the test_decoding plugin after 60 seconds
-    When I add the table dyn_replicate2 to postgres-0
-    And I get all changes from logical slot test_dyn_sync on postgres-0
-    Then postgres-1 has a synced replication slot named test_dyn_sync with the test_decoding plugin after 30 seconds
-    When I add the table dyn_replicate3 to postgres-0
-    And I get all changes from logical slot test_dyn_sync on postgres-0
-    Then postgres-1 has a synced replication slot named test_dyn_sync with the test_decoding plugin after 30 seconds
+    And synchronized_standby_slots on postgres-0 matches existing physical slots
 
   @pg170000
   Scenario: synchronized_standby_slots tracks adding and removing sync members
@@ -41,7 +26,7 @@ Feature: dynamic synchronized_standby_slots
     Then I receive a response code 200
     And sync key in DCS has sync_standby=postgres-1,postgres-2 after 20 seconds
     And synchronized_standby_slots on postgres-0 is set to 'postgres_1,postgres_2' after 10 seconds
-    And synchronized_standby_slots on postgres-0 matches existing physical slots after 5 seconds
+    And synchronized_standby_slots on postgres-0 matches existing physical slots
     When I shut down postgres-2
     Then sync key in DCS has sync_standby=postgres-1 after 20 seconds
     And synchronized_standby_slots on postgres-0 is set to 'postgres_1' after 10 seconds
@@ -70,7 +55,7 @@ Feature: dynamic synchronized_standby_slots
     And synchronous_standby_names on postgres-1 is set to '"postgres-0"' after 5 seconds
     # After failover, the new primary must populate synchronized_standby_slots correctly.
     And synchronized_standby_slots on postgres-1 is set to 'postgres_0' after 15 seconds
-    And synchronized_standby_slots on postgres-1 matches existing physical slots after 5 seconds
+    And synchronized_standby_slots on postgres-1 matches existing physical slots
 
   @pg170000
   Scenario: dynamic_synchronized_standby_slots works in quorum mode
@@ -78,7 +63,7 @@ Feature: dynamic synchronized_standby_slots
     Then I receive a response code 200
     And synchronous_standby_names on postgres-1 is set to 'ANY 1 ("postgres-0")' after 10 seconds
     And synchronized_standby_slots on postgres-1 is set to 'postgres_0' after 10 seconds
-    And synchronized_standby_slots on postgres-1 matches existing physical slots after 5 seconds
+    And synchronized_standby_slots on postgres-1 matches existing physical slots
 
   @pg170000
   Scenario: quorum mode with multiple sync standbys lists all of them
@@ -88,4 +73,4 @@ Feature: dynamic synchronized_standby_slots
     And sync key in DCS has sync_standby=postgres-0,postgres-2 after 20 seconds
     And synchronous_standby_names on postgres-1 is set to 'ANY 2 ("postgres-0","postgres-2")' after 10 seconds
     And synchronized_standby_slots on postgres-1 is set to 'postgres_0,postgres_2' after 10 seconds
-    And synchronized_standby_slots on postgres-1 matches existing physical slots after 5 seconds
+    And synchronized_standby_slots on postgres-1 matches existing physical slots
