@@ -33,7 +33,9 @@ To enable a simple synchronous replication test, add the following lines to the 
 
 When using PostgreSQL synchronous replication, use at least three Postgres data nodes to ensure write availability if one host fails.
 
-Using PostgreSQL synchronous replication does not guarantee zero lost transactions under all circumstances. When the primary and the secondary that is currently acting as a synchronous replica fail simultaneously a third node that might not contain all transactions will be promoted.
+Using PostgreSQL synchronous replication does not guarantee zero lost transactions under all circumstances. Synchronous replication only guarantees that a committed transaction has been replicated to the configured number of synchronous standbys; it does not necessarily mean that every PostgreSQL standby in the cluster has received it.
+For example, in a cluster with three PostgreSQL data nodes, if only one synchronous standby is required for commit acknowledgement, a committed transaction may exist only on the primary and on the standby currently acting as the synchronous replica. If both of these PostgreSQL nodes fail simultaneously, another available standby may be promoted even though it has not received all committed transactions.
+This scenario assumes that the DCS remains available and has quorum. If the DCS itself loses quorum, Patroni cannot safely acquire or update the leader lock, and automatic failover will not proceed.
 
 
 .. _synchronous_mode:
