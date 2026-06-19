@@ -147,6 +147,7 @@ Raft (deprecated)
 -  **PATRONI\_RAFT\_CONNECTION\_RETRY\_TIME**: (optional) interval in seconds between reconnection attempts to offline nodes. Default: ``5.0``.
 -  **PATRONI\_RAFT\_LEADER\_FALLBACK\_TIMEOUT**: (optional) time in seconds after which a leader with no response from the majority falls back to follower state. Must be greater than ``PATRONI_RAFT_APPEND_ENTRIES_PERIOD``. Default: ``30.0``.
 
+.. note::
    Patroni validates these constraints at startup and will refuse to start if they are violated. These values cannot be changed at runtime and require a restart. See :ref:`raft_settings` for details.
 
 PostgreSQL
