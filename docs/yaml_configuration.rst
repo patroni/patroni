@@ -216,6 +216,9 @@ Raft (deprecated)
 .. note::
    These timeout parameters are useful for high-latency networks where the default pysyncobj timeouts are too aggressive. The following constraints must be satisfied: ``min_timeout`` > 3 \* ``append_entries_period``, ``max_timeout`` > ``min_timeout``, ``connection_timeout`` >= ``max_timeout``, and ``leader_fallback_timeout`` > ``append_entries_period``. Patroni validates these at startup and will refuse to start if they are violated. These values cannot be changed at runtime and require a restart.
 
+   .. warning::
+      These knobs only relax the pysyncobj *election* and *connection* timeouts; they do not extend the per-command deadline that Patroni applies to Raft operations. Each Raft command (leader-lock refresh, cluster-state write) must still complete within ``retry_timeout`` (default ``10``). On very high-latency links — roughly above a few seconds of round-trip time — a single command can exceed ``retry_timeout`` even when ``connection_timeout`` is raised well above the RTT, so the DCS will appear unreachable and the primary may demote. On such links you must also raise ``retry_timeout`` (and ``ttl`` accordingly, keeping ``loop_wait + 2 * retry_timeout <= ttl``) for the Raft DCS to survive; see :ref:`dynamic_configuration`.
+
    Short FAQ about Raft implementation
 
    - Q: How to list all the nodes providing consensus?
