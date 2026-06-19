@@ -176,6 +176,10 @@ class TestKVStoreTTL(unittest.TestCase):
         self.assertRaisesRegex(RaftError, r'connection_timeout \(5\.0\) must be >= max_timeout \(10\.0\)',
                                KVStoreTTL, None, None, None,
                                self_addr='127.0.0.1:1234', max_timeout=10.0, connection_timeout=5.0)
+        # min_timeout == 3 * append_entries_period (exact boundary, strict >)
+        self.assertRaisesRegex(RaftError, r'min_timeout .* must be > 3 \* append_entries_period',
+                               KVStoreTTL, None, None, None,
+                               self_addr='127.0.0.1:1234', append_entries_period=1.0, min_timeout=3.0)
         # leader_fallback_timeout must be > append_entries_period
         self.assertRaisesRegex(RaftError, r'leader_fallback_timeout .* must be > append_entries_period',
                                KVStoreTTL, None, None, None,
@@ -201,6 +205,20 @@ class TestKVStoreTTL(unittest.TestCase):
         self.assertEqual(so.conf.connectionRetryTime, 0.0)
         so.destroy()
 
+    def test_int_pysyncobj_timeouts(self):
+        """Verify int values (from YAML like min_timeout: 5) are accepted."""
+        self.so.destroy()
+        self.so = None
+        so = KVStoreTTL(None, None, None, self_addr='127.0.0.1:1234',
+                        min_timeout=5, max_timeout=10, connection_timeout=15,
+                        append_entries_period=1, connection_retry_time=10, leader_fallback_timeout=60)
+        self.assertEqual(so.conf.raftMinTimeout, 5)
+        self.assertEqual(so.conf.raftMaxTimeout, 10)
+        self.assertEqual(so.conf.connectionTimeout, 15)
+        self.assertEqual(so.conf.appendEntriesPeriod, 1)
+        self.assertEqual(so.conf.connectionRetryTime, 10)
+        self.assertEqual(so.conf.leaderFallbackTimeout, 60)
+        so.destroy()
 
 
 class TestRaft(unittest.TestCase):
