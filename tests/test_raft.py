@@ -8,8 +8,8 @@ from unittest.mock import Mock, patch, PropertyMock
 from pysyncobj import FAIL_REASON, SyncObjConf
 
 from patroni.dcs import get_dcs
-from patroni.dcs.raft import _PYSYNCOBJ_TIMEOUT_PARAMS, _TCPTransport, Cluster, DynMemberSyncObj, \
-    KVStoreTTL, Raft, RaftError, SyncObjUtility, TCPTransport
+from patroni.dcs.raft import _PYSYNCOBJ_TIMEOUT_PARAMS, _TCPTransport, Cluster, \
+    DynMemberSyncObj, KVStoreTTL, Raft, RaftError, SyncObjUtility, TCPTransport
 from patroni.postgresql.mpp import get_mpp
 
 
