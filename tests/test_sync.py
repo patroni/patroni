@@ -197,7 +197,6 @@ class TestSync(BaseTestPostgresql):
         self.assertEqual(value_in_conf(), "synchronous_standby_names = '\"a-1\"'")
 
     @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
-    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
     @patch.object(Postgresql, 'query', Mock())
     @patch.object(Postgresql, 'reset_cluster_info_state', Mock())
     def test_handle_synchronous_standby_names_change(self):
