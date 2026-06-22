@@ -196,39 +196,28 @@ class TestSync(BaseTestPostgresql):
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = '\"a-1\"'")
 
-    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
-    @patch.object(Postgresql, 'query', Mock())
-    @patch.object(Postgresql, 'reset_cluster_info_state', Mock())
-    def test_handle_synchronous_standby_names_change(self):
-        # No change — no log emitted
-        with patch.object(Postgresql, 'synchronous_standby_names', return_value=''):
-            with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
-                self.s._handle_synchronous_standby_names_change()
-                # force at least one log so assertLogs doesn't fail on empty
-                logging.getLogger('patroni.postgresql.sync').info('_baseline_')
-        self.assertFalse(any('`synchronous_standby_names` changed' in m for m in logs.output))
+    @patch('time.sleep', Mock())
+    def test_set_sync_standby_log_diff(self):
+        self.p.reload = Mock()
 
-        # Member added
-        with patch.object(Postgresql, 'synchronous_standby_names', return_value='patroni2'):
-            with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
-                self.s._handle_synchronous_standby_names_change()
-        self.assertTrue(any("added=['patroni2'] removed=[]" in m for m in logs.output))
+        # Add n1 from empty state — diff shown
+        with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
+            self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1']))
+        self.assertTrue(any("added=('n1',) removed=()" in m for m in logs.output))
 
-        # Member removed
-        with patch.object(Postgresql, 'synchronous_standby_names', return_value=''):
-            with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
-                self.s._handle_synchronous_standby_names_change()
-        self.assertTrue(any("added=[] removed=['patroni2']" in m for m in logs.output))
+        # Simulate confirmation: advance _ssn_data as _handle_... would
+        self.s._ssn_data = self.s._ssn_data._replace(members=CaseInsensitiveSet(['n1']))
 
-        # Member swapped
-        with patch.object(Postgresql, 'synchronous_standby_names', return_value='patroni3'):
-            with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
-                self.s._handle_synchronous_standby_names_change()
-        self.assertTrue(any("added=['patroni3'] removed=[]" in m for m in logs.output))
-        with patch.object(Postgresql, 'synchronous_standby_names', return_value='patroni4'):
-            with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
-                self.s._handle_synchronous_standby_names_change()
-        self.assertTrue(any("added=['patroni4'] removed=['patroni3']" in m for m in logs.output))
+        # Same members — no diff appended to log
+        with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
+            self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1']))
+            logging.getLogger('patroni.postgresql.sync').info('_baseline_')
+        self.assertFalse(any('(added=' in m for m in logs.output))
+
+        # Swap n1 for n2 — both sides shown
+        with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
+            self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n2']))
+        self.assertTrue(any("added=('n2',) removed=('n1',)" in m for m in logs.output))
 
     @patch.object(Postgresql, 'last_operation', Mock(return_value=0))
     @patch.object(Postgresql, 'query', Mock())

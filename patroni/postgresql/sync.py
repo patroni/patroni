@@ -311,18 +311,12 @@ class SyncHandler(object):
         if synchronous_standby_names == self._synchronous_standby_names:
             return
 
-        old_members = self._ssn_data.members
         self._synchronous_standby_names = synchronous_standby_names
         try:
             self._ssn_data = parse_sync_standby_names(synchronous_standby_names)
         except ValueError as e:
             logger.warning('%s', e)
             self._ssn_data = deepcopy(_EMPTY_SSN)
-
-        added = sorted(self._ssn_data.members - old_members)
-        removed = sorted(old_members - self._ssn_data.members)
-        if added or removed:
-            logger.info('`synchronous_standby_names` changed: added=%s removed=%s', added, removed)
 
         # Invalidate cache of "sync" connections
         for app_name in list(self._ready_replicas.keys()):
@@ -429,6 +423,7 @@ END;$$""")
         """
         # Special case. If sync nodes set is empty but requested num of sync nodes >= 1
         # we want to set synchronous_standby_names to '__patroni_strict_sync_replica_placeholder__'
+        _new_members = CaseInsensitiveSet([s for s in sync if s != '*'])
         sync_strict = '*' in sync or num and num >= 1 and not sync
         if sync_strict:
             sync = [SYNC_STRICT_PLACEHOLDER]
@@ -447,7 +442,13 @@ END;$$""")
             sync_param = f'{prefix}{num} ({sync_param})'
 
         if sync_param is not None:
-            logger.info("Assigning synchronous_standby_names to %s", sync_param)
+            _old = self._ssn_data.members
+            _added = tuple(sorted(_new_members - _old))
+            _removed = tuple(sorted(_old - _new_members))
+            if _added or _removed:
+                logger.info("Assigning synchronous_standby_names to %s (added=%s removed=%s)", sync_param, _added, _removed)
+            else:
+                logger.info("Assigning synchronous_standby_names to %s", sync_param)
 
         if not (self._postgresql.config.set_synchronous_standby_names(sync_param)
                 and self._postgresql.state == PostgresqlState.RUNNING
