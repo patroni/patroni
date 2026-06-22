@@ -311,12 +311,18 @@ class SyncHandler(object):
         if synchronous_standby_names == self._synchronous_standby_names:
             return
 
+        old_members = self._ssn_data.members
         self._synchronous_standby_names = synchronous_standby_names
         try:
             self._ssn_data = parse_sync_standby_names(synchronous_standby_names)
         except ValueError as e:
             logger.warning('%s', e)
             self._ssn_data = deepcopy(_EMPTY_SSN)
+
+        added = sorted(self._ssn_data.members - old_members)
+        removed = sorted(old_members - self._ssn_data.members)
+        if added or removed:
+            logger.info('`synchronous_standby_names` changed: added=%s removed=%s', added, removed)
 
         # Invalidate cache of "sync" connections
         for app_name in list(self._ready_replicas.keys()):

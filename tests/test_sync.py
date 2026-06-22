@@ -1,3 +1,4 @@
+import logging
 import os
 
 from unittest.mock import Mock, patch
@@ -196,6 +197,43 @@ class TestSync(BaseTestPostgresql):
         self.assertEqual(value_in_conf(), "synchronous_standby_names = '\"a-1\"'")
 
     @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    @patch.object(Postgresql, 'query', Mock())
+    @patch.object(Postgresql, 'reset_cluster_info_state', Mock())
+    def test_handle_synchronous_standby_names_change(self):
+        # No change — no log emitted
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value=''):
+            with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
+                self.s._handle_synchronous_standby_names_change()
+                # force at least one log so assertLogs doesn't fail on empty
+                logging.getLogger('patroni.postgresql.sync').info('_baseline_')
+        self.assertFalse(any('`synchronous_standby_names` changed' in m for m in logs.output))
+
+        # Member added
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value='patroni2'):
+            with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
+                self.s._handle_synchronous_standby_names_change()
+        self.assertTrue(any("added=['patroni2'] removed=[]" in m for m in logs.output))
+
+        # Member removed
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value=''):
+            with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
+                self.s._handle_synchronous_standby_names_change()
+        self.assertTrue(any("added=[] removed=['patroni2']" in m for m in logs.output))
+
+        # Member swapped
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value='patroni3'):
+            with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
+                self.s._handle_synchronous_standby_names_change()
+        self.assertTrue(any("added=['patroni3'] removed=[]" in m for m in logs.output))
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value='patroni4'):
+            with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
+                self.s._handle_synchronous_standby_names_change()
+        self.assertTrue(any("added=['patroni4'] removed=['patroni3']" in m for m in logs.output))
+
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=0))
+    @patch.object(Postgresql, 'query', Mock())
+    @patch.object(Postgresql, 'reset_cluster_info_state', Mock())
     def test_do_not_prick_yourself(self):
         self.p.name = self.leadermem.name
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,
