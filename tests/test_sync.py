@@ -203,7 +203,7 @@ class TestSync(BaseTestPostgresql):
         # Add n1 from empty state — diff shown
         with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
             self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1']))
-        self.assertTrue(any("added=('n1') removed=()" in m for m in logs.output))
+        self.assertTrue(any("added=['n1'] removed=[]" in m for m in logs.output))
 
         # Simulate confirmation: advance _ssn_data as _handle_... would
         self.s._ssn_data = self.s._ssn_data._replace(members=CaseInsensitiveSet(['n1']))
@@ -212,12 +212,12 @@ class TestSync(BaseTestPostgresql):
         with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
             self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1']))
             logging.getLogger('patroni.postgresql.sync').info('_baseline_')
-        self.assertFalse(any('(added=' in m for m in logs.output))
+        self.assertFalse(any('added=[' in m for m in logs.output))
 
         # Swap n1 for n2 — both sides shown
         with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
             self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n2']))
-        self.assertTrue(any("added=('n2') removed=('n1')" in m for m in logs.output))
+        self.assertTrue(any("added=['n2'] removed=['n1']" in m for m in logs.output))
 
     @patch.object(Postgresql, 'last_operation', Mock(return_value=0))
     @patch.object(Postgresql, 'query', Mock())

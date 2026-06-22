@@ -446,10 +446,8 @@ END;$$""")
             _added = sorted(_new_members - _old)
             _removed = sorted(_old - _new_members)
             if _added or _removed:
-                def _fmt(ns: List[str]) -> str:
-                    return '(' + ', '.join(repr(n) for n in ns) + ')'
                 logger.info("Assigning synchronous_standby_names to %s (added=%s removed=%s)",
-                            sync_param, _fmt(_added), _fmt(_removed))
+                            sync_param, _added, _removed)
             else:
                 logger.info("Assigning synchronous_standby_names to %s", sync_param)
 
