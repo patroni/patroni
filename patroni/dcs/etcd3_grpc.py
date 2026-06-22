@@ -39,7 +39,8 @@ class Etcd3GrpcClient:
         self._endpoints = self._parse_endpoints(config)
         self._current_endpoint_idx = 0
         self._channel: Optional[grpc.Channel] = None
-        self._credentials = self._build_credentials(config)
+        self._use_tls = bool(config.get('cacert') or config.get('cert'))
+        self._credentials = self._build_credentials(config) if self._use_tls else None
         self._kv_stub: Any = None
         self._lease_stub: Any = None
         self._watch_stub: Any = None
@@ -71,7 +72,10 @@ class Etcd3GrpcClient:
     def connect(self) -> None:
         endpoint = self._endpoints[self._current_endpoint_idx]
         logger.info('Connecting to etcd at %s via gRPC', endpoint)
-        self._channel = grpc.secure_channel(endpoint, self._credentials)
+        if self._use_tls:
+            self._channel = grpc.secure_channel(endpoint, self._credentials)
+        else:
+            self._channel = grpc.insecure_channel(endpoint)
         self._kv_stub = rpc_pb2_grpc.KVStub(self._channel)
         self._lease_stub = rpc_pb2_grpc.LeaseStub(self._channel)
         self._watch_stub = rpc_pb2_grpc.WatchStub(self._channel)

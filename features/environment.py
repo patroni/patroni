@@ -563,6 +563,41 @@ class Etcd3Controller(AbstractEtcdController):
             assert False, "exception when cleaning up etcd contents: {0}".format(e)
 
 
+class Etcd3_grpcController(AbstractDcsController):
+
+    def __init__(self, context):
+        super(Etcd3_grpcController, self).__init__(context)
+        os.environ['PATRONI_ETCD3_GRPC_HOST'] = 'localhost:2379'
+
+    def _start(self):
+        return psutil.Popen(["etcd", "--data-dir", self._work_directory],
+                            stdout=self._log, stderr=subprocess.STDOUT)
+
+    def _is_running(self):
+        from patroni.dcs.etcd3_grpc import Etcd3GrpcClient, Etcd3GrpcError
+        try:
+            self._client = Etcd3GrpcClient({'host': 'localhost', 'port': 2379})
+            self._client.connect()
+            self._client.get_prefix('/')
+            return True
+        except Exception:
+            return False
+
+    def query(self, key, scope='batman', group=None):
+        nodes = self._client.get_cluster(self.path(scope=scope) + '/')
+        path = self.path(key, scope, group)
+        for node in nodes:
+            if node['key'] == path:
+                return node['value']
+        return None
+
+    def cleanup_service_tree(self):
+        try:
+            self._client.delete_prefix(self.path(scope=''))
+        except Exception as e:
+            assert False, "exception when cleaning up etcd contents: {0}".format(e)
+
+
 class AbstractExternalDcsController(AbstractDcsController):
 
     def __init__(self, context, mktemp=True):
