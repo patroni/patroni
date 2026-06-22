@@ -399,8 +399,9 @@ class CitusDatabaseHandler(Citus, Thread):
         self.daemon = True
         if config:
             self._connection = postgresql.connection_pool.get(
-                'citus', {'dbname': config['database'],
-                          'options': '-c statement_timeout=0 -c idle_in_transaction_session_timeout=0'})
+                f'citus-{config["database"]}',
+                {'dbname': config['database'],
+                 'options': '-c statement_timeout=0 -c idle_in_transaction_session_timeout=0'})
         self._pg_dist_group: Dict[int, PgDistTask] = {}  # Cache of pg_dist_node: {groupid: PgDistTask()}
         self._tasks: List[PgDistTask] = []  # Requests to change pg_dist_group, every task is a `PgDistTask`
         self._in_flight: Optional[PgDistTask] = None  # Reference to the `PgDistTask` being changed in a transaction
