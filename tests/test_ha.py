@@ -9,7 +9,6 @@ import etcd
 
 from patroni import global_config
 from patroni.collections import CaseInsensitiveSet
-from patroni.quorum import Transition
 from patroni.config import Config
 from patroni.dcs import Cluster, ClusterConfig, Failover, get_dcs, \
     Leader, Member, RemoteMember, Status, SyncState, TimelineHistory
@@ -26,6 +25,7 @@ from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.rewind import Rewind, REWIND_STATUS
 from patroni.postgresql.slots import SlotsHandler
 from patroni.postgresql.sync import _SyncState
+from patroni.quorum import Transition
 from patroni.thread_pool import PatroniThreadPoolExecutor
 from patroni.utils import tzutc
 from patroni.watchdog import Watchdog
