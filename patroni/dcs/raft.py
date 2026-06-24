@@ -150,43 +150,37 @@ class KVStoreTTL(DynMemberSyncObj):
                 syncobj_kwargs[syncobj_key] = value
                 applied_patroni_keys[patroni_key] = value
 
-        if syncobj_kwargs:
-            logger.info('Applying custom pysyncobj timeouts: %s',
-                        ', '.join('{0}={1}'.format(k, v) for k, v in applied_patroni_keys.items()))
-            # Validate pysyncobj ordering constraints. These intentionally duplicate checks from
-            # pysyncobj's SyncObjConf.validate() to provide user-friendly error messages.
-            # Use defaults for parameters not explicitly set, marking them as "(default)" in errors.
-            # connectionRetryTime is not involved in any ordering constraint, so omitted from defaults.
-            defaults = {'appendEntriesPeriod': 0.1, 'raftMinTimeout': 0.4, 'raftMaxTimeout': 1.4,
-                        'connectionTimeout': 3.5, 'leaderFallbackTimeout': 30.0}
-            effective = {k: syncobj_kwargs.get(k, v) for k, v in defaults.items()}
-
-            def _fmt(syncobj_key: str) -> str:
-                v = effective[syncobj_key]
-                return '{0}{1}'.format(v, '' if syncobj_key in syncobj_kwargs else ' (default)')
-
-            aep, rmin, rmax = effective['appendEntriesPeriod'], effective['raftMinTimeout'], effective['raftMaxTimeout']
-            ct, lft = effective['connectionTimeout'], effective['leaderFallbackTimeout']
-
-            if not rmin > aep * 3:
-                raise RaftError('min_timeout ({0}) must be > 3 * append_entries_period ({1})'
-                                .format(_fmt('raftMinTimeout'), _fmt('appendEntriesPeriod')))
-            if not rmax > rmin:
-                raise RaftError('max_timeout ({0}) must be > min_timeout ({1})'
-                                .format(_fmt('raftMaxTimeout'), _fmt('raftMinTimeout')))
-            if not ct >= rmax:
-                raise RaftError('connection_timeout ({0}) must be >= max_timeout ({1})'
-                                .format(_fmt('connectionTimeout'), _fmt('raftMaxTimeout')))
-            if not lft > aep:
-                raise RaftError('leader_fallback_timeout ({0}) must be > append_entries_period ({1})'
-                                .format(_fmt('leaderFallbackTimeout'), _fmt('appendEntriesPeriod')))
-
         conf = SyncObjConf(password=config.get('password'), autoTick=False, appendEntriesUseBatch=False,
                            bindAddress=config.get('bind_addr'), dnsFailCacheTime=(config.get('loop_wait') or 10),
                            dnsCacheTime=(config.get('ttl') or 30), commandsWaitLeader=config.get('commandsWaitLeader'),
                            fullDumpFile=(file_template + '.dump' if self_addr else None),
                            journalFile=(file_template + '.journal' if self_addr else None),
                            onReady=on_ready, dynamicMembershipChange=True, **syncobj_kwargs)
+
+        if syncobj_kwargs:
+            logger.info('Applying custom pysyncobj timeouts: %s',
+                        ', '.join('{0}={1}'.format(k, v) for k, v in applied_patroni_keys.items()))
+
+            # Validate pysyncobj ordering constraints. These intentionally duplicate checks from
+            # pysyncobj's SyncObjConf.validate() to provide user-friendly error messages. Effective
+            # values (explicitly set or pysyncobj defaults) are read directly from conf; the kwargs
+            # only decide whether to annotate a value as "(default)" in the error message.
+            def _fmt(syncobj_key: str) -> str:
+                return '{0}{1}'.format(getattr(conf, syncobj_key),
+                                       '' if syncobj_key in syncobj_kwargs else ' (default)')
+
+            if not conf.raftMinTimeout > conf.appendEntriesPeriod * 3:
+                raise RaftError('min_timeout ({0}) must be > 3 * append_entries_period ({1})'
+                                .format(_fmt('raftMinTimeout'), _fmt('appendEntriesPeriod')))
+            if not conf.raftMaxTimeout > conf.raftMinTimeout:
+                raise RaftError('max_timeout ({0}) must be > min_timeout ({1})'
+                                .format(_fmt('raftMaxTimeout'), _fmt('raftMinTimeout')))
+            if not conf.connectionTimeout >= conf.raftMaxTimeout:
+                raise RaftError('connection_timeout ({0}) must be >= max_timeout ({1})'
+                                .format(_fmt('connectionTimeout'), _fmt('raftMaxTimeout')))
+            if not conf.leaderFallbackTimeout > conf.appendEntriesPeriod:
+                raise RaftError('leader_fallback_timeout ({0}) must be > append_entries_period ({1})'
+                                .format(_fmt('leaderFallbackTimeout'), _fmt('appendEntriesPeriod')))
 
         super(KVStoreTTL, self).__init__(self_addr, partner_addrs, conf, self.__retry_timeout)
         self.__data: Dict[str, Dict[str, Any]] = {}
