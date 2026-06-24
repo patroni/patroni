@@ -19,7 +19,7 @@ from .exceptions import ConfigParseError
 from .file_perm import pg_perm
 from .postgresql.config import ConfigHandler
 from .postgresql.misc import PostgresqlRole
-from .utils import deep_compare, parse_bool, parse_int, patch_config
+from .utils import deep_compare, parse_bool, parse_int, parse_real, patch_config
 from .validator import IntValidator, validate_name
 
 logger = logging.getLogger(__name__)
@@ -586,11 +586,10 @@ class Config(object):
         for param in ('min_timeout', 'max_timeout', 'connection_timeout',
                       'append_entries_period', 'connection_retry_time', 'leader_fallback_timeout'):
             value = ret.get('raft', {}).pop(param, None)
-            if value is not None:
-                try:
-                    ret.setdefault('raft', {})[param] = float(value)
-                except (TypeError, ValueError):
-                    logger.warning('Ignoring invalid PATRONI_RAFT_%s value: %r', param.upper(), value)
+            if value:
+                value = parse_real(value)
+                if value is not None:
+                    ret['raft'][param] = value
 
         def _parse_list(value: str) -> Optional[List[str]]:
             """Parse an YAML list *value* as a :class:`list`.
