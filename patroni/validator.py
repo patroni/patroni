@@ -16,7 +16,7 @@ from .dcs import dcs_modules
 from .exceptions import ConfigParseError, PatroniAssertionError
 from .log import type_logformat
 from .postgresql.sync import SYNC_STRICT_PLACEHOLDER
-from .utils import data_directory_is_empty, get_major_version, parse_int, split_host_port
+from .utils import data_directory_is_empty, get_major_version, parse_int, parse_real, split_host_port
 
 # Additional parameters to fine-tune validation process
 _validation_params: Dict[str, Any] = {}
@@ -984,34 +984,47 @@ def validate_name(value: Any) -> None:
         raise ConfigParseError(f"Node 'name' can't be set to '{SYNC_STRICT_PLACEHOLDER}'")
 
 
-def validate_positive_num(value: Any) -> bool:
-    """Validate that *value* is a positive number (int or float).
+class RealValidator(object):
+    """Validate a real (float) setting.
 
-    :param value: value to be validated.
-
-    :returns: ``True`` if *value* is a positive number.
-
-    :raises:
-        :class:`~patroni.exceptions.PatroniAssertionError`: if *value* is not a positive number.
+    :ivar min: minimum allowed value for the setting, if any.
+    :ivar max: maximum allowed value for the setting, if any.
+    :ivar exclusive_min: if ``True``, *min* is an exclusive bound (``value > min`` instead of ``value >= min``).
+    :ivar raise_assert: if an ``assert`` test should be performed regarding expected type and valid range.
     """
-    assert_(isinstance(value, (int, float)) and not isinstance(value, bool), "is not a number")
-    assert_(value > 0, "must be a positive number")
-    return True
 
+    def __init__(self, *, min: OptionalType[float] = None, max: OptionalType[float] = None,
+                 exclusive_min: bool = False, raise_assert: bool = False) -> None:
+        """Create a :class:`RealValidator` object with the given rules.
 
-def validate_non_negative_num(value: Any) -> bool:
-    """Validate that *value* is a non-negative number (int or float).
+        :param min: minimum allowed value for the setting, if any.
+        :param max: maximum allowed value for the setting, if any.
+        :param exclusive_min: if ``True``, *min* is an exclusive bound.
+        :param raise_assert: if an ``assert`` test should be performed regarding expected type and valid range.
+        """
+        self.min = min
+        self.max = max
+        self.exclusive_min = exclusive_min
+        self.raise_assert = raise_assert
 
-    :param value: value to be validated.
+    def __call__(self, value: Any) -> bool:
+        """Check if *value* is a valid real number within the expected range.
 
-    :returns: ``True`` if *value* is a non-negative number.
+        .. note::
+            If ``raise_assert`` is ``True`` and *value* is not valid, then an :class:`AssertionError` will be triggered.
 
-    :raises:
-        :class:`~patroni.exceptions.PatroniAssertionError`: if *value* is negative.
-    """
-    assert_(isinstance(value, (int, float)) and not isinstance(value, bool), "is not a number")
-    assert_(value >= 0, "must be a non-negative number")
-    return True
+        :param value: value to be checked against the rules defined for this :class:`RealValidator` instance.
+
+        :returns: ``True`` if *value* is valid and within the expected range.
+        """
+        value = parse_real(value)
+        ret = isinstance(value, float)\
+            and (self.min is None or (value > self.min if self.exclusive_min else value >= self.min))\
+            and (self.max is None or value <= self.max)
+
+        if self.raise_assert:
+            assert_(ret)
+        return ret
 
 
 userattributes = {"username": "", Optional("password"): ""}
@@ -1173,12 +1186,12 @@ schema = Schema({
             "partner_addrs": validate_host_port_list,
             Optional("data_dir"): str,
             Optional("password"): str,
-            Optional("min_timeout"): validate_positive_num,
-            Optional("max_timeout"): validate_positive_num,
-            Optional("connection_timeout"): validate_positive_num,
-            Optional("append_entries_period"): validate_positive_num,
-            Optional("connection_retry_time"): validate_non_negative_num,
-            Optional("leader_fallback_timeout"): validate_positive_num,
+            Optional("min_timeout"): RealValidator(min=0, exclusive_min=True, raise_assert=True),
+            Optional("max_timeout"): RealValidator(min=0, exclusive_min=True, raise_assert=True),
+            Optional("connection_timeout"): RealValidator(min=0, exclusive_min=True, raise_assert=True),
+            Optional("append_entries_period"): RealValidator(min=0, exclusive_min=True, raise_assert=True),
+            Optional("connection_retry_time"): RealValidator(min=0, raise_assert=True),
+            Optional("leader_fallback_timeout"): RealValidator(min=0, exclusive_min=True, raise_assert=True),
         },
         "zookeeper": {
             "hosts": Or(comma_separated_host_port, [validate_host_port]),
