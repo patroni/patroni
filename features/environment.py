@@ -1150,8 +1150,6 @@ def before_feature(context, feature):
             return feature.skip("Citus extension isn't available")
     elif feature.name == 'bootstrap labels' and context.dcs_ctl.name() != 'kubernetes':
         feature.skip("Tested only on Kubernetes")
-    elif feature.name == 'raft pysyncobj timeouts' and context.dcs_ctl.name() != 'raft':
-        feature.skip("Tested only with the Raft DCS")
     context.pctl.create_and_set_output_directory(feature.name)
 
 
