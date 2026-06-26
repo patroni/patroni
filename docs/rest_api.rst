@@ -364,6 +364,9 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# Values: 0=initdb, 1=initdb_failed, 2=custom_bootstrap, 3=custom_bootstrap_failed, 4=creating_replica, 5=running, 6=starting, 7=bootstrap_starting, 8=start_failed, 9=restarting, 10=restart_failed, 11=stopping, 12=stopped, 13=stop_failed, 14=crashed
 	# TYPE patroni_postgres_state gauge
 	patroni_postgres_state{scope="batman",name="patroni1"} 5
+	# HELP patroni_failover_priority Failover priority of this node.
+	# TYPE patroni_failover_priority gauge
+	patroni_failover_priority{scope="batman",name="patroni1"} 1
 
 PostgreSQL State Values
 ^^^^^^^^^^^^^^^^^^^^^^^
