@@ -342,7 +342,7 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# TYPE patroni_postgres_timeline counter
 	patroni_failsafe_mode_is_active{scope="batman",name="patroni1"} 0
 	# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.
-	# TYPE patroni_postgres_timeline counter
+	# TYPE patroni_postgres_timeline gauge
 	patroni_postgres_timeline{scope="batman",name="patroni1"} 24
 	# HELP patroni_dcs_last_seen Epoch timestamp when DCS was last contacted successfully by Patroni.
 	# TYPE patroni_dcs_last_seen gauge
