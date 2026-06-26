@@ -180,11 +180,19 @@ class Rewind(object):
         return in_recovery, timeline, lsn
 
     def _get_local_timeline_lsn(self) -> Tuple[Optional[bool], Optional[int], Optional[int]]:
+        in_recovery = timeline = lsn = None
         if self._postgresql.is_running():  # if postgres is running - get timeline from replication connection
+            try:
+                timeline = self._postgresql.get_replica_timeline()
+                lsn = self._postgresql.replayed_location()
+            except Exception:
+                if not self._postgresql.is_starting():
+                    return None, None, None
+                logger.info('PostgreSQL is still starting, will use pg_controldata as a fallback')
             in_recovery = True
-            timeline = self._postgresql.get_replica_timeline()
-            lsn = self._postgresql.replayed_location()
-        else:  # otherwise analyze pg_controldata output
+
+        if timeline is None and lsn is None:
+            # analyze pg_controldata output if not running or not accepting connections
             in_recovery, timeline, lsn = self._get_local_timeline_lsn_from_controldata()
 
         log_lsn = format_lsn(lsn) if isinstance(lsn, int) else lsn
