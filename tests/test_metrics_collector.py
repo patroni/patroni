@@ -10,16 +10,17 @@ def clean_metrics_collector():
     mc._history.clear()
 
 
+@mc.record_duration('dummy')
+def dummy_function():
+    pass
+
+
 class TestMetricsCollector(unittest.TestCase):
 
     def setUp(self):
         clean_metrics_collector()
 
     def test_record_loop_duration(self):
-        @mc.record_duration('dummy')
-        def dummy_function():
-            pass
-
         timestamps = [i for i in range(0, 6, 1)]
         with patch('time.monotonic', Mock(side_effect=timestamps)):
             for _ in range(len(timestamps) // 2):
@@ -27,9 +28,8 @@ class TestMetricsCollector(unittest.TestCase):
 
             self.assertEqual(len(mc._history['dummy']), 3)
 
-        clean_metrics_collector()
-
-        # test entries cleanup
+    def test__refresh_history(self):
+        # default 3600
         start_time = time.monotonic()
         recent_time = start_time + 1800  # +30 mins
         mc._history['dummy'].append((start_time, 0.1))
@@ -39,6 +39,14 @@ class TestMetricsCollector(unittest.TestCase):
         self.assertEqual(len(mc._history['dummy']), 2)
         self.assertEqual([entry[0] for entry in mc._history['dummy']], [recent_time, start_time + 3701])
         self.assertEqual(list(mc._history['dummy']), [(recent_time, 0.2), (start_time + 3701, 1)])
+
+        # custom 900
+        mc.reload_config(900)
+        with patch('time.monotonic', Mock(side_effect=[start_time + 3702, start_time + 3704])):
+            dummy_function()
+        self.assertEqual(len(mc._history['dummy']), 2)
+        self.assertEqual([entry[0] for entry in mc._history['dummy']], [start_time + 3701, start_time + 3704])
+        self.assertEqual(list(mc._history['dummy']), [(start_time + 3701, 1), (start_time + 3704, 2)])
 
     def test_get_loop_duration_stats(self):
         avg, p99 = mc.get_loop_duration_stats()

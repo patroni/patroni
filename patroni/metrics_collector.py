@@ -25,7 +25,7 @@ class MetricsCollector(types.ModuleType):
         super().__init__(__name__)
 
         self._metrics_collector_lock = threading.Lock()
-        self._stats_expiry_seconds = 3600
+        self.stats_expiry_seconds = 3600
 
         self._history: Dict[str, deque[Tuple[float, float]]] = defaultdict(deque)
 
@@ -42,7 +42,7 @@ class MetricsCollector(types.ModuleType):
         :param name: The name of the metric.
         :param current_time: The current time to compare against entry timestamps.
         """
-        window_start = current_time - self._stats_expiry_seconds
+        window_start = current_time - self.stats_expiry_seconds
         while self._history[name] and self._history[name][0][0] < window_start:
             self._history[name].popleft()
 
@@ -107,6 +107,13 @@ class MetricsCollector(types.ModuleType):
         :returns: a tuple containing the average duration and 99th percentile of loop iterations.
         """
         return self.get_duration_stats(self._history['loop'])
+
+    def reload_config(self, value: int) -> None:
+        """Reload metrics collector configuration.
+
+        :param value: value of the metrics_collector_retention parameter.
+        """
+        self.stats_expiry_seconds = value
 
 
 sys.modules[__name__] = MetricsCollector()

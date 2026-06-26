@@ -768,6 +768,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# TYPE patroni_failover_priority gauge")
         metrics.append("patroni_failover_priority{0} {1}".format(labels, patroni.failover_priority))
 
+        metrics.append("# HELP patroni_metrics_collector_retention metrics_collector_retention value for this node.")
+        metrics.append("# TYPE patroni_metrics_collector_retention gauge")
+        metrics.append("patroni_metrics_collector_retention{0} {1}".format(labels,
+                                                                           metrics_collector.stats_expiry_seconds))
+
         metrics_collector.refresh_history()
         loop_avg, loop_99th = metrics_collector.get_loop_duration_stats()
         metrics.append("# HELP patroni_ha_loop_duration_avg Average duration of the HA loop cycle over "
