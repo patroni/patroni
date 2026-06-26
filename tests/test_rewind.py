@@ -271,7 +271,7 @@ class TestRewind(BaseTestPostgresql):
 
             mock_popen.return_value.communicate.return_value = (
                 b'0, lsn: 0/040159C1, prev 0/\n',
-                b'pg_waldump: fatal: error in WAL record at 0/40159C1: invalid record '
+                b'pg_waldump: fatal: error in WAL record at 0/040159C1: invalid record '
                 b'length at 0/402DD98: expected at least 24, got 0\n'
             )
             self.r.reset_state()
