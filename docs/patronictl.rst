@@ -64,7 +64,7 @@ This is the synopsis for running a command from the ``patronictl``:
 .. code:: text
 
     patronictl [ { -c | --config-file } CONFIG_FILE ]
-      [ { -d | --dcs-url | --dcs } DCS_URL ] 
+      [ { -d | --dcs-url | --dcs } DCS_URL ]
       [ { -k | --insecure } ]
       SUBCOMMAND
 
@@ -271,7 +271,7 @@ Parameters
 
 ``--group``
     Change dynamic configuration of the given Citus group.
-    
+
     If not given, ``patronictl`` will attempt to fetch that from the ``citus.group`` configuration, if it exists.
 
     ``CITUS_GROUP`` is the ID of the Citus group.
@@ -635,7 +635,7 @@ Parameters
     Show history of events from the given Citus group.
 
     ``CITUS_GROUP`` is the ID of the Citus group.
-    
+
     If not given, ``patronictl`` will attempt to fetch that from the ``citus.group`` configuration, if it exists.
 
 ``-f`` / ``--format``
@@ -990,7 +990,7 @@ Parameters
     Pause the given Citus group.
 
     ``CITUS_GROUP`` is the ID of the Citus group.
-    
+
     If not given, ``patronictl`` will attempt to fetch that from the ``citus.group`` configuration, if it exists.
 
 ``--wait``
@@ -1676,7 +1676,7 @@ Parameters
     Resume the given Citus group.
 
     ``CITUS_GROUP`` is the ID of the Citus group.
-    
+
     If not given, ``patronictl`` will attempt to fetch that from the ``citus.group`` configuration, if it exists.
 
 ``--wait``
@@ -1732,7 +1732,7 @@ Parameters
     Show dynamic configuration of the given Citus group.
 
     ``CITUS_GROUP`` is the ID of the Citus group.
-    
+
     If not given, ``patronictl`` will attempt to fetch that from the ``citus.group`` configuration, if it exists.
 
 .. _patronictl_show_config_examples:
@@ -1773,6 +1773,7 @@ Synopsis
       [ --group CITUS_GROUP ]
       [ { --leader | --primary } LEADER_NAME ]
       --candidate CANDIDATE_NAME
+      [ --scheduled TIMESTAMP ]
       [ --force ]
 
 .. _patronictl_switchover_description:
