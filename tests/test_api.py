@@ -486,6 +486,18 @@ class TestRestApiHandler(unittest.TestCase):
             body = resp_mock.call_args[0][1]
             self.assertNotIn('patroni_logical_slot_active', body)
 
+        # PG >= 10: AND NOT temporary filter is included in the query
+        def pg10_slot_query(sql, *params):
+            if 'pg_replication_slots' in sql:
+                self.assertIn('AND NOT temporary', sql)
+                return slot_rows
+            return MockConnection.query(sql, *params)
+
+        with patch.object(MockPostgresql, 'server_version', 150000), \
+                patch.object(RestApiServer, 'query', side_effect=pg10_slot_query), \
+                patch.object(RestApiHandler, 'write_response'):
+            MockRestApiServer(RestApiHandler, 'GET /metrics')
+
     @patch.object(MockPatroni, 'dcs')
     def test_do_PATCH_config(self, mock_dcs):
         config = {'postgresql': {'use_slots': False, 'use_pg_rewind': True, 'parameters': {'wal_level': 'logical'}}}
