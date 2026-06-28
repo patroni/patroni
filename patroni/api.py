@@ -20,7 +20,7 @@ import traceback
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import ip_address, ip_network, IPv4Network, IPv6Network
 from socketserver import ThreadingMixIn
-from typing import Any, Callable, cast, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Callable, cast, Dict, Iterator, List, Optional, Set, Tuple, TYPE_CHECKING, Union
 from urllib.parse import parse_qs, urlparse
 
 import dateutil.parser
@@ -786,7 +786,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             patroni_slots = set(global_config.from_cluster(cluster).permanent_slots.keys())
         except (psycopg.Error, PostgresConnectionException):
             slot_rows = []
-            patroni_slots = set()
+            patroni_slots: Set[str] = set()
 
         active_lines: List[str] = []
         for row in slot_rows:
