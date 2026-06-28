@@ -774,13 +774,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         try:
             server_version = postgres.get('server_version', 0)
-            temp_filter = " AND NOT temporary" if server_version >= 100000 else ""
-            slot_sql = (
-                "SELECT slot_name, active"
-                " FROM pg_catalog.pg_replication_slots"
-                " WHERE slot_type = 'logical'"
-                + temp_filter
-            )
+            if server_version >= 100000:
+                slot_sql = ("SELECT slot_name, active FROM pg_catalog.pg_replication_slots"
+                            " WHERE slot_type = 'logical' AND NOT temporary")
+            else:
+                slot_sql = ("SELECT slot_name, active FROM pg_catalog.pg_replication_slots"
+                            " WHERE slot_type = 'logical'")
             slot_rows = self.query(slot_sql)
             cluster = patroni.dcs.cluster
             patroni_slots = set(global_config.from_cluster(cluster).permanent_slots.keys())
