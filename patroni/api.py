@@ -621,7 +621,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``patroni_postgres_timeline``: PostgreSQL timeline based on current WAL file name;
             * ``patroni_dcs_last_seen``: epoch timestamp when DCS was last contacted successfully;
             * ``patroni_pending_restart``: ``1`` if this PostgreSQL node is pending a restart, else ``0``;
-            * ``patroni_is_paused``: ``1`` if Patroni is in maintenance node, else ``0``.
+            * ``patroni_is_paused``: ``1`` if Patroni is in maintenance node, else ``0``;
+            * ``patroni_logical_slot_active``: per-slot gauge. ``1`` if the logical replication slot
+              has an active consumer, ``0`` otherwise. Emitted only when PostgreSQL is reachable and
+              at least one logical slot exists. Labels: ``scope``, ``name``, ``slot`` (slot name),
+              ``managedby`` (``patroni`` | ``other``).
 
         For PostgreSQL v9.6+ the response will also have the following:
 
@@ -767,6 +771,41 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# HELP patroni_failover_priority Failover priority of this node.")
         metrics.append("# TYPE patroni_failover_priority gauge")
         metrics.append("patroni_failover_priority{0} {1}".format(labels, patroni.failover_priority))
+
+        try:
+            server_version = postgres.get('server_version', 0)
+            temp_filter = " AND NOT temporary" if server_version >= 100000 else ""
+            slot_sql = (
+                "SELECT slot_name, active"
+                " FROM pg_catalog.pg_replication_slots"
+                " WHERE slot_type = 'logical'"
+                + temp_filter
+            )
+            slot_rows = self.query(slot_sql)
+            cluster = patroni.dcs.cluster
+            patroni_slots = set(global_config.from_cluster(cluster).permanent_slots.keys())
+        except (psycopg.Error, PostgresConnectionException):
+            slot_rows = []
+            patroni_slots = set()
+
+        active_lines: List[str] = []
+        for row in slot_rows:
+            slot_name = row[0]
+            active = row[1]
+            managed = 'patroni' if slot_name in patroni_slots else 'other'
+
+            slot_labels = (
+                f'{{scope="{patroni.postgresql.scope}",'
+                f'name="{patroni.postgresql.name}",'
+                f'slot="{slot_name}",managedby="{managed}"}}'
+            )
+            active_lines.append(f"patroni_logical_slot_active{slot_labels} {int(active)}")
+
+        if active_lines:
+            metrics.append("# HELP patroni_logical_slot_active"
+                           " Value is 1 if the logical replication slot has an active consumer, 0 otherwise.")
+            metrics.append("# TYPE patroni_logical_slot_active gauge")
+            metrics.extend(active_lines)
 
         self.write_response(200, '\n'.join(metrics) + '\n', content_type='text/plain')
 
