@@ -465,20 +465,6 @@ The ``managedby`` label bridges this gap: it is derived by cross-referencing eac
 against ``permanent_slots`` — information already in memory inside the Patroni process,
 requiring no extra DCS call.
 
-This makes it possible to write alert rules that were previously not expressible:
-
-.. code-block:: yaml
-
-    # Unmanaged slot has lost its consumer — WAL will accumulate indefinitely
-    - alert: LogicalSlotOtherInactive
-      expr: patroni_logical_slot_active{managedby="other"} == 0
-      for: 5m
-
-    # Active unmanaged slots exist — these will be lost on failover (PG < 17)
-    - alert: LogicalSlotOtherActivePreFailover
-      expr: patroni_logical_slot_active{managedby="other"} == 1
-      for: 0m
-
 
 Cluster status endpoints
 ------------------------
