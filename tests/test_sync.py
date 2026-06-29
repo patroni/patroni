@@ -1,3 +1,4 @@
+import logging
 import os
 
 from unittest.mock import Mock, patch
@@ -195,7 +196,32 @@ class TestSync(BaseTestPostgresql):
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = '\"a-1\"'")
 
-    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    @patch('time.sleep', Mock())
+    def test_set_sync_standby_log_diff(self):
+        self.p.reload = Mock()
+
+        # Add n1 from empty state — diff shown
+        with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
+            self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1']))
+        self.assertTrue(any("added=['n1'] removed=[]" in m for m in logs.output))
+
+        # Simulate confirmation: advance _ssn_data as _handle_... would
+        self.s._ssn_data = self.s._ssn_data._replace(members=CaseInsensitiveSet(['n1']))
+
+        # Same members — no diff appended to log
+        with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
+            self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1']))
+            logging.getLogger('patroni.postgresql.sync').info('_baseline_')
+        self.assertFalse(any('added=[' in m for m in logs.output))
+
+        # Swap n1 for n2 — both sides shown
+        with self.assertLogs('patroni.postgresql.sync', level='INFO') as logs:
+            self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n2']))
+        self.assertTrue(any("added=['n2'] removed=['n1']" in m for m in logs.output))
+
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=0))
+    @patch.object(Postgresql, 'query', Mock())
+    @patch.object(Postgresql, 'reset_cluster_info_state', Mock())
     def test_do_not_prick_yourself(self):
         self.p.name = self.leadermem.name
         cluster = Cluster(True, None, self.leader, 0, [self.me, self.other, self.leadermem], None,

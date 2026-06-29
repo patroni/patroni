@@ -423,6 +423,7 @@ END;$$""")
         """
         # Special case. If sync nodes set is empty but requested num of sync nodes >= 1
         # we want to set synchronous_standby_names to '__patroni_strict_sync_replica_placeholder__'
+        _new_members = CaseInsensitiveSet([s for s in sync if s != '*'])
         sync_strict = '*' in sync or num and num >= 1 and not sync
         if sync_strict:
             sync = [SYNC_STRICT_PLACEHOLDER]
@@ -441,7 +442,14 @@ END;$$""")
             sync_param = f'{prefix}{num} ({sync_param})'
 
         if sync_param is not None:
-            logger.info("Assigning synchronous_standby_names to %s", sync_param)
+            _old = self._ssn_data.members
+            _added = sorted(_new_members - _old)
+            _removed = sorted(_old - _new_members)
+            if _added or _removed:
+                logger.info("Assigning synchronous_standby_names to %s (added=%s removed=%s)",
+                            sync_param, _added, _removed)
+            else:
+                logger.info("Assigning synchronous_standby_names to %s", sync_param)
 
         if not (self._postgresql.config.set_synchronous_standby_names(sync_param)
                 and self._postgresql.state == PostgresqlState.RUNNING
