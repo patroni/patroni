@@ -4,7 +4,7 @@ import time
 import types
 
 from collections import defaultdict, deque
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Deque, Dict, List, Tuple
 
 
 def __getattr__(mod: types.ModuleType, name: str) -> Any:
@@ -81,7 +81,7 @@ class MetricsCollector(types.ModuleType):
         result = sorted_data[lower_index] * (1 - fraction) + sorted_data[upper_index] * fraction
         return round(result, 4)
 
-    def get_duration_stats(self, history: deque[Tuple[float, float]]) -> Tuple[float, float]:
+    def get_duration_stats(self, history: Deque[Tuple[float, float]]) -> Tuple[float, float]:
         """Get statistics of a metric duration.
 
         :param history: The deque containing the metric history.
