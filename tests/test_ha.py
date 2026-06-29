@@ -1459,6 +1459,8 @@ class TestHa(PostgresInit):
                                                                          CaseInsensitiveSet(['other']),
                                                                          CaseInsensitiveSet(['other'])))
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        # dynamic_synchronized_standby_slots feature state matches last seen → toggle returns False
+        self.ha._last_dynamic_sync_slots_enabled = False
         self.ha.run_cycle()
         mock_set_sync.assert_not_called()
 
@@ -2050,6 +2052,54 @@ class TestHa(PostgresInit):
         mock_write_sync.assert_not_called()
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (foo)',))
+
+    def test__handle_dynamic_sync_slots_toggle(self):
+        mock_update_slots = self.p.slots_handler.update_synchronized_standby_slots = Mock()
+        mock_set_slots = self.p.config.set_synchronized_standby_slots = Mock()
+
+        # No change - should return False
+        self.ha._last_dynamic_sync_slots_enabled = False
+        with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=False):
+            self.assertFalse(self.ha._handle_dynamic_sync_slots_toggle({'node1'}))
+            mock_update_slots.assert_not_called()
+            mock_set_slots.assert_not_called()
+
+        # Feature toggled on - should call update with members and reload
+        mock_update_slots.reset_mock()
+        mock_set_slots.reset_mock()
+        self.ha._last_dynamic_sync_slots_enabled = False
+        with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=True):
+            self.assertTrue(self.ha._handle_dynamic_sync_slots_toggle({'node1'}))
+            mock_update_slots.assert_called_once_with({'node1'}, reload=True)
+            mock_set_slots.assert_not_called()
+            self.assertTrue(self.ha._last_dynamic_sync_slots_enabled)
+
+        # Feature toggled off - should restore the user-configured value (or clear it)
+        mock_update_slots.reset_mock()
+        mock_set_slots.reset_mock()
+        self.ha._last_dynamic_sync_slots_enabled = True
+        with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=False), \
+            patch.object(type(self.p.config), 'synchronized_standby_slots',
+                         new_callable=PropertyMock, return_value='user_slot'):
+            self.assertTrue(self.ha._handle_dynamic_sync_slots_toggle({'node1'}))
+            mock_update_slots.assert_not_called()
+            mock_set_slots.assert_called_once_with('user_slot', reload=True)
+            self.assertFalse(self.ha._last_dynamic_sync_slots_enabled)
+
+        # Feature toggled off with no user-configured value - should clear by passing None
+        mock_update_slots.reset_mock()
+        mock_set_slots.reset_mock()
+        self.ha._last_dynamic_sync_slots_enabled = True
+        with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
+                          new_callable=PropertyMock, return_value=False), \
+            patch.object(type(self.p.config), 'synchronized_standby_slots',
+                         new_callable=PropertyMock, return_value=None):
+            self.assertTrue(self.ha._handle_dynamic_sync_slots_toggle({'node1'}))
+            mock_set_slots.assert_called_once_with(None, reload=True)
+            self.assertFalse(self.ha._last_dynamic_sync_slots_enabled)
 
     def test_is_failover_possible(self):
         self.p._major_version = 140000  # supports_multiple_sync

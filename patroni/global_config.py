@@ -249,5 +249,14 @@ class GlobalConfig(types.ModuleType):
         """
         return self.get_int('member_slots_ttl', 1800, base_unit='s')
 
+    @property
+    def dynamic_synchronized_standby_slots_enabled(self) -> bool:
+        """``True`` if dynamic ``synchronized_standby_slots`` management is enabled.
+
+        Depends on synchronous replication being enabled because Patroni derives the
+        ``synchronized_standby_slots`` value from the current set of synchronous standbys.
+        """
+        return self.is_synchronous_mode and self.use_slots and self.check_mode('dynamic_synchronized_standby_slots')
+
 
 sys.modules[__name__] = GlobalConfig()
