@@ -443,3 +443,35 @@ class TestValidator(unittest.TestCase):
         errors = schema(c)
         output = "\n".join(errors)
         self.assertEqual(['name', 'postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
+    def test_validate_raft_timeout_params(self, *args):
+        c = copy.deepcopy(config)
+        c['raft']['min_timeout'] = 5.0
+        c['raft']['max_timeout'] = 10.0
+        c['raft']['connection_retry_time'] = 0  # zero is valid for connection_retry_time
+        errors = schema(c)
+        for e in errors:
+            self.assertNotIn('min_timeout', e)
+            self.assertNotIn('max_timeout', e)
+            self.assertNotIn('connection_retry_time', e)
+        # negative value should fail
+        c['raft']['min_timeout'] = -1.0
+        errors = schema(c)
+        self.assertTrue(any('min_timeout' in e for e in errors))
+        # zero should fail for min_timeout
+        c['raft']['min_timeout'] = 0
+        errors = schema(c)
+        self.assertTrue(any('min_timeout' in e for e in errors))
+        # string should fail
+        c['raft']['min_timeout'] = 'abc'
+        errors = schema(c)
+        self.assertTrue(any('min_timeout' in e for e in errors))
+        # bool should fail (bool is a subclass of int in Python)
+        c['raft']['min_timeout'] = True
+        errors = schema(c)
+        self.assertTrue(any('min_timeout' in e for e in errors))
+        # negative should fail for connection_retry_time
+        c['raft']['min_timeout'] = 5.0
+        c['raft']['connection_retry_time'] = -1
+        errors = schema(c)
+        self.assertTrue(any('connection_retry_time' in e for e in errors))
