@@ -176,10 +176,22 @@ class TestRewind(BaseTestPostgresql):
             self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
 
         with patch.object(Postgresql, 'is_running', Mock(return_value=True)), \
-                patch.object(MockCursor, 'fetchone', Mock(side_effect=Exception)), \
-                patch.object(MockCursor, 'fetchall',
-                             Mock(return_value=[(0, 0, 1, 1, 0, 0, 0, 0, 0, None, None, None)])):
-            self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
+                patch.object(MockCursor, 'fetchone', Mock(side_effect=Exception)):
+            with patch.object(MockCursor, 'fetchall',
+                              Mock(return_value=[(0, 0, 1, 1, 0, 0, 0, 0, 0, None, None, None)])):
+                self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
+
+            self.p.reset_cluster_info_state(None)
+            with patch.object(MockCursor, 'fetchall', Mock(side_effect=Exception)):
+                self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
+
+                with patch.object(Postgresql, 'controldata',
+                                  Mock(return_value={'Database cluster state': 'in archive recovery',
+                                                     'Minimum recovery ending location': '0/1',
+                                                     "Min recovery ending loc's timeline": '1',
+                                                     'Latest checkpoint location': '0/1'})), \
+                        patch.object(Postgresql, 'is_starting', Mock(return_value=True)):
+                    self.r.rewind_or_reinitialize_needed_and_possible(self.leader)
 
     @patch.object(CancellableSubprocess, 'call', mock_cancellable_call)
     @patch.object(Postgresql, 'get_guc_value', Mock(return_value=''))
@@ -271,7 +283,7 @@ class TestRewind(BaseTestPostgresql):
 
             mock_popen.return_value.communicate.return_value = (
                 b'0, lsn: 0/040159C1, prev 0/\n',
-                b'pg_waldump: fatal: error in WAL record at 0/40159C1: invalid record '
+                b'pg_waldump: fatal: error in WAL record at 0/040159C1: invalid record '
                 b'length at 0/402DD98: expected at least 24, got 0\n'
             )
             self.r.reset_state()

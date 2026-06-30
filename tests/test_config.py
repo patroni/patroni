@@ -77,6 +77,9 @@ class TestConfig(unittest.TestCase):
             'PATRONI_EXHIBITOR_HOSTS': 'host1,host2',
             'PATRONI_EXHIBITOR_PORT': '8181',
             'PATRONI_RAFT_PARTNER_ADDRS': "'host1:1234','host2:1234'",
+            'PATRONI_RAFT_MIN_TIMEOUT': '5.0',
+            'PATRONI_RAFT_MAX_TIMEOUT': '10.0',
+            'PATRONI_RAFT_CONNECTION_TIMEOUT': 'invalid',
             'PATRONI_foo_HOSTS': '[host1,host2',  # Exception in parse_list
             'PATRONI_SUPERUSER_USERNAME': 'postgres',
             'PATRONI_SUPERUSER_PASSWORD': 'patroni',
@@ -88,6 +91,10 @@ class TestConfig(unittest.TestCase):
         })
         config = Config('postgres0.yml')
         self.assertEqual(config.local_configuration['log']['mode'], 0o123)
+        raft = config.local_configuration.get('raft', {})
+        self.assertEqual(raft.get('min_timeout'), 5.0)
+        self.assertEqual(raft.get('max_timeout'), 10.0)
+        self.assertNotIn('connection_timeout', raft)  # 'invalid' was discarded
         with patch.object(Config, '_load_config_file', Mock(return_value={'restapi': {}})):
             with patch.object(Config, '_build_effective_configuration', Mock(side_effect=Exception)):
                 config.reload_local_configuration()

@@ -20,6 +20,14 @@ from .misc import format_lsn, fsync_dir, parse_history, parse_lsn, PostgresqlRol
 
 logger = logging.getLogger(__name__)
 
+# Message format depends on the major version:
+# - v19 changed LSN formatting in error messages
+# - expected at least -- starting from v16
+# - wanted -- before v16
+# - nothing (end of message) 9.5 and older
+WALDUMP_ERROR_RE = re.compile(r"^.*error in WAL record at ([0-9A-Fa-f]+/[0-9A-Fa-f]+): invalid record "
+                              "length at ([0-9A-Fa-f]+/[0-9A-Fa-f]+)")  # (?:: expected at least |: wanted |$)
+
 
 class REWIND_STATUS(IntEnum):
     INITIAL = 0
@@ -146,22 +154,12 @@ class Rewind(object):
         if out is not None and err is not None:
             out = out.decode('utf-8').rstrip().split('\n')
             err = err.decode('utf-8').rstrip().split('\n')
-            pattern = 'error in WAL record at {0}: invalid record length at '.format(lsn_str)
 
-            if len(out) == 1 and len(err) == 1 and ', lsn: {0}, prev '.format(lsn8) in out[0] and pattern in err[0]:
-                i = err[0].find(pattern) + len(pattern)
-                # Message format depends on the major version:
-                # * expected at least -- starting from v16
-                # * wanted -- before v16
-                # * nothing (end of message) 9.5 and older
-                # We will simply check all possible combinations.
-                for pattern in (': expected at least ', ': wanted ', '\n'):
-                    j = (err[0] + '\n').find(pattern, i)
-                    if j > -1:
-                        try:
-                            return parse_lsn(err[0][i:j])
-                        except Exception as e:
-                            logger.error('Failed to parse lsn %s: %r', err[0][i:j], e)
+            if len(out) == 1 and len(err) == 1 and ', lsn: {0}, prev '.format(lsn8) in out[0]:
+                m = WALDUMP_ERROR_RE.match(err[0])
+                if m and parse_lsn(m.group(1)) == lsn:
+                    return parse_lsn(m.group(2))
+
             logger.error('Failed to parse pg_%sdump output', self._postgresql.wal_name)
             logger.error(' stdout=%s', '\n'.join(out))
             logger.error(' stderr=%s', '\n'.join(err))
@@ -195,11 +193,19 @@ class Rewind(object):
         return in_recovery, timeline, lsn
 
     def _get_local_timeline_lsn(self) -> Tuple[Optional[bool], Optional[int], Optional[int]]:
+        in_recovery = timeline = lsn = None
         if self._postgresql.is_running():  # if postgres is running - get timeline from replication connection
+            try:
+                timeline = self._postgresql.get_replica_timeline()
+                lsn = self._postgresql.replay_lsn()
+            except Exception:
+                if not self._postgresql.is_starting():
+                    return None, None, None
+                logger.info('PostgreSQL is still starting, will use pg_controldata as a fallback')
             in_recovery = True
-            timeline = self._postgresql.get_replica_timeline()
-            lsn = self._postgresql.replay_lsn()
-        else:  # otherwise analyze pg_controldata output
+
+        if timeline is None and lsn is None:
+            # analyze pg_controldata output if not running or not accepting connections
             in_recovery, timeline, lsn = self._get_local_timeline_lsn_from_controldata()
 
         log_lsn = format_lsn(lsn) if isinstance(lsn, int) else lsn
