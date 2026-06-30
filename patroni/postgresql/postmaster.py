@@ -244,7 +244,7 @@ class PostmasterProcess(psutil.Process):
         else:
             return not self.is_running()
 
-    def wait_for_user_backends_to_close(self, stop_timeout: Optional[float]) -> None:
+    def wait_for_user_backends_to_close(self, stop_timeout: Optional[float]) -> Optional[bool]:
         # These regexps are cross checked against versions PostgreSQL 9.1 .. 19
         aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:(?:archiver|startup|autovacuum launcher|autovacuum worker|"
                                  "checkpointer|logger|stats collector|wal receiver|wal writer|writer)(?: process  )?|"
@@ -279,6 +279,7 @@ class PostmasterProcess(psutil.Process):
                 logger.warning('Backends still alive after %s: %s', stop_timeout, ', '.join(live))
             else:
                 logger.debug("Backends closed")
+                return True
 
     @staticmethod
     def start(pgcommand: str, data_dir: str, conf: str, options: List[str]) -> Optional['PostmasterProcess']:

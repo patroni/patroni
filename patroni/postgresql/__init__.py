@@ -916,8 +916,7 @@ class Postgresql(object):
         # Re-assert READY=1 to counteract that when NotifyAccess=all is configured.
         notify_systemd("READY=1")
 
-        if on_safepoint:
-            postmaster.wait_for_user_backends_to_close(stop_timeout)
+        if on_safepoint and postmaster.wait_for_user_backends_to_close(stop_timeout):
             on_safepoint()
 
         if on_shutdown and mode in ('fast', 'smart'):
@@ -929,6 +928,8 @@ class Postgresql(object):
                     checkpoint_lsn, prev_lsn = self.latest_checkpoint_locations(data)
                     if checkpoint_lsn is not None and prev_lsn is not None:
                         on_shutdown(checkpoint_lsn, prev_lsn)
+                        if on_safepoint:
+                            on_safepoint()
                     break
                 elif data.get('Database cluster state', '').startswith('shut down'):  # shut down in recovery
                     break
@@ -945,6 +946,8 @@ class Postgresql(object):
             if not self.terminate_postmaster(postmaster, mode, stop_timeout):
                 postmaster.wait()
 
+        if on_safepoint:
+            on_safepoint()
         return True, True
 
     def terminate_postmaster(self, postmaster: PostmasterProcess, mode: str,
