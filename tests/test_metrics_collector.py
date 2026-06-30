@@ -6,10 +6,6 @@ from unittest.mock import Mock, patch
 import patroni.metrics_collector as mc
 
 
-def clean_metrics_collector():
-    mc._history.clear()
-
-
 @mc.record_duration('dummy')
 def dummy_function():
     pass
@@ -18,7 +14,7 @@ def dummy_function():
 class TestMetricsCollector(unittest.TestCase):
 
     def setUp(self):
-        clean_metrics_collector()
+        mc._history.clear()
 
     def test_record_loop_duration(self):
         timestamps = [i for i in range(0, 6, 1)]
@@ -65,7 +61,3 @@ class TestMetricsCollector(unittest.TestCase):
         avg, p99 = mc.get_loop_duration_stats()
         self.assertEqual(avg, 0.15)
         self.assertEqual(p99, 0.199)
-
-
-if __name__ == '__main__':
-    unittest.main()
