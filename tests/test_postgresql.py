@@ -248,8 +248,10 @@ class TestPostgresql(BaseTestPostgresql):
                           Mock(return_value={'Database cluster state': 'shut down',
                                              "Latest checkpoint's TimeLineID": '1',
                                              'Latest checkpoint location': '1/1'})):
-            self.assertTrue(self.p.stop(on_shutdown=mock_callback, stop_timeout=3))
+            mock_on_safepoint = Mock()
+            self.assertTrue(self.p.stop(on_shutdown=mock_callback, stop_timeout=3, on_safepoint=mock_on_safepoint))
             mock_callback.assert_called()
+            mock_on_safepoint.assert_called()
         with patch.object(Postgresql, 'controldata',
                           Mock(return_value={'Database cluster state': 'shut down in recovery'})):
             self.assertTrue(self.p.stop(on_shutdown=mock_callback, stop_timeout=3))

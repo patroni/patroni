@@ -901,8 +901,8 @@ class Postgresql(object):
         if on_safepoint:
             # Wait for our connection to terminate so we can be sure that no new connections are being initiated
             self._wait_for_connection_close(postmaster)
-            postmaster.wait_for_user_backends_to_close(stop_timeout)
-            on_safepoint()
+            if postmaster.wait_for_user_backends_to_close(stop_timeout):
+                on_safepoint()
 
         if on_shutdown and mode in ('fast', 'smart'):
             i = 0
@@ -913,6 +913,8 @@ class Postgresql(object):
                     checkpoint_locations = self._checkpoint_locations_from_controldata(data)
                     if checkpoint_locations:
                         on_shutdown(*checkpoint_locations)
+                        if on_safepoint:
+                            on_safepoint()
                     break
                 elif data.get('Database cluster state', '').startswith('shut down'):  # shut down in recovery
                     break
@@ -929,6 +931,8 @@ class Postgresql(object):
             if not self.terminate_postmaster(postmaster, mode, stop_timeout):
                 postmaster.wait()
 
+        if on_safepoint:
+            on_safepoint()
         return True, True
 
     def terminate_postmaster(self, postmaster: PostmasterProcess, mode: str,
