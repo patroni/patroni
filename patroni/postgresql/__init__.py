@@ -1037,7 +1037,8 @@ class Postgresql(object):
     def restart(self, timeout: Optional[float] = None, task: Optional[CriticalTask] = None,
                 block_callbacks: bool = False, role: Optional[PostgresqlRole] = None,
                 before_shutdown: Optional[Callable[..., Any]] = None,
-                after_start: Optional[Callable[..., Any]] = None) -> Optional[bool]:
+                after_start: Optional[Callable[..., Any]] = None,
+                stop_timeout: Optional[int] = None) -> Optional[bool]:
         """Restarts PostgreSQL.
 
         When timeout parameter is set the call will block either until PostgreSQL has started, failed to start or
@@ -1048,7 +1049,7 @@ class Postgresql(object):
         self.set_state(PostgresqlState.RESTARTING)
         if not block_callbacks:
             self.__cb_pending = CallbackAction.ON_RESTART
-        ret = self.stop(block_callbacks=True, before_shutdown=before_shutdown)\
+        ret = self.stop(block_callbacks=True, before_shutdown=before_shutdown, stop_timeout=stop_timeout)\
             and self.start(timeout, task, True, role, after_start)
         if not ret and not self.is_starting():
             logger.warning('restart failed (%r)', self.state)
