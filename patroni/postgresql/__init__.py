@@ -18,7 +18,7 @@ from psutil import TimeoutExpired
 from .. import global_config, psycopg
 from ..async_executor import CriticalTask
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet, EMPTY_DICT
-from ..dcs import Cluster, Leader, Member, slot_name_from_member_name
+from ..dcs import Cluster, Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PostgresConnectionException
 from ..tags import Tags
 from ..utils import data_directory_is_empty, parse_int, polling_loop, Retry, RetryFailedError
@@ -825,14 +825,10 @@ class Postgresql(object):
     def checkpoint(self, connect_kwargs: Optional[Dict[str, Any]] = None,
                    timeout: Optional[float] = None) -> Optional[str]:
         check_not_is_in_recovery = connect_kwargs is not None
-        connect_kwargs = connect_kwargs or self.connection_pool.conn_kwargs
-        for p in ['connect_timeout', 'options']:
-            connect_kwargs.pop(p, None)
-        if timeout:
-            connect_kwargs['connect_timeout'] = timeout
+        conn_kwargs = {**(connect_kwargs or self.connection_pool.conn_kwargs),
+                       'connect_timeout': timeout, 'options': '-c statement_timeout=0'}
         try:
-            with get_connection_cursor(**connect_kwargs) as cur:
-                cur.execute("SET statement_timeout = 0")
+            with get_connection_cursor(**conn_kwargs) as cur:
                 if check_not_is_in_recovery:
                     cur.execute('SELECT pg_catalog.pg_is_in_recovery()')
                     row = cur.fetchone()
@@ -1090,9 +1086,10 @@ class Postgresql(object):
     @contextmanager
     def get_replication_connection_cursor(self, host: Optional[str] = None, port: Union[int, str] = 5432,
                                           **kwargs: Any) -> Generator[Union['cursor', 'Cursor[Any]'], None, None]:
-        conn_kwargs = self.config.replication.copy()
-        conn_kwargs.update(host=host, port=int(port) if port else None, user=conn_kwargs.pop('username'),
-                           connect_timeout=3, replication=1, options='-c statement_timeout=2000')
+        # We use RemoteMember here because it has the logic to map and sanitize connection parameters
+        member = RemoteMember('', {'conn_kwargs': {'host': host, 'port': port}})
+        conn_kwargs = member.conn_kwargs(self.config.replication)
+        conn_kwargs.update(replication=1)
         with get_connection_cursor(**conn_kwargs) as cur:
             yield cur
 

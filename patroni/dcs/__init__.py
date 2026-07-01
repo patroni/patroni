@@ -257,8 +257,10 @@ class Member(Tags, NamedTuple('Member',
             self.data['conn_kwargs'] = ret.copy()
 
         # apply any remaining authentication parameters
+        # we skip options and connect_timeout to prevent injection via config file
         if auth and isinstance(auth, dict):
-            ret.update({k: v for k, v in cast(Dict[str, Any], auth).items() if v is not None})
+            ret.update({k: v for k, v in cast(Dict[str, Any], auth).items()
+                        if k not in ('options', 'connect_timeout') and v is not None})
             if 'username' in auth:
                 ret['user'] = ret.pop('username')
         return ret
