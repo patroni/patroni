@@ -494,6 +494,11 @@ class Postgresql(object):
                     cluster_info_state['slots'] =\
                         self.slots_handler.process_permanent_slots(cluster_info_state['slots'])
                 self._cluster_info_state = cluster_info_state
+            except psycopg.OperationalError as e:
+                if e.diag.sqlstate == '57014':  # QueryCanceled
+                    self._cluster_info_state = {'error': str(e)}
+                else:
+                    raise
             except RetryFailedError as e:  # SELECT failed two times
                 self._cluster_info_state = {'error': str(e)}
                 if not self.is_starting() and self.pg_isready() == STATE_REJECT:
