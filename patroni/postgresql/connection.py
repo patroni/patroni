@@ -14,7 +14,7 @@ from ..exceptions import PostgresConnectionException
 logger = logging.getLogger(__name__)
 
 DEFAULT_CONNECT_TIMEOUT = 3
-DEFAULT_CONNECTION_OPTIONS = '-c statement_timeout=2000'
+DEFAULT_CONNECTION_OPTIONS = '-c statement_timeout=2000 -c pg_stat_statements.track=none'
 
 
 class NamedConnection:
