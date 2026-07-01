@@ -638,7 +638,6 @@ class SlotsHandler:
 
         .. note::
             Uses rewind user credentials because it has enough permissions to read files from PGDATA.
-            Sets the options ``connect_timeout`` to ``3`` and ``statement_timeout`` to ``2000``.
 
         :param leader: object with information on the leader
 
@@ -646,7 +645,7 @@ class SlotsHandler:
         """
         conn_kwargs = leader.conn_kwargs(self._postgresql.config.rewind_credentials)
         conn_kwargs['dbname'] = self._postgresql.database
-        with get_connection_cursor(connect_timeout=3, options="-c statement_timeout=2000", **conn_kwargs) as cur:
+        with get_connection_cursor(**conn_kwargs) as cur:
             yield cur
 
     def check_logical_slots_readiness(self, cluster: Cluster, tags: Tags) -> bool:
