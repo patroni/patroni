@@ -32,7 +32,7 @@ class ExhibitorEnsembleProvider(object):
             time.sleep(5)
 
     def poll(self) -> bool:
-        if self._next_poll and self._next_poll > time.time():
+        if self._next_poll and self._next_poll > time.monotonic():
             return False
 
         json = self._query_exhibitors(self._exhibitors)
@@ -40,7 +40,7 @@ class ExhibitorEnsembleProvider(object):
             json = self._query_exhibitors(self._boot_exhibitors)
 
         if isinstance(json, dict) and 'servers' in json and 'port' in json:
-            self._next_poll = time.time() + self._poll_interval
+            self._next_poll = time.monotonic() + self._poll_interval
             servers: List[str] = cast(Dict[str, Any], json)['servers']
             port = str(cast(Dict[str, Any], json)['port'])
             zookeeper_hosts = ','.join([h + ':' + port for h in sorted(servers)])

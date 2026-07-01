@@ -727,7 +727,7 @@ class Retry(object):
         :raises:
             :class:`Exception`: *raise_ex* if calculated deadline is smaller than provided *timeout*.
         """
-        if self.stoptime - time.time() < timeout:
+        if self.stoptime - time.monotonic() < timeout:
             if raise_ex:
                 raise raise_ex
             return False
@@ -759,7 +759,7 @@ class Retry(object):
         while True:
             try:
                 if self.deadline is not None and self._cur_stoptime is None:
-                    self._cur_stoptime = time.time() + self.deadline
+                    self._cur_stoptime = time.monotonic() + self.deadline
                 return func(*args, **kwargs)
             except self.retry_exceptions as e:
                 # Note: max_tries == -1 means infinite tries.
@@ -771,7 +771,7 @@ class Retry(object):
                 if not isinstance(sleeptime, (int, float)):
                     sleeptime = self.sleeptime
 
-                if self._cur_stoptime is not None and time.time() + sleeptime >= self._cur_stoptime:
+                if self._cur_stoptime is not None and time.monotonic() + sleeptime >= self._cur_stoptime:
                     logger.warning('Retry got exception: %s', e)
                     raise RetryFailedError("Exceeded retry deadline")
                 logger.debug('Retry got exception: %s', e)
@@ -790,10 +790,10 @@ def polling_loop(timeout: Union[int, float], interval: Union[int, float] = 1) ->
 
     :yields: current iteration counter, starting from ``0``.
     """
-    start_time = time.time()
+    start_time = time.monotonic()
     iteration = 0
     end_time = start_time + timeout
-    while time.time() < end_time:
+    while time.monotonic() < end_time:
         yield iteration
         iteration += 1
         time.sleep(float(interval))

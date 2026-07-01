@@ -463,7 +463,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         liveness_threshold = patroni.dcs.ttl * (1 if is_primary else 2)
 
         # In maintenance mode (pause) we are fine if heartbeat loop stuck.
-        status_code = 200 if patroni.ha.is_paused() or patroni.next_run + liveness_threshold > time.time() else 503
+        status_code = 200 if patroni.ha.is_paused() or patroni.next_run + liveness_threshold > time.monotonic() else 503
         self._write_status_code_only(status_code)
 
     def _readiness(self) -> Optional[str]:
@@ -1482,7 +1482,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         .. note::
             This is only used to keep track of latency when logging messages through :func:`log_message`.
         """
-        self.__start_time = time.time()
+        self.__start_time = time.monotonic()
         BaseHTTPRequestHandler.handle_one_request(self)
 
     def log_message(self, format: str, *args: Any) -> None:
@@ -1493,7 +1493,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :param format: printf-style format string message to be logged.
         :param args: arguments to be applied as inputs to *format*.
         """
-        latency = 1000.0 * (time.time() - self.__start_time)
+        latency = 1000.0 * (time.monotonic() - self.__start_time)
         logger.debug("API thread: %s - - %s latency: %0.3f ms", self.client_address[0], format % args, latency)
 
 

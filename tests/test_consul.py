@@ -130,7 +130,7 @@ class TestConsul(unittest.TestCase):
     def test_referesh_session(self):
         self.c._session = '1'
         self.assertFalse(self.c.refresh_session())
-        self.c._last_session_refresh = 0
+        self.c._last_session_refresh = float('-inf')
         self.assertRaises(ConsulError, self.c.refresh_session)
 
     @patch.object(KV, 'delete', Mock())
@@ -170,7 +170,7 @@ class TestConsul(unittest.TestCase):
         self.c.set_ttl(20)
         self.c._do_refresh_session = Mock()
         self.assertFalse(self.c.take_leader())
-        with patch('time.time', Mock(side_effect=[0, 0, 0, 100, 100, 100])):
+        with patch('time.monotonic', Mock(side_effect=[0, 0, 0, 100, 100, 100])):
             self.assertFalse(self.c.take_leader())
 
     @patch.object(KV, 'put', Mock(return_value=True))
@@ -197,15 +197,15 @@ class TestConsul(unittest.TestCase):
                 self.assertTrue(self.c.update_leader(cluster, 12345, failsafe={'foo': 'bar'}))
             with patch.object(KV, 'put', Mock(side_effect=ConsulException)):
                 self.assertFalse(self.c.update_leader(cluster, 12345))
-            mock_time = Mock(side_effect=[0, 0, 0, 0, 100, 200, 300])
-            with patch('time.time', mock_time), patch('time.time_ns', mock_time, create=True):
+            mock_time = Mock(side_effect=[0, 0, 100, 0, 0, 0, 0])
+            with patch('time.monotonic', mock_time), patch('time.monotonic_ns', mock_time, create=True):
                 self.assertRaises(ConsulError, self.c.update_leader, cluster, 12345)
-        with patch('time.time', Mock(side_effect=[0, 100, 200, 300])):
+        with patch('time.monotonic', Mock(side_effect=[0, 100, 200, 300])):
             self.assertRaises(ConsulError, self.c.update_leader, cluster, 12345)
         with patch.object(KV, 'delete', Mock(side_effect=ConsulException)):
             self.assertFalse(self.c.update_leader(cluster, 12347))
         mock_renew.side_effect = RetryFailedError('')
-        self.c._last_session_refresh = 0
+        self.c._last_session_refresh = float('-inf')
         self.assertRaises(ConsulError, self.c.update_leader, cluster, 12346)
         mock_renew.side_effect = ConsulException
         self.assertFalse(self.c.update_leader(cluster, 12347))
@@ -244,7 +244,7 @@ class TestConsul(unittest.TestCase):
     @patch.object(KV, 'put', Mock(return_value=True))
     def test_sync_state(self):
         self.assertEqual(self.c.set_sync_state_value('{}'), 1)
-        with patch('time.time', Mock(side_effect=[1, 100, 1000])):
+        with patch('time.monotonic', Mock(side_effect=[1, 100, 1000])):
             self.assertFalse(self.c.set_sync_state_value('{}'))
         with patch.object(KV, 'put', Mock(return_value=False)):
             self.assertFalse(self.c.set_sync_state_value('{}'))
