@@ -797,6 +797,21 @@ class TestRestApiServer(unittest.TestCase):
         except Exception:
             self.assertIsNone(self.srv.handle_error(None, ('127.0.0.1', 55555)))
 
+    def test_finish_request_connection_reset(self):
+        import ssl
+
+        # A client (e.g. a load-balancer performing health-checks) may reset the connection at any
+        # point while the request is handled, not only in write_response(). finish_request() must
+        # swallow a ConnectionError (plain HTTP) or ssl.SSLError (TLS) raised anywhere during handling
+        # and log it at DEBUG, instead of letting it propagate to handle_error() as a WARNING.
+        for exc in (ConnectionResetError(104, 'Connection reset by peer'), ssl.SSLError('reset')):
+            self.srv.RequestHandlerClass = Mock(side_effect=exc)
+            with patch('patroni.api.logger.debug') as mock_debug:
+                self.assertIsNone(self.srv.finish_request(Mock(), ('127.0.0.1', 55555)))
+            self.srv.RequestHandlerClass.assert_called_once()
+            mock_debug.assert_called_once()
+            self.assertIn('was reset', mock_debug.call_args[0][0])
+
     @patch.object(HTTPServer, '__init__', Mock(side_effect=socket.error))
     def test_socket_error(self):
         self.assertRaises(socket.error, MockRestApiServer, Mock(), '', {'listen': '*:8008'})
@@ -817,6 +832,26 @@ class TestRestApiServer(unittest.TestCase):
     def test_process_request(self):
         with patch.object(self.srv._executor, 'submit', lambda f, r, c: f(r, c)):
             self.srv.process_request(self.__create_socket(), ('2', 54321))
+
+    def test_process_request_thread_ssl_handshake_reset(self):
+        import ssl
+
+        # A reset/failed TLS handshake (ssl.SSLError, a connection reset, or a timeout -- all OSError
+        # subclasses) happens before the parent process_request_thread() (which is responsible for
+        # closing the socket) is reached, so process_request_thread() must shut the request down
+        # itself, log at DEBUG, and not proceed to handle the request.
+        sock = self.__create_socket()
+        if not isinstance(sock, ssl.SSLSocket):  # pragma: no cover - ssl not available
+            self.skipTest('ssl is not available')
+        for exc in (ssl.SSLError('handshake reset'), TimeoutError(), ConnectionResetError(104, 'reset')):
+            sock.do_handshake = Mock(side_effect=exc)
+            with patch.object(self.srv, 'shutdown_request') as mock_shutdown, \
+                    patch.object(RestApiServer, 'finish_request') as mock_finish, \
+                    patch('patroni.api.logger.debug') as mock_debug:
+                self.assertIsNone(self.srv.process_request_thread(sock, ('127.0.0.1', 55555)))
+            mock_finish.assert_not_called()
+            mock_shutdown.assert_called_once_with(sock)
+            self.assertTrue(any('SSL handshake' in c[0][0] for c in mock_debug.call_args_list if c[0]))
 
     @patch.object(MockRestApiServer, 'process_request', Mock(side_effect=RuntimeError))
     @patch.object(MockRestApiServer, 'get_request')
