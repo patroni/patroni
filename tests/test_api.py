@@ -799,6 +799,7 @@ class TestRestApiServer(unittest.TestCase):
 
     def test_finish_request_connection_reset(self):
         import ssl
+
         # A client (e.g. a load-balancer performing health-checks) may reset the connection at any
         # point while the request is handled, not only in write_response(). finish_request() must
         # swallow a ConnectionError (plain HTTP) or ssl.SSLError (TLS) raised anywhere during handling
@@ -834,6 +835,7 @@ class TestRestApiServer(unittest.TestCase):
 
     def test_process_request_thread_ssl_handshake_reset(self):
         import ssl
+
         # A reset/failed TLS handshake (ssl.SSLError, a connection reset, or a timeout -- all OSError
         # subclasses) happens before the parent process_request_thread() (which is responsible for
         # closing the socket) is reached, so process_request_thread() must shut the request down
