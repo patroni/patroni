@@ -1099,6 +1099,7 @@ class Postgresql(object):
     @contextmanager
     def get_replication_connection_cursor(self, host: Optional[str] = None, port: Union[int, str] = 5432,
                                           **kwargs: Any) -> Generator[Union['cursor', 'Cursor[Any]'], None, None]:
+        # We use RemoteMember here because it has the logic to map and sanitize connection parameters
         member = RemoteMember('', {'conn_kwargs': {'host': host, 'port': port}})
         conn_kwargs = member.conn_kwargs(self.config.replication)
         conn_kwargs.update(replication=1)
