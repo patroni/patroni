@@ -12,7 +12,7 @@ import time
 from argparse import Namespace
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from patroni import global_config, MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
+from patroni import global_config, metrics_collector, MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
 from patroni.collections import EMPTY_DICT
 from patroni.daemon import abstract_main, AbstractPatroniDaemon, get_base_arg_parser
 from patroni.tags import Tags
@@ -190,6 +190,7 @@ class Patroni(AbstractPatroniDaemon, Tags):
                 self.config.build_effective_postgresql_configuration(self.postgresql.role)
             self.postgresql.reload_config(self._last_effective_pg_config, sighup)
             self.dcs.reload_config(self.config)
+            metrics_collector.reload_config(self.config.get('metrics_collector_retention', 3600))
         except Exception:
             logger.exception('Failed to reload config_file=%s', self.config.config_file)
 

@@ -1274,5 +1274,6 @@ schema = Schema({
             "sync_priority": IntValidator(min=0, expected_type=int, raise_assert=True),
         }),
         Optional("nostream"): bool
-    }
+    },
+    Optional('metrics_collector_retention'): IntValidator(min=300, base_unit='s', raise_assert=True)
 })
