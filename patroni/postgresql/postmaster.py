@@ -245,6 +245,19 @@ class PostmasterProcess(psutil.Process):
             return not self.is_running()
 
     def wait_for_user_backends_to_close(self, stop_timeout: Optional[float]) -> Optional[bool]:
+        """Wait for all user backend processes to close before the postmaster shuts down.
+
+        Auxiliary/background PostgreSQL processes (archiver, checkpointer, wal senders, logical
+        replication workers, and so on) are identified via their command line and excluded, so that
+        only genuine client backends are awaited.
+
+        :param stop_timeout: maximum number of seconds to wait for the user backends to close.
+            If ``None``, wait indefinitely.
+
+        :returns: ``True`` if there were no user backends or all of them closed in time; ``None`` if
+            the list of children could not be retrieved or some backends were still alive after
+            *stop_timeout*.
+        """
         # These regexps are cross checked against versions PostgreSQL 9.1 .. 19
         aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:(?:archiver|startup|autovacuum launcher|autovacuum worker|"
                                  "checkpointer|logger|stats collector|wal receiver|wal writer|writer)(?: process  )?|"
