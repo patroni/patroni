@@ -427,6 +427,7 @@ class TestRestApiHandler(unittest.TestCase):
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_GET_metrics(self, mock_dcs):
+        mock_dcs.cluster.config.data = {}
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
         # Test with failsafe_mode enabled
         with patch.object(MockHa, 'is_failsafe_mode', Mock(return_value=True)):
@@ -440,6 +441,62 @@ class TestRestApiHandler(unittest.TestCase):
         # Test with failsafe as None
         type(mock_dcs).failsafe = PropertyMock(return_value=None)
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
+
+        # Logical slot metrics: patroni-managed slot active, unmanaged slot inactive
+        slot_rows = [('cdc_slot', True), ('old_slot', False)]
+        cdc_slot_cfg = {'type': 'logical', 'plugin': 'pgoutput', 'database': 'app'}
+        mock_dcs.cluster.config.data = {'slots': {'cdc_slot': cdc_slot_cfg}}
+
+        def mixed_slot_query(sql, *params):
+            if 'pg_replication_slots' in sql:
+                return slot_rows
+            return MockConnection.query(sql, *params)
+
+        with patch.object(RestApiServer, 'query', side_effect=mixed_slot_query), \
+                patch.object(RestApiHandler, 'write_response') as resp_mock:
+            MockRestApiServer(RestApiHandler, 'GET /metrics')
+            body = resp_mock.call_args[0][1]
+            self.assertIn('slot="cdc_slot",managedby="patroni"} 1', body)
+            self.assertIn('slot="old_slot",managedby="other"} 0', body)
+
+        # Postgres unreachable: slot metrics omitted, other metrics still present
+        mock_dcs.cluster.config.data = {}
+
+        def failing_slot_query(sql, *params):
+            if 'pg_replication_slots' in sql:
+                raise PostgresConnectionException('down')
+            return MockConnection.query(sql, *params)
+
+        with patch.object(RestApiServer, 'query', side_effect=failing_slot_query), \
+                patch.object(RestApiHandler, 'write_response') as resp_mock:
+            MockRestApiServer(RestApiHandler, 'GET /metrics')
+            body = resp_mock.call_args[0][1]
+            self.assertIn('patroni_postgres_running', body)
+            self.assertNotIn('patroni_logical_slot_active', body)
+
+        # No logical slots: HELP/TYPE lines not emitted
+        def empty_slot_query(sql, *params):
+            if 'pg_replication_slots' in sql:
+                return []
+            return MockConnection.query(sql, *params)
+
+        with patch.object(RestApiServer, 'query', side_effect=empty_slot_query), \
+                patch.object(RestApiHandler, 'write_response') as resp_mock:
+            MockRestApiServer(RestApiHandler, 'GET /metrics')
+            body = resp_mock.call_args[0][1]
+            self.assertNotIn('patroni_logical_slot_active', body)
+
+        # PG >= 10: AND NOT temporary filter is included in the query
+        def pg10_slot_query(sql, *params):
+            if 'pg_replication_slots' in sql:
+                self.assertIn('AND NOT temporary', sql)
+                return slot_rows
+            return MockConnection.query(sql, *params)
+
+        with patch.object(MockPostgresql, 'server_version', 150000), \
+                patch.object(RestApiServer, 'query', side_effect=pg10_slot_query), \
+                patch.object(RestApiHandler, 'write_response'):
+            MockRestApiServer(RestApiHandler, 'GET /metrics')
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_PATCH_config(self, mock_dcs):

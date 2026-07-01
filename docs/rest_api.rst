@@ -367,6 +367,10 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# HELP patroni_failover_priority Failover priority of this node.
 	# TYPE patroni_failover_priority gauge
 	patroni_failover_priority{scope="batman",name="patroni1"} 1
+	# HELP patroni_logical_slot_active Value is 1 if the logical replication slot has an active consumer, 0 otherwise.
+	# TYPE patroni_logical_slot_active gauge
+	patroni_logical_slot_active{scope="batman",name="patroni1",slot="cdc_slot",managedby="patroni"} 1
+	patroni_logical_slot_active{scope="batman",name="patroni1",slot="old_slot",managedby="other"} 0
 
 PostgreSQL State Values
 ^^^^^^^^^^^^^^^^^^^^^^^
@@ -428,6 +432,38 @@ The ``patroni_postgres_state`` metric provides a numeric representation of the c
 
 .. note::
    These numeric values are fixed and will never change to maintain backward compatibility with existing monitoring systems. If new states are added in the future, they will be assigned new numeric values without changing existing ones.
+
+Logical Replication Slot Metrics
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``patroni_logical_slot_active`` is a per-slot gauge that exposes the ``active`` field from
+``pg_catalog.pg_replication_slots`` for every logical slot on the node. The value is ``1``
+when a consumer is connected and ``0`` when the slot has no active consumer. The metric is
+emitted only when PostgreSQL is reachable and at least one logical slot exists; if the query
+fails, the metric is omitted for that scrape and all other metrics are unaffected.
+
+Each series carries four labels:
+
+- ``scope``: cluster scope name.
+- ``name``: this Patroni node's name.
+- ``slot``: the slot name from ``pg_replication_slots``.
+- ``managedby``: ``patroni`` if the slot is listed in ``permanent_slots`` in the DCS
+  configuration, ``other`` for any slot created outside Patroni's control.
+
+**Why this metric is needed**
+
+Logical replication slots are a common source of unplanned disk-full incidents: an abandoned
+CDC connector leaves a slot with no active consumer, and PostgreSQL retains WAL indefinitely
+until that consumer reconnects. On Patroni clusters this risk is compounded by failover
+behaviour — on PostgreSQL < 17, slots not tracked by Patroni's ``permanent_slots`` are
+silently lost when the primary changes, breaking any application that depended on them.
+
+The ``postgres_exporter`` already exposes raw slot metrics such as
+``pg_replication_slots_active``, but it has no awareness of Patroni's DCS configuration and
+cannot distinguish slots that Patroni manages from slots created directly by applications.
+The ``managedby`` label bridges this gap: it is derived by cross-referencing each slot name
+against ``permanent_slots`` — information already in memory inside the Patroni process,
+requiring no extra DCS call.
 
 
 Cluster status endpoints
