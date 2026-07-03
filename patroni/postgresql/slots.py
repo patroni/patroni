@@ -215,6 +215,8 @@ class SlotsHandler:
             keys = ('datoid', 'catalog_xmin', 'confirmed_flush_lsn')
         else:
             keys = ('restart_lsn', 'xmin')
+        if self._postgresql.major_version >= 130000:
+            keys += ('wal_status',)
         dst.update({key: src[key] for key in keys if key in src})
 
     def process_permanent_slots(self, slots: List[Dict[str, Any]]) -> Dict[str, int]:
@@ -275,6 +277,7 @@ class SlotsHandler:
 
         extra = f", catalog_xmin, {pg_wal_lsn_diff}(confirmed_flush_lsn, '0/0')::bigint AS confirmed_flush_lsn" \
             if self._postgresql.major_version >= 100000 else ""
+        extra += ", wal_status" if self._postgresql.major_version >= 130000 else ""
 
         filter_columns = ["NOT temporary"] if self._postgresql.major_version >= 100000 else []
         filter_columns += ["NOT failover"] if self._postgresql.major_version >= 170000 else []
@@ -307,6 +310,8 @@ class SlotsHandler:
                         value.update(catalog_xmin=r[7], confirmed_flush_lsn=r[8])
                 else:
                     value.update(xmin=r[2], restart_lsn=r[3])
+                if self._postgresql.major_version >= 130000:
+                    value.update(wal_status=r[9])
                 replication_slots[r[0]] = value
             self._replication_slots = replication_slots
             self._schedule_load_slots = False
@@ -380,14 +385,24 @@ class SlotsHandler:
             Slots can be filtered out with ``ignore_slots`` configuration.
 
             Slots that have matching names but do not match attributes in *slots* will also be dropped.
+            Slots that are presented in *slots* but have wal_status=lost are also dropped.
 
         :param cluster: cluster state information object.
         :param slots: dictionary of desired slot names as keys with slot attributes as a dictionary value, if known.
         """
         # drop old replication slots which are not presented in desired slots.
-        for name in set(self._replication_slots) - set(slots):
+        for name, value in list(self._replication_slots.items()):
+            wal_status_lost = name in slots and \
+                self._postgresql.major_version >= 130000 and value['wal_status'] == 'lost'
+
+            if name in slots and not wal_status_lost:
+                continue
+
             if not global_config.is_paused and not self.ignore_replication_slot(cluster, name):
-                logger.info("Trying to drop unknown replication slot '%s'", name)
+                if wal_status_lost:
+                    logger.info("Trying to drop replication slot '%s' with wal_status=lost", name)
+                else:
+                    logger.info("Trying to drop unknown replication slot '%s'", name)
                 self._drop_replication_slot(name)
 
         # drop slots with matching names but attributes that do not match, e.g. `plugin` or `database`.
