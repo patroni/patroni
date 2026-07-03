@@ -3,6 +3,42 @@
 Release notes
 =============
 
+Version 3.3.11
+--------------
+
+Released 2026-07-07
+
+**Bugfixes**
+
+- Unify ``pg_replication_slots`` query (Polina Bungina)
+
+  Incorrect handling of the ``failover`` and ``synced`` values was resulting in ``KeyError`` exceptions during removal of the incorrect logical replication slots.
+
+- Consider version-specific authentication parameters in configuration generation (Polina Bungina)
+
+  In the ``patroni --generate-config`` command, remove all inapplicable authentication parameters that were accidentally picked up from the environment, based on the version retrieved from a PostgreSQL connection.
+
+- Handle ``pg_rewind`` while a PostgreSQL instance is starting as a standby (Alexander Kukushkin)
+
+  Fallback to ``pg_controldata`` information when a PostgreSQL instance is running but is not yet accepting connections.
+
+- Fix Prometheus metric type for ``patroni_postgres_timeline`` (Huseyin Demir)
+
+  Declare the ``patroni_postgres_timeline`` metric as ``gauge`` instead of ``counter``, as it is not always monotonically increasing (e.g., it can be reset to 0 if a PostgreSQL instance is not running).
+
+- Don't stop watchdog until client backends are fully stopped (Alexander Kukushkin)
+
+  Previously, if ``primary_stop_timeout`` was shorter than the minimum watchdog timeout, and the stop timeout actually expired, Patroni disabled the watchdog before all client backends had exited.
+
+- Handle statement timeout error for monitoring query (Alexander Kukushkin)
+
+  In case of a statement timeout error, use the cached role as a fallback to avoid demoting the primary. Additionally, forcibly set ``pg_stat_statements.track`` to ``none`` for the monitroing query to avoid expensive ``pg_stat_statements`` GC calls.
+
+- Fix role representation in patronictl member validation error (Polina Bungina)
+
+  Ensures the correct string representation is used within the exception message, preventing errors from being formatted like ``Error: No CtlPostgresqlRole.REPLICA among provided members``.
+
+
 Version 3.3.10
 --------------
 
