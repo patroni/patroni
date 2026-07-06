@@ -349,7 +349,7 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# TYPE patroni_failsafe_member gauge
 	patroni_failsafe_member{scope="batman",name="patroni1"} 0
 	# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.
-	# TYPE patroni_postgres_timeline counter
+	# TYPE patroni_postgres_timeline gauge
 	patroni_postgres_timeline{scope="batman",name="patroni1"} 24
 	# HELP patroni_dcs_last_seen Epoch timestamp when DCS was last contacted successfully by Patroni.
 	# TYPE patroni_dcs_last_seen gauge
@@ -364,6 +364,9 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# Values: 0=initdb, 1=initdb_failed, 2=custom_bootstrap, 3=custom_bootstrap_failed, 4=creating_replica, 5=running, 6=starting, 7=bootstrap_starting, 8=start_failed, 9=restarting, 10=restart_failed, 11=stopping, 12=stopped, 13=stop_failed, 14=crashed
 	# TYPE patroni_postgres_state gauge
 	patroni_postgres_state{scope="batman",name="patroni1"} 5
+	# HELP patroni_failover_priority Failover priority of this node.
+	# TYPE patroni_failover_priority gauge
+	patroni_failover_priority{scope="batman",name="patroni1"} 1
 
 PostgreSQL State Values
 ^^^^^^^^^^^^^^^^^^^^^^^
