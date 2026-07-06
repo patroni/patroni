@@ -13,7 +13,7 @@ from ..exceptions import PostgresConnectionException
 logger = logging.getLogger(__name__)
 
 DEFAULT_CONNECT_TIMEOUT = 3
-DEFAULT_CONNECTION_OPTIONS = '-c statement_timeout=2000 -c pg_stat_statements.track=none'
+DEFAULT_CONNECTION_OPTIONS = '-c statement_timeout=2000'
 
 
 class NamedConnection:
@@ -129,7 +129,7 @@ class ConnectionPool:
         """
         with self._lock:
             self._conn_kwargs = {'connect_timeout': DEFAULT_CONNECT_TIMEOUT,
-                                 'options': DEFAULT_CONNECTION_OPTIONS,
+                                 'options': DEFAULT_CONNECTION_OPTIONS + ' -c pg_stat_statements.track=none',
                                  'fallback_application_name': 'Patroni', **value}
 
     def get(self, name: str, kwargs_override: Optional[Dict[str, Any]] = None) -> NamedConnection:
