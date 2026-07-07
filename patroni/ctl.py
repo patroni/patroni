@@ -691,7 +691,7 @@ def get_members(cluster: Cluster, cluster_name: str, member_names: List[str], ro
     if member_names:
         member_names = list(set(member_names) & candidates)
         if not member_names:
-            raise PatroniCtlException('No {0} among provided members'.format(role))
+            raise PatroniCtlException('No {0} among provided members'.format(repr(role)))
     elif action != 'reinitialize':
         member_names = list(candidates)
 
