@@ -10,4 +10,11 @@ class FAIL_REASON:
 class SyncObjConf:
     password: Optional[str]
     autoTickPeriod: int
+    raftMinTimeout: float
+    raftMaxTimeout: float
+    connectionTimeout: float
+    appendEntriesPeriod: float
+    connectionRetryTime: float
+    leaderFallbackTimeout: float
     def __init__(self, **kwargs) -> None: ...
+    def validate(self) -> None: ...

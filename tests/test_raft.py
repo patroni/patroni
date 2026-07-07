@@ -8,8 +8,8 @@ from unittest.mock import Mock, patch, PropertyMock
 from pysyncobj import FAIL_REASON, SyncObjConf
 
 from patroni.dcs import get_dcs
-from patroni.dcs.raft import _TCPTransport, Cluster, DynMemberSyncObj, \
-    KVStoreTTL, Raft, RaftError, SyncObjUtility, TCPTransport
+from patroni.dcs.raft import _PYSYNCOBJ_TIMEOUT_PARAMS, _TCPTransport, Cluster, \
+    DynMemberSyncObj, KVStoreTTL, Raft, RaftError, SyncObjUtility, TCPTransport
 from patroni.postgresql.mpp import get_mpp
 
 
@@ -124,6 +124,100 @@ class TestKVStoreTTL(unittest.TestCase):
         so = KVStoreTTL(Mock(), None, None, self_addr='127.0.0.1:1234',
                         partner_addrs=['127.0.0.1:1235'], patronictl=True)
         so.doTick(0)
+        so.destroy()
+
+    def test_custom_pysyncobj_timeouts(self):
+        self.so.destroy()
+        self.so = None
+        custom_config = {
+            'self_addr': '127.0.0.1:1234',
+            'min_timeout': 5.0,
+            'max_timeout': 10.0,
+            'connection_timeout': 15.0,
+            'append_entries_period': 1.0,
+            'connection_retry_time': 10.0,
+            'leader_fallback_timeout': 60.0,
+        }
+        so = KVStoreTTL(None, None, None, **custom_config)
+        for patroni_key, syncobj_key in _PYSYNCOBJ_TIMEOUT_PARAMS.items():
+            self.assertEqual(getattr(so.conf, syncobj_key), custom_config[patroni_key])
+        so.destroy()
+
+    def test_default_pysyncobj_timeouts(self):
+        """Verify defaults are unchanged when no custom timeouts are provided."""
+        defaults = {
+            'raftMinTimeout': 0.4,
+            'raftMaxTimeout': 1.4,
+            'connectionTimeout': 3.5,
+            'appendEntriesPeriod': 0.1,
+            'connectionRetryTime': 5.0,
+            'leaderFallbackTimeout': 30.0,
+        }
+        for syncobj_key, default_value in defaults.items():
+            self.assertEqual(getattr(self.so.conf, syncobj_key), default_value)
+
+    def test_pysyncobj_timeout_ordering_validation(self):
+        """Verify Patroni rejects invalid timeout ordering with a clear error."""
+        self.so.destroy()
+        self.so = None
+        # min_timeout > max_timeout violates ordering constraint; verify "(default)" annotation in message
+        self.assertRaisesRegex(RaftError, r'max_timeout \(5\.0\) must be > min_timeout \(10\.0\)',
+                               KVStoreTTL, None, None, None,
+                               self_addr='127.0.0.1:1234', min_timeout=10.0, max_timeout=5.0)
+        # min_timeout must be > 3 * append_entries_period
+        self.assertRaisesRegex(RaftError, r'min_timeout .* must be > 3 \* append_entries_period',
+                               KVStoreTTL, None, None, None,
+                               self_addr='127.0.0.1:1234', append_entries_period=0.5, min_timeout=1.0)
+        # Verify "(default)" annotation appears for unset params
+        self.assertRaisesRegex(RaftError, r'max_timeout \(1\.4 \(default\)\) must be > min_timeout \(1\.4\)',
+                               KVStoreTTL, None, None, None,
+                               self_addr='127.0.0.1:1234', min_timeout=1.4)
+        # connection_timeout must be >= max_timeout; verify "(default)" for unset params
+        self.assertRaisesRegex(RaftError, r'connection_timeout \(5\.0\) must be >= max_timeout \(10\.0\)',
+                               KVStoreTTL, None, None, None,
+                               self_addr='127.0.0.1:1234', max_timeout=10.0, connection_timeout=5.0)
+        # min_timeout == 3 * append_entries_period (exact boundary, strict >)
+        self.assertRaisesRegex(RaftError, r'min_timeout .* must be > 3 \* append_entries_period',
+                               KVStoreTTL, None, None, None,
+                               self_addr='127.0.0.1:1234', append_entries_period=1.0, min_timeout=3.0)
+        # leader_fallback_timeout must be > append_entries_period
+        self.assertRaisesRegex(RaftError, r'leader_fallback_timeout .* must be > append_entries_period',
+                               KVStoreTTL, None, None, None,
+                               self_addr='127.0.0.1:1234', append_entries_period=50.0,
+                               min_timeout=200.0, max_timeout=300.0,
+                               connection_timeout=400.0, leader_fallback_timeout=30.0)
+
+    def test_partial_pysyncobj_timeouts(self):
+        """Only some timeouts set -- verify defaults fill in correctly."""
+        self.so.destroy()
+        self.so = None
+        # Only set append_entries_period, rest should use defaults
+        so = KVStoreTTL(None, None, None, self_addr='127.0.0.1:1234', append_entries_period=0.05)
+        self.assertEqual(so.conf.appendEntriesPeriod, 0.05)
+        self.assertEqual(so.conf.raftMinTimeout, 0.4)  # default, still valid since 0.4 > 3*0.05
+        so.destroy()
+
+    def test_connection_retry_time_zero(self):
+        """Verify connection_retry_time=0 is accepted by pysyncobj."""
+        self.so.destroy()
+        self.so = None
+        so = KVStoreTTL(None, None, None, self_addr='127.0.0.1:1234', connection_retry_time=0)
+        self.assertEqual(so.conf.connectionRetryTime, 0.0)
+        so.destroy()
+
+    def test_int_pysyncobj_timeouts(self):
+        """Verify int values (from YAML like min_timeout: 5) are accepted."""
+        self.so.destroy()
+        self.so = None
+        so = KVStoreTTL(None, None, None, self_addr='127.0.0.1:1234',
+                        min_timeout=5, max_timeout=10, connection_timeout=15,
+                        append_entries_period=1, connection_retry_time=10, leader_fallback_timeout=60)
+        self.assertEqual(so.conf.raftMinTimeout, 5)
+        self.assertEqual(so.conf.raftMaxTimeout, 10)
+        self.assertEqual(so.conf.connectionTimeout, 15)
+        self.assertEqual(so.conf.appendEntriesPeriod, 1)
+        self.assertEqual(so.conf.connectionRetryTime, 10)
+        self.assertEqual(so.conf.leaderFallbackTimeout, 60)
         so.destroy()
 
 
