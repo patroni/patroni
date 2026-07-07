@@ -777,10 +777,9 @@ class Ha(object):
                 self.state_handler.get_history(self._leader_timeline + 1):
             self._rewind.trigger_check_diverged_lsn()
 
-        if not self.state_handler.is_starting():
-            msg = self._handle_rewind_or_reinitialize()
-            if msg:
-                return msg
+        msg = self._handle_rewind_or_reinitialize()
+        if msg:
+            return msg
 
         if not self.is_paused():
             self.state_handler.handle_parameter_change()
@@ -808,10 +807,9 @@ class Ha(object):
 
                 if self._last_timeline and self._leader_timeline and self._last_timeline < self._leader_timeline:
                     self._rewind.trigger_check_diverged_lsn()
-                    if not self.state_handler.is_starting():
-                        msg = self._handle_rewind_or_reinitialize()
-                        if msg:
-                            return msg
+                    msg = self._handle_rewind_or_reinitialize()
+                    if msg:
+                        return msg
 
         return follow_reason
 

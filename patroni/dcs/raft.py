@@ -18,6 +18,17 @@ from ..postgresql.mpp import AbstractMPP
 from ..utils import validate_directory
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, TimelineHistory
 
+# Mapping from Patroni snake_case config keys to pysyncobj camelCase SyncObjConf kwargs.
+# Ordered to reflect the logical dependency chain used in constraint validation.
+_PYSYNCOBJ_TIMEOUT_PARAMS = {
+    'append_entries_period': 'appendEntriesPeriod',
+    'min_timeout': 'raftMinTimeout',
+    'max_timeout': 'raftMaxTimeout',
+    'connection_timeout': 'connectionTimeout',
+    'connection_retry_time': 'connectionRetryTime',
+    'leader_fallback_timeout': 'leaderFallbackTimeout',
+}
+
 if TYPE_CHECKING:  # pragma: no cover
     from ..config import Config
 
@@ -131,12 +142,45 @@ class KVStoreTTL(DynMemberSyncObj):
         file_template = (self_addr or '')
         file_template = file_template.replace(':', '_') if os.name == 'nt' else file_template
         file_template = os.path.join(raft_data_dir, file_template)
+        syncobj_kwargs: Dict[str, Any] = {}
+        applied_patroni_keys: Dict[str, float] = {}
+        for patroni_key, syncobj_key in _PYSYNCOBJ_TIMEOUT_PARAMS.items():
+            value = config.get(patroni_key)
+            if value is not None:
+                syncobj_kwargs[syncobj_key] = value
+                applied_patroni_keys[patroni_key] = value
+
         conf = SyncObjConf(password=config.get('password'), autoTick=False, appendEntriesUseBatch=False,
                            bindAddress=config.get('bind_addr'), dnsFailCacheTime=(config.get('loop_wait') or 10),
                            dnsCacheTime=(config.get('ttl') or 30), commandsWaitLeader=config.get('commandsWaitLeader'),
                            fullDumpFile=(file_template + '.dump' if self_addr else None),
                            journalFile=(file_template + '.journal' if self_addr else None),
-                           onReady=on_ready, dynamicMembershipChange=True)
+                           onReady=on_ready, dynamicMembershipChange=True, **syncobj_kwargs)
+
+        if syncobj_kwargs:
+            logger.info('Applying custom pysyncobj timeouts: %s',
+                        ', '.join('{0}={1}'.format(k, v) for k, v in applied_patroni_keys.items()))
+
+            # Validate pysyncobj ordering constraints. These intentionally duplicate checks from
+            # pysyncobj's SyncObjConf.validate() to provide user-friendly error messages. Effective
+            # values (explicitly set or pysyncobj defaults) are read directly from conf; the kwargs
+            # only decide whether to annotate a value as "(default)" in the error message.
+            def _fmt(syncobj_key: str) -> str:
+                return '{0}{1}'.format(getattr(conf, syncobj_key),
+                                       '' if syncobj_key in syncobj_kwargs else ' (default)')
+
+            if not conf.raftMinTimeout > conf.appendEntriesPeriod * 3:
+                raise RaftError('min_timeout ({0}) must be > 3 * append_entries_period ({1})'
+                                .format(_fmt('raftMinTimeout'), _fmt('appendEntriesPeriod')))
+            if not conf.raftMaxTimeout > conf.raftMinTimeout:
+                raise RaftError('max_timeout ({0}) must be > min_timeout ({1})'
+                                .format(_fmt('raftMaxTimeout'), _fmt('raftMinTimeout')))
+            if not conf.connectionTimeout >= conf.raftMaxTimeout:
+                raise RaftError('connection_timeout ({0}) must be >= max_timeout ({1})'
+                                .format(_fmt('connectionTimeout'), _fmt('raftMaxTimeout')))
+            if not conf.leaderFallbackTimeout > conf.appendEntriesPeriod:
+                raise RaftError('leader_fallback_timeout ({0}) must be > append_entries_period ({1})'
+                                .format(_fmt('leaderFallbackTimeout'), _fmt('appendEntriesPeriod')))
 
         super(KVStoreTTL, self).__init__(self_addr, partner_addrs, conf, self.__retry_timeout)
         self.__data: Dict[str, Dict[str, Any]] = {}

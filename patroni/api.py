@@ -616,6 +616,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``patroni_failsafe_mode_is_active``: ``1`` if ``failsafe_mode`` is currently active, else ``0``;
             * ``patroni_failsafe_mode_enabled``: ``1`` if ``failsafe_mode`` is enabled in configuration, else ``0``;
             * ``patroni_failsafe_member``: ``1`` if this node is a member of failsafe topology, else ``0``;
+            * ``patroni_failover_priority``: failover priority of this node (``0`` if ``nofailover`` is set, else value
+              of ``failover_priority`` tag, defaulting to ``1``);
             * ``patroni_postgres_timeline``: PostgreSQL timeline based on current WAL file name;
             * ``patroni_dcs_last_seen``: epoch timestamp when DCS was last contacted successfully;
             * ``patroni_pending_restart``: ``1`` if this PostgreSQL node is pending a restart, else ``0``;
@@ -714,7 +716,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         metrics.append("# HELP patroni_postgres_server_version Version of Postgres (if running), 0 otherwise.")
         metrics.append("# TYPE patroni_postgres_server_version gauge")
-        metrics.append("patroni_postgres_server_version {0} {1}".format(labels, postgres.get('server_version', 0)))
+        metrics.append("patroni_postgres_server_version{0} {1}".format(labels, postgres.get('server_version', 0)))
 
         metrics.append("# HELP patroni_cluster_unlocked Value is 1 if the cluster is unlocked, 0 if locked.")
         metrics.append("# TYPE patroni_cluster_unlocked gauge")
@@ -736,7 +738,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("patroni_failsafe_member{0} {1}".format(labels, int(is_failsafe_member)))
 
         metrics.append("# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.")
-        metrics.append("# TYPE patroni_postgres_timeline counter")
+        metrics.append("# TYPE patroni_postgres_timeline gauge")
         metrics.append("patroni_postgres_timeline{0} {1}".format(labels, postgres.get('timeline') or 0))
 
         metrics.append("# HELP patroni_dcs_last_seen Epoch timestamp when DCS was last contacted successfully"
@@ -761,6 +763,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
         current_state = postgres['state']
         state_value = current_state.index if isinstance(current_state, PostgresqlState) else -1
         metrics.append(f"patroni_postgres_state{labels} {state_value}")
+
+        metrics.append("# HELP patroni_failover_priority Failover priority of this node.")
+        metrics.append("# TYPE patroni_failover_priority gauge")
+        metrics.append("patroni_failover_priority{0} {1}".format(labels, patroni.failover_priority))
 
         self.write_response(200, '\n'.join(metrics) + '\n', content_type='text/plain')
 

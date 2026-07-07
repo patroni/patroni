@@ -16,7 +16,7 @@ from .dcs import dcs_modules
 from .exceptions import ConfigParseError, PatroniAssertionError
 from .log import type_logformat
 from .postgresql.sync import SYNC_STRICT_PLACEHOLDER
-from .utils import data_directory_is_empty, get_major_version, parse_int, split_host_port
+from .utils import data_directory_is_empty, get_major_version, parse_int, parse_real, split_host_port
 
 # Additional parameters to fine-tune validation process
 _validation_params: Dict[str, Any] = {}
@@ -984,6 +984,49 @@ def validate_name(value: Any) -> None:
         raise ConfigParseError(f"Node 'name' can't be set to '{SYNC_STRICT_PLACEHOLDER}'")
 
 
+class RealValidator(object):
+    """Validate a real (float) setting.
+
+    :ivar min: minimum allowed value for the setting, if any.
+    :ivar max: maximum allowed value for the setting, if any.
+    :ivar exclusive_min: if ``True``, *min* is an exclusive bound (``value > min`` instead of ``value >= min``).
+    :ivar raise_assert: if an ``assert`` test should be performed regarding expected type and valid range.
+    """
+
+    def __init__(self, *, min: OptionalType[float] = None, max: OptionalType[float] = None,
+                 exclusive_min: bool = False, raise_assert: bool = False) -> None:
+        """Create a :class:`RealValidator` object with the given rules.
+
+        :param min: minimum allowed value for the setting, if any.
+        :param max: maximum allowed value for the setting, if any.
+        :param exclusive_min: if ``True``, *min* is an exclusive bound.
+        :param raise_assert: if an ``assert`` test should be performed regarding expected type and valid range.
+        """
+        self.min = min
+        self.max = max
+        self.exclusive_min = exclusive_min
+        self.raise_assert = raise_assert
+
+    def __call__(self, value: Any) -> bool:
+        """Check if *value* is a valid real number within the expected range.
+
+        .. note::
+            If ``raise_assert`` is ``True`` and *value* is not valid, then an :class:`AssertionError` will be triggered.
+
+        :param value: value to be checked against the rules defined for this :class:`RealValidator` instance.
+
+        :returns: ``True`` if *value* is valid and within the expected range.
+        """
+        value = parse_real(value)
+        ret = isinstance(value, float)\
+            and (self.min is None or (value > self.min if self.exclusive_min else value >= self.min))\
+            and (self.max is None or value <= self.max)
+
+        if self.raise_assert:
+            assert_(ret)
+        return ret
+
+
 userattributes = {"username": "", Optional("password"): ""}
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 setattr(validate_host_port_list, 'expected_type', list)
@@ -1142,7 +1185,13 @@ schema = Schema({
             Optional("bind_addr"): validate_host_port_listen,
             "partner_addrs": validate_host_port_list,
             Optional("data_dir"): str,
-            Optional("password"): str
+            Optional("password"): str,
+            Optional("min_timeout"): RealValidator(min=0, exclusive_min=True, raise_assert=True),
+            Optional("max_timeout"): RealValidator(min=0, exclusive_min=True, raise_assert=True),
+            Optional("connection_timeout"): RealValidator(min=0, exclusive_min=True, raise_assert=True),
+            Optional("append_entries_period"): RealValidator(min=0, exclusive_min=True, raise_assert=True),
+            Optional("connection_retry_time"): RealValidator(min=0, raise_assert=True),
+            Optional("leader_fallback_timeout"): RealValidator(min=0, exclusive_min=True, raise_assert=True),
         },
         "zookeeper": {
             "hosts": Or(comma_separated_host_port, [validate_host_port]),

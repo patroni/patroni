@@ -206,6 +206,18 @@ Raft (deprecated)
 -  **partner\_addrs**: list of other Patroni nodes in the cluster in format: ['ip1:port', 'ip2:port', 'etc...']
 -  **data\_dir**: directory where to store Raft log and snapshot. If not specified the current working directory is used.
 -  **password**: (optional) Encrypt Raft traffic with a specified password, requires ``cryptography`` python module.
+-  **min\_timeout**: (optional) minimum election timeout in seconds for the underlying pysyncobj Raft implementation. Must be greater than 3 \* ``append_entries_period``. Default: ``0.4``.
+-  **max\_timeout**: (optional) maximum election timeout in seconds for the underlying pysyncobj Raft implementation. Must be greater than ``min_timeout``. Default: ``1.4``.
+-  **connection\_timeout**: (optional) time in seconds after which a connection with no data received is considered dead. Must be greater than or equal to ``max_timeout``. Default: ``3.5``.
+-  **append\_entries\_period**: (optional) interval in seconds for sending heartbeat (append\_entries) commands. Must be less than one-third of ``min_timeout``. Default: ``0.1``.
+-  **connection\_retry\_time**: (optional) interval in seconds between reconnection attempts to offline nodes. Default: ``5.0``.
+-  **leader\_fallback\_timeout**: (optional) time in seconds after which a leader with no response from the majority falls back to follower state. Must be greater than ``append_entries_period``. Default: ``30.0``.
+
+.. note::
+   These timeout parameters are useful for high-latency networks where the default pysyncobj timeouts are too aggressive. The following constraints must be satisfied: ``min_timeout`` > 3 \* ``append_entries_period``, ``max_timeout`` > ``min_timeout``, ``connection_timeout`` >= ``max_timeout``, and ``leader_fallback_timeout`` > ``append_entries_period``. Patroni validates these at startup and will refuse to start if they are violated. These values cannot be changed at runtime and require a restart.
+
+   .. warning::
+      These knobs only relax the pysyncobj *election* and *connection* timeouts; they do not extend the per-command deadline that Patroni applies to Raft operations. Each Raft command (leader-lock refresh, cluster-state write) must still complete within ``retry_timeout`` (default ``10``). On very high-latency links — roughly above a few seconds of round-trip time — a single command can exceed ``retry_timeout`` even when ``connection_timeout`` is raised well above the RTT, so the DCS will appear unreachable and the primary may demote. On such links you must also raise ``retry_timeout`` (and ``ttl`` accordingly, keeping ``loop_wait + 2 * retry_timeout <= ttl``) for the Raft DCS to survive; see :ref:`dynamic_configuration`.
 
    Short FAQ about Raft implementation
 
