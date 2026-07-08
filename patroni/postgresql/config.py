@@ -1172,10 +1172,7 @@ class ConfigHandler(object):
         local_conn_kwargs = {
             **local_address,
             **self._superuser,
-            'dbname': self._postgresql.database,
-            'fallback_application_name': 'Patroni',
-            'connect_timeout': 3,
-            'options': '-c statement_timeout=2000'
+            'dbname': self._postgresql.database
         }
         # if the "username" parameter is present, it actually needs to be "user" for connecting to PostgreSQL
         if 'username' in local_conn_kwargs:
