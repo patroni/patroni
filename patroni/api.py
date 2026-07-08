@@ -166,7 +166,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         :param headers: dictionary of additional HTTP headers to set for the response. Each key is the header name, and
             the corresponding value is the value for the header in the response.
         """
-        # TODO: try-catch ConnectionResetError: [Errno 104] Connection reset by peer and log it in DEBUG level
         self.send_response(status_code)
         headers = headers or {}
         if content_type:
@@ -1839,12 +1838,43 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         if hasattr(request, 'context'):  # SSLSocket
             from ssl import SSLSocket
             if isinstance(request, SSLSocket):  # pyright
-                request.do_handshake()
+                try:
+                    request.do_handshake()
+                except OSError as e:
+                    # The client may reset the connection (or otherwise fail the TLS handshake, e.g.
+                    # ssl.SSLError or a timeout -- all OSError subclasses) before we even start handling
+                    # the request. In that case the parent process_request_thread(), which is responsible
+                    # for closing the socket, is never reached, so we shut the request down ourselves and
+                    # log at DEBUG instead of leaking it.
+                    logger.debug('Connection from %s:%s was reset during the SSL handshake: %r',
+                                 client_address[0], client_address[1], e)
+                    self.shutdown_request(request)
+                    return
         super(RestApiServer, self).process_request_thread(request, client_address)
 
     def process_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
                         client_address: Tuple[str, int]) -> None:
         self._executor.submit(self.process_request_thread, request, client_address)
+
+    def finish_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
+                       client_address: Tuple[str, int]) -> None:
+        """Finish one request by instantiating the request handler class.
+
+        Wrapper for :func:`~socketserver.BaseServer.finish_request` that intercepts :class:`OSError`
+        exceptions raised while handling the request. A client (typically a load-balancer performing
+        health-checks) may drop the connection before Patroni is done writing the response -- a
+        connection reset or broken pipe on a plain socket, or an :class:`ssl.SSLError` on a TLS one
+        (all :class:`OSError` subclasses). There is nothing we can do about it, and it is not worth
+        letting it propagate to :func:`handle_error`, which would pollute the log with a WARNING and a
+        stack trace, so we just log it at the DEBUG level.
+
+        :param request: socket to handle the client request.
+        :param client_address: tuple containing the client IP and port.
+        """
+        try:
+            super(RestApiServer, self).finish_request(request, client_address)
+        except OSError as e:
+            logger.debug('Connection from %s:%s was reset: %r', client_address[0], client_address[1], e)
 
     def shutdown(self) -> None:
         super(RestApiServer, self).shutdown()
