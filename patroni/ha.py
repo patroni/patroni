@@ -283,6 +283,11 @@ class Ha(object):
         Detects edges between the feature being enabled and disabled and either pushes
         a fresh dynamic value (when toggled on) or restores the user-configured value
         (when toggled off).
+
+        :param sync_members: currently active synchronous standby members, used to compute
+                              the dynamic value of ``synchronized_standby_slots`` when the
+                              feature is being toggled on.
+        :returns: ``True`` if the feature was toggled and ``synchronized_standby_slots`` was updated.
         """
         feature_enabled = global_config.dynamic_synchronized_standby_slots_enabled
         if feature_enabled == self._last_dynamic_sync_slots_enabled:

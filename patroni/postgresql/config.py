@@ -1337,7 +1337,14 @@ class ConfigHandler(object):
         self._postgresql.set_pending_restart_reason(param_diff)
 
     def _set_server_parameter(self, name: str, value: Optional[str], reload: bool = False) -> bool:
-        """Update a server parameter and optionally write config and reload PostgreSQL."""
+        """Update a server parameter and optionally write config and reload PostgreSQL.
+
+        :param name: name of the server parameter to update.
+        :param value: new value of the server parameter, or ``None`` to remove it from the config.
+        :param reload: whether to write ``postgresql.conf`` and reload PostgreSQL if the value changed.
+
+        :returns: ``True`` if the value was changed, ``False`` otherwise.
+        """
         if value != self._server_parameters.get(name):
             if value is None:
                 self._server_parameters.pop(name, None)
@@ -1351,7 +1358,11 @@ class ConfigHandler(object):
 
     def set_synchronous_standby_names(self, value: Optional[str]) -> Optional[bool]:
         """Updates synchronous_standby_names and reloads if necessary.
-        :returns: True if value was updated."""
+
+        :param value: new value of ``synchronous_standby_names``, or ``None`` to remove it from the config.
+
+        :returns: ``True`` if value was updated, ``None`` otherwise.
+        """
         return self._set_server_parameter('synchronous_standby_names', value, reload=True) or None
 
     def set_synchronized_standby_slots(self, value: Optional[str], reload: bool = False) -> bool:

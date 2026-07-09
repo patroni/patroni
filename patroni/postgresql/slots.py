@@ -205,7 +205,19 @@ class SlotsHandler:
         return self._postgresql.query(sql, *params, retry=False)
 
     def update_synchronized_standby_slots(self, sync_members: Collection[str], reload: bool = False) -> bool:
-        """Update ``synchronized_standby_slots`` based on sync members for PostgreSQL 17+."""
+        """Update ``synchronized_standby_slots`` based on sync members for PostgreSQL 17+.
+
+        Converts *sync_members* to their corresponding slot names and writes them to the
+        ``synchronized_standby_slots`` GUC. Does nothing if running on PostgreSQL older than 17,
+        or if the ``dynamic_synchronized_standby_slots`` feature is not enabled.
+
+        :param sync_members: set of currently active synchronous standby member names. If empty or
+                              containing ``*`` (any standby is allowed to be synchronous), the
+                              ``synchronized_standby_slots`` GUC is cleared.
+        :param reload: whether to write ``postgresql.conf`` and reload PostgreSQL if the value changed.
+
+        :returns: ``True`` if the value of ``synchronized_standby_slots`` was updated, ``False`` otherwise.
+        """
         if self._postgresql.major_version < 170000:
             return False
 
