@@ -343,7 +343,7 @@ PostgreSQL
    -  **pg\_ident\_standby\_leader**: (optional) role-specific pg_ident entries for standby_leader. These completely replace **pg_ident** (no merging). If not defined, **pg_ident** is used.
    -  **pg\_ctl\_timeout**: How long should pg_ctl wait when doing ``start``, ``stop`` or ``restart``. Default value is 60 seconds.
    -  **use\_pg\_rewind**: try to use pg\_rewind on the former leader when it joins cluster as a replica. Either the cluster must be initialized with ``data page checksums`` (``--data-checksums`` option for ``initdb``) and/or ``wal_log_hints`` must be set to ``on``, or ``pg_rewind`` will not work.
-   -  **rewind**: (optional) custom options to pass to the ``pg_rewind`` command. Can be specified as a list of strings and/or single key-value dictionaries. Not allowed options include: ``target-pgdata``, ``source-pgdata``, ``source-server``, ``write-recovery-conf``, ``dry-run``, ``restore-target-wal``, ``config-file``, ``no-ensure-shutdown``, ``version``, and ``help``. Example usage:
+   -  **rewind**: (optional) custom options to pass to the ``pg_rewind`` command. Can be specified as a list of strings and/or single key-value dictionaries. Not allowed options include: ``target-pgdata``, ``source-pgdata``, ``source-server``, ``write-recovery-conf``, ``dry-run``, ``restore-target-wal``, ``config-file``, ``no-ensure-shutdown``, ``version``, and ``help``. When the ``progress`` option is used, the ``pg_rewind`` output is streamed to the Patroni log as it arrives (except on Windows, where the output is logged only after ``pg_rewind`` exits). Example usage:
 
       .. code:: YAML
 
