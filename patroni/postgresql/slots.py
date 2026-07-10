@@ -209,7 +209,7 @@ class SlotsHandler:
 
         Converts *sync_members* to their corresponding slot names and writes them to the
         ``synchronized_standby_slots`` GUC. Does nothing if running on PostgreSQL older than 17,
-        or if the ``dynamic_synchronized_standby_slots`` feature is not enabled.
+        or if the ``manage_synchronized_standby_slots`` feature is not enabled.
 
         :param sync_members: set of currently active synchronous standby member names. If empty or
                               containing ``*`` (any standby is allowed to be synchronous), the
@@ -218,10 +218,8 @@ class SlotsHandler:
 
         :returns: ``True`` if the value of ``synchronized_standby_slots`` was updated, ``False`` otherwise.
         """
-        if self._postgresql.major_version < 170000:
-            return False
-
-        if not global_config.dynamic_synchronized_standby_slots_enabled:
+        if not self._postgresql.supports_synchronized_standby_slots or \
+                not global_config.manage_synchronized_standby_slots_enabled:
             return False
 
         if not sync_members or '*' in sync_members:

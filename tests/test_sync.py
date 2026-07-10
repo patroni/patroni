@@ -6,6 +6,8 @@ from patroni import global_config
 from patroni.collections import CaseInsensitiveSet
 from patroni.dcs import Cluster, ClusterConfig, Status, SyncState
 from patroni.postgresql import Postgresql, PostgresqlState
+from patroni.postgresql.config import ConfigHandler
+from patroni.postgresql.slots import SlotsHandler
 
 from . import BaseTestPostgresql, mock_available_gucs, psycopg_connect
 
@@ -195,41 +197,42 @@ class TestSync(BaseTestPostgresql):
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = '\"a-1\"'")
 
-        # PG17+ with dynamic_synchronized_standby_slots: ensure a manual reload happens
+        # PG17+ with manage_synchronized_standby_slots: ensure a manual reload happens
         # when only synchronized_standby_slots changes (synchronous_standby_names unchanged).
+        # We only need to check the update_synchronized_standby_slots/reload/write_postgresql_conf
+        # calls here - how update_synchronized_standby_slots itself behaves is already covered by
+        # test_update_synchronized_standby_slots in test_slots.py.
         self.p._major_version = 170000
         self.cluster.config.data['synchronous_mode'] = True
-        self.cluster.config.data['dynamic_synchronized_standby_slots'] = True
+        self.cluster.config.data['manage_synchronized_standby_slots'] = True
         global_config.update(self.cluster)
-        # Pre-populate SSN with the value set_synchronous_standby_names would produce
-        # (no change there) but leave synchronized_standby_slots unset so they DO change.
+        # Pre-populate SSN with the value set_synchronous_standby_names would produce (no change there).
         self.p.config._server_parameters['synchronous_standby_names'] = 'n1'
-        self.p.config._server_parameters.pop('synchronized_standby_slots', None)
         mock_reload.reset_mock()
-        with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
-                          new_callable=PropertyMock, return_value=True), \
-            patch.object(type(self.p), 'state',
-                         new_callable=PropertyMock,
-                         return_value=PostgresqlState.RUNNING):
+        with patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)), \
+                patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.RUNNING)), \
+                patch.object(SlotsHandler, 'update_synchronized_standby_slots',
+                             Mock(return_value=True)) as mock_update_slots, \
+                patch.object(ConfigHandler, 'write_postgresql_conf', Mock()) as mock_write_conf:
             self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1']))
-        # SSN didn't change, but slots did, so a manual reload is expected.
+        mock_update_slots.assert_called_once_with(['n1'])
+        # SSN didn't change, but slots did, so a manual reload (and config write) is expected.
+        mock_write_conf.assert_called_once()
         mock_reload.assert_called()
-        self.assertEqual(self.p.config._server_parameters.get('synchronized_standby_slots'), 'n1')
 
         # Regression: member names containing characters that require quoting (e.g. dashes)
         # must NOT be passed through quote_standby_name() before being converted to slot names.
         # Otherwise slot_name_from_member_name() encodes the quotes as unicode codepoints
         # (e.g. u0034postgres_1u0034), yielding a slot name that doesn't match pg_replication_slots.
         self.p.config._server_parameters.pop('synchronous_standby_names', None)
-        self.p.config._server_parameters.pop('synchronized_standby_slots', None)
         mock_reload.reset_mock()
-        with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
-                          new_callable=PropertyMock, return_value=True):
+        with patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)), \
+                patch.object(SlotsHandler, 'update_synchronized_standby_slots',
+                             Mock(return_value=False)) as mock_update_slots:
             self.s.set_synchronous_standby_names(CaseInsensitiveSet(['postgres-1', 'postgres-2']))
-        slots_value = self.p.config._server_parameters.get('synchronized_standby_slots')
-        self.assertIsNotNone(slots_value)
-        self.assertEqual(set(slots_value.split(',')), {'postgres_1', 'postgres_2'})
-        self.assertNotIn('u0034', slots_value)
+        mock_update_slots.assert_called_once_with(['postgres-1', 'postgres-2'])
         # synchronous_standby_names is built from QUOTED names, so we expect them quoted here:
         self.assertEqual(self.p.config._server_parameters.get('synchronous_standby_names'),
                          '2 ("postgres-1","postgres-2")')
@@ -238,15 +241,13 @@ class TestSync(BaseTestPostgresql):
         self.cluster.config.data['synchronous_mode'] = 'quorum'
         global_config.update(self.cluster)
         self.p.config._server_parameters.pop('synchronous_standby_names', None)
-        self.p.config._server_parameters.pop('synchronized_standby_slots', None)
         mock_reload.reset_mock()
-        with patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
-                          new_callable=PropertyMock, return_value=True):
+        with patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)), \
+                patch.object(SlotsHandler, 'update_synchronized_standby_slots',
+                             Mock(return_value=False)) as mock_update_slots:
             self.s.set_synchronous_standby_names(CaseInsensitiveSet(['postgres-1', 'postgres-2']), 1)
-        slots_value = self.p.config._server_parameters.get('synchronized_standby_slots')
-        self.assertIsNotNone(slots_value)
-        self.assertEqual(set(slots_value.split(',')), {'postgres_1', 'postgres_2'})
-        self.assertNotIn('u0034', slots_value)
+        mock_update_slots.assert_called_once_with(['postgres-1', 'postgres-2'])
         self.assertEqual(self.p.config._server_parameters.get('synchronous_standby_names'),
                          'ANY 1 ("postgres-1","postgres-2")')
 

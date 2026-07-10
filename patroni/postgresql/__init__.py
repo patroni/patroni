@@ -211,6 +211,11 @@ class Postgresql(object):
         return self.major_version >= 110000
 
     @property
+    def supports_synchronized_standby_slots(self) -> bool:
+        """``True`` if the ``synchronized_standby_slots`` GUC is supported by Postgres."""
+        return self.major_version >= 170000
+
+    @property
     def cluster_info_query(self) -> str:
         """Returns the monitoring query with a fixed number of fields.
 

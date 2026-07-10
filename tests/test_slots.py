@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch, PropertyMock
 from patroni import global_config, psycopg
 from patroni.dcs import Cluster, ClusterConfig, Member, Status, SyncState
 from patroni.postgresql import Postgresql
+from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.misc import fsync_dir, PostgresqlRole, PostgresqlState
 from patroni.postgresql.slots import SlotsAdvanceThread, SlotsHandler
 from patroni.tags import Tags
@@ -499,27 +500,27 @@ class TestSlotsHandler(BaseTestPostgresql):
 
         # Test: Feature disabled - should return False
         with patch.object(Postgresql, 'major_version', 170000), \
-             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
-                          new_callable=PropertyMock, return_value=False):
+             patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=False)):
             self.assertFalse(self.s.update_synchronized_standby_slots({'node1', 'node2'}))
 
         # Test: Feature enabled - empty members clears the parameter (no-op when already absent)
         with patch.object(Postgresql, 'major_version', 170000), \
-             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
-                          new_callable=PropertyMock, return_value=True):
+             patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)):
             self.assertFalse(self.s.update_synchronized_standby_slots(set()))
             self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
 
         # Test: Feature enabled - wildcard clears the parameter (no-op when already absent)
         with patch.object(Postgresql, 'major_version', 170000), \
-             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
-                          new_callable=PropertyMock, return_value=True):
+             patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)):
             self.assertFalse(self.s.update_synchronized_standby_slots({'*'}))
 
         # Test: Feature enabled - specific members sets the parameter
         with patch.object(Postgresql, 'major_version', 170000), \
-             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
-                          new_callable=PropertyMock, return_value=True):
+             patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)):
             self.assertTrue(self.s.update_synchronized_standby_slots({'node1', 'node2'}))
             slots = self.p.config._server_parameters['synchronized_standby_slots']
             self.assertIn('node1', slots)
@@ -527,17 +528,21 @@ class TestSlotsHandler(BaseTestPostgresql):
 
         # Test: Feature enabled with reload - should trigger reload
         with patch.object(Postgresql, 'major_version', 170000), \
-             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
-                          new_callable=PropertyMock, return_value=True):
+             patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)), \
+             patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.RUNNING)), \
+             patch.object(ConfigHandler, 'write_postgresql_conf', Mock()), \
+             patch.object(Postgresql, 'reload', Mock()) as mock_reload:
             self.p.config._server_parameters.pop('synchronized_standby_slots', None)
             self.assertTrue(self.s.update_synchronized_standby_slots({'node3'}, reload=True))
+            mock_reload.assert_called_once()
 
         # Regression: member names with characters that require quoting (e.g. dashes) must
         # be converted to valid slot names via slot_name_from_member_name and NOT contain
         # any quote_standby_name artefacts (e.g. u0034 from encoded double quotes).
         with patch.object(Postgresql, 'major_version', 170000), \
-             patch.object(type(global_config), 'dynamic_synchronized_standby_slots_enabled',
-                          new_callable=PropertyMock, return_value=True):
+             patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)):
             self.p.config._server_parameters.pop('synchronized_standby_slots', None)
             self.assertTrue(self.s.update_synchronized_standby_slots({'postgres-1', 'postgres-2'}))
             slots = self.p.config._server_parameters['synchronized_standby_slots']

@@ -1,14 +1,14 @@
-Feature: dynamic synchronized_standby_slots
-    We should check that the dynamic_synchronized_standby_slots feature correctly
+Feature: managed synchronized_standby_slots
+    We should check that the manage_synchronized_standby_slots feature correctly
     manages the synchronized_standby_slots GUC for PG17+ in both synchronous_mode
     and quorum mode, and properly handles toggling and failover scenarios.
 
   @pg170000
-  Scenario: dynamic_synchronized_standby_slots is populated correctly in sync mode
+  Scenario: manage_synchronized_standby_slots is populated correctly in sync mode
     Given I start postgres-0
     Then postgres-0 is a leader after 10 seconds
     And there is a non empty initialize key in DCS after 15 seconds
-    When I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 20, "synchronous_mode": true, "dynamic_synchronized_standby_slots": true, "postgresql": {"parameters": {"wal_level": "logical", "sync_replication_slots": "on", "hot_standby_feedback": "on"}}}
+    When I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 20, "synchronous_mode": true, "manage_synchronized_standby_slots": true, "postgresql": {"parameters": {"wal_level": "logical", "sync_replication_slots": "on", "hot_standby_feedback": "on"}}}
     Then I receive a response code 200
     When I run patronictl.py restart batman postgres-0 --force
     Then postgres-0 role is the primary after 20 seconds
@@ -34,12 +34,12 @@ Feature: dynamic synchronized_standby_slots
   @pg170000
   Scenario: toggling the feature off restores user-configured value, on re-applies dynamic
     # User has explicitly configured a synchronized_standby_slots value of their own.
-    When I issue a PATCH request to http://127.0.0.1:8008/config with {"dynamic_synchronized_standby_slots": false, "postgresql": {"parameters": {"synchronized_standby_slots": "user_managed_slot"}}}
+    When I issue a PATCH request to http://127.0.0.1:8008/config with {"manage_synchronized_standby_slots": false, "postgresql": {"parameters": {"synchronized_standby_slots": "user_managed_slot"}}}
     Then I receive a response code 200
     # After disabling, Patroni restores the user-configured value.
     And synchronized_standby_slots on postgres-0 is set to 'user_managed_slot' after 10 seconds
     # Re-enabling overrides with the dynamic value.
-    When I issue a PATCH request to http://127.0.0.1:8008/config with {"dynamic_synchronized_standby_slots": true}
+    When I issue a PATCH request to http://127.0.0.1:8008/config with {"manage_synchronized_standby_slots": true}
     Then I receive a response code 200
     And synchronized_standby_slots on postgres-0 is set to 'postgres_1' after 15 seconds
     # Clean up: drop the user-configured value so it doesn't interfere with later scenarios.
@@ -58,7 +58,7 @@ Feature: dynamic synchronized_standby_slots
     And synchronized_standby_slots on postgres-1 matches existing physical slots
 
   @pg170000
-  Scenario: dynamic_synchronized_standby_slots works in quorum mode
+  Scenario: manage_synchronized_standby_slots works in quorum mode
     When I issue a PATCH request to http://127.0.0.1:8009/config with {"synchronous_mode": "quorum", "synchronous_node_count": 1}
     Then I receive a response code 200
     And synchronous_standby_names on postgres-1 is set to 'ANY 1 ("postgres-0")' after 10 seconds

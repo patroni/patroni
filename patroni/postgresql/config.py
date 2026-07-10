@@ -1085,10 +1085,11 @@ class ConfigHandler(object):
             else:
                 parameters['synchronous_standby_names'] = synchronous_standby_names
 
-        # When dynamic_synchronized_standby_slots is enabled, Patroni dynamically writes
+        # When manage_synchronized_standby_slots is enabled, Patroni dynamically writes
         # synchronized_standby_slots, so we must preserve our cached value here so that subsequent
         # reload_config() calls don't reset it back to the user-configured value.
-        if global_config.dynamic_synchronized_standby_slots_enabled and self._postgresql.major_version >= 170000:
+        if global_config.manage_synchronized_standby_slots_enabled \
+                and self._postgresql.supports_synchronized_standby_slots:
             synchronized_standby_slots = self._server_parameters.get('synchronized_standby_slots')
             if synchronized_standby_slots is None:
                 parameters.pop('synchronized_standby_slots', None)
@@ -1366,7 +1367,13 @@ class ConfigHandler(object):
         return self._set_server_parameter('synchronous_standby_names', value, reload=True) or None
 
     def set_synchronized_standby_slots(self, value: Optional[str], reload: bool = False) -> bool:
-        """Update ``synchronized_standby_slots`` parameter."""
+        """Update ``synchronized_standby_slots`` parameter.
+
+        :param value: new value of ``synchronized_standby_slots``, or ``None`` to remove it from the config.
+        :param reload: whether to write ``postgresql.conf`` and reload PostgreSQL if the value changed.
+
+        :returns: ``True`` if the value was changed, ``False`` otherwise.
+        """
         return self._set_server_parameter('synchronized_standby_slots', value, reload=reload)
 
     @property
