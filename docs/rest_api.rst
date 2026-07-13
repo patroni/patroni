@@ -367,9 +367,9 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# HELP patroni_failover_priority Failover priority of this node.
 	# TYPE patroni_failover_priority gauge
 	patroni_failover_priority{scope="batman",name="patroni1"} 1
-	# HELP patroni_metrics_retention metrics_retention value for this node.
-	# TYPE patroni_metrics_retention gauge
-	patroni_metrics_retention{scope="demo",name="patroni1"} 3600
+	# HELP patroni_metrics_collector_retention metrics_collector_retention value for this node.
+	# TYPE patroni_metrics_collector_retention gauge
+	patroni_metrics_collector_retention{scope="demo",name="patroni1"} 3600
 	# HELP patroni_ha_loop_duration_avg Average duration of the HA loop cycle over the last 60 minutes in seconds.
 	# TYPE patroni_ha_loop_duration_avg gauge
 	patroni_ha_loop_duration_avg{scope="demo",name="patroni1"} 0.0834
