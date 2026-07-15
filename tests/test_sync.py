@@ -251,6 +251,29 @@ class TestSync(BaseTestPostgresql):
         self.assertEqual(self.p.config._server_parameters.get('synchronous_standby_names'),
                          'ANY 1 ("postgres-1","postgres-2")')
 
+    def test_set_sync_standby_restores_slots_after_feature_toggled_off(self):
+        # Regression: manage_synchronized_standby_slots is toggled off "in the background" (e.g. via
+        # a dynamic configuration reload) and the next synchronous_standby_names update is triggered
+        # by an unrelated transition (not a dedicated toggle check). The disabled state must still be
+        # picked up and the user-configured value (or lack thereof) restored - see update_synchronized
+        # _standby_slots in patroni/postgresql/slots.py for where this is actually detected.
+        self.p._major_version = 170000
+        self.cluster.config.data['synchronous_mode'] = True
+        self.cluster.config.data['manage_synchronized_standby_slots'] = True
+        global_config.update(self.cluster)
+
+        with patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)):
+            self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1']))
+        self.assertEqual(self.p.config._server_parameters.get('synchronized_standby_slots'), 'n1')
+
+        # Feature toggled off without going through a dedicated toggle-check call site.
+        self.p.config._config.setdefault('parameters', {})['synchronized_standby_slots'] = 'user_slot'
+        with patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=False)):
+            self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1', 'n2']))
+        self.assertEqual(self.p.config._server_parameters.get('synchronized_standby_slots'), 'user_slot')
+
     @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
     def test_do_not_prick_yourself(self):
         self.p.name = self.leadermem.name

@@ -192,6 +192,8 @@ class SlotsHandler:
         self._replication_slots: Dict[str, Dict[str, Any]] = {}  # already existing replication slots
         self._logical_slots_processing_queue: Dict[str, Optional[int]] = {}
         self.pg_replslot_dir = os.path.join(self._postgresql.data_dir, 'pg_replslot')
+        # Track the last known state of manage_synchronized_standby_slots feature to detect toggles
+        self._last_manage_sync_slots_enabled: Optional[bool] = None
         self.schedule()
 
     def _query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
@@ -208,8 +210,13 @@ class SlotsHandler:
         """Update ``synchronized_standby_slots`` based on sync members for PostgreSQL 17+.
 
         Converts *sync_members* to their corresponding slot names and writes them to the
-        ``synchronized_standby_slots`` GUC. Does nothing if running on PostgreSQL older than 17,
-        or if the ``manage_synchronized_standby_slots`` feature is not enabled.
+        ``synchronized_standby_slots`` GUC. Does nothing if running on PostgreSQL older than 17.
+
+        Also detects ``manage_synchronized_standby_slots`` feature toggles on every call, regardless
+        of the calling code path: when the feature is switched off, the user-configured value of
+        ``synchronized_standby_slots`` is restored (or the parameter is cleared if none configured).
+        This way a toggle-off is never missed, even when it is observed from a call that is otherwise
+        a no-op (e.g. *sync_members* unchanged).
 
         :param sync_members: set of currently active synchronous standby member names. If empty or
                               containing ``*`` (any standby is allowed to be synchronous), the
@@ -218,8 +225,18 @@ class SlotsHandler:
 
         :returns: ``True`` if the value of ``synchronized_standby_slots`` was updated, ``False`` otherwise.
         """
-        if not self._postgresql.supports_synchronized_standby_slots or \
-                not global_config.manage_synchronized_standby_slots_enabled:
+        if not self._postgresql.supports_synchronized_standby_slots:
+            return False
+
+        feature_enabled = global_config.manage_synchronized_standby_slots_enabled
+        just_disabled = self._last_manage_sync_slots_enabled and not feature_enabled
+        self._last_manage_sync_slots_enabled = feature_enabled
+
+        if just_disabled:
+            value = self._postgresql.config.synchronized_standby_slots
+            return self._postgresql.config.set_synchronized_standby_slots(value, reload=reload)
+
+        if not feature_enabled:
             return False
 
         if not sync_members or '*' in sync_members:

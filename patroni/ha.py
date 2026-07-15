@@ -274,36 +274,6 @@ class Ha(object):
         # used only in backoff after failing a pre_promote script
         self._released_leader_key_timestamp = 0
 
-        # Track the last known state of manage_synchronized_standby_slots feature to detect toggles
-        self._last_manage_sync_slots_enabled: Optional[bool] = None
-
-    def _handle_manage_sync_slots_toggle(self, sync_members: Collection[str]) -> bool:
-        """Handle ``manage_synchronized_standby_slots`` feature toggle.
-
-        Detects edges between the feature being enabled and disabled and either pushes
-        a fresh dynamic value (when toggled on) or restores the user-configured value
-        (when toggled off).
-
-        :param sync_members: currently active synchronous standby members, used to compute
-                              the dynamic value of ``synchronized_standby_slots`` when the
-                              feature is being toggled on.
-        :returns: ``True`` if the feature was toggled and ``synchronized_standby_slots`` was updated.
-        """
-        feature_enabled = global_config.manage_synchronized_standby_slots_enabled
-        if feature_enabled == self._last_manage_sync_slots_enabled:
-            return False
-
-        logger.info("manage_synchronized_standby_slots changed to %s, updating slots", feature_enabled)
-        if feature_enabled:
-            self.state_handler.slots_handler.update_synchronized_standby_slots(sync_members, reload=True)
-        else:
-            # Feature was disabled - restore the user-configured value (or clear if none configured),
-            # mirroring the pattern used for synchronous_standby_names in disable_synchronous_replication.
-            value = self.state_handler.config.synchronized_standby_slots
-            self.state_handler.config.set_synchronized_standby_slots(value, reload=True)
-        self._last_manage_sync_slots_enabled = feature_enabled
-        return True
-
     def primary_stop_timeout(self) -> Union[int, None]:
         """:returns: "primary_stop_timeout" from the global configuration or `None` when not in synchronous mode."""
         ret = global_config.primary_stop_timeout
@@ -890,7 +860,7 @@ class Ha(object):
 
         # manage_synchronized_standby_slots depends on synchronous_mode, so when sync mode is off
         # the feature effectively goes off too - restore the user-configured value if needed.
-        self._handle_manage_sync_slots_toggle(CaseInsensitiveSet())
+        self.state_handler.slots_handler.update_synchronized_standby_slots(CaseInsensitiveSet(), reload=True)
 
     def _handle_synchronous_strict_mode(self, dcs_state: SyncState, replication_state: Any) -> bool:
         """Handle strict synchronous mode.
@@ -922,7 +892,6 @@ class Ha(object):
                     numsync != replication_state.numsync or \
                     sync_type != replication_state.sync_type:
                 self.state_handler.sync_handler.set_synchronous_standby_names(voters, numsync)
-                self._last_manage_sync_slots_enabled = global_config.manage_synchronized_standby_slots_enabled
             elif voters:
                 msg = 'Continue using old value of synchronous_standby_names="{0}". '.format(
                     self.state_handler.synchronous_standby_names())
@@ -939,7 +908,6 @@ class Ha(object):
                 # For non-strict mode remove synchronous_standby_names name from postgresql.conf if there is
                 # something, but there are no active nodes which could be added to synchronous_standby_names later.
                 self.state_handler.sync_handler.set_synchronous_standby_names([])
-                self._last_manage_sync_slots_enabled = global_config.manage_synchronized_standby_slots_enabled
             self._synchronous_strict_mode_activated = False
 
         return self._synchronous_strict_mode_activated
@@ -992,17 +960,15 @@ class Ha(object):
                         return logger.info('Synchronous replication key updated by someone else.')
                 elif transition == 'sync':
                     self.state_handler.sync_handler.set_synchronous_standby_names(nodes, num)
-                    self._last_manage_sync_slots_enabled = global_config.manage_synchronized_standby_slots_enabled
 
             if transition == 'break' and sync_state.sync_type != 'quorum':
                 # FIRST -> ANY
                 self.state_handler.sync_handler.set_synchronous_standby_names(sync_state.sync, sync_state.numsync)
-                self._last_manage_sync_slots_enabled = global_config.manage_synchronized_standby_slots_enabled
 
             if transition != 'restart' or _check_timeout(1):
                 # Check if manage_synchronized_standby_slots feature state changed even when no sync changes
                 if transition == 'break':
-                    self._handle_manage_sync_slots_toggle(sync_state.active)
+                    self.state_handler.slots_handler.update_synchronized_standby_slots(sync_state.active, reload=True)
                 return
             # synchronous_standby_names was transitioned from empty to non-empty and it may take
             # some time for nodes to become synchronous. In this case we want to restart state machine
@@ -1051,10 +1017,9 @@ class Ha(object):
             if current_state.sync_type != 'priority':
                 # ANY -> FIRST
                 self.state_handler.sync_handler.set_synchronous_standby_names(picked)
-                self._last_manage_sync_slots_enabled = global_config.manage_synchronized_standby_slots_enabled
             else:
                 # Check if manage_synchronized_standby_slots feature state changed
-                self._handle_manage_sync_slots_toggle(picked)
+                self.state_handler.slots_handler.update_synchronized_standby_slots(picked, reload=True)
             return
 
         # update synchronous standby list in dcs temporarily to point to common nodes in current and picked
@@ -1067,7 +1032,6 @@ class Ha(object):
 
         # Update postgresql.conf and wait 2 secs for changes to become active
         self.state_handler.sync_handler.set_synchronous_standby_names(picked)
-        self._last_manage_sync_slots_enabled = global_config.manage_synchronized_standby_slots_enabled
 
         if picked and allow_promote != picked:
             # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby

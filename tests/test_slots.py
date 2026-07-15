@@ -550,6 +550,28 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.assertNotIn('u0034', slots)
             self.assertNotIn('-', slots)
 
+        # Test: Feature toggled off - should restore the user-configured value regardless of
+        # which sync_members are passed in, and regardless of the calling code path (this is
+        # detected internally on every call, not just when a dedicated toggle check is made).
+        self.s._last_manage_sync_slots_enabled = True
+        with patch.object(Postgresql, 'major_version', 170000), \
+             patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=False)), \
+             patch.object(ConfigHandler, 'synchronized_standby_slots', PropertyMock(return_value='user_slot')):
+            self.assertTrue(self.s.update_synchronized_standby_slots({'node1'}))
+            self.assertEqual(self.p.config._server_parameters.get('synchronized_standby_slots'), 'user_slot')
+            self.assertFalse(self.s._last_manage_sync_slots_enabled)
+
+        # Test: Feature toggled off with no user-configured value - should clear the parameter
+        self.p.config._server_parameters['synchronized_standby_slots'] = 'stale_value'
+        self.s._last_manage_sync_slots_enabled = True
+        with patch.object(Postgresql, 'major_version', 170000), \
+             patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=False)), \
+             patch.object(ConfigHandler, 'synchronized_standby_slots', PropertyMock(return_value=None)):
+            self.assertTrue(self.s.update_synchronized_standby_slots(set()))
+            self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
+
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     @patch.object(Postgresql, 'major_version', PropertyMock(return_value=170000))
     @patch.object(Postgresql, '_query',
