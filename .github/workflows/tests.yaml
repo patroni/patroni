@@ -251,7 +251,7 @@ jobs:
         cache: pip
 
     - name: isort
-      uses: isort/isort-action@master
+      uses: isort/isort-action@24d8a7a51d33ca7f36c3f23598dafa33f7071326 # v1.1.1
       with:
         requirementsFiles: "requirements.txt requirements.dev.txt requirements.docs.txt"
         sort-paths: "patroni tests features setup.py"
