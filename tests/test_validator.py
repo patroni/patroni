@@ -370,11 +370,104 @@ class TestValidator(unittest.TestCase):
         c["tags"]["failover_priority"] = 'a string'
         errors = schema(c)
         self.assertIn('tags.failover_priority a string is not an integer', errors)
-        c = copy.deepcopy(config)
-        del c["tags"]["nofailover"]
         c["tags"]["failover_priority"] = -6
         errors = schema(c)
         self.assertIn('tags.failover_priority -6 didn\'t pass validation: Wrong value', errors)
+
+    def test_synchronous_node_topology(self, *args):
+        """Full branch coverage for synchronous_node_topology schema validation."""
+        c = copy.deepcopy(config)
+
+        # ─── Valid cases ───
+
+        # Valid: strategy='different'
+        c["bootstrap"]["dcs"]["synchronous_node_topology"] = {"key": "dc", "strategy": "different"}
+        errors = schema(c)
+        self.assertNotIn("synchronous_node_topology", "\n".join(errors))
+
+        # Valid: strategy='same'
+        c["bootstrap"]["dcs"]["synchronous_node_topology"] = {"key": "zone", "strategy": "same"}
+        errors = schema(c)
+        self.assertNotIn("synchronous_node_topology", "\n".join(errors))
+
+        # Valid: key can be any string
+        c["bootstrap"]["dcs"]["synchronous_node_topology"] = {"key": "rack", "strategy": "different"}
+        errors = schema(c)
+        self.assertNotIn("synchronous_node_topology", "\n".join(errors))
+
+        # ─── Invalid: missing required keys ───
+
+        # Missing 'strategy'
+        c["bootstrap"]["dcs"]["synchronous_node_topology"] = {"key": "dc"}
+        errors = schema(c)
+        error_text = "\n".join(errors)
+        self.assertIn("bootstrap.dcs.synchronous_node_topology", error_text)
+
+        # Missing 'key'
+        c["bootstrap"]["dcs"]["synchronous_node_topology"] = {"strategy": "different"}
+        errors = schema(c)
+        error_text = "\n".join(errors)
+        self.assertIn("bootstrap.dcs.synchronous_node_topology", error_text)
+
+        # Empty dict - both keys missing
+        c["bootstrap"]["dcs"]["synchronous_node_topology"] = {}
+        errors = schema(c)
+        error_text = "\n".join(errors)
+        self.assertIn("bootstrap.dcs.synchronous_node_topology", error_text)
+
+        # ─── Invalid: wrong strategy value ───
+
+        c["bootstrap"]["dcs"]["synchronous_node_topology"] = {"key": "dc", "strategy": "invalid_strategy"}
+        errors = schema(c)
+        error_text = "\n".join(errors)
+        self.assertIn("bootstrap.dcs.synchronous_node_topology.strategy", error_text)
+
+        c["bootstrap"]["dcs"]["synchronous_node_topology"] = {"key": "dc", "strategy": "nearest"}
+        errors = schema(c)
+        error_text = "\n".join(errors)
+        self.assertIn("bootstrap.dcs.synchronous_node_topology.strategy", error_text)
+
+        # ─── Invalid: wrong types ───
+
+        # String instead of dict
+        c["bootstrap"]["dcs"]["synchronous_node_topology"] = "invalid_format"
+        errors = schema(c)
+        error_text = "\n".join(errors)
+        self.assertIn("bootstrap.dcs.synchronous_node_topology", error_text)
+
+        # Integer instead of dict
+        c["bootstrap"]["dcs"]["synchronous_node_topology"] = 42
+        errors = schema(c)
+        error_text = "\n".join(errors)
+        self.assertIn("bootstrap.dcs.synchronous_node_topology", error_text)
+
+        # List instead of dict
+        c["bootstrap"]["dcs"]["synchronous_node_topology"] = ["dc", "different"]
+        errors = schema(c)
+        error_text = "\n".join(errors)
+        self.assertIn("bootstrap.dcs.synchronous_node_topology", error_text)
+
+        # None
+        c["bootstrap"]["dcs"]["synchronous_node_topology"] = None
+        errors = schema(c)
+        error_text = "\n".join(errors)
+        self.assertIn("bootstrap.dcs.synchronous_node_topology", error_text)
+
+        # Boolean
+        c["bootstrap"]["dcs"]["synchronous_node_topology"] = True
+        errors = schema(c)
+        error_text = "\n".join(errors)
+        self.assertIn("bootstrap.dcs.synchronous_node_topology", error_text)
+
+        # ─── Invalid: wrong key type ───
+
+        c["bootstrap"]["dcs"]["synchronous_node_topology"] = {"key": 123, "strategy": "different"}
+        errors = schema(c)
+        error_text = "\n".join(errors)
+        self.assertIn("bootstrap.dcs.synchronous_node_topology", error_text)
+
+        # ─── Clean up: remove the key so it doesn't affect other tests ───
+        del c["bootstrap"]["dcs"]["synchronous_node_topology"]
 
     def test_json_log_format(self, *args):
         c = copy.deepcopy(config)

@@ -239,6 +239,7 @@ class _ReplicaList(List[_Replica]):
 
         members = CaseInsensitiveDict({m.name: m for m in cluster.members
                                        if m.is_running and not m.nosync and m.name.lower() != postgresql.name.lower()})
+        members = _ReplicaList._apply_topology_filter(members, cluster, postgresql)
         replication = CaseInsensitiveDict({row['application_name']: row for row in postgresql.pg_stat_replication()
                                            if row[sort_col] is not None and row['application_name'] in members})
         for row in replication.values():
@@ -283,6 +284,61 @@ class _ReplicaList(List[_Replica]):
             return member.name in replication
 
         return _ReplicaList._should_cascade(members, replication, member)
+
+    @staticmethod
+    def _apply_topology_filter(members: CaseInsensitiveDict, cluster: Cluster,
+                               postgresql: 'Postgresql') -> CaseInsensitiveDict:
+        """Filter sync standby candidates based on topology configuration.
+
+        When ``synchronous_node_topology`` is configured in the global configuration,
+        this method filters members to only include nodes that match the desired topology
+        relationship with the primary (e.g., nodes in a different or same datacenter).
+
+        If filtering would remove **all** candidates, the filter is bypassed and the
+        original unfiltered member list is returned to prevent the cluster from becoming stuck.
+
+        :param members: eligible sync standby candidates (already filtered by ``nosync`` and ``is_running``).
+        :param cluster: currently known cluster state from DCS.
+        :param postgresql: reference to the local :class:`Postgresql` instance (the primary).
+
+        :returns: filtered members dictionary, or the original if topology is not configured
+                  or if filtering would leave the candidate list empty.
+        """
+        topology = global_config.synchronous_node_topology
+        if not topology:
+            return members
+
+        topology_key = topology['key']
+        topology_strategy = topology['strategy']
+
+        # Find primary's tag value for the topology key
+        primary_member = next((m for m in cluster.members
+                               if m.name.lower() == postgresql.name.lower()), None)
+        if not primary_member:
+            return members
+
+        primary_tag_value = primary_member.tags.get(topology_key, '')
+        if not primary_tag_value:
+            logger.warning('Primary node %s does not have tag %r set, '
+                           'skipping topology-aware sync filtering', postgresql.name, topology_key)
+            return members
+
+        filtered = CaseInsensitiveDict()
+        for name, member in members.items():
+            member_tag_value = member.tags.get(topology_key, '')
+            if topology_strategy == 'different' and member_tag_value and member_tag_value != primary_tag_value:
+                filtered[name] = member
+            elif topology_strategy == 'same' and member_tag_value == primary_tag_value:
+                filtered[name] = member
+
+        if not filtered:
+            logger.warning('Topology filtering (strategy=%s, %s=%r) would exclude all sync candidates, '
+                           'falling back to unfiltered list', topology_strategy, topology_key, primary_tag_value)
+            return members
+
+        logger.debug('Topology filtering (strategy=%s, %s=%r): selected %d of %d candidates',
+                     topology_strategy, topology_key, primary_tag_value, len(filtered), len(members))
+        return filtered
 
 
 class SyncHandler(object):

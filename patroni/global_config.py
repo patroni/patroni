@@ -163,6 +163,25 @@ class GlobalConfig(types.ModuleType):
         return max(self.get_int('synchronous_node_count', 1), self.min_synchronous_nodes)
 
     @property
+    def synchronous_node_topology(self) -> Optional[Dict[str, str]]:
+        """Currently configured value of ``synchronous_node_topology`` from the global configuration.
+
+        If configured, returns a dictionary with ``key`` and ``strategy`` fields.
+        The ``key`` specifies which member tag to use for topology comparison (e.g., ``dc``, ``zone``).
+        The ``strategy`` can be ``different`` (sync standby must be in a different topology group than the primary)
+        or ``same`` (sync standby must be in the same topology group as the primary).
+
+        When all candidates matching the topology filter are unavailable, the filter is bypassed
+        to prevent the cluster from becoming stuck.
+
+        :returns: topology configuration dictionary or ``None`` if not configured or invalid.
+        """
+        value = self.get('synchronous_node_topology')
+        if isinstance(value, dict) and value.get('key') and value.get('strategy') in ('different', 'same'):
+            return {'key': str(value['key']), 'strategy': str(value['strategy'])}
+        return None
+
+    @property
     def maximum_lag_on_failover(self) -> int:
         """Currently configured value of ``maximum_lag_on_failover`` from the global configuration.
 
