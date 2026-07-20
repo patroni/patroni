@@ -977,9 +977,8 @@ def validate_synchronous_mode(value: Any) -> None:
 
     :param value: value of ``synchronous_mode`` to be validated.
     """
-    assert_(isinstance(value, (str, bool)), "expected type is not a string or boolean")
-    if isinstance(value, str):
-        assert_(value.lower() == "quorum" or parse_bool(value) is not None, "invalid value for synchronous_mode")
+    assert_(isinstance(value, str) and value.lower() == "quorum" or parse_bool(value) is not None,
+            "invalid value for synchronous_mode")
 
 
 def validate_name(value: Any) -> None:
