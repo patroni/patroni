@@ -511,11 +511,11 @@ class TestSlotsHandler(BaseTestPostgresql):
             self.assertFalse(self.s.update_synchronized_standby_slots(set()))
             self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
 
-        # Test: Feature enabled - wildcard clears the parameter (no-op when already absent)
+        # Test: Feature enabled - wildcard enables strict mode
         with patch.object(Postgresql, 'major_version', 170000), \
              patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
                           PropertyMock(return_value=True)):
-            self.assertFalse(self.s.update_synchronized_standby_slots({'*'}))
+            self.assertTrue(self.s.update_synchronized_standby_slots({'*'}))
 
         # Test: Feature enabled - specific members sets the parameter
         with patch.object(Postgresql, 'major_version', 170000), \
@@ -571,6 +571,43 @@ class TestSlotsHandler(BaseTestPostgresql):
              patch.object(ConfigHandler, 'synchronized_standby_slots', PropertyMock(return_value=None)):
             self.assertTrue(self.s.update_synchronized_standby_slots(set()))
             self.assertNotIn('synchronized_standby_slots', self.p.config._server_parameters)
+
+        # Test: synchronous_mode_strict - empty members with num >= 1 sets the strict placeholder,
+        # mirroring the behaviour of synchronous_standby_names.
+        self.s._last_manage_sync_slots_enabled = True
+        with patch.object(Postgresql, 'major_version', 170000), \
+             patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)):
+            self.p.config._server_parameters.pop('synchronized_standby_slots', None)
+            self.assertTrue(self.s.update_synchronized_standby_slots(set(), num=1))
+            self.assertEqual(self.p.config._server_parameters.get('synchronized_standby_slots'),
+                             '__patroni_strict_sync_replica_placeholder__')
+
+    def test_handle_manage_sync_slots_toggle(self):
+        """Test the dedicated toggle handler used by the "no-op" Ha call paths."""
+        # PostgreSQL < 17 - should be a no-op
+        with patch.object(Postgresql, 'major_version', 160000), \
+                patch.object(SlotsHandler, 'update_synchronized_standby_slots') as mock_update:
+            self.s.handle_manage_sync_slots_toggle({'node1'})
+            mock_update.assert_not_called()
+
+        # Feature state unchanged since last seen - should not touch the slots
+        self.s._last_manage_sync_slots_enabled = True
+        with patch.object(Postgresql, 'major_version', 170000), \
+                patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                             PropertyMock(return_value=True)), \
+                patch.object(SlotsHandler, 'update_synchronized_standby_slots') as mock_update:
+            self.s.handle_manage_sync_slots_toggle({'node1'})
+            mock_update.assert_not_called()
+
+        # Feature state toggled - should forward the update (including num) with reload=True
+        self.s._last_manage_sync_slots_enabled = False
+        with patch.object(Postgresql, 'major_version', 170000), \
+                patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                             PropertyMock(return_value=True)), \
+                patch.object(SlotsHandler, 'update_synchronized_standby_slots') as mock_update:
+            self.s.handle_manage_sync_slots_toggle({'node1'}, num=1)
+            mock_update.assert_called_once_with({'node1'}, num=1, reload=True)
 
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     @patch.object(Postgresql, 'major_version', PropertyMock(return_value=170000))

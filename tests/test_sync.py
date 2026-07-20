@@ -216,7 +216,7 @@ class TestSync(BaseTestPostgresql):
                              Mock(return_value=True)) as mock_update_slots, \
                 patch.object(ConfigHandler, 'write_postgresql_conf', Mock()) as mock_write_conf:
             self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1']))
-        mock_update_slots.assert_called_once_with(['n1'])
+        mock_update_slots.assert_called_once_with(CaseInsensitiveSet(['n1']), None)
         # SSN didn't change, but slots did, so a manual reload (and config write) is expected.
         mock_write_conf.assert_called_once()
         mock_reload.assert_called()
@@ -232,7 +232,7 @@ class TestSync(BaseTestPostgresql):
                 patch.object(SlotsHandler, 'update_synchronized_standby_slots',
                              Mock(return_value=False)) as mock_update_slots:
             self.s.set_synchronous_standby_names(CaseInsensitiveSet(['postgres-1', 'postgres-2']))
-        mock_update_slots.assert_called_once_with(['postgres-1', 'postgres-2'])
+        mock_update_slots.assert_called_once_with(CaseInsensitiveSet(['postgres-1', 'postgres-2']), None)
         # synchronous_standby_names is built from QUOTED names, so we expect them quoted here:
         self.assertEqual(self.p.config._server_parameters.get('synchronous_standby_names'),
                          '2 ("postgres-1","postgres-2")')
@@ -247,7 +247,7 @@ class TestSync(BaseTestPostgresql):
                 patch.object(SlotsHandler, 'update_synchronized_standby_slots',
                              Mock(return_value=False)) as mock_update_slots:
             self.s.set_synchronous_standby_names(CaseInsensitiveSet(['postgres-1', 'postgres-2']), 1)
-        mock_update_slots.assert_called_once_with(['postgres-1', 'postgres-2'])
+        mock_update_slots.assert_called_once_with(CaseInsensitiveSet(['postgres-1', 'postgres-2']), 1)
         self.assertEqual(self.p.config._server_parameters.get('synchronous_standby_names'),
                          'ANY 1 ("postgres-1","postgres-2")')
 
@@ -268,7 +268,7 @@ class TestSync(BaseTestPostgresql):
         self.assertEqual(self.p.config._server_parameters.get('synchronized_standby_slots'), 'n1')
 
         # Feature toggled off without going through a dedicated toggle-check call site.
-        self.p.config._config.setdefault('parameters', {})['synchronized_standby_slots'] = 'user_slot'
+        self.p.config._config['parameters'] = {'synchronized_standby_slots': 'user_slot'}
         with patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
                           PropertyMock(return_value=False)):
             self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1', 'n2']))

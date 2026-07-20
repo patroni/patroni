@@ -19,6 +19,7 @@ from ..psycopg import OperationalError
 from ..tags import Tags
 from .connection import get_connection_cursor
 from .misc import format_lsn, fsync_dir, PostgresqlRole
+from .sync import SYNC_STRICT_PLACEHOLDER
 
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
@@ -206,7 +207,29 @@ class SlotsHandler:
         """
         return self._postgresql.query(sql, *params, retry=False)
 
-    def update_synchronized_standby_slots(self, sync_members: Collection[str], reload: bool = False) -> bool:
+    def handle_manage_sync_slots_toggle(self, sync_members: Collection[str], num: Optional[int] = None) -> None:
+        """Handle ``manage_synchronized_standby_slots`` feature toggle.
+
+        Detects edges between the feature being enabled and disabled and either pushes
+        a fresh dynamic value (when toggled on) or restores the user-configured value
+        (when toggled off).
+
+        :param sync_members: currently active synchronous standby members, used to compute
+                              the dynamic value of ``synchronized_standby_slots`` when the
+                              feature is being toggled on.
+        :param num: number of nodes to sync to, forwarded to :meth:`update_synchronized_standby_slots`.
+                    It is set only when quorum commit is enabled.
+        """
+        if not self._postgresql.supports_synchronized_standby_slots:
+            return
+
+        if self._last_manage_sync_slots_enabled == global_config.manage_synchronized_standby_slots_enabled:
+            return
+
+        self.update_synchronized_standby_slots(sync_members, num=num, reload=True)
+
+    def update_synchronized_standby_slots(self, sync_members: Collection[str],
+                                          num: Optional[int] = None, reload: bool = False) -> bool:
         """Update ``synchronized_standby_slots`` based on sync members for PostgreSQL 17+.
 
         Converts *sync_members* to their corresponding slot names and writes them to the
@@ -218,9 +241,11 @@ class SlotsHandler:
         This way a toggle-off is never missed, even when it is observed from a call that is otherwise
         a no-op (e.g. *sync_members* unchanged).
 
-        :param sync_members: set of currently active synchronous standby member names. If empty or
-                              containing ``*`` (any standby is allowed to be synchronous), the
-                              ``synchronized_standby_slots`` GUC is cleared.
+        :param sync_members: set of currently active synchronous standby member names.
+                             If it contains ``*`` (any standby is allowed to be synchronous), or is empty
+                             while *num* is >= 1, the ``synchronized_standby_slots`` GUC is set to the
+                             strict sync placeholder. If empty and *num* is not set, the GUC is cleared.
+        :param num: number of nodes to sync to. It is set only when quorum commit is enabled.
         :param reload: whether to write ``postgresql.conf`` and reload PostgreSQL if the value changed.
 
         :returns: ``True`` if the value of ``synchronized_standby_slots`` was updated, ``False`` otherwise.
@@ -239,11 +264,17 @@ class SlotsHandler:
         if not feature_enabled:
             return False
 
-        if not sync_members or '*' in sync_members:
-            return self._postgresql.config.set_synchronized_standby_slots(None, reload=reload)
+        # Special case. If sync_members contains the '*' wildcard, or the set is empty while the
+        # requested num of sync nodes is >= 1, we want to set synchronized_standby_slots to
+        # '__patroni_strict_sync_replica_placeholder__'
+        sync_strict = '*' in sync_members or num and num >= 1 and not sync_members
+        if sync_strict:
+            slot_names = [SYNC_STRICT_PLACEHOLDER]
+        else:
+            slot_names = [slot_name_from_member_name(member) for member in sorted(sync_members) if member != '*']
 
-        slot_names = [slot_name_from_member_name(member) for member in sync_members]
-        return self._postgresql.config.set_synchronized_standby_slots(','.join(sorted(slot_names)), reload=reload)
+        sync_param = None if not slot_names else ','.join(slot_names)
+        return self._postgresql.config.set_synchronized_standby_slots(sync_param, reload=reload)
 
     def copy_slot_items(self, src: Dict[str, Any], dst: Dict[str, Any], is_logical: bool = True) -> None:
         """Select values from *src* slots dictionary to update in *dst* slots dictionary.
