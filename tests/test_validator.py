@@ -478,7 +478,6 @@ class TestValidator(unittest.TestCase):
 
     def test_synchronous_mode_validation(self, *args):
         c = copy.deepcopy(config)
-        
         # Test with True
         c['bootstrap'] = {'dcs': {'synchronous_mode': True}}
         errors = schema(c)
