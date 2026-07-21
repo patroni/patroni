@@ -987,7 +987,8 @@ class Cluster(NamedTuple('Cluster',
         local_candidates = [m for m in candidates if (site is None or m.site == site)]
         if len(local_candidates) > 0:
             candidates = local_candidates
-        elif self.leader and (site is None or self.leader.member.site == site):
+        elif self.leader and site and self.leader.member.site == site:
+            # prefer local leader over remote replicas
             candidates = [self.leader]
         return candidates[randint(0, len(candidates) - 1)] if candidates else self.leader
 

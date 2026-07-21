@@ -1569,6 +1569,7 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
     Information is printed to console through :func:`print_output`, and contains:
 
         * ``Cluster``: name of the Patroni cluster, as per ``scope`` configuration;
+        * ``Site``: site of the Patroni node, as per ``site`` configuration;
         * ``Member``: name of the Patroni node, as per ``name`` configuration;
         * ``Host``: hostname (or IP) and port, as per ``postgresql.listen`` configuration;
         * ``Role``: ``Leader``, ``Standby Leader``, ``Sync Standby`` or ``Replica``;
@@ -1618,7 +1619,7 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         if extended or any(m.get(c.lower().replace(' ', '_')) for m in all_members):
             columns.append(c)
 
-    cluster_sites = set(str(m.get('site')) for m in all_members)
+    cluster_sites = set(m.get('site') for m in all_members)
     if len(cluster_sites) > 1:
         columns.insert(1, 'Site')
 
@@ -1662,7 +1663,7 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
                           receive_lsn=receive_lsn, replay_lsn=replay_lsn,
                           pending_restart='*' if member.get('pending_restart') else '',
                           pending_restart_reason=restart_reason,
-                          site=member.get('site', '') if member.get('site') != 'None' else '')
+                          site=member.get('site', ''))
 
             if append_port and member['host'] and member.get('port'):
                 member['host'] = ':'.join([member['host'], str(member['port'])])
@@ -1682,7 +1683,7 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         title = 'Cluster'
         title_details = f' ({initialize})'
 
-    site = len(cluster_sites) == 1 and list(cluster_sites)[0] != 'None' and ' Site: ' + list(cluster_sites)[0] or ''
+    site = len(cluster_sites) == 1 and list(cluster_sites)[0] and ' Site: ' + list(cluster_sites)[0] or ''
     title = f' {title}: {name}{title_details}{site} '
     if fmt in ('pretty', 'topology'):
         columns[columns.index('Replay Lag')] = columns[columns.index('Receive Lag')] = 'Lag'
