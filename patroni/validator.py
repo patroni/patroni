@@ -15,7 +15,7 @@ from .collections import CaseInsensitiveSet, EMPTY_DICT
 from .dcs import dcs_modules
 from .exceptions import ConfigParseError, PatroniAssertionError
 from .log import type_logformat
-from .utils import data_directory_is_empty, get_major_version, parse_int, split_host_port
+from .utils import data_directory_is_empty, get_major_version, parse_bool, parse_int, split_host_port
 
 # Additional parameters to fine-tune validation process
 _validation_params: Dict[str, Any] = {}
@@ -971,6 +971,15 @@ def validate_watchdog_mode(value: Any) -> None:
     assert_(value in (False, "off", "automatic", "required"))
 
 
+def validate_synchronous_mode(value: Any) -> None:
+    """Validate ``synchronous_mode`` configuration option.
+
+    :param value: value of ``synchronous_mode`` to be validated.
+    """
+    assert_(isinstance(value, str) and value.lower() == "quorum" or parse_bool(value) is not None,
+            "invalid value for synchronous_mode")
+
+
 userattributes = {"username": "", Optional("password"): ""}
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 setattr(validate_host_port_list, 'expected_type', list)
@@ -1082,7 +1091,7 @@ schema = Schema({
                 Optional("archive_cleanup_command"): str,
                 Optional("recovery_min_apply_delay"): str
             },
-            Optional("synchronous_mode"): bool,
+            Optional("synchronous_mode"): validate_synchronous_mode,
             Optional("synchronous_mode_strict"): bool,
             Optional("synchronous_node_count"): IntValidator(min=1, raise_assert=True),
         },
