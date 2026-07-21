@@ -1066,6 +1066,7 @@ validate_etcd = {
 schema = Schema({
     "name": validate_name,
     "scope": str,
+    Optional("site"): str,
     Optional("thread_pool_size"): IntValidator(min=5, expected_type=int, raise_assert=True),
     Optional("thread_stack_size"): IntValidator(min=65536, base_unit='B', aligned=65535,
                                                 expected_type=int, raise_assert=True),

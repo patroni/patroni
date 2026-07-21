@@ -61,11 +61,12 @@ def get_cluster_bootstrapping_without_leader(cluster_config=None):
 def get_cluster_initialized_without_leader(leader=False, failover=None, sync=None, cluster_config=None, failsafe=False):
     m1 = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
                                   'api_url': 'http://127.0.0.1:8008/patroni', 'xlog_location': 4,
-                                  'role': PostgresqlRole.PRIMARY, 'state': 'running'})
+                                  'role': PostgresqlRole.PRIMARY, 'state': 'running', 'site': 'dc1'})
     leader = Leader(0, 0, m1 if leader else Member(0, '', 28, {}))
     m2 = Member(0, 'other', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5436/postgres',
                                  'api_url': 'http://127.0.0.1:8011/patroni',
                                  'state': 'running',
+                                 'site': 'dc1',
                                  'pause': True,
                                  'tags': {'clonefrom': True},
                                  'scheduled_restart': {'schedule': "2100-01-01 10:53:07.560445+00:00",
@@ -168,6 +169,7 @@ zookeeper:
         self.request = lambda *args, **kwargs: requests_get(args[0].api_url, *args[1:], **kwargs)
         self.failover_priority = 1
         self.sync_priority = 1
+        self.site = 'dc1'
 
 
 def run_async(self, func, args=()):

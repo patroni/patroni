@@ -455,6 +455,10 @@ class Ha(object):
                 'version': self.patroni.version
             }
 
+            site = self.patroni.site
+            if site:
+                data['site'] = site
+
             proxy_url = self.state_handler.proxy_url
             if proxy_url:
                 data['proxy_url'] = proxy_url
