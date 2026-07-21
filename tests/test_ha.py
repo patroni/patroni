@@ -47,7 +47,8 @@ def get_cluster(initialize, leader, members, failover, sync, cluster_config=None
     history = TimelineHistory(1, '[[1,67197376,"no recovery target specified","' + t + '","foo"]]',
                               [(1, 67197376, 'no recovery target specified', t, 'foo')])
     cluster_config = cluster_config or ClusterConfig(1, {'check_timeline': True, 'member_slots_ttl': 0}, 1)
-    return Cluster(initialize, cluster_config, leader, Status(10, None, []), members, failover, sync, history, failsafe)
+    return Cluster(initialize, cluster_config, leader, Status(10, None, [], None),
+                   members, failover, sync, history, failsafe)
 
 
 def get_cluster_not_initialized_without_leader(cluster_config=None):
@@ -645,6 +646,33 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_not_initialized_without_leader()
         self.assertEqual(self.ha.bootstrap(), 'failed to acquire initialize lock')
 
+    def test_bootstrap_from_local_member(self):
+        me = Member(0, 'postgresql0', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres',
+                    'state': PostgresqlState.RUNNING, 'site': 'dc1', 'tags': {'clonefrom': True}})
+        one = Member(0, 'one', 28, {'xlog_location': 100, 'state': PostgresqlState.RUNNING,
+                                    'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
+                                    'site': 'dc1', 'tags': {'clonefrom': True}})
+        another = Member(0, 'another', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
+                                            'state': PostgresqlState.RUNNING, 'site': 'dc1',
+                                            'tags': {'clonefrom': True}})
+        yetanother = Member(0, 'yetanother', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
+                                                  'state': PostgresqlState.RUNNING, 'site': 'dc2',
+                                                  'tags': {'clonefrom': True}})
+        self.ha.cluster = Cluster(True, {}, Leader(-1, 28, one), Status(0, {}, [], 'dc1'),
+                                  [me, one, another, yetanother], None, SyncState.empty(), None, None, None)
+        global_config.update(self.ha.cluster)
+        self.assertEqual(self.ha.bootstrap(), "trying to bootstrap from replica 'another'")
+
+        # only leader is left locally
+        self.ha.cluster.members[2].data['site'] = 'dc2'
+        global_config.update(self.ha.cluster)
+        self.assertEqual(self.ha.bootstrap(), "trying to bootstrap from leader 'one'")
+
+        # all are remote
+        self.ha.cluster.members[1].data['site'] = 'dc2'
+        self.ha.cluster.members.pop(2)
+        self.assertEqual(self.ha.bootstrap(), "trying to bootstrap from replica 'yetanother'")
+
     @patch('patroni.psycopg.connect', psycopg_connect)
     @patch('patroni.postgresql.mpp.citus.connect', psycopg_connect)
     @patch('patroni.postgresql.mpp.citus.quote_ident', Mock())
@@ -691,6 +719,44 @@ class TestHa(PostgresInit):
         self.assertIsNone(self.ha.reinitialize(True, True))
         self.ha._async_executor.schedule('reinitialize')
         self.assertIsNotNone(self.ha.reinitialize())
+
+        # multi-site reinit
+        me = Member(0, 'postgresql0', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres',
+                                           'state': PostgresqlState.RUNNING, 'site': 'dc1',
+                                           'tags': {'clonefrom': True}})
+        one = Member(0, 'one', 28, {'xlog_location': 100, 'state': PostgresqlState.RUNNING,
+                                    'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
+                                    'site': 'dc1', 'tags': {'clonefrom': True}})
+        another = Member(0, 'another', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
+                                            'state': PostgresqlState.RUNNING, 'site': 'dc1',
+                                            'tags': {'clonefrom': True}})
+        yetanother = Member(0, 'yetanother', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
+                                                  'state': PostgresqlState.RUNNING, 'site': 'dc2',
+                                                  'tags': {'clonefrom': True}})
+        self.ha.cluster = Cluster(True, {}, Leader(-1, 28, one), Status(0, {}, [], 'dc1'),
+                                  [me, one, another, yetanother], None, SyncState.empty(), None, None, None)
+        global_config.update(self.ha.cluster)
+        self.ha._async_executor._scheduled_action = None
+        with patch('patroni.ha.logger.info') as mock_info:
+            # local replica
+            self.assertIsNone(self.ha.reinitialize())
+            self.assertEqual(mock_info.call_args_list[0][0],
+                             ('bootstrapped %s', "from replica 'another'"))
+
+            # only leader is left locally
+            mock_info.reset_mock()
+            self.ha.cluster.members[2].data['site'] = 'dc2'
+            self.assertIsNone(self.ha.reinitialize())
+            self.assertEqual(mock_info.call_args_list[0][0],
+                             ('bootstrapped %s', "from leader 'one'"))
+
+            # all are remote
+            mock_info.reset_mock()
+            self.ha.cluster.members[1].data['site'] = 'dc2'
+            self.ha.cluster.members.pop(2)
+            self.assertIsNone(self.ha.reinitialize())
+            self.assertEqual(mock_info.call_args_list[0][0],
+                             ('bootstrapped %s', "from replica 'yetanother'"))
 
         self.ha.state_handler.name = self.ha.cluster.leader.name
         self.assertIsNotNone(self.ha.reinitialize())

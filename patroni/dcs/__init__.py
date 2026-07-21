@@ -337,6 +337,10 @@ class Member(Tags, NamedTuple('Member',
     def replay_lsn(self) -> Optional[int]:
         return parse_int(self.data.get('replay_lsn'))
 
+    @property
+    def site(self) -> Optional[str]:
+        return self.data.get('site')
+
 
 class RemoteMember(Member):
     """Represents a remote member (typically a primary) for a standby cluster.
@@ -781,10 +785,12 @@ class Status(NamedTuple):
     :ivar last_lsn: :class:`int` object containing position of last known leader LSN.
     :ivar slots: state of permanent replication slots on the primary in the format: ``{"slot_name": int}``.
     :ivar retain_slots: list physical replication slots for members that exist in the cluster.
+    :ivar current_site: the name of the site where leader is located.
     """
     last_lsn: int
     slots: Optional[Dict[str, int]]
     retain_slots: List[str]
+    current_site: Optional[str]
 
     @staticmethod
     def empty() -> 'Status':
@@ -792,14 +798,14 @@ class Status(NamedTuple):
 
         :returns: empty :class:`Status` object.
         """
-        return Status(0, None, [])
+        return Status(0, None, [], None)
 
     def is_empty(self):
         """Validate definition of all attributes of this :class:`Status` instance.
 
         :returns: ``True`` if all attributes of the current :class:`Status` are unpopulated.
         """
-        return self.last_lsn == 0 and self.slots is None and not self.retain_slots
+        return self.last_lsn == 0 and self.slots is None and not self.retain_slots and self.current_site is None
 
     @staticmethod
     def from_node(value: Union[str, Dict[str, Any], None]) -> 'Status':
@@ -816,7 +822,7 @@ class Status(NamedTuple):
             return Status.empty()
 
         if isinstance(value, int):  # legacy
-            return Status(value, None, [])
+            return Status(value, None, [], None)
 
         if not isinstance(value, dict):
             return Status.empty()
@@ -844,7 +850,7 @@ class Status(NamedTuple):
         if not isinstance(retain_slots, list):
             retain_slots = []
 
-        return Status(last_lsn, slots, retain_slots)
+        return Status(last_lsn, slots, retain_slots, value.get('current_site'))
 
 
 class Cluster(NamedTuple('Cluster',
@@ -920,7 +926,7 @@ class Cluster(NamedTuple('Cluster',
 
            >>> assert bool(cluster) is False
 
-           >>> status = Status(0, None, [])
+           >>> status = Status(0, None, [], 'dc1')
            >>> cluster = Cluster(None, None, None, status, [1, 2, 3], None, SyncState.empty(), None, None, {})
            >>> len(cluster)
            1
@@ -964,17 +970,25 @@ class Cluster(NamedTuple('Cluster',
         return next((m for m in self.members if m.name == member_name),
                     self.leader if fallback_to_leader else None)
 
-    def get_clone_member(self, exclude_name: str) -> Union[Member, Leader, None]:
+    def get_clone_member(self, exclude_name: str, site: Optional[str]) -> Union[Member, Leader, None]:
         """Get member or leader object to use as clone source.
 
         :param exclude_name: name of a member name to exclude.
+        :param site: the site to which the clone member should belong.
 
         :returns: a randomly selected candidate member from available running members that are configured to as viable
                  sources for cloning (has tag ``clonefrom`` in configuration). If no member is appropriate the current
-                 leader is used.
+                 leader is used. If there is neither replica nor leader in the requested site, chose among all available
+                 members.
         """
         exclude = [exclude_name] + ([self.leader.name] if self.leader else [])
+
         candidates = [m for m in self.members if m.clonefrom and m.is_running and m.name not in exclude]
+        local_candidates = [m for m in candidates if (site is None or m.site == site)]
+        if len(local_candidates) > 0:
+            candidates = local_candidates
+        elif self.leader and (site is None or self.leader.member.site == site):
+            candidates = [self.leader]
         return candidates[randint(0, len(candidates) - 1)] if candidates else self.leader
 
     @staticmethod
@@ -1771,7 +1785,8 @@ class AbstractDCS(abc.ABC):
             self._cluster_valid_till = time.time() + self.ttl
 
             self._last_seen = int(time.time())
-            self._last_status = {self._OPTIME: cluster.status.last_lsn, 'retain_slots': cluster.status.retain_slots}
+            self._last_status = {self._OPTIME: cluster.status.last_lsn, 'retain_slots': cluster.status.retain_slots,
+                                 'current_site': cluster.status.current_site}
             if cluster.status.slots:
                 self._last_status['slots'] = cluster.status.slots
             self._last_failsafe = cluster.failsafe
@@ -1833,7 +1848,7 @@ class AbstractDCS(abc.ABC):
         """
         # This method is always called with ``optime`` key, rest of the keys are optional.
         # In case if we know old values (stored in self._last_status), we will copy them over.
-        for name in ('slots', 'retain_slots'):
+        for name in ('slots', 'retain_slots', 'current_site'):
             if name not in value and self._last_status.get(name):
                 value[name] = self._last_status[name]
         # if the key is present, but the value is None, we will not write such pair.
@@ -1933,13 +1948,15 @@ class AbstractDCS(abc.ABC):
                       cluster: Cluster,
                       last_lsn: Optional[int],
                       slots: Optional[Dict[str, int]] = None,
-                      failsafe: Optional[Dict[str, str]] = None) -> bool:
+                      failsafe: Optional[Dict[str, str]] = None,
+                      site: Optional[str] = None) -> bool:
         """Update ``leader`` key (or session) ttl, ``/status``, and ``/failsafe`` keys.
 
         :param cluster: :class:`Cluster` object with information about the current cluster state.
         :param last_lsn: absolute WAL LSN in bytes.
         :param slots: dictionary with permanent slots ``confirmed_flush_lsn``.
         :param failsafe: if defined dictionary passed to :meth:`~AbstractDCS.write_failsafe`.
+        :param site: the site to which the leader belongs.
 
         :returns: ``True`` if ``leader`` key (or session) has been updated successfully.
         """
@@ -1948,7 +1965,8 @@ class AbstractDCS(abc.ABC):
         ret = self._update_leader(cluster.leader)
         if ret and last_lsn:
             status: Dict[str, Any] = {self._OPTIME: last_lsn, 'slots': slots or None,
-                                      'retain_slots': self._build_retain_slots(cluster, slots)}
+                                      'retain_slots': self._build_retain_slots(cluster, slots),
+                                      'current_site': site}
             self.write_status(status)
 
         if ret and failsafe is not None:

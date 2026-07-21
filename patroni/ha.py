@@ -397,7 +397,7 @@ class Ha(object):
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
         try:
-            ret = self.dcs.update_leader(self.cluster, last_lsn, slots, self._failsafe_config())
+            ret = self.dcs.update_leader(self.cluster, last_lsn, slots, self._failsafe_config(), self.patroni.site)
         except DCSError:
             raise
         except Exception:
@@ -558,7 +558,8 @@ class Ha(object):
             else:
                 return 'failed to acquire initialize lock'
 
-        clone_member = self.cluster.get_clone_member(self.state_handler.name)
+        clone_member = self.cluster.get_clone_member(self.state_handler.name,
+                                                     self.patroni.site if self.cluster.status.current_site else None)
         # cluster already has a leader, we can bootstrap from it or from one of replicas (if they allow)
         if not self.cluster.is_unlocked() and clone_member:
             member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
@@ -1732,7 +1733,7 @@ class Ha(object):
         is_standby_leader = mode == 'demote-cluster' and not status['released']
         if is_standby_leader:
             with self._async_executor:
-                self.dcs.update_leader(self.cluster, checkpoint_lsn, None, self._failsafe_config())
+                self.dcs.update_leader(self.cluster, checkpoint_lsn, None, self._failsafe_config(), self.patroni.site)
             mode_control['release'] = False
         else:
             self.set_is_leader(False)
@@ -2087,7 +2088,8 @@ class Ha(object):
         if from_leader:
             clone_member = cluster.leader
         else:
-            clone_member = cluster.get_clone_member(self.state_handler.name)
+            clone_member = cluster.get_clone_member(
+                self.state_handler.name, self.patroni.site if cluster.status.current_site else None)
 
         if clone_member:
             member_role = 'leader' if clone_member == cluster.leader else 'replica'

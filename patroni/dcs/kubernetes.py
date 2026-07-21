@@ -1246,7 +1246,8 @@ class Kubernetes(AbstractDCS):
         return datetime.datetime.now(tzutc).isoformat()
 
     def update_leader(self, cluster: Cluster, last_lsn: Optional[int],
-                      slots: Optional[Dict[str, int]] = None, failsafe: Optional[Dict[str, str]] = None) -> bool:
+                      slots: Optional[Dict[str, int]] = None, failsafe: Optional[Dict[str, str]] = None,
+                      site: Optional[str] = None) -> bool:
         kind = self._kinds.get(self.leader_path)
         kind_annotations = kind and kind.metadata.annotations or EMPTY_DICT
 
@@ -1257,7 +1258,8 @@ class Kubernetes(AbstractDCS):
         leader_observed_record = kind_annotations or self._leader_observed_record
         annotations = {self._LEADER: self._name, 'ttl': str(self._ttl), 'renewTime': now,
                        'acquireTime': leader_observed_record.get('acquireTime') or now,
-                       'transitions': leader_observed_record.get('transitions') or '0'}
+                       'transitions': leader_observed_record.get('transitions') or '0',
+                       'current_site': site}
         if last_lsn:
             annotations[self._OPTIME] = str(last_lsn)
             annotations['slots'] = json.dumps(slots, separators=(',', ':')) if slots else None
