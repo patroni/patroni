@@ -393,6 +393,10 @@ class Rewind(object):
         logger.info('Trying to fetch the missing wal: %s', cmd)
         return self._postgresql.cancellable.call(shlex.split(cmd)) == 0
 
+    @staticmethod
+    def _log_output_line(line: str) -> None:
+        logger.info('pg_rewind: %s', line)
+
     def _find_missing_wal(self, data: bytes) -> Optional[str]:
         # could not open file "$PGDATA/pg_wal/0000000A00006AA100000068": No such file or directory
         pattern = 'could not open file "'
@@ -494,16 +498,21 @@ class Rewind(object):
         cmd.extend(['-D', self._postgresql.data_dir, '--source-server', dsn])
         cmd.extend(user_options)
 
+        # pg_rewind --progress reports the copy progress while it is running, therefore
+        # the output is streamed to the log as it arrives instead of being dumped after exit
+        stream_output = self._log_output_line if '--progress' in user_options else None
+
         while True:
             results: Dict[str, bytes] = {}
-            ret = self._postgresql.cancellable.call(cmd, env=env, communicate=results)
+            ret = self._postgresql.cancellable.call(cmd, env=env, communicate=results, stream_output=stream_output)
 
             logger.info('pg_rewind exit code=%s', ret)
             if ret is None:
                 return False
 
-            logger.info(' stdout=%s', results['stdout'].decode('utf-8'))
-            logger.info(' stderr=%s', results['stderr'].decode('utf-8'))
+            if stream_output is None:  # streamed output has already been logged line by line
+                logger.info(' stdout=%s', results['stdout'].decode('utf-8'))
+                logger.info(' stderr=%s', results['stderr'].decode('utf-8'))
             if ret == 0:
                 return True
 

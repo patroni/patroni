@@ -165,6 +165,61 @@ class TestRewind(BaseTestPostgresql):
                 del self.p.config._config['rewind']
             self.assertTrue(self.r.pg_rewind(r))
 
+    def test_pg_rewind_progress(self):
+        """Test that pg_rewind output is streamed to the log when --progress is among user options."""
+        r = {'user': '', 'host': '', 'port': '', 'database': '', 'password': ''}
+
+        def mock_call_with_stream_capture(self, cmd, *args, **kwargs):
+            mock_call_with_stream_capture.stream_output = kwargs.pop('stream_output', None)
+            communicate = kwargs.pop('communicate', None)
+            if isinstance(communicate, dict):
+                communicate.update(stdout=b'', stderr=b'')
+            return 0
+
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=150000)), \
+                patch('subprocess.check_output', Mock(return_value=b'foo %f %p %r %% % %')), \
+                patch.object(CancellableSubprocess, 'call', mock_call_with_stream_capture):
+
+            self.p.config._config['rewind'] = ['progress']
+            with patch('patroni.postgresql.rewind.logger.info') as mock_info:
+                self.assertTrue(self.r.pg_rewind(r))
+                # the stdout/stderr summary is not logged, the output has already been streamed line by line
+                mock_info.assert_called_with('pg_rewind exit code=%s', 0)
+                self.assertEqual(mock_info.call_count, 2)
+            stream_output = mock_call_with_stream_capture.stream_output
+            self.assertIsNotNone(stream_output)
+            with patch('patroni.postgresql.rewind.logger.info') as mock_info:
+                stream_output('271/271 MB (100%) copied')
+                mock_info.assert_called_once_with('pg_rewind: %s', '271/271 MB (100%) copied')
+
+            del self.p.config._config['rewind']
+            self.assertTrue(self.r.pg_rewind(r))
+            self.assertIsNone(mock_call_with_stream_capture.stream_output)
+
+        def mock_call_missing_wal(self, cmd, *args, **kwargs):
+            mock_call_missing_wal.stream_output = kwargs.pop('stream_output', None)
+            communicate = kwargs.pop('communicate', None)
+            if isinstance(communicate, dict):
+                communicate.update(stdout=b'', stderr=b'')
+                communicate[mock_call_missing_wal.pipe] = \
+                    b'pg_rewind: error: could not open file ' \
+                    b'"data/postgresql0/pg_xlog/000000010000000000000003": No such file'
+            return 1
+
+        # On PostgreSQL < 15 the streamed output must remain available for the missing WAL detection,
+        # no matter whether pg_rewind reported the missing file on stderr or stdout
+        for pipe in ('stderr', 'stdout'):
+            mock_call_missing_wal.pipe = pipe
+            with patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000)), \
+                    patch('subprocess.check_output', Mock(return_value=b'foo %f %p %r %% % %')), \
+                    patch.object(CancellableSubprocess, 'call', mock_call_missing_wal), \
+                    patch.object(Rewind, '_fetch_missing_wal', Mock(return_value=False)) as mock_fetch:
+                self.p.config._config['rewind'] = ['progress']
+                self.assertFalse(self.r.pg_rewind(r))
+                del self.p.config._config['rewind']
+                self.assertIsNotNone(mock_call_missing_wal.stream_output)
+                mock_fetch.assert_called_once_with('foo %f %p %r %% % %', '000000010000000000000003')
+
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
     def test__get_local_timeline_lsn(self):
         self.r.trigger_check_diverged_lsn()
