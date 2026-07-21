@@ -260,10 +260,35 @@ class TestPostgresql(BaseTestPostgresql):
         with patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'shutting down'})):
             self.assertTrue(self.p.stop(on_shutdown=mock_callback, stop_timeout=3))
 
+    @patch('time.sleep', Mock())
+    @patch.object(Postgresql, '_wait_for_connection_close', Mock())
+    @patch.object(Postgresql, 'is_running')
+    def test_stop_safe_kill(self, mock_is_running):
+        mock_postmaster = MockPostmaster()
+        mock_is_running.return_value = mock_postmaster
+        mock_postmaster.wait.side_effect = psutil.TimeoutExpired(0)
+
+        # Timeout before shut down: do not terminate (restart must avoid unclean shutdown)
+        with patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'shutting down'})):
+            with patch.object(Postgresql, 'terminate_postmaster') as mock_terminate:
+                self.assertFalse(self.p.stop(stop_timeout=3, safe_kill=True))
+                mock_terminate.assert_not_called()
+
+        # After clean shut down: terminate remaining processes
+        with patch.object(Postgresql, 'controldata', Mock(return_value={'Database cluster state': 'shut down'})):
+            with patch.object(Postgresql, 'terminate_postmaster', Mock(return_value=True)) as mock_terminate:
+                self.assertTrue(self.p.stop(stop_timeout=3, safe_kill=True))
+                mock_terminate.assert_called_once()
+
     def test_restart(self):
         self.p.start = Mock(return_value=False)
         self.assertFalse(self.p.restart())
         self.assertEqual(self.p.state, PostgresqlState.RESTART_FAILED)
+        self.p.start = Mock(return_value=True)
+        with patch.object(self.p, 'stop', Mock(return_value=True)) as mock_stop:
+            self.assertTrue(self.p.restart(stop_timeout=30))
+            self.assertEqual(mock_stop.call_args.kwargs.get('stop_timeout'), 30)
+            self.assertTrue(mock_stop.call_args.kwargs.get('safe_kill'))
 
     @patch('os.chmod', Mock())
     @patch('builtins.open', MagicMock())

@@ -854,7 +854,8 @@ class Postgresql(object):
 
     def stop(self, mode: str = 'fast', block_callbacks: bool = False, checkpoint: Optional[bool] = None,
              on_safepoint: Optional[Callable[..., Any]] = None, on_shutdown: Optional[Callable[[int, int], Any]] = None,
-             before_shutdown: Optional[Callable[..., Any]] = None, stop_timeout: Optional[int] = None) -> bool:
+             before_shutdown: Optional[Callable[..., Any]] = None, stop_timeout: Optional[int] = None,
+             safe_kill: bool = False) -> bool:
         """Stop PostgreSQL
 
         Supports a callback when a safepoint is reached. A safepoint is when no user backend can return a successful
@@ -864,12 +865,13 @@ class Postgresql(object):
         :param on_safepoint: This callback is called when no user backends are running.
         :param on_shutdown: is called when pg_controldata starts reporting `Database cluster state: shut down`
         :param before_shutdown: is called after running optional CHECKPOINT and before running pg_ctl stop
+        :param safe_kill: if True, only terminate postmaster after a clean shut down (used for restart)
         """
         if checkpoint is None:
             checkpoint = False if mode == 'immediate' else True
 
         success, pg_signaled = self._do_stop(mode, block_callbacks, checkpoint, on_safepoint,
-                                             on_shutdown, before_shutdown, stop_timeout)
+                                             on_shutdown, before_shutdown, stop_timeout, safe_kill)
         if success:
             # block_callbacks is used during restart to avoid
             # running start/stop callbacks in addition to restart ones
@@ -884,7 +886,8 @@ class Postgresql(object):
 
     def _do_stop(self, mode: str, block_callbacks: bool, checkpoint: bool,
                  on_safepoint: Optional[Callable[..., Any]], on_shutdown: Optional[Callable[[int, int], Any]],
-                 before_shutdown: Optional[Callable[..., Any]], stop_timeout: Optional[int]) -> Tuple[bool, bool]:
+                 before_shutdown: Optional[Callable[..., Any]], stop_timeout: Optional[int],
+                 safe_kill: bool = False) -> Tuple[bool, bool]:
         postmaster = self.is_running()
         if not postmaster:
             if on_safepoint:
@@ -920,19 +923,21 @@ class Postgresql(object):
         if on_safepoint and postmaster.wait_for_user_backends_to_close(stop_timeout):
             on_safepoint()
 
-        if on_shutdown and mode in ('fast', 'smart'):
+        # Wait for pg_controldata `Database cluster state:` to change to "shut down"
+        clean_shutdown = False
+        if (on_shutdown or safe_kill) and mode in ('fast', 'smart'):
             i = 0
-            # Wait for pg_controldata `Database cluster state:` to change to "shut down"
             while postmaster.is_running():
                 data = self.controldata()
-                if data.get('Database cluster state', '') == 'shut down':
-                    checkpoint_lsn, prev_lsn = self.latest_checkpoint_locations(data)
-                    if checkpoint_lsn is not None and prev_lsn is not None:
-                        on_shutdown(checkpoint_lsn, prev_lsn)
-                        if on_safepoint:
-                            on_safepoint()
-                    break
-                elif data.get('Database cluster state', '').startswith('shut down'):  # shut down in recovery
+                state = data.get('Database cluster state', '')
+                if state.startswith('shut down'):
+                    clean_shutdown = True
+                    if on_shutdown and state == 'shut down':
+                        checkpoint_lsn, prev_lsn = self.latest_checkpoint_locations(data)
+                        if checkpoint_lsn is not None and prev_lsn is not None:
+                            on_shutdown(checkpoint_lsn, prev_lsn)
+                            if on_safepoint:
+                                on_safepoint()
                     break
                 elif stop_timeout and i >= stop_timeout:
                     stop_timeout = 0
@@ -941,8 +946,16 @@ class Postgresql(object):
                 i += STOP_POLLING_INTERVAL
 
         try:
-            postmaster.wait(timeout=stop_timeout)
+            # With safe_kill, once cleanly shut down there is nothing left to wait for,
+            # so terminate any lingering processes (e.g. replication connections) right away.
+            postmaster.wait(timeout=0 if safe_kill and clean_shutdown else stop_timeout)
         except TimeoutExpired:
+            # With safe_kill, never terminate before a clean shutdown: recovering from an
+            # unclean shutdown may take much longer than waiting for shutdown would have.
+            if safe_kill and not clean_shutdown:
+                logger.warning("Timeout during postmaster stop, but Postgres is not 'shut down'. Skipping kill")
+                return False, True
+
             logger.warning("Timeout during postmaster stop, aborting Postgres.")
             if not self.terminate_postmaster(postmaster, mode, stop_timeout):
                 postmaster.wait()
@@ -1042,7 +1055,8 @@ class Postgresql(object):
     def restart(self, timeout: Optional[float] = None, task: Optional[CriticalTask] = None,
                 block_callbacks: bool = False, role: Optional[PostgresqlRole] = None,
                 before_shutdown: Optional[Callable[..., Any]] = None,
-                after_start: Optional[Callable[..., Any]] = None) -> Optional[bool]:
+                after_start: Optional[Callable[..., Any]] = None,
+                stop_timeout: Optional[int] = None) -> Optional[bool]:
         """Restarts PostgreSQL.
 
         When timeout parameter is set the call will block either until PostgreSQL has started, failed to start or
@@ -1053,7 +1067,8 @@ class Postgresql(object):
         self.set_state(PostgresqlState.RESTARTING)
         if not block_callbacks:
             self.__cb_pending = CallbackAction.ON_RESTART
-        ret = self.stop(block_callbacks=True, before_shutdown=before_shutdown)\
+        ret = self.stop(block_callbacks=True, before_shutdown=before_shutdown,
+                        stop_timeout=stop_timeout, safe_kill=True) \
             and self.start(timeout, task, True, role, after_start)
         if not ret and not self.is_starting():
             logger.warning('restart failed (%r)', self.state)
