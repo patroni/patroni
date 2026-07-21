@@ -287,8 +287,8 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.start = Mock(return_value=True)
         with patch.object(self.p, 'stop', Mock(return_value=True)) as mock_stop:
             self.assertTrue(self.p.restart(stop_timeout=30))
-            self.assertEqual(mock_stop.call_args.kwargs.get('stop_timeout'), 30)
-            self.assertTrue(mock_stop.call_args.kwargs.get('safe_kill'))
+            self.assertEqual(mock_stop.call_args[1].get('stop_timeout'), 30)
+            self.assertTrue(mock_stop.call_args[1].get('safe_kill'))
 
     @patch('os.chmod', Mock())
     @patch('builtins.open', MagicMock())
