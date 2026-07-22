@@ -397,7 +397,7 @@ class Ha(object):
             except Exception:
                 logger.exception('Exception when called state_handler.last_operation()')
         try:
-            ret = self.dcs.update_leader(self.cluster, last_lsn, slots, self._failsafe_config(), self.patroni.site)
+            ret = self.dcs.update_leader(self.cluster, last_lsn, slots, self._failsafe_config())
         except DCSError:
             raise
         except Exception:
@@ -1732,7 +1732,7 @@ class Ha(object):
         is_standby_leader = mode == 'demote-cluster' and not status['released']
         if is_standby_leader:
             with self._async_executor:
-                self.dcs.update_leader(self.cluster, checkpoint_lsn, None, self._failsafe_config(), self.patroni.site)
+                self.dcs.update_leader(self.cluster, checkpoint_lsn, None, self._failsafe_config())
             mode_control['release'] = False
         else:
             self.set_is_leader(False)

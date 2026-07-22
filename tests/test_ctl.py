@@ -509,16 +509,16 @@ class TestCtl(unittest.TestCase):
         result = self.runner.invoke(ctl, ['list'])
         assert '127.0.0.1' in result.output
         assert result.exit_code == 0
-        assert ' Citus cluster: alpha Site: dc1 -' in result.output
+        assert ' Site: dc1, Citus cluster: alpha ' in result.output
 
         result = self.runner.invoke(ctl, ['list', '--group', '0'])
-        assert 'Citus cluster: alpha (group: 0, 12345678901) Site: dc1 -' in result.output
+        assert ' Site: dc1, Citus cluster: alpha (group: 0, 12345678901) -' in result.output
 
         config = get_default_config()
         del config['citus']
         with patch('patroni.ctl.load_config', Mock(return_value=config)):
             result = self.runner.invoke(ctl, ['list'])
-            assert 'Cluster: alpha (12345678901) Site: dc1 -' in result.output
+            assert 'Site: dc1, Cluster: alpha (12345678901) -' in result.output
 
         with patch('patroni.ctl.load_config', Mock(return_value={})):
             self.runner.invoke(ctl, ['list'])

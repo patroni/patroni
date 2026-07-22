@@ -507,3 +507,15 @@ class TestValidator(unittest.TestCase):
         c['bootstrap'] = {'dcs': {'synchronous_mode': 123}}
         errors = schema(c)
         self.assertTrue(any('bootstrap.dcs.synchronous_mode' in error for error in errors))
+
+    def test_validate_site_empty_string(self, mock_out, mock_err):
+        c = copy.deepcopy(config)
+        c['site'] = ''
+        errors = schema(c)
+        output = "\n".join(errors)
+        self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr', 'site'], parse_output(output))
+
+        c['site'] = 'dc1'
+        errors = schema(c)
+        output = "\n".join(errors)
+        self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))

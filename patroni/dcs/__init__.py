@@ -1550,6 +1550,7 @@ class AbstractDCS(abc.ABC):
         """
         self._mpp = mpp
         self._name = config['name']
+        self._site = config.get('site')
         self._base_path = re.sub('/+', '/', '/'.join(['', config.get('namespace', 'service'), config['scope']]))
         self._set_loop_wait(config.get('loop_wait', 10))
 
@@ -1667,6 +1668,7 @@ class AbstractDCS(abc.ABC):
         self._set_loop_wait(config['loop_wait'])
         self.set_ttl(config['ttl'])
         self.set_retry_timeout(config['retry_timeout'])
+        self._site = config.get('site')
 
     @property
     def loop_wait(self) -> int:
@@ -1949,8 +1951,7 @@ class AbstractDCS(abc.ABC):
                       cluster: Cluster,
                       last_lsn: Optional[int],
                       slots: Optional[Dict[str, int]] = None,
-                      failsafe: Optional[Dict[str, str]] = None,
-                      site: Optional[str] = None) -> bool:
+                      failsafe: Optional[Dict[str, str]] = None) -> bool:
         """Update ``leader`` key (or session) ttl, ``/status``, and ``/failsafe`` keys.
 
         :param cluster: :class:`Cluster` object with information about the current cluster state.
@@ -1966,8 +1967,9 @@ class AbstractDCS(abc.ABC):
         ret = self._update_leader(cluster.leader)
         if ret and last_lsn:
             status: Dict[str, Any] = {self._OPTIME: last_lsn, 'slots': slots or None,
-                                      'retain_slots': self._build_retain_slots(cluster, slots),
-                                      'current_site': site}
+                                      'retain_slots': self._build_retain_slots(cluster, slots)}
+            if self._site:
+                status['current_site'] = self._site
             self.write_status(status)
 
         if ret and failsafe is not None:

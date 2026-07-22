@@ -1,5 +1,5 @@
 Feature: site awareness
-  Scenario: setup a mutisite cluster
+  Scenario: setup a multisite cluster
     When I start postgres-0 in site dc1
     And postgres-0 is a leader after 10 seconds
     And there is a non empty initialize key in DCS after 15 seconds
