@@ -376,6 +376,15 @@ class TestValidator(unittest.TestCase):
         errors = schema(c)
         self.assertIn('tags.failover_priority -6 didn\'t pass validation: Wrong value', errors)
 
+    def test_thread_stack_size(self, *args):
+        c = copy.deepcopy(config)
+        c["thread_stack_size"] = 524288
+        errors = schema(c)
+        self.assertEqual([], [e for e in errors if "thread_stack_size" in e])
+        c["thread_stack_size"] = 65535
+        errors = schema(c)
+        self.assertIn("thread_stack_size 65535 didn't pass validation: Wrong value", errors)
+
     def test_json_log_format(self, *args):
         c = copy.deepcopy(config)
         c["log"]["type"] = "json"
