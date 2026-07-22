@@ -1,11 +1,13 @@
 import logging
 import subprocess
 
+from io import BufferedReader
 from threading import Lock
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, cast, Dict, List, Optional, Tuple
 
 import psutil
 
+from patroni import thread_pool
 from patroni.exceptions import PostgresException
 from patroni.utils import polling_loop
 
@@ -76,11 +78,78 @@ class CancellableSubprocess(CancellableExecutor):
         super(CancellableSubprocess, self).__init__()
         self._is_cancelled = False
 
-    def call(self, *args: Any, **kwargs: Any) -> Optional[int]:
-        for s in ('stdin', 'stdout', 'stderr'):
-            kwargs.pop(s, None)
+    def _communicate_streaming(self, stream_cb: Callable[[str, bytes], None]) -> Tuple[bytes, bytes]:
+        """Read the running process' stdout/stderr line-by-line as it arrives.
 
-        communicate: Optional[Dict[str, str]] = kwargs.pop('communicate', None)
+        ``stderr`` is drained by a single helper thread while ``stdout`` is read inline, so both pipes are drained
+        concurrently with only one extra thread. ``read1()`` returns as soon as any data is available, so slowly
+        produced lines are delivered promptly. Exceptions from ``stream_cb`` are swallowed so streaming continues;
+        only read/OS errors abort (after both streams are drained).
+
+        :param stream_cb: called as ``stream_cb(stream_name, line)`` for every complete line of *stdout*/*stderr*.
+
+        :returns: ``(stdout_bytes, stderr_bytes)``.
+        """
+        process = cast(psutil.Popen, self._process)
+
+        stdout_chunks: List[bytes] = []
+        stderr_chunks: List[bytes] = []
+
+        def emit(name: str, line: bytes) -> None:
+            try:
+                stream_cb(name, line.rstrip(b'\r'))  # drop trailing CR (CRLF on Windows)
+            except Exception:
+                pass  # keep streaming despite a bad callback
+
+        def reader(stream: BufferedReader, name: str, sink: List[bytes]) -> None:
+            buf = b''
+            try:
+                while True:
+                    # read1() -> a single underlying read: returns as soon as data is available
+                    chunk = stream.read1(32768)
+                    if not chunk:  # b'' -> EOF
+                        break
+                    sink.append(chunk)
+                    buf += chunk
+                    *lines, buf = buf.split(b'\n')
+                    for line in lines:
+                        emit(name, line)
+                if buf:  # trailing data without a final newline
+                    emit(name, buf)
+            finally:
+                stream.close()
+
+        # A single helper task (from the global pool) drains stderr; stdout is read inline below.
+        stderr_future = thread_pool.get_executor().submit(reader, process.stderr, 'stderr', stderr_chunks) \
+            if process.stderr else None
+
+        try:
+            if process.stdout:
+                reader(process.stdout, 'stdout', stdout_chunks)
+        finally:
+            if stderr_future is not None:
+                stderr_future.result()
+
+        return b''.join(stdout_chunks), b''.join(stderr_chunks)
+
+    def call(self, *args: Any, **kwargs: Any) -> Optional[int]:
+        """Start a cancellable subprocess, optionally capture/stream its output, and wait for it to finish.
+
+        Positional and keyword arguments are forwarded to :class:`psutil.Popen`, except for the two special
+        keyword arguments below, which are consumed here.
+
+        :param communicate: optional :class:`dict` used to exchange data with the process. When provided,
+                            *stdout* and *stderr* are captured and stored back into it under the ``stdout`` and
+                            ``stderr`` keys, and an optional ``input`` value is sent to *stdin*.
+        :param stream_cb: optional callback invoked as ``stream_cb(stream_name, line)`` for every complete line
+                          of *stdout*/*stderr* as it arrives. Effective only when there is no ``input`` to send;
+                          forces binary pipes.
+
+        :raises PostgresException: if the executor was already cancelled.
+
+        :returns: the process' exit code, or ``None`` if it could not be started.
+        """
+        communicate: Optional[Dict[str, Any]] = kwargs.pop('communicate', None)
         input_data = None
         if isinstance(communicate, dict):
             input_data = communicate.get('input')
@@ -88,9 +157,17 @@ class CancellableSubprocess(CancellableExecutor):
                 if input_data[-1] != '\n':
                     input_data += '\n'
                 input_data = input_data.encode('utf-8')
-            kwargs['stdin'] = subprocess.PIPE
+
+        stream_cb: Optional[Callable[[str, bytes], None]] = kwargs.pop('stream_cb', None)
+        if stream_cb or isinstance(communicate, dict):
+            kwargs['stdin'] = subprocess.PIPE if input_data else subprocess.DEVNULL
             kwargs['stdout'] = subprocess.PIPE
             kwargs['stderr'] = subprocess.PIPE
+
+        if stream_cb and not input_data:
+            # streaming reads raw bytes, so force binary pipes
+            for key in ('text', 'universal_newlines', 'encoding', 'errors'):
+                kwargs.pop(key, None)
 
         try:
             with self._lock:
@@ -101,9 +178,15 @@ class CancellableSubprocess(CancellableExecutor):
                 started = self._start_process(*args, **kwargs)
 
             if started and self._process is not None:
-                if isinstance(communicate, dict):
+                if stream_cb and not input_data:
+                    stdout, stderr = self._communicate_streaming(stream_cb)
+                    if isinstance(communicate, dict):
+                        # hand the full captured output back to the caller, if requested
+                        communicate.update(stdout=stdout, stderr=stderr)
+                elif isinstance(communicate, dict):
                     communicate['stdout'], communicate['stderr'] = \
                         self._process.communicate(input_data)  # pyright: ignore [reportGeneralTypeIssues]
+
                 return self._process.wait()
         finally:
             with self._lock:
