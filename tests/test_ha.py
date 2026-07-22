@@ -673,6 +673,11 @@ class TestHa(PostgresInit):
         self.ha.cluster.members.pop(2)
         self.assertEqual(self.ha.bootstrap(), "trying to bootstrap from replica 'yetanother'")
 
+        # I do not have site, chose replica with site specified instead of leader with no site
+        self.ha.patroni.site = None
+        self.ha.cluster.members[2].data['site'] = None
+        self.assertEqual(self.ha.bootstrap(), "trying to bootstrap from replica 'yetanother'")
+
     @patch('patroni.psycopg.connect', psycopg_connect)
     @patch('patroni.postgresql.mpp.citus.connect', psycopg_connect)
     @patch('patroni.postgresql.mpp.citus.quote_ident', Mock())
