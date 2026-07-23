@@ -10,7 +10,7 @@ import uuid
 from threading import RLock
 from typing import Any, Callable, cast, Collection, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING, Union
 
-from . import global_config, psycopg, thread_pool
+from . import global_config, metrics_collector, psycopg, thread_pool
 from .__main__ import Patroni
 from .async_executor import AsyncExecutor, CriticalTask
 from .collections import CaseInsensitiveSet
@@ -2479,6 +2479,7 @@ class Ha(object):
         # Don't copy replication slots if failsafe_mode is active
         return [] if self.failsafe_is_active() else slots
 
+    @metrics_collector.record_duration('loop')
     def run_cycle(self) -> str:
         with self._async_executor:
             try:
