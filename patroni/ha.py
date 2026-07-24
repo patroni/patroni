@@ -2056,11 +2056,15 @@ class Ha(object):
         def after_start() -> None:
             self.notify_mpp_coordinator('after_promote')
 
+        has_lock = self.has_lock()
+        stop_timeout = self.primary_stop_timeout() if has_lock else None
+
         # For non async cases we want to wait for restart to complete or timeout before returning.
         do_restart = functools.partial(self.state_handler.restart, timeout, self._async_executor.critical_task,
-                                       before_shutdown=before_shutdown if self.has_lock() else None,
-                                       after_start=after_start if self.has_lock() else None)
-        if self.is_synchronous_mode() and not self.has_lock():
+                                       before_shutdown=before_shutdown if has_lock else None,
+                                       after_start=after_start if has_lock else None,
+                                       stop_timeout=stop_timeout)
+        if self.is_synchronous_mode() and not has_lock:
             do_restart = functools.partial(self.while_not_sync_standby, do_restart)
 
         if run_async:
