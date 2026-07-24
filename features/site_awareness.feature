@@ -19,3 +19,16 @@ Feature: site awareness
     When I run patronictl.py reinit batman postgres-2 --force
     Then I receive a response returncode 0
     And there is one of ["bootstrapped from replica 'postgres-3'"] INFO in the postgres-2 patroni log after 25 seconds
+    And postgres-2 is in sync with primary after 30 seconds
+
+  Scenario: test local failover
+    When I shut down postgres-0
+    Then "members/postgres-1" key in DCS has role=primary after 10 seconds
+    And postgres-2 is in sync with primary after 30 seconds
+    And postgres-3 is in sync with primary after 30 seconds
+
+  Scenario: test site failover with failover_priority
+    When I shut down postgres-1
+    Then "members/postgres-3" key in DCS has role=primary after 10 seconds
+    And postgres-2 is in sync with primary after 30 seconds
+
