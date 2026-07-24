@@ -455,6 +455,10 @@ class Ha(object):
                 'version': self.patroni.version
             }
 
+            site = self.patroni.site
+            if site:
+                data['site'] = site
+
             proxy_url = self.state_handler.proxy_url
             if proxy_url:
                 data['proxy_url'] = proxy_url
@@ -554,7 +558,7 @@ class Ha(object):
             else:
                 return 'failed to acquire initialize lock'
 
-        clone_member = self.cluster.get_clone_member(self.state_handler.name)
+        clone_member = self.cluster.get_clone_member(self.state_handler.name, self.patroni.site)
         # cluster already has a leader, we can bootstrap from it or from one of replicas (if they allow)
         if not self.cluster.is_unlocked() and clone_member:
             member_role = 'leader' if clone_member == self.cluster.leader else 'replica'
@@ -2083,7 +2087,7 @@ class Ha(object):
         if from_leader:
             clone_member = cluster.leader
         else:
-            clone_member = cluster.get_clone_member(self.state_handler.name)
+            clone_member = cluster.get_clone_member(self.state_handler.name, self.patroni.site)
 
         if clone_member:
             member_role = 'leader' if clone_member == cluster.leader else 'replica'

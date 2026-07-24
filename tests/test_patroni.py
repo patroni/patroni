@@ -278,6 +278,7 @@ class TestPatroni(unittest.TestCase):
         self.p.tags['replicatefrom'] = 'foo'
         self.assertEqual(self.p.replicatefrom, 'foo')
 
+    @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=True))
     def test_reload_config(self):
         self.p.reload_config()
         self.p._get_tags = Mock(side_effect=Exception)

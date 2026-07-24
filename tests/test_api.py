@@ -156,6 +156,7 @@ class MockLogger(object):
 class MockPatroni(object):
 
     ha = MockHa()
+    site = 'dc1'
     postgresql = ha.state_handler
     dcs = Mock()
     logger = MockLogger()

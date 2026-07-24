@@ -316,6 +316,7 @@ option_default_citus_group = click.option('--group', required=False, type=int, h
                                           default=lambda: _get_configuration().get('citus', {}).get('group'))
 option_citus_group = click.option('--group', required=False, type=int, help='Citus group')
 role_choice = click.Choice([role.value for role in CtlPostgresqlRole])
+option_site = click.option('--site', help='Filter members by site', required=False, type=str, default=None)
 
 
 @click.group(cls=click.Group)
@@ -1562,12 +1563,13 @@ def get_cluster_service_info(cluster: Dict[str, Any]) -> List[str]:
 
 
 def output_members(cluster: Cluster, name: str, extended: bool = False,
-                   fmt: str = 'pretty', group: Optional[int] = None) -> None:
+                   fmt: str = 'pretty', group: Optional[int] = None, site: Optional[str] = None) -> None:
     """Print information about the Patroni cluster and its members.
 
     Information is printed to console through :func:`print_output`, and contains:
 
         * ``Cluster``: name of the Patroni cluster, as per ``scope`` configuration;
+        * ``Site``: site of the Patroni node, as per ``site`` configuration;
         * ``Member``: name of the Patroni node, as per ``name`` configuration;
         * ``Host``: hostname (or IP) and port, as per ``postgresql.listen`` configuration;
         * ``Role``: ``Leader``, ``Standby Leader``, ``Sync Standby`` or ``Replica``;
@@ -1595,6 +1597,7 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         ``topology`` nor ``pretty``, then complementary information gathered through :func:`get_cluster_service_info` is
         not printed.
     :param group: filter which Citus group we should get members from. If ``None`` get from all groups.
+    :param site: filter which site of the cluster we should get members from.  If ``None`` get from all sites.
     """
     rows: List[List[Any]] = []
     logging.debug(cluster)
@@ -1616,6 +1619,10 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         if extended or any(m.get(c.lower().replace(' ', '_')) for m in all_members):
             columns.append(c)
 
+    cluster_sites = set(m.get('site') for m in all_members)
+    if len(cluster_sites) > 1:
+        columns.insert(1, 'Site')
+
     # Show Host as 'host:port' if somebody is running on non-standard port or two nodes are running on the same host
     append_port = any('port' in m and m['port'] != 5432 for m in all_members) or\
         len(set(m['host'] for m in all_members)) < len(all_members)
@@ -1624,6 +1631,9 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
     for g, c in sorted(clusters.items()):
         for member in sort(c['members']):
             logging.debug(member)
+
+            if site and member.get('site') != site:
+                continue
 
             def format_diff(param: str, values: Dict[str, str], hide_long: bool):
                 full_diff = param + ': ' + values['old_value'] + '->' + values['new_value']
@@ -1652,7 +1662,8 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
                           receive_lag=receive_lag, replay_lag=replay_lag,
                           receive_lsn=receive_lsn, replay_lsn=replay_lsn,
                           pending_restart='*' if member.get('pending_restart') else '',
-                          pending_restart_reason=restart_reason)
+                          pending_restart_reason=restart_reason,
+                          site=member.get('site', ''))
 
             if append_port and member['host'] and member.get('port'):
                 member['host'] = ':'.join([member['host'], str(member['port'])])
@@ -1672,7 +1683,9 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         title = 'Cluster'
         title_details = f' ({initialize})'
 
-    title = f' {title}: {name}{title_details} '
+    site = next(iter(cluster_sites)) if len(cluster_sites) == 1 else ''
+    site = f'Site: {site}, ' if site else ''
+    title = f' {site}{title}: {name}{title_details} '
     if fmt in ('pretty', 'topology'):
         columns[columns.index('Replay Lag')] = columns[columns.index('Receive Lag')] = 'Lag'
     print_output(columns, rows,
@@ -1694,11 +1707,12 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
 @option_citus_group
 @click.option('--extended', '-e', help='Show some extra information', is_flag=True)
 @click.option('--timestamp', '-t', 'ts', help='Print timestamp', is_flag=True)
+@option_site
 @option_format
 @option_watch
 @option_watchrefresh
 def members(cluster_names: List[str], group: Optional[int], fmt: str,
-            watch: Optional[int], w: bool, extended: bool, ts: bool) -> None:
+            watch: Optional[int], w: bool, extended: bool, ts: bool, site: Optional[str]) -> None:
     """Process ``list`` command of ``patronictl`` utility.
 
     Print information about the Patroni cluster through :func:`output_members`.
@@ -1728,7 +1742,7 @@ def members(cluster_names: List[str], group: Optional[int], fmt: str,
             dcs = get_dcs(cluster_name, group)
 
             cluster = dcs.get_cluster()
-            output_members(cluster, cluster_name, extended, fmt, group)
+            output_members(cluster, cluster_name, extended, fmt, group, site)
 
 
 @ctl.command('topology', help='Prints ASCII topology for given cluster')

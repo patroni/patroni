@@ -732,6 +732,11 @@ The following information is included in the output:
 ``Cluster``
     Name of the Patroni cluster.
 
+``Site``
+    Site of the Patroni node, as set in the local configuration.
+
+    If all members belong to the same site, the site is shown in the cluster header instead of as a column.
+
 ``Member``
     Name of the Patroni member.
 
@@ -887,6 +892,11 @@ Parameters
     Automatically refresh information at the specified interval.
 
     ``TIME`` is the interval between refreshes, in seconds.
+
+``--site``
+    Filter the listed members by the configured site name.
+
+    Only members whose ``site`` matches the provided value are shown.
 
 .. _patronictl_list_examples:
 
