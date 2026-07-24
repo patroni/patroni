@@ -1365,6 +1365,18 @@ class TestHa(PostgresInit):
             global_config.update(self.ha.cluster)
             self.assertEqual(self.ha.primary_stop_timeout(), None)
 
+    def test_restart_passes_primary_stop_timeout(self):
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=(self.p.name, 'other'))
+        self.ha.cluster.config.data.update({'primary_stop_timeout': 30})
+        global_config.update(self.ha.cluster)
+        self.ha.has_lock = true
+        self.p.restart = Mock(return_value=True)
+
+        with patch.object(Ha, 'is_synchronous_mode', Mock(return_value=True)):
+            self.assertEqual(self.ha.restart({}), (True, 'restarted successfully'))
+
+        self.assertEqual(self.p.restart.call_args.kwargs.get('stop_timeout'), 30)
+
     @patch('patroni.postgresql.Postgresql.follow')
     def test_demote_immediate(self, follow):
         self.ha.has_lock = true

@@ -345,8 +345,9 @@ class PatroniController(AbstractController):
         except Exception:
             return None
 
-    def patroni_hang(self, timeout):
-        hang = ProcessHang(self._handle.pid, timeout)
+    def patroni_hang(self, timeout, pid=None):
+        pid = pid or self._handle.pid
+        hang = ProcessHang(pid, timeout)
         self._closables.append(hang)
         hang.start()
 
@@ -386,14 +387,17 @@ class ProcessHang(object):
         self.timeout = timeout
 
     def start(self):
+        os.kill(self.pid, signal.SIGSTOP)
         self._thread.start()
 
     def run(self):
-        os.kill(self.pid, signal.SIGSTOP)
         try:
             self._cancelled.wait(self.timeout)
         finally:
-            os.kill(self.pid, signal.SIGCONT)
+            try:
+                os.kill(self.pid, signal.SIGCONT)
+            except ProcessLookupError:
+                pass
 
     def close(self):
         self._cancelled.set()

@@ -70,6 +70,19 @@ def do_post_empty(context, url):
     do_request(context, 'POST', url, None)
 
 
+@step('I issue a {request_method:w} request to {url:url} with {data} and client timeout {timeout:d} seconds')
+def do_request_with_timeout(context, request_method, url, data, timeout):
+    if context.certfile:
+        url = url.replace('http://', 'https://')
+    data = data and json.loads(data)
+    try:
+        r = context.request_executor.request(request_method, url, data, timeout=timeout)
+    except Exception:
+        context.status_code = context.response = None
+    else:
+        _set_response(context, r)
+
+
 @step('I issue a {request_method:w} request to {url:url} with {data}')
 def do_request(context, request_method, url, data):
     if context.certfile:
@@ -83,6 +96,12 @@ def do_request(context, request_method, url, data):
         context.status_code = context.response = None
     else:
         _set_response(context, r)
+
+
+@step('I suspend a backend on {pg_name:name} for {timeout:d} seconds')
+def suspend_backend(context, pg_name, timeout):
+    pid = context.pctl.query(pg_name, "SELECT pg_catalog.pg_backend_pid()").fetchone()[0]
+    context.pctl.patroni_hang(pg_name, timeout * context.timeout_multiplier, pid=pid)
 
 
 @step('I run {cmd}')

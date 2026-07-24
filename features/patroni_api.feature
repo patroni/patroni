@@ -60,6 +60,17 @@ Scenario: check the scheduled restart
 	And Response on GET http://127.0.0.1:8008/patroni does not contain pending_restart after 10 seconds
 	And postgres-0 role is the primary after 10 seconds
 
+Scenario: primary restart honors primary_stop_timeout
+	Given I start postgres-0
+	And postgres-0 is a leader after 10 seconds
+	When I issue a PATCH request to http://127.0.0.1:8008/config with {"synchronous_mode": true, "primary_stop_timeout": 3}
+	Then I receive a response code 200
+	And Response on GET http://127.0.0.1:8008/config contains primary_stop_timeout=3 after 10 seconds
+	When I suspend a backend on postgres-0 for 20 seconds
+	And I issue a POST request to http://127.0.0.1:8008/restart with {"role": "primary"} and client timeout 12 seconds
+	Then I receive a response code 200
+	And postgres-0 role is the primary after 10 seconds
+
 Scenario: check API requests for the primary-replica pair in the pause mode
 	Given I start postgres-1
 	Then replication works from postgres-0 to postgres-1 after 20 seconds
