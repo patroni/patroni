@@ -10,8 +10,9 @@ Global/Universal
 -  **thread\_pool\_size**: size of thread pool used by Patroni to execute asynchronous tasks and communicate via REST API with other members during leader race or failsafe checks. Minimal value is ``5``, default value is ``5``.
 -  **thread\_stack\_size**: specifies the stack size to be used for threads started by Patroni. Value must be aligned by ``64kB``. Minimal value is ``64kB``,  default value (set by Patroni) is ``512kB``.
 -  **name**: the name of the host. Must be unique for the cluster. The value ``__patroni_strict_sync_replica_placeholder__`` is reserved for internal use by Patroni and cannot be used as a node name.
--  **namespace**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service"
--  **scope**: cluster name
+-  **namespace**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service".
+-  **scope**: cluster name.
+-  **site**: optional string name of the physical site or location where this Patroni node runs, such as a data center, availability zone, or region. When configured, Patroni records it in member metadata and uses it to prefer local clone sources for replica bootstrap and ``patronictl reinit``.
 
 .. _log_settings:
 
