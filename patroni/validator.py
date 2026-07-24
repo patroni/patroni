@@ -1156,6 +1156,7 @@ schema = Schema({
             Optional("synchronous_mode"): validate_synchronous_mode,
             Optional("synchronous_mode_strict"): bool,
             Optional("synchronous_node_count"): IntValidator(min=1, raise_assert=True),
+            Optional("manage_synchronized_standby_slots"): bool,
         },
         Optional("initdb"): [Or(str, dict)],
         Optional("method"): str

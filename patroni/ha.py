@@ -858,6 +858,10 @@ class Ha(object):
         ssn = self.state_handler.config.synchronous_standby_names
         self.state_handler.config.set_synchronous_standby_names(ssn)
 
+        # manage_synchronized_standby_slots depends on synchronous_mode, so when sync mode is off
+        # the feature effectively goes off too - restore the user-configured value if needed.
+        self.state_handler.slots_handler.handle_manage_sync_slots_toggle(CaseInsensitiveSet())
+
     def _handle_synchronous_strict_mode(self, dcs_state: SyncState, replication_state: Any) -> bool:
         """Handle strict synchronous mode.
 
@@ -888,9 +892,12 @@ class Ha(object):
                     numsync != replication_state.numsync or \
                     sync_type != replication_state.sync_type:
                 self.state_handler.sync_handler.set_synchronous_standby_names(voters, numsync)
-            elif voters:
-                msg = 'Continue using old value of synchronous_standby_names="{0}". '.format(
-                    self.state_handler.synchronous_standby_names())
+            else:
+                if voters:
+                    msg = 'Continue using old value of synchronous_standby_names="{0}". '.format(
+                        self.state_handler.synchronous_standby_names())
+
+                self.state_handler.slots_handler.handle_manage_sync_slots_toggle(voters, numsync)
 
             # We use self._synchronous_strict_mode_activated to show warning only once.
             if not self._synchronous_strict_mode_activated:
@@ -962,6 +969,9 @@ class Ha(object):
                 self.state_handler.sync_handler.set_synchronous_standby_names(sync_state.sync, sync_state.numsync)
 
             if transition != 'restart' or _check_timeout(1):
+                # Check if manage_synchronized_standby_slots feature state changed even when no sync changes
+                if transition == 'break':
+                    self.state_handler.slots_handler.handle_manage_sync_slots_toggle(sync_state.active)
                 return
             # synchronous_standby_names was transitioned from empty to non-empty and it may take
             # some time for nodes to become synchronous. In this case we want to restart state machine
@@ -1010,6 +1020,9 @@ class Ha(object):
             if current_state.sync_type != 'priority':
                 # ANY -> FIRST
                 self.state_handler.sync_handler.set_synchronous_standby_names(picked)
+            else:
+                # Check if manage_synchronized_standby_slots feature state changed
+                self.state_handler.slots_handler.handle_manage_sync_slots_toggle(picked)
             return
 
         # update synchronous standby list in dcs temporarily to point to common nodes in current and picked

@@ -1085,6 +1085,17 @@ class ConfigHandler(object):
             else:
                 parameters['synchronous_standby_names'] = synchronous_standby_names
 
+        # When manage_synchronized_standby_slots is enabled, Patroni dynamically writes
+        # synchronized_standby_slots, so we must preserve our cached value here so that subsequent
+        # reload_config() calls don't reset it back to the user-configured value.
+        if global_config.manage_synchronized_standby_slots_enabled \
+                and self._postgresql.supports_synchronized_standby_slots:
+            synchronized_standby_slots = self._server_parameters.get('synchronized_standby_slots')
+            if synchronized_standby_slots is None:
+                parameters.pop('synchronized_standby_slots', None)
+            else:
+                parameters['synchronized_standby_slots'] = synchronized_standby_slots
+
         # Handle hot_standby <-> replica rename
         if parameters.get('wal_level') == ('hot_standby' if self._postgresql.major_version >= 90600 else 'replica'):
             parameters['wal_level'] = 'replica' if self._postgresql.major_version >= 90600 else 'hot_standby'
@@ -1326,18 +1337,44 @@ class ConfigHandler(object):
 
         self._postgresql.set_pending_restart_reason(param_diff)
 
-    def set_synchronous_standby_names(self, value: Optional[str]) -> Optional[bool]:
-        """Updates synchronous_standby_names and reloads if necessary.
-        :returns: True if value was updated."""
-        if value != self._server_parameters.get('synchronous_standby_names'):
+    def _set_server_parameter(self, name: str, value: Optional[str], reload: bool = False) -> bool:
+        """Update a server parameter and optionally write config and reload PostgreSQL.
+
+        :param name: name of the server parameter to update.
+        :param value: new value of the server parameter, or ``None`` to remove it from the config.
+        :param reload: whether to write ``postgresql.conf`` and reload PostgreSQL if the value changed.
+
+        :returns: ``True`` if the value was changed, ``False`` otherwise.
+        """
+        if value != self._server_parameters.get(name):
             if value is None:
-                self._server_parameters.pop('synchronous_standby_names', None)
+                self._server_parameters.pop(name, None)
             else:
-                self._server_parameters['synchronous_standby_names'] = value
-            if self._postgresql.state == PostgresqlState.RUNNING:
+                self._server_parameters[name] = value
+            if reload and self._postgresql.state == PostgresqlState.RUNNING:
                 self.write_postgresql_conf()
                 self._postgresql.reload()
             return True
+        return False
+
+    def set_synchronous_standby_names(self, value: Optional[str]) -> Optional[bool]:
+        """Updates synchronous_standby_names and reloads if necessary.
+
+        :param value: new value of ``synchronous_standby_names``, or ``None`` to remove it from the config.
+
+        :returns: ``True`` if value was updated, ``None`` otherwise.
+        """
+        return self._set_server_parameter('synchronous_standby_names', value, reload=True) or None
+
+    def set_synchronized_standby_slots(self, value: Optional[str], reload: bool = False) -> bool:
+        """Update ``synchronized_standby_slots`` parameter.
+
+        :param value: new value of ``synchronized_standby_slots``, or ``None`` to remove it from the config.
+        :param reload: whether to write ``postgresql.conf`` and reload PostgreSQL if the value changed.
+
+        :returns: ``True`` if the value was changed, ``False`` otherwise.
+        """
+        return self._set_server_parameter('synchronized_standby_slots', value, reload=reload)
 
     @property
     def effective_configuration(self) -> CaseInsensitiveDict:
@@ -1446,3 +1483,12 @@ class ConfigHandler(object):
             if any, otherwise ``None``.
         """
         return (self.get('parameters') or EMPTY_DICT).get('synchronous_standby_names')
+
+    @property
+    def synchronized_standby_slots(self) -> Optional[str]:
+        """Get ``synchronized_standby_slots`` value configured by the user.
+
+        :returns: value of ``synchronized_standby_slots`` in the Patroni configuration,
+            if any, otherwise ``None``.
+        """
+        return (self.get('parameters') or EMPTY_DICT).get('synchronized_standby_slots')

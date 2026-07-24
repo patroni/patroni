@@ -839,6 +839,24 @@ class TestPostgresql(BaseTestPostgresql):
                 self.p.config.set_synchronous_standby_names('foo')
                 self.assertTrue(repr(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
 
+        # PG17+ with manage_synchronized_standby_slots: cached _server_parameters value must
+        # be preserved (i.e. written back) so subsequent reload_config() doesn't reset it.
+        self.p._major_version = 170000
+        with patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)):
+            # Value cached -> preserved as-is.
+            self.p.config._server_parameters['synchronized_standby_slots'] = 'dyn_slot_a,dyn_slot_b'
+            params = self.p.config.get_server_parameters(config)
+            self.assertEqual(params.get('synchronized_standby_slots'), 'dyn_slot_a,dyn_slot_b')
+
+            # Value cleared -> parameter removed even if present in user config.
+            self.p.config._server_parameters.pop('synchronized_standby_slots', None)
+            config_with_user_value = {'parameters': {**config['parameters'],
+                                                     'synchronized_standby_slots': 'user_slot'},
+                                      'listen': '0'}
+            params = self.p.config.get_server_parameters(config_with_user_value)
+            self.assertNotIn('synchronized_standby_slots', params)
+
     @patch('time.sleep', Mock())
     def test__wait_for_connection_close(self):
         mock_postmaster = MockPostmaster()

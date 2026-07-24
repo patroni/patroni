@@ -1,11 +1,13 @@
 import os
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, PropertyMock
 
 from patroni import global_config
 from patroni.collections import CaseInsensitiveSet
 from patroni.dcs import Cluster, ClusterConfig, Status, SyncState
-from patroni.postgresql import Postgresql
+from patroni.postgresql import Postgresql, PostgresqlState
+from patroni.postgresql.config import ConfigHandler
+from patroni.postgresql.slots import SlotsHandler
 
 from . import BaseTestPostgresql, mock_available_gucs, psycopg_connect
 
@@ -194,6 +196,83 @@ class TestSync(BaseTestPostgresql):
         self.s.set_synchronous_standby_names(['a-1'], 1)
         mock_reload.assert_called()
         self.assertEqual(value_in_conf(), "synchronous_standby_names = '\"a-1\"'")
+
+        # PG17+ with manage_synchronized_standby_slots: ensure a manual reload happens
+        # when only synchronized_standby_slots changes (synchronous_standby_names unchanged).
+        # We only need to check the update_synchronized_standby_slots/reload/write_postgresql_conf
+        # calls here - how update_synchronized_standby_slots itself behaves is already covered by
+        # test_update_synchronized_standby_slots in test_slots.py.
+        self.p._major_version = 170000
+        self.cluster.config.data['synchronous_mode'] = True
+        self.cluster.config.data['manage_synchronized_standby_slots'] = True
+        global_config.update(self.cluster)
+        # Pre-populate SSN with the value set_synchronous_standby_names would produce (no change there).
+        self.p.config._server_parameters['synchronous_standby_names'] = 'n1'
+        mock_reload.reset_mock()
+        with patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)), \
+                patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.RUNNING)), \
+                patch.object(SlotsHandler, 'update_synchronized_standby_slots',
+                             Mock(return_value=True)) as mock_update_slots, \
+                patch.object(ConfigHandler, 'write_postgresql_conf', Mock()) as mock_write_conf:
+            self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1']))
+        mock_update_slots.assert_called_once_with(CaseInsensitiveSet(['n1']), None)
+        # SSN didn't change, but slots did, so a manual reload (and config write) is expected.
+        mock_write_conf.assert_called_once()
+        mock_reload.assert_called()
+
+        # Regression: member names containing characters that require quoting (e.g. dashes)
+        # must NOT be passed through quote_standby_name() before being converted to slot names.
+        # Otherwise slot_name_from_member_name() encodes the quotes as unicode codepoints
+        # (e.g. u0034postgres_1u0034), yielding a slot name that doesn't match pg_replication_slots.
+        self.p.config._server_parameters.pop('synchronous_standby_names', None)
+        mock_reload.reset_mock()
+        with patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)), \
+                patch.object(SlotsHandler, 'update_synchronized_standby_slots',
+                             Mock(return_value=False)) as mock_update_slots:
+            self.s.set_synchronous_standby_names(CaseInsensitiveSet(['postgres-1', 'postgres-2']))
+        mock_update_slots.assert_called_once_with(CaseInsensitiveSet(['postgres-1', 'postgres-2']), None)
+        # synchronous_standby_names is built from QUOTED names, so we expect them quoted here:
+        self.assertEqual(self.p.config._server_parameters.get('synchronous_standby_names'),
+                         '2 ("postgres-1","postgres-2")')
+
+        # Regression: same check with quorum mode (different sync_param building path).
+        self.cluster.config.data['synchronous_mode'] = 'quorum'
+        global_config.update(self.cluster)
+        self.p.config._server_parameters.pop('synchronous_standby_names', None)
+        mock_reload.reset_mock()
+        with patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)), \
+                patch.object(SlotsHandler, 'update_synchronized_standby_slots',
+                             Mock(return_value=False)) as mock_update_slots:
+            self.s.set_synchronous_standby_names(CaseInsensitiveSet(['postgres-1', 'postgres-2']), 1)
+        mock_update_slots.assert_called_once_with(CaseInsensitiveSet(['postgres-1', 'postgres-2']), 1)
+        self.assertEqual(self.p.config._server_parameters.get('synchronous_standby_names'),
+                         'ANY 1 ("postgres-1","postgres-2")')
+
+    def test_set_sync_standby_restores_slots_after_feature_toggled_off(self):
+        # Regression: manage_synchronized_standby_slots is toggled off "in the background" (e.g. via
+        # a dynamic configuration reload) and the next synchronous_standby_names update is triggered
+        # by an unrelated transition (not a dedicated toggle check). The disabled state must still be
+        # picked up and the user-configured value (or lack thereof) restored - see update_synchronized
+        # _standby_slots in patroni/postgresql/slots.py for where this is actually detected.
+        self.p._major_version = 170000
+        self.cluster.config.data['synchronous_mode'] = True
+        self.cluster.config.data['manage_synchronized_standby_slots'] = True
+        global_config.update(self.cluster)
+
+        with patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)):
+            self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1']))
+        self.assertEqual(self.p.config._server_parameters.get('synchronized_standby_slots'), 'n1')
+
+        # Feature toggled off without going through a dedicated toggle-check call site.
+        self.p.config._config['parameters'] = {'synchronized_standby_slots': 'user_slot'}
+        with patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=False)):
+            self.s.set_synchronous_standby_names(CaseInsensitiveSet(['n1', 'n2']))
+        self.assertEqual(self.p.config._server_parameters.get('synchronized_standby_slots'), 'user_slot')
 
     @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
     def test_do_not_prick_yourself(self):
