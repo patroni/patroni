@@ -22,11 +22,3 @@ class ClusterSite(abc.ABC):
         :return: string representing name of the site assigned to the current node.
         """
         return self._site
-
-    def reload_site(self, site: Optional[str]) -> None:
-        """Load and set relevant site value from configuration.
-
-        :param site: string representing name of the site assigned to the current node.
-            loaded from the local configuration.
-        """
-        self._site = site

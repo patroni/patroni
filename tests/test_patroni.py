@@ -281,13 +281,6 @@ class TestPatroni(unittest.TestCase):
     @patch('patroni.config.Config.reload_local_configuration', Mock(return_value=True))
     def test_reload_config(self):
         self.p.reload_config()
-        with patch.object(self.p.config, 'get',
-                          lambda key, *args, **kwargs: 'dc2' if key == 'site'
-                          else config.Config.get(self.p.config, key, *args, **kwargs)):
-            self.p.reload_config(local=True)
-        self.assertEqual(self.p.site, 'dc2')
-        self.assertEqual(self.p.dcs.site, 'dc2')
-        self.assertEqual(self.p.postgresql.site, 'dc2')
         self.p._get_tags = Mock(side_effect=Exception)
         self.p.reload_config(local=True)
 

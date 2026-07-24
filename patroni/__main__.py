@@ -182,9 +182,6 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         try:
             super(Patroni, self).reload_config(sighup, local)
             if local:
-                site = self.config.get('site')
-                self.reload_site(site)
-                self.postgresql.reload_site(site)
                 self._tags = self._get_tags()
                 self.request.reload_config(self.config)
             if local or sighup and self.api.reload_local_certificate():

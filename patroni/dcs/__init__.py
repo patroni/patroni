@@ -1670,7 +1670,6 @@ class AbstractDCS(ClusterSite, abc.ABC):
         self._set_loop_wait(config['loop_wait'])
         self.set_ttl(config['ttl'])
         self.set_retry_timeout(config['retry_timeout'])
-        self.reload_site(config.get('site'))
 
     @property
     def loop_wait(self) -> int:
