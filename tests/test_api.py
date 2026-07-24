@@ -728,6 +728,28 @@ class TestRestApiHandler(unittest.TestCase):
             response_mock.assert_called_with(
                 422, 'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601')
 
+        # [Multi-site switchover]
+
+        # site and candidate
+        request = post + '114\n\n{"leader": "postgresql1", "candidate": "postgresql2", "site": "dc1"}'
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, request)
+            dcs.manual_failover.assert_called_with('postgresql1', 'postgresql2', scheduled_at=None, site=None)
+
+        # no members in site
+        request = post + '53\n\n{"leader": "postgresql1", "site": "dc1"}'
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(412, 'switchover is not possible: can not find members in site dc1')
+
+            cluster.members = [Member(0, 'postgresql0', 30, {'api_url': 'http', 'site': 'dc1'}),
+                               Member(0, 'postgresql2', 30, {'api_url': 'http'})]
+            cluster2.leader.name = 'postgresql0'
+            dcs.get_cluster.side_effect = [cluster, cluster2]
+            dcs.manual_failover.return_value = True
+            MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_with(200, 'Successfully switched over to "postgresql0"')
+
     def test_do_POST_failover(self):
         post = 'POST /failover HTTP/1.0' + self._authorization + '\nContent-Length: '
 

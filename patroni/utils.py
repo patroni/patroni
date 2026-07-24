@@ -1002,6 +1002,8 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
             ret['scheduled_switchover']['from'] = cluster.failover.leader
         if cluster.failover.candidate:
             ret['scheduled_switchover']['to'] = cluster.failover.candidate
+        elif cluster.failover.site:
+            ret['scheduled_switchover']['to'] = 'site ' + cluster.failover.site
     return ret
 
 

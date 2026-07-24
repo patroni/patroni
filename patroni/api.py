@@ -1081,7 +1081,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         failover = self.server.patroni.dcs.get_cluster().failover
         if failover and failover.scheduled_at:
-            if not self.server.patroni.dcs.manual_failover('', '', version=failover.version):
+            if not self.server.patroni.dcs.manual_failover('', '', '', version=failover.version):
                 return self.send_error(409)
             else:
                 data = "scheduled switchover deleted"
@@ -1157,12 +1157,13 @@ class RestApiHandler(BaseHTTPRequestHandler):
             action.title(), timeout * 2)
 
     def is_failover_possible(self, cluster: Cluster, leader: Optional[str], candidate: Optional[str],
-                             action: str) -> Optional[str]:
+                             site: Optional[str], action: str) -> Optional[str]:
         """Checks whether there are nodes that could take over after demoting the primary.
 
         :param cluster: the Patroni cluster.
         :param leader: name of the current Patroni leader.
         :param candidate: name of the Patroni node to be promoted.
+        :param site: name of the site to failover/switchover to.
         :param action: the action to be performed (``switchover`` or ``failover``).
 
         :returns: a string with the error message or ``None`` if good nodes are found.
@@ -1177,14 +1178,21 @@ class RestApiHandler(BaseHTTPRequestHandler):
             members = [m for m in cluster.members if m.name == candidate]
             if not members:
                 return 'candidate does not exists'
-        elif config.is_synchronous_mode and not config.is_quorum_commit_mode:
-            members = [m for m in cluster.members if cluster.sync.matches(m.name)]
-            if not members:
-                return action + ' is not possible: can not find sync_standby'
         else:
-            members = [m for m in cluster.members if not cluster.leader or m.name != cluster.leader.name and m.api_url]
-            if not members:
-                return action + ' is not possible: cluster does not have members except leader'
+            members = cluster.members
+            if site:
+                members = [m for m in cluster.members if m.site == site]
+                if not members:
+                    return action + ' is not possible: can not find members in site ' + site
+            if config.is_synchronous_mode and not config.is_quorum_commit_mode:
+                members = [m for m in members if cluster.sync.matches(m.name)]
+                if not members:
+                    return action + ' is not possible: can not find sync_standby'
+            else:
+                members = [m for m in members if not cluster.leader or m.name != cluster.leader.name and m.api_url]
+                if not members:
+                    return action + ' is not possible: cluster does not have members except leader'
+
         for st in self.server.patroni.ha.fetch_nodes_statuses(members):
             if st.failover_limitation() is None:
                 return None
@@ -1201,7 +1209,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``leader``: name of the current leader in the cluster;
             * ``candidate``: name of the Patroni node to be promoted;
             * ``scheduled_at``: a string representing the timestamp when to execute the switchover/failover, e.g.
-                ``2023-04-14T20:27:00+00:00``.
+                ``2023-04-14T20:27:00+00:00``;
+            * ``site``: name of the cluster site to choose a candidate from.
 
         Response HTTP status codes:
 
@@ -1225,11 +1234,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
         leader = request.get('leader')
         candidate = request.get('candidate') or request.get('member')
         scheduled_at = request.get('scheduled_at')
+        site = request.get('site') if not candidate else None
         cluster = self.server.patroni.dcs.get_cluster()
         config = global_config.from_cluster(cluster)
 
-        logger.info("received %s request with leader=%s candidate=%s scheduled_at=%s",
-                    action, leader, candidate, scheduled_at)
+        logger.info("received %s request with leader=%s candidate=%s site=%s scheduled_at=%s",
+                    action, leader, candidate, site, scheduled_at)
 
         if action == 'failover' and not candidate:
             data = 'Failover could be performed only to a specific candidate'
@@ -1251,16 +1261,16 @@ class RestApiHandler(BaseHTTPRequestHandler):
             logger.warning('received failover request with leader specified - performing switchover instead')
             action = 'switchover'
 
-        if not data and leader == candidate:
+        if not data and leader and candidate and leader == candidate:
             data = 'Switchover target and source are the same'
 
         if not data and not scheduled_at:
-            data = self.is_failover_possible(cluster, leader, candidate, action)
+            data = self.is_failover_possible(cluster, leader, candidate, site, action)
             if data:
                 status_code = 412
 
         if not data:
-            if self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at):
+            if self.server.patroni.dcs.manual_failover(leader, candidate, scheduled_at=scheduled_at, site=site):
                 self.server.patroni.ha.wakeup()
                 if scheduled_at:
                     data = action.title() + ' scheduled'

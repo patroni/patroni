@@ -239,7 +239,7 @@ class TestRaft(unittest.TestCase):
         self.assertTrue(raft.write_sync_state('foo', 'bar', 0))
         self.assertFalse(raft.write_sync_state('foo', 'bar', 0, 1))
         raft._mpp = get_mpp({'citus': {'group': 1, 'database': 'postgres'}})
-        self.assertTrue(raft.manual_failover('foo', 'bar'))
+        self.assertTrue(raft.manual_failover('foo', 'bar', ''))
         raft._mpp = get_mpp({'citus': {'group': 0, 'database': 'postgres'}})
         self.assertTrue(raft.take_leader())
         cluster = raft.get_cluster()

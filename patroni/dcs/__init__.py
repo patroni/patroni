@@ -453,6 +453,7 @@ class Failover(NamedTuple):
     :ivar candidate: the name of the member node to be considered as a failover candidate.
     :ivar scheduled_at: in the case of a switchover the :class:`~datetime.datetime` object to perform the scheduled
         switchover.
+    :ivar site: the name of the site to perform a cross-site switchover to.
 
     :Example:
 
@@ -488,6 +489,7 @@ class Failover(NamedTuple):
     leader: Optional[str]
     candidate: Optional[str]
     scheduled_at: Optional[datetime.datetime]
+    site: Optional[str]
 
     @staticmethod
     def from_node(version: _Version, value: Union[str, Dict[str, str]]) -> 'Failover':
@@ -515,14 +517,14 @@ class Failover(NamedTuple):
                 t = [a.strip() for a in value.split(':')]
                 leader = t[0]
                 candidate = t[1] if len(t) > 1 else None
-                return Failover(version, leader, candidate, None)
+                return Failover(version, leader, candidate, None, None)
         else:
             data = {}
 
         if data.get('scheduled_at'):
             data['scheduled_at'] = dateutil.parser.parse(data['scheduled_at'])
 
-        return Failover(version, data.get('leader'), data.get('member'), data.get('scheduled_at'))
+        return Failover(version, data.get('leader'), data.get('member'), data.get('scheduled_at'), data.get('site'))
 
     def __len__(self) -> int:
         """Implement ``len`` function capability.
@@ -543,7 +545,7 @@ class Failover(NamedTuple):
            This makes it easier to write ``if cluster.failover`` rather than the longer statement.
 
         """
-        return int(bool(self.leader)) + int(bool(self.candidate))
+        return int(bool(self.leader)) + int(bool(self.candidate)) + int(bool(self.site))
 
 
 class ClusterConfig(NamedTuple):
@@ -979,8 +981,8 @@ class Cluster(NamedTuple('Cluster',
 
         :returns: a randomly selected candidate member from available running members that are configured to as viable
                  sources for cloning (has tag ``clonefrom`` in configuration). If no member is appropriate the current
-                 leader is used. If there is neither replica nor leader in the requested site, chose among all available
-                 members.
+                 leader is used. If there is neither replica nor leader in the requested site, choose among all
+                 available members.
         """
         exclude = [exclude_name] + ([self.leader.name] if self.leader else [])
 
@@ -2021,12 +2023,13 @@ class AbstractDCS(ClusterSite, abc.ABC):
         :returns: ``True`` if successfully committed to DCS.
         """
 
-    def manual_failover(self, leader: Optional[str], candidate: Optional[str],
+    def manual_failover(self, leader: Optional[str], candidate: Optional[str], site: Optional[str],
                         scheduled_at: Optional[datetime.datetime] = None, version: Optional[Any] = None) -> bool:
         """Prepare dictionary with given values and set ``/failover`` key in DCS.
 
         :param leader: value to set for ``leader``.
         :param candidate: value to set for ``member``.
+        :param site: value to set for ``site``.
         :param scheduled_at: value converted to ISO date format for ``scheduled_at``.
         :param version: for conditional update of the key/object.
 
@@ -2041,6 +2044,9 @@ class AbstractDCS(ClusterSite, abc.ABC):
 
         if scheduled_at:
             failover_value['scheduled_at'] = scheduled_at.isoformat()
+
+        if not candidate and site:
+            failover_value['site'] = site
         return self.set_failover_value(json.dumps(failover_value, separators=(',', ':')), version)
 
     @abc.abstractmethod
