@@ -22,6 +22,7 @@ from ..collections import CaseInsensitiveDict, CaseInsensitiveSet, EMPTY_DICT
 from ..daemon import notify_systemd
 from ..dcs import Cluster, Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PostgresConnectionException
+from ..site import ClusterSite
 from ..tags import Tags
 from ..utils import data_directory_is_empty, parse_int, polling_loop, Retry, RetryFailedError
 from .bootstrap import Bootstrap
@@ -64,7 +65,7 @@ def null_context():
     yield
 
 
-class Postgresql(object):
+class Postgresql(ClusterSite):
 
     POSTMASTER_START_TIME = "pg_catalog.pg_postmaster_start_time()"
     TL_LSN = ("CASE WHEN pg_catalog.pg_is_in_recovery() THEN 0 "
@@ -77,6 +78,8 @@ class Postgresql(object):
               "pg_catalog.pg_is_in_recovery() AND pg_catalog.pg_is_{0}_replay_paused()")
 
     def __init__(self, config: Dict[str, Any], mpp: AbstractMPP) -> None:
+        super(Postgresql, self).__init__(config.get('site'))
+
         self.name: str = config['name']
         self.scope: str = config['scope']
         self._data_dir: str = config['data_dir']

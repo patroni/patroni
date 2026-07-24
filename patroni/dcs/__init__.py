@@ -19,6 +19,7 @@ import dateutil.parser
 from .. import global_config
 from ..dynamic_loader import iter_classes, iter_modules
 from ..exceptions import PatroniAssertionError, PatroniFatalException
+from ..site import ClusterSite
 from ..tags import Tags
 from ..utils import deep_compare, parse_int, uri
 
@@ -1459,7 +1460,7 @@ def catch_return_false_exception(func: Callable[..., Any]) -> Any:
     return wrapper
 
 
-class AbstractDCS(abc.ABC):
+class AbstractDCS(ClusterSite, abc.ABC):
     """Abstract representation of DCS modules.
 
     Implementations of a concrete DCS class, using appropriate backend client interfaces, must include the following
@@ -1548,9 +1549,10 @@ class AbstractDCS(abc.ABC):
                        i.e.: ``zookeeper`` for zookeeper, ``etcd`` for etcd, etc...
         :param mpp: an object implementing :class:`AbstractMPP` interface.
         """
+        ClusterSite.__init__(self, config.get('site'))
+
         self._mpp = mpp
         self._name = config['name']
-        self._site = config.get('site')
         self._base_path = re.sub('/+', '/', '/'.join(['', config.get('namespace', 'service'), config['scope']]))
         self._set_loop_wait(config.get('loop_wait', 10))
 
@@ -1668,7 +1670,7 @@ class AbstractDCS(abc.ABC):
         self._set_loop_wait(config['loop_wait'])
         self.set_ttl(config['ttl'])
         self.set_retry_timeout(config['retry_timeout'])
-        self._site = config.get('site')
+        self.reload_site(config.get('site'))
 
     @property
     def loop_wait(self) -> int:
@@ -1968,8 +1970,8 @@ class AbstractDCS(abc.ABC):
         if ret and last_lsn:
             status: Dict[str, Any] = {self._OPTIME: last_lsn, 'slots': slots or None,
                                       'retain_slots': self._build_retain_slots(cluster, slots)}
-            if self._site:
-                status['current_site'] = self._site
+            if self.site:
+                status['current_site'] = self.site
             self.write_status(status)
 
         if ret and failsafe is not None:

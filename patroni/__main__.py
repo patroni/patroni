@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from patroni import global_config, MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
 from patroni.collections import EMPTY_DICT
 from patroni.daemon import abstract_main, AbstractPatroniDaemon, get_base_arg_parser
+from patroni.site import ClusterSite
 from patroni.tags import Tags
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -25,7 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
-class Patroni(AbstractPatroniDaemon, Tags):
+class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
     """Implement ``patroni`` command daemon.
 
     :ivar version: Patroni version.
@@ -70,10 +71,10 @@ class Patroni(AbstractPatroniDaemon, Tags):
         logger.info('Patroni global thread_pool_size = %d', thread_pool_size)
         thread_pool.configure_global_pool(thread_pool_size)
 
-        super(Patroni, self).__init__(config, patroni_logger)
+        AbstractPatroniDaemon.__init__(self, config, patroni_logger)
+        ClusterSite.__init__(self, config.get('site'))
 
         self.version = __version__
-        self._site = self.config.get('site')
         self.dcs = get_dcs(self.config)
         self.request = PatroniRequest(self.config, True)
 
@@ -181,9 +182,10 @@ class Patroni(AbstractPatroniDaemon, Tags):
         try:
             super(Patroni, self).reload_config(sighup, local)
             if local:
+                site = self.config.get('site')
+                self.reload_site(site)
+                self.postgresql.reload_site(site)
                 self._tags = self._get_tags()
-                self._site = self.config.get('site')
-                self.postgresql.sync_handler.site = self._site
                 self.request.reload_config(self.config)
             if local or sighup and self.api.reload_local_certificate():
                 self.api.reload_config(self.config['restapi'])
@@ -200,11 +202,6 @@ class Patroni(AbstractPatroniDaemon, Tags):
     def tags(self) -> Dict[str, Any]:
         """Tags configured for this node, if any."""
         return self._tags
-
-    @property
-    def site(self) -> Optional[str]:
-        """Site configured for this node, if any."""
-        return self._site
 
     def schedule_next_run(self) -> None:
         """Schedule the next run of the ``patroni`` daemon main loop.
