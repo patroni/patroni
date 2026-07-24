@@ -511,14 +511,14 @@ def watching(w: bool, watch: Optional[int], max_count: Optional[int] = None, cle
         return
 
     counter = 1
-    yield_time = time.time()
+    yield_time = time.monotonic()
     while watch and counter <= (max_count or counter):
-        elapsed = time.time() - yield_time
+        elapsed = time.monotonic() - yield_time
         time.sleep(max(0, watch - elapsed))
         counter += 1
         if clear:
             click.clear()
-        yield_time = time.time()
+        yield_time = time.monotonic()
         yield 0
 
 

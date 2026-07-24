@@ -1,6 +1,7 @@
 import datetime
 import os
 import sys
+import time
 
 from unittest.mock import MagicMock, Mock, mock_open, patch, PropertyMock
 
@@ -24,6 +25,7 @@ from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.rewind import Rewind, REWIND_STATUS
 from patroni.postgresql.slots import SlotsHandler
 from patroni.postgresql.sync import _SyncState
+from patroni.quorum import Transition
 from patroni.thread_pool import PatroniThreadPoolExecutor
 from patroni.utils import tzutc
 from patroni.watchdog import Watchdog
@@ -334,6 +336,12 @@ class TestHa(PostgresInit):
             self.ha.state_handler.cancellable._process = Mock()
             self.ha._crash_recovery_started -= 600
             self.ha.cluster.config.data.update({'maximum_lag_on_failover': 10})
+            self.assertEqual(self.ha.run_cycle(), 'terminated crash recovery because of startup timeout')
+
+            # Test handle_long_action_in_progress when _crash_recovery_started is None
+            # (the else branch setting time_left = 0)
+            self.ha._crash_recovery_started = None
+            self.ha.is_failover_possible = true
             self.assertEqual(self.ha.run_cycle(), 'terminated crash recovery because of startup timeout')
 
     @patch('patroni.ha.logger.info')
@@ -1996,6 +2004,7 @@ class TestHa(PostgresInit):
                                                               _SyncState('quorum', 1, CaseInsensitiveSet(['foo']),
                                                                          CaseInsensitiveSet(['foo']),
                                                                          CaseInsensitiveSet(['foo']))])
+        self.ha._promote_timestamp = time.monotonic() - self.ha.dcs.loop_wait - 1
         mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=SyncState(1, 'leader', 'foo', 0))
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo'))
         # Test the sync node is removed from voters, added to ssn
@@ -2008,7 +2017,8 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (other)',))
 
-        # Test that we stick with last known sync node when synchronous_mode_strict and no nodes available
+        # Test ANY 1 (*) when synchronous_mode_strict and no nodes available
+        self.ha._promote_timestamp = time.monotonic() - self.ha.dcs.loop_wait - 1
         self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1,
                                                                          CaseInsensitiveSet(['other', 'foo']),
                                                                          CaseInsensitiveSet(),
@@ -2036,6 +2046,22 @@ class TestHa(PostgresInit):
         with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')), \
                 patch('time.time', Mock(side_effect=[30, 60, 90, 120, 150])):
             self.ha.process_sync_replication()
+
+        # Test _check_timeout returning True inside the for loop of _process_quorum_replication
+        self.ha._promote_timestamp = time.monotonic() - self.ha.dcs.loop_wait - 1
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1,
+                                                                         CaseInsensitiveSet(['other']),
+                                                                         CaseInsensitiveSet(['other']),
+                                                                         CaseInsensitiveSet(['other'])))
+        self.ha.dcs.write_sync_state = Mock(return_value=SyncState(1, 'leader', 'other', 0))
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other', 1))
+        # QuorumStateResolver produces two transitions: first 'quorum' (processed normally),
+        # second 'sync' (_check_timeout() returns True on this iteration).
+        mock_transitions = [Transition('quorum', 'leader', 0, CaseInsensitiveSet()),
+                            Transition('sync', 'leader', 1, CaseInsensitiveSet(['other']))]
+        with patch('patroni.ha.QuorumStateResolver', Mock(return_value=mock_transitions)), \
+                patch('time.monotonic', Mock(side_effect=[0, 0, self.ha.dcs.loop_wait + 1])):
+            self.ha._process_quorum_replication()
 
         # Test foo -> ANY 1 (foo) transition
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo'))

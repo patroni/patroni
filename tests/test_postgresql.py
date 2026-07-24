@@ -41,7 +41,7 @@ mtime_ret = {}
 
 def mock_mtime(filename):
     if filename not in mtime_ret:
-        mtime_ret[filename] = time.time()
+        mtime_ret[filename] = time.monotonic()
     else:
         mtime_ret[filename] += 1
     return mtime_ret[filename]

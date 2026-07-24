@@ -255,13 +255,13 @@ class BaseTestKubernetes(unittest.TestCase):
 @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map', mock_namespaced_kind, create=True)
 class TestKubernetesConfigMaps(BaseTestKubernetes):
 
-    @patch('time.time', Mock(side_effect=[1, 10.9, 100]))
+    @patch('time.monotonic', Mock(side_effect=[1, 10.9, 100]))
     def test__wait_caches(self):
         self.k._pods._is_ready = False
         with self.k._condition:
-            self.assertRaises(RetryFailedError, self.k._wait_caches, time.time() + 10)
+            self.assertRaises(RetryFailedError, self.k._wait_caches, time.monotonic() + 10)
 
-    @patch('time.time', Mock(return_value=time.time() + 100))
+    @patch('time.monotonic', Mock(return_value=time.monotonic() + 100))
     def test_get_cluster(self):
         self.k.get_cluster()
 
@@ -460,8 +460,8 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         mock_patch.side_effect = [k8s_client.rest.ApiException(409, ''),
                                   k8s_client.rest.ApiException(409, ''), mock_namespaced_kind()]
         mock_read.return_value.metadata.resource_version = '2'
-        mock_time = Mock(side_effect=[0, 0, 100, 200, 0, 0, 0, 0, 0, 100, 200])
-        with patch('time.time', mock_time), patch('time.time_ns', mock_time, create=True):
+        mock_time = Mock(side_effect=[0, 0, 100, 0, 0, 0, 0, 100])
+        with patch('time.monotonic', mock_time), patch('time.monotonic_ns', mock_time, create=True):
             self.assertFalse(self.k.update_leader(cluster, '123'))
             self.assertFalse(self.k.update_leader(cluster, '123'))
         mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
