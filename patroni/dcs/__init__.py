@@ -1959,7 +1959,6 @@ class AbstractDCS(ClusterSite, abc.ABC):
         :param last_lsn: absolute WAL LSN in bytes.
         :param slots: dictionary with permanent slots ``confirmed_flush_lsn``.
         :param failsafe: if defined dictionary passed to :meth:`~AbstractDCS.write_failsafe`.
-        :param site: the site to which the leader belongs.
 
         :returns: ``True`` if ``leader`` key (or session) has been updated successfully.
         """
