@@ -1942,6 +1942,20 @@ class Ha(object):
                 if self.state_handler.is_primary():
                     if self.is_paused():
                         return 'continue to run as primary after failing to update leader lock in DCS'
+                    # When update_lock() returns False (rather than raising DCSError),
+                    # _handle_dcs_error() is never reached and failsafe_mode is bypassed.
+                    # This happens with Kubernetes DCS, where @catch_kubernetes_errors
+                    # on _patch_or_create() swallows KubernetesError (= DCSError) and
+                    # converts it to a False return before it can propagate to _run_cycle().
+                    # Check failsafe here to cover that gap.
+                    if self.is_failsafe_mode() and self.state_handler.is_running() \
+                            and self.check_failsafe_topology():
+                        self.set_is_leader(True)
+                        self._failsafe.set_is_active(time.time())
+                        self.watchdog.keepalive()
+                        self._sync_replication_slots(True)
+                        return 'continue to run as a leader because failsafe mode is enabled'\
+                               ' and all members are accessible'
                     self.demote('immediate-nolock')
                     return 'demoted self because failed to update leader lock in DCS'
                 else:

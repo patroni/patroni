@@ -576,6 +576,22 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(),
                          'continue to run as a leader because failsafe mode is enabled and all members are accessible')
 
+    def test_update_lock_returns_false_failsafe(self):
+        """Test failsafe when update_lock() returns False instead of raising DCSError.
+
+        This happens with Kubernetes DCS, where @catch_kubernetes_errors on
+        _patch_or_create() swallows KubernetesError (= DCSError) and converts
+        it to a False return before it can propagate to _run_cycle().
+        """
+        self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
+        global_config.update(self.ha.cluster)
+        self.ha.dcs.update_leader = Mock(return_value=False)
+        self.ha.dcs._last_failsafe = self.ha.cluster.failsafe
+        self.ha.state_handler.name = self.ha.cluster.leader.name
+        self.assertEqual(self.ha.run_cycle(),
+                         'continue to run as a leader because failsafe mode is enabled'
+                         ' and all members are accessible')
+
     def test_no_dcs_connection_replica_failsafe(self):
         self.p.last_operation = Mock(side_effect=PostgresConnectionException(''))
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
