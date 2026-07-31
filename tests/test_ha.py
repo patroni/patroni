@@ -489,9 +489,11 @@ class TestHa(PostgresInit):
     def test_demote_because_update_lock_failed(self):
         self.ha.has_lock = true
         self.ha.update_lock = false
-        self.assertEqual(self.ha.run_cycle(), 'demoted self because failed to update leader lock in DCS')
+        self.assertEqual(self.ha.run_cycle(),
+                         'demoted self because DCS is not accessible and I was a leader')
         with patch.object(Ha, '_get_node_to_follow', Mock(side_effect=DCSError('foo'))):
-            self.assertEqual(self.ha.run_cycle(), 'demoted self because failed to update leader lock in DCS')
+            self.assertEqual(self.ha.run_cycle(),
+                             'demoted self because DCS is not accessible and I was a leader')
         self.p.is_primary = false
         self.assertEqual(self.ha.run_cycle(), 'not promoting because failed to update leader lock in DCS')
 
