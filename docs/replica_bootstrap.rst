@@ -197,6 +197,8 @@ Also note that in case symlinks are used for the WAL folder it is up to the user
 path as an option, so that after replica buildup or re-initialization the symlink would persist. This option is supported
 only since v10 though.
 
+When the ``progress`` option is used, the ``pg_basebackup`` output is streamed to the Patroni log as it arrives.
+
 You can specify basebackup parameters as either a map (key-value pairs) or a list of elements, where each element
 could be either a key-value pair or a single key (for options that does not receive any values, for instance, ``--verbose``).
 Consider those 2 examples:
