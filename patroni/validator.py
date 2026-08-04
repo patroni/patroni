@@ -16,7 +16,7 @@ from .dcs import dcs_modules
 from .exceptions import ConfigParseError, PatroniAssertionError
 from .log import type_logformat
 from .postgresql.sync import SYNC_STRICT_PLACEHOLDER
-from .utils import data_directory_is_empty, get_major_version, parse_int, parse_real, split_host_port
+from .utils import data_directory_is_empty, get_major_version, parse_bool, parse_int, parse_real, split_host_port
 
 # Additional parameters to fine-tune validation process
 _validation_params: Dict[str, Any] = {}
@@ -972,6 +972,15 @@ def validate_watchdog_mode(value: Any) -> None:
     assert_(value in (False, "off", "automatic", "required"))
 
 
+def validate_synchronous_mode(value: Any) -> None:
+    """Validate ``synchronous_mode`` configuration option.
+
+    :param value: value of ``synchronous_mode`` to be validated.
+    """
+    assert_(isinstance(value, str) and value.lower() == "quorum" or parse_bool(value) is not None,
+            "invalid value for synchronous_mode")
+
+
 def validate_name(value: Any) -> None:
     """Validate ``name`` configuration option.
 
@@ -982,6 +991,18 @@ def validate_name(value: Any) -> None:
     """
     if value == SYNC_STRICT_PLACEHOLDER:
         raise ConfigParseError(f"Node 'name' can't be set to '{SYNC_STRICT_PLACEHOLDER}'")
+
+
+def validate_site(value: Any) -> None:
+    """Validate ``site`` configuration option.
+
+    :param value: value of ``site`` to be validated.
+
+    :raises:
+        :class:`~patroni.exceptions.ConfigParseError` if value is an empty string.
+    """
+    if not value:
+        raise ConfigParseError("Site value can't be empty")
 
 
 class RealValidator(object):
@@ -1037,6 +1058,7 @@ setattr(validate_host_port_listen_multiple_hosts, 'expected_type', str)
 setattr(validate_data_dir, 'expected_type', str)
 setattr(validate_binary_name, 'expected_type', str)
 setattr(validate_name, 'expected_type', str)
+setattr(validate_site, 'expected_type', str)
 validate_etcd = {
     Or("host", "hosts", "srv", "srv_suffix", "url", "proxy"): Case({
         "host": validate_host_port,
@@ -1057,6 +1079,7 @@ validate_etcd = {
 schema = Schema({
     "name": validate_name,
     "scope": str,
+    Optional("site"): validate_site,
     Optional("thread_pool_size"): IntValidator(min=5, expected_type=int, raise_assert=True),
     Optional("thread_stack_size"): IntValidator(min=65536, base_unit='B', aligned=65535,
                                                 expected_type=int, raise_assert=True),
@@ -1144,7 +1167,7 @@ schema = Schema({
                 Optional("archive_cleanup_command"): str,
                 Optional("recovery_min_apply_delay"): str
             },
-            Optional("synchronous_mode"): bool,
+            Optional("synchronous_mode"): validate_synchronous_mode,
             Optional("synchronous_mode_strict"): bool,
             Optional("synchronous_node_count"): IntValidator(min=1, raise_assert=True),
         },

@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from patroni import global_config, MIN_PSYCOPG2, MIN_PSYCOPG3, parse_version
 from patroni.collections import EMPTY_DICT
 from patroni.daemon import abstract_main, AbstractPatroniDaemon, get_base_arg_parser
+from patroni.site import ClusterSite
 from patroni.tags import Tags
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -25,7 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
-class Patroni(AbstractPatroniDaemon, Tags):
+class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
     """Implement ``patroni`` command daemon.
 
     :ivar version: Patroni version.
@@ -70,7 +71,8 @@ class Patroni(AbstractPatroniDaemon, Tags):
         logger.info('Patroni global thread_pool_size = %d', thread_pool_size)
         thread_pool.configure_global_pool(thread_pool_size)
 
-        super(Patroni, self).__init__(config, patroni_logger)
+        AbstractPatroniDaemon.__init__(self, config, patroni_logger)
+        ClusterSite.__init__(self, config.get('site'))
 
         self.version = __version__
         self.dcs = get_dcs(self.config)
