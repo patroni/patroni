@@ -1261,7 +1261,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             logger.warning('received failover request with leader specified - performing switchover instead')
             action = 'switchover'
 
-        if not data and leader and candidate and leader == candidate:
+        if not data and leader == candidate:
             data = 'Switchover target and source are the same'
 
         if not data and not scheduled_at:

@@ -1485,15 +1485,17 @@ class Ha(object):
         return not self.quorum_commit_mode_is_active() or quorum_votes >= quorum\
             or nodes_ahead == 0 and self.cluster.sync.leader == self.state_handler.name
 
-    def is_failover_possible(self, *, cluster_lsn: int = 0, exclude_failover_candidate: bool = False) -> bool:
+    def is_failover_possible(self, *, cluster_lsn: int = 0,
+                             exclude_failover_candidate: bool = False, filter_failover_site: bool = False) -> bool:
         """Checks whether any of the cluster members is allowed to promote and is healthy enough for that.
 
         :param cluster_lsn: to calculate replication lag and exclude member if it is lagging.
         :param exclude_failover_candidate: if ``True``, exclude :attr:`failover.candidate` from the members
                                            list against which the failover possibility checks are run.
+        :param filter_failover_site: if ``True``, only consider members that are located in the :attr:`failover.site`.
         :returns: `True` if there are members eligible to become the new leader.
         """
-        candidates = self.get_failover_candidates(exclude_failover_candidate)
+        candidates = self.get_failover_candidates(exclude_failover_candidate, filter_failover_site)
 
         action = self._get_failover_action_name()
         if self.is_synchronous_mode() and self.cluster.failover and self.cluster.failover.candidate and not candidates:
@@ -1554,7 +1556,7 @@ class Ha(object):
 
             # in synchronous mode (except quorum commit!) when our name is not in the
             # /sync key we shouldn't take any action even if the candidate is unhealthy
-            if self.is_synchronous_mode() and not self.is_quorum_commit_mode()\
+            if self.sync_mode_is_active() and not self.is_quorum_commit_mode()\
                     and not self.cluster.sync.matches(self.state_handler.name, True):
                 return False
 
@@ -1573,6 +1575,12 @@ class Ha(object):
             # i.e. we assume that failover.candidate is None
         elif self.is_paused():
             return False
+        elif failover.site:
+            # in synchronous mode (except quorum commit!) when our name is not in the
+            # /sync key we shouldn't take any action even if the candidate is unhealthy
+            if self.sync_mode_is_active() and not self.is_quorum_commit_mode()\
+                    and not self.cluster.sync.matches(self.state_handler.name, True):
+                return False
 
         # try to pick some other members for switchover and check that they are healthy
         if failover.leader:
@@ -1857,7 +1865,7 @@ class Ha(object):
             if not failover.candidate or failover.candidate != self.state_handler.name:
                 if not failover.candidate and self.is_paused():
                     logger.warning('%s is possible only to a specific candidate in a paused state', action.title())
-                elif self.is_failover_possible():
+                elif self.is_failover_possible(filter_failover_site=True):
                     ret = self._async_executor.try_run_async(f'{action}: demote', self.demote, ('graceful',))
                     return ret or f'{action}: demoting myself'
                 else:
@@ -1894,7 +1902,7 @@ class Ha(object):
             if self.acquire_lock():
                 failover = self.cluster.failover
                 if failover:
-                    if self.is_paused() and failover.leader and (failover.candidate or failover.site):
+                    if self.is_paused() and failover.leader and failover.candidate:
                         logger.info('Updating failover key after acquiring leader lock...')
                         self.dcs.manual_failover('', failover.candidate, failover.site, failover.scheduled_at,
                                                  failover.version)
@@ -2607,7 +2615,8 @@ class Ha(object):
         name = member.name if member else 'remote_member:{}'.format(uuid.uuid1())
         return RemoteMember(name, data)
 
-    def get_failover_candidates(self, exclude_failover_candidate: bool) -> List[Member]:
+    def get_failover_candidates(self,
+                                exclude_failover_candidate: bool, filter_failover_site: bool = False) -> List[Member]:
         """Return a list of candidates for either manual or automatic failover.
 
         Exclude non-sync members when in synchronous mode, the current node (its checks are always performed earlier)
@@ -2617,6 +2626,7 @@ class Ha(object):
         healthy enough and is allowed to poromote.
 
         :param exclude_failover_candidate: if ``True``, exclude :attr:`failover.candidate` from the candidates.
+        :param filter_failover_site: if ``True``, only consider members that are located in the :attr:`failover.site`.
 
         :returns: a list of :class:`Member` objects or an empty list if there is no candidate available.
         """
@@ -2635,4 +2645,6 @@ class Ha(object):
                 (exclude_failover_candidate or not failover
                  or not failover.candidate or node.name == failover.candidate)
 
-        return list(filter(is_eligible, self.cluster.members))
+        members = [m for m in self.cluster.members if not failover or not failover.site
+                   or m.site == failover.site] if filter_failover_site else self.cluster.members
+        return list(filter(is_eligible, members))
