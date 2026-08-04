@@ -218,7 +218,7 @@ class Failsafe(object):
             if value == float('-inf'):
                 self._reset_state()
             else:
-                self._last_update == value
+                self._last_update = value
 
 
 class Ha(object):
