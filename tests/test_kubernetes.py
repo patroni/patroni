@@ -189,6 +189,7 @@ class TestApiClient(unittest.TestCase):
         mock_request.side_effect = [socket.timeout, socket.timeout, self.mock_get_ep]
         self.assertRaises(K8sConnectionFailed, retry, self.a.call_api, 'GET', 'f', _retry=retry)
 
+    @patch('time.monotonic', Mock(side_effect=[100, 101]))
     def test__refresh_api_servers_cache(self, mock_request):
         mock_request.side_effect = k8s_client.rest.ApiException(403, '')
         self.a.refresh_api_servers_cache()
@@ -460,7 +461,7 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         mock_patch.side_effect = [k8s_client.rest.ApiException(409, ''),
                                   k8s_client.rest.ApiException(409, ''), mock_namespaced_kind()]
         mock_read.return_value.metadata.resource_version = '2'
-        mock_time = Mock(side_effect=[0, 0, 100, 0, 0, 0, 0, 100])
+        mock_time = Mock(side_effect=[0, 0, 200, 0, 0, 0, 0, 100])
         with patch('time.monotonic', mock_time), patch('time.monotonic_ns', mock_time, create=True):
             self.assertFalse(self.k.update_leader(cluster, '123'))
             self.assertFalse(self.k.update_leader(cluster, '123'))

@@ -197,7 +197,7 @@ class TestConsul(unittest.TestCase):
                 self.assertTrue(self.c.update_leader(cluster, 12345, failsafe={'foo': 'bar'}))
             with patch.object(KV, 'put', Mock(side_effect=ConsulException)):
                 self.assertFalse(self.c.update_leader(cluster, 12345))
-            mock_time = Mock(side_effect=[0, 0, 100, 0, 0, 0, 0])
+            mock_time = Mock(side_effect=[0, 0, 0, 100, 200, 300])
             with patch('time.monotonic', mock_time), patch('time.monotonic_ns', mock_time, create=True):
                 self.assertRaises(ConsulError, self.c.update_leader, cluster, 12345)
         with patch('time.monotonic', Mock(side_effect=[0, 100, 200, 300])):

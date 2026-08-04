@@ -547,6 +547,8 @@ class TestHa(PostgresInit):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
 
+    @patch('time.time', Mock(return_value=100))
+    @patch('patroni.ha.time.monotonic', Mock(return_value=100))
     def test_check_failsafe_topology(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
@@ -567,6 +569,8 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(),
                          'continue to run as a leader because failsafe mode is enabled and all members are accessible')
 
+    @patch('time.time', Mock(return_value=100))
+    @patch('patroni.ha.time.monotonic', Mock(return_value=100))
     def test_no_dcs_connection_primary_failsafe(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
@@ -579,6 +583,8 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(),
                          'continue to run as a leader because failsafe mode is enabled and all members are accessible')
 
+    @patch('time.time', Mock(return_value=100))
+    @patch('patroni.ha.time.monotonic', Mock(return_value=100))
     def test_readonly_dcs_primary_failsafe(self):
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
         self.ha.dcs.update_leader = Mock(side_effect=DCSError('Etcd is not responding properly'))
@@ -587,6 +593,8 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(),
                          'continue to run as a leader because failsafe mode is enabled and all members are accessible')
 
+    @patch('time.time', Mock(return_value=100))
+    @patch('patroni.ha.time.monotonic', Mock(return_value=100))
     def test_no_dcs_connection_replica_failsafe(self):
         self.p.last_operation = Mock(side_effect=PostgresConnectionException(''))
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
@@ -599,6 +607,8 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
             self.assertEqual(mock_logger.call_args_list[0][0][0], 'Failed to fetch current wal lsn: %r')
 
+    @patch('time.time', Mock(return_value=100))
+    @patch('patroni.ha.time.monotonic', Mock(return_value=100))
     def test_no_dcs_connection_replica_failsafe_not_enabled_but_active(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.ha.cluster = get_cluster_initialized_with_leader()

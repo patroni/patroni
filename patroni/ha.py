@@ -210,14 +210,15 @@ class Failsafe(object):
         .. note::
             This method is only called on the primary.
             Effectively it sets expiration time of failsafe mode.
-            If the provided value is ``0``, it disables failsafe mode.
+            If the provided value is ``float(-inf)``, it disables failsafe mode.
 
         :param value: time of the last update.
         """
         with self._lock:
-            self._last_update = value
-            if not value:
+            if value == float('-inf'):
                 self._reset_state()
+            else:
+                self._last_update == value
 
 
 class Ha(object):
@@ -1226,7 +1227,7 @@ class Ha(object):
                 return 'Postponing promotion because synchronous replication state was updated by somebody else'
             if self.state_handler.role not in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
                 # reset failsafe state when promote
-                self._failsafe.set_is_active(0)
+                self._failsafe.set_is_active(float('-inf'))
                 self._last_timeline = None
 
                 def before_promote():
