@@ -382,3 +382,57 @@ class TestEtcd(unittest.TestCase):
 
     def test_last_seen(self):
         self.assertIsNotNone(self.etcd.last_seen)
+
+class TestApplyEtcdTLSConfig(unittest.TestCase):
+
+    def setUp(self):
+        # A minimal stand-in for a urllib3 PoolManager: only the attribute
+        # our function touches (connection_pool_kw) needs to exist.
+        class _FakePool:
+            def __init__(self):
+                self.connection_pool_kw = {}
+        self.pool = _FakePool()
+
+    def _apply(self, config):
+        from patroni.dcs.etcd import _apply_etcd_tls_config
+        _apply_etcd_tls_config(self.pool, config)
+        return self.pool.connection_pool_kw
+
+    def test_non_https_is_noop(self):
+        kw = self._apply({'protocol': 'http', 'verify': False})
+        self.assertEqual(kw, {})
+
+    def test_secure_defaults_are_noop(self):
+        kw = self._apply({'protocol': 'https'})
+        self.assertEqual(kw, {})
+
+    def test_verify_false_sets_cert_none(self):
+        kw = self._apply({'protocol': 'https', 'verify': False})
+        self.assertEqual(kw['cert_reqs'], 'CERT_NONE')
+        self.assertFalse(kw['assert_hostname'])
+        self.assertNotIn('ssl_context', kw)  # no SSLContext created
+
+    def test_verify_hostname_false_keeps_ca(self):
+        import ssl
+        kw = self._apply({'protocol': 'https', 'verify_hostname': False})
+        ctx = kw['ssl_context']
+        self.assertEqual(ctx.verify_mode, ssl.CERT_REQUIRED)
+        self.assertFalse(ctx.check_hostname)
+        self.assertFalse(kw['assert_hostname'])
+
+    def test_cn_fallback_skipped_when_hostname_disabled(self):
+        # When verify_hostname is False, cn_fallback must not gate any behavior.
+        kw = self._apply({'protocol': 'https',
+                          'verify_hostname': False,
+                          'hostname_checks_common_name': True})
+        # Still produces a context with hostname checking off; no error raised.
+        self.assertIn('ssl_context', kw)
+        self.assertFalse(kw['ssl_context'].check_hostname)
+
+    def test_cn_fallback_does_not_raise(self):
+        # Must not raise even if the OpenSSL build can't set the attribute.
+        try:
+            self._apply({'protocol': 'https',
+                         'hostname_checks_common_name': True})
+        except Exception as e:
+            self.fail('unexpected exception: %r' % e)

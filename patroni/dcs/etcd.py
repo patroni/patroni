@@ -26,7 +26,6 @@ from ..exceptions import DCSError
 from ..postgresql.mpp import AbstractMPP
 from ..request import get as requests_get
 from ..utils import Retry, RetryFailedError, split_host_port, uri, USER_AGENT
-from .etcd_tls import apply_tls_config
 from . import AbstractDCS, catch_return_false_exception, Cluster, ClusterConfig, \
     Failover, Leader, Member, ReturnFalseException, Status, SyncState, TimelineHistory
 
@@ -138,6 +137,81 @@ class StaleEtcdNodeGuard(object):
             raise StaleEtcdNode
         self._raft_term = raft_term
 
+def _apply_etcd_tls_config(http_pool: Any, config: Dict[str, Any]) -> None:
+    """Apply opt-in TLS relaxation flags to an existing urllib3 PoolManager.
+
+    Recognizes three optional config keys, all defaulting to the secure value
+    so that existing configurations are unaffected:
+
+    * ``verify`` (default ``True``) -- when ``False``, disables certificate
+      chain validation entirely. Intended for etcd running with ``--auto-tls``
+      where no CA is available. Logs a warning.
+    * ``verify_hostname`` (default ``True``) -- when ``False``, keeps CA chain
+      validation but skips the hostname/SAN identity check. Logs a warning.
+    * ``hostname_checks_common_name`` (default ``False``) -- when ``True``,
+      allows matching the certificate Common Name when no SAN is present.
+
+    The pool is modified in place; no global urllib3 state is touched.
+    """
+    # Only meaningful for TLS connections. For plain HTTP (e.g. etcd on a
+    # trusted private network) there is nothing to relax, so do nothing.
+    if config.get('protocol') != 'https':
+        return
+
+    verify = config.get('verify', True)
+    verify_hostname = config.get('verify_hostname', True)
+    cn_fallback = config.get('hostname_checks_common_name', False)
+
+    # Nothing to do when all flags are at their secure defaults.
+    if verify and verify_hostname and not cn_fallback:
+        return
+
+    # Import ssl lazily: a Python built without the ssl module can still be
+    # used for plain-HTTP etcd, and must not fail at import time.
+    import ssl
+
+    pool_kw = http_pool.connection_pool_kw
+
+    if not verify:
+        # No custom SSLContext needed: urllib3 builds its own default context
+        # and honors these pool options.
+        pool_kw['cert_reqs'] = 'CERT_NONE'
+        pool_kw['assert_hostname'] = False
+        pool_kw.pop('ca_certs', None)
+        logger.warning('etcd TLS certificate verification is disabled '
+                       '(verify=false). Any certificate from any issuer will '
+                       'be accepted. Use only as a temporary measure while '
+                       'migrating to a managed PKI.')
+        return
+
+    cafile = pool_kw.get('ca_certs') or config.get('ca_cert') or config.get('cacert')
+    ctx = ssl.create_default_context(cafile=cafile)
+
+    # CN fallback only matters while hostname checking is active. The attribute
+    # already defaults to True; on builds where the setter is unavailable
+    # (e.g. FIPS-validated OpenSSL) the default already provides the desired
+    # behavior, so a failure to set it is harmless.
+    if verify_hostname and cn_fallback:
+        try:
+            ctx.hostname_checks_common_name = True
+        except AttributeError:
+            pass
+
+    if not verify_hostname:
+        ctx.check_hostname = False
+        pool_kw['assert_hostname'] = False
+        logger.warning('etcd TLS hostname verification is disabled '
+                       '(verify_hostname=false). CA chain validation remains '
+                       'enabled.')
+
+    cert_file = pool_kw.get('cert_file')
+    key_file = pool_kw.get('key_file')
+    if cert_file:
+        ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
+
+    pool_kw['ssl_context'] = ctx
+    pool_kw['cert_reqs'] = 'CERT_REQUIRED'
+    
 
 class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
 
@@ -154,7 +228,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
         # For some reason python3-etcd on debian and ubuntu are not based on the latest version
         # Workaround for the case when https://github.com/jplana/python-etcd/pull/196 is not applied
         self.http.connection_pool_kw.pop('ssl_version', None)
-        apply_tls_config(self.http, config)
+        _apply_etcd_tls_config(self.http, config)
         self._config = config
         self._load_machines_cache()
         self._allow_reconnect = True
