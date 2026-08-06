@@ -211,7 +211,7 @@ def _apply_etcd_tls_config(http_pool: Any, config: Dict[str, Any]) -> None:
 
     pool_kw['ssl_context'] = ctx
     pool_kw['cert_reqs'] = 'CERT_REQUIRED'
-    
+
 
 class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
 
