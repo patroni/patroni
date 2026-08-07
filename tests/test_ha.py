@@ -341,9 +341,9 @@ class TestHa(PostgresInit):
             self.ha.cluster.config.data.update({'maximum_lag_on_failover': 10})
             self.assertEqual(self.ha.run_cycle(), 'terminated crash recovery because of startup timeout')
 
-            # Test handle_long_action_in_progress when _crash_recovery_started is None
+            # Test handle_long_action_in_progress when _crash_recovery_started is float('-inf')
             # (the else branch setting time_left = 0)
-            self.ha._crash_recovery_started = None
+            self.ha._crash_recovery_started = float('-inf')
             self.ha.is_failover_possible = true
             self.assertEqual(self.ha.run_cycle(), 'terminated crash recovery because of startup timeout')
 
@@ -2127,7 +2127,7 @@ class TestHa(PostgresInit):
 
         # Test that _process_quorum_replication doesn't take longer than loop_wait
         with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')), \
-                patch('time.time', Mock(side_effect=[30, 60, 90, 120, 150])):
+                patch('time.monotonic', Mock(side_effect=[30, 60, 90, 120, 150])):
             self.ha.process_sync_replication()
 
         # Test _check_timeout returning True inside the for loop of _process_quorum_replication

@@ -427,7 +427,7 @@ class K8sClient(object):
                     if TYPE_CHECKING:  # pragma: no cover
                         assert isinstance(retry, Retry)  # K8sConnectionFailed is raised only if retry is not None!
                     sleeptime = retry.sleeptime
-                    remaining_time = (retry.stoptime or time.monotonic()) - sleeptime - time.monotonic()
+                    remaining_time = retry.stoptime - sleeptime - time.monotonic()
                     nodes, timeout, retries = self._calculate_timeouts(api_servers, remaining_time)
                     if nodes == 0:
                         self._update_api_servers_cache = True

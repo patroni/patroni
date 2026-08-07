@@ -189,7 +189,6 @@ class TestApiClient(unittest.TestCase):
         mock_request.side_effect = [socket.timeout, socket.timeout, self.mock_get_ep]
         self.assertRaises(K8sConnectionFailed, retry, self.a.call_api, 'GET', 'f', _retry=retry)
 
-    @patch('time.monotonic', Mock(side_effect=[100, 101]))
     def test__refresh_api_servers_cache(self, mock_request):
         mock_request.side_effect = k8s_client.rest.ApiException(403, '')
         self.a.refresh_api_servers_cache()

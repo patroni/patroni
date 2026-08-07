@@ -713,7 +713,7 @@ class Retry(object):
     @property
     def stoptime(self) -> float:
         """Get the current stop time."""
-        return self._cur_stoptime or float('-inf')
+        return float('-inf') if self._cur_stoptime is None else self._cur_stoptime
 
     def ensure_deadline(self, timeout: float, raise_ex: Optional[Exception] = None) -> bool:
         """Calculates and checks the remaining deadline time.

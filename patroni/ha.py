@@ -238,7 +238,7 @@ class Ha(object):
         self._leader_timeline = None
         self.recovering = False
         self._async_response = CriticalTask()
-        self._crash_recovery_started: Optional[float] = None
+        self._crash_recovery_started: float = float('-inf')
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
         self.watchdog = patroni.watchdog
@@ -260,7 +260,7 @@ class Ha(object):
         # receive/flush/replay LSN from last cycle, is used to detect false positives of dead primary
         self._prev_wal_lsn: Optional[int] = None
         # timestamp when primary_race_backoff was triggered
-        self._primary_race_backoff_timestamp: Optional[float] = None
+        self._primary_race_backoff_timestamp: float = float('-inf')
 
         # Count of concurrent sync disabling requests. Value above zero means that we don't want to be synchronous
         # standby. Changes protected by _member_state_lock.
@@ -347,7 +347,7 @@ class Ha(object):
 
         if not self.cluster.is_unlocked():
             # Reset primary_race_backoff if there is a leader
-            self._primary_race_backoff_timestamp = None
+            self._primary_race_backoff_timestamp = float('-inf')
 
         if not self.has_lock(False):
             self.set_is_leader(False)
@@ -593,7 +593,7 @@ class Ha(object):
         return result
 
     def _handle_crash_recovery(self) -> Optional[str]:
-        if self._crash_recovery_started is None and (self.cluster.is_unlocked() or self._rewind.can_rewind):
+        if self._crash_recovery_started == float('-inf') and (self.cluster.is_unlocked() or self._rewind.can_rewind):
             self._crash_recovery_started = time.monotonic()
             msg = 'doing crash recovery in a single user mode'
             return self._async_executor.try_run_async(msg, self._rewind.ensure_clean_shutdown) or msg
@@ -1856,7 +1856,7 @@ class Ha(object):
         if not self.is_paused() and not self.is_standby_cluster() and \
                 not (self.cluster.failover and self.cluster.failover.candidate) and \
                 global_config.primary_race_backoff > 0 and self._prev_wal_lsn is not None:
-            if self._primary_race_backoff_timestamp is None:
+            if self._primary_race_backoff_timestamp == float('-inf'):
                 self._primary_race_backoff_timestamp = time.monotonic()
             time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.monotonic()
             # We want to protect from leader key expiring shortly after the last heartbeat loop, and therefore
@@ -2120,10 +2120,7 @@ class Ha(object):
         """Figure out what to do with the task AsyncExecutor is performing."""
         if self.has_lock() and self.update_lock():
             if self._async_executor.scheduled_action == 'doing crash recovery in a single user mode':
-                if self._crash_recovery_started is not None:
-                    time_left = global_config.primary_start_timeout - (time.monotonic() - self._crash_recovery_started)
-                else:
-                    time_left = 0
+                time_left = global_config.primary_start_timeout - (time.monotonic() - self._crash_recovery_started)
                 if time_left <= 0 and self.is_failover_possible():
                     logger.info("Demoting self because crash recovery is taking too long")
                     self.state_handler.cancellable.cancel(True)
@@ -2550,7 +2547,7 @@ class Ha(object):
         # watch on leader key changes if the postgres is running and leader is known and current node is not lock owner
         if not self._async_executor.busy and (not self.cluster or self.cluster.is_unlocked()):
             leader_version = None
-            if self._primary_race_backoff_timestamp is not None:
+            if self._primary_race_backoff_timestamp > float('-inf'):
                 time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.monotonic()
             else:
                 time_left = -1
