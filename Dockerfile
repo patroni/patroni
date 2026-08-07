@@ -2,6 +2,7 @@
 ## It has all the necessary components to play/debug with a single node appliance, running etcd
 ARG PG_MAJOR=17
 ARG COMPRESS=false
+ARG PG_MAX_CONNECTIONS=2048
 ARG PGHOME=/home/postgres
 ARG PGDATA=$PGHOME/data
 ARG LC_ALL=C.UTF-8
@@ -136,6 +137,7 @@ LABEL maintainer="Alexander Kukushkin <akukushkin@microsoft.com>"
 
 ARG PG_MAJOR
 ARG COMPRESS
+ARG PG_MAX_CONNECTIONS=2048
 ARG PGHOME
 ARG PGDATA
 ARG LC_ALL
@@ -163,7 +165,7 @@ RUN sed -i 's/env python/&3/' /patroni*.py \
     && sed -i 's/^  - encoding: UTF8/  - locale: en_US.UTF-8\n&/' postgres?.yml \
     && sed -i 's/^\(scope\|name\|etcd\|  host\|  authentication\|  connect_address\|  parameters\):/#&/' postgres?.yml \
     && sed -i 's/^    \(replication\|superuser\|rewind\|unix_socket_directories\|\(\(  \)\{0,1\}\(username\|password\)\)\):/#&/' postgres?.yml \
-    && sed -i 's/^      parameters:/&\n        max_connections: 100/'  postgres?.yml \
+    && sed -i "s/^      parameters:/&\n        max_connections: ${PG_MAX_CONNECTIONS}/"  postgres?.yml \
     && sed -i 's/^      pg_hba:/&\n      - local all all trust/' postgres?.yml \
     && sed -i 's/^\(.*\) \(.*\) md5/\1 all md5/' postgres?.yml \
     && if [ "$COMPRESS" = "true" ]; then chmod u+s /usr/bin/sudo; fi \
