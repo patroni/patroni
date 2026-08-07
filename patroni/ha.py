@@ -2319,7 +2319,7 @@ class Ha(object):
                         return msg
 
                 # Reset some states after postgres successfully started up
-                self._crash_recovery_started = None
+                self._crash_recovery_started = float('-inf')
                 if self._rewind.executed and not self._rewind.failed:
                     self._rewind.reset_state()
 
