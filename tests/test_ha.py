@@ -888,6 +888,7 @@ class TestHa(PostgresInit):
 
         # other members with failover_limitation_s
         with patch('patroni.ha.logger.info') as mock_info:
+            self.ha.cluster.members[0].data['api_url'] = None  # to test is_eligible
             self.ha.fetch_node_status = get_node_status(nofailover=True)
             self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
             self.assertEqual(mock_info.call_args_list[0][0][0::2], ('Member %s is %s', 'not allowed to promote'))
@@ -1281,9 +1282,23 @@ class TestHa(PostgresInit):
                              ('Local %s in the current site %s is possible, while my site is %s',
                               'failover', 'dc1', 'dc2'))
             # manual switchover to a site
+            # to my site
             mock_info.reset_mock()
             self.ha.fetch_node_status = get_node_status(wal_position=12, site='dc2')
             self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', None, None, 'dc2'))
+            self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+            # to a remote site with no eligible members, while I am in another remote site
+            self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', None, None, 'dc3'))
+            self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+            # to a remote site, while I am in the last leader's site
+            self.ha.patroni.site = 'dc1'
+            self.assertFalse(self.ha._is_healthiest_node(self.ha.old_cluster.members))
+            self.assertEqual(mock_info.call_args_list[0][0],
+                             ('%s to the requested site %s is not possible, I am in the last leader\'s site '
+                              '%s, prefer failover to a remote site', 'switchover', 'dc3', 'dc1'))
+            # to the last leader's site with no eligible members, while I am in a remote site
+            self.ha.patroni.site = 'dc2'
+            self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', None, None, 'dc1'))
             self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
 
     def test_fetch_node_status(self):

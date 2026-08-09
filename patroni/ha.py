@@ -1447,11 +1447,23 @@ class Ha(object):
 
         action = self._get_failover_action_name()
         if self.cluster.failover and self.cluster.failover.site:
-            eligible_members = [st for st in eligible_members if st.data.get('site') == self.cluster.failover.site]
-            if eligible_members and self.patroni.site != self.cluster.failover.site:
+            target_site_eligible = [st for st in eligible_members if st.data.get('site') == self.cluster.failover.site]
+            if target_site_eligible and self.patroni.site != self.cluster.failover.site:
                 logger.info('%s to the requested site %s is possible, while my site is %s',
                             action.capitalize(), self.cluster.failover.site, self.patroni.site)
                 return False
+            elif self.patroni.site == self.cluster.failover.site:
+                eligible_members = target_site_eligible
+            elif current_site and current_site != self.cluster.failover.site:
+                # failover to a remote site requested, while no eligible members in the requested site
+                remote_sites_eligible = [st for st in eligible_members if st.data.get('site') != current_site]
+                if remote_sites_eligible and self.patroni.site == current_site:
+                    logger.info('%s to the requested site %s is not possible, I am in the last leader\'s site '
+                                '%s, prefer failover to a remote site',
+                                action, self.cluster.failover.site, self.patroni.site)
+                    return False
+                elif self.patroni.site != current_site:
+                    eligible_members = remote_sites_eligible
         elif current_site:
             current_site_eligible = [st for st in eligible_members if st.data.get('site') == current_site]
             if current_site_eligible and self.patroni.site != current_site:
@@ -1882,9 +1894,9 @@ class Ha(object):
     def process_unhealthy_cluster(self) -> str:
         """Cluster has no leader key"""
         # First, we want to handle primary_race_backoff. Do it only for non-standby cluster,
-        # not in maintenance mode and when there is no manual failover/switchover in progress.
+        # not in maintenance mode and when there is no manual failover/switchover to a candidate in progress.
         if not self.is_paused() and not self.is_standby_cluster() and \
-                not (self.cluster.failover and (self.cluster.failover.candidate or self.cluster.failover.site)) and \
+                not (self.cluster.failover and self.cluster.failover.candidate) and \
                 global_config.primary_race_backoff > 0 and self._prev_wal_lsn is not None:
             if self._primary_race_backoff_timestamp == 0:
                 self._primary_race_backoff_timestamp = time.time()
@@ -2638,13 +2650,14 @@ class Ha(object):
             if self.sync_mode_is_active() and not self.cluster.sync.matches(node.name)\
                     and not (failover and not failover.leader):
                 return False
-            # Don't spend time on "nofailover" nodes checking.
-            # We also don't need nodes which we can't query with the api in the list.
-            # And, if exclude_failover_candidate is True we want to skip  node.name == failover.candidate check.
-            return node.name not in exclude and not node.nofailover and bool(node.api_url) and \
-                (exclude_failover_candidate or not failover
-                 or not failover.candidate or node.name == failover.candidate)
+            if node.name in exclude:
+                return False
+            if node.nofailover or not bool(node.api_url):
+                return False
+            if not exclude_failover_candidate and failover and failover.candidate and node.name != failover.candidate:
+                return False
+            if filter_failover_site and failover and failover.site and node.site != failover.site:
+                return False
+            return True
 
-        members = [m for m in self.cluster.members if not failover or not failover.site
-                   or m.site == failover.site] if filter_failover_site else self.cluster.members
-        return list(filter(is_eligible, members))
+        return list(filter(is_eligible, self.cluster.members))
