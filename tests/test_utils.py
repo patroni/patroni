@@ -10,6 +10,7 @@ from patroni.utils import apply_keepalive_limit, enable_keepalive, get_major_ver
 
 class TestUtils(unittest.TestCase):
 
+    @patch('time.monotonic', Mock(side_effect=[0, 0, 0.001]))
     def test_polling_loop(self):
         self.assertEqual(list(polling_loop(0.001, interval=0.001)), [0])
 
