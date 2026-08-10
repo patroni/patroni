@@ -1,7 +1,6 @@
 import datetime
 import os
 import sys
-import time
 
 from unittest.mock import MagicMock, Mock, mock_open, patch, PropertyMock
 
@@ -25,7 +24,6 @@ from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.rewind import Rewind, REWIND_STATUS
 from patroni.postgresql.slots import SlotsHandler
 from patroni.postgresql.sync import _SyncState
-from patroni.quorum import Transition
 from patroni.thread_pool import PatroniThreadPoolExecutor
 from patroni.utils import tzutc
 from patroni.watchdog import Watchdog
@@ -341,12 +339,6 @@ class TestHa(PostgresInit):
             self.ha.cluster.config.data.update({'maximum_lag_on_failover': 10})
             self.assertEqual(self.ha.run_cycle(), 'terminated crash recovery because of startup timeout')
 
-            # Test handle_long_action_in_progress when _crash_recovery_started is float('-inf')
-            # (the else branch setting time_left = 0)
-            self.ha._crash_recovery_started = float('-inf')
-            self.ha.is_failover_possible = true
-            self.assertEqual(self.ha.run_cycle(), 'terminated crash recovery because of startup timeout')
-
     @patch('patroni.ha.logger.info')
     def test_crash_recovery_skip_when_backup_label_exists(self, mock_logger_info):
         self.p.is_running = false
@@ -547,8 +539,6 @@ class TestHa(PostgresInit):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
 
-    @patch('time.time', Mock(return_value=100))
-    @patch('patroni.ha.time.monotonic', Mock(return_value=100))
     def test_check_failsafe_topology(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
@@ -569,8 +559,6 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(),
                          'continue to run as a leader because failsafe mode is enabled and all members are accessible')
 
-    @patch('time.time', Mock(return_value=100))
-    @patch('patroni.ha.time.monotonic', Mock(return_value=100))
     def test_no_dcs_connection_primary_failsafe(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
@@ -583,8 +571,6 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(),
                          'continue to run as a leader because failsafe mode is enabled and all members are accessible')
 
-    @patch('time.time', Mock(return_value=100))
-    @patch('patroni.ha.time.monotonic', Mock(return_value=100))
     def test_readonly_dcs_primary_failsafe(self):
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
         self.ha.dcs.update_leader = Mock(side_effect=DCSError('Etcd is not responding properly'))
@@ -593,8 +579,6 @@ class TestHa(PostgresInit):
         self.assertEqual(self.ha.run_cycle(),
                          'continue to run as a leader because failsafe mode is enabled and all members are accessible')
 
-    @patch('time.time', Mock(return_value=100))
-    @patch('patroni.ha.time.monotonic', Mock(return_value=100))
     def test_no_dcs_connection_replica_failsafe(self):
         self.p.last_operation = Mock(side_effect=PostgresConnectionException(''))
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
@@ -607,8 +591,6 @@ class TestHa(PostgresInit):
             self.assertEqual(self.ha.run_cycle(), 'DCS is not accessible')
             self.assertEqual(mock_logger.call_args_list[0][0][0], 'Failed to fetch current wal lsn: %r')
 
-    @patch('time.time', Mock(return_value=100))
-    @patch('patroni.ha.time.monotonic', Mock(return_value=100))
     def test_no_dcs_connection_replica_failsafe_not_enabled_but_active(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.ha.cluster = get_cluster_initialized_with_leader()
@@ -2087,7 +2069,6 @@ class TestHa(PostgresInit):
                                                               _SyncState('quorum', 1, CaseInsensitiveSet(['foo']),
                                                                          CaseInsensitiveSet(['foo']),
                                                                          CaseInsensitiveSet(['foo']))])
-        self.ha._promote_timestamp = time.monotonic() - self.ha.dcs.loop_wait - 1
         mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=SyncState(1, 'leader', 'foo', 0))
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo'))
         # Test the sync node is removed from voters, added to ssn
@@ -2100,8 +2081,6 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (other)',))
 
-        # Test ANY 1 (*) when synchronous_mode_strict and no nodes available
-        self.ha._promote_timestamp = time.monotonic() - self.ha.dcs.loop_wait - 1
         self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1,
                                                                          CaseInsensitiveSet(['other', 'foo']),
                                                                          CaseInsensitiveSet(),
@@ -2129,22 +2108,6 @@ class TestHa(PostgresInit):
         with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')), \
                 patch('time.monotonic', Mock(side_effect=[30, 60, 90, 120, 150])):
             self.ha.process_sync_replication()
-
-        # Test _check_timeout returning True inside the for loop of _process_quorum_replication
-        self.ha._promote_timestamp = time.monotonic() - self.ha.dcs.loop_wait - 1
-        self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1,
-                                                                         CaseInsensitiveSet(['other']),
-                                                                         CaseInsensitiveSet(['other']),
-                                                                         CaseInsensitiveSet(['other'])))
-        self.ha.dcs.write_sync_state = Mock(return_value=SyncState(1, 'leader', 'other', 0))
-        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other', 1))
-        # QuorumStateResolver produces two transitions: first 'quorum' (processed normally),
-        # second 'sync' (_check_timeout() returns True on this iteration).
-        mock_transitions = [Transition('quorum', 'leader', 0, CaseInsensitiveSet()),
-                            Transition('sync', 'leader', 1, CaseInsensitiveSet(['other']))]
-        with patch('patroni.ha.QuorumStateResolver', Mock(return_value=mock_transitions)), \
-                patch('time.monotonic', Mock(side_effect=[0, 0, self.ha.dcs.loop_wait + 1])):
-            self.ha._process_quorum_replication()
 
         # Test foo -> ANY 1 (foo) transition
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'foo'))

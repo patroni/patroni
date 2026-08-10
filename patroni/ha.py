@@ -238,7 +238,7 @@ class Ha(object):
         self._leader_timeline = None
         self.recovering = False
         self._async_response = CriticalTask()
-        self._crash_recovery_started: float = float('-inf')
+        self._crash_recovery_started = float('-inf')
         self._start_timeout = None
         self._async_executor = AsyncExecutor(self.state_handler.cancellable, self.wakeup)
         self.watchdog = patroni.watchdog
@@ -260,7 +260,7 @@ class Ha(object):
         # receive/flush/replay LSN from last cycle, is used to detect false positives of dead primary
         self._prev_wal_lsn: Optional[int] = None
         # timestamp when primary_race_backoff was triggered
-        self._primary_race_backoff_timestamp: float = float('-inf')
+        self._primary_race_backoff_timestamp = float('-inf')
 
         # Count of concurrent sync disabling requests. Value above zero means that we don't want to be synchronous
         # standby. Changes protected by _member_state_lock.
@@ -2547,10 +2547,7 @@ class Ha(object):
         # watch on leader key changes if the postgres is running and leader is known and current node is not lock owner
         if not self._async_executor.busy and (not self.cluster or self.cluster.is_unlocked()):
             leader_version = None
-            if self._primary_race_backoff_timestamp > float('-inf'):
-                time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.monotonic()
-            else:
-                time_left = -1
+            time_left = self._primary_race_backoff_timestamp + global_config.primary_race_backoff - time.monotonic()
             # Take into account primary_race_backoff
             if 0 < time_left < timeout:
                 timeout = time_left
