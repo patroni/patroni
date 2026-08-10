@@ -57,8 +57,8 @@ class TestCancellableSubprocess(unittest.TestCase):
         communicate = {}
         ret = self.c.call(['cmd'], communicate=communicate, text=True, stream_cb=cb)
         self.assertEqual(ret, 0)
-        # callback errors are swallowed: every line is still delivered (per-stream order is
-        # deterministic), the trailing stdout line has no newline and the stderr CR is stripped
+        # callback errors are swallowed: every line is still delivered (per-stream order is deterministic),
+        # the trailing stdout line has no newline and the stderr CRLF is consumed as a single separator
         self.assertEqual([line for name, line in lines if name == 'stdout'], [b'out1', b'out2', b'tail'])
         self.assertEqual([line for name, line in lines if name == 'stderr'], [b'err1', b'err2'])
         # the full output is still captured back into the communicate dict
@@ -70,6 +70,39 @@ class TestCancellableSubprocess(unittest.TestCase):
         self.assertEqual(kwargs['stdout'], subprocess.PIPE)
         self.assertEqual(kwargs['stderr'], subprocess.PIPE)
         self.assertNotIn('text', kwargs)
+
+    @patch('patroni.postgresql.cancellable.psutil.Popen')
+    def test_call_stream_cb_cr_terminated(self, mock_popen):
+        lines = []
+
+        class MockStream(object):
+
+            def __init__(self, *chunks):
+                self._chunks = list(chunks)
+                self.lines_before_read = []
+                self.close = Mock()
+
+            def read1(self, _):
+                self.lines_before_read.append(list(lines))
+                return self._chunks.pop(0) if self._chunks else b''
+
+        # pg_basebackup (PostgreSQL 10 and older) and pg_rewind (PostgreSQL 11 and older) terminate every
+        # progress report with a bare CR, and a CRLF may be split between two reads
+        stdout = MockStream(b'128/512 MB (25%) copied\r',
+                            b'256/512 MB (50%) copied\r\n512/512 MB (100%) copied\r',
+                            b'\nsyncing data to disk ...')
+        mock_popen.return_value = Mock(stdout=stdout, stderr=None)
+        mock_popen.return_value.wait.return_value = 0
+
+        communicate = {}
+        ret = self.c.call(['cmd'], communicate=communicate, stream_cb=lambda name, line: lines.append(line))
+        self.assertEqual(ret, 0)
+        # the CR-terminated report was delivered while the process was still writing, not at EOF
+        self.assertEqual(stdout.lines_before_read[1], [b'128/512 MB (25%) copied'])
+        self.assertEqual(lines, [b'128/512 MB (25%) copied', b'256/512 MB (50%) copied',
+                                 b'512/512 MB (100%) copied', b'syncing data to disk ...'])
+        self.assertEqual(communicate['stdout'], b'128/512 MB (25%) copied\r256/512 MB (50%) copied\r\n'
+                                                b'512/512 MB (100%) copied\r\nsyncing data to disk ...')
 
     @patch('patroni.postgresql.cancellable.psutil.Popen')
     def test_call_stream_cb_ignored_with_input(self, mock_popen):

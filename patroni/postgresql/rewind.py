@@ -393,6 +393,16 @@ class Rewind(object):
         logger.info('Trying to fetch the missing wal: %s', cmd)
         return self._postgresql.cancellable.call(shlex.split(cmd)) == 0
 
+    @staticmethod
+    def _log_output_line(name: str, line: bytes) -> None:
+        """Log a single line of ``pg_rewind`` output.
+
+        :param name: name of the stream the line was read from, ``stdout`` or ``stderr``.
+        :param line: one line of output without the trailing newline.
+        """
+        if line:
+            logger.info('pg_rewind: %s', line.decode('utf-8', 'replace'))
+
     def _find_missing_wal(self, data: bytes) -> Optional[str]:
         # could not open file "$PGDATA/pg_wal/0000000A00006AA100000068": No such file or directory
         pattern = 'could not open file "'
@@ -494,16 +504,21 @@ class Rewind(object):
         cmd.extend(['-D', self._postgresql.data_dir, '--source-server', dsn])
         cmd.extend(user_options)
 
+        # pg_rewind --progress reports the copy progress while it is running, therefore
+        # the output is streamed to the log as it arrives instead of being dumped after exit
+        stream_cb = self._log_output_line if '--progress' in user_options else None
+
         while True:
             results: Dict[str, bytes] = {}
-            ret = self._postgresql.cancellable.call(cmd, env=env, communicate=results)
+            ret = self._postgresql.cancellable.call(cmd, env=env, communicate=results, stream_cb=stream_cb)
 
             logger.info('pg_rewind exit code=%s', ret)
             if ret is None:
                 return False
 
-            logger.info(' stdout=%s', results['stdout'].decode('utf-8'))
-            logger.info(' stderr=%s', results['stderr'].decode('utf-8'))
+            if stream_cb is None:  # streamed output has already been logged line by line
+                logger.info(' stdout=%s', results['stdout'].decode('utf-8'))
+                logger.info(' stderr=%s', results['stderr'].decode('utf-8'))
             if ret == 0:
                 return True
 
