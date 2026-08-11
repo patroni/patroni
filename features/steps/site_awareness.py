@@ -28,11 +28,11 @@ def start_patroni(context, name, site_name):
 @then('{name:name} is in sync with primary after {timeout:d} seconds')
 def replica_not_lagging(context, name, timeout):
     leader = context.dcs_ctl.query("leader")
-    bound_time = time.time() + timeout
+    bound_time = time.monotonic() + timeout
     function_name = 'pg_current_xlog_location()' if context.pctl.server_version / 10000 < 10 else 'pg_current_wal_lsn()'
     location_name = 'replay_location' if context.pctl.server_version / 10000 < 10 else 'replay_lsn'
 
-    while time.time() < bound_time:
+    while time.monotonic() < bound_time:
         cur = context.pctl.query(
             leader,
             f"SELECT {function_name} - {location_name} FROM pg_catalog.pg_stat_replication \

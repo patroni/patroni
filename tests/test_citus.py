@@ -82,7 +82,7 @@ class TestCitus(BaseTestPostgresql):
         self.c._in_flight.deadline = self.c._in_flight.timeout + time.monotonic()
         self.assertIsNone(self.c.add_task('after_promote', 1, self.cluster,
                                           self.cluster.leader_name, 'postgres://host:5432/postgres'))
-        self.c._in_flight.deadline = 0
+        self.c._in_flight.deadline = float('-inf')
         self.assertIsNotNone(self.c.add_task('after_promote', 1, self.cluster,
                                              self.cluster.leader_name, 'postgres://host:5432/postgres'))
 

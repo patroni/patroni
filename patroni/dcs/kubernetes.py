@@ -243,7 +243,7 @@ class K8sClient(object):
             self.pool_manager = urllib3.PoolManager(**k8s_config.pool_config)
             self._base_uri = k8s_config.server
             self._api_servers_cache = [k8s_config.server]
-            self._api_servers_cache_updated = 0
+            self._api_servers_cache_updated = float('-inf')
             self.set_api_servers_cache_ttl(10)
             self.set_read_timeout(10)
             try:

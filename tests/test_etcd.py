@@ -196,7 +196,7 @@ class TestClient(unittest.TestCase):
         self.client._base_uri = 'http://localhost:4001'
         rtry = Retry(deadline=10, max_delay=1, max_tries=-1, retry_exceptions=(etcd.EtcdLeaderElectionInProgress,))
         rtry(self.client.api_execute, '/', 'POST', timeout=0, params={'retry': rtry})
-        self.client._machines_cache_updated = 0
+        self.client._machines_cache_updated = float('-inf')
         self.client.api_execute('/', 'POST', timeout=0)
         self.client._machines_cache = [self.client._base_uri]
         self.assertRaises(etcd.EtcdWatchTimedOut, self.client.api_execute, '/timeout', 'POST', params={'wait': 'true'})

@@ -330,7 +330,7 @@ class PgDistTask(PgDistGroup):
         # If transaction was started, we need to COMMIT/ROLLBACK before the deadline
         self.timeout = timeout
         self.cooldown = cooldown or 10000  # 10s by default
-        self.deadline: float = 0
+        self.deadline: float = float('-inf')
 
         # All changes in the pg_dist_node are serialized on the Patroni
         # side by performing them from a thread. The thread, that is

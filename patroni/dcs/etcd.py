@@ -146,7 +146,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
         StaleEtcdNodeGuard.__init__(self)
         self._dns_resolver = dns_resolver
         self.set_machines_cache_ttl(cache_ttl)
-        self._machines_cache_updated = 0
+        self._machines_cache_updated = float('-inf')
         kwargs = {p: config.get(p) for p in ('host', 'port', 'protocol', 'use_proxies', 'version_prefix',
                                              'username', 'password', 'cert', 'ca_cert') if config.get(p)}
         super(AbstractEtcdClientWithFailover, self).__init__(read_timeout=config['retry_timeout'], **kwargs)
