@@ -2440,7 +2440,7 @@ class Ha(object):
         finally:
             if not dcs_failed:
                 if self.is_leader():
-                    self._failsafe.set_is_active(0)
+                    self._failsafe.set_is_active(float('-inf'))
                 self.touch_member()
 
     def _handle_dcs_error(self) -> str:
@@ -2452,7 +2452,7 @@ class Ha(object):
                     self.watchdog.keepalive()
                     self._sync_replication_slots(True)
                     return 'continue to run as a leader because failsafe mode is enabled and all members are accessible'
-                self._failsafe.set_is_active(0)
+                self._failsafe.set_is_active(float('-inf'))
                 logger.info('demoting self because DCS is not accessible and I was a leader')
                 self.demote('offline')
                 return 'demoted self because DCS is not accessible and I was a leader'
