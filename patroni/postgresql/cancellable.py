@@ -1,4 +1,5 @@
 import logging
+import re
 import subprocess
 
 from io import BufferedReader
@@ -12,6 +13,11 @@ from patroni.exceptions import PostgresException
 from patroni.utils import polling_loop
 
 logger = logging.getLogger(__name__)
+
+# Records are terminated with LF, CRLF (Windows), or a bare CR. The latter is used by progress reports of
+# pg_basebackup (PostgreSQL 10 and older) and pg_rewind (PostgreSQL 11 and older), which don't check whether
+# the output is a terminal and therefore keep writing CR even when it is a pipe.
+LINE_SEPARATOR_RE = re.compile(b'\r\n|\r|\n')
 
 
 class CancellableExecutor(object):
@@ -83,8 +89,9 @@ class CancellableSubprocess(CancellableExecutor):
 
         ``stderr`` is drained by a single helper thread while ``stdout`` is read inline, so both pipes are drained
         concurrently with only one extra thread. ``read1()`` returns as soon as any data is available, so slowly
-        produced lines are delivered promptly. Exceptions from ``stream_cb`` are swallowed so streaming continues;
-        only read/OS errors abort (after both streams are drained).
+        produced lines are delivered promptly. Lines are split on LF, CRLF, or a bare CR, so that progress reports
+        of old ``pg_basebackup``/``pg_rewind`` versions are streamed as well. Exceptions from ``stream_cb`` are
+        swallowed so streaming continues; only read/OS errors abort (after both streams are drained).
 
         :param stream_cb: called as ``stream_cb(stream_name, line)`` for every complete line of *stdout*/*stderr*.
 
@@ -97,24 +104,30 @@ class CancellableSubprocess(CancellableExecutor):
 
         def emit(name: str, line: bytes) -> None:
             try:
-                stream_cb(name, line.rstrip(b'\r'))  # drop trailing CR (CRLF on Windows)
+                stream_cb(name, line)
             except Exception:
                 pass  # keep streaming despite a bad callback
 
         def reader(stream: BufferedReader, name: str, sink: List[bytes]) -> None:
             buf = b''
+            pending_cr = False
             try:
                 while True:
                     # read1() -> a single underlying read: returns as soon as data is available
                     chunk = stream.read1(32768)
                     if not chunk:  # b'' -> EOF
                         break
-                    sink.append(chunk)
+                    sink.append(chunk)  # the caller gets the output with the original line endings
+                    if pending_cr and chunk[:1] == b'\n':
+                        chunk = chunk[1:]  # the LF of a CRLF that got split between two chunks
+                    # a chunk ending with CR is emitted right away rather than awaiting a possible LF,
+                    # otherwise a CR-terminated progress report would be delayed until the next one
+                    pending_cr = chunk[-1:] == b'\r'
                     buf += chunk
-                    *lines, buf = buf.split(b'\n')
+                    *lines, buf = LINE_SEPARATOR_RE.split(buf)
                     for line in lines:
                         emit(name, line)
-                if buf:  # trailing data without a final newline
+                if buf:  # trailing data without a final line separator
                     emit(name, buf)
             finally:
                 stream.close()

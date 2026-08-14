@@ -4,10 +4,7 @@ parameters:
     version_from: 170000
   allow_in_place_tablespaces:
   - type: Bool
-    version_from: 150000
-  - type: Bool
     version_from: 140005
-    version_till: 140099
   - type: Bool
     version_from: 130008
     version_till: 130099
@@ -1328,6 +1325,21 @@ parameters:
   - type: Bool
     version_from: 90500
     version_till: 140000
+  output_plugin_libraries:
+  - type: String
+    version_from: 180005
+  - type: String
+    version_from: 170011
+    version_till: 170099
+  - type: String
+    version_from: 160015
+    version_till: 160099
+  - type: String
+    version_from: 150019
+    version_till: 150099
+  - type: String
+    version_from: 140024
+    version_till: 140099
   parallel_leader_participation:
   - type: Bool
     version_from: 110000
@@ -1423,10 +1435,7 @@ parameters:
     version_from: 90300
   restrict_nonsystem_relation_kind:
   - type: String
-    version_from: 170000
-  - type: String
     version_from: 160004
-    version_till: 160099
   - type: String
     version_from: 150008
     version_till: 150099

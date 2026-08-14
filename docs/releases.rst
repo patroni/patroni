@@ -3,6 +3,34 @@
 Release notes
 =============
 
+Version 4.1.5
+-------------
+
+Released 2026-08-12
+
+**Compatibility improvements**
+
+- Compatibility with PostgreSQL 14.24, 15.19, 16.15, 17.11, 18.6 (Alexander Kukushkin)
+
+  Add the new ``output_plugin_libraries`` GUC, which restricts logical decoding output plugins.
+
+**Improvements**
+
+- Log REST API connection resets at ``DEBUG`` instead of ``WARNING`` (Kyle McLaren)
+
+  Ensure the common "client went away mid-write" variants are silenced without affecting the handling of genuine (non-connection) errors.
+
+**Bugfixes**
+
+- Fix ``thread_stack_size`` validation alignment (Sundong Kim)
+
+  Correct the ``aligned`` value from ``65535`` to ``65536`` in the ``thread_stack_size`` schema entry. Previously, ``patroni --validate-config`` rejected almost every realistic value, including the ``524288`` default applied by the daemon itself.
+
+- Allow validation of ``synchronous_mode`` to accept ``'quorum'`` and boolean-like strings (Eray Araz)
+
+  ``patroni --validate-config`` previously rejected ``synchronous_mode`` values such as ``quorum`` and the PostgreSQL-style boolean strings that are accepted at runtime.
+
+
 Version 4.1.4
 -------------
 

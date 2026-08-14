@@ -250,6 +250,16 @@ class Bootstrap(object):
         self._postgresql.set_state(PostgresqlState.STOPPED)
         return ret
 
+    @staticmethod
+    def _log_output_line(name: str, line: bytes) -> None:
+        """Log a single line of ``pg_basebackup`` output.
+
+        :param name: name of the stream the line was read from, ``stdout`` or ``stderr``.
+        :param line: one line of output without the trailing newline.
+        """
+        if line:
+            logger.info('pg_basebackup: %s', line.decode('utf-8', 'replace'))
+
     def basebackup(self, conn_url: str, env: Dict[str, str], options: Dict[str, Any]) -> Optional[int]:
         # creates a replica data dir using pg_basebackup.
         # this is the default, built-in create_replica_methods
@@ -285,6 +295,10 @@ class Bootstrap(object):
             "--dbname=" + conn_url,
         ] + user_options
 
+        # pg_basebackup --progress reports the copy progress while it is running, therefore
+        # the output is streamed to the log as it arrives instead of being discarded
+        stream_cb = self._log_output_line if '--progress' in user_options else None
+
         for bbfailures in range(0, maxfailures):
             if self._postgresql.cancellable.is_cancelled:
                 break
@@ -292,7 +306,7 @@ class Bootstrap(object):
                 self._postgresql.remove_data_directory()
             try:
                 logger.debug('calling: %r', cmd)
-                ret = self._postgresql.cancellable.call(cmd, env=env)
+                ret = self._postgresql.cancellable.call(cmd, env=env, stream_cb=stream_cb)
                 if ret == 0:
                     break
                 else:
