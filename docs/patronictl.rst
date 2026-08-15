@@ -448,21 +448,21 @@ Fail over to node ``postgresql2``:
 
     $ patronictl -c postgres0.yml failover batman --candidate postgresql2 --force
     Current cluster topology
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  3 |             |     |            |     |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  3 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  3 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
+    + Cluster: batman (7277694203142172922) -+-----------+-------------+----+-------------+-----+------------+-----+
+    | Member      | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   | No          |  3 |             |     |            |     |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  3 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  3 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
     2023-09-12 11:52:27.50978 Successfully failed over to "postgresql2"
-    + Cluster: batman (7277694203142172922) -+---------+----+-------------+---------+------------+---------+
-    | Member      | Host           | Role    | State   | TL | Receive LSN |     Lag | Replay LSN |     Lag |
-    +-------------+----------------+---------+---------+----+-------------+---------+------------+---------+
-    | postgresql0 | 127.0.0.1:5432 | Replica | stopped |    |     unknown | unknown |    unknown | unknown |
-    | postgresql1 | 127.0.0.1:5433 | Replica | running |  3 |   0/4000188 |       0 |  0/4000188 |       0 |
-    | postgresql2 | 127.0.0.1:5434 | Leader  | running |  3 |             |         |            |         |
-    +-------------+----------------+---------+---------+----+-------------+---------+------------+---------+
+    + Cluster: batman (7277694203142172922) -+---------+-------------+----+-------------+---------+------------+---------+
+    | Member      | Host           | Role    | State   | In Recovery | TL | Receive LSN |     Lag | Replay LSN |     Lag |
+    +-------------+----------------+---------+---------+-------------+----+-------------+---------+------------+---------+
+    | postgresql0 | 127.0.0.1:5432 | Replica | stopped | -           |    |     unknown | unknown |    unknown | unknown |
+    | postgresql1 | 127.0.0.1:5433 | Replica | running | Yes         |  3 |   0/4000188 |       0 |  0/4000188 |       0 |
+    | postgresql2 | 127.0.0.1:5434 | Leader  | running | No          |  3 |             |         |            |         |
+    +-------------+----------------+---------+---------+-------------+----+-------------+---------+------------+---------+
 
 .. _patronictl_flush:
 
@@ -555,13 +555,13 @@ Discard scheduled restart of all standby nodes:
 .. code:: bash
 
     $ patronictl -c postgres0.yml flush batman restart -r replica --force
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+---------------------------+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag | Scheduled restart         |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+---------------------------+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |             |     |            |     | 2025-03-23T18:00:00-03:00 |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |   0/4000400 |   0 |  0/4000400 |   0 | 2025-03-23T18:00:00-03:00 |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |   0/4000400 |   0 |  0/4000400 |   0 | 2025-03-23T18:00:00-03:00 |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+---------------------------+
+    + Cluster: batman (7277694203142172922) -+-----------+-------------+----+-------------+-----+------------+-----+---------------------------+
+    | Member      | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag | Scheduled restart         |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+---------------------------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   | No          |  5 |             |     |            |     | 2025-03-23T18:00:00-03:00 |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  5 |   0/4000400 |   0 |  0/4000400 |   0 | 2025-03-23T18:00:00-03:00 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  5 |   0/4000400 |   0 |  0/4000400 |   0 | 2025-03-23T18:00:00-03:00 |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+---------------------------+
     Success: flush scheduled restart for member postgresql1
     Success: flush scheduled restart for member postgresql2
 
@@ -570,13 +570,13 @@ Discard scheduled restart of nodes ``postgresql0`` and ``postgresql1``:
 .. code:: bash
 
     $ patronictl -c postgres0.yml flush batman postgresql0 postgresql1 restart --force
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+---------------------------+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag | Scheduled restart         |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+---------------------------+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |             |     |            |     | 2025-03-23T18:00:00-03:00 |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |   0/4000400 |   0 |  0/4000400 |   0 | 2025-03-23T18:00:00-03:00 |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |   0/4000400 |   0 |  0/4000400 |   0 | 2025-03-23T18:00:00-03:00 |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+---------------------------+
+    + Cluster: batman (7277694203142172922) -+-----------+-------------+----+-------------+-----+------------+-----+---------------------------+
+    | Member      | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag | Scheduled restart         |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+---------------------------+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   | No          |  5 |             |     |            |     | 2025-03-23T18:00:00-03:00 |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  5 |   0/4000400 |   0 |  0/4000400 |   0 | 2025-03-23T18:00:00-03:00 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  5 |   0/4000400 |   0 |  0/4000400 |   0 | 2025-03-23T18:00:00-03:00 |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+---------------------------+
     Success: flush scheduled restart for member postgresql0
     Success: flush scheduled restart for member postgresql1
 
@@ -764,6 +764,17 @@ The following information is included in the output:
     * ``stopped``: if Postgres had been shut down;
     * ``crashed``: if Postgres has crashed.
 
+``In Recovery``
+    Whether Postgres on this member last reported being in recovery mode (``pg_catalog.pg_is_in_recovery()``),
+    as of its last update to the DCS. Because this value is only refreshed once per HA loop cycle, it can lag
+    the real state of Postgres by up to a few seconds.
+
+    * ``Yes``: Postgres is in recovery -- expected for ``Replica``/``Standby Leader`` rows; if shown for a
+      ``Leader`` row it means the node holds the leader lock but Postgres has not confirmed leaving recovery
+      (see the ``Leader %s is in recovery mode`` warning in the Patroni log);
+    * ``No``: Postgres is not in recovery -- the expected, healthy state for a primary;
+    * ``-``: recovery status not currently known (e.g. Postgres stopped).
+
 ``TL``
     Current Postgres timeline in the Patroni member.
 
@@ -908,26 +919,26 @@ Show information about the cluster in pretty format:
 .. code:: bash
 
     $ patronictl -c postgres0.yml list batman
-    + Cluster: batman (7277694203142172922) --------+-----------+----+-------------+-----+------------+-----+
-    | Site | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
-    +------+-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
-    | dc1  | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |             |     |            |     |
-    | dc1  | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    | dc2  | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    +------+-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
+    + Cluster: batman (7277694203142172922) --------+-----------+-------------+----+-------------+-----+------------+-----+
+    | Site | Member      | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +------+-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
+    | dc1  | postgresql0 | 127.0.0.1:5432 | Leader  | running   | No          |  5 |             |     |            |     |
+    | dc1  | postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    | dc2  | postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +------+-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
 
 Show information about the cluster in pretty format with extended columns:
 
 .. code:: bash
 
     $ patronictl -c postgres0.yml list batman -e
-    + Cluster: batman (7277694203142172922) --------+-----------+----+-------------+-----+------------+-----+-----------------+------------------------+-------------------+------+
-    | Site | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag | Pending restart | Pending restart reason | Scheduled restart | Tags |
-    +------+-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+-----------------+------------------------+-------------------+------+
-    | dc1  | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |             |     |            |     |                 |                        |                   |      |
-    | dc1  | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |                 |                        |                   |      |
-    | dc2  | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |                 |                        |                   |      |
-    +------+-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+-----------------+------------------------+-------------------+------+
+    + Cluster: batman (7277694203142172922) --------+-----------+-------------+----+-------------+-----+------------+-----+-----------------+------------------------+-------------------+------+
+    | Site | Member      | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag | Pending restart | Pending restart reason | Scheduled restart | Tags |
+    +------+-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+-----------------+------------------------+-------------------+------+
+    | dc1  | postgresql0 | 127.0.0.1:5432 | Leader  | running   | No          |  5 |             |     |            |     |                 |                        |                   |      |
+    | dc1  | postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |                 |                        |                   |      |
+    | dc2  | postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |                 |                        |                   |      |
+    +------+-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+-----------------+------------------------+-------------------+------+
 
 Show information about the cluster in YAML format, with timestamp of execution:
 
@@ -1317,13 +1328,13 @@ Request a rebuild of all replica members of the Patroni cluster and immediately 
 .. code:: bash
 
     $ patronictl -c postgres0.yml reinit batman postgresql1 postgresql2 --force
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |             |     |            |     |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
+    + Cluster: batman (7277694203142172922) -+-----------+-------------+----+-------------+-----+------------+-----+
+    | Member      | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   | No          |  5 |             |     |            |     |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
     Success: reinitialize for member postgresql1
     Success: reinitialize for member postgresql2
 
@@ -1332,13 +1343,13 @@ Request a rebuild of ``postgresql2`` and wait for it to complete:
 .. code:: bash
 
     $ patronictl -c postgres0.yml reinit batman postgresql2 --wait --force
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |             |     |            |     |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
+    + Cluster: batman (7277694203142172922) -+-----------+-------------+----+-------------+-----+------------+-----+
+    | Member      | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   | No          |  5 |             |     |            |     |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
     Success: reinitialize for member postgresql2
     Waiting for reinitialize to complete on: postgresql2
     Reinitialize is completed on: postgresql2
@@ -1348,13 +1359,13 @@ Request a rebuild of ``postgresql2`` and get basebackup from leader directly:
 .. code:: bash
 
     $ patronictl -c postgres0.yml reinit batman postgresql2 --from-leader
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |             |     |            |     |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
+    + Cluster: batman (7277694203142172922) -+-----------+-------------+----+-------------+-----+------------+-----+
+    | Member      | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   | No          |  5 |             |     |            |     |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
     Success: reinitialize for member postgresql2
 
 .. _patronictl_reload:
@@ -1430,13 +1441,13 @@ Request a reload of the local configuration of all members of the Patroni cluste
 .. code:: bash
 
     $ patronictl -c postgres0.yml reload batman --force
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |             |     |            |     |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
+    + Cluster: batman (7277694203142172922) -+-----------+-------------+----+-------------+-----+------------+-----+
+    | Member      | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   | No          |  5 |             |     |            |     |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
     Reload request received for member postgresql0 and will be processed within 10 seconds
     Reload request received for member postgresql1 and will be processed within 10 seconds
     Reload request received for member postgresql2 and will be processed within 10 seconds
@@ -1505,13 +1516,13 @@ Remove information about Patroni cluster ``batman`` from the DCS:
 .. code:: bash
 
     $ patronictl -c postgres0.yml remove batman
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |             |     |            |     |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
+    + Cluster: batman (7277694203142172922) -+-----------+-------------+----+-------------+-----+------------+-----+
+    | Member      | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   | No          |  5 |             |     |            |     |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
     Please confirm the cluster name to remove: batman
     You are about to remove all information in DCS for batman, please type: "Yes I am aware": Yes I am aware
     This cluster currently is healthy. Please specify the leader name to continue: postgresql0
@@ -1610,13 +1621,13 @@ Restart all members of the cluster immediately:
 .. code:: bash
 
     $ patronictl -c postgres0.yml restart batman --force
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  6 |             |     |            |     |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  6 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  6 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
+    + Cluster: batman (7277694203142172922) -+-----------+-------------+----+-------------+-----+------------+-----+
+    | Member      | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   | No          |  6 |             |     |            |     |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  6 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  6 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
     Success: restart on member postgresql0
     Success: restart on member postgresql1
     Success: restart on member postgresql2
@@ -1626,13 +1637,13 @@ Restart a random member of the cluster immediately:
 .. code:: bash
 
     $ patronictl -c postgres0.yml restart batman --any --force
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  6 |             |     |            |     |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  6 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  6 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
+    + Cluster: batman (7277694203142172922) -+-----------+-------------+----+-------------+-----+------------+-----+
+    | Member      | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   | No          |  6 |             |     |            |     |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  6 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  6 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
     Success: restart on member postgresql1
 
 Schedule a restart to occur at ``2023-09-13T18:00-03:00``:
@@ -1640,13 +1651,13 @@ Schedule a restart to occur at ``2023-09-13T18:00-03:00``:
 .. code:: bash
 
     $ patronictl -c postgres0.yml restart batman --scheduled 2023-09-13T18:00-03:00 --force
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  6 |             |     |            |     |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  6 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  6 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
+    + Cluster: batman (7277694203142172922) -+-----------+-------------+----+-------------+-----+------------+-----+
+    | Member      | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   | No          |  6 |             |     |            |     |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  6 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  6 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
     Success: restart scheduled on member postgresql0
     Success: restart scheduled on member postgresql1
     Success: restart scheduled on member postgresql2
@@ -1850,21 +1861,21 @@ Switch over with node ``postgresql2``:
 
     $ patronictl -c postgres0.yml switchover batman --leader postgresql0 --candidate postgresql2 --force
     Current cluster topology
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  6 |             |     |            |     |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  6 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  6 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
+    + Cluster: batman (7277694203142172922) -+-----------+-------------+----+-------------+-----+------------+-----+
+    | Member      | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   | No          |  6 |             |     |            |     |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  6 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  6 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
     2023-09-13 14:15:23.07497 Successfully switched over to "postgresql2"
-    + Cluster: batman (7277694203142172922) -+---------+----+-------------+---------+------------+---------+
-    | Member      | Host           | Role    | State   | TL | Receive LSN |     Lag | Replay LSN |     Lag |
-    +-------------+----------------+---------+---------+----+-------------+---------+------------+---------+
-    | postgresql0 | 127.0.0.1:5432 | Replica | stopped |    |     unknown | unknown |    unknown | unknown |
-    | postgresql1 | 127.0.0.1:5433 | Replica | running |  6 |   0/4000188 |       0 |  0/4000188 |       0 |
-    | postgresql2 | 127.0.0.1:5434 | Leader  | running |  6 |             |         |            |         |
-    +-------------+----------------+---------+---------+----+-------------+---------+------------+---------+
+    + Cluster: batman (7277694203142172922) -+---------+-------------+----+-------------+---------+------------+---------+
+    | Member      | Host           | Role    | State   | In Recovery | TL | Receive LSN |     Lag | Replay LSN |     Lag |
+    +-------------+----------------+---------+---------+-------------+----+-------------+---------+------------+---------+
+    | postgresql0 | 127.0.0.1:5432 | Replica | stopped | -           |    |     unknown | unknown |    unknown | unknown |
+    | postgresql1 | 127.0.0.1:5433 | Replica | running | Yes         |  6 |   0/4000188 |       0 |  0/4000188 |       0 |
+    | postgresql2 | 127.0.0.1:5434 | Leader  | running | No          |  6 |             |         |            |         |
+    +-------------+----------------+---------+---------+-------------+----+-------------+---------+------------+---------+
 
 Schedule a switchover between ``postgresql0`` and ``postgresql2`` to occur at ``2023-09-13T18:00:00-03:00``:
 
@@ -1872,21 +1883,21 @@ Schedule a switchover between ``postgresql0`` and ``postgresql2`` to occur at ``
 
     $ patronictl -c postgres0.yml switchover batman --leader postgresql0 --candidate postgresql2 --scheduled 2023-09-13T18:00-03:00 --force
     Current cluster topology
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  8 |             |     |            |     |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  8 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  8 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
+    + Cluster: batman (7277694203142172922) -+-----------+-------------+----+-------------+-----+------------+-----+
+    | Member      | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   | No          |  8 |             |     |            |     |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  8 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  8 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
     2023-09-13 14:18:11.20661 Switchover scheduled
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  8 |             |     |            |     |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  8 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  8 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
+    + Cluster: batman (7277694203142172922) -+-----------+-------------+----+-------------+-----+------------+-----+
+    | Member      | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
+    | postgresql0 | 127.0.0.1:5432 | Leader  | running   | No          |  8 |             |     |            |     |
+    | postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  8 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    | postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  8 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +-------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
     Switchover scheduled at: 2023-09-13T18:00:00-03:00
                         from: postgresql0
                         to: postgresql2
@@ -1958,6 +1969,17 @@ The following information is included in the output:
     * ``in archive recovery``: if a replica and Postgres is currently fetching WALs from the archive;
     * ``stopped``: if Postgres had been shut down;
     * ``crashed``: if Postgres has crashed.
+
+``In Recovery``
+    Whether Postgres on this member last reported being in recovery mode (``pg_catalog.pg_is_in_recovery()``),
+    as of its last update to the DCS. Because this value is only refreshed once per HA loop cycle, it can lag
+    the real state of Postgres by up to a few seconds.
+
+    * ``Yes``: Postgres is in recovery -- expected for ``Replica``/``Standby Leader`` rows; if shown for a
+      ``Leader`` row it means the node holds the leader lock but Postgres has not confirmed leaving recovery
+      (see the ``Leader %s is in recovery mode`` warning in the Patroni log);
+    * ``No``: Postgres is not in recovery -- the expected, healthy state for a primary;
+    * ``-``: recovery status not currently known (e.g. Postgres stopped).
 
 ``TL``
     Current Postgres timeline in the Patroni member.
@@ -2058,13 +2080,13 @@ Show topology of the cluster ``batman`` -- ``postgresql1`` and ``postgresql2`` a
 .. code:: bash
 
     $ patronictl -c postgres0.yml topology batman
-    + Cluster: batman (7277694203142172922) ---+-----------+----+-------------+-----+------------+-----+
-    | Member        | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
-    +---------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
-    | postgresql0   | 127.0.0.1:5432 | Leader  | running   |  8 |             |     |            |     |
-    | + postgresql1 | 127.0.0.1:5433 | Replica | streaming |  8 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    | + postgresql2 | 127.0.0.1:5434 | Replica | streaming |  8 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    +---------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
+    + Cluster: batman (7277694203142172922) ---+-----------+-------------+----+-------------+-----+------------+-----+
+    | Member        | Host           | Role    | State     | In Recovery | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +---------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
+    | postgresql0   | 127.0.0.1:5432 | Leader  | running   | No          |  8 |             |     |            |     |
+    | + postgresql1 | 127.0.0.1:5433 | Replica | streaming | Yes         |  8 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    | + postgresql2 | 127.0.0.1:5434 | Replica | streaming | Yes         |  8 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +---------------+----------------+---------+-----------+-------------+----+-------------+-----+------------+-----+
 
 .. _patronictl_version:
 

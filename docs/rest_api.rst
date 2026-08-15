@@ -445,6 +445,7 @@ Cluster status endpoints
           "role": "leader",
           "state": "running",
           "api_url": "http://10.89.0.4:8008/patroni",
+          "in_recovery": false,
           "host": "10.89.0.4",
           "port": 5432,
           "timeline": 5,
@@ -457,6 +458,7 @@ Cluster status endpoints
           "role": "replica",
           "state": "streaming",
           "api_url": "http://10.89.0.6:8008/patroni",
+          "in_recovery": true,
           "host": "10.89.0.6",
           "port": 5433,
           "timeline": 5,
@@ -478,6 +480,13 @@ Cluster status endpoints
         "to": "patroni3"
       }
     }
+
+Each member's ``in_recovery`` is ``True``/``False`` if Postgres recovery status (``pg_catalog.pg_is_in_recovery()``)
+is known for that member as of its last update to the DCS, omitted if unknown. The top-level response may also
+contain a ``leader_in_recovery: true`` key -- present only when the current leader's Postgres has not confirmed
+leaving recovery (e.g. a stalled ``restore_command`` during promotion), omitted otherwise. A DCS leader lock does
+not by itself guarantee Postgres has left recovery; these fields make that distinction visible without having to
+separately query ``GET /patroni`` on the leader.
 
 
 - The ``GET /history`` endpoint provides a view on the history of cluster switchovers/failovers. The format is very similar to the content of history files in the ``pg_wal`` directory. The only difference is the timestamp field showing when the new timeline was created.
