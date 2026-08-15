@@ -1603,7 +1603,7 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
     logging.debug(cluster)
 
     initialize = {None: 'uninitialized', '': 'initializing'}.get(cluster.initialize, cluster.initialize)
-    columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'TL',
+    columns = ['Cluster', 'Member', 'Host', 'Role', 'In Recovery', 'State', 'TL',
                'Receive LSN', 'Receive Lag', 'Replay LSN', 'Replay Lag']
 
     clusters = {group or 0: cluster_as_json(cluster)}
@@ -1656,9 +1656,13 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
             replay_lag = round(replay_lag / 1024 / 1024) if isinstance(replay_lag, int) \
                 else '' if replay_lag == 'unknown' else replay_lag
 
+            in_recovery = member.get('in_recovery')
+            in_recovery_display = 'Yes' if in_recovery is True else 'No' if in_recovery is False else '-'
+
             member.update(cluster=name, member=member['name'], group=g,
                           host=member.get('host', ''), tl=member.get('timeline', ''),
                           role=member['role'].replace('_', ' ').title(),
+                          in_recovery=in_recovery_display,
                           receive_lag=receive_lag, replay_lag=replay_lag,
                           receive_lsn=receive_lsn, replay_lsn=replay_lsn,
                           pending_restart='*' if member.get('pending_restart') else '',

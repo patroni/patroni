@@ -1217,6 +1217,7 @@ class Ha(object):
             self.state_handler.mpp_handler.sync_meta_data(self.cluster)
             return message
         elif self.state_handler.role in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
+            logger.warning('Leader %s is in recovery mode', self.state_handler.name)
             self.process_sync_replication()
             return message
         else:
