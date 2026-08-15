@@ -1603,7 +1603,7 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
     logging.debug(cluster)
 
     initialize = {None: 'uninitialized', '': 'initializing'}.get(cluster.initialize, cluster.initialize)
-    columns = ['Cluster', 'Member', 'Host', 'Role', 'In Recovery', 'State', 'TL',
+    columns = ['Cluster', 'Member', 'Host', 'Role', 'State', 'In Recovery', 'TL',
                'Receive LSN', 'Receive Lag', 'Replay LSN', 'Replay Lag']
 
     clusters = {group or 0: cluster_as_json(cluster)}

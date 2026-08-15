@@ -141,9 +141,9 @@ class TestCtl(unittest.TestCase):
             with patch('click.echo') as mock_echo:
                 self.assertIsNone(output_members(cluster, name='abc', fmt='tsv'))
                 self.assertEqual(mock_echo.call_args_list[3][0][0],
-                                 'abc\tother\t\tReplica\tstreaming\t\t0/3\t0\tunknown\t')
+                                 'abc\tother\t\tReplica\tstreaming\t-\t\t0/3\t0\tunknown\t')
                 self.assertEqual(mock_echo.call_args_list[1][0][0],
-                                 'abc\tfoo\t\tReplica\tin archive recovery\t\tunknown\t\t0/3\t0')
+                                 'abc\tfoo\t\tReplica\tin archive recovery\t-\t\tunknown\t\t0/3\t0')
 
                 cluster = get_cluster_initialized_with_leader()
                 mock_echo.reset_mock()
@@ -537,6 +537,17 @@ class TestCtl(unittest.TestCase):
             cluster.members[1].data['pending_restart_reason'] = {'param': get_param_diff('', 'new')}
             result = self.runner.invoke(ctl, ['list', 'dummy'])
             self.assertIn('param: ->new', result.output)
+
+    def test_list_in_recovery(self):
+        result = self.runner.invoke(ctl, ['list'])
+        self.assertIn('In Recovery', result.output)
+        self.assertIn('No', result.output)
+
+        cluster = get_cluster_initialized_with_leader()
+        cluster.members[0].data['role'] = PostgresqlRole.PROMOTED
+        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=cluster)):
+            result = self.runner.invoke(ctl, ['list'])
+            self.assertIn('Yes', result.output)
 
     def test_list_extended(self):
         result = self.runner.invoke(ctl, ['list', 'dummy', '--extended', '--timestamp'])
