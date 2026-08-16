@@ -367,6 +367,9 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# HELP patroni_failover_priority Failover priority of this node.
 	# TYPE patroni_failover_priority gauge
 	patroni_failover_priority{scope="batman",name="patroni1"} 1
+	# HELP patroni_restapi_certificate_expiry Epoch timestamp when the REST API certificate expires.
+	# TYPE patroni_restapi_certificate_expiry gauge
+	patroni_restapi_certificate_expiry{scope="batman",name="patroni1"} 1788336638
 
 PostgreSQL State Values
 ^^^^^^^^^^^^^^^^^^^^^^^

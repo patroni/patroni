@@ -442,6 +442,19 @@ class TestRestApiHandler(unittest.TestCase):
         type(mock_dcs).failsafe = PropertyMock(return_value=None)
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /metrics'))
 
+    @patch.object(MockPatroni, 'dcs', Mock())
+    @patch('ssl._ssl._test_decode_cert', Mock(return_value={'notAfter': 'Aug 15 21:10:38 2026 GMT'}))
+    def test_do_GET_metrics_certificate_expiry(self):
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, 'GET /metrics')
+            self.assertIn('patroni_restapi_certificate_expiry{scope="dummy",name="test"} 1786828238.0',
+                          response_mock.call_args[0][1])
+
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, 'GET /metrics',
+                              {'listen': '127.0.0.1:8008', 'auth': 'test:test'})
+            self.assertNotIn('patroni_restapi_certificate_expiry', response_mock.call_args[0][1])
+
     @patch.object(MockPatroni, 'dcs')
     def test_do_PATCH_config(self, mock_dcs):
         config = {'postgresql': {'use_slots': False, 'use_pg_rewind': True, 'parameters': {'wal_level': 'logical'}}}
@@ -864,8 +877,34 @@ class TestRestApiServer(unittest.TestCase):
     def test_reload_local_certificate(self):
         self.assertTrue(self.srv.reload_local_certificate())
 
-    def test_get_certificate_serial_number(self):
-        self.assertIsNone(self.srv.get_certificate_serial_number())
+    def test_parse_certificate(self):
+        self.assertEqual(self.srv.parse_certificate(), (None, None))
+
+        with patch.object(RestApiServer, '_RestApiServer__ssl_options', {}, create=True):
+            self.assertEqual(self.srv.parse_certificate(), (None, None))
+
+        with patch.object(RestApiServer, '_RestApiServer__ssl_options', {'certfile': 'foo.crt'}, create=True):
+            with patch('ssl._ssl._test_decode_cert',
+                       Mock(return_value={'serialNumber': 'FF', 'notAfter': 'Aug 15 21:10:38 2026 GMT'})):
+                self.assertEqual(self.srv.parse_certificate(), ('FF', 1786828238.0))
+
+            with patch('ssl._ssl._test_decode_cert', Mock(return_value={'serialNumber': 'FF', 'notAfter': 'bad'})):
+                self.assertEqual(self.srv.parse_certificate(), ('FF', None))
+
+            with patch('ssl._ssl._test_decode_cert', Mock(return_value={})):
+                self.assertEqual(self.srv.parse_certificate(), (None, None))
+
+    @patch.object(HTTPServer, '__init__', Mock())
+    @patch('ssl.SSLContext.load_cert_chain', Mock())
+    @patch('ssl.SSLContext.wrap_socket', Mock(return_value=0))
+    @patch('ssl._ssl._test_decode_cert', Mock(return_value={'notAfter': 'Aug 15 21:10:38 2026 GMT'}))
+    def test_certificate_expiry_is_reset_when_switching_to_http(self):
+        with patch.object(MockRestApiServer, 'server_close', Mock()):
+            self.srv.reload_config({'listen': ':8008', 'certfile': 'a'})
+            self.assertEqual(self.srv._ssl_not_after, 1786828238.0)
+
+            self.srv.reload_config({'listen': ':8008'})
+            self.assertIsNone(self.srv._ssl_not_after)
 
     def test_query(self):
         with patch.object(MockConnection, 'get', Mock(side_effect=OperationalError)):
