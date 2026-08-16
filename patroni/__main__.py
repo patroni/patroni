@@ -184,7 +184,8 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
             if local:
                 self._tags = self._get_tags()
                 self.request.reload_config(self.config)
-            if local or sighup and self.api.reload_local_certificate():
+            received_new_cert = sighup and self.api.reload_local_certificate()
+            if local or received_new_cert:
                 self.api.reload_config(self.config['restapi'])
             self.watchdog.reload_config(self.config)
             self._last_effective_role = ROLE_CONFIG_SUFFIX_MAP.get(self.postgresql.role)
