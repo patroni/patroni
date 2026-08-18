@@ -1593,7 +1593,8 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         * ``Site``: site of the Patroni node, as per ``site`` configuration;
         * ``Member``: name of the Patroni node, as per ``name`` configuration;
         * ``Host``: hostname (or IP) and port, as per ``postgresql.listen`` configuration;
-        * ``Role``: ``Leader``, ``Standby Leader``, ``Sync Standby`` or ``Replica``;
+        * ``Role``: ``Leader``, ``Promoted`` (holds the leader lock but promotion has not completed yet),
+          ``Standby Leader``, ``Sync Standby`` or ``Replica``;
         * ``State``: one of :class:`~patroni.postgresql.misc.PostgresqlState`;
         * ``TL``: current timeline in Postgres;
         * ``Receive LSN``: last received LSN (``pg_catalog.pg_last_(xlog|wal)_receive_(location|lsn)()``);

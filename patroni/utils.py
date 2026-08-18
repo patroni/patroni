@@ -922,7 +922,8 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
         * ``members``: list of members in the cluster. Each value is a :class:`dict` that may have the following keys:
 
             * ``name``: the name of the host (unique in the cluster). The ``members`` list is sorted by this key;
-            * ``role``: ``leader``, ``standby_leader``, ``sync_standby``, ``quorum_standby``, or ``replica``;
+            * ``role``: ``leader``, ``promoted`` (holds the leader lock but promotion has not completed yet),
+                ``standby_leader``, ``sync_standby``, ``quorum_standby``, or ``replica``;
             * ``state``: one of :class:`~patroni.postgresql.misc.PostgresqlState`;
             * ``api_url``: REST API URL based on ``restapi->connect_address`` configuration;
             * ``host``: PostgreSQL host based on ``postgresql->connect_address``;
@@ -948,7 +949,7 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
             * ``to``: name of the member to be promoted.
     """
     from . import global_config
-    from .postgresql.misc import format_lsn
+    from .postgresql.misc import format_lsn, PostgresqlRole
 
     config = global_config.from_cluster(cluster)
     leader_name = cluster.leader.name if cluster.leader else None
@@ -958,7 +959,13 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
     sync_role = 'quorum_standby' if config.is_quorum_commit_mode else 'sync_standby'
     for m in cluster.members:
         if m.name == leader_name:
-            role = 'standby_leader' if config.is_standby_cluster else 'leader'
+            if config.is_standby_cluster:
+                role = 'standby_leader'
+            elif m.data.get('role') == PostgresqlRole.PROMOTED:
+                # the member holds the leader lock, but Postgres promotion has not completed yet (still in recovery)
+                role = 'promoted'
+            else:
+                role = 'leader'
         elif config.is_synchronous_mode and cluster.sync.matches(m.name):
             role = sync_role
         else:

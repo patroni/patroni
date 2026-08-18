@@ -155,6 +155,13 @@ class TestCtl(unittest.TestCase):
                 self.assertIsNone(output_members(cluster, name='abc'))
                 self.assertIn('to: site dc2', mock_echo.call_args_list[1][0][0])
 
+                # the lock holder is shown as 'Promoted' while Postgres promotion has not completed yet
+                mock_echo.reset_mock()
+                cluster = get_cluster_initialized_with_leader()
+                cluster.members[0].data['role'] = PostgresqlRole.PROMOTED
+                self.assertIsNone(output_members(cluster, name='abc', fmt='tsv'))
+                self.assertIn('\tPromoted\t', mock_echo.call_args_list[1][0][0])
+
     @patch('patroni.dcs.AbstractDCS.set_failover_value', Mock())
     def test_switchover(self):
         # Confirm

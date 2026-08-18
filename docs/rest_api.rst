@@ -479,6 +479,7 @@ Cluster status endpoints
       }
     }
 
+  The ``role`` of a member is one of ``leader``, ``promoted``, ``standby_leader``, ``sync_standby``, ``quorum_standby``, or ``replica``. The ``promoted`` role is reported for a member that already holds the leader lock while PostgreSQL promotion has not completed yet, i.e. PostgreSQL is still running in recovery and therefore is read-only.
 
 - The ``GET /history`` endpoint provides a view on the history of cluster switchovers/failovers. The format is very similar to the content of history files in the ``pg_wal`` directory. The only difference is the timestamp field showing when the new timeline was created.
 
