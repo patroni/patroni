@@ -2040,12 +2040,12 @@ class AbstractDCS(ClusterSite, abc.ABC):
 
         if candidate:
             failover_value['member'] = candidate
+        elif site:
+            failover_value['site'] = site
 
         if scheduled_at:
             failover_value['scheduled_at'] = scheduled_at.isoformat()
 
-        if not candidate and site:
-            failover_value['site'] = site
         return self.set_failover_value(json.dumps(failover_value, separators=(',', ':')), version)
 
     @abc.abstractmethod
