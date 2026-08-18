@@ -441,6 +441,27 @@ class TestHa(PostgresInit):
         self.p.set_role(PostgresqlRole.PRIMARY)
         self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
 
+    @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
+    @patch('patroni.ha.logger.warning')
+    def test_warning_when_promotion_not_completed(self, mock_warning):
+        in_recovery_warning = 'Postgres is still running as a standby (in recovery), promotion has not completed'
+        self.ha.has_lock = true
+        self.p.is_primary = false
+        self.p.set_role(PostgresqlRole.PROMOTED)
+        self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
+        mock_warning.assert_any_call(in_recovery_warning)
+
+        # the warning is repeated on every HA loop while promotion has not completed
+        mock_warning.reset_mock()
+        self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
+        mock_warning.assert_any_call(in_recovery_warning)
+
+        # no warning once Postgres has left recovery
+        mock_warning.reset_mock()
+        self.p.is_primary = true
+        self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
+        self.assertNotIn(in_recovery_warning, [call.args[0] for call in mock_warning.call_args_list])
+
     def test_demote_after_failing_to_obtain_lock(self):
         self.ha.acquire_lock = false
         self.assertEqual(self.ha.run_cycle(), 'demoted self after trying and failing to obtain lock')

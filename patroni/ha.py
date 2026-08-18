@@ -1217,6 +1217,10 @@ class Ha(object):
             self.state_handler.mpp_handler.sync_meta_data(self.cluster)
             return message
         elif self.state_handler.role in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
+            # We hold the leader lock and promotion was already triggered, but Postgres is still
+            # running as a standby (in recovery), e.g. because a hanging restore_command blocks
+            # promotion from completing. The cluster has no writable node while this persists.
+            logger.warning('Postgres is still running as a standby (in recovery), promotion has not completed')
             self.process_sync_replication()
             return message
         else:
