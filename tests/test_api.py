@@ -878,7 +878,7 @@ class TestRestApiServer(unittest.TestCase):
         self.assertTrue(self.srv.reload_local_certificate())
 
     def test_reload_local_certificate_updates_expiry(self):
-        with patch.object(RestApiServer, '_RestApiServer__ssl_options', {'certfile': 'foo.crt'}, create=True):
+        with patch.object(self.srv, '_RestApiServer__ssl_options', {'certfile': 'foo.crt'}):
             with patch('ssl._ssl._test_decode_cert',
                        Mock(return_value={'serialNumber': 'FF', 'notAfter': 'Aug 15 21:10:38 2026 GMT'})):
                 self.assertTrue(self.srv.reload_local_certificate())
@@ -891,12 +891,13 @@ class TestRestApiServer(unittest.TestCase):
                 self.assertEqual(self.srv.ssl_not_after, 1818364238)
 
     def test_parse_certificate(self):
+        # the certificate configured in setUp() does not exist, therefore it can not be decoded
         self.assertEqual(self.srv.parse_certificate(), (None, None))
 
-        with patch.object(RestApiServer, '_RestApiServer__ssl_options', {}, create=True):
+        with patch.object(self.srv, '_RestApiServer__ssl_options', {}):
             self.assertEqual(self.srv.parse_certificate(), (None, None))
 
-        with patch.object(RestApiServer, '_RestApiServer__ssl_options', {'certfile': 'foo.crt'}, create=True):
+        with patch.object(self.srv, '_RestApiServer__ssl_options', {'certfile': 'foo.crt'}):
             with patch('ssl._ssl._test_decode_cert',
                        Mock(return_value={'serialNumber': 'FF', 'notAfter': 'Aug 15 21:10:38 2026 GMT'})):
                 self.assertEqual(self.srv.parse_certificate(), ('FF', 1786828238))
