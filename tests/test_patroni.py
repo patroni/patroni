@@ -272,6 +272,12 @@ class TestPatroni(unittest.TestCase):
         self.p._get_tags = Mock(side_effect=Exception)
         self.p.reload_config(local=True)
 
+    def test_reload_config_checks_certificate_when_local_config_changed(self):
+        """A renewed certificate must be detected even when the local config changed too."""
+        self.p.api.reload_local_certificate = Mock(return_value=True)
+        self.p.reload_config(sighup=True, local=True)
+        self.p.api.reload_local_certificate.assert_called_once()
+
     def test_nosync(self):
         self.p.tags['nosync'] = True
         self.assertTrue(self.p.nosync)
