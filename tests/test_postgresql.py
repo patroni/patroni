@@ -109,6 +109,7 @@ Data page checksum version:           0
 class TestPostgresql(BaseTestPostgresql):
 
     @patch('subprocess.call', Mock(return_value=0))
+    @patch('subprocess.check_output', Mock(return_value=b'postgres (PostgreSQL) 19.0'))
     @patch('os.rename', Mock())
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))
@@ -571,6 +572,36 @@ class TestPostgresql(BaseTestPostgresql):
     def test_restore_configuration_files(self):
         self.p.config.restore_configuration_files()
 
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=180000)), \
+                patch.object(type(self.p.config), '_configuration_to_save',
+                             PropertyMock(return_value=['pg_hosts.conf'])), \
+                patch('os.path.isfile', Mock(return_value=False)), \
+                patch('builtins.open') as mock_open_file:
+            self.p.config.restore_configuration_files()
+            mock_open_file.assert_not_called()
+
+    def test_replace_pg_hosts(self):
+        self.p.config._config['pg_hosts'] = ['192.0.2.1 example.com']
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=190000)):
+            self.assertTrue(self.p.config.replace_pg_hosts())
+            with open(self.p.config._pg_hosts_conf) as f:
+                self.assertIn('192.0.2.1 example.com', f.read())
+            self.p.config.write_postgresql_conf()
+            with open(self.p.config.postgresql_conf) as f:
+                self.assertIn("hosts_file = '{}'".format(self.p.config._pg_hosts_conf), f.read())
+
+            self.p.config._server_parameters['hosts_file'] = '/tmp/custom_pg_hosts.conf'
+            self.assertIsNone(self.p.config.replace_pg_hosts())
+
+        os.unlink(self.p.config._pg_hosts_conf)
+        self.p.config._server_parameters.pop('hosts_file')
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=180000)):
+            self.assertIsNone(self.p.config.replace_pg_hosts())
+            self.assertFalse(os.path.exists(self.p.config._pg_hosts_conf))
+            self.p.config.write_postgresql_conf()
+            with open(self.p.config.postgresql_conf) as f:
+                self.assertNotIn('hosts_file', f.read())
+
     def test_can_create_replica_without_replication_connection(self):
         self.p.config._config['create_replica_method'] = []
         self.assertFalse(self.p.can_create_replica_without_replication_connection(None))
@@ -618,10 +649,12 @@ class TestPostgresql(BaseTestPostgresql):
         mock_info.reset_mock()
         config = deepcopy(self.p.config._config)
 
-        # hba/ident_changed
+        # hba/ident/pg_hosts_changed
         config['pg_hba'] = ['']
         config['pg_ident'] = ['']
-        self.p.reload_config(config)
+        config['pg_hosts'] = ['']
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=190000)):
+            self.p.reload_config(config)
         mock_info.assert_called_once_with('Reloading PostgreSQL configuration.')
         self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
@@ -1188,6 +1221,7 @@ class TestPostgresql(BaseTestPostgresql):
 class TestPostgresql2(BaseTestPostgresql):
 
     @patch('subprocess.call', Mock(return_value=0))
+    @patch('subprocess.check_output', Mock(return_value=b'postgres (PostgreSQL) 19.0'))
     @patch('os.rename', Mock())
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))

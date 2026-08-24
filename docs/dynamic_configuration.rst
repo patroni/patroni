@@ -58,6 +58,12 @@ In order to change the dynamic configuration you can use either :ref:`patronictl
    -  **pg\_ident\_replica**: (optional) role-specific pg_ident entries for replica. These completely replace **pg_ident** (no merging). If not defined, **pg_ident** is used.
    -  **pg\_ident\_standby\_leader**: (optional) role-specific pg_ident entries for standby_leader. These completely replace **pg_ident** (no merging). If not defined, **pg_ident** is used.
 
+    -  **pg\_hosts**: (PostgreSQL 19+ only) list of lines that Patroni will use to generate ``pg_hosts.conf``. Patroni ignores this parameter if ``hosts_file`` PostgreSQL parameter is set to a non-default value.
+
+    -  **pg\_hosts\_primary**: (optional) role-specific pg_hosts entries for primary. These completely replace **pg_hosts** (no merging). If not defined, **pg_hosts** is used.
+    -  **pg\_hosts\_replica**: (optional) role-specific pg_hosts entries for replica. These completely replace **pg_hosts** (no merging). If not defined, **pg_hosts** is used.
+    -  **pg\_hosts\_standby\_leader**: (optional) role-specific pg_hosts entries for standby_leader. These completely replace **pg_hosts** (no merging). If not defined, **pg_hosts** is used.
+
 -  **standby\_cluster**: if this section is defined, we want to bootstrap a standby cluster.
 
    -  **host**: an address of remote node

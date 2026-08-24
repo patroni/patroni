@@ -206,7 +206,7 @@ All the non-internal GUCs defined in the source Postgres instance, independently
    -  **scope**: ``cluster_name`` GUC value;
    -  **postgresql.listen**: ``listen_addresses`` and ``port`` GUC values;
    -  **postgresql.datadir**: ``data_directory`` GUC value;
-   -  **postgresql.parameters**: ``archive_command``, ``restore_command``, ``archive_cleanup_command``, ``recovery_end_command``, ``ssl_passphrase_command``, ``hba_file``, ``ident_file``, ``config_file`` GUC values;
+   -  **postgresql.parameters**: ``archive_command``, ``restore_command``, ``archive_cleanup_command``, ``recovery_end_command``, ``ssl_passphrase_command``, ``hba_file``, ``ident_file``, ``hosts_file``, ``config_file`` GUC values;
    -  **bootstrap.dcs**: all other gathered PostgreSQL GUCs.
 
 If ``scope``, ``postgresql.listen`` or ``postgresql.datadir`` is not set from the Postgres GUCs, the respective :ref:`Environment configuration <environment>` value is used.
@@ -219,6 +219,7 @@ Other rules applied for the values definition:
    -  **postgresql.authentication.superuser**: the configuration used for the instance connection;
    -  **postgresql.pg_hba**: the lines gathered from the source instance's ``hba_file``.
    -  **postgresql.pg_ident**: the lines gathered from the source instance's ``ident_file``.
+   -  **postgresql.pg_hosts**: the lines gathered from the source instance's ``hosts_file``.
    -  **restapi.listen**: IP address returned by ``gethostname`` call for the current machine's hostname and the standard ``8008`` port.
    -  **restapi.connect_address**: IP address returned by ``gethostname`` call for the current machine's hostname and the standard ``8008`` port.
 
