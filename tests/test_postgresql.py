@@ -24,7 +24,7 @@ from patroni.file_perm import pg_perm
 from patroni.postgresql import PgIsReadyStatus, Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
-from patroni.postgresql.config import _false_validator, get_param_diff
+from patroni.postgresql.config import _false_validator, ConfigWriter, get_param_diff
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import _get_postgres_guc_validators, _load_postgres_gucs_validators, \
@@ -588,7 +588,7 @@ class TestPostgresql(BaseTestPostgresql):
                 self.assertIn('192.0.2.1 example.com', f.read())
             self.p.config.write_postgresql_conf()
             with open(self.p.config.postgresql_conf) as f:
-                self.assertIn("hosts_file = '{}'".format(self.p.config._pg_hosts_conf), f.read())
+                self.assertIn("hosts_file = '{}'".format(ConfigWriter.escape(self.p.config._pg_hosts_conf)), f.read())
 
             self.p.config._server_parameters['hosts_file'] = '/tmp/custom_pg_hosts.conf'
             self.assertIsNone(self.p.config.replace_pg_hosts())
