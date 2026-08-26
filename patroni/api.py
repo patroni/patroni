@@ -1159,7 +1159,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     else:
                         return 200, '{0}ed over to "{1}" instead of "{2}"'.format(action[:-4].title(),
                                                                                   cluster.leader.name, candidate)
-                if not cluster.failover:
+                if not cluster.failover and not cluster.is_unlocked():
                     return 503, action.title() + ' failed'
             except Exception as e:
                 logger.debug('Exception occurred during polling %s result: %s', action, e)
