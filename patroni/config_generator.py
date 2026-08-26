@@ -454,26 +454,16 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
             except OSError as err:
                 raise PatroniException(f'Failed to read pg_hba.conf: {err}')
 
-        default_ident_path = os.path.join(self.config['postgresql']['data_dir'], 'pg_ident.conf')
-        if self.config['postgresql']['parameters']['ident_file'] == default_ident_path:
-            try:
-                self.config['postgresql']['pg_ident'] = [i for i in read_stripped(default_ident_path)
-                                                         if i and not i.startswith('#')]
-            except OSError as err:
-                raise PatroniException(f'Failed to read pg_ident.conf: {err}')
-            if not self.config['postgresql']['pg_ident']:
-                del self.config['postgresql']['pg_ident']
-
-        if 'hosts_file' in self.config['postgresql']['parameters']:
-            default_hosts_path = os.path.join(self.config['postgresql']['data_dir'], 'pg_hosts.conf')
-            if self.config['postgresql']['parameters']['hosts_file'] == default_hosts_path:
+        for ftype in ('ident', 'hosts'):
+            default_path = os.path.join(self.config['postgresql']['data_dir'], f'pg_{ftype}.conf')
+            if self.config['postgresql']['parameters'][f'{ftype}_file'] == default_path:
                 try:
-                    self.config['postgresql']['pg_hosts'] = [i for i in read_stripped(default_hosts_path)
-                                                             if i and not i.startswith('#')]
+                    self.config['postgresql'][f'pg_{ftype}'] = [i for i in read_stripped(default_path)
+                                                                if i and not i.startswith('#')]
                 except OSError as err:
-                    raise PatroniException(f'Failed to read pg_hosts.conf: {err}')
-                if not self.config['postgresql']['pg_hosts']:
-                    del self.config['postgresql']['pg_hosts']
+                    raise PatroniException(f'Failed to read pg_{ftype}.conf: {err}')
+                if not self.config['postgresql'][f'pg_{ftype}']:
+                    del self.config['postgresql'][f'pg_{ftype}']
 
     def _enrich_config_from_running_instance(self) -> None:
         """Extend :attr:`~RunningClusterConfigGenerator.config` with the values gathered from the running instance.
