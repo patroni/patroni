@@ -1,6 +1,6 @@
 import os
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, PropertyMock
 
 from patroni import global_config
 from patroni.collections import CaseInsensitiveSet
@@ -220,102 +220,115 @@ class TestSync(BaseTestPostgresql):
         me = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5434/postgres',
                                       'state': PostgresqlState.RUNNING, 'site': 'dc1'})
         leader = Leader(-1, 28, me)
-        one = Member(0, 'one', 28, {'xlog_location': 100, 'state': PostgresqlState.RUNNING,
-                                    'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
-                                    'site': 'dc1'})
-        another = Member(0, 'another', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
-                                            'state': PostgresqlState.RUNNING, 'site': 'dc2',
-                                            'tags': {'sync_priority': 2}})
+        local = Member(0, 'one', 28, {'xlog_location': 100, 'state': PostgresqlState.RUNNING,
+                                      'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
+                                      'site': 'dc1'})
+        remote = Member(0, 'another', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
+                                           'state': PostgresqlState.RUNNING, 'site': 'dc2',
+                                           'tags': {'sync_priority': 2}})
         pg_stat_replication = [
-            {'pid': 101, 'application_name': another.name, 'sync_state': 'async', 'flush_lsn': 1, 'replay_lsn': 1},
-            {'pid': 102, 'application_name': one.name, 'sync_state': 'async', 'flush_lsn': 1, 'replay_lsn': 1}]
+            {'pid': 101, 'application_name': remote.name, 'sync_state': 'async', 'flush_lsn': 1, 'replay_lsn': 1},
+            {'pid': 102, 'application_name': local.name, 'sync_state': 'async', 'flush_lsn': 1, 'replay_lsn': 1}]
 
         self.s._postgresql._site = 'dc1'
 
         # local_only
         config = ClusterConfig(1, {'synchronous_mode': True, 'synchronous_cross_site': 'local_only',
                                    'synchronous_node_count': 2}, 1)
-        cluster = Cluster(True, config, leader, Status.empty(), [me, one, another], None,
+        cluster = Cluster(True, config, leader, Status.empty(), [me, local, remote], None,
                           SyncState(0, me.name, None, 0, SyncCrossSiteMode.LOCAL_ONLY), None, None, None)
         global_config.update(cluster)
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_apply', pg_stat_replication]):
             self.assertEqual(self.s.current_state(cluster),
-                             ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(), CaseInsensitiveSet([one.name])))
+                             ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(), CaseInsensitiveSet([local.name])))
 
         # prefer_local
         config = ClusterConfig(1, {'synchronous_mode': True, 'synchronous_cross_site': 'prefer_local',
                                    'synchronous_node_count': 2}, 1)
         # with no local nodes
-        cluster = Cluster(True, config, leader, Status.empty(), [me, another], None,
+        cluster = Cluster(True, config, leader, Status.empty(), [me, remote], None,
                           SyncState(0, me.name, None, 0, SyncCrossSiteMode.LOCAL_ONLY), None, None, None)
         global_config.update(cluster)
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_apply', pg_stat_replication]):
             self.assertEqual(self.s.current_state(cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
-                                                             CaseInsensitiveSet([another.name])))
+                                                             CaseInsensitiveSet([remote.name])))
         # with a local node
-        cluster = Cluster(True, config, leader, Status.empty(), [me, one, another], None,
+        cluster = Cluster(True, config, leader, Status.empty(), [me, local, remote], None,
                           SyncState(0, me.name, None, 0, SyncCrossSiteMode.LOCAL_ONLY), None, None, None)
         global_config.update(cluster)
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_apply', pg_stat_replication]):
             self.assertEqual(self.s.current_state(cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
-                                                             CaseInsensitiveSet([one.name, another.name])))
+                                                             CaseInsensitiveSet([local.name, remote.name])))
 
         # remote_only
         config = ClusterConfig(1, {'synchronous_mode': True, 'synchronous_cross_site': 'remote_only',
                                    'synchronous_node_count': 2}, 1)
-        cluster = Cluster(True, config, leader, Status.empty(), [me, one, another], None,
+        cluster = Cluster(True, config, leader, Status.empty(), [me, local, remote], None,
                           SyncState(0, me.name, None, 0, SyncCrossSiteMode.LOCAL_ONLY), None, None, None)
         global_config.update(cluster)
 
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_apply', pg_stat_replication]):
             self.assertEqual(self.s.current_state(cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
-                                                             CaseInsensitiveSet([another.name])))
+                                                             CaseInsensitiveSet([remote.name])))
 
         # prefer_remote
         # add one local with a higher sync priority
-        yetanother = Member(0, 'yetanother', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
-                                                  'state': PostgresqlState.RUNNING, 'site': 'dc1',
-                                                  'tags': {'sync_priority': 3}})
-        pg_stat_replication.append({'pid': 103, 'application_name': yetanother.name, 'sync_state': 'async',
+        anotherlocal = Member(0, 'anotherlocal', 28,
+                              {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
+                               'state': PostgresqlState.RUNNING, 'site': 'dc1', 'tags': {'sync_priority': 3}})
+        pg_stat_replication.append({'pid': 103, 'application_name': anotherlocal.name, 'sync_state': 'async',
                                     'flush_lsn': 1, 'replay_lsn': 1})
         config = ClusterConfig(1, {'synchronous_mode': True, 'synchronous_cross_site': 'prefer_remote',
                                    'synchronous_node_count': 2}, 1)
-        cluster = Cluster(True, config, leader, Status.empty(), [me, one, another, yetanother], None,
+        cluster = Cluster(True, config, leader, Status.empty(), [me, local, remote, anotherlocal], None,
                           SyncState(0, me.name, None, 0, SyncCrossSiteMode.LOCAL_ONLY), None, None, None)
         global_config.update(cluster)
 
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_apply', pg_stat_replication]):
             self.assertEqual(self.s.current_state(cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
-                                                             CaseInsensitiveSet([another.name, yetanother.name])))
+                                                             CaseInsensitiveSet([remote.name, anotherlocal.name])))
+
+        # prefer_remote
+        # not enough remote, one is lagging over maximum_lag_on_syncnode
+        pg_stat_replication = [
+            {'pid': 101, 'application_name': remote.name, 'sync_state': 'async', 'flush_lsn': 1, 'replay_lsn': 1},
+            {'pid': 102, 'application_name': local.name, 'sync_state': 'async', 'flush_lsn': 3, 'replay_lsn': 3},
+            {'pid': 103, 'application_name': anotherlocal.name, 'sync_state': 'async', 'flush_lsn': 3, 'replay_lsn': 3}
+        ]
+        with patch.object(Postgresql, "_cluster_info_state_get",
+                          side_effect=['', 'remote_apply', pg_stat_replication]), \
+                patch.object(global_config.__class__, 'maximum_lag_on_syncnode', PropertyMock(return_value=1)):
+            self.assertEqual(self.s.current_state(cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
+                                                             CaseInsensitiveSet([local.name, anotherlocal.name])))
 
         # balanced
-        onemore = Member(0, 'onemore', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
-                                            'state': PostgresqlState.RUNNING, 'site': 'dc3'})
+        diffremote = Member(0, 'onemore', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
+                                               'state': PostgresqlState.RUNNING, 'site': 'dc3'})
         nosite = Member(0, 'nosite', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
                                           'state': PostgresqlState.RUNNING})
         pg_stat_replication += [
-            {'pid': 103, 'application_name': onemore.name, 'sync_state': 'async', 'flush_lsn': 1, 'replay_lsn': 1},
+            {'pid': 103, 'application_name': diffremote.name, 'sync_state': 'async', 'flush_lsn': 1, 'replay_lsn': 1},
             {'pid': 104, 'application_name': nosite.name, 'sync_state': 'async', 'flush_lsn': 1, 'replay_lsn': 1}
         ]
         config = ClusterConfig(1, {'synchronous_mode': True, 'synchronous_cross_site': 'balanced',
                                    'synchronous_node_count': 4}, 1)
-        cluster = Cluster(True, config, leader, Status.empty(), [me, one, another, yetanother, onemore, nosite], None,
-                          SyncState(0, me.name, None, 0, SyncCrossSiteMode.LOCAL_ONLY), None, None, None)
+        cluster = Cluster(True, config, leader, Status.empty(), [me, local, remote, anotherlocal, diffremote, nosite],
+                          None, SyncState(0, me.name, None, 0, SyncCrossSiteMode.LOCAL_ONLY), None, None, None)
         global_config.update(cluster)
 
         with patch.object(Postgresql, "_cluster_info_state_get",
                           side_effect=['', 'remote_apply', pg_stat_replication]):
             self.assertEqual(self.s.current_state(cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
-                                                             CaseInsensitiveSet([another.name, onemore.name,
-                                                                                 yetanother.name, one.name])))
+                                                             CaseInsensitiveSet([remote.name, diffremote.name,
+                                                                                 anotherlocal.name, local.name])))
 
         # any
         config = ClusterConfig(1, {'synchronous_mode': True, 'synchronous_cross_site': 'any',
                                    'synchronous_node_count': 2}, 1)
-        cluster = Cluster(True, config, leader, Status.empty(), [me, one, another, yetanother], None,
+        cluster = Cluster(True, config, leader, Status.empty(), [me, local, remote, anotherlocal], None,
                           SyncState(0, me.name, None, 0, SyncCrossSiteMode.LOCAL_ONLY), None, None, None)
         global_config.update(cluster)
 
         with patch.object(Postgresql, "_cluster_info_state_get", side_effect=['', 'remote_apply', pg_stat_replication]):
             self.assertEqual(self.s.current_state(cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
-                                                             CaseInsensitiveSet([yetanother.name, another.name])))
+                                                             CaseInsensitiveSet([anotherlocal.name, remote.name])))

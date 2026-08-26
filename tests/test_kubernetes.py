@@ -11,12 +11,14 @@ from unittest.mock import Mock, mock_open, patch, PropertyMock
 
 import urllib3
 
+from patroni import global_config
 from patroni.dcs import get_dcs
 from patroni.dcs.kubernetes import Cluster, k8s_client, k8s_config, K8sConfig, K8sConnectionFailed, \
     K8sException, K8sObject, Kubernetes, KubernetesError, KubernetesRetriableException, Retry, \
     RetryFailedError, SERVICE_HOST_ENV_NAME, SERVICE_PORT_ENV_NAME
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.mpp import get_mpp
+from patroni.utils import SyncCrossSiteMode
 
 from . import MockResponse, SleepException
 
@@ -489,8 +491,16 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         self.assertFalse(self.k.delete_sync_state(1))
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', mock_namespaced_kind, create=True)
-    def test_write_sync_state(self):
+    @patch.object(global_config.__class__, 'sync_cross_site_mode',
+                  PropertyMock(return_value=SyncCrossSiteMode.LOCAL_ONLY))
+    @patch('patroni.dcs.kubernetes.Kubernetes.sync_state')
+    def test_write_sync_state(self, mock_sync_state):
         self.assertIsNotNone(self.k.write_sync_state('a', ['b'], 0, 1))
+
+        # test SyncState when leader is siteless
+        self.k._site = None
+        self.k.write_sync_state('a', ['b'], 0, 1)
+        mock_sync_state.assert_called_with('a', ['b'], 0, SyncCrossSiteMode.ANY)
 
     @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_pod', mock_namespaced_kind, create=True)
     @patch.object(k8s_client.CoreV1Api, 'create_namespaced_endpoints', mock_namespaced_kind, create=True)

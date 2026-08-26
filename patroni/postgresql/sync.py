@@ -371,7 +371,6 @@ END;$$""")
         # Create selection order: pick one from each remote site, then local, then repeat.
         # Nodes with site not defined are added at the end.
         # Ensure consistent sites order with sorting.
-        result: List[_Replica] = []
         remote_lists = [val for site, val in sorted(site_replicas.items()) if site not in (current_site, '')]
         all_iters = remote_lists + [site_replicas.get(current_site, [])]
         result = [replica for vals in zip_longest(*all_iters) for replica in vals if replica is not None]
@@ -411,7 +410,7 @@ END;$$""")
         # Prefer members without nofailover tag. We are relying on the fact that sorts are guaranteed to be stable.
         sorted_replicas = sorted(replica_list, key=lambda x: x.nofailover)
         current_site_replicas: List[_Replica] = [r for r in sorted_replicas if r.site == self._postgresql.site]
-        remote_replicas: List[_Replica] = [r for r in sorted_replicas if r.site != self._postgresql.site]
+        remote_replicas: List[_Replica] = [r for r in sorted_replicas if r.site and r.site != self._postgresql.site]
         additional_replicas: List[_Replica] = []
 
         cross_site_mode = global_config.sync_cross_site_mode
@@ -429,23 +428,24 @@ END;$$""")
             if cross_site_mode == SyncCrossSiteMode.PREFER_LOCAL:
                 additional_replicas = remote_replicas
 
+        selection_order = [node for node in selection_order
+                           if sync_node_maxlag <= 0 or replica_list.max_lsn - node.lsn <= sync_node_maxlag]
         additional_count = max(0, sync_node_count - len(selection_order))
         for replica in selection_order + additional_replicas[:additional_count]:
-            if sync_node_maxlag <= 0 or replica_list.max_lsn - replica.lsn <= sync_node_maxlag:
-                if global_config.is_quorum_commit_mode:
-                    # We do not add nodes with `nofailover` enabled because that reduces availability.
-                    # We need to check LSN quorum only among nodes that are promotable because
-                    # there is a chance that a non-promotable node is ahead of a promotable one.
-                    if not replica.nofailover or len(active) < sync_node_count:
-                        if replica.application_name in self._ready_replicas:
-                            sync_confirmed.add(replica.application_name)
-                        active.add(replica.application_name)
-                else:
-                    active.add(replica.application_name)
-                    if replica.sync_state == 'sync' and replica.application_name in self._ready_replicas:
+            if global_config.is_quorum_commit_mode:
+                # We do not add nodes with `nofailover` enabled because that reduces availability.
+                # We need to check LSN quorum only among nodes that are promotable because
+                # there is a chance that a non-promotable node is ahead of a promotable one.
+                if not replica.nofailover or len(active) < sync_node_count:
+                    if replica.application_name in self._ready_replicas:
                         sync_confirmed.add(replica.application_name)
-                    if len(active) >= sync_node_count:
-                        break
+                    active.add(replica.application_name)
+            else:
+                active.add(replica.application_name)
+                if replica.sync_state == 'sync' and replica.application_name in self._ready_replicas:
+                    sync_confirmed.add(replica.application_name)
+                if len(active) >= sync_node_count:
+                    break
 
         # We need to handle old case of synchronous_standby_names='*' and when Patroni is restarted while PostgreSQL
         # is running and replace it with __patroni_strict_sync_replica_placeholder__. It requires having non-empty

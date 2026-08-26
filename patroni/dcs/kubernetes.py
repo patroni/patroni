@@ -1462,7 +1462,8 @@ class Kubernetes(AbstractDCS):
         :param version: last known `resource_version` for conditional update of the object
         :returns: the new :class:`SyncState` object or None
         """
-        return self._write_sync_state(leader, sync_standby, quorum, global_config.sync_cross_site_mode, version)
+        cross_site_mode = global_config.sync_cross_site_mode if self.site else SyncCrossSiteMode.ANY
+        return self._write_sync_state(leader, sync_standby, quorum, cross_site_mode, version)
 
     def delete_sync_state(self, version: Optional[str] = None) -> bool:
         """Patch annotations of $SCOPE-sync Endpoint or ConfigMap with empty values.

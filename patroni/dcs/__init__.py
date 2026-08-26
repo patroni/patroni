@@ -641,7 +641,10 @@ class SyncState(NamedTuple):
                 raise PatroniAssertionError('not a dict')
             leader = value.get('leader')
             quorum = value.get('quorum')
-            cross_site_mode = SyncCrossSiteMode(value.get('cross_site_mode', 'any'))
+            try:
+                cross_site_mode = SyncCrossSiteMode(value.get('cross_site_mode', 'any'))
+            except ValueError:
+                cross_site_mode = SyncCrossSiteMode.ANY
             return SyncState(version, leader, value.get('sync_standby'),
                              int(quorum) if leader and quorum else 0, cross_site_mode)
         except (PatroniAssertionError, TypeError, ValueError):
@@ -1965,7 +1968,6 @@ class AbstractDCS(ClusterSite, abc.ABC):
         :param last_lsn: absolute WAL LSN in bytes.
         :param slots: dictionary with permanent slots ``confirmed_flush_lsn``.
         :param failsafe: if defined dictionary passed to :meth:`~AbstractDCS.write_failsafe`.
-        :param site: the site to which the leader belongs.
 
         :returns: ``True`` if ``leader`` key (or session) has been updated successfully.
         """
@@ -2176,7 +2178,8 @@ class AbstractDCS(ClusterSite, abc.ABC):
 
         :returns: the new :class:`SyncState` object or ``None``.
         """
-        sync_value = self.sync_state(leader, sync_standby, quorum, global_config.sync_cross_site_mode)
+        cross_site_mode = global_config.sync_cross_site_mode if self.site else SyncCrossSiteMode.ANY
+        sync_value = self.sync_state(leader, sync_standby, quorum, cross_site_mode)
         ret = self.set_sync_state_value(json.dumps(sync_value, separators=(',', ':')), version)
         if not isinstance(ret, bool):
             return SyncState.from_node(ret, sync_value)

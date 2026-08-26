@@ -9,7 +9,8 @@ import urllib3.util.connection
 from dns.exception import DNSException
 from urllib3.exceptions import ReadTimeoutError
 
-from patroni.dcs import get_dcs
+from patroni import global_config
+from patroni.dcs import get_dcs, SyncState
 from patroni.dcs.etcd import AbstractDCS, Cluster, DnsCachingResolver, Etcd, EtcdClient, EtcdError
 from patroni.exceptions import DCSError
 from patroni.postgresql.mpp import get_mpp
@@ -382,3 +383,21 @@ class TestEtcd(unittest.TestCase):
 
     def test_last_seen(self):
         self.assertIsNotNone(self.etcd.last_seen)
+
+    @patch.object(global_config.__class__, 'sync_cross_site_mode',
+                  PropertyMock(return_value=SyncCrossSiteMode.LOCAL_ONLY))
+    @patch('patroni.dcs.AbstractDCS.sync_state')
+    def test_write_sync_state(self, mock_sync_state):
+        # test SyncState when leader is siteless
+        self.etcd._site = None
+        mock_sync_state.return_value = SyncState.empty()
+        self.etcd.write_sync_state('a', ['b'], 0, 1)
+        mock_sync_state.assert_called_with('a', ['b'], 0, SyncCrossSiteMode.ANY)
+
+        # test SyncState.from_node() when invalid mode is in the sate
+        self.etcd._site = 'dc1'
+        with patch.object(global_config.__class__, 'sync_cross_site_mode',
+                          PropertyMock(return_value='invalid')):
+            mock_sync_state.return_value = {'cross_site_mode': 'invalid'}
+            self.etcd.set_sync_state_value = Mock(return_value='foo')
+            self.etcd.write_sync_state('a', ['b'], 0, 1)
