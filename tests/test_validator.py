@@ -206,6 +206,26 @@ class TestValidator(unittest.TestCase):
         output = "\n".join(errors)
         self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
 
+    def test_restapi_authentication_mode(self, mock_out, mock_err):
+        for mode in ('disabled', 'permissive', 'strict'):
+            with self.subTest(mode=mode):
+                c = copy.deepcopy(config)
+                c['restapi']['authentication'] = {'username': 'patroni', 'password': 'secret', 'mode': mode}
+                errors = parse_output('\n'.join(schema(c)))
+                self.assertNotIn('restapi.authentication.mode', errors)
+
+        for mode in ('', 'STRICT', 'invalid', True, None):
+            with self.subTest(invalid_mode=mode):
+                c = copy.deepcopy(config)
+                c['restapi']['authentication'] = {'username': 'patroni', 'password': 'secret', 'mode': mode}
+                errors = parse_output('\n'.join(schema(c)))
+                self.assertIn('restapi.authentication.mode', errors)
+
+        c = copy.deepcopy(config)
+        c['restapi']['authentication'] = {'username': 'patroni', 'password': 'secret'}
+        errors = parse_output('\n'.join(schema(c)))
+        self.assertNotIn('restapi.authentication.mode', errors)
+
     def test_bin_dir_is_file(self, mock_out, mock_err):
         files.append(config["postgresql"]["data_dir"])
         files.append(config["postgresql"]["bin_dir"])

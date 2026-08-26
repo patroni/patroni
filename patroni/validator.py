@@ -1111,6 +1111,8 @@ schema = Schema({
         "listen": validate_host_port_listen,
         "connect_address": validate_connect_address,
         Optional("authentication"): {
+            Optional("mode"): EnumValidator(
+                ('disabled', 'permissive', 'strict'), case_sensitive=True, raise_assert=True),
             "username": str,
             "password": str
         },

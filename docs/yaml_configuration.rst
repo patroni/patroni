@@ -373,6 +373,7 @@ REST API
 
       -  **username**: Basic-auth username to protect unsafe REST API endpoints.
       -  **password**: Basic-auth password to protect unsafe REST API endpoints.
+      -  **mode**: (optional): ``disabled`` (default), ``permissive`` or ``strict``. Controls how Basic-auth is enforced on protected REST API endpoints. ``disabled`` preserves the historical behavior. ``strict`` requires valid credentials. ``permissive`` accepts both authenticated and unauthenticated requests and logs the unauthenticated ones, and is intended only as a transition state while performing a rolling upgrade from ``disabled`` to ``strict``. ``permissive`` and ``strict`` require ``username`` and ``password`` to be set.
    -  **certfile**: (optional): Specifies the file with the certificate in the PEM format. If the certfile is not specified or is left empty, the API server will work without SSL.
    -  **keyfile**: (optional): Specifies the file with the secret key in the PEM format.
    -  **keyfile\_password**: (optional): Specifies a password for decrypting the keyfile.

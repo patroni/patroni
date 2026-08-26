@@ -3,6 +3,7 @@ import json
 import socket
 import unittest
 
+from concurrent.futures import ThreadPoolExecutor
 from http.server import HTTPServer
 from io import BytesIO as IO
 from unittest.mock import Mock, patch, PropertyMock
@@ -422,9 +423,16 @@ class TestRestApiHandler(unittest.TestCase):
     @patch.object(MockPatroni, 'dcs')
     def test_do_GET_config(self, mock_dcs):
         mock_dcs.cluster.config.data = {}
-        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /config'))
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /config' + self._authorization))
         mock_dcs.cluster.config = None
-        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /config'))
+        self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /config' + self._authorization))
+
+    @patch.object(MockPatroni, 'dcs')
+    def test_protected_get_config_requires_auth(self, mock_dcs):
+        with patch.object(RestApiHandler, 'write_response', return_value=None) as response_mock:
+            MockRestApiServer(RestApiHandler, 'GET /config')
+            response_mock.assert_called_once_with(
+                401, 'no auth header received', headers={'WWW-Authenticate': 'Basic realm="MockPatroni"'})
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_GET_metrics(self, mock_dcs):
@@ -777,6 +785,20 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, post + '0\n\n')
         MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
 
+    def test_mpp_and_citus_require_auth(self):
+        for endpoint in ('mpp', 'citus'):
+            with self.subTest(endpoint=endpoint), \
+                    patch.object(RestApiHandler, 'write_response', return_value=None) as response_mock:
+                MockRestApiServer(RestApiHandler, 'POST /{0} HTTP/1.0'.format(endpoint))
+                response_mock.assert_called_once_with(
+                    401, 'no auth header received', headers={'WWW-Authenticate': 'Basic realm="MockPatroni"'})
+
+    def test_public_status_endpoint_does_not_check_access(self):
+        MockPatroni.dcs.cluster = get_cluster_initialized_without_leader()
+        with patch.object(RestApiServer, 'check_access') as check_access_mock:
+            MockRestApiServer(RestApiHandler, 'GET /health HTTP/1.0')
+            check_access_mock.assert_not_called()
+
 
 class TestRestApiServer(unittest.TestCase):
 
@@ -800,6 +822,117 @@ class TestRestApiServer(unittest.TestCase):
         with patch.object(socket.socket, 'setsockopt', Mock(side_effect=socket.error)), \
                 patch.object(MockRestApiServer, 'server_close', Mock()):
             self.srv.reload_config({'listen': ':8008'})
+
+    @staticmethod
+    def _auth_config(mode=None, username='test', password='test'):
+        authentication = {'username': username, 'password': password}
+        if mode is not None:
+            authentication['mode'] = mode
+        return {'listen': '*:8008', 'certfile': 'a', 'verify_client': 'required',
+                'ciphers': '!SSLv1:!SSLv2:!SSLv3:!TLSv1:!TLSv1.1',
+                'allowlist': ['127.0.0.1'],
+                'authentication': authentication}
+
+    def test_authentication_modes(self):
+        valid = 'Basic dGVzdDp0ZXN0'
+        invalid = 'Basic aW52YWxpZA=='
+        cases = (
+            ('disabled', None, None),
+            ('disabled', valid, None),
+            ('disabled', invalid, None),
+            ('permissive', None, None),
+            ('permissive', valid, None),
+            ('permissive', invalid, 'not authenticated'),
+            ('strict', None, 'no auth header received'),
+            ('strict', valid, None),
+            ('strict', invalid, 'not authenticated'),
+        )
+        for mode, header, expected in cases:
+            with self.subTest(mode=mode, header=header):
+                self.srv.reload_config(self._auth_config(mode))
+                self.assertEqual(expected, self.srv.check_auth_header(header))
+
+        self.srv.reload_config(self._auth_config())
+        self.assertEqual('no auth header received', self.srv.check_auth_header(None))
+        self.assertIsNone(self.srv.check_auth_header(valid))
+
+        config = self._auth_config()
+        config.pop('authentication')
+        self.srv.reload_config(config)
+        self.assertIsNone(self.srv.check_auth_header(None))
+        self.assertIsNone(self.srv.check_auth_header(invalid))
+
+    @patch('patroni.api.logger.warning')
+    @patch('patroni.api.time.monotonic', side_effect=(10.0, 20.0, 71.0))
+    def test_permissive_warning_is_throttled(self, mock_monotonic, mock_warning):
+        self.srv.reload_config(self._auth_config('permissive'))
+        with patch.object(RestApiServer, '_last_permissive_warning_at', None):
+            self.assertIsNone(self.srv.check_auth_header(None))
+            self.assertIsNone(self.srv.check_auth_header(None))
+            self.assertIsNone(self.srv.check_auth_header(None))
+        self.assertEqual(3, mock_monotonic.call_count)
+        self.assertEqual(2, mock_warning.call_count)
+
+    def test_authentication_reload_is_atomic(self):
+        old_valid = 'Basic dGVzdDp0ZXN0'
+        new_valid = 'Basic bmV3OmNyZWRlbnRpYWw='
+        self.srv.reload_config(self._auth_config('strict'))
+
+        with self.assertRaises(ValueError):
+            self.srv.reload_config(self._auth_config('invalid', 'new', 'credential'))
+
+        self.assertIsNone(self.srv.check_auth_header(old_valid))
+        self.assertEqual('not authenticated', self.srv.check_auth_header(new_valid))
+
+    def test_strict_and_permissive_modes_require_complete_credentials(self):
+        for mode in ('permissive', 'strict'):
+            for username, password in (('', ''), ('test', ''), ('', 'test')):
+                with self.subTest(mode=mode, username=username, password=password):
+                    with self.assertRaises(ValueError):
+                        self.srv.reload_config(self._auth_config(mode, username, password))
+
+        config = self._auth_config('invalid')
+        config['authentication'] = {'mode': 'invalid'}
+        with self.assertRaises(ValueError):
+            self.srv.reload_config(config)
+
+        for authentication in ('', [], 0, False):
+            with self.subTest(authentication=authentication), self.assertRaises(ValueError):
+                config = self._auth_config()
+                config['authentication'] = authentication
+                self.srv.reload_config(config)
+
+        self.srv.reload_config(self._auth_config('disabled', '', ''))
+        self.assertIsNone(self.srv.check_auth_header(None))
+
+    @patch('patroni.api.logger.warning')
+    @patch('patroni.api.time.monotonic', return_value=10.0)
+    def test_permissive_warning_is_thread_safe(self, mock_monotonic, mock_warning):
+        self.srv.reload_config(self._auth_config('permissive'))
+        with patch.object(RestApiServer, '_last_permissive_warning_at', None), ThreadPoolExecutor(16) as executor:
+            results = list(executor.map(lambda _: self.srv.check_auth_header(None), range(64)))
+        self.assertEqual([None] * 64, results)
+        self.assertEqual(64, mock_monotonic.call_count)
+        mock_warning.assert_called_once()
+
+    def test_auth_modes_do_not_bypass_allowlist_or_client_certificates(self):
+        for mode in ('disabled', 'permissive'):
+            with self.subTest(mode=mode):
+                self.srv.reload_config(self._auth_config(mode))
+                request_handler = Mock()
+                request_handler.headers = {}
+                request_handler.write_response.return_value = None
+                request_handler.client_address = ('127.0.0.2',)
+                request_handler.request.getpeercert.return_value = {'subject': 'client'}
+
+                self.assertIsNone(self.srv.check_access(request_handler))
+                request_handler.write_response.assert_called_once_with(403, 'Access is denied')
+
+                request_handler.write_response.reset_mock()
+                request_handler.client_address = ('127.0.0.1',)
+                request_handler.request.getpeercert.return_value = None
+                self.assertIsNone(self.srv.check_access(request_handler))
+                request_handler.write_response.assert_called_once_with(403, 'client certificate required')
 
     @patch('socket.getaddrinfo', socket_getaddrinfo)
     @patch.object(MockPatroni, 'dcs')

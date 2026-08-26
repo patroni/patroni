@@ -28,6 +28,8 @@ From the point of view of security, REST API contains safe (``GET`` requests, on
 
 The unsafe endpoints can be protected with HTTP basic-auth by setting the ``restapi.authentication.username`` and ``restapi.authentication.password`` parameters. There is no way to protect the safe endpoints without enabling TLS.
 
+By default, setting ``restapi.authentication.username`` and ``restapi.authentication.password`` enforces authentication on the unsafe endpoints immediately. On a running cluster this is effectively all-or-nothing: while some nodes require credentials and others do not, the REST API calls members make to each other during leader races and failsafe checks can fail. The ``restapi.authentication.mode`` parameter allows enabling authentication gradually. ``disabled`` (the default) does not enforce authentication. ``permissive`` accepts both authenticated and unauthenticated requests and logs the unauthenticated ones; it is intended only as a transition state during a rolling upgrade. ``strict`` requires valid credentials. Roll every node to ``permissive`` first, then to ``strict`` once all nodes have credentials configured, so authentication can be enabled without a cluster-wide flag-day cutover.
+
 When TLS for the REST API is enabled and a PKI is established, mutual authentication of the API server and API client is possible for all endpoints.
 
 The ``restapi`` section parameters enable TLS client authentication to the server. Depending on the value of the ``verify_client`` parameter, the API server requires a successful client certificate verification for both safe and unsafe API calls (``verify_client: required``), or only for unsafe API calls (``verify_client: optional``), or for no API calls (``verify_client: none``).

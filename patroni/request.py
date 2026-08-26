@@ -1,7 +1,7 @@
 """Facilities for handling communication with Patroni's REST API."""
 import json
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, cast, Dict, Optional, Union
 
 import urllib3
 
@@ -66,6 +66,19 @@ class PatroniRequest(object):
         """
         return config.get('restapi', {}).get(name)
 
+    @staticmethod
+    def _get_restapi_auth_from_authentication(config: Union[Config, Dict[str, Any]]) -> Optional[str]:
+        """Build a Basic authentication value from structured REST API credentials."""
+        authentication_value: Any = config.get('restapi', {}).get('authentication') or {}
+        if not isinstance(authentication_value, dict):
+            return None
+        authentication = cast(Dict[str, Any], authentication_value)
+        username = authentication.get('username')
+        password = authentication.get('password')
+        if isinstance(username, str) and username and isinstance(password, str) and password:
+            return '{0}:{1}'.format(username, password)
+        return None
+
     def _apply_pool_param(self, param: str, value: Any) -> None:
         """Configure *param* as *value* in the request manager.
 
@@ -112,7 +125,9 @@ class PatroniRequest(object):
         """
         # ``ctl -> auth`` is equivalent to ``ctl -> authentication -> username`` + ``:`` +
         # ``ctl -> authentication -> password``. And the same for ``restapi -> auth``
-        basic_auth = self._get_ctl_value(config, 'auth') or self._get_restapi_value(config, 'auth')
+        basic_auth = self._get_ctl_value(config, 'auth') \
+            or self._get_restapi_value(config, 'auth') \
+            or self._get_restapi_auth_from_authentication(config)
         self._pool.headers = urllib3.make_headers(basic_auth=basic_auth, user_agent=USER_AGENT)
         self._pool.connection_pool_kw['cert_reqs'] = 'CERT_REQUIRED'
 

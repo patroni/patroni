@@ -20,7 +20,8 @@ import traceback
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import ip_address, ip_network, IPv4Network, IPv6Network
 from socketserver import ThreadingMixIn
-from typing import Any, Callable, cast, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
+from threading import Lock
+from typing import Any, Callable, cast, Dict, Iterator, List, NamedTuple, Optional, Tuple, TYPE_CHECKING, Union
 from urllib.parse import parse_qs, urlparse
 
 import dateutil.parser
@@ -35,6 +36,18 @@ from .utils import cluster_as_json, deep_compare, enable_keepalive, parse_bool, 
     parse_int, patch_config, Retry, RetryFailedError, split_host_port, tzutc, uri
 
 logger = logging.getLogger(__name__)
+
+_AUTH_MODE_DISABLED = 'disabled'
+_AUTH_MODE_PERMISSIVE = 'permissive'
+_AUTH_MODE_STRICT = 'strict'
+_AUTH_MODES = (_AUTH_MODE_DISABLED, _AUTH_MODE_PERMISSIVE, _AUTH_MODE_STRICT)
+
+
+class _RestApiAuthSnapshot(NamedTuple):
+    """Immutable authentication state swapped atomically during configuration reload."""
+
+    key: Optional[bytes]
+    mode: str
 
 
 def check_access(*args: Any, **kwargs: Any) -> Callable[..., Any]:
@@ -577,6 +590,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         cluster = self.server.patroni.dcs.cluster or self.server.patroni.dcs.get_cluster()
         self._write_json_response(200, cluster.history and cluster.history.lines or [])
 
+    @check_access
     def do_GET_config(self) -> None:
         """Handle a ``GET`` request to ``/config`` path.
 
@@ -1295,7 +1309,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         self.do_POST_failover(action='switchover')
 
-    @check_access
     def do_POST_citus(self) -> None:
         """Handle a ``POST`` request to ``/citus`` path.
 
@@ -1304,6 +1317,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         self.do_POST_mpp()
 
+    @check_access
     def do_POST_mpp(self) -> None:
         """Handle a ``POST`` request to ``/mpp`` path.
 
@@ -1515,6 +1529,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
     An asynchronous thread-pool-based HTTP server.
     """
 
+    _last_permissive_warning_at: Optional[float] = None
+    _permissive_warning_lock = Lock()
+    _PERMISSIVE_WARNING_INTERVAL_SECONDS = 60.0
+
     def __init__(self, patroni: Patroni, config: Dict[str, Any]) -> None:
         """Establish patroni configuration for the REST API daemon.
 
@@ -1524,7 +1542,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         :param config: ``restapi`` section of Patroni configuration.
         """
         self.connection_string: str
-        self.__auth_key = None
+        self.__auth = _RestApiAuthSnapshot(None, _AUTH_MODE_DISABLED)
         self.__allowlist_include_members: Optional[bool] = None
         self.__allowlist: Tuple[Union[IPv4Network, IPv6Network], ...] = ()
         self.http_extra_headers: Dict[str, str] = {}
@@ -1618,6 +1636,11 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
             flags = fcntl.fcntl(fd, fcntl.F_GETFD)
             fcntl.fcntl(fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
 
+    @staticmethod
+    def _check_basic_auth_key(auth_key: bytes, key: str) -> bool:
+        """Compare a configured Basic authentication key with a request key in constant time."""
+        return hmac.compare_digest(auth_key, key.encode('utf-8'))
+
     def check_basic_auth_key(self, key: str) -> bool:
         """Check if *key* matches the password configured for the REST API.
 
@@ -1625,23 +1648,76 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
 
         :returns: ``True`` if *key* matches the password configured for the REST API.
         """
-        # pyright -- ``__auth_key`` was already checked through the caller method (:func:`check_auth_header`).
-        if TYPE_CHECKING:  # pragma: no cover
-            assert self.__auth_key is not None
-        return hmac.compare_digest(self.__auth_key, key.encode('utf-8'))
+        auth_key = self.__auth.key
+        return auth_key is not None and self._check_basic_auth_key(auth_key, key)
+
+    @staticmethod
+    def _build_auth_snapshot(config: Dict[str, Any]) -> _RestApiAuthSnapshot:
+        """Resolve credentials and mode into one immutable authentication state."""
+        auth_config_value: Any = config.get('authentication')
+        if auth_config_value is None:
+            auth_config_value = {}
+        if not isinstance(auth_config_value, dict):
+            raise ValueError('restapi.authentication must be a mapping')
+        auth_config = cast(Dict[str, Any], auth_config_value)
+
+        mode_is_configured = 'mode' in auth_config
+        mode = auth_config.get('mode')
+        if mode_is_configured and mode not in _AUTH_MODES:
+            raise ValueError('restapi.authentication.mode must be one of {0}, got {1!r}'
+                             .format(_AUTH_MODES, mode))
+
+        auth_string = config.get('auth')
+        if auth_string is not None and not isinstance(auth_string, str):
+            raise ValueError('restapi.auth must be a string')
+        if not auth_string:
+            username = auth_config.get('username')
+            password = auth_config.get('password')
+            if username and password:
+                if not isinstance(username, str) or not isinstance(password, str):
+                    raise ValueError('restapi.authentication username and password must be strings')
+                auth_string = '{0}:{1}'.format(username, password)
+
+        if not auth_string and mode in (_AUTH_MODE_PERMISSIVE, _AUTH_MODE_STRICT):
+            raise ValueError('restapi.authentication.mode={0} requires complete username and password credentials'
+                             .format(mode))
+        if not auth_string:
+            return _RestApiAuthSnapshot(None, _AUTH_MODE_DISABLED)
+
+        effective_mode = cast(str, mode) if mode_is_configured else _AUTH_MODE_STRICT
+        return _RestApiAuthSnapshot(base64.b64encode(auth_string.encode('utf-8')), effective_mode)
+
+    def _log_permissive_warning_throttled(self) -> None:
+        """Warn about anonymous permissive-mode access at most once per interval."""
+        now = time.monotonic()
+        with RestApiServer._permissive_warning_lock:
+            last_warning = RestApiServer._last_permissive_warning_at
+            if last_warning is not None and now - last_warning < self._PERMISSIVE_WARNING_INTERVAL_SECONDS:
+                return
+            RestApiServer._last_permissive_warning_at = now
+        logger.warning('REST API: unauthenticated request allowed '
+                       '(restapi.authentication.mode=permissive). Switch to strict once the rolling upgrade '
+                       'is complete.')
 
     def check_auth_header(self, auth_header: Optional[str]) -> Optional[str]:
-        """Validate HTTP Basic authorization header, if present.
+        """Validate an HTTP Basic authorization header against the current authentication snapshot.
 
         :param auth_header: value of ``Authorization`` HTTP header, if present, else ``None``.
 
         :returns: an error message if any issue is found, ``None`` otherwise.
         """
-        if self.__auth_key:
-            if auth_header is None:
-                return 'no auth header received'
-            if not auth_header.startswith('Basic ') or not self.check_basic_auth_key(auth_header[6:]):
-                return 'not authenticated'
+        auth = self.__auth
+        if auth.mode == _AUTH_MODE_DISABLED:
+            return None
+        if auth_header is None:
+            if auth.mode == _AUTH_MODE_PERMISSIVE:
+                self._log_permissive_warning_throttled()
+                return None
+            return 'no auth header received'
+        if not auth_header.startswith('Basic ') or auth.key is None \
+                or not self._check_basic_auth_key(auth.key, auth_header[6:]):
+            return 'not authenticated'
+        return None
 
     @staticmethod
     def __resolve_ips(host: str, port: int) -> Iterator[Union[IPv4Network, IPv6Network]]:
@@ -1968,6 +2044,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         if 'listen' not in config:  # changing config in runtime
             raise ValueError('Can not find "restapi.listen" config')
 
+        auth = self._build_auth_snapshot(config)
+
         self.__allowlist = tuple(self._build_allowlist(config.get('allowlist')))
         self.__allowlist_include_members = config.get('allowlist_include_members')
 
@@ -1983,7 +2061,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         if self.__listen != config['listen'] or self.__ssl_options != ssl_options or self._received_new_cert:
             self.__initialize(config['listen'], ssl_options)
 
-        self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')) if 'auth' in config else None
+        self.__auth = auth
         # pyright -- ``__listen`` is initially created as ``None``, but right after that it is replaced with a string
         # through :func:`__initialize`.
         if TYPE_CHECKING:  # pragma: no cover
