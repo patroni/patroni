@@ -625,6 +625,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
             * ``patroni_pending_restart``: ``1`` if this PostgreSQL node is pending a restart, else ``0``;
             * ``patroni_is_paused``: ``1`` if Patroni is in maintenance node, else ``0``.
 
+        If the REST API is running in HTTPS mode the response will also have the following:
+
+            * ``patroni_restapi_certificate_expiry``: epoch timestamp when the REST API certificate expires.
+
         For PostgreSQL v9.6+ the response will also have the following:
 
             * ``patroni_postgres_streaming``: 1 if Postgres is streaming from another node, else ``0``;
@@ -769,6 +773,12 @@ class RestApiHandler(BaseHTTPRequestHandler):
         metrics.append("# HELP patroni_failover_priority Failover priority of this node.")
         metrics.append("# TYPE patroni_failover_priority gauge")
         metrics.append("patroni_failover_priority{0} {1}".format(labels, patroni.failover_priority))
+
+        if self.server.ssl_not_after is not None:
+            metrics.append("# HELP patroni_restapi_certificate_expiry Epoch timestamp when the REST API"
+                           " certificate expires.")
+            metrics.append("# TYPE patroni_restapi_certificate_expiry gauge")
+            metrics.append("patroni_restapi_certificate_expiry{0} {1}".format(labels, self.server.ssl_not_after))
 
         self.write_response(200, '\n'.join(metrics) + '\n', content_type='text/plain')
 
@@ -1540,9 +1550,19 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         self._executor = PatroniThreadPoolExecutor(max_workers=thread_pool_size + 1, thread_name_prefix='RestAPI')
         self.__ssl_options: Dict[str, Any] = {}
         self.__ssl_serial_number = None
+        self.__ssl_not_after: Optional[int] = None
         self._received_new_cert = False
         self.reload_config(config)
         self.daemon = True
+
+    @property
+    def ssl_not_after(self) -> Optional[int]:
+        """Epoch timestamp when the certificate used by the REST API expires.
+
+        It is ``None`` when the REST API is not running in HTTPS mode, or when the expiry could not be read from the
+        certificate.
+        """
+        return self.__ssl_not_after
 
     def construct_server_tokens(self, token_config: str) -> str:
         """Construct the value for the ``Server`` HTTP header based on *server_tokens*.
@@ -1812,6 +1832,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         # wrap socket with ssl if 'certfile' is defined in a config.yaml
         # Sometime it's also needed to pass reference to a 'keyfile'.
         self.__protocol = 'https' if ssl_options.get('certfile') else 'http'
+        self.__ssl_not_after = None
         if self.__protocol == 'https':
             import ssl
             ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH, cafile=ssl_options.get('cafile'))
@@ -1826,7 +1847,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
                     ctx.verify_mode = modes[verify_client]
                 else:
                     logger.error('Bad value in the "restapi.verify_client": %s', verify_client)
-            self.__ssl_serial_number = self.get_certificate_serial_number()
+            self.__ssl_serial_number, self.__ssl_not_after = self.parse_certificate()
             self.socket = ctx.wrap_socket(self.socket, server_side=True, do_handshake_on_connect=False)
         if reloading_config:
             self.start()
@@ -1911,19 +1932,37 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
                 logger.debug('Failed to shutdown SSL connection: %r', e)
         super(RestApiServer, self).shutdown_request(request)
 
-    def get_certificate_serial_number(self) -> Optional[str]:
-        """Get serial number of the certificate used by the REST API.
+    def parse_certificate(self) -> Tuple[Optional[str], Optional[int]]:
+        """Parse the certificate used by the REST API.
 
-        :returns: serial number of the certificate configured through ``restapi.certfile`` setting.
+        :returns: a tuple composed of 2 items:
+
+            * serial number of the certificate configured through ``restapi.certfile`` setting, or ``None`` if it
+              could not be read;
+            * epoch timestamp when that certificate expires, or ``None`` if it could not be read.
         """
         certfile: Optional[str] = self.__ssl_options.get('certfile')
-        if certfile:
-            import ssl
+        if not certfile:
+            return None, None
+
+        import ssl
+        try:
+            crt = cast(Dict[str, Any], ssl._ssl._test_decode_cert(certfile))  # pyright: ignore
+        except ssl.SSLError as e:
+            logger.error('Failed to decode certificate %s: %r', certfile, e)
+            return None, None
+
+        serial_number: Optional[str] = crt.get('serialNumber')
+        not_after = crt.get('notAfter')
+        expiry: Optional[int] = None
+        if isinstance(not_after, str):
             try:
-                crt = cast(Dict[str, Any], ssl._ssl._test_decode_cert(certfile))  # pyright: ignore
-                return crt.get('serialNumber')
-            except ssl.SSLError as e:
-                logger.error('Failed to get serial number from certificate %s: %r', self.__ssl_options['certfile'], e)
+                expiry = ssl.cert_time_to_seconds(not_after)
+            except ValueError as e:
+                logger.error('Failed to get expiry from certificate %s: %r', certfile, e)
+        else:
+            logger.error('Certificate %s does not have the "notAfter" field', certfile)
+        return serial_number, expiry
 
     def reload_local_certificate(self) -> Optional[bool]:
         """Reload the SSL certificate used by the REST API.
@@ -1932,7 +1971,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
             otherwise.
         """
         if self.__protocol == 'https':
-            on_disk_cert_serial_number = self.get_certificate_serial_number()
+            on_disk_cert_serial_number, self.__ssl_not_after = self.parse_certificate()
             if on_disk_cert_serial_number != self.__ssl_serial_number:
                 self._received_new_cert = True
                 self.__ssl_serial_number = on_disk_cert_serial_number
