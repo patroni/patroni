@@ -176,16 +176,21 @@ def validate_standby_cluster_port(port: Any) -> bool:
     :raises:
         :class:`~patroni.exceptions.ConfigParseError`:
             * If *port* is not an :class:`int`; or
-            * If *port* is not a :class:`str` with a comma-separated list of ints.
+            * If *port* is not a :class:`str` with a comma-separated list of ints; or
+            * If any of the given ports is not in the ``1-65535`` range.
     """
     if isinstance(port, int):
+        if not 1 <= port <= 65535:
+            raise ConfigParseError("contains a wrong value")
         return True
     if isinstance(port, str):
         try:
-            [int(p) for p in port.split(",")]
+            ports = [int(p) for p in port.split(",")]
         except ValueError:
             raise ConfigParseError("contains a wrong value")
         else:
+            if not all(1 <= p <= 65535 for p in ports):
+                raise ConfigParseError("contains a wrong value")
             return True
     raise ConfigParseError("contains a wrong value")
 

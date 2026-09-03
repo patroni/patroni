@@ -353,7 +353,7 @@ class TestValidator(unittest.TestCase):
             output = "\n".join(errors)
             self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
 
-        for port in ['5432,abc', ['5432']]:
+        for port in ['5432,abc', ['5432'], 65536, '5432,65536']:
             c['bootstrap']['dcs']['standby_cluster'] = {'host': '127.0.0.1', 'port': port}
             errors = schema(c)
             output = "\n".join(errors)
