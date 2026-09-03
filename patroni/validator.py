@@ -166,6 +166,30 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
     return True
 
 
+def validate_standby_cluster_port(port: Any) -> bool:
+    """Check if standby cluster port(s) are valid.
+
+    :param port: the port(s) to be validated.
+
+    :returns: ``True`` if the port(s) are valid.
+
+    :raises:
+        :class:`~patroni.exceptions.ConfigParseError`:
+            * If *port* is not an :class:`int`; or
+            * If *port* is not a :class:`str` with a comma-separated list of ints.
+    """
+    if isinstance(port, int):
+        return True
+    if isinstance(port, str):
+        try:
+            [int(p) for p in port.split(",")]
+        except ValueError:
+            raise ConfigParseError("contains a wrong value")
+        else:
+            return True
+    raise ConfigParseError("contains a wrong value")
+
+
 def validate_host_port_list(value: List[str]) -> bool:
     """Validate a list of host(s) and port items.
 
@@ -1159,7 +1183,7 @@ schema = Schema({
             Optional("standby_cluster"): {
                 Or("host", "port", "restore_command"): Case({
                     "host": str,
-                    "port": IntValidator(max=65535, expected_type=int, raise_assert=True),
+                    "port": validate_standby_cluster_port,
                     "restore_command": str
                 }),
                 Optional("primary_slot_name"): str,
