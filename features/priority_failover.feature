@@ -16,6 +16,7 @@ Feature: priority replication
     And I configure and start postgres-3 with a tag failover_priority 2
     Then replication works from postgres-0 to postgres-2 after 20 seconds
     And replication works from postgres-0 to postgres-3 after 20 seconds
+    And postgres-2 and postgres-3 have the same wal position after 10 seconds
     When I shut down postgres-0
     Then postgres-3 role is the primary after 10 seconds
     And there is one of ["postgres-3 has equally tolerable WAL position and priority 2, while this node has priority 1","Wal position of postgres-3 is ahead of my wal position"] INFO in the postgres-2 patroni log after 5 seconds
