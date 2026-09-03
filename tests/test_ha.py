@@ -94,7 +94,7 @@ def get_standby_cluster_initialized_with_only_leader(failover=None, sync=None):
             "standby_cluster": {
                 "host": "localhost",
                 "port": 5432,
-                "primary_slot_name": "",
+                "primary_slot_name": None,
             }}, 1)
     )
     cluster.leader.data['role'] = PostgresqlRole.STANDBY_LEADER
@@ -273,7 +273,7 @@ class TestHa(PostgresInit):
     def test_bootstrap_as_standby_leader(self, initialize):
         self.p.data_directory_empty = true
         self.ha.cluster = get_cluster_not_initialized_without_leader(
-            cluster_config=ClusterConfig(1, {"standby_cluster": {"port": 5432}}, 1))
+            cluster_config=ClusterConfig(1, {"standby_cluster": {"port": 5432, 'primary_slot_name': None}}, 1))
         self.assertEqual(self.ha.run_cycle(), 'trying to bootstrap a new standby leader')
 
     def test_bootstrap_waiting_for_standby_leader(self):
