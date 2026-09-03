@@ -5,10 +5,10 @@ from behave import step, then
 
 def polling_loop(timeout, interval=1):
     """Returns an iterator that returns values until timeout has passed. Timeout is measured from start of iteration."""
-    start_time = time.time()
+    start_time = time.monotonic()
     iteration = 0
     end_time = start_time + timeout
-    while time.time() < end_time:
+    while time.monotonic() < end_time:
         yield iteration
         iteration += 1
         time.sleep(interval)

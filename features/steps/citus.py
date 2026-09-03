@@ -15,19 +15,19 @@ tzutc = tz.tzutc()
 @then('{name:name} is a leader in a group {group:d} after {time_limit:d} seconds')
 def is_a_group_leader(context, name, group, time_limit):
     time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
+    max_time = time.monotonic() + int(time_limit)
     while (context.dcs_ctl.query("leader", group=group) != name):
         time.sleep(1)
-        assert time.time() < max_time, "{0} is not a leader in dcs after {1} seconds".format(name, time_limit)
+        assert time.monotonic() < max_time, "{0} is not a leader in dcs after {1} seconds".format(name, time_limit)
 
 
 @step('"{name}" key in a group {group:d} in DCS has {key:w}={value} after {time_limit:d} seconds')
 def check_group_member(context, name, group, key, value, time_limit):
     time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
+    max_time = time.monotonic() + int(time_limit)
     dcs_value = None
     response = None
-    while time.time() < max_time:
+    while time.monotonic() < max_time:
         try:
             response = json.loads(context.dcs_ctl.query(name, group=group))
             dcs_value = response.get(key)
@@ -48,11 +48,11 @@ def start_citus(context, name, group):
 @step('{name1:name} is registered in the {name2:name} as the {role:w} in group {group:d} after {time_limit:d} seconds')
 def check_registration(context, name1, name2, role, group, time_limit):
     time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
+    max_time = time.monotonic() + int(time_limit)
 
     worker_port = int(context.pctl.query(name1, "SHOW port").fetchone()[0])
 
-    while time.time() < max_time:
+    while time.monotonic() < max_time:
         try:
             cur = context.pctl.query(name2, "SELECT nodeport, noderole"
                                             " FROM pg_catalog.pg_dist_node WHERE groupid = {0}".format(group))
@@ -119,8 +119,8 @@ def count_rows(context, name):
 @step("there is a transaction in progress on {name:name} changing pg_dist_node after {time_limit:d} seconds")
 def check_transaction(context, name, time_limit):
     time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
-    while time.time() < max_time:
+    max_time = time.monotonic() + int(time_limit)
+    while time.monotonic() < max_time:
         cur = context.pctl.query(name, "SELECT xact_start FROM pg_stat_activity WHERE pid <> pg_backend_pid()"
                                        " AND state = 'idle in transaction' AND query ~ 'citus_update_node'")
         if cur.rowcount == 1:

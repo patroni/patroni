@@ -32,10 +32,10 @@ register_type(url=parse_url)
 @then('{name:name} is a leader after {time_limit:d} seconds')
 def is_a_leader(context, name, time_limit):
     time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
+    max_time = time.monotonic() + int(time_limit)
     while (context.dcs_ctl.query("leader") != name):
         time.sleep(1)
-        assert time.time() < max_time, "{0} is not a leader in dcs after {1} seconds".format(name, time_limit)
+        assert time.monotonic() < max_time, "{0} is not a leader in dcs after {1} seconds".format(name, time_limit)
 
 
 @step('I sleep for {value:d} seconds')

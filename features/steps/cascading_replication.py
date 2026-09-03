@@ -23,9 +23,9 @@ def write_label(context, content, name):
 @step('"{name}" key in DCS has {key:w}={value} after {time_limit:d} seconds')
 def check_member(context, name, key, value, time_limit):
     time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
+    max_time = time.monotonic() + int(time_limit)
     dcs_value = None
-    while time.time() < max_time:
+    while time.monotonic() < max_time:
         try:
             response = json.loads(context.dcs_ctl.query(name))
             dcs_value = str(response.get(key))
@@ -41,8 +41,8 @@ def check_member(context, name, key, value, time_limit):
 @step('there is a non empty {key:w} key in DCS after {time_limit:d} seconds')
 def check_initialize(context, key, time_limit):
     time_limit *= context.timeout_multiplier
-    max_time = time.time() + int(time_limit)
-    while time.time() < max_time:
+    max_time = time.monotonic() + int(time_limit)
+    while time.monotonic() < max_time:
         try:
             if context.dcs_ctl.query(key):
                 return

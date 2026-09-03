@@ -125,7 +125,7 @@ class Postgresql(ClusterSite):
                                       retry_exceptions=PostgresConnectionException)
 
         self.set_role(self.get_postgres_role_from_data_directory())
-        self._state_entry_timestamp = 0
+        self._state_entry_timestamp = float('-inf')
 
         self._cluster_info_state = {}
         self._should_query_slots = True
@@ -732,10 +732,10 @@ class Postgresql(ClusterSite):
     def set_state(self, value: PostgresqlState) -> None:
         with self._state_lock:
             self._state = value
-            self._state_entry_timestamp = time.time()
+            self._state_entry_timestamp = time.monotonic()
 
     def time_in_state(self) -> float:
-        return time.time() - self._state_entry_timestamp
+        return time.monotonic() - self._state_entry_timestamp
 
     def is_starting(self) -> bool:
         return self.state in (PostgresqlState.STARTING, PostgresqlState.BOOTSTRAP_STARTING)
