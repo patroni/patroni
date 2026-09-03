@@ -85,7 +85,7 @@ In order to change the dynamic configuration you can use either :ref:`patronictl
    -  **database**: the database name (when matching a ``logical`` slot).
    -  **plugin**: the logical decoding plugin (when matching a ``logical`` slot).
 
-Note: **slots** is a hashmap while **ignore_slots** is an array. For example:
+The **slots** value is a hashmap while **ignore_slots** is an array. For example:
 
 .. code:: YAML
 
@@ -106,7 +106,7 @@ Note: **slots** is a hashmap while **ignore_slots** is an array. For example:
             type: physical
           ...
 
-Note: When running PostgreSQL v11 or newer Patroni maintains physical replication slots on all nodes that could potentially become a leader, so that replica nodes keep WAL segments reserved if they are potentially required by other nodes. In case the node is absent and its member key in DCS gets expired, the corresponding replication slot is dropped after ``member_slots_ttl`` (default value is `30min`). You can increase or decrease retention based on your needs. Alternatively, if your cluster topology is static (fixed number of nodes that never change their names) you can configure permanent physical replication slots with names corresponding to the names of the nodes to avoid slots removal and recycling of WAL files while replica is temporarily down:
+When running PostgreSQL v11 or newer Patroni maintains physical replication slots on all nodes that could potentially become a leader, so that replica nodes keep WAL segments reserved if they are potentially required by other nodes. In case the node is absent and its member key in DCS gets expired, the corresponding replication slot is dropped after ``member_slots_ttl`` (default value is `30min`). You can increase or decrease retention based on your needs. Alternatively, if your cluster topology is static (fixed number of nodes that never change their names) you can configure permanent physical replication slots with names corresponding to the names of the nodes to avoid slots removal and recycling of WAL files while replica is temporarily down:
 
 .. code:: YAML
 
