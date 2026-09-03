@@ -391,6 +391,7 @@ class ConfigHandler(object):
         self._postgresql_base_conf = os.path.join(self._config_dir, self._postgresql_base_conf_name)
         self._pg_hba_conf = os.path.join(self._config_dir, 'pg_hba.conf')
         self._pg_ident_conf = os.path.join(self._config_dir, 'pg_ident.conf')
+        self._pg_hosts_conf = os.path.join(self._config_dir, 'pg_hosts.conf')
         self._recovery_conf = os.path.join(postgresql.data_dir, 'recovery.conf')
         self._recovery_conf_mtime = None
         self._recovery_signal = os.path.join(postgresql.data_dir, 'recovery.signal')
@@ -487,6 +488,8 @@ class ConfigHandler(object):
             configuration.append('pg_hba.conf')
         if not self.ident_file:
             configuration.append('pg_ident.conf')
+        if self.pg_version >= 190000 and not self.hosts_file:
+            configuration.append('pg_hosts.conf')
         return configuration
 
     def set_file_permissions(self, filename: str) -> None:
@@ -544,8 +547,8 @@ class ConfigHandler(object):
                     if os.path.isfile(backup_file):
                         shutil.copy(backup_file, config_file)
                         self.set_file_permissions(config_file)
-                    # Previously we didn't backup pg_ident.conf, if file is missing just create empty
-                    elif f == 'pg_ident.conf':
+                    # Older Patroni versions didn't back up these files, create them if they are missing.
+                    elif f == 'pg_ident.conf' or (f == 'pg_hosts.conf' and self.pg_version >= 190000):
                         open(config_file, 'w').close()
                         self.set_file_permissions(config_file)
         except IOError:
@@ -578,6 +581,8 @@ class ConfigHandler(object):
                 f.write_param('hba_file', self._pg_hba_conf)
             if 'ident_file' not in self._server_parameters:
                 f.write_param('ident_file', self._pg_ident_conf)
+            if self._postgresql.major_version >= 190000 and 'hosts_file' not in self._server_parameters:
+                f.write_param('hosts_file', self._pg_hosts_conf)
 
             if self._postgresql.major_version >= 120000:
                 if self._recovery_params:
@@ -634,6 +639,16 @@ class ConfigHandler(object):
         if not self.ident_file and self._config.get('pg_ident'):
             with self.config_writer(self._pg_ident_conf) as f:
                 f.writelines(self._config['pg_ident'])
+            return True
+
+    def replace_pg_hosts(self) -> Optional[bool]:
+        """Replace ``pg_hosts.conf`` content when Patroni manages the default file.
+
+        :returns: ``True`` if ``pg_hosts.conf`` was rewritten.
+        """
+        if self._postgresql.major_version >= 190000 and not self.hosts_file and self._config.get('pg_hosts'):
+            with self.config_writer(self._pg_hosts_conf) as f:
+                f.writelines(self._config['pg_hosts'])
             return True
 
     def primary_conninfo_params(self, member: Union[Leader, Member, None]) -> Optional[Dict[str, Any]]:
@@ -1103,7 +1118,8 @@ class ConfigHandler(object):
 
         ret = CaseInsensitiveDict({k: v for k, v in parameters.items() if not self._postgresql.major_version
                                    or self._postgresql.major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 90100))[2]})
-        ret.update({k: os.path.join(self._config_dir, ret[k]) for k in ('hba_file', 'ident_file') if k in ret})
+        ret.update({k: os.path.join(self._config_dir, ret[k])
+                    for k in ('hba_file', 'ident_file', 'hosts_file') if k in ret})
         return ret
 
     @staticmethod
@@ -1210,7 +1226,7 @@ class ConfigHandler(object):
         server_parameters = self.get_server_parameters(config)
         params_skip_changes = CaseInsensitiveSet((*self._RECOVERY_PARAMETERS, 'hot_standby'))
 
-        conf_changed = hba_changed = ident_changed = local_connection_address_changed = False
+        conf_changed = hba_changed = ident_changed = hosts_changed = local_connection_address_changed = False
         param_diff = CaseInsensitiveDict()
         if not self._postgresql.bootstrap.running_custom_bootstrap and \
                 self._postgresql.state == PostgresqlState.RUNNING:
@@ -1271,6 +1287,11 @@ class ConfigHandler(object):
                     and config.get('pg_ident'):
                 ident_changed = self._config.get('pg_ident', []) != config['pg_ident']
 
+            if self._postgresql.major_version >= 190000 and \
+                    (not server_parameters.get('hosts_file') or server_parameters['hosts_file'] == self._pg_hosts_conf)\
+                    and config.get('pg_hosts'):
+                hosts_changed = self._config.get('pg_hosts', []) != config['pg_hosts']
+
         self._config = config
         self._server_parameters = server_parameters
         self._adjust_recovery_parameters()
@@ -1298,7 +1319,10 @@ class ConfigHandler(object):
         if ident_changed or sighup:
             self.replace_pg_ident()
 
-        if sighup or conf_changed or hba_changed or ident_changed:
+        if hosts_changed or sighup:
+            self.replace_pg_hosts()
+
+        if sighup or conf_changed or hba_changed or ident_changed or hosts_changed:
             logger.info('Reloading PostgreSQL configuration.')
             self._postgresql.reload()
             if self._postgresql.major_version >= 90500:
@@ -1418,6 +1442,11 @@ class ConfigHandler(object):
     def ident_file(self) -> Optional[str]:
         ident_file = self._server_parameters.get('ident_file')
         return None if ident_file == self._pg_ident_conf else ident_file
+
+    @property
+    def hosts_file(self) -> Optional[str]:
+        hosts_file = self._server_parameters.get('hosts_file')
+        return None if hosts_file == self._pg_hosts_conf else hosts_file
 
     @property
     def hba_file(self) -> Optional[str]:

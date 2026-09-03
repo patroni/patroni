@@ -837,6 +837,7 @@ class Config(object):
         2. Applying role-specific parameter overrides (parameters_primary, etc.) - merged with base
         3. Applying role-specific pg_hba overrides (pg_hba_primary, etc.) - full replacement
         4. Applying role-specific pg_ident overrides (pg_ident_primary, etc.) - full replacement
+        5. Applying role-specific pg_hosts overrides (pg_hosts_primary, etc.) - full replacement
 
         .. note::
             Protected parameters from ConfigHandler.CMDLINE_OPTIONS are never overridden.
@@ -863,15 +864,11 @@ class Config(object):
                     logger.warning("Role-based config attempted to override protected parameter '%s', ignoring", param)
             pg_config['parameters'] = base_params
 
-        # Fully replace pg_hba, not merge
-        role_hba_key = f'pg_hba_{role_suffix}'
-        if role_hba_key in pg_config:
-            pg_config['pg_hba'] = pg_config[role_hba_key]
-
-        # Fully replace pg_ident, not merge
-        role_ident_key = f'pg_ident_{role_suffix}'
-        if role_ident_key in pg_config:
-            pg_config['pg_ident'] = pg_config[role_ident_key]
+        # Fully replace role-specific file contents, not merge
+        for name in ('pg_hba', 'pg_ident', 'pg_hosts'):
+            role_config_key = f'{name}_{role_suffix}'
+            if role_config_key in pg_config:
+                pg_config[name] = pg_config[role_config_key]
 
         return pg_config
 

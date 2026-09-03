@@ -120,6 +120,7 @@ class TestGenerateConfig(unittest.TestCase):
                     'archive_command': 'my archive command',
                     'hba_file': os.path.join('data', 'pg_hba.conf'),
                     'ident_file': os.path.join('data', 'pg_ident.conf'),
+                    'hosts_file': os.path.join('data', 'pg_hosts.conf'),
                     'password_encryption': None
                 },
                 'authentication': {
@@ -154,12 +155,13 @@ class TestGenerateConfig(unittest.TestCase):
                                                                        '  host all all all md5',
                                                                        '',
                                                                        'hostall all all md5'])
-        ident_content = '\n'.join(['# something very interesting', '  '])
+        hosts_content = ident_content = '\n'.join(['# something very interesting', '  '])
 
         self.config['postgresql']['pg_hba'] += ['host all all all md5']
         return [
             mock_open(read_data=hba_content)(),
             mock_open(read_data=ident_content)(),
+            mock_open(read_data=hosts_content)(),
             mock_open(read_data='1984')(),
             mock_open()()
         ]
@@ -231,9 +233,10 @@ class TestGenerateConfig(unittest.TestCase):
 
     @patch('os.makedirs', Mock())
     @patch('sys.stdout')
-    @patch.object(MockConnect, 'server_version', PropertyMock(return_value=170000))
-    def test_generate_config_running_instance_17(self, mock_sys_stdout):
+    @patch.object(MockConnect, 'server_version', PropertyMock(return_value=190000))
+    def test_generate_config_running_instance_19(self, mock_sys_stdout):
         self._set_running_instance_config_vals()
+        self.config['postgresql']['parameters']['hosts_file'] = os.path.join('data', 'pg_hosts.conf')
 
         with patch('builtins.open', Mock(side_effect=self._get_running_instance_open_res())), \
              patch('sys.argv', ['patroni.py', '--generate-config',
@@ -321,6 +324,7 @@ class TestGenerateConfig(unittest.TestCase):
             # 4. empty postmaster.pid
             with patch('builtins.open', Mock(side_effect=[mock_open(read_data='hba_content')(),
                                                           mock_open(read_data='ident_content')(),
+                                                          mock_open(read_data='hosts_content')(),
                                                           mock_open(read_data='')()])), \
                  self.assertRaises(SystemExit) as e:
                 _main()
@@ -329,6 +333,7 @@ class TestGenerateConfig(unittest.TestCase):
             # 5. Failed to open postmaster.pid
             with patch('builtins.open', Mock(side_effect=[mock_open(read_data='hba_content')(),
                                                           mock_open(read_data='ident_content')(),
+                                                          mock_open(read_data='hosts_content')(),
                                                           OSError])), \
                  self.assertRaises(SystemExit) as e:
                 _main()
@@ -337,6 +342,7 @@ class TestGenerateConfig(unittest.TestCase):
             # 6. Invalid postmaster pid
             with patch('builtins.open', Mock(side_effect=[mock_open(read_data='hba_content')(),
                                                           mock_open(read_data='ident_content')(),
+                                                          mock_open(read_data='hosts_content')(),
                                                           mock_open(read_data='1984')()])), \
                  patch('psutil.Process.__init__', Mock(return_value=None)), \
                  patch('psutil.Process.exe', Mock(side_effect=psutil.NoSuchProcess(1984))), \
@@ -356,14 +362,21 @@ class TestGenerateConfig(unittest.TestCase):
                 _main()
             self.assertIn('Failed to read pg_ident.conf', e.exception.code)
 
-            # 9. Failed PG connection
+            # 9. Failed to open pg_hosts
+            with patch('builtins.open', Mock(side_effect=[mock_open(read_data='hba_content')(),
+                                                          mock_open(read_data='ident_content')(), OSError])), \
+                 self.assertRaises(SystemExit) as e:
+                _main()
+            self.assertIn('Failed to read pg_hosts.conf', e.exception.code)
+
+            # 10. Failed PG connection
             from . import psycopg
             with patch('patroni.psycopg.connect', side_effect=psycopg.Error), \
                  self.assertRaises(SystemExit) as e:
                 _main()
             self.assertIn('Failed to establish PostgreSQL connection', e.exception.code)
 
-            # 10. An unexpected error
+            # 11. An unexpected error
             with patch.object(AbstractConfigGenerator, '__init__', side_effect=psycopg.Error), \
                  self.assertRaises(SystemExit) as e:
                 _main()

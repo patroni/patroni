@@ -16,6 +16,7 @@ from . import BaseTestPostgresql, mock_available_gucs, psycopg_connect
 class TestSync(BaseTestPostgresql):
 
     @patch('subprocess.call', Mock(return_value=0))
+    @patch('subprocess.check_output', Mock(return_value=b'postgres (PostgreSQL) 19.0'))
     @patch('os.rename', Mock())
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))
