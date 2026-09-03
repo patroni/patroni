@@ -2618,7 +2618,8 @@ class Ha(object):
 
         if cluster_params:
             data.update({k: v for k, v in cluster_params.items() if k in RemoteMember.ALLOWED_KEYS})
-            data['no_replication_slot'] = 'primary_slot_name' not in cluster_params
+            data['no_replication_slot'] = 'primary_slot_name' not in cluster_params or \
+                not cluster_params['primary_slot_name']
             conn_kwargs = member.conn_kwargs() if member else \
                 {k: cluster_params[k] for k in ('host', 'port') if k in cluster_params}
             if conn_kwargs:
