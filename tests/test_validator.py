@@ -486,6 +486,24 @@ class TestValidator(unittest.TestCase):
         errors = schema(c)
         self.assertTrue(any('connection_retry_time' in e for e in errors))
 
+    def test_validate_sync_cross_site(self, mock_out, mock_err):
+        c = copy.deepcopy(config)
+        c['bootstrap']['dcs']['synchronous_cross_site'] = 'local_only'
+        errors = schema(c)
+        output = "\n".join(errors)
+        self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
+        c['bootstrap']['dcs']['synchronous_cross_site'] = 'Local_only'
+        errors = schema(c)
+        output = "\n".join(errors)
+        self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
+        c['bootstrap']['dcs']['synchronous_cross_site'] = 'local-only'
+        errors = schema(c)
+        output = "\n".join(errors)
+        self.assertEqual(['bootstrap.dcs.synchronous_cross_site', 'postgresql.bin_dir',
+                          'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
     def test_synchronous_mode_validation(self, *args):
         c = copy.deepcopy(config)
         # Test with True

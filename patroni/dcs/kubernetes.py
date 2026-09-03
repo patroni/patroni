@@ -21,12 +21,13 @@ import yaml
 
 from urllib3.exceptions import HTTPError
 
+from .. import global_config
 from ..collections import EMPTY_DICT
 from ..exceptions import DCSError
 from ..postgresql.misc import PostgresqlRole, PostgresqlState
 from ..postgresql.mpp import AbstractMPP
-from ..utils import deep_compare, iter_response_objects, \
-    keepalive_socket_options, Retry, RetryFailedError, tzutc, uri, USER_AGENT
+from ..utils import deep_compare, iter_response_objects, keepalive_socket_options, \
+    Retry, RetryFailedError, SyncCrossSiteMode, tzutc, uri, USER_AGENT
 from . import AbstractDCS, Cluster, ClusterConfig, Failover, Leader, Member, Status, SyncState, TimelineHistory
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -1447,6 +1448,15 @@ class Kubernetes(AbstractDCS):
         """Unused"""
         raise NotImplementedError  # pragma: no cover
 
+    def _write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
+                          quorum: Optional[int], cross_site_mode: Optional[SyncCrossSiteMode],
+                          version: Optional[str] = None) -> Optional[SyncState]:
+        sync_state = self.sync_state(leader, sync_standby, quorum, cross_site_mode)
+        sync_state['quorum'] = str(sync_state['quorum']) if sync_state['quorum'] is not None else None
+        ret = self.patch_or_create(self.sync_path, sync_state, version, False)
+        if not isinstance(ret, bool):
+            return SyncState.from_node(ret.metadata.resource_version, sync_state)
+
     def write_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
                          quorum: Optional[int], version: Optional[str] = None) -> Optional[SyncState]:
         """Prepare and write annotations to $SCOPE-sync Endpoint or ConfigMap.
@@ -1458,11 +1468,8 @@ class Kubernetes(AbstractDCS):
         :param version: last known `resource_version` for conditional update of the object
         :returns: the new :class:`SyncState` object or None
         """
-        sync_state = self.sync_state(leader, sync_standby, quorum)
-        sync_state['quorum'] = str(sync_state['quorum']) if sync_state['quorum'] is not None else None
-        ret = self.patch_or_create(self.sync_path, sync_state, version, False)
-        if not isinstance(ret, bool):
-            return SyncState.from_node(ret.metadata.resource_version, sync_state)
+        cross_site_mode = global_config.sync_cross_site_mode if self.site else SyncCrossSiteMode.ANY
+        return self._write_sync_state(leader, sync_standby, quorum, cross_site_mode, version)
 
     def delete_sync_state(self, version: Optional[str] = None) -> bool:
         """Patch annotations of $SCOPE-sync Endpoint or ConfigMap with empty values.
@@ -1471,7 +1478,7 @@ class Kubernetes(AbstractDCS):
         :param version: last known `resource_version` for conditional update of the object
         :returns: `True` if "delete" was successful
         """
-        return self.write_sync_state(None, None, None, version=version) is not None
+        return self._write_sync_state(None, None, None, None, version=version) is not None
 
     def watch(self, leader_version: Optional[str], timeout: float) -> bool:
         if self.__do_not_watch:

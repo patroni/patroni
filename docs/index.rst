@@ -78,13 +78,13 @@ Currently supported PostgreSQL versions: 9.3 to 18.
    standby_cluster
    watchdog
    pause
+   ha_multi_dc
    dcs_failsafe_mode
    kubernetes
    citus
    existing_data
    tools_integration
    security
-   ha_multi_dc
    faq
    releases
    CONTRIBUTING

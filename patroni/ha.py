@@ -22,7 +22,7 @@ from .postgresql.postmaster import PostmasterProcess
 from .postgresql.rewind import Rewind
 from .quorum import QuorumStateResolver
 from .tags import Tags
-from .utils import parse_int, polling_loop, tzutc
+from .utils import parse_int, polling_loop, SyncCrossSiteMode, tzutc
 
 logger = logging.getLogger(__name__)
 
@@ -891,12 +891,18 @@ class Ha(object):
             quorum = dcs_state.quorum if self.quorum_commit_mode_is_active() else 0
             voters = CaseInsensitiveSet(dcs_state.voters)
             numsync = max(global_config.min_synchronous_nodes, len(voters) - quorum)
+            current_cross_site_mode = global_config.sync_cross_site_mode
 
-            msg = ''
+            msg = site_msg = ''
             if voters != replication_state.sync or \
                     numsync != replication_state.numsync or \
                     sync_type != replication_state.sync_type:
                 self.state_handler.sync_handler.set_synchronous_standby_names(voters, numsync)
+            elif current_cross_site_mode != dcs_state.cross_site_mode and \
+                    current_cross_site_mode in (SyncCrossSiteMode.LOCAL_ONLY, SyncCrossSiteMode.REMOTE_ONLY):
+                self.dcs.write_sync_state(dcs_state.leader, CaseInsensitiveSet(), quorum, version=dcs_state.version)
+                self.state_handler.sync_handler.set_synchronous_standby_names(CaseInsensitiveSet(), numsync)
+                site_msg = 'that satisfy current synchronous_cross_site configuration '
             else:
                 if voters:
                     msg = 'Continue using old value of synchronous_standby_names="{0}". '.format(
@@ -906,8 +912,8 @@ class Ha(object):
 
             # We use self._synchronous_strict_mode_activated to show warning only once.
             if not self._synchronous_strict_mode_activated:
-                logger.warning('No active replication connections from Patroni members and '
-                               'synchronous_mode_strict is requested. %sCommits will be delayed.', msg)
+                logger.warning('No active replication connections from Patroni members %sand '
+                               'synchronous_mode_strict is requested. %sCommits will be delayed.', site_msg, msg)
 
             self._synchronous_strict_mode_activated = True
         else:
