@@ -2082,6 +2082,7 @@ class TestHa(PostgresInit):
         self.assertEqual(mock_set_sync.call_count, 1)
         self.assertEqual(mock_set_sync.call_args_list[0][0], ('ANY 1 (other)',))
 
+        # Test that we stick with last known sync node when synchronous_mode_strict and no nodes available
         self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1,
                                                                          CaseInsensitiveSet(['other', 'foo']),
                                                                          CaseInsensitiveSet(),

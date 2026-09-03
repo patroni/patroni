@@ -923,7 +923,8 @@ class Kubernetes(AbstractDCS):
         # We want to check validity of the leader record only for our own cluster
         # Using monotonic time for local TTL duration check (see above).
         if leader_path == self.leader_path and\
-                not (metadata and self._leader_observed_time and self._leader_observed_time + ttl >= time.monotonic()):
+                not (metadata and self._leader_observed_time is not None
+                     and self._leader_observed_time + ttl >= time.monotonic()):
             leader = None
 
         if metadata:
