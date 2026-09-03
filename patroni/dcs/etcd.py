@@ -154,12 +154,70 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
         # Workaround for the case when https://github.com/jplana/python-etcd/pull/196 is not applied
         self.http.connection_pool_kw.pop('ssl_version', None)
         self._config = config
+        self._configure_tls()
         self._load_machines_cache()
         self._allow_reconnect = True
         # allow passing retry argument to api_execute in params
         self._comparison_conditions.add('retry')
         self._read_options.add('retry')
         self._del_conditions.add('retry')
+
+    def _configure_tls(self) -> None:
+        """Apply opt-in TLS relaxation flags to the etcd connection pool.
+
+        Behavior matrix (verify / verify_hostname / hostname_checks_common_name):
+          false / any   / any   -> no CA-chain or hostname verification
+          true  / false / any   -> CA-chain validation only; hostname check off
+          true  / true  / false -> CA-chain + SAN validation; no CN fallback
+          true  / true  / true  -> CA-chain + SAN validation, with DNS CN fallback
+        """
+        config = self._config
+        if self.protocol != 'https':
+            return
+
+        verify = config.get('verify', True)
+        verify_hostname = config.get('verify_hostname', True)
+        cn_fallback = config.get('hostname_checks_common_name', False)
+
+        pool_kw = self.http.connection_pool_kw
+
+        if not verify:
+            pool_kw['cert_reqs'] = 'CERT_NONE'
+            pool_kw['assert_hostname'] = False
+            pool_kw.pop('ca_certs', None)
+            logger.warning('Etcd TLS certificate verification is disabled')
+            return
+
+        import ssl
+
+        cafile = pool_kw.get('ca_certs') or config.get('ca_cert') or config.get('cacert')
+        ctx = ssl.create_default_context(cafile=cafile)
+
+        if not verify_hostname:
+            ctx.check_hostname = False
+            pool_kw['assert_hostname'] = False
+            logger.warning('Etcd TLS hostname verification is disabled')
+        else:
+            # verify_hostname is True: explicitly set CN fallback to the
+            # configured value. True enables DNS Common Name fallback; False
+            # enforces SAN-only. The attribute defaults to True, so enforcing
+            # False depends on the platform supporting the setter.
+            try:
+                ctx.hostname_checks_common_name = cn_fallback
+            except AttributeError:
+                if not cn_fallback:
+                    logger.warning(
+                        'This platform cannot disable Common Name fallback '
+                        '(SSLContext.hostname_checks_common_name is read-only); '
+                        'SAN-only verification cannot be enforced.')
+
+        cert_file = pool_kw.get('cert_file')
+        key_file = pool_kw.get('key_file')
+        if cert_file:
+            ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
+
+        pool_kw['ssl_context'] = ctx
+        pool_kw['cert_reqs'] = 'CERT_REQUIRED'
 
     def _calculate_timeouts(self, etcd_nodes: int, timeout: Optional[float] = None) -> Tuple[int, float, int]:
         """Calculate a request timeout and number of retries per single etcd node.
