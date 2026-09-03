@@ -430,6 +430,8 @@ END;$$""")
 
         selection_order = [node for node in selection_order
                            if sync_node_maxlag <= 0 or replica_list.max_lsn - node.lsn <= sync_node_maxlag]
+        additional_replicas = [node for node in additional_replicas
+                               if sync_node_maxlag <= 0 or replica_list.max_lsn - node.lsn <= sync_node_maxlag]
         additional_count = max(0, sync_node_count - len(selection_order))
         for replica in selection_order + additional_replicas[:additional_count]:
             if global_config.is_quorum_commit_mode:

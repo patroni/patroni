@@ -301,12 +301,32 @@ class TestSync(BaseTestPostgresql):
             self.assertEqual(self.s.current_state(cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
                                                              CaseInsensitiveSet([local.name, anotherlocal.name])))
 
+        # prefer_local must not use a lagging remote replica as a fallback
+        config = ClusterConfig(1, {'synchronous_mode': True, 'synchronous_cross_site': 'prefer_local',
+                                   'synchronous_node_count': 2}, 1)
+        cluster = Cluster(True, config, leader, Status.empty(), [me, local, remote], None,
+                          SyncState(0, me.name, None, 0, SyncCrossSiteMode.LOCAL_ONLY), None, None, None)
+        pg_stat_replication = [
+            {'pid': 101, 'application_name': remote.name, 'sync_state': 'async', 'flush_lsn': 1, 'replay_lsn': 1},
+            {'pid': 102, 'application_name': local.name, 'sync_state': 'async', 'flush_lsn': 3, 'replay_lsn': 3}
+        ]
+        global_config.update(cluster)
+        with patch.object(Postgresql, "_cluster_info_state_get",
+                          side_effect=['', 'remote_apply', pg_stat_replication]), \
+                patch.object(global_config.__class__, 'maximum_lag_on_syncnode', PropertyMock(return_value=1)):
+            self.assertEqual(self.s.current_state(cluster), ('off', 0, CaseInsensitiveSet(), CaseInsensitiveSet(),
+                                                             CaseInsensitiveSet([local.name])))
+
         # balanced
         diffremote = Member(0, 'onemore', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
                                                'state': PostgresqlState.RUNNING, 'site': 'dc3'})
         nosite = Member(0, 'nosite', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5433/postgres',
                                           'state': PostgresqlState.RUNNING})
-        pg_stat_replication += [
+        pg_stat_replication = [
+            {'pid': 101, 'application_name': remote.name, 'sync_state': 'async', 'flush_lsn': 1, 'replay_lsn': 1},
+            {'pid': 102, 'application_name': local.name, 'sync_state': 'async', 'flush_lsn': 1, 'replay_lsn': 1},
+            {'pid': 103, 'application_name': anotherlocal.name, 'sync_state': 'async', 'flush_lsn': 1,
+             'replay_lsn': 1},
             {'pid': 103, 'application_name': diffremote.name, 'sync_state': 'async', 'flush_lsn': 1, 'replay_lsn': 1},
             {'pid': 104, 'application_name': nosite.name, 'sync_state': 'async', 'flush_lsn': 1, 'replay_lsn': 1}
         ]
