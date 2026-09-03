@@ -10,15 +10,16 @@ import shutil
 from collections import defaultdict
 from contextlib import contextmanager
 from threading import Condition, Thread
-from typing import Any, Dict, Generator, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Collection, Dict, Generator, List, Optional, Tuple, TYPE_CHECKING, Union
 
 from .. import global_config
-from ..dcs import Cluster, Leader
+from ..dcs import Cluster, Leader, slot_name_from_member_name
 from ..file_perm import pg_perm
 from ..psycopg import OperationalError
 from ..tags import Tags
 from .connection import get_connection_cursor
 from .misc import format_lsn, fsync_dir, PostgresqlRole
+from .sync import SYNC_STRICT_PLACEHOLDER
 
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Cursor
@@ -192,6 +193,8 @@ class SlotsHandler:
         self._replication_slots: Dict[str, Dict[str, Any]] = {}  # already existing replication slots
         self._logical_slots_processing_queue: Dict[str, Optional[int]] = {}
         self.pg_replslot_dir = os.path.join(self._postgresql.data_dir, 'pg_replslot')
+        # Track the last known state of manage_synchronized_standby_slots feature to detect toggles
+        self._last_manage_sync_slots_enabled: Optional[bool] = None
         self.schedule()
 
     def _query(self, sql: str, *params: Any) -> List[Tuple[Any, ...]]:
@@ -203,6 +206,75 @@ class SlotsHandler:
         :returns: query response.
         """
         return self._postgresql.query(sql, *params, retry=False)
+
+    def handle_manage_sync_slots_toggle(self, sync_members: Collection[str], num: Optional[int] = None) -> None:
+        """Handle ``manage_synchronized_standby_slots`` feature toggle.
+
+        Detects edges between the feature being enabled and disabled and either pushes
+        a fresh dynamic value (when toggled on) or restores the user-configured value
+        (when toggled off).
+
+        :param sync_members: currently active synchronous standby members, used to compute
+                              the dynamic value of ``synchronized_standby_slots`` when the
+                              feature is being toggled on.
+        :param num: number of nodes to sync to, forwarded to :meth:`update_synchronized_standby_slots`.
+                    It is set only when quorum commit is enabled.
+        """
+        if not self._postgresql.supports_synchronized_standby_slots:
+            return
+
+        if self._last_manage_sync_slots_enabled == global_config.manage_synchronized_standby_slots_enabled:
+            return
+
+        self.update_synchronized_standby_slots(sync_members, num=num, reload=True)
+
+    def update_synchronized_standby_slots(self, sync_members: Collection[str],
+                                          num: Optional[int] = None, reload: bool = False) -> bool:
+        """Update ``synchronized_standby_slots`` based on sync members for PostgreSQL 17+.
+
+        Converts *sync_members* to their corresponding slot names and writes them to the
+        ``synchronized_standby_slots`` GUC. Does nothing if running on PostgreSQL older than 17.
+
+        Also detects ``manage_synchronized_standby_slots`` feature toggles on every call, regardless
+        of the calling code path: when the feature is switched off, the user-configured value of
+        ``synchronized_standby_slots`` is restored (or the parameter is cleared if none configured).
+        This way a toggle-off is never missed, even when it is observed from a call that is otherwise
+        a no-op (e.g. *sync_members* unchanged).
+
+        :param sync_members: set of currently active synchronous standby member names.
+                             If it contains ``*`` (any standby is allowed to be synchronous), or is empty
+                             while *num* is >= 1, the ``synchronized_standby_slots`` GUC is set to the
+                             strict sync placeholder. If empty and *num* is not set, the GUC is cleared.
+        :param num: number of nodes to sync to. It is set only when quorum commit is enabled.
+        :param reload: whether to write ``postgresql.conf`` and reload PostgreSQL if the value changed.
+
+        :returns: ``True`` if the value of ``synchronized_standby_slots`` was updated, ``False`` otherwise.
+        """
+        if not self._postgresql.supports_synchronized_standby_slots:
+            return False
+
+        feature_enabled = global_config.manage_synchronized_standby_slots_enabled
+        just_disabled = self._last_manage_sync_slots_enabled and not feature_enabled
+        self._last_manage_sync_slots_enabled = feature_enabled
+
+        if just_disabled:
+            value = self._postgresql.config.synchronized_standby_slots
+            return self._postgresql.config.set_synchronized_standby_slots(value, reload=reload)
+
+        if not feature_enabled:
+            return False
+
+        # Special case. If sync_members contains the '*' wildcard, or the set is empty while the
+        # requested num of sync nodes is >= 1, we want to set synchronized_standby_slots to
+        # '__patroni_strict_sync_replica_placeholder__'
+        sync_strict = '*' in sync_members or num and num >= 1 and not sync_members
+        if sync_strict:
+            slot_names = [SYNC_STRICT_PLACEHOLDER]
+        else:
+            slot_names = [slot_name_from_member_name(member) for member in sorted(sync_members) if member != '*']
+
+        sync_param = None if not slot_names else ','.join(slot_names)
+        return self._postgresql.config.set_synchronized_standby_slots(sync_param, reload=reload)
 
     def copy_slot_items(self, src: Dict[str, Any], dst: Dict[str, Any], is_logical: bool = True) -> None:
         """Select values from *src* slots dictionary to update in *dst* slots dictionary.
