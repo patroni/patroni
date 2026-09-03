@@ -663,6 +663,7 @@ class TestRestApiHandler(unittest.TestCase):
         # Failover key is empty in DCS
         with patch.object(RestApiHandler, 'write_response') as response_mock:
             cluster.failover = None
+            cluster.is_unlocked.return_value = False
             MockRestApiServer(RestApiHandler, request)
             response_mock.assert_called_with(503, 'Switchover failed')
 
