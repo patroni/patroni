@@ -349,7 +349,7 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# TYPE patroni_failsafe_member gauge
 	patroni_failsafe_member{scope="batman",name="patroni1"} 0
 	# HELP patroni_postgres_timeline Postgres timeline of this node (if running), 0 otherwise.
-	# TYPE patroni_postgres_timeline counter
+	# TYPE patroni_postgres_timeline gauge
 	patroni_postgres_timeline{scope="batman",name="patroni1"} 24
 	# HELP patroni_dcs_last_seen Epoch timestamp when DCS was last contacted successfully by Patroni.
 	# TYPE patroni_dcs_last_seen gauge
@@ -376,6 +376,9 @@ Retrieve the Patroni metrics in Prometheus format through the ``GET /metrics`` e
 	# HELP patroni_ha_loop_duration_p99 99th percentile of HA loop cycle duration over the last 60 minutes in seconds.
 	# TYPE patroni_ha_loop_duration_p99 gauge
 	patroni_ha_loop_duration_p99{scope="demo",name="patroni1"} 0.122
+	# HELP patroni_restapi_certificate_expiry Epoch timestamp when the REST API certificate expires.
+	# TYPE patroni_restapi_certificate_expiry gauge
+	patroni_restapi_certificate_expiry{scope="batman",name="patroni1"} 1788336638
 
 PostgreSQL State Values
 ^^^^^^^^^^^^^^^^^^^^^^^
@@ -674,7 +677,7 @@ Switchover
 
 When calling ``/switchover`` endpoint a candidate can be specified but is not required, in contrast to ``/failover`` endpoint. If a candidate is not provided, all the eligible nodes of the cluster will participate in the leader race after the leader stepped down.
 
-In the JSON body of the ``POST`` request you must specify the ``leader`` field. The ``candidate`` and the ``scheduled_at`` fields are optional and can be used to schedule a switchover at a specific time.
+In the JSON body of the ``POST`` request you must specify the ``leader`` field. The ``candidate`` and ``scheduled_at`` fields are optional, and the optional ``site`` field can be used to restrict the promotion target to members from a specific site instead of choosing an individual candidate. If a ``candidate`` is specified, the ``site`` value is ignored.
 
 Depending on the situation, requests might return different HTTP status codes and bodies. Status code **200** is returned when the switchover or failover successfully completed. If the switchover was successfully scheduled, Patroni will return HTTP status code **202**. In case something went wrong, the error status code (one of **400**, **412**, or **503**) will be returned with some details in the response body.
 
@@ -711,7 +714,7 @@ Failover
 
 ``/failover`` endpoint can be used to perform a manual failover when there are no healthy nodes (e.g. to an asynchronous standby if all synchronous standbys are not healthy enough to promote). However there is no requirement for a cluster not to have leader - failover can also be run on a healthy cluster.
 
-In the JSON body of the ``POST`` request you must specify the ``candidate`` field. If the ``leader`` field is specified, a switchover is triggered instead.
+In the JSON body of the ``POST`` request you must specify the ``candidate`` field. If the ``leader`` field is specified, a switchover is triggered instead. Unlike switchover, failover always requires a specific candidate and cannot be expressed with a ``site`` value.
 
 **Example:**
 
@@ -744,6 +747,9 @@ In the JSON body of the ``POST`` request you must specify the ``candidate`` fiel
    * - Can be run in pause
      - yes
      - yes (only to a specific candidate)
+   * - Can be restricted to a site
+     - no
+     - yes
    * - Can be scheduled
      - no
      - yes (if not in pause)

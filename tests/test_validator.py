@@ -376,6 +376,15 @@ class TestValidator(unittest.TestCase):
         errors = schema(c)
         self.assertIn('tags.failover_priority -6 didn\'t pass validation: Wrong value', errors)
 
+    def test_thread_stack_size(self, *args):
+        c = copy.deepcopy(config)
+        c["thread_stack_size"] = 524288
+        errors = schema(c)
+        self.assertEqual([], [e for e in errors if "thread_stack_size" in e])
+        c["thread_stack_size"] = 65535
+        errors = schema(c)
+        self.assertIn("thread_stack_size 65535 didn't pass validation: Wrong value", errors)
+
     def test_json_log_format(self, *args):
         c = copy.deepcopy(config)
         c["log"]["type"] = "json"
@@ -443,3 +452,79 @@ class TestValidator(unittest.TestCase):
         errors = schema(c)
         output = "\n".join(errors)
         self.assertEqual(['name', 'postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
+    def test_validate_raft_timeout_params(self, *args):
+        c = copy.deepcopy(config)
+        c['raft']['min_timeout'] = 5.0
+        c['raft']['max_timeout'] = 10.0
+        c['raft']['connection_retry_time'] = 0  # zero is valid for connection_retry_time
+        errors = schema(c)
+        for e in errors:
+            self.assertNotIn('min_timeout', e)
+            self.assertNotIn('max_timeout', e)
+            self.assertNotIn('connection_retry_time', e)
+        # negative value should fail
+        c['raft']['min_timeout'] = -1.0
+        errors = schema(c)
+        self.assertTrue(any('min_timeout' in e for e in errors))
+        # zero should fail for min_timeout
+        c['raft']['min_timeout'] = 0
+        errors = schema(c)
+        self.assertTrue(any('min_timeout' in e for e in errors))
+        # string should fail
+        c['raft']['min_timeout'] = 'abc'
+        errors = schema(c)
+        self.assertTrue(any('min_timeout' in e for e in errors))
+        # bool should fail (bool is a subclass of int in Python)
+        c['raft']['min_timeout'] = True
+        errors = schema(c)
+        self.assertTrue(any('min_timeout' in e for e in errors))
+        # negative should fail for connection_retry_time
+        c['raft']['min_timeout'] = 5.0
+        c['raft']['connection_retry_time'] = -1
+        errors = schema(c)
+        self.assertTrue(any('connection_retry_time' in e for e in errors))
+
+    def test_synchronous_mode_validation(self, *args):
+        c = copy.deepcopy(config)
+        # Test with True
+        c['bootstrap'] = {'dcs': {'synchronous_mode': True}}
+        errors = schema(c)
+        self.assertNotIn('bootstrap.dcs.synchronous_mode', "\n".join(errors))
+
+        # Test with False
+        c['bootstrap'] = {'dcs': {'synchronous_mode': False}}
+        errors = schema(c)
+        self.assertNotIn('bootstrap.dcs.synchronous_mode', "\n".join(errors))
+
+        # Test with "quorum"
+        c['bootstrap'] = {'dcs': {'synchronous_mode': 'quorum'}}
+        errors = schema(c)
+        self.assertNotIn('bootstrap.dcs.synchronous_mode', "\n".join(errors))
+
+        # Test with "on"
+        c['bootstrap'] = {'dcs': {'synchronous_mode': 'on'}}
+        errors = schema(c)
+        self.assertNotIn('bootstrap.dcs.synchronous_mode', "\n".join(errors))
+
+        # Test with invalid string value
+        c['bootstrap'] = {'dcs': {'synchronous_mode': 'invalid'}}
+        errors = schema(c)
+        self.assertTrue(any('bootstrap.dcs.synchronous_mode' in error for error in errors))
+
+        # Test with invalid numeric value (not a truthy/falsy recognized by parse_bool)
+        c['bootstrap'] = {'dcs': {'synchronous_mode': 123}}
+        errors = schema(c)
+        self.assertTrue(any('bootstrap.dcs.synchronous_mode' in error for error in errors))
+
+    def test_validate_site_empty_string(self, mock_out, mock_err):
+        c = copy.deepcopy(config)
+        c['site'] = ''
+        errors = schema(c)
+        output = "\n".join(errors)
+        self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr', 'site'], parse_output(output))
+
+        c['site'] = 'dc1'
+        errors = schema(c)
+        output = "\n".join(errors)
+        self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))

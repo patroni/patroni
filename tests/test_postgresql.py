@@ -250,8 +250,10 @@ class TestPostgresql(BaseTestPostgresql):
                           Mock(return_value={'Database cluster state': 'shut down',
                                              "Latest checkpoint's TimeLineID": '1',
                                              'Latest checkpoint location': '1/1'})):
-            self.assertTrue(self.p.stop(on_shutdown=mock_callback, stop_timeout=3))
+            mock_on_safepoint = Mock()
+            self.assertTrue(self.p.stop(on_shutdown=mock_callback, stop_timeout=3, on_safepoint=mock_on_safepoint))
             mock_callback.assert_called()
+            mock_on_safepoint.assert_called()
         with patch.object(Postgresql, 'controldata',
                           Mock(return_value={'Database cluster state': 'shut down in recovery'})):
             self.assertTrue(self.p.stop(on_shutdown=mock_callback, stop_timeout=3))
@@ -729,10 +731,10 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertEqual(self.p.config.local_replication_address, {'host': '/tmp', 'port': '5432'})
         self.p.config._server_parameters.pop('unix_socket_directories')
         self.p.config.resolve_connection_addresses()
-        self.assertEqual(self.p.connection_pool.conn_kwargs, {'connect_timeout': 3, 'dbname': 'postgres',
-                                                              'fallback_application_name': 'Patroni',
-                                                              'options': '-c statement_timeout=2000',
-                                                              'password': 'test', 'port': '5432', 'user': 'foo'})
+        self.assertEqual(self.p.connection_pool.conn_kwargs,
+                         {'connect_timeout': 3, 'dbname': 'postgres', 'fallback_application_name': 'Patroni',
+                          'options': '-c statement_timeout=2000 -c pg_stat_statements.track=none',
+                          'password': 'test', 'port': '5432', 'user': 'foo'})
 
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
     def test_get_major_version(self):
@@ -1168,6 +1170,17 @@ class TestPostgresql(BaseTestPostgresql):
         pg_conf = os.path.join(os.path.abspath(os.sep) + 'tmp', 'postgresql.conf')
         self.p.config.set_file_permissions(pg_conf)
         mock_chmod.assert_called_with(pg_conf, 0o666 & ~pg_perm.orig_umask)
+
+    @patch.object(Postgresql, '_query', Mock(side_effect=psycopg.OperationalError))
+    def test__cluster_info_state_get(self):
+        self.p.set_role(PostgresqlRole.STANDBY_LEADER)
+        with patch.object(psycopg.OperationalError, 'diag') as mock_diag:
+            type(mock_diag).sqlstate = PropertyMock(return_value='57014')  # QueryCanceled
+            self.p.reset_cluster_info_state(None)
+            self.assertRaises(PostgresConnectionException, self.p.received_timeline)
+            type(mock_diag).sqlstate = PropertyMock(return_value='54023')  # TooManyArguments
+            self.p.reset_cluster_info_state(None)
+            self.assertRaises(psycopg.OperationalError, self.p.received_timeline)
 
 
 @patch('subprocess.call', Mock(return_value=0))

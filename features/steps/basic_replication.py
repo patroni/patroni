@@ -129,6 +129,25 @@ def replication_works(context, primary, replica, time_limit):
     """.format(str(time()).replace('.', '_').replace(',', '_'), primary, replica, time_limit))
 
 
+@then('{name1:name} and {name2:name} have the same wal position after {timeout:d} seconds')
+def wal_positions_are_equal(context, name1, name2, timeout):
+    timeout *= context.timeout_multiplier
+    wal_name = get_wal_name(context)
+    lsn_func = 'pg_last_{0}_replay_{1}()'.format(wal_name, 'lsn' if wal_name == 'wal' else 'location')
+    for _ in range(int(timeout)):
+        lsn1 = context.pctl.query(name1, "SELECT {0}".format(lsn_func), fail_ok=True)
+        lsn2 = context.pctl.query(name2, "SELECT {0}".format(lsn_func), fail_ok=True)
+        if lsn1 is not None and lsn2 is not None:
+            row1 = lsn1.fetchone()
+            row2 = lsn2.fetchone()
+            if row1 and row2 and row1[0] == row2[0]:
+                break
+        sleep(1)
+    else:
+        assert False, \
+            "{0} and {1} do not have the same wal position after {2} seconds".format(name1, name2, timeout)
+
+
 @step('there is one of {message_list} {level:w} in the {node} patroni log after {timeout:d} seconds')
 def check_patroni_log(context, message_list, level, node, timeout):
     timeout *= context.timeout_multiplier

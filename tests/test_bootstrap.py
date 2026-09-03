@@ -135,6 +135,27 @@ class TestBootstrap(BaseTestPostgresql):
             # compress is in not_allowed_options for PG < 15, error logged via process_user_options
             mock_error.assert_any_call('compress option for basebackup is not allowed')
 
+    @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=True))
+    @patch.object(ConfigHandler, 'pg_version', PropertyMock(return_value=150000))
+    def test_basebackup_progress(self):
+        """Test that pg_basebackup output is streamed to the log when --progress is among user options."""
+        with patch.object(CancellableSubprocess, 'call', Mock(return_value=0)) as mock_call:
+            self.b.basebackup('', None, ['progress'])
+            self.assertEqual(mock_call.call_args[1]['stream_cb'], Bootstrap._log_output_line)
+
+            # without --progress the output is not touched at all, pg_basebackup keeps writing to the terminal
+            self.b.basebackup('', None, {'foo': 'bar'})
+            self.assertIsNone(mock_call.call_args[1]['stream_cb'])
+
+        with patch('patroni.postgresql.bootstrap.logger.info') as mock_info:
+            Bootstrap._log_output_line('stderr', b'271/271 MB (100%) copied')
+            mock_info.assert_called_once_with('pg_basebackup: %s', '271/271 MB (100%) copied')
+
+        with patch('patroni.postgresql.bootstrap.logger.info') as mock_info:
+            # pg_basebackup writes empty lines, they must not pollute the log
+            Bootstrap._log_output_line('stdout', b'')
+            mock_info.assert_not_called()
+
     def test__initdb(self):
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': [{'pgdata': 'bar'}]})
         self.assertRaises(Exception, self.b.bootstrap, {'initdb': [{'foo': 'bar', 1: 2}]})

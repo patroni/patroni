@@ -971,7 +971,8 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
             member['host'] = conn_kwargs['host']
             if conn_kwargs.get('port'):
                 member['port'] = int(conn_kwargs['port'])
-        optional_attributes = ('timeline', 'pending_restart', 'pending_restart_reason', 'scheduled_restart', 'tags')
+        optional_attributes = ('timeline', 'pending_restart', 'pending_restart_reason',
+                               'scheduled_restart', 'tags', 'site')
         member.update({n: m.data[n] for n in optional_attributes if n in m.data})
 
         if m.name != leader_name:
@@ -1001,6 +1002,8 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
             ret['scheduled_switchover']['from'] = cluster.failover.leader
         if cluster.failover.candidate:
             ret['scheduled_switchover']['to'] = cluster.failover.candidate
+        elif cluster.failover.site:
+            ret['scheduled_switchover']['to'] = 'site ' + cluster.failover.site
     return ret
 
 

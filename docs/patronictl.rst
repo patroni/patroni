@@ -390,6 +390,7 @@ Synopsis
       [ CLUSTER_NAME ]
       [ --group CITUS_GROUP ]
       --candidate CANDIDATE_NAME
+      [ --site SITE_NAME ]
       [ --force ]
 
 .. _patronictl_failover_description:
@@ -405,6 +406,8 @@ It is designed to be used when the cluster is not healthy, e.g.:
 - There is no synchronous standby available in a synchronous cluster.
 
 It also allows to fail over to an asynchronous node if synchronous mode is enabled.
+
+If ``--site`` is supplied, only members belonging to that site are considered when listing failover candidates for selection. Because failover requires an explicit candidate, the command still needs a candidate value to complete the operation.
 
 .. note::
     Nothing prevents you from running ``patronictl failover`` in a healthy cluster. However, we recommend using ``patronictl switchover`` in those cases.
@@ -431,6 +434,11 @@ Parameters
     The node to be promoted on failover.
 
     ``CANDIDATE_NAME`` is the name of the node to be promoted.
+
+``--site``
+    Restrict failover candidates to members that belong to the given site.
+
+    ``SITE_NAME`` is the site name configured for the Patroni nodes.
 
 ``--force``
     Flag to skip confirmation prompts when performing the failover.
@@ -732,6 +740,11 @@ The following information is included in the output:
 ``Cluster``
     Name of the Patroni cluster.
 
+``Site``
+    Site of the Patroni node, as set in the local configuration.
+
+    If all members belong to the same site, the site is shown in the cluster header instead of as a column.
+
 ``Member``
     Name of the Patroni member.
 
@@ -888,6 +901,11 @@ Parameters
 
     ``TIME`` is the interval between refreshes, in seconds.
 
+``--site``
+    Filter the listed members by the configured site name.
+
+    Only members whose ``site`` matches the provided value are shown.
+
 .. _patronictl_list_examples:
 
 Examples
@@ -898,26 +916,26 @@ Show information about the cluster in pretty format:
 .. code:: bash
 
     $ patronictl -c postgres0.yml list batman
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |             |     |            |     |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
+    + Cluster: batman (7277694203142172922) --------+-----------+----+-------------+-----+------------+-----+
+    | Site | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag |
+    +------+-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
+    | dc1  | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |             |     |            |     |
+    | dc1  | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    | dc2  | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |
+    +------+-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+
 
 Show information about the cluster in pretty format with extended columns:
 
 .. code:: bash
 
     $ patronictl -c postgres0.yml list batman -e
-    + Cluster: batman (7277694203142172922) -+-----------+----+-------------+-----+------------+-----+-----------------+------------------------+-------------------+------+
-    | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag | Pending restart | Pending restart reason | Scheduled restart | Tags |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+-----------------+------------------------+-------------------+------+
-    | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |             |     |            |     |                 |                        |                   |      |
-    | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |                 |                        |                   |      |
-    | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |                 |                        |                   |      |
-    +-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+-----------------+------------------------+-------------------+------+
+    + Cluster: batman (7277694203142172922) --------+-----------+----+-------------+-----+------------+-----+-----------------+------------------------+-------------------+------+
+    | Site | Member      | Host           | Role    | State     | TL | Receive LSN | Lag | Replay LSN | Lag | Pending restart | Pending restart reason | Scheduled restart | Tags |
+    +------+-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+-----------------+------------------------+-------------------+------+
+    | dc1  | postgresql0 | 127.0.0.1:5432 | Leader  | running   |  5 |             |     |            |     |                 |                        |                   |      |
+    | dc1  | postgresql1 | 127.0.0.1:5433 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |                 |                        |                   |      |
+    | dc2  | postgresql2 | 127.0.0.1:5434 | Replica | streaming |  5 |   0/40004E8 |   0 |  0/40004E8 |   0 |                 |                        |                   |      |
+    +------+-------------+----------------+---------+-----------+----+-------------+-----+------------+-----+-----------------+------------------------+-------------------+------+
 
 Show information about the cluster in YAML format, with timestamp of execution:
 
@@ -929,6 +947,7 @@ Show information about the cluster in YAML format, with timestamp of execution:
       Host: 127.0.0.1:5432
       Member: postgresql0
       Role: Leader
+      Site: dc1
       State: running
       TL: 5
     - Cluster: batman
@@ -939,6 +958,7 @@ Show information about the cluster in YAML format, with timestamp of execution:
       Replay Lag: 0
       Member: postgresql1
       Role: Replica
+      Site: dc1
       State: streaming
       TL: 5
     - Cluster: batman
@@ -949,6 +969,7 @@ Show information about the cluster in YAML format, with timestamp of execution:
       Replay Lag: 0
       Member: postgresql2
       Role: Replica
+      Site: dc2
       State: streaming
       TL: 5
 
@@ -1772,7 +1793,8 @@ Synopsis
       [ CLUSTER_NAME ]
       [ --group CITUS_GROUP ]
       [ { --leader | --primary } LEADER_NAME ]
-      --candidate CANDIDATE_NAME
+      [ --candidate CANDIDATE_NAME ]
+      [ --site SITE_NAME ]
       [ --scheduled TIMESTAMP ]
       [ --force ]
 
@@ -1787,6 +1809,8 @@ It is designed to be used when the cluster is healthy, e.g.:
 
 - There is a leader;
 - There are synchronous standbys available in a synchronous cluster.
+
+If ``--site`` is supplied, only members belonging to that site are considered when listing switchover candidates for selection. Unlike failover, switchover can be performed with a site filter even if no explicit candidate is provided.
 
 .. note::
     If your cluster is unhealthy you might be interested in ``patronictl failover`` instead.
@@ -1815,6 +1839,11 @@ Parameters
     The node to be promoted on switchover, and take the primary role.
 
     ``CANDIDATE_NAME`` is the name of the node to be promoted.
+
+``--site``
+    Restrict switchover candidates to members that belong to the given site.
+
+    ``SITE_NAME`` is the site name configured for the Patroni nodes.
 
 ``--scheduled``
     Schedule a switchover to occur at the given timestamp.
