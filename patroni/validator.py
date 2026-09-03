@@ -1157,6 +1157,7 @@ schema = Schema({
                 Optional("basebackup"): [Or(str, dict)],
                 Optional("pg_hba"): [str],
                 Optional("pg_ident"): [str],
+                Optional("pg_hosts"): [str],
                 Optional("pg_ctl_timeout"): IntValidator(min=0, raise_assert=True),
                 Optional("use_slots"): bool,
             },
@@ -1177,6 +1178,7 @@ schema = Schema({
             Optional("synchronous_mode_strict"): bool,
             Optional("synchronous_cross_site"): validate_sync_cross_site,
             Optional("synchronous_node_count"): IntValidator(min=1, raise_assert=True),
+            Optional("manage_synchronized_standby_slots"): bool,
         },
         Optional("initdb"): [Or(str, dict)],
         Optional("method"): str
@@ -1281,6 +1283,7 @@ schema = Schema({
         },
         Optional("pg_hba"): [str],
         Optional("pg_ident"): [str],
+        Optional("pg_hosts"): [str],
         Optional("pg_ctl_timeout"): IntValidator(min=0, raise_assert=True),
         Optional("use_pg_rewind"): bool,
         Optional("rewind"): [Or(str, dict)],

@@ -422,6 +422,7 @@ END;$$""".format(f, quote_ident(rewind['username'], postgresql.connection()))
                         postgresql.config.restore_configuration_files()
                     postgresql.config.write_postgresql_conf()
                     postgresql.config.replace_pg_ident()
+                    postgresql.config.replace_pg_hosts()
 
                     # at this point there should be no recovery.conf
                     postgresql.config.remove_recovery_conf()

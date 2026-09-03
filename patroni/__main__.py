@@ -92,7 +92,7 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         self.ha = Ha(self)
 
         self._tags = self._get_tags()
-        self.next_run = time.time()
+        self.next_run = time.monotonic()
         self.scheduled_restart: Dict[str, Any] = {}
 
         self._last_effective_role = None
@@ -208,7 +208,7 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         already been exceeded, run the next cycle immediately.
         """
         self.next_run += self.dcs.loop_wait
-        current_time = time.time()
+        current_time = time.monotonic()
         nap_time = self.next_run - current_time
         if nap_time <= 0:
             self.next_run = current_time
@@ -217,7 +217,7 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
             # Warn user that Patroni is not keeping up
             logger.warning("Loop time exceeded, rescheduling immediately.")
         elif self.ha.watch(nap_time):
-            self.next_run = time.time()
+            self.next_run = time.monotonic()
 
     def run(self) -> None:
         """Run ``patroni`` daemon process main loop.
@@ -225,7 +225,7 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         Start the REST API and keep running HA cycles every ``loop_wait`` seconds.
         """
         self.api.start()
-        self.next_run = time.time()
+        self.next_run = time.monotonic()
         super(Patroni, self).run()
 
     def _run_cycle(self) -> None:

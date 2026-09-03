@@ -196,7 +196,7 @@ def run_async(self, func, args=()):
     'Latest checkpoint location': '0/12345678',
     "Latest checkpoint's TimeLineID": '2'}))
 @patch.object(SlotsHandler, 'load_replication_slots', Mock(side_effect=Exception))
-@patch.object(ConfigHandler, 'pg_version', PropertyMock(return_value=180000))
+@patch.object(ConfigHandler, 'pg_version', PropertyMock(return_value=190000))
 @patch.object(ConfigHandler, 'append_pg_hba', Mock())
 @patch.object(ConfigHandler, 'write_pgpass', Mock(return_value={}))
 @patch.object(ConfigHandler, 'write_recovery_conf', Mock())
@@ -541,6 +541,7 @@ class TestHa(PostgresInit):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.assertEqual(self.ha.run_cycle(), 'demoted self because DCS is not accessible and I was a leader')
 
+    @patch('patroni.ha.time.monotonic', Mock(return_value=100))
     def test_check_failsafe_topology(self):
         self.ha.load_cluster_from_dcs = Mock(side_effect=DCSError('Etcd is not responding properly'))
         self.ha.cluster = get_cluster_initialized_with_leader_and_failsafe()
@@ -2228,7 +2229,7 @@ class TestHa(PostgresInit):
 
         # Test that _process_quorum_replication doesn't take longer than loop_wait
         with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')), \
-                patch('time.time', Mock(side_effect=[30, 60, 90, 120, 150])):
+                patch('time.monotonic', Mock(side_effect=[30, 60, 90, 120, 150])):
             self.ha.process_sync_replication()
 
         # Test foo -> ANY 1 (foo) transition

@@ -68,6 +68,12 @@ In order to change the dynamic configuration you can use either :ref:`patronictl
    -  **pg\_ident\_replica**: (optional) role-specific pg_ident entries for replica. These completely replace **pg_ident** (no merging). If not defined, **pg_ident** is used.
    -  **pg\_ident\_standby\_leader**: (optional) role-specific pg_ident entries for standby_leader. These completely replace **pg_ident** (no merging). If not defined, **pg_ident** is used.
 
+    -  **pg\_hosts**: (PostgreSQL 19+ only) list of lines that Patroni will use to generate ``pg_hosts.conf``. Patroni ignores this parameter if ``hosts_file`` PostgreSQL parameter is set to a non-default value.
+
+    -  **pg\_hosts\_primary**: (optional) role-specific pg_hosts entries for primary. These completely replace **pg_hosts** (no merging). If not defined, **pg_hosts** is used.
+    -  **pg\_hosts\_replica**: (optional) role-specific pg_hosts entries for replica. These completely replace **pg_hosts** (no merging). If not defined, **pg_hosts** is used.
+    -  **pg\_hosts\_standby\_leader**: (optional) role-specific pg_hosts entries for standby_leader. These completely replace **pg_hosts** (no merging). If not defined, **pg_hosts** is used.
+
 -  **standby\_cluster**: if this section is defined, we want to bootstrap a standby cluster.
 
    -  **host**: an address of remote node
@@ -94,6 +100,41 @@ In order to change the dynamic configuration you can use either :ref:`patronictl
    -  **type**: slot type. Can be ``physical`` or ``logical``. If the slot is logical, you may additionally define ``database`` and/or ``plugin``.
    -  **database**: the database name (when matching a ``logical`` slot).
    -  **plugin**: the logical decoding plugin (when matching a ``logical`` slot).
+
+-  **manage\_synchronized\_standby\_slots**: (PostgreSQL 17+ only) When enabled, Patroni automatically manages the ``synchronized_standby_slots`` parameter to keep it in sync with ``synchronous_standby_names``. This ensures that logical replication slots with ``failover=true`` are synchronized to the same physical standbys used for synchronous replication. Defaults to ``false`` (opt-in).
+
+   .. note::
+       This feature requires ``synchronous_mode: true`` or ``synchronous_mode: quorum`` to be enabled, as it manages which standbys receive synchronized logical slots based on the current synchronous replication topology.
+
+   .. note::
+       In ``quorum`` mode Patroni lists **all** sync standbys in ``synchronized_standby_slots``. Because PostgreSQL blocks logical slot advancement until **every** listed physical slot has caught up, logical replication may wait longer than the commit semantics require (which only need ``synchronous_node_count`` standbys to confirm). This is a conservative default that guarantees no data loss for logical replication; a permanently lagging standby will however permanently block logical slot advancement.
+
+   .. note::
+       When this feature is disabled, Patroni restores ``synchronized_standby_slots`` to whatever value the user has configured under ``postgresql.parameters`` (or removes the parameter entirely if none is set).
+
+   .. note::
+       When ``synchronous_mode_strict`` is enabled and no synchronous standby is currently
+       available, Patroni sets ``synchronized_standby_slots`` to the same internal placeholder
+       used for ``synchronous_standby_names`` (``__patroni_strict_sync_replica_placeholder__``).
+       Since no replication slot with that name exists, PostgreSQL will repeatedly write the
+       following to the logs::
+
+           WARNING:  replication slot "__patroni_strict_sync_replica_placeholder__" specified in parameter "synchronized_standby_slots" does not exist
+           DETAIL:  Logical replication is waiting on the standby associated with replication slot "__patroni_strict_sync_replica_placeholder__".
+           HINT:  Create the replication slot "__patroni_strict_sync_replica_placeholder__" or amend parameter "synchronized_standby_slots".
+
+       This is expected. It prevents logical replication slots from advancing until a
+       synchronous standby is available, so that logical subscribers never receive changes
+       ahead of physical replication confirming them. The warnings stop as soon as a
+       synchronous standby reconnects.
+
+
+   Example configuration:
+
+   .. code:: YAML
+
+       synchronous_mode: true
+       manage_synchronized_standby_slots: true
 
 Note: **slots** is a hashmap while **ignore_slots** is an array. For example:
 

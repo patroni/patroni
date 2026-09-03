@@ -20,7 +20,9 @@ import yaml
 
 import patroni.psycopg as psycopg
 
+from patroni.postgresql.misc import postgres_version_to_int
 from patroni.request import PatroniRequest
+from patroni.utils import get_postgres_version
 
 
 class AbstractController(abc.ABC):
@@ -68,7 +70,7 @@ class AbstractController(abc.ABC):
 
     def stop(self, kill=False, timeout=15, _=False):
         term = False
-        start_time = time.time()
+        start_time = time.monotonic()
 
         timeout *= self._context.timeout_multiplier
         while self._handle and self._is_running():
@@ -78,7 +80,7 @@ class AbstractController(abc.ABC):
                 self._handle.terminate()
                 term = True
             time.sleep(1)
-            if not kill and time.time() - start_time > timeout:
+            if not kill and time.monotonic() - start_time > timeout:
                 kill = True
 
         if self._log:
@@ -322,9 +324,9 @@ class PatroniController(AbstractController):
                 raise
 
     def check_role_has_changed_to(self, new_role, timeout=10):
-        bound_time = time.time() + timeout
+        bound_time = time.monotonic() + timeout
         recovery_status = new_role != 'primary'
-        while time.time() < bound_time:
+        while time.monotonic() < bound_time:
             cur = self.query("SELECT pg_is_in_recovery()", fail_ok=True)
             if cur:
                 row = cur.fetchone()
@@ -976,6 +978,12 @@ class PatroniPoolController(object):
             if p._conn:
                 return p._conn.server_version
 
+        # Fallback to postgres binary version if no instances are started yet
+        try:
+            return postgres_version_to_int(get_postgres_version())
+        except Exception:
+            return None
+
 
 class WatchdogMonitor(object):
     """Testing harness for emulating a watchdog device as a named pipe. Because we can't easily emulate ioctl's we
@@ -1008,7 +1016,7 @@ class WatchdogMonitor(object):
         elif not os.path.exists(fifo_dir):
             os.mkdir(fifo_dir)
         os.mkfifo(self.fifo_path)
-        self.last_ping = time.time()
+        self.last_ping = time.monotonic()
 
         self._thread = threading.Thread(target=self.run)
         self._thread.start()
@@ -1042,7 +1050,7 @@ class WatchdogMonitor(object):
                                 self.timeout = int(command.split('=')[1])
                                 self._log("timeout={0}".format(self.timeout))
                         elif c in [b'V', b'1']:
-                            cur_time = time.time()
+                            cur_time = time.monotonic()
                             if cur_time - self.last_ping > self.timeout:
                                 self._log("Triggered")
                                 self._was_triggered = True
@@ -1087,7 +1095,7 @@ class WatchdogMonitor(object):
 
     @property
     def was_triggered(self):
-        delta = time.time() - self.last_ping
+        delta = time.monotonic() - self.last_ping
         triggered = self._was_triggered or not self.was_closed and delta > self.timeout
         self._log("triggered={0}, {1}s left".format(triggered, self.timeout - delta))
         return triggered

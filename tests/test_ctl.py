@@ -1,4 +1,5 @@
 import os
+import tempfile
 import unittest
 
 from datetime import datetime, timedelta
@@ -63,9 +64,9 @@ class TestCtl(unittest.TestCase):
 
     @patch('patroni.ctl.logging.debug')
     def test_load_config(self, mock_logger_debug):
-        runner = CliRunner()
-        with runner.isolated_filesystem():
-            self.assertRaises(PatroniCtlException, load_config, './non-existing-config-file', None)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_file = os.path.join(temp_dir, 'non-existing-config-file')
+            self.assertRaises(PatroniCtlException, load_config, config_file, None)
 
         with patch('os.path.exists', Mock(return_value=True)), \
                 patch('patroni.config.Config._load_config_path', Mock(return_value={})):
@@ -329,18 +330,19 @@ class TestCtl(unittest.TestCase):
             result = self.runner.invoke(ctl, ['query', 'alpha', '--member', 'abc', '--role', repr(role)])
             assert result.exit_code == 1
 
-        with self.runner.isolated_filesystem():
-            with open('dummy', 'w') as dummy_file:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dummy = os.path.join(temp_dir, 'dummy')
+            with open(dummy, 'w') as dummy_file:
                 dummy_file.write('SELECT 1')
 
             # Mutually exclusive
-            result = self.runner.invoke(ctl, ['query', 'alpha', '--file', 'dummy', '--command', 'dummy'])
+            result = self.runner.invoke(ctl, ['query', 'alpha', '--file', dummy, '--command', 'dummy'])
             assert result.exit_code == 1
 
-            result = self.runner.invoke(ctl, ['query', 'alpha', '--member', 'abc', '--file', 'dummy'])
+            result = self.runner.invoke(ctl, ['query', 'alpha', '--member', 'abc', '--file', dummy])
             assert result.exit_code == 0
 
-            os.remove('dummy')
+            os.remove(dummy)
 
         result = self.runner.invoke(ctl, ['query', 'alpha', '--command', 'SELECT 1'])
         assert 'mock column' in result.output

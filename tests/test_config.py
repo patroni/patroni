@@ -320,6 +320,8 @@ class TestConfig(unittest.TestCase):
                 'pg_hba_standby_leader': ['host all all 0.0.0.0/0 trust'],
                 'pg_ident': ['mymap postgres postgres'],
                 'pg_ident_replica': ['mymap replicator replicator'],
+                'pg_hosts': ['192.0.2.1 example.com'],
+                'pg_hosts_primary': ['192.0.2.2 primary.example.com'],
             }
         })
 
@@ -329,12 +331,14 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(result['parameters']['work_mem'], '4MB')  # unchanged
         self.assertIn('scram-sha-256', result['pg_hba'][0])
         self.assertEqual(result['pg_ident'], ['mymap postgres postgres'])  # no _primary override
+        self.assertEqual(result['pg_hosts'], ['192.0.2.2 primary.example.com'])
 
         # Test REPLICA role - should apply _replica overrides
         result = self.config.build_effective_postgresql_configuration(PostgresqlRole.REPLICA)
         self.assertEqual(result['parameters']['shared_buffers'], '128MB')
         self.assertIn('md5', result['pg_hba'][0])  # no _replica override
         self.assertEqual(result['pg_ident'], ['mymap replicator replicator'])
+        self.assertEqual(result['pg_hosts'], ['192.0.2.1 example.com'])
 
         # Test STANDBY_LEADER role - should apply _standby_leader overrides
         result = self.config.build_effective_postgresql_configuration(PostgresqlRole.STANDBY_LEADER)

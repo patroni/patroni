@@ -391,6 +391,7 @@ class ConfigHandler(object):
         self._postgresql_base_conf = os.path.join(self._config_dir, self._postgresql_base_conf_name)
         self._pg_hba_conf = os.path.join(self._config_dir, 'pg_hba.conf')
         self._pg_ident_conf = os.path.join(self._config_dir, 'pg_ident.conf')
+        self._pg_hosts_conf = os.path.join(self._config_dir, 'pg_hosts.conf')
         self._recovery_conf = os.path.join(postgresql.data_dir, 'recovery.conf')
         self._recovery_conf_mtime = None
         self._recovery_signal = os.path.join(postgresql.data_dir, 'recovery.signal')
@@ -487,6 +488,8 @@ class ConfigHandler(object):
             configuration.append('pg_hba.conf')
         if not self.ident_file:
             configuration.append('pg_ident.conf')
+        if self.pg_version >= 190000 and not self.hosts_file:
+            configuration.append('pg_hosts.conf')
         return configuration
 
     def set_file_permissions(self, filename: str) -> None:
@@ -544,8 +547,8 @@ class ConfigHandler(object):
                     if os.path.isfile(backup_file):
                         shutil.copy(backup_file, config_file)
                         self.set_file_permissions(config_file)
-                    # Previously we didn't backup pg_ident.conf, if file is missing just create empty
-                    elif f == 'pg_ident.conf':
+                    # Older Patroni versions didn't back up these files, create them if they are missing.
+                    elif f == 'pg_ident.conf' or (f == 'pg_hosts.conf' and self.pg_version >= 190000):
                         open(config_file, 'w').close()
                         self.set_file_permissions(config_file)
         except IOError:
@@ -578,6 +581,8 @@ class ConfigHandler(object):
                 f.write_param('hba_file', self._pg_hba_conf)
             if 'ident_file' not in self._server_parameters:
                 f.write_param('ident_file', self._pg_ident_conf)
+            if self._postgresql.major_version >= 190000 and 'hosts_file' not in self._server_parameters:
+                f.write_param('hosts_file', self._pg_hosts_conf)
 
             if self._postgresql.major_version >= 120000:
                 if self._recovery_params:
@@ -634,6 +639,16 @@ class ConfigHandler(object):
         if not self.ident_file and self._config.get('pg_ident'):
             with self.config_writer(self._pg_ident_conf) as f:
                 f.writelines(self._config['pg_ident'])
+            return True
+
+    def replace_pg_hosts(self) -> Optional[bool]:
+        """Replace ``pg_hosts.conf`` content when Patroni manages the default file.
+
+        :returns: ``True`` if ``pg_hosts.conf`` was rewritten.
+        """
+        if self._postgresql.major_version >= 190000 and not self.hosts_file and self._config.get('pg_hosts'):
+            with self.config_writer(self._pg_hosts_conf) as f:
+                f.writelines(self._config['pg_hosts'])
             return True
 
     def primary_conninfo_params(self, member: Union[Leader, Member, None]) -> Optional[Dict[str, Any]]:
@@ -1085,6 +1100,17 @@ class ConfigHandler(object):
             else:
                 parameters['synchronous_standby_names'] = synchronous_standby_names
 
+        # When manage_synchronized_standby_slots is enabled, Patroni dynamically writes
+        # synchronized_standby_slots, so we must preserve our cached value here so that subsequent
+        # reload_config() calls don't reset it back to the user-configured value.
+        if global_config.manage_synchronized_standby_slots_enabled \
+                and self._postgresql.supports_synchronized_standby_slots:
+            synchronized_standby_slots = self._server_parameters.get('synchronized_standby_slots')
+            if synchronized_standby_slots is None:
+                parameters.pop('synchronized_standby_slots', None)
+            else:
+                parameters['synchronized_standby_slots'] = synchronized_standby_slots
+
         # Handle hot_standby <-> replica rename
         if parameters.get('wal_level') == ('hot_standby' if self._postgresql.major_version >= 90600 else 'replica'):
             parameters['wal_level'] = 'replica' if self._postgresql.major_version >= 90600 else 'hot_standby'
@@ -1103,7 +1129,8 @@ class ConfigHandler(object):
 
         ret = CaseInsensitiveDict({k: v for k, v in parameters.items() if not self._postgresql.major_version
                                    or self._postgresql.major_version >= self.CMDLINE_OPTIONS.get(k, (0, 1, 90100))[2]})
-        ret.update({k: os.path.join(self._config_dir, ret[k]) for k in ('hba_file', 'ident_file') if k in ret})
+        ret.update({k: os.path.join(self._config_dir, ret[k])
+                    for k in ('hba_file', 'ident_file', 'hosts_file') if k in ret})
         return ret
 
     @staticmethod
@@ -1210,7 +1237,7 @@ class ConfigHandler(object):
         server_parameters = self.get_server_parameters(config)
         params_skip_changes = CaseInsensitiveSet((*self._RECOVERY_PARAMETERS, 'hot_standby'))
 
-        conf_changed = hba_changed = ident_changed = local_connection_address_changed = False
+        conf_changed = hba_changed = ident_changed = hosts_changed = local_connection_address_changed = False
         param_diff = CaseInsensitiveDict()
         if not self._postgresql.bootstrap.running_custom_bootstrap and \
                 self._postgresql.state == PostgresqlState.RUNNING:
@@ -1271,6 +1298,11 @@ class ConfigHandler(object):
                     and config.get('pg_ident'):
                 ident_changed = self._config.get('pg_ident', []) != config['pg_ident']
 
+            if self._postgresql.major_version >= 190000 and \
+                    (not server_parameters.get('hosts_file') or server_parameters['hosts_file'] == self._pg_hosts_conf)\
+                    and config.get('pg_hosts'):
+                hosts_changed = self._config.get('pg_hosts', []) != config['pg_hosts']
+
         self._config = config
         self._server_parameters = server_parameters
         self._adjust_recovery_parameters()
@@ -1298,7 +1330,10 @@ class ConfigHandler(object):
         if ident_changed or sighup:
             self.replace_pg_ident()
 
-        if sighup or conf_changed or hba_changed or ident_changed:
+        if hosts_changed or sighup:
+            self.replace_pg_hosts()
+
+        if sighup or conf_changed or hba_changed or ident_changed or hosts_changed:
             logger.info('Reloading PostgreSQL configuration.')
             self._postgresql.reload()
             if self._postgresql.major_version >= 90500:
@@ -1326,18 +1361,44 @@ class ConfigHandler(object):
 
         self._postgresql.set_pending_restart_reason(param_diff)
 
-    def set_synchronous_standby_names(self, value: Optional[str]) -> Optional[bool]:
-        """Updates synchronous_standby_names and reloads if necessary.
-        :returns: True if value was updated."""
-        if value != self._server_parameters.get('synchronous_standby_names'):
+    def _set_server_parameter(self, name: str, value: Optional[str], reload: bool = False) -> bool:
+        """Update a server parameter and optionally write config and reload PostgreSQL.
+
+        :param name: name of the server parameter to update.
+        :param value: new value of the server parameter, or ``None`` to remove it from the config.
+        :param reload: whether to write ``postgresql.conf`` and reload PostgreSQL if the value changed.
+
+        :returns: ``True`` if the value was changed, ``False`` otherwise.
+        """
+        if value != self._server_parameters.get(name):
             if value is None:
-                self._server_parameters.pop('synchronous_standby_names', None)
+                self._server_parameters.pop(name, None)
             else:
-                self._server_parameters['synchronous_standby_names'] = value
-            if self._postgresql.state == PostgresqlState.RUNNING:
+                self._server_parameters[name] = value
+            if reload and self._postgresql.state == PostgresqlState.RUNNING:
                 self.write_postgresql_conf()
                 self._postgresql.reload()
             return True
+        return False
+
+    def set_synchronous_standby_names(self, value: Optional[str]) -> Optional[bool]:
+        """Updates synchronous_standby_names and reloads if necessary.
+
+        :param value: new value of ``synchronous_standby_names``, or ``None`` to remove it from the config.
+
+        :returns: ``True`` if value was updated, ``None`` otherwise.
+        """
+        return self._set_server_parameter('synchronous_standby_names', value, reload=True) or None
+
+    def set_synchronized_standby_slots(self, value: Optional[str], reload: bool = False) -> bool:
+        """Update ``synchronized_standby_slots`` parameter.
+
+        :param value: new value of ``synchronized_standby_slots``, or ``None`` to remove it from the config.
+        :param reload: whether to write ``postgresql.conf`` and reload PostgreSQL if the value changed.
+
+        :returns: ``True`` if the value was changed, ``False`` otherwise.
+        """
+        return self._set_server_parameter('synchronized_standby_slots', value, reload=reload)
 
     @property
     def effective_configuration(self) -> CaseInsensitiveDict:
@@ -1420,6 +1481,11 @@ class ConfigHandler(object):
         return None if ident_file == self._pg_ident_conf else ident_file
 
     @property
+    def hosts_file(self) -> Optional[str]:
+        hosts_file = self._server_parameters.get('hosts_file')
+        return None if hosts_file == self._pg_hosts_conf else hosts_file
+
+    @property
     def hba_file(self) -> Optional[str]:
         hba_file = self._server_parameters.get('hba_file')
         return None if hba_file == self._pg_hba_conf else hba_file
@@ -1446,3 +1512,12 @@ class ConfigHandler(object):
             if any, otherwise ``None``.
         """
         return (self.get('parameters') or EMPTY_DICT).get('synchronous_standby_names')
+
+    @property
+    def synchronized_standby_slots(self) -> Optional[str]:
+        """Get ``synchronized_standby_slots`` value configured by the user.
+
+        :returns: value of ``synchronized_standby_slots`` in the Patroni configuration,
+            if any, otherwise ``None``.
+        """
+        return (self.get('parameters') or EMPTY_DICT).get('synchronized_standby_slots')

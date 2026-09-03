@@ -95,6 +95,7 @@ config = {
         },
         "pg_hba": [u"string"],
         "pg_ident": ["string"],
+        "pg_hosts": ["string"],
         "pg_ctl_timeout": 1000,
         "use_pg_rewind": False
     },

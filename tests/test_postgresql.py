@@ -24,7 +24,7 @@ from patroni.file_perm import pg_perm
 from patroni.postgresql import PgIsReadyStatus, Postgresql
 from patroni.postgresql.bootstrap import Bootstrap
 from patroni.postgresql.callback_executor import CallbackAction
-from patroni.postgresql.config import _false_validator, get_param_diff
+from patroni.postgresql.config import _false_validator, ConfigWriter, get_param_diff
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
 from patroni.postgresql.postmaster import PostmasterProcess
 from patroni.postgresql.validator import _get_postgres_guc_validators, _load_postgres_gucs_validators, \
@@ -41,7 +41,7 @@ mtime_ret = {}
 
 def mock_mtime(filename):
     if filename not in mtime_ret:
-        mtime_ret[filename] = time.time()
+        mtime_ret[filename] = time.monotonic()
     else:
         mtime_ret[filename] += 1
     return mtime_ret[filename]
@@ -109,6 +109,7 @@ Data page checksum version:           0
 class TestPostgresql(BaseTestPostgresql):
 
     @patch('subprocess.call', Mock(return_value=0))
+    @patch('subprocess.check_output', Mock(return_value=b'postgres (PostgreSQL) 19.0'))
     @patch('os.rename', Mock())
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))
@@ -571,6 +572,36 @@ class TestPostgresql(BaseTestPostgresql):
     def test_restore_configuration_files(self):
         self.p.config.restore_configuration_files()
 
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=180000)), \
+                patch.object(type(self.p.config), '_configuration_to_save',
+                             PropertyMock(return_value=['pg_hosts.conf'])), \
+                patch('os.path.isfile', Mock(return_value=False)), \
+                patch('builtins.open') as mock_open_file:
+            self.p.config.restore_configuration_files()
+            mock_open_file.assert_not_called()
+
+    def test_replace_pg_hosts(self):
+        self.p.config._config['pg_hosts'] = ['192.0.2.1 example.com']
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=190000)):
+            self.assertTrue(self.p.config.replace_pg_hosts())
+            with open(self.p.config._pg_hosts_conf) as f:
+                self.assertIn('192.0.2.1 example.com', f.read())
+            self.p.config.write_postgresql_conf()
+            with open(self.p.config.postgresql_conf) as f:
+                self.assertIn("hosts_file = '{}'".format(ConfigWriter.escape(self.p.config._pg_hosts_conf)), f.read())
+
+            self.p.config._server_parameters['hosts_file'] = '/tmp/custom_pg_hosts.conf'
+            self.assertIsNone(self.p.config.replace_pg_hosts())
+
+        os.unlink(self.p.config._pg_hosts_conf)
+        self.p.config._server_parameters.pop('hosts_file')
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=180000)):
+            self.assertIsNone(self.p.config.replace_pg_hosts())
+            self.assertFalse(os.path.exists(self.p.config._pg_hosts_conf))
+            self.p.config.write_postgresql_conf()
+            with open(self.p.config.postgresql_conf) as f:
+                self.assertNotIn('hosts_file', f.read())
+
     def test_can_create_replica_without_replication_connection(self):
         self.p.config._config['create_replica_method'] = []
         self.assertFalse(self.p.can_create_replica_without_replication_connection(None))
@@ -618,10 +649,12 @@ class TestPostgresql(BaseTestPostgresql):
         mock_info.reset_mock()
         config = deepcopy(self.p.config._config)
 
-        # hba/ident_changed
+        # hba/ident/pg_hosts_changed
         config['pg_hba'] = ['']
         config['pg_ident'] = ['']
-        self.p.reload_config(config)
+        config['pg_hosts'] = ['']
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=190000)):
+            self.p.reload_config(config)
         mock_info.assert_called_once_with('Reloading PostgreSQL configuration.')
         self.assertEqual(self.p.pending_restart_reason, CaseInsensitiveDict())
 
@@ -838,6 +871,24 @@ class TestPostgresql(BaseTestPostgresql):
                 self.p.config.get_server_parameters(config)
                 self.p.config.set_synchronous_standby_names('foo')
                 self.assertTrue(repr(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
+
+        # PG17+ with manage_synchronized_standby_slots: cached _server_parameters value must
+        # be preserved (i.e. written back) so subsequent reload_config() doesn't reset it.
+        self.p._major_version = 170000
+        with patch.object(global_config.__class__, 'manage_synchronized_standby_slots_enabled',
+                          PropertyMock(return_value=True)):
+            # Value cached -> preserved as-is.
+            self.p.config._server_parameters['synchronized_standby_slots'] = 'dyn_slot_a,dyn_slot_b'
+            params = self.p.config.get_server_parameters(config)
+            self.assertEqual(params.get('synchronized_standby_slots'), 'dyn_slot_a,dyn_slot_b')
+
+            # Value cleared -> parameter removed even if present in user config.
+            self.p.config._server_parameters.pop('synchronized_standby_slots', None)
+            config_with_user_value = {'parameters': {**config['parameters'],
+                                                     'synchronized_standby_slots': 'user_slot'},
+                                      'listen': '0'}
+            params = self.p.config.get_server_parameters(config_with_user_value)
+            self.assertNotIn('synchronized_standby_slots', params)
 
     @patch('time.sleep', Mock())
     def test__wait_for_connection_close(self):
@@ -1188,6 +1239,7 @@ class TestPostgresql(BaseTestPostgresql):
 class TestPostgresql2(BaseTestPostgresql):
 
     @patch('subprocess.call', Mock(return_value=0))
+    @patch('subprocess.check_output', Mock(return_value=b'postgres (PostgreSQL) 19.0'))
     @patch('os.rename', Mock())
     @patch('patroni.postgresql.CallbackExecutor', Mock())
     @patch.object(Postgresql, 'get_major_version', Mock(return_value=140000))

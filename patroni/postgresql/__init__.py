@@ -125,7 +125,7 @@ class Postgresql(ClusterSite):
                                       retry_exceptions=PostgresConnectionException)
 
         self.set_role(self.get_postgres_role_from_data_directory())
-        self._state_entry_timestamp = 0
+        self._state_entry_timestamp = float('-inf')
 
         self._cluster_info_state = {}
         self._should_query_slots = True
@@ -150,13 +150,14 @@ class Postgresql(ClusterSite):
 
             hba_saved = self.config.replace_pg_hba()
             ident_saved = self.config.replace_pg_ident()
+            hosts_saved = self.config.replace_pg_hosts()
 
             if self.major_version < 120000 or self.role == PostgresqlRole.PRIMARY:
                 # If PostgreSQL is running as a primary or we run PostgreSQL that is older than 12 we can
                 # call reload_config() once again (the first call happened in the ConfigHandler constructor),
                 # so that it can figure out if config files should be updated and pg_ctl reload executed.
-                self.config.reload_config(config, sighup=bool(hba_saved or ident_saved))
-            elif hba_saved or ident_saved:
+                self.config.reload_config(config, sighup=bool(hba_saved or ident_saved or hosts_saved))
+            elif hba_saved or ident_saved or hosts_saved:
                 self.reload()
         elif not self.is_running() and self.role == PostgresqlRole.PRIMARY:
             self.set_role(PostgresqlRole.DEMOTED)
@@ -212,6 +213,11 @@ class Postgresql(ClusterSite):
     def can_advance_slots(self) -> bool:
         """``True`` if :attr:``major_version`` is greater than 110000."""
         return self.major_version >= 110000
+
+    @property
+    def supports_synchronized_standby_slots(self) -> bool:
+        """``True`` if the ``synchronized_standby_slots`` GUC is supported by Postgres."""
+        return self.major_version >= 170000
 
     @property
     def cluster_info_query(self) -> str:
@@ -726,10 +732,10 @@ class Postgresql(ClusterSite):
     def set_state(self, value: PostgresqlState) -> None:
         with self._state_lock:
             self._state = value
-            self._state_entry_timestamp = time.time()
+            self._state_entry_timestamp = time.monotonic()
 
     def time_in_state(self) -> float:
-        return time.time() - self._state_entry_timestamp
+        return time.monotonic() - self._state_entry_timestamp
 
     def is_starting(self) -> bool:
         return self.state in (PostgresqlState.STARTING, PostgresqlState.BOOTSTRAP_STARTING)
@@ -797,6 +803,7 @@ class Postgresql(ClusterSite):
         self.config.resolve_connection_addresses()
         self.config.replace_pg_hba()
         self.config.replace_pg_ident()
+        self.config.replace_pg_hosts()
 
         options = ['--{0}={1}'.format(p, configuration[p]) for p in self.config.CMDLINE_OPTIONS
                    if p in configuration and p not in ('wal_keep_segments', 'wal_keep_size')]

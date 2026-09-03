@@ -158,6 +158,7 @@ class MockCursor(object):
             self.results = [('data_directory', 'data'),
                             ('hba_file', os.path.join('data', 'pg_hba.conf')),
                             ('ident_file', os.path.join('data', 'pg_ident.conf')),
+                            ('hosts_file', os.path.join('data', 'pg_hosts.conf')),
                             ('max_connections', 42),
                             ('max_locks_per_transaction', 73),
                             ('max_prepared_transactions', 0),
