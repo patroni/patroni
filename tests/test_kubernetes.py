@@ -325,7 +325,7 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
     def test_manual_failover(self):
         with patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map',
                           Mock(side_effect=RetryFailedError('')), create=True):
-            self.k.manual_failover('foo', 'bar')
+            self.k.manual_failover('foo', 'bar', None)
 
     def test_set_config_value(self):
         with patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map',

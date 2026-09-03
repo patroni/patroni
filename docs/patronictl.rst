@@ -390,6 +390,7 @@ Synopsis
       [ CLUSTER_NAME ]
       [ --group CITUS_GROUP ]
       --candidate CANDIDATE_NAME
+      [ --site SITE_NAME ]
       [ --force ]
 
 .. _patronictl_failover_description:
@@ -405,6 +406,8 @@ It is designed to be used when the cluster is not healthy, e.g.:
 - There is no synchronous standby available in a synchronous cluster.
 
 It also allows to fail over to an asynchronous node if synchronous mode is enabled.
+
+If ``--site`` is supplied, only members belonging to that site are considered when listing failover candidates for selection. Because failover requires an explicit candidate, the command still needs a candidate value to complete the operation.
 
 .. note::
     Nothing prevents you from running ``patronictl failover`` in a healthy cluster. However, we recommend using ``patronictl switchover`` in those cases.
@@ -431,6 +434,11 @@ Parameters
     The node to be promoted on failover.
 
     ``CANDIDATE_NAME`` is the name of the node to be promoted.
+
+``--site``
+    Restrict failover candidates to members that belong to the given site.
+
+    ``SITE_NAME`` is the site name configured for the Patroni nodes.
 
 ``--force``
     Flag to skip confirmation prompts when performing the failover.
@@ -1785,7 +1793,8 @@ Synopsis
       [ CLUSTER_NAME ]
       [ --group CITUS_GROUP ]
       [ { --leader | --primary } LEADER_NAME ]
-      --candidate CANDIDATE_NAME
+      [ --candidate CANDIDATE_NAME ]
+      [ --site SITE_NAME ]
       [ --scheduled TIMESTAMP ]
       [ --force ]
 
@@ -1800,6 +1809,8 @@ It is designed to be used when the cluster is healthy, e.g.:
 
 - There is a leader;
 - There are synchronous standbys available in a synchronous cluster.
+
+If ``--site`` is supplied, only members belonging to that site are considered when listing switchover candidates for selection. Unlike failover, switchover can be performed with a site filter even if no explicit candidate is provided.
 
 .. note::
     If your cluster is unhealthy you might be interested in ``patronictl failover`` instead.
@@ -1828,6 +1839,11 @@ Parameters
     The node to be promoted on switchover, and take the primary role.
 
     ``CANDIDATE_NAME`` is the name of the node to be promoted.
+
+``--site``
+    Restrict switchover candidates to members that belong to the given site.
+
+    ``SITE_NAME`` is the site name configured for the Patroni nodes.
 
 ``--scheduled``
     Schedule a switchover to occur at the given timestamp.

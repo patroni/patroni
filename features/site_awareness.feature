@@ -19,3 +19,20 @@ Feature: site awareness
     When I run patronictl.py reinit batman postgres-2 --force
     Then I receive a response returncode 0
     And there is one of ["bootstrapped from replica 'postgres-3'"] INFO in the postgres-2 patroni log after 25 seconds
+    And replication works from postgres-0 to postgres-2 after 15 seconds
+    And Response on GET http://127.0.0.1:8010/patroni contains replication_state=streaming after 10 seconds
+
+  Scenario: test local failover
+    When I shut down postgres-0
+    Then postgres-1 role is the primary after 10 seconds
+    And replication works from postgres-1 to postgres-2 after 15 seconds
+    And replication works from postgres-1 to postgres-3 after 15 seconds
+    And Response on GET http://127.0.0.1:8010/patroni contains replication_state=streaming after 10 seconds
+    And Response on GET http://127.0.0.1:8011/patroni contains replication_state=streaming after 10 seconds
+    And postgres-2 and postgres-3 have the same wal position after 10 seconds
+
+  Scenario: test site failover with failover_priority
+    When I shut down postgres-1
+    Then postgres-3 role is the primary after 10 seconds
+    And replication works from postgres-3 to postgres-2 after 15 seconds
+    And Response on GET http://127.0.0.1:8010/patroni contains replication_state=streaming after 10 seconds
