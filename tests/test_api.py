@@ -19,7 +19,7 @@ from patroni.utils import RetryFailedError, tzutc
 
 from . import MockConnect, psycopg_connect
 from .test_etcd import socket_getaddrinfo
-from .test_ha import get_cluster_initialized_without_leader
+from .test_ha import get_cluster_initialized_with_leader, get_cluster_initialized_without_leader
 
 future_restart_time = datetime.datetime.now(tzutc) + datetime.timedelta(days=5)
 postmaster_start_time = datetime.datetime.now(tzutc)
@@ -413,6 +413,18 @@ class TestRestApiHandler(unittest.TestCase):
         mock_dcs.get_cluster.return_value = get_cluster_initialized_without_leader()
         mock_dcs.get_cluster.return_value.members[1].data['xlog_location'] = 11
         self.assertIsNotNone(MockRestApiServer(RestApiHandler, 'GET /cluster'))
+
+        mock_dcs.get_cluster.return_value = get_cluster_initialized_with_leader()
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, 'GET /cluster')
+            self.assertNotIn('leader_in_recovery', json.loads(response_mock.call_args[0][1]))
+
+        cluster = get_cluster_initialized_with_leader()
+        cluster.members[0].data['role'] = PostgresqlRole.PROMOTED
+        mock_dcs.get_cluster.return_value = cluster
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, 'GET /cluster')
+            self.assertTrue(json.loads(response_mock.call_args[0][1])['leader_in_recovery'])
 
     @patch.object(MockPatroni, 'dcs')
     def test_do_GET_history(self, mock_dcs):
