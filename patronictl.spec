@@ -20,7 +20,7 @@ def resources():
     return [(res_dir + '*.' + e, res_dir) for e in exts if e.lower() in {'yml', 'yaml'}]
 
 
-a = Analysis(['patroni/__main__.py'],
+a = Analysis(['patronictl.py'],
              pathex=[],
              binaries=None,
              datas=resources(),
@@ -39,7 +39,7 @@ exe = EXE(pyz,
     a.binaries,
     a.zipfiles,
     a.datas,
-    name='patroni',
+    name='patronictl',
     debug=False,
     strip=False,
     upx=True,
