@@ -180,18 +180,14 @@ def validate_standby_cluster_port(port: Any) -> bool:
             * If any of the given ports is not in the ``1-65535`` range.
     """
     if isinstance(port, int):
-        if not 1 <= port <= 65535:
-            raise ConfigParseError("contains a wrong value")
-        return True
-    if isinstance(port, str):
-        try:
-            ports = [int(p) for p in port.split(",")]
-        except ValueError:
-            raise ConfigParseError("contains a wrong value")
-        else:
-            if not all(1 <= p <= 65535 for p in ports):
-                raise ConfigParseError("contains a wrong value")
+        if 1 <= port <= 65535:
             return True
+    elif isinstance(port, str):
+        try:
+            if all(1 <= int(p) <= 65535 for p in port.split(",")):
+                return True
+        except Exception:
+            pass
     raise ConfigParseError("contains a wrong value")
 
 
