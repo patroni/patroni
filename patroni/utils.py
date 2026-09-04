@@ -25,7 +25,7 @@ import time
 from collections import OrderedDict
 from json import JSONDecoder
 from shlex import split
-from typing import Any, Callable, cast, Dict, Iterator, List, Optional, Tuple, Type, TYPE_CHECKING, Union
+from typing import Any, Callable, cast, Dict, Iterator, List, Mapping, Optional, Tuple, Type, TYPE_CHECKING, Union
 
 from dateutil import tz
 from urllib3.response import HTTPResponse
@@ -79,7 +79,7 @@ def get_conversion_table(base_unit: str) -> Dict[str, Dict[str, Union[int, float
     return OrderedDict()
 
 
-def deep_compare(obj1: Dict[Any, Any], obj2: Dict[Any, Any]) -> bool:
+def deep_compare(obj1: Mapping[Any, Any], obj2: Mapping[Any, Any]) -> bool:
     """Recursively compare two dictionaries to check if they are equal in terms of keys and values.
 
     .. note::
@@ -111,8 +111,8 @@ def deep_compare(obj1: Dict[Any, Any], obj2: Dict[Any, Any]) -> bool:
         return False
 
     for key, value in obj1.items():
-        if isinstance(value, dict):
-            if not (isinstance(obj2[key], dict) and deep_compare(cast(Dict[Any, Any], value), obj2[key])):
+        if isinstance(value, Mapping):
+            if not (isinstance(obj2[key], Mapping) and deep_compare(cast(Mapping[Any, Any], value), obj2[key])):
                 return False
         elif str(value) != str(obj2[key]):
             return False

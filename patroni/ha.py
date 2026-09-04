@@ -664,9 +664,13 @@ class Ha(object):
         self.watchdog.disable()
 
         if data.get('Database cluster state') in ('in production', 'shutting down', 'in crash recovery'):
-            msg = self._handle_crash_recovery()
-            if msg:
-                return msg
+            if self.state_handler.was_restored_from_backup():
+                logger.info('Skipping single-user crash recovery because backup_label exists;'
+                            ' PostgreSQL will handle it during normal startup')
+            else:
+                msg = self._handle_crash_recovery()
+                if msg:
+                    return msg
 
         self.load_cluster_from_dcs()
 
@@ -766,10 +770,9 @@ class Ha(object):
                 self.state_handler.get_history(self._leader_timeline + 1):
             self._rewind.trigger_check_diverged_lsn()
 
-        if not self.state_handler.is_starting():
-            msg = self._handle_rewind_or_reinitialize()
-            if msg:
-                return msg
+        msg = self._handle_rewind_or_reinitialize()
+        if msg:
+            return msg
 
         if not self.is_paused():
             self.state_handler.handle_parameter_change()
@@ -797,10 +800,9 @@ class Ha(object):
 
                 if self._last_timeline and self._leader_timeline and self._last_timeline < self._leader_timeline:
                     self._rewind.trigger_check_diverged_lsn()
-                    if not self.state_handler.is_starting():
-                        msg = self._handle_rewind_or_reinitialize()
-                        if msg:
-                            return msg
+                    msg = self._handle_rewind_or_reinitialize()
+                    if msg:
+                        return msg
 
         return follow_reason
 

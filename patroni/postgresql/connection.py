@@ -2,7 +2,7 @@ import logging
 
 from contextlib import contextmanager
 from threading import Lock
-from typing import Any, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Any, Dict, Generator, List, Optional, Tuple, TYPE_CHECKING, Union
 
 if TYPE_CHECKING:  # pragma: no cover
     from psycopg import Connection, Cursor
@@ -12,6 +12,9 @@ from .. import psycopg
 from ..exceptions import PostgresConnectionException
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_CONNECT_TIMEOUT = 3
+DEFAULT_CONNECTION_OPTIONS = '-c statement_timeout=2000'
 
 
 class NamedConnection:
@@ -126,7 +129,9 @@ class ConnectionPool:
         :param value: :class:`dict` object with connection parameters.
         """
         with self._lock:
-            self._conn_kwargs = value
+            self._conn_kwargs = {'connect_timeout': DEFAULT_CONNECT_TIMEOUT,
+                                 'options': DEFAULT_CONNECTION_OPTIONS + ' -c pg_stat_statements.track=none',
+                                 'fallback_application_name': 'Patroni', **value}
 
     def get(self, name: str, kwargs_override: Optional[Dict[str, Any]] = None) -> NamedConnection:
         """Get a new named :class:`NamedConnection` object from the pool.
@@ -154,8 +159,9 @@ class ConnectionPool:
 
 
 @contextmanager
-def get_connection_cursor(**kwargs: Any) -> Iterator[Union['cursor', 'Cursor[Any]']]:
-    conn = psycopg.connect(**kwargs)
+def get_connection_cursor(**kwargs: Any) -> Generator[Union['cursor', 'Cursor[Any]'], None, None]:
+    conn_kwargs = {'connect_timeout': DEFAULT_CONNECT_TIMEOUT, 'options': DEFAULT_CONNECTION_OPTIONS, **kwargs}
+    conn = psycopg.connect(**conn_kwargs)
     with conn.cursor() as cur:
         yield cur
     conn.close()

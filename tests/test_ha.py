@@ -184,6 +184,7 @@ def run_async(self, func, args=()):
 @patch.object(Postgresql, '_cluster_info_state_get', Mock(return_value=10))
 @patch.object(Postgresql, 'slots', Mock(return_value={'l': 100}))
 @patch.object(Postgresql, 'data_directory_empty', Mock(return_value=False))
+@patch.object(Postgresql, '_wait_for_connection_close', Mock())
 @patch.object(Postgresql, 'controldata', Mock(return_value={
     'Database system identifier': SYSID,
     'Database cluster state': 'shut down',
@@ -335,6 +336,17 @@ class TestHa(PostgresInit):
             self.ha.cluster.config.data.update({'maximum_lag_on_failover': 10})
             self.assertEqual(self.ha.run_cycle(), 'terminated crash recovery because of startup timeout')
 
+    @patch('patroni.ha.logger.info')
+    def test_crash_recovery_skip_when_backup_label_exists(self, mock_logger_info):
+        self.p.is_running = false
+        self.p.follow = true
+        self.p._major_version = 150000
+        self.p.controldata = lambda: {'Database cluster state': 'in production', 'Database system identifier': SYSID}
+        with patch('os.path.isfile', return_value=True):
+            self.assertEqual(self.ha.run_cycle(), 'starting as a secondary')
+        mock_logger_info.assert_any_call('Skipping single-user crash recovery because backup_label exists;'
+                                         ' PostgreSQL will handle it during normal startup')
+
     @patch.object(Rewind, 'ensure_clean_shutdown', Mock())
     @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
@@ -468,7 +480,6 @@ class TestHa(PostgresInit):
         self.ha.has_lock = true
         self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
 
-    @patch.object(Postgresql, '_wait_for_connection_close', Mock())
     @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
     def test_demote_because_not_having_lock(self):
         with patch.object(Watchdog, 'is_running', PropertyMock(return_value=True)):

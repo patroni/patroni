@@ -8,6 +8,7 @@ import glob
 import inspect
 import logging
 import os
+import re
 import sys
 
 from setuptools import Command, find_packages, setup
@@ -208,7 +209,7 @@ def main():
         license=LICENSE,
         license_files=('LICENSE',),
         keywords=KEYWORDS,
-        long_description=read('README.rst').replace('**Important!**', '.. warning::\n'),
+        long_description=re.sub(r'\n\n\.\. image:: docs/[^\n]*(?:\n   [^\n]+)*', '', read('README.rst')),
         classifiers=CLASSIFIERS,
         packages=find_packages(exclude=['tests', 'tests.*']),
         package_data={MAIN_PACKAGE: [

@@ -375,6 +375,15 @@ class TestValidator(unittest.TestCase):
         errors = schema(c)
         self.assertIn('tags.failover_priority -6 didn\'t pass validation: Wrong value', errors)
 
+    def test_thread_stack_size(self, *args):
+        c = copy.deepcopy(config)
+        c["thread_stack_size"] = 524288
+        errors = schema(c)
+        self.assertEqual([], [e for e in errors if "thread_stack_size" in e])
+        c["thread_stack_size"] = 65535
+        errors = schema(c)
+        self.assertIn("thread_stack_size 65535 didn't pass validation: Wrong value", errors)
+
     def test_json_log_format(self, *args):
         c = copy.deepcopy(config)
         c["log"]["type"] = "json"
@@ -435,3 +444,35 @@ class TestValidator(unittest.TestCase):
 
         self.assertEqual(['postgresql.bin_dir'],
                          parse_output(output))
+
+    def test_synchronous_mode_validation(self, *args):
+        c = copy.deepcopy(config)
+        # Test with True
+        c['bootstrap'] = {'dcs': {'synchronous_mode': True}}
+        errors = schema(c)
+        self.assertNotIn('bootstrap.dcs.synchronous_mode', "\n".join(errors))
+
+        # Test with False
+        c['bootstrap'] = {'dcs': {'synchronous_mode': False}}
+        errors = schema(c)
+        self.assertNotIn('bootstrap.dcs.synchronous_mode', "\n".join(errors))
+
+        # Test with "quorum"
+        c['bootstrap'] = {'dcs': {'synchronous_mode': 'quorum'}}
+        errors = schema(c)
+        self.assertNotIn('bootstrap.dcs.synchronous_mode', "\n".join(errors))
+
+        # Test with "on"
+        c['bootstrap'] = {'dcs': {'synchronous_mode': 'on'}}
+        errors = schema(c)
+        self.assertNotIn('bootstrap.dcs.synchronous_mode', "\n".join(errors))
+
+        # Test with invalid string value
+        c['bootstrap'] = {'dcs': {'synchronous_mode': 'invalid'}}
+        errors = schema(c)
+        self.assertTrue(any('bootstrap.dcs.synchronous_mode' in error for error in errors))
+
+        # Test with invalid numeric value (not a truthy/falsy recognized by parse_bool)
+        c['bootstrap'] = {'dcs': {'synchronous_mode': 123}}
+        errors = schema(c)
+        self.assertTrue(any('bootstrap.dcs.synchronous_mode' in error for error in errors))

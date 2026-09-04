@@ -250,8 +250,10 @@ class TestPostgresql(BaseTestPostgresql):
                           Mock(return_value={'Database cluster state': 'shut down',
                                              "Latest checkpoint's TimeLineID": '1',
                                              'Latest checkpoint location': '1/1'})):
-            self.assertTrue(self.p.stop(on_shutdown=mock_callback, stop_timeout=3))
+            mock_on_safepoint = Mock()
+            self.assertTrue(self.p.stop(on_shutdown=mock_callback, stop_timeout=3, on_safepoint=mock_on_safepoint))
             mock_callback.assert_called()
+            mock_on_safepoint.assert_called()
         with patch.object(Postgresql, 'controldata',
                           Mock(return_value={'Database cluster state': 'shut down in recovery'})):
             self.assertTrue(self.p.stop(on_shutdown=mock_callback, stop_timeout=3))
@@ -490,6 +492,7 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertIsNone(self.p.call_nowait(CallbackAction.ON_START))
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=MockPostmaster()))
+    @patch.object(Postgresql, '_wait_for_connection_close', Mock())
     def test_is_primary_exception(self):
         self.p.start()
         self.p.query = Mock(side_effect=psycopg.OperationalError("not supported"))
@@ -548,10 +551,14 @@ class TestPostgresql(BaseTestPostgresql):
 
     def test_pg_version(self):
         self.assertEqual(self.p.config.pg_version, 99999)  # server_version
+
         with patch.object(Postgresql, 'server_version', PropertyMock(side_effect=AttributeError)):
             self.assertEqual(self.p.config.pg_version, 140000)  # PG_VERSION==14, postgres --version == 12.1
             with patch('subprocess.check_output', Mock(return_value=b"postgres (PostgreSQL) 14.1")):
                 self.assertEqual(self.p.config.pg_version, 140001)
+
+            with patch.object(Postgresql, 'major_version', PropertyMock(return_value=0)):  # no PG_VERSION
+                self.assertEqual(self.p.config.pg_version, 120001)
 
     @patch('os.path.isfile', Mock(return_value=True))
     @patch('shutil.copy', Mock(side_effect=IOError))
@@ -724,10 +731,10 @@ class TestPostgresql(BaseTestPostgresql):
         self.assertEqual(self.p.config.local_replication_address, {'host': '/tmp', 'port': '5432'})
         self.p.config._server_parameters.pop('unix_socket_directories')
         self.p.config.resolve_connection_addresses()
-        self.assertEqual(self.p.connection_pool.conn_kwargs, {'connect_timeout': 3, 'dbname': 'postgres',
-                                                              'fallback_application_name': 'Patroni',
-                                                              'options': '-c statement_timeout=2000',
-                                                              'password': 'test', 'port': '5432', 'user': 'foo'})
+        self.assertEqual(self.p.connection_pool.conn_kwargs,
+                         {'connect_timeout': 3, 'dbname': 'postgres', 'fallback_application_name': 'Patroni',
+                          'options': '-c statement_timeout=2000 -c pg_stat_statements.track=none',
+                          'password': 'test', 'port': '5432', 'user': 'foo'})
 
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
     def test_get_major_version(self):
@@ -830,7 +837,7 @@ class TestPostgresql(BaseTestPostgresql):
             with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)):
                 self.p.config.get_server_parameters(config)
                 self.p.config.set_synchronous_standby_names('foo')
-                self.assertTrue(str(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
+                self.assertTrue(repr(self.p.config.get_server_parameters(config)).startswith('<CaseInsensitiveDict'))
 
     @patch('time.sleep', Mock())
     def test__wait_for_connection_close(self):
@@ -1164,6 +1171,17 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.config.set_file_permissions(pg_conf)
         mock_chmod.assert_called_with(pg_conf, 0o666 & ~pg_perm.orig_umask)
 
+    @patch.object(Postgresql, '_query', Mock(side_effect=psycopg.OperationalError))
+    def test__cluster_info_state_get(self):
+        self.p.set_role(PostgresqlRole.STANDBY_LEADER)
+        with patch.object(psycopg.OperationalError, 'diag') as mock_diag:
+            type(mock_diag).sqlstate = PropertyMock(return_value='57014')  # QueryCanceled
+            self.p.reset_cluster_info_state(None)
+            self.assertRaises(PostgresConnectionException, self.p.received_timeline)
+            type(mock_diag).sqlstate = PropertyMock(return_value='54023')  # TooManyArguments
+            self.p.reset_cluster_info_state(None)
+            self.assertRaises(psycopg.OperationalError, self.p.received_timeline)
+
 
 @patch('subprocess.call', Mock(return_value=0))
 @patch('patroni.psycopg.connect', psycopg_connect)
@@ -1186,10 +1204,16 @@ class TestPostgresql2(BaseTestPostgresql):
 
     def test_cluster_info_query(self):
         self.assertIn('diff(pg_catalog.pg_current_wal_flush_lsn(', self.p.cluster_info_query)
+        self.assertIn('WHERE NOT temporary', self.p.cluster_info_query)
+        self.assertNotIn('(NOT failover OR NOT synced)', self.p.cluster_info_query)
         self.p._major_version = 90600
         self.assertIn('diff(pg_catalog.pg_current_xlog_flush_location(', self.p.cluster_info_query)
+        self.assertNotIn('WHERE NOT temporary', self.p.cluster_info_query)
         self.p._major_version = 90500
         self.assertIn('diff(pg_catalog.pg_current_xlog_location(', self.p.cluster_info_query)
+        self.assertNotIn('WHERE NOT temporary', self.p.cluster_info_query)
+        self.p._major_version = 180000
+        self.assertIn('WHERE NOT temporary AND NOT failover', self.p.cluster_info_query)
 
     @patch.object(Postgresql, 'is_primary', Mock(return_value=False))
     @patch.object(Postgresql, '_query', Mock(return_value=[('primary_conninfo', 'host=a port=5433 passfile=/blabla')]))

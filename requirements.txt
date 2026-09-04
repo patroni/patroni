@@ -14,3 +14,5 @@ cryptography>=1.4
 psutil>=2.0.0
 ydiff>=1.2.0,<1.5,!=1.4.0,!=1.4.1
 python-json-logger>=2.0.2
+# systemd-python is an optional dependency for systemd notification support.
+# OS package maintainers should add something like python3-systemd as a dependency to patroni package.

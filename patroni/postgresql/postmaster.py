@@ -12,6 +12,7 @@ from typing import Dict, List, Optional
 import psutil
 
 from patroni import KUBERNETES_ENV_PREFIX, PATRONI_ENV_PREFIX
+from patroni.daemon import SOCKET_ENV_VARIABLE
 
 # avoid spawning the resource tracker process
 if sys.version_info >= (3, 8):  # pragma: no cover
@@ -176,7 +177,20 @@ class PostmasterProcess(psutil.Process):
         else:
             return not self.is_running()
 
-    def wait_for_user_backends_to_close(self, stop_timeout: Optional[float]) -> None:
+    def wait_for_user_backends_to_close(self, stop_timeout: Optional[float]) -> Optional[bool]:
+        """Wait for all user backend processes to close before the postmaster shuts down.
+
+        Auxiliary/background PostgreSQL processes (archiver, checkpointer, wal senders, logical
+        replication workers, and so on) are identified via their command line and excluded, so that
+        only genuine client backends are awaited.
+
+        :param stop_timeout: maximum number of seconds to wait for the user backends to close.
+            If ``None``, wait indefinitely.
+
+        :returns: ``True`` if there were no user backends or all of them closed in time; ``None`` if
+            the list of children could not be retrieved or some backends were still alive after
+            *stop_timeout*.
+        """
         # These regexps are cross checked against versions PostgreSQL 9.1 .. 18
         aux_proc_re = re.compile("(?:postgres:)( .*:)? (?:(?:archiver|startup|autovacuum launcher|autovacuum worker|"
                                  "checkpointer|logger|stats collector|wal receiver|wal writer|writer)(?: process  )?|"
@@ -210,6 +224,7 @@ class PostmasterProcess(psutil.Process):
                 logger.warning('Backends still alive after %s: %s', stop_timeout, ', '.join(live))
             else:
                 logger.debug("Backends closed")
+                return True
 
     @staticmethod
     def start(pgcommand: str, data_dir: str, conf: str, options: List[str]) -> Optional['PostmasterProcess']:
@@ -225,8 +240,10 @@ class PostmasterProcess(psutil.Process):
         # In order to make everything portable we can't use fork&exec approach here, so  we will call
         # ourselves and pass list of arguments which must be used to start postgres.
         # On Windows, in order to run a side-by-side assembly the specified env must include a valid SYSTEMROOT.
-        env = {p: os.environ[p] for p in os.environ if not p.startswith(
-            PATRONI_ENV_PREFIX) and not p.startswith(KUBERNETES_ENV_PREFIX)}
+        # We also remove NOTIFY_SOCKET environment variable so that PostgreSQL doesn't send READY=1 or STOPPING=1
+        # to systemd, because it is exclusively responsibility of Patroni to do it.
+        env = {p: os.environ[p] for p in os.environ if p != SOCKET_ENV_VARIABLE
+               and not p.startswith(PATRONI_ENV_PREFIX) and not p.startswith(KUBERNETES_ENV_PREFIX)}
         if 'PG_MALLOC_ARENA_MAX' in env:
             env['MALLOC_ARENA_MAX'] = env.pop('PG_MALLOC_ARENA_MAX')
         try:

@@ -3,6 +3,134 @@
 Release notes
 =============
 
+Version 4.1.5
+-------------
+
+Released 2026-08-12
+
+**Compatibility improvements**
+
+- Compatibility with PostgreSQL 14.24, 15.19, 16.15, 17.11, 18.6 (Alexander Kukushkin)
+
+  Add the new ``output_plugin_libraries`` GUC, which restricts logical decoding output plugins.
+
+**Improvements**
+
+- Log REST API connection resets at ``DEBUG`` instead of ``WARNING`` (Kyle McLaren)
+
+  Ensure the common "client went away mid-write" variants are silenced without affecting the handling of genuine (non-connection) errors.
+
+**Bugfixes**
+
+- Fix ``thread_stack_size`` validation alignment (Sundong Kim)
+
+  Correct the ``aligned`` value from ``65535`` to ``65536`` in the ``thread_stack_size`` schema entry. Previously, ``patroni --validate-config`` rejected almost every realistic value, including the ``524288`` default applied by the daemon itself.
+
+- Allow validation of ``synchronous_mode`` to accept ``'quorum'`` and boolean-like strings (Eray Araz)
+
+  ``patroni --validate-config`` previously rejected ``synchronous_mode`` values such as ``quorum`` and the PostgreSQL-style boolean strings that are accepted at runtime.
+
+
+Version 4.1.4
+-------------
+
+Released 2026-07-07
+
+**Bugfixes**
+
+- Check ``NOTIFY_SOCKET`` environment variable before using ``systemd`` package (Polina Bungina)
+
+  Only try to import and use the package when the ``NOTIFY_SOCKET`` environment variable is set to avoid ``FileNotFoundError: [Errno 2] No such file or directory`` exception.
+
+- Unify ``pg_replication_slots`` query (Polina Bungina)
+
+  Incorrect handling of the ``failover`` and ``synced`` values was resulting in ``KeyError`` exceptions during removal of the incorrect logical replication slots.
+
+- Consider version-specific authentication parameters in configuration generation (Polina Bungina)
+
+  In the ``patroni --generate-config`` command, remove all inapplicable authentication parameters that were accidentally picked up from the environment, based on the version retrieved from a PostgreSQL connection.
+
+- Handle ``pg_rewind`` while a PostgreSQL instance is starting as a standby (Alexander Kukushkin)
+
+  Fallback to ``pg_controldata`` information when a PostgreSQL instance is running but is not yet accepting connections.
+
+- Fix Prometheus metric type for ``patroni_postgres_timeline`` (Huseyin Demir)
+
+  Declare the ``patroni_postgres_timeline`` metric as ``gauge`` instead of ``counter``, as it is not always monotonically increasing (e.g., it can be reset to 0 if a PostgreSQL instance is not running).
+
+- Don't stop watchdog until client backends are fully stopped (Alexander Kukushkin)
+
+  Previously, if ``primary_stop_timeout`` was shorter than the minimum watchdog timeout, and the stop timeout actually expired, Patroni disabled the watchdog before all client backends had exited.
+
+- Handle statement timeout error for monitoring query (Alexander Kukushkin)
+
+  In case of a statement timeout error, use the cached role as a fallback to avoid demoting the primary. Additionally, forcibly set ``pg_stat_statements.track`` to ``none`` for the monitroing query to avoid expensive ``pg_stat_statements`` GC calls.
+
+- Drop Patroni-managed replication slots with ``wal_status=lost`` (Alexander Kukushkin)
+
+  Replication slots with ``wal_status=lost`` are no longer usable. Patroni will now drop such slots and recreate them if needed.
+
+- Fix role representation in patronictl member validation error (Polina Bungina)
+
+  Ensures the correct string representation is used within the exception message, preventing errors from being formatted like ``Error: No CtlPostgresqlRole.REPLICA among provided members``.
+
+
+Version 4.1.3
+-------------
+
+Released 2026-05-05
+
+**Stability improvements**
+
+- Properly handle mislabeled Etcd error (Ants Aasma)
+
+  Current Etcd versions raise ``Unknown`` error when Etcd leader is lost while updating the lease. Patroni will now override the reported error code to ``Unavailable``.
+
+**Bugfixes**
+
+- Use binary version when ``PG_VERSION`` file does not exist (Polina Bungina)
+
+  In some cases, for example when using custom bootstrap, the ``PG_VERSION`` file may not be present in the data directory. In this case, Patroni was treating the version as 0.0, which was causing issues with some of the version-specific logic. With this fix, Patroni will try to get the version from the binary in such cases.
+
+- Refactor logger intialization to avoid missing early log messages (Alexander Kukushkin)
+
+  Create ``PatroniLogger`` before loading ``Config`` to capture early log messages.
+
+- Include ``MONOTONIC_USEC`` in ``RELOADING=1`` systemd notification (Alexander Kukushkin)
+
+  systemd 257+ requires ``MONOTONIC_USEC`` alongside ``RELOADING=1`` for ``Type=notify-reload`` services. Without it, ``systemctl reload`` hangs indefinitely.
+
+**Improvements**
+
+- Skip single-user crash recovery when ``backup_label`` exists (Vadim Ponomarev)
+
+  Skip single-user crash recovery and let PostgreSQL handle it during normal startup when starting a replica restored from an external backup (not using a custom bootstrap method).
+
+- Warn when running under ``systemd`` without ``python-systemd`` package (Alexander Kukushkin)
+
+  Instead of logging "systemd integration is not supported" at startup, check for ``NOTIFY_SOCKET`` and warn only when actually running under ``systemd`` without the ``python-systemd`` package installed.
+
+
+Version 4.1.2
+-------------
+
+Released 2026-04-21
+
+**Systemd support improvements**
+
+- Add support for ``notify-reload`` systemd unit type (Ronan Dunklau)
+
+  Allows ``systemctl reload`` to wait until Patroni has actually processed the configuration reload by sending ``RELOADING=1`` and ``READY=1`` notifications to systemd.
+
+- Send ``STOPPING=1`` notification to systemd on shutdown (Alexander Kukushkin)
+
+  Patroni now properly notifies systemd that it is shutting down, following the systemd notify protocol.
+
+- Do not let PostgreSQL to notify systemd (Alexander Kukushkin)
+
+  Remove ``NotifyAccess=all`` from the example systemd unit file. Filter ``NOTIFY_SOCKET`` from the environment when starting PostgreSQL so it doesn't send ``READY=1`` or ``STOPPING=1`` to systemd. When taking over a PostgreSQL that was started before Patroni and already has ``NOTIFY_SOCKET``, re-assert ``READY=1`` during PostgreSQL shutdown to counteract its ``STOPPING=1``.
+
+
 Version 4.1.1
 -------------
 

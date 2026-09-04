@@ -176,6 +176,11 @@ def _raise_for_data(data: Union[bytes, str, Dict[str, Any]], status_code: Option
     except Exception:
         error = str(data)
         code = GRPCCode.Unknown
+
+    # Workaround for etcd-io/etcd#21671
+    if code == GRPCCode.Unknown and error == 'not a primary lessor':
+        code = GRPCCode.Unavailable
+
     err = errStringToClientError.get(error) or errCodeToClientError.get(code) or Etcd3ClientError
     return err(code, error, status_code)
 

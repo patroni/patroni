@@ -80,7 +80,7 @@ class Rewind(object):
     @staticmethod
     def check_leader_is_not_in_recovery(conn_kwargs: Dict[str, Any]) -> Optional[bool]:
         try:
-            with get_connection_cursor(connect_timeout=3, options='-c statement_timeout=2000', **conn_kwargs) as cur:
+            with get_connection_cursor(**conn_kwargs) as cur:
                 cur.execute('SELECT pg_catalog.pg_is_in_recovery()')
                 row = cur.fetchone()
                 if not row or not row[0]:
@@ -92,7 +92,7 @@ class Rewind(object):
     @staticmethod
     def check_leader_has_run_checkpoint(conn_kwargs: Dict[str, Any]) -> Optional[str]:
         try:
-            with get_connection_cursor(connect_timeout=3, options='-c statement_timeout=2000', **conn_kwargs) as cur:
+            with get_connection_cursor(**conn_kwargs) as cur:
                 cur.execute("SELECT NOT pg_catalog.pg_is_in_recovery()"
                             " AND ('x' || pg_catalog.substr(pg_catalog.pg_walfile_name("
                             " pg_catalog.pg_current_wal_lsn()), 1, 8))::bit(32)::int = timeline_id"
@@ -180,11 +180,19 @@ class Rewind(object):
         return in_recovery, timeline, lsn
 
     def _get_local_timeline_lsn(self) -> Tuple[Optional[bool], Optional[int], Optional[int]]:
+        in_recovery = timeline = lsn = None
         if self._postgresql.is_running():  # if postgres is running - get timeline from replication connection
+            try:
+                timeline = self._postgresql.get_replica_timeline()
+                lsn = self._postgresql.replay_lsn()
+            except Exception:
+                if not self._postgresql.is_starting():
+                    return None, None, None
+                logger.info('PostgreSQL is still starting, will use pg_controldata as a fallback')
             in_recovery = True
-            timeline = self._postgresql.get_replica_timeline()
-            lsn = self._postgresql.replay_lsn()
-        else:  # otherwise analyze pg_controldata output
+
+        if timeline is None and lsn is None:
+            # analyze pg_controldata output if not running or not accepting connections
             in_recovery, timeline, lsn = self._get_local_timeline_lsn_from_controldata()
 
         log_lsn = format_lsn(lsn) if isinstance(lsn, int) else lsn
