@@ -345,6 +345,22 @@ class TestValidator(unittest.TestCase):
         self.assertEqual(['postgresql.bin_dir', 'postgresql.bin_name.postgres', 'raft.bind_addr', 'raft.self_addr'],
                          parse_output(output))
 
+    def test_validate_standby_cluster_port(self, mock_out, mock_err):
+        c = copy.deepcopy(config)
+
+        for port in [5432, '5432', '5432,5433']:
+            c['bootstrap']['dcs']['standby_cluster'] = {'host': '127.0.0.1', 'port': port}
+            errors = schema(c)
+            output = "\n".join(errors)
+            self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
+        for port in ['5432,abc', ['5432'], 65536, '5432,65536']:
+            c['bootstrap']['dcs']['standby_cluster'] = {'host': '127.0.0.1', 'port': port}
+            errors = schema(c)
+            output = "\n".join(errors)
+            self.assertEqual(['bootstrap.dcs.standby_cluster.port', 'postgresql.bin_dir',
+                              'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
     def test_one_of(self, _, __):
         c = copy.deepcopy(config)
         # Providing neither is fine
