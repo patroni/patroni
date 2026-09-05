@@ -69,6 +69,10 @@ class TestConfig(unittest.TestCase):
             'PATRONI_ETCD_KEY': '/key',
             'PATRONI_CONSUL_HOST': '127.0.0.1:8500',
             'PATRONI_CONSUL_REGISTER_SERVICE': 'on',
+            'PATRONI_NOMAD_HOST': '127.0.0.1:4646',
+            'PATRONI_NOMAD_REGION': 'global',
+            'PATRONI_NOMAD_NOMAD_NAMESPACE': 'default',
+            'PATRONI_NOMAD_LOCK_DELAY': '10',
             'PATRONI_KUBERNETES_LABELS': 'a: b: c',
             'PATRONI_KUBERNETES_SCOPE_LABEL': 'a',
             'PATRONI_KUBERNETES_PORTS': '[{"name": "postgresql"}]',
@@ -91,6 +95,7 @@ class TestConfig(unittest.TestCase):
         })
         config = Config('postgres0.yml')
         self.assertEqual(config.local_configuration['log']['mode'], 0o123)
+        self.assertEqual(config.local_configuration['nomad']['lock_delay'], 10)
         raft = config.local_configuration.get('raft', {})
         self.assertEqual(raft.get('min_timeout'), 5.0)
         self.assertEqual(raft.get('max_timeout'), 10.0)

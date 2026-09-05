@@ -1198,6 +1198,22 @@ schema = Schema({
             Optional("consistency"): EnumValidator(('default', 'consistent', 'stale'),
                                                    case_sensitive=True, raise_assert=True)
         },
+        "nomad": {
+            Or("host", "url"): Case({
+                "host": validate_host_port,
+                "url": str
+            }),
+            Optional("port"): IntValidator(max=65535, expected_type=int, raise_assert=True),
+            Optional("scheme"): str,
+            Optional("token"): str,
+            Optional("verify"): bool,
+            Optional("cacert"): str,
+            Optional("cert"): str,
+            Optional("key"): str,
+            Optional("region"): str,
+            Optional("nomad_namespace"): str,
+            Optional("lock_delay"): IntValidator(min=10, max=86400, expected_type=int, raise_assert=True),
+        },
         "etcd": validate_etcd,
         "etcd3": validate_etcd,
         "exhibitor": {

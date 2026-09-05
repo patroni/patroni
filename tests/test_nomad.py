@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import urllib3
 
@@ -91,11 +91,11 @@ class TestNomad(unittest.TestCase):
             prefix + 'history': variable(prefix + 'history', '[[1,2,"x"]]', 3),
             prefix + 'status': variable(prefix + 'status', '{"optime":42,"slots":{"a":1}}', 4),
             prefix + 'members/postgresql1': variable(prefix + 'members/postgresql1',
-                                                       '{"conn_url":"postgres://localhost/postgres"}', 5,
-                                                       None if unlocked else 'member-lock'),
+                                                     '{"conn_url":"postgres://localhost/postgres"}', 5,
+                                                     None if unlocked else 'member-lock'),
             prefix + 'members/stale': variable(prefix + 'members/stale', '{}', 6),
             prefix + 'leader': variable(prefix + 'leader', 'postgresql1', 7,
-                                         None if unlocked else 'leader-lock'),
+                                        None if unlocked else 'leader-lock'),
             prefix + 'failover': variable(prefix + 'failover', '{"leader":"postgresql0"}', 8),
             prefix + 'sync': variable(prefix + 'sync', '{"leader":"postgresql1","sync_standby":"postgresql0"}', 9),
             prefix + 'failsafe': variable(prefix + 'failsafe', '{"postgresql1":"http://localhost:8008"}', 10)}

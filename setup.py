@@ -23,12 +23,13 @@ URL = 'https://github.com/patroni/patroni'
 AUTHOR = 'Alexander Kukushkin, Polina Bungina'
 AUTHOR_EMAIL = 'akukushkin@microsoft.com, polina.bungina@zalando.de'
 KEYWORDS = 'etcd governor patroni postgresql postgres ha haproxy confd' +\
-    ' zookeeper exhibitor consul streaming replication kubernetes k8s'
+    ' zookeeper exhibitor consul nomad streaming replication kubernetes k8s'
 
 EXTRAS_REQUIRE = {'aws': ['boto3'], 'etcd': ['python-etcd'], 'etcd3': ['python-etcd'],
                   'consul': ['py-consul'], 'exhibitor': ['kazoo'], 'zookeeper': ['kazoo'],
                   'systemd': ['systemd-python'],
-                  'kubernetes': [], 'raft': ['pysyncobj', 'cryptography'], 'jsonlogger': ['python-json-logger']}
+                  'kubernetes': [], 'nomad': [], 'raft': ['pysyncobj', 'cryptography'],
+                  'jsonlogger': ['python-json-logger']}
 
 # Add here all kinds of additional classifiers as defined under
 # https://pypi.python.org/pypi?%3Aaction=list_classifiers

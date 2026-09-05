@@ -76,6 +76,7 @@ DCS_DEFAULTS: Dict[str, Dict[str, Any]] = {
     'zookeeper': {'port': 2181, 'template': "zookeeper:\n hosts: ['{host}:{port}']"},
     'exhibitor': {'port': 8181, 'template': "exhibitor:\n hosts: [{host}]\n port: {port}"},
     'consul': {'port': 8500, 'template': "consul:\n host: '{host}:{port}'"},
+    'nomad': {'port': 4646, 'template': "nomad:\n host: '{host}:{port}'"},
     'etcd': {'port': 2379, 'template': "etcd:\n host: '{host}:{port}'"},
     'etcd3': {'port': 2379, 'template': "etcd3:\n host: '{host}:{port}'"}}
 
@@ -213,6 +214,7 @@ def parse_dcs(dcs: Optional[str]) -> Optional[Dict[str, Any]]:
         * ``etcd``
         * ``etcd3``
         * ``exhibitor``
+        * ``nomad``
         * ``zookeeper``
 
         If ``DCS`` is not specified, assume ``etcd`` by default. If ``HOST`` is not specified, assume ``localhost`` by

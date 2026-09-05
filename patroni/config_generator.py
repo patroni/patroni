@@ -187,7 +187,7 @@ class AbstractConfigGenerator(abc.ABC):
         :yields: formatted lines or blocks that represent a text output of the YAML document.
         """
         for name in ('scope', 'namespace', 'name', 'log', 'restapi', 'ctl', 'citus',
-                     'consul', 'etcd', 'etcd3', 'exhibitor', 'kubernetes', 'raft', 'zookeeper'):
+                     'consul', 'etcd', 'etcd3', 'exhibitor', 'kubernetes', 'nomad', 'raft', 'zookeeper'):
             yield from self._format_config_section(name)
 
         if 'bootstrap' in self.config:
