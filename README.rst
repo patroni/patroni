@@ -4,15 +4,16 @@
    :height: 128px
    :width: 128px
 
-Patroni: A Template for PostgreSQL HA with ZooKeeper, etcd or Consul
-====================================================================
+Patroni: A Template for PostgreSQL HA
+=====================================
 
 You can find a searchable version of this documentation at
 `patroni.readthedocs.io <https://patroni.readthedocs.io>`__.
 
 Patroni is a Python template for building PostgreSQL high availability (HA) clusters.
 It supports several distributed configuration stores, including `ZooKeeper <https://zookeeper.apache.org/>`__,
-`etcd <https://github.com/coreos/etcd>`__, `Consul <https://github.com/hashicorp/consul>`__, and `Kubernetes <https://kubernetes.io>`__.
+`etcd <https://github.com/coreos/etcd>`__, `Consul <https://github.com/hashicorp/consul>`__,
+`Nomad <https://www.nomadproject.io/>`__, and `Kubernetes <https://kubernetes.io>`__.
 
 Supported PostgreSQL versions: 9.3 to 18.
 
@@ -101,6 +102,7 @@ Available dependency extras:
 
 - ``etcd`` or ``etcd3``: `python-etcd` for Etcd as DCS
 - ``consul``: `py-consul` for Consul as DCS
+- ``nomad``: no additional Python package is required
 - ``zookeeper``: `kazoo` for ZooKeeper as DCS
 - ``exhibitor``: `kazoo` for Exhibitor as DCS
 - ``kubernetes``: `kubernetes` for Kubernetes as DCS

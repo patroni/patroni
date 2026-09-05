@@ -129,6 +129,38 @@ The ``token`` needs to have the following ACL permissions:
         policy = "write"
     }
 
+.. _nomad_settings:
+
+Nomad
+-----
+Patroni uses the Nomad Variables API and variable locks. Nomad 1.4 or newer is required. Specify one of **host** or
+**url**.
+
+-  **host**: the host:port for the Nomad agent. The default API port is ``4646``.
+-  **url**: Nomad agent URL in the format ``http(s)://host:port``.
+-  **port**: (optional) Nomad API port.
+-  **scheme**: (optional) **http** or **https**, defaults to **http**.
+-  **token**: (optional) Nomad ACL token, sent in the ``X-Nomad-Token`` header.
+-  **verify**: (optional) whether to verify the TLS certificate.
+-  **cacert**: (optional) CA certificate used for TLS validation.
+-  **cert**: (optional) client certificate file.
+-  **key**: (optional) client key file.
+-  **region**: (optional) Nomad region used for every request.
+-  **nomad_namespace**: (optional) Nomad ACL namespace. This is distinct from Patroni's top-level **namespace**, which
+   controls the Variables path prefix.
+-  **lock_delay**: (optional) lock delay in seconds, from ``10`` through ``86400``. Defaults to ``10``.
+
+Patroni stores each DCS key in a separate Nomad variable and uses locks for leader and member variables. Nomad leaves
+the variable and its items behind when a lock expires, so Patroni determines liveness from the variable's ``Lock``
+field. With Nomad ACLs enabled this field is redacted for ordinary variable tokens, including tokens with
+``read``, ``list``, ``write``, and ``destroy`` capabilities. Consequently, the current Nomad API requires Patroni to
+use a management token. ACL-disabled Nomad agents also expose the field. Do not use a regular workload token: stale
+leaders and members cannot be distinguished safely.
+
+The token also requires list, read, write, and destroy access to the Patroni variable prefix. Lock TTL and lock delay
+must be included when sizing failover time. Nomad lock parameters are immutable after acquisition, so a dynamic TTL
+change applies when Patroni next acquires a lock.
+
 Etcd
 ----
 Most of the parameters are optional, but you have to specify one of the **host**, **hosts**, **url**, **proxy** or **srv**

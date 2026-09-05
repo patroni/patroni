@@ -50,6 +50,8 @@ etcd or etcd3
     `python-etcd` module in order to use Etcd as Distributed Configuration Store (DCS)
 consul
     `py-consul` module in order to use Consul as DCS
+nomad
+    no additional Python module; Patroni uses its existing HTTP client to access Nomad
 zookeeper
     `kazoo` module in order to use Zookeeper as DCS
 exhibitor
