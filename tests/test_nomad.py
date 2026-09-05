@@ -41,6 +41,7 @@ class TestNomadClient(unittest.TestCase):
         self.assertIn('region=global', args[1])
         self.assertEqual(kwargs['headers']['X-Nomad-Token'], 'secret')
         self.assertEqual(json.loads(kwargs['body']), {'Items': {'value': '{}'}})
+        self.assertEqual(kwargs['timeout'].total, self.client._read_timeout)
 
     def test_statuses(self):
         self.client.http.request.return_value = self.response(404, b'not found')
@@ -65,6 +66,9 @@ class TestNomadClient(unittest.TestCase):
         body = json.loads(self.client.http.request.call_args.kwargs['body'])
         self.assertIn('lock-release=', self.client.http.request.call_args.args[1])
         self.assertNotIn('Items', body)
+
+        self.client.acquire_lock('leader', 'node1', 30, 10, '123')
+        self.assertEqual(json.loads(self.client.http.request.call_args.kwargs['body'])['Lock']['ID'], '123')
 
     def test_list_pagination_and_delete(self):
         self.client.http.request.side_effect = [
@@ -100,7 +104,7 @@ class TestNomad(unittest.TestCase):
             prefix + 'sync': variable(prefix + 'sync', '{"leader":"postgresql1","sync_standby":"postgresql0"}', 9),
             prefix + 'failsafe': variable(prefix + 'failsafe', '{"postgresql1":"http://localhost:8008"}', 10)}
         self.c._client.list_variables.return_value = [{'Path': path} for path in values]
-        self.c._client.get_variable.side_effect = lambda path: values[path]
+        self.c._client.get_variable.side_effect = lambda path, deadline=None: values[path]
 
     def test_get_cluster(self):
         self.load_fixture()
@@ -135,12 +139,13 @@ class TestNomad(unittest.TestCase):
         self.assertTrue(self.c.touch_member(data))
         self.assertEqual(self.c._member_lock, 'member-lock')
         self.assertTrue(self.c.touch_member(data))
-        self.c._client.renew_lock.assert_called_once_with(self.c.member_path, 'member-lock')
+        self.c._client.renew_lock.assert_called_with(self.c.member_path, 'member-lock')
 
         changed = {'conn_url': 'postgres://localhost/postgres', 'role': 'replica'}
         self.assertTrue(self.c.touch_member(changed))
-        self.c._client.put_variable.assert_called_once_with(
-            self.c.member_path, json.dumps(changed, separators=(',', ':')), lock_id='member-lock')
+        self.c._client.acquire_lock.assert_called_with(self.c.member_path,
+                                                       json.dumps(changed, separators=(',', ':')),
+                                                       30, 10, 'member-lock')
 
         self.c._client.renew_lock.side_effect = NomadConflict('lost')
         self.assertFalse(self.c.touch_member(changed))
@@ -214,6 +219,13 @@ class TestNomad(unittest.TestCase):
         self.assertRaises(ValueError, self.c.set_ttl, 86401)
         self.assertTrue(self.c.set_ttl(31))
         self.assertEqual(self.c.ttl, 31)
+
+    def test_reload_config(self):
+        self.c.reload_config({'loop_wait': 5, 'ttl': 30, 'retry_timeout': 6,
+                              'nomad': {'url': 'https://nomad.example:4647', 'token': 'new', 'lock_delay': 11}})
+        self.assertEqual(self.c._client.base_uri, 'https://nomad.example:4647')
+        self.assertEqual(self.c._client.token, 'new')
+        self.assertEqual(self.c._lock_delay, 11)
 
 
 if __name__ == '__main__':

@@ -58,6 +58,9 @@ def watchdog_was_triggered(context, name, timeout):
 
 @step('{name:name} hangs for {timeout:d} seconds')
 def patroni_hang(context, name, timeout):
+    if context.dcs_ctl.name() == 'nomad':
+        # Nomad expires locks after an internal 2*TTL timer plus LockDelay. Keep the primary frozen through the race.
+        timeout += 10
     return context.pctl.patroni_hang(name, timeout)
 
 

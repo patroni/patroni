@@ -133,7 +133,7 @@ The ``token`` needs to have the following ACL permissions:
 
 Nomad
 -----
-Patroni uses the Nomad Variables API and variable locks. Nomad 1.4 or newer is required. Specify one of **host** or
+Patroni uses the Nomad Variables API and variable locks. Nomad 1.7 or newer is required. Specify one of **host** or
 **url**.
 
 -  **host**: the host:port for the Nomad agent. The default API port is ``4646``.
