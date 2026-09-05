@@ -116,13 +116,14 @@ jobs:
     env:
       DCS: ${{ matrix.dcs }}
       ETCDVERSION: 3.4.23
+      NOMADVERSION: 2.0.5
       PGVERSION: 16.1-1  # for windows and macos
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu]
         python-version: [3.7, 3.14]
-        dcs: [etcd, etcd3, consul, exhibitor, kubernetes, raft]
+        dcs: [etcd, etcd3, consul, exhibitor, kubernetes, nomad, raft]
         include:
         - os: macos
           python-version: 3.8

@@ -116,6 +116,17 @@ def install_etcd():
     return int(unpack(name, '{0}/etcd{1}'.format(dirname, ext)) is None)
 
 
+def install_nomad():
+    version = os.environ.get('NOMADVERSION', '2.0.5')
+    platform = {'linux2': 'linux', 'win32': 'windows', 'cygwin': 'windows'}.get(sys.platform, sys.platform)
+    name = 'nomad_{0}_{1}_amd64.zip'.format(version, platform)
+    get_file('https://releases.hashicorp.com/nomad/{0}/{1}'.format(version, name), name)
+    binary = unpack(name, 'nomad.exe' if platform == 'windows' else 'nomad')
+    if platform != 'windows':
+        return subprocess.call(['sudo', 'mv', binary, '/usr/local/bin/nomad'])
+    return int(binary is None)
+
+
 def install_postgres():
     version = os.environ.get('PGVERSION', '16.1-1')
     platform = {'darwin': 'osx', 'win32': 'windows-x64', 'cygwin': 'windows-x64'}[sys.platform]
@@ -141,6 +152,8 @@ def main():
 
         if r == 0 and what.startswith('etcd'):
             r = install_etcd()
+        elif r == 0 and what == 'nomad':
+            r = install_nomad()
 
         if r != 0:
             return r

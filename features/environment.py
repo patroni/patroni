@@ -16,6 +16,7 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import psutil
+import urllib3
 import yaml
 
 import patroni.psycopg as psycopg
@@ -495,6 +496,54 @@ class ConsulController(AbstractDcsController):
 
     def start(self, max_wait_limit=15):
         super(ConsulController, self).start(max_wait_limit)
+
+
+class NomadController(AbstractDcsController):
+
+    def __init__(self, context):
+        super(NomadController, self).__init__(context)
+        os.environ['PATRONI_NOMAD_HOST'] = 'localhost:4646'
+        os.environ['PATRONI_NOMAD_LOCK_DELAY'] = '10'
+        self._client = urllib3.PoolManager()
+
+    def _start(self):
+        return psutil.Popen(['nomad', 'agent', '-dev', '-bind=127.0.0.1',
+                             '-data-dir=' + self._work_directory], stdout=self._log, stderr=subprocess.STDOUT)
+
+    def _request(self, method, path, body=None):
+        headers = {'Content-Type': 'application/json'} if body is not None else None
+        response = self._client.request(method, 'http://127.0.0.1:4646' + path,
+                                        body=body is not None and json.dumps(body) or None,
+                                        headers=headers, retries=False)
+        if response.status >= 300:
+            raise AssertionError('Nomad request failed with status {0}'.format(response.status))
+        return response.data and json.loads(response.data.decode('utf-8'))
+
+    def _is_running(self):
+        try:
+            return bool(self._request('GET', '/v1/status/leader'))
+        except Exception:
+            return False
+
+    def path(self, key=None, scope='batman', group=None):
+        return super(NomadController, self).path(key, scope, group)[1:]
+
+    def query(self, key, scope='batman', group=None):
+        try:
+            value = self._request('GET', '/v1/var/' + self.path(key, scope, group))
+            return value.get('Items', {}).get('value')
+        except AssertionError:
+            return None
+
+    def cleanup_service_tree(self):
+        variables = self._request('GET', '/v1/vars?prefix=' + self.path(scope='')) or []
+        for metadata in variables:
+            path = metadata['Path']
+            value = self._request('GET', '/v1/var/' + path)
+            lock_id = value.get('Lock', {}).get('ID')
+            if lock_id:
+                self._request('PUT', '/v1/var/' + path + '?lock-release', {'Lock': {'ID': lock_id}})
+            self._request('DELETE', '/v1/var/' + path)
 
 
 class AbstractEtcdController(AbstractDcsController):
@@ -1107,6 +1156,9 @@ def before_all(context):
         any(a in os.environ for a in ('TRAVIS_BUILD_NUMBER', 'BUILD_NUMBER', 'GITHUB_ACTIONS'))
     context.timeout_multiplier = 5 if context.ci else 1  # MacOS sometimes is VERY slow
     context.pctl = PatroniPoolController(context)
+    if context.pctl.dcs == 'nomad':
+        # Nomad applies LockDelay after an internal expiry timer that currently runs for twice the configured TTL.
+        context.timeout_multiplier = max(context.timeout_multiplier, 4)
 
     context.keyfile = os.path.join(context.pctl.output_dir, 'patroni.key')
     context.certfile = os.path.join(context.pctl.output_dir, 'patroni.crt')
