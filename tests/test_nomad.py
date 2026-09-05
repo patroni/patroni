@@ -146,6 +146,15 @@ class TestNomad(unittest.TestCase):
         self.assertFalse(self.c.touch_member(changed))
         self.assertIsNone(self.c._member_lock)
 
+    def test_recovers_member_lock_after_restart(self):
+        data = {'conn_url': 'postgres://localhost/postgres'}
+        self.c._cluster = Cluster(None, None, None, Mock(),
+                                  [Member(1, self.c._name, 'existing-lock', data)], None, Mock(), None, None)
+        self.c._cluster_valid_till = float('inf')
+        self.assertTrue(self.c.touch_member(data))
+        self.c._client.acquire_lock.assert_not_called()
+        self.c._client.renew_lock.assert_called_once_with(self.c.member_path, 'existing-lock')
+
     def test_leader_lifecycle(self):
         self.c._client.acquire_lock.return_value = variable(self.c.leader_path, self.c._name, 1, 'leader-lock')
         self.assertTrue(self.c.attempt_to_acquire_leader())
@@ -158,6 +167,11 @@ class TestNomad(unittest.TestCase):
         self.assertTrue(self.c._delete_leader(leader))
         self.c._client.delete_variable.assert_called_with(self.c.leader_path, 2)
         self.assertIsNone(self.c._leader_lock)
+
+    def test_recovers_leader_lock_after_restart(self):
+        leader = Leader(1, 'existing-lock', Member(-1, self.c._name, None, {}))
+        self.assertTrue(self.c._update_leader(leader))
+        self.c._client.renew_lock.assert_called_once_with(self.c.leader_path, 'existing-lock')
 
     def test_leader_conflicts_and_ownership(self):
         self.c._client.acquire_lock.side_effect = NomadConflict('held')
@@ -184,6 +198,7 @@ class TestNomad(unittest.TestCase):
         self.assertTrue(self.c.cancel_initialization())
         self.assertTrue(self.c.delete_sync_state(2))
         self.c._client.list_variables.return_value = [{'Path': 'service/test/config', 'ModifyIndex': 12}]
+        self.c._client.get_variable.return_value = variable('service/test/config', '{}', 12)
         self.assertTrue(self.c.delete_cluster())
 
     def test_mpp_cluster(self):

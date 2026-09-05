@@ -269,6 +269,11 @@ class Nomad(AbstractDCS):
     def touch_member(self, data: Dict[str, Any]) -> bool:
         value = json.dumps(data, separators=(',', ':'))
         if not self._member_lock:
+            member = self.cluster and self.cluster.get_member(self._name, fallback_to_leader=False)
+            if member and member.session:
+                self._member_lock = member.session
+                self._member_value = json.dumps(member.data, separators=(',', ':'))
+        if not self._member_lock:
             result = self._client.acquire_lock(self.member_path, value, self._ttl, self._lock_delay)
             self._member_lock = self._lock_id(result)
             self._member_value = value
@@ -299,6 +304,8 @@ class Nomad(AbstractDCS):
         return self.attempt_to_acquire_leader()
 
     def _update_leader(self, leader: Leader) -> bool:
+        if not self._leader_lock and leader.name == self._name:
+            self._leader_lock = leader.session
         if not self._leader_lock or leader.session != self._leader_lock or leader.name != self._name:
             return False
         try:
@@ -347,8 +354,15 @@ class Nomad(AbstractDCS):
         retry = self._retry.copy()
 
         def delete_all() -> bool:
-            for node in self._client.list_variables(self.client_path('')):
-                self._client.delete_variable(node['Path'], node.get('ModifyIndex'))
+            for metadata in self._client.list_variables(self.client_path('')):
+                try:
+                    node = self._client.get_variable(metadata['Path'])
+                except NomadNotFound:
+                    continue
+                lock_id = self._lock_id(node)
+                if lock_id:
+                    node = self._client.release_lock(node['Path'], lock_id)
+                self._client.delete_variable(metadata['Path'], node.get('ModifyIndex'))
             return True
 
         return retry(delete_all)
