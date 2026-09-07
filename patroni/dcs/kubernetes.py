@@ -789,10 +789,9 @@ class Kubernetes(AbstractDCS):
         self._api = CoreV1ApiProxy(config.get('use_endpoints'), bypass_api_service)
         self._should_create_config_service = self._api.use_endpoints
         self.reload_config(config)
-        # leader_observed_record, leader_resource_version, and leader_observed_time are used only for leader race!
+        # leader_observed_record and leader_observed_time are used only for leader race!
         self._leader_observed_record: Dict[str, str] = {}
         self._leader_observed_time = None
-        self._leader_resource_version = None
         self.__do_not_watch = False
 
         self._condition = Condition()
@@ -889,8 +888,6 @@ class Kubernetes(AbstractDCS):
         leader_path = path[:-1] if self._api.use_endpoints else path + self._LEADER
         leader = nodes.get(leader_path)
         metadata = leader and leader.metadata
-        if leader_path == self.leader_path:  # We want to memorize leader_resource_version only for our cluster
-            self._leader_resource_version = metadata.resource_version if metadata else None
         annotations: Dict[str, str] = metadata and metadata.annotations or {}
 
         # get last known leader lsn and slots
@@ -1278,6 +1275,17 @@ class Kubernetes(AbstractDCS):
         return self._update_leader_with_retry(annotations, resource_version, self.__ips)
 
     def attempt_to_acquire_leader(self) -> bool:
+        # Another member can acquire the lock after the HA loop decides to enter the election.
+        # Check the lock again and use the resource version from that same snapshot for the conditional write.
+        # REST requests can replace the shared DCS fields, so those fields may no longer match the snapshot we checked.
+        cluster = self.get_cluster()
+        if cluster.leader_name and cluster.leader_name != self._name:
+            logger.info('Could not take out TTL lock')
+            return False
+        resource_version = cluster.leader and cluster.leader.version
+        if TYPE_CHECKING:  # pragma: no cover
+            assert resource_version is None or isinstance(resource_version, str)
+
         now = self._isotime()
         annotations = {self._LEADER: self._name, 'ttl': str(self._ttl),
                        'renewTime': now, 'acquireTime': now, 'transitions': '0'}
@@ -1292,16 +1300,6 @@ class Kubernetes(AbstractDCS):
             else:
                 annotations['acquireTime'] = self._leader_observed_record.get('acquireTime') or now
             annotations['transitions'] = str(transitions)
-
-        resource_version = self._leader_resource_version
-        if resource_version:
-            kind = self._kinds.get(self.leader_path)
-            # If leader object in cache was updated we should better use fresh resource_version
-            if kind and kind.metadata.resource_version != resource_version:
-                kind_annotations = kind and kind.metadata.annotations or EMPTY_DICT
-                # But, only in case if leader annotations didn't change
-                if all(kind_annotations.get(k) == self._leader_observed_record.get(k) for k in annotations.keys()):
-                    resource_version = kind.metadata.resource_version
 
         retry = self._retry.copy()
 
