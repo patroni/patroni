@@ -1053,7 +1053,9 @@ schema = Schema({
         Optional("allowlist_include_members"): bool,
         Optional("http_extra_headers"): dict,
         Optional("https_extra_headers"): dict,
-        Optional("request_queue_size"): IntValidator(min=0, max=4096, expected_type=int, raise_assert=True)
+        Optional("request_queue_size"): IntValidator(min=0, max=4096, expected_type=int, raise_assert=True),
+        Optional("handshake_timeout"): IntValidator(min=1, expected_type=int, raise_assert=True),
+        Optional("request_timeout"): IntValidator(min=1, expected_type=int, raise_assert=True)
     },
     Optional("bootstrap"): {
         "dcs": {

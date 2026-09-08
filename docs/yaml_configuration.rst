@@ -347,6 +347,8 @@ REST API
    -  **http\_extra\_headers**: (optional): HTTP headers let the REST API server pass additional information with an HTTP response.
    -  **https\_extra\_headers**: (optional): HTTPS headers let the REST API server pass additional information with an HTTP response when TLS is enabled. This will also pass additional information set in ``http_extra_headers``.
    -  **request_queue_size**: (optional): Sets request queue size for TCP socket used by Patroni REST API.  Once the queue is full, further requests get a "Connection denied" error. The default value is 5.
+   -  **handshake\_timeout**: (optional): Maximum time in seconds a single client is given to complete the TLS handshake. Connections that do not complete it in time are closed. It only applies when ``certfile`` is set. The default value is 2.
+   -  **request\_timeout**: (optional): Maximum time in seconds a single client is given to send its request, and to read the response. Connections that stay silent for longer are closed. The default value is 5.
 
 Here is an example of both **http_extra_headers** and **https_extra_headers**:
 
