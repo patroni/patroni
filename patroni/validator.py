@@ -16,7 +16,8 @@ from .dcs import dcs_modules
 from .exceptions import ConfigParseError, PatroniAssertionError
 from .log import type_logformat
 from .postgresql.sync import SYNC_STRICT_PLACEHOLDER
-from .utils import data_directory_is_empty, get_major_version, parse_bool, parse_int, parse_real, split_host_port
+from .utils import data_directory_is_empty, get_major_version, parse_bool, \
+    parse_int, parse_real, split_host_port, SyncCrossSiteMode
 
 # Additional parameters to fine-tune validation process
 _validation_params: Dict[str, Any] = {}
@@ -997,6 +998,10 @@ def validate_watchdog_mode(value: Any) -> None:
     assert_(value in (False, "off", "automatic", "required"))
 
 
+def validate_sync_cross_site(value: Any) -> None:
+    assert_(value.lower() in [a.value for a in SyncCrossSiteMode.__members__.values()])
+
+
 def validate_synchronous_mode(value: Any) -> None:
     """Validate ``synchronous_mode`` configuration option.
 
@@ -1084,6 +1089,7 @@ setattr(validate_data_dir, 'expected_type', str)
 setattr(validate_binary_name, 'expected_type', str)
 setattr(validate_name, 'expected_type', str)
 setattr(validate_site, 'expected_type', str)
+setattr(validate_sync_cross_site, 'expected_type', str)
 validate_etcd = {
     Or("host", "hosts", "srv", "srv_suffix", "url", "proxy"): Case({
         "host": validate_host_port,
@@ -1195,6 +1201,7 @@ schema = Schema({
             },
             Optional("synchronous_mode"): validate_synchronous_mode,
             Optional("synchronous_mode_strict"): bool,
+            Optional("synchronous_cross_site"): validate_sync_cross_site,
             Optional("synchronous_node_count"): IntValidator(min=1, raise_assert=True),
             Optional("manage_synchronized_standby_slots"): bool,
         },
