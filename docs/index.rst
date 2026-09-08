@@ -47,6 +47,8 @@ In addition, you may tune the following Patroni configuration parameters:
 - ``thread_stack_size`` - stack size used for threads started by Patroni. Lowering this value reduces memory usage of the Patroni process. The default value set by Patroni is ``512kB``. Increase ``thread_stack_size`` if Patroni experience stack-related crashes; otherwise the default value is sufficient.
 - ``thread_pool_size`` - size of the thread pool used by Patroni for asynchronous tasks and REST API communication with other members during leader race or failsafe checks. The default value is ``5``, which is sufficient for three-node clusters.
 - ``restapi.thread_pool_size`` - size of the thread pool used to process REST API requests. The default value is ``5``, allowing up to five parallel REST API requests. Note that requests involving SQL queries are effectively serialized because a single database connection is used, so increasing this value typically provides no benefit.
+- ``restapi.handshake_timeout`` - maximum time in seconds a single client is given to complete the TLS handshake. It bounds how long a connection may hold a thread of ``restapi.thread_pool_size`` before sending any data. The default value is ``2``.
+- ``restapi.request_timeout`` - maximum time in seconds a single client is given to send its request, and to read the response. Together with ``restapi.handshake_timeout`` it bounds how long a single connection may hold a thread of ``restapi.thread_pool_size``. The default value is ``5``.
 
 ----
 

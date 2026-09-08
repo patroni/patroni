@@ -549,7 +549,8 @@ class Config(object):
         _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile', 'keyfile_password',
                                         'cafile', 'ciphers', 'verify_client', 'http_extra_headers',
                                         'https_extra_headers', 'allowlist', 'allowlist_include_members',
-                                        'request_queue_size', 'server_tokens'])
+                                        'request_queue_size', 'handshake_timeout', 'request_timeout',
+                                        'server_tokens'])
         _set_section_values('ctl', ['insecure', 'cacert', 'certfile', 'keyfile', 'keyfile_password'])
         _set_section_values('postgresql', ['listen', 'connect_address', 'proxy_address',
                                            'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
@@ -574,7 +575,8 @@ class Config(object):
                 if value is not None:
                     ret[first][second] = value
 
-        for first, params in (('restapi', ('request_queue_size', 'thread_pool_size')),
+        for first, params in (('restapi', ('request_queue_size', 'thread_pool_size',
+                                           'handshake_timeout', 'request_timeout')),
                               ('log', ('max_queue_size', 'file_size', 'file_num', 'mode'))):
             for second in params:
                 value = ret.get(first, {}).pop(second, None)

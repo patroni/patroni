@@ -187,6 +187,9 @@ class MockRequest(object):
     def sendall(self, *args, **kwargs):
         pass
 
+    def settimeout(self, *args, **kwargs):
+        pass
+
 
 class MockRestApiServer(RestApiServer):
 
@@ -791,6 +794,13 @@ class TestRestApiHandler(unittest.TestCase):
         MockRestApiServer(RestApiHandler, post + '0\n\n')
         MockRestApiServer(RestApiHandler, post + '14\n\n{"leader":"1"}')
 
+    def test_setup_bounds_request_with_a_timeout(self):
+        # A client that completes the TLS handshake (or connects in plain HTTP) and then sends nothing
+        # would otherwise hold a pool worker forever, so the connection gets a timeout of its own.
+        with patch.object(MockRequest, 'settimeout') as mock_settimeout:
+            MockRestApiServer(RestApiHandler, 'GET /replica')
+        mock_settimeout.assert_called_once_with(5)
+
 
 class TestRestApiServer(unittest.TestCase):
 
@@ -889,6 +899,83 @@ class TestRestApiServer(unittest.TestCase):
             mock_finish.assert_not_called()
             mock_shutdown.assert_called_once_with(sock)
             self.assertTrue(any('SSL handshake' in c[0][0] for c in mock_debug.call_args_list if c[0]))
+
+    def test_process_request_thread_ssl_handshake_timeout(self):
+        import ssl
+
+        # A client that opens a TCP connection to the TLS port and never sends a ClientHello would
+        # otherwise block a pool worker forever. The handshake must be bounded by a timeout, and the
+        # socket must go back to its original timeout once the handshake succeeded.
+        sock = self.__create_socket()
+        if not isinstance(sock, ssl.SSLSocket):  # pragma: no cover - ssl not available
+            self.skipTest('ssl is not available')
+
+        sock.do_handshake = Mock(side_effect=socket.timeout('timed out'))
+        with patch.object(sock, 'settimeout') as mock_settimeout, \
+                patch.object(self.srv, 'shutdown_request') as mock_shutdown, \
+                patch.object(RestApiServer, 'finish_request') as mock_finish:
+            self.assertIsNone(self.srv.process_request_thread(sock, ('127.0.0.1', 55555)))
+        mock_settimeout.assert_called_once_with(2)
+        mock_finish.assert_not_called()
+        mock_shutdown.assert_called_once_with(sock)
+
+        sock.do_handshake = Mock()
+        with patch.object(sock, 'settimeout') as mock_settimeout, \
+                patch.object(RestApiServer, 'finish_request', Mock()):
+            self.srv.process_request_thread(sock, ('127.0.0.1', 55555))
+        self.assertEqual([c[0][0] for c in mock_settimeout.call_args_list], [2, None])
+
+    @patch.object(HTTPServer, '__init__', Mock())
+    def test_request_timeout_config(self):
+        def reload_config(config):
+            with patch.object(MockRestApiServer, 'server_close', Mock()):
+                self.srv.reload_config(dict(config, listen=':8008'))
+
+        reload_config({})
+        self.assertEqual(self.srv.request_timeout, 5)
+
+        reload_config({'request_timeout': 30})
+        self.assertEqual(self.srv.request_timeout, 30)
+
+        reload_config({'request_timeout': 0})
+        self.assertEqual(self.srv.request_timeout, 1)
+
+        with patch('patroni.api.logger.warning') as mock_warning:
+            reload_config({'request_timeout': 'foo'})
+        self.assertEqual(self.srv.request_timeout, 5)
+        self.assertTrue(any('request_timeout' in str(c) for c in mock_warning.call_args_list))
+
+    @patch.object(HTTPServer, '__init__', Mock())
+    def test_handshake_timeout_config(self):
+        import ssl
+
+        if not isinstance(self.__create_socket(), ssl.SSLSocket):  # pragma: no cover - ssl not available
+            self.skipTest('ssl is not available')
+
+        def handshake_timeout():
+            sock = self.__create_socket()
+            with patch.object(sock, 'settimeout') as mock_settimeout, \
+                    patch.object(RestApiServer, 'finish_request', Mock()):
+                self.srv.process_request_thread(sock, ('127.0.0.1', 55555))
+            return mock_settimeout.call_args_list[0][0][0]
+
+        def reload_config(config):
+            with patch.object(MockRestApiServer, 'server_close', Mock()):
+                self.srv.reload_config(dict(config, listen=':8008'))
+
+        reload_config({'handshake_timeout': 15})
+        self.assertEqual(handshake_timeout(), 15)
+
+        with patch('patroni.api.logger.warning') as mock_warning:
+            reload_config({'handshake_timeout': 'foo'})
+        self.assertEqual(handshake_timeout(), 2)
+        self.assertTrue(any('handshake_timeout' in str(c) for c in mock_warning.call_args_list))
+
+        reload_config({'handshake_timeout': 0})
+        self.assertEqual(handshake_timeout(), 1)
+
+        reload_config({})
+        self.assertEqual(handshake_timeout(), 2)
 
     @patch.object(MockRestApiServer, 'process_request', Mock(side_effect=RuntimeError))
     @patch.object(MockRestApiServer, 'get_request')
