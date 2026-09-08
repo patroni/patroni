@@ -439,7 +439,9 @@ class TestHa(PostgresInit):
         self.ha.has_lock = true
         self.p.is_primary = false
         self.p.set_role(PostgresqlRole.PRIMARY)
-        self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
+        with patch('patroni.ha.logger.warning') as mock_logger:
+            self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
+            self.assertEqual(mock_logger.call_args_list[0][0], ('Leader %s is in recovery mode', 'postgresql0'))
 
     def test_demote_after_failing_to_obtain_lock(self):
         self.ha.acquire_lock = false

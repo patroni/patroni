@@ -923,6 +923,8 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
 
             * ``name``: the name of the host (unique in the cluster). The ``members`` list is sorted by this key;
             * ``role``: ``leader``, ``standby_leader``, ``sync_standby``, ``quorum_standby``, or ``replica``;
+            * ``in_recovery``: ``True``/``False`` if Postgres recovery status is known for this member (based
+                on ``pg_is_in_recovery()`` as last reported to the DCS), omitted if unknown;
             * ``state``: one of :class:`~patroni.postgresql.misc.PostgresqlState`;
             * ``api_url``: REST API URL based on ``restapi->connect_address`` configuration;
             * ``host``: PostgreSQL host based on ``postgresql->connect_address``;
@@ -948,7 +950,7 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
             * ``to``: name of the member to be promoted.
     """
     from . import global_config
-    from .postgresql.misc import format_lsn
+    from .postgresql.misc import format_lsn, PostgresqlRole
 
     config = global_config.from_cluster(cluster)
     leader_name = cluster.leader.name if cluster.leader else None
@@ -965,7 +967,20 @@ def cluster_as_json(cluster: 'Cluster') -> Dict[str, Any]:
             role = 'replica'
 
         state = (m.data.get('replication_state', '') if role != 'leader' else '') or m.data.get('state', '')
+
+        raw_role = m.data.get('role')
+        try:
+            raw_role = PostgresqlRole(raw_role)
+        except ValueError:
+            raw_role = None
+
         member = {'name': m.name, 'role': role, 'state': state, 'api_url': m.api_url}
+        if raw_role in (PostgresqlRole.PRIMARY, PostgresqlRole.MASTER):
+            member['in_recovery'] = False
+        elif raw_role in (PostgresqlRole.REPLICA, PostgresqlRole.STANDBY_LEADER, PostgresqlRole.PROMOTED):
+            member['in_recovery'] = True
+        # DEMOTED / UNINITIALIZED / missing -> key omitted, matches how other optional fields
+        # (pending_restart, tags, ...) are only added when known.
         conn_kwargs = m.conn_kwargs()
         if conn_kwargs.get('host'):
             member['host'] = conn_kwargs['host']
