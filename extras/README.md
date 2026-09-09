@@ -3,7 +3,7 @@
 `confd` directory contains haproxy and pgbouncer template files for the [confd](https://github.com/kelseyhightower/confd) -- lightweight configuration management tool
 You need to copy content of `confd` directory into /etcd/confd and run confd service:
 ```bash
-$ confd -prefix=/service/$PATRONI_SCOPE -backend etcd -node $PATRONI_ETCD_URL -interval=10
+confd -prefix=/service/$PATRONI_SCOPE -backend etcd -node $PATRONI_ETCD_URL -interval=10
 ```
 It will periodically update haproxy.cfg and pgbouncer.ini with the actual list of Patroni nodes from `etcd` and "reload" haproxy and pgbouncer.ini when it is necessary.
 
@@ -18,7 +18,7 @@ Copy the content of `remco` into `/etc/remco` (`resource.d` -> `/etc/remco/resou
 `template` -> `/etc/remco/templates`), set your etcd nodes and scope in the `resource.d/*.toml` files, then run remco:
 
 ```bash
-$ remco -config /etc/remco/config
+remco -config /etc/remco/config
 ```
 
 It will watch `/members` (and `/leader` for pgbouncer) under `/service/$PATRONI_SCOPE` in etcd, re-render `haproxy.cfg` / `pgbouncer.ini`
