@@ -1,0 +1,39 @@
+global
+	maxconn 100
+
+defaults
+	log	global
+	mode	tcp
+	retries 2
+	timeout client 30m
+	timeout connect 4s
+	timeout server 30m
+	timeout check 5s
+
+listen stats
+	mode http
+	bind *:7000
+	stats enable
+	stats uri /
+
+
+listen master
+	bind *:5000
+	option httpchk OPTIONS /primary
+	http-check expect status 200
+	default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
+{% for node in ls("/members") %}
+    {%set nodeinfo = getv(printf("/members/%s", node)) | parseJSON  %}
+    server {{node}} {{nodeinfo.conn_url | split:"/" | index:"2" }}  maxconn 100 check check-ssl port {{(nodeinfo.api_url | split:"/" | index:"2" | split:":" | index:"1")  }} verify required ca-file /etc/ssl/certs/ssl-cert-snakeoil.pem crt /etc/ssl/private/ssl-cert-snakeoil.crt
+{% endfor %}
+
+
+listen replicas
+	bind *:5001
+	option httpchk OPTIONS /primary
+	http-check expect status 200
+	default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
+{% for node in ls("/members") %}
+    {%set nodeinfo = getv(printf("/members/%s", node)) | parseJSON  %}
+    server {{node}} {{nodeinfo.conn_url | split:"/" | index:"2" }}  maxconn 100 check check-ssl port {{(nodeinfo.api_url | split:"/" | index:"2" | split:":" | index:"1")  }} verify required ca-file /etc/ssl/certs/ssl-cert-snakeoil.pem crt /etc/ssl/private/ssl-cert-snakeoil.crt
+{% endfor %}

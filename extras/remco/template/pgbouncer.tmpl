@@ -1,0 +1,23 @@
+[databases]
+{% if exists("/leader") %}
+{% set leader_name = getv("/leader")   %}
+{%set leader_node_info = getv(printf("/members/%s", leader_name)) | parseJSON  %}
+{%set leader_conn_url = leader_node_info.conn_url| split:"/" | index:"2" %}
+* = host={{ leader_conn_url | split:":" | index: "0" }} port={{ leader_conn_url | split:":" | index: "1" }} pool_size=10
+{%endif%}
+
+
+[pgbouncer]
+logfile = /var/log/postgresql/pgbouncer.log
+pidfile = /var/run/postgresql/pgbouncer.pid
+listen_addr = *
+listen_port = 6432
+unix_socket_dir = /var/run/postgresql
+auth_type = trust
+auth_file = /etc/pgbouncer/userlist.txt
+auth_hba_file = /etc/pgbouncer/pg_hba.txt
+admin_users = pgbouncer
+stats_users = pgbouncer
+pool_mode = session
+max_client_conn = 100
+default_pool_size = 20
