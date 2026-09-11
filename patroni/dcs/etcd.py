@@ -177,7 +177,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
 
         verify = config.get('verify', True)
         verify_hostname = config.get('verify_hostname', True)
-        cn_fallback = config.get('hostname_checks_common_name', False)
+        cn_fallback = config.get('hostname_checks_common_name')
 
         pool_kw = self.http.connection_pool_kw
 
@@ -197,11 +197,12 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
             ctx.check_hostname = False
             pool_kw['assert_hostname'] = False
             logger.warning('Etcd TLS hostname verification is disabled')
-        else:
-            # verify_hostname is True: explicitly set CN fallback to the
-            # configured value. True enables DNS Common Name fallback; False
-            # enforces SAN-only. The attribute defaults to True, so enforcing
-            # False depends on the platform supporting the setter.
+        elif cn_fallback is not None:
+            # Only override the SSLContext default (True) when the user
+            # explicitly configured hostname_checks_common_name. Leaving it
+            # untouched preserves stock behavior for existing configs. True
+            # enables DNS Common Name fallback; False enforces SAN-only, which
+            # depends on the platform supporting the setter.
             try:
                 ctx.hostname_checks_common_name = cn_fallback
             except AttributeError:

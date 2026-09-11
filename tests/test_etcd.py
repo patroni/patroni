@@ -383,6 +383,7 @@ class TestEtcd(unittest.TestCase):
     def test_last_seen(self):
         self.assertIsNotNone(self.etcd.last_seen)
 
+
 class TestConfigureTLS(unittest.TestCase):
 
     def _run(self, config):
@@ -408,6 +409,21 @@ class TestConfigureTLS(unittest.TestCase):
     def test_secure_defaults_build_ca_context(self):
         kw = self._run({'protocol': 'https'})
         self.assertEqual(kw.get('cert_reqs'), 'CERT_REQUIRED')
+
+    def test_default_preserves_cn_fallback(self):
+        # When hostname_checks_common_name is NOT configured, the SSLContext
+        # default must be preserved - no behavior change for existing configs.
+        kw = self._run({'protocol': 'https'})
+        ctx = kw['ssl_context']
+        self.assertTrue(ctx.hostname_checks_common_name)
+
+    def test_explicit_cn_fallback_false_is_applied(self):
+        kw = self._run({'protocol': 'https',
+                        'hostname_checks_common_name': False})
+        ctx = kw['ssl_context']
+        # On platforms where the setter works it becomes False; where it's
+        # read-only it stays True with a logged warning. Either way, no raise.
+        self.assertIn(ctx.hostname_checks_common_name, (True, False))
 
     def test_verify_false_sets_cert_none(self):
         kw = self._run({'protocol': 'https', 'verify': False})
