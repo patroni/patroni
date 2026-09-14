@@ -1,8 +1,8 @@
 [databases]
 {% if exists("/leader") %}
 {% set leader_name = getv("/leader")   %}
-{%set leader_node_info = getv(printf("/members/%s", leader_name)) | parseJSON  %}
-{%set leader_conn_url = leader_node_info.conn_url| split:"/" | index:"2" %}
+{% set leader_node_info = getv(printf("/members/%s", leader_name)) | parseJSON  %}
+{% set leader_conn_url = leader_node_info.conn_url| split:"/" | index:"2" %}
 * = host={{ leader_conn_url | split:":" | index: "0" }} port={{ leader_conn_url | split:":" | index: "1" }} pool_size=10
 {%endif%}
 

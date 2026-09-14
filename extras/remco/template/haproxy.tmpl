@@ -23,7 +23,7 @@ listen master
 	http-check expect status 200
 	default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
 {% for node in ls("/members") %}
-    {%set nodeinfo = getv(printf("/members/%s", node)) | parseJSON  %}
+    {% set nodeinfo = getv(printf("/members/%s", node)) | parseJSON  %}
     server {{node}} {{nodeinfo.conn_url | split:"/" | index:"2" }}  maxconn 100 check port {{(nodeinfo.api_url | split:"/" | index:"2" | split:":" | index:"1")  }}
 {% endfor %}
 
@@ -34,6 +34,6 @@ listen replicas
 	http-check expect status 200
 	default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
 {% for node in ls("/members") %}
-    {%set nodeinfo = getv(printf("/members/%s", node)) | parseJSON  %}
+    {% set nodeinfo = getv(printf("/members/%s", node)) | parseJSON  %}
     server {{node}} {{nodeinfo.conn_url | split:"/" | index:"2" }}  maxconn 100 check port {{(nodeinfo.api_url | split:"/" | index:"2" | split:":" | index:"1")  }}
 {% endfor %}
