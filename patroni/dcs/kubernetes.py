@@ -1282,9 +1282,7 @@ class Kubernetes(AbstractDCS):
         if cluster.leader_name and cluster.leader_name != self._name:
             logger.info('Could not take out TTL lock')
             return False
-        resource_version = cluster.leader and cluster.leader.version
-        if TYPE_CHECKING:  # pragma: no cover
-            assert resource_version is None or isinstance(resource_version, str)
+        resource_version = cast(Optional[str], cluster.leader and cluster.leader.version)
 
         now = self._isotime()
         annotations = {self._LEADER: self._name, 'ttl': str(self._ttl),
