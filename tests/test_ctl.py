@@ -540,6 +540,16 @@ class TestCtl(unittest.TestCase):
                 self.assertEqual(len(r), 1)
                 self.assertEqual(r[0].name, 'leader')
 
+            # a lock holder whose promotion has not completed yet is neither a primary nor a standby leader,
+            # but it is still the leader (it holds the lock)
+            cluster = get_cluster_initialized_with_leader()
+            cluster.members[0].data['role'] = PostgresqlRole.PROMOTED
+            self.assertEqual(list(get_all_members(cluster, None, role=CtlPostgresqlRole.PRIMARY)), [])
+            self.assertEqual(list(get_all_members(cluster, None, role=CtlPostgresqlRole.STANDBY_LEADER)), [])
+            r = list(get_all_members(cluster, None, role=CtlPostgresqlRole.LEADER))
+            self.assertEqual(len(r), 1)
+            self.assertEqual(r[0].name, 'leader')
+
             r = list(get_all_members(get_cluster_initialized_with_leader(), None, role=CtlPostgresqlRole.REPLICA))
             self.assertEqual(len(r), 1)
             self.assertEqual(r[0].name, 'other')
