@@ -1305,7 +1305,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         self.do_POST_failover(action='switchover')
 
-    @check_access
     def do_POST_citus(self) -> None:
         """Handle a ``POST`` request to ``/citus`` path.
 
@@ -1314,6 +1313,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         self.do_POST_mpp()
 
+    @check_access
     def do_POST_mpp(self) -> None:
         """Handle a ``POST`` request to ``/mpp`` path.
 
