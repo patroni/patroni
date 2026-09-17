@@ -306,7 +306,6 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
             self.assertRaises(KubernetesError, self.k.attempt_to_acquire_leader)
 
             mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
-            self.k._leader_resource_version = '0'
             self.k._isotime = Mock(return_value='now')
             self.assertTrue(self.k.attempt_to_acquire_leader())
 
@@ -317,10 +316,7 @@ class TestKubernetesConfigMaps(BaseTestKubernetes):
             self.assertRaises(KubernetesError, self.k.attempt_to_acquire_leader)
 
     def test_take_leader(self):
-        self.k.take_leader()
-        self.k._leader_observed_record['leader'] = 'test'
-        self.k.patch_or_create = Mock(return_value=False)
-        self.k.take_leader()
+        self.assertTrue(self.k.take_leader())
 
     def test_manual_failover(self):
         with patch.object(k8s_client.CoreV1Api, 'patch_namespaced_config_map',
@@ -446,6 +442,35 @@ class TestKubernetesEndpoints(BaseTestKubernetes):
         self.assertIsNotNone(self.k.update_leader(cluster, '123'))
         self.k._kinds._object_cache['test'].metadata.annotations['leader'] = 'p-1'
         self.assertFalse(self.k.update_leader(cluster, '123'))
+
+    @patch.object(k8s_client.CoreV1Api, 'read_namespaced_endpoints', create=True)
+    @patch.object(k8s_client.CoreV1Api, 'patch_namespaced_endpoints', create=True)
+    def test_attempt_to_acquire_leader_with_stale_cluster_snapshot(self, mock_patch, mock_read):
+        metadata = k8s_client.V1ObjectMeta(resource_version='2', labels={'f': 'b'}, name='test',
+                                           annotations={'transitions': '5', 'renewTime': 'now',
+                                                        'acquireTime': 'now', 'ttl': '30'})
+        self.k._kinds.set('test', k8s_client.V1Endpoints(metadata=metadata))
+        self.assertTrue(self.k.get_cluster().is_unlocked())
+
+        metadata = k8s_client.V1ObjectMeta(resource_version='3', labels={'f': 'b'}, name='test',
+                                           annotations={'leader': 'p-1', 'transitions': '6', 'renewTime': 'now',
+                                                        'acquireTime': 'now', 'ttl': '30'})
+        mock_read.return_value = k8s_client.V1Endpoints(metadata=metadata)
+        self.k._kinds.set('test', mock_read.return_value)
+        # A REST API request (GET /cluster) reloads the cluster on the same DCS object
+        self.k.get_cluster()
+
+        mock_patch.side_effect = k8s_client.rest.ApiException(409, '')
+        self.assertFalse(self.k.attempt_to_acquire_leader())
+        mock_patch.assert_not_called()
+
+        # The lock of the other member expired
+        self.k._leader_observed_time = float('-inf')
+        mock_patch.side_effect = mock_namespaced_kind
+        self.assertTrue(self.k.attempt_to_acquire_leader())
+        args = mock_patch.call_args[0]
+        self.assertEqual(args[2].metadata.resource_version, '3')
+        self.assertEqual(args[2].metadata.annotations['transitions'], '7')
 
     @patch('time.sleep', Mock())
     @patch.object(k8s_client.CoreV1Api, 'read_namespaced_endpoints', create=True)
