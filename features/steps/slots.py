@@ -140,7 +140,7 @@ def dcs_key_contains_after(context, name, subkey, key, time_limit):
         try:
             dcs_key_contains(context, name, subkey, key)
             return
-        except Exception:
+        except AssertionError:
             time.sleep(1)
     dcs_key_contains(context, name, subkey, key)
 
