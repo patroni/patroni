@@ -1232,7 +1232,7 @@ class Ha(object):
             return message
         elif self.state_handler.role in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
             self.process_sync_replication()
-            return message
+            return message + ', in recovery (promotion has not completed)'
         else:
             if not self.process_sync_replication_prepromote():
                 # Somebody else updated sync state, it may be due to us losing the lock. To be safe,
