@@ -241,6 +241,21 @@ class TestPostgresql(BaseTestPostgresql):
         mock_postmaster.signal_stop.side_effect = [None, True]
         self.assertTrue(self.p.stop(on_safepoint=mock_callback, stop_timeout=30))
 
+    @patch.object(Postgresql, '_wait_for_connection_close', Mock())
+    @patch.object(Postgresql, 'is_running')
+    def test_stop_without_user_backends(self, mock_is_running):
+        postmaster = mock_is_running.return_value = MockPostmaster()
+        postmaster.children = Mock(return_value=[])
+        postmaster.wait_for_user_backends_to_close = lambda timeout: \
+            PostmasterProcess.wait_for_user_backends_to_close(postmaster, timeout)
+        on_safepoint = Mock()
+        # The watchdog must be disabled before waiting for PostgreSQL to finish shutting down.
+        postmaster.wait.side_effect = lambda **kwargs: on_safepoint.assert_called_once_with()
+        for stop_timeout in (None, 30):
+            with self.subTest(stop_timeout=stop_timeout):
+                on_safepoint.reset_mock()
+                self.assertTrue(self.p.stop(on_safepoint=on_safepoint, stop_timeout=stop_timeout))
+
     @patch('time.sleep', Mock())
     @patch.object(Postgresql, 'is_running', MockPostmaster)
     @patch.object(Postgresql, '_wait_for_connection_close', Mock())
