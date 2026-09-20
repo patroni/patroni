@@ -551,11 +551,19 @@ class RestApiHandler(BaseHTTPRequestHandler):
 
         Write an HTTP response with JSON content based on the output of :func:`~patroni.utils.cluster_as_json`, with
         HTTP status ``200`` and the JSON representation of the cluster topology.
+
+        In addition to the keys documented in :func:`~patroni.utils.cluster_as_json`, the response may contain:
+
+            * ``leader_in_recovery``: ``True`` if the current leader's Postgres has not confirmed leaving
+              recovery (``pg_is_in_recovery()``), omitted otherwise.
         """
         cluster = self.server.patroni.dcs.get_cluster()
 
         response = cluster_as_json(cluster)
         response['scope'] = self.server.patroni.postgresql.scope
+        leader = next((m for m in response['members'] if m['role'] == 'leader'), None)
+        if leader is not None and leader.get('in_recovery'):
+            response['leader_in_recovery'] = True
         self._write_json_response(200, response)
 
     def do_GET_history(self) -> None:
