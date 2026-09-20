@@ -4,6 +4,7 @@
 YAML Configuration Settings
 ============================
 
+.. _global_settings:
 
 Global/Universal
 ----------------
@@ -12,7 +13,7 @@ Global/Universal
 -  **name**: the name of the host. Must be unique for the cluster. The value ``__patroni_strict_sync_replica_placeholder__`` is reserved for internal use by Patroni and cannot be used as a node name.
 -  **namespace**: path within the configuration store where Patroni will keep information about the cluster. Default value: "/service".
 -  **scope**: cluster name.
--  **site**: optional string name of the physical site or location where this Patroni node runs, such as a data center, availability zone, or region. When configured, Patroni records it in member metadata and uses it to prefer local automatic failover to the site where the last known leader is located, while also helping to prefer local clone sources for replica bootstrap and ``patronictl reinit``.
+-  **site**: optional string name of the physical site or location where this Patroni node runs, such as a data center, availability zone, or region. When configured, Patroni records it in member metadata and uses it to prefer local automatic failover to the site where the last known leader is located, to select synchronous-replica based on the ``synchronous_cross_site`` dynamic configuration, and to prefer local clone sources for replica bootstrap and ``patronictl reinit``.
 
 .. _log_settings:
 

@@ -2,13 +2,16 @@ import logging
 import re
 import time
 
+from collections import defaultdict
 from copy import deepcopy
+from itertools import zip_longest
 from typing import Collection, List, NamedTuple, Optional, TYPE_CHECKING
 
 from .. import global_config
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Cluster, Member
 from ..psycopg import quote_ident
+from ..utils import SyncCrossSiteMode
 from .misc import PostgresqlState
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -206,6 +209,7 @@ class _Replica(NamedTuple):
     lsn: int
     nofailover: bool
     sync_priority: int
+    site: Optional[str]
 
 
 class _ReplicaList(List[_Replica]):
@@ -253,7 +257,7 @@ class _ReplicaList(List[_Replica]):
             if member and row[sort_col] is not None and not self._should_cascade(members, replication, member):
                 self.append(_Replica(row['pid'], row['application_name'],
                                      row['sync_state'], row[sort_col],
-                                     bool(member.nofailover), member.sync_priority))
+                                     bool(member.nofailover), member.sync_priority, member.site))
 
         # Prefer replicas with higher ``sync_priority`` value, in state ``sync``,
         # and higher values of ``write``/``flush``/``replay`` LSN.
@@ -358,6 +362,21 @@ END;$$""")
                     # "really" synchronous when sync_state = 'sync' and we known that it managed to catch up
                     self._ready_replicas[replica.application_name] = replica.pid
 
+    @staticmethod
+    def pick_replicas_site_balanced(current_site: str, replicas: List[_Replica]) -> List[_Replica]:
+        site_replicas: defaultdict[Optional[str], List[_Replica]] = defaultdict(list)
+        for replica in replicas:
+            site_replicas[replica.site or ''].append(replica)
+
+        # Create selection order: pick one from each remote site, then local, then repeat.
+        # Nodes with site not defined are added at the end.
+        # Ensure consistent sites order with sorting.
+        remote_lists = [val for site, val in sorted(site_replicas.items()) if site not in (current_site, '')]
+        all_iters = remote_lists + [site_replicas.get(current_site, [])]
+        result = [replica for vals in zip_longest(*all_iters) for replica in vals if replica is not None]
+
+        return result + site_replicas['']
+
     def current_state(self, cluster: Cluster) -> _SyncState:
         """Find the best candidates to be the synchronous standbys.
 
@@ -389,22 +408,46 @@ END;$$""")
         sync_node_maxlag = global_config.maximum_lag_on_syncnode
 
         # Prefer members without nofailover tag. We are relying on the fact that sorts are guaranteed to be stable.
-        for replica in sorted(replica_list, key=lambda x: x.nofailover):
-            if sync_node_maxlag <= 0 or replica_list.max_lsn - replica.lsn <= sync_node_maxlag:
-                if global_config.is_quorum_commit_mode:
-                    # We do not add nodes with `nofailover` enabled because that reduces availability.
-                    # We need to check LSN quorum only among nodes that are promotable because
-                    # there is a chance that a non-promotable node is ahead of a promotable one.
-                    if not replica.nofailover or len(active) < sync_node_count:
-                        if replica.application_name in self._ready_replicas:
-                            sync_confirmed.add(replica.application_name)
-                        active.add(replica.application_name)
-                else:
-                    active.add(replica.application_name)
-                    if replica.sync_state == 'sync' and replica.application_name in self._ready_replicas:
+        sorted_replicas = sorted(replica_list, key=lambda x: x.nofailover)
+        current_site_replicas: List[_Replica] = [r for r in sorted_replicas if r.site == self._postgresql.site]
+        remote_replicas: List[_Replica] = [r for r in sorted_replicas if r.site and r.site != self._postgresql.site]
+        additional_replicas: List[_Replica] = []
+
+        cross_site_mode = global_config.sync_cross_site_mode
+
+        if not self._postgresql.site or cross_site_mode == SyncCrossSiteMode.ANY:
+            selection_order = sorted_replicas
+        elif cross_site_mode == SyncCrossSiteMode.BALANCED:
+            selection_order = self.pick_replicas_site_balanced(self._postgresql.site, sorted_replicas)
+        elif cross_site_mode in (SyncCrossSiteMode.REMOTE_ONLY, SyncCrossSiteMode.PREFER_REMOTE):
+            selection_order = remote_replicas
+            if cross_site_mode == SyncCrossSiteMode.PREFER_REMOTE:
+                additional_replicas = current_site_replicas
+        else:  # SyncCrossSiteMode.LOCAL_ONLY, SyncCrossSiteMode.PREFER_LOCAL
+            selection_order = current_site_replicas
+            if cross_site_mode == SyncCrossSiteMode.PREFER_LOCAL:
+                additional_replicas = remote_replicas
+
+        selection_order = [node for node in selection_order
+                           if sync_node_maxlag <= 0 or replica_list.max_lsn - node.lsn <= sync_node_maxlag]
+        additional_replicas = [node for node in additional_replicas
+                               if sync_node_maxlag <= 0 or replica_list.max_lsn - node.lsn <= sync_node_maxlag]
+        additional_count = max(0, sync_node_count - len(selection_order))
+        for replica in selection_order + additional_replicas[:additional_count]:
+            if global_config.is_quorum_commit_mode:
+                # We do not add nodes with `nofailover` enabled because that reduces availability.
+                # We need to check LSN quorum only among nodes that are promotable because
+                # there is a chance that a non-promotable node is ahead of a promotable one.
+                if not replica.nofailover or len(active) < sync_node_count:
+                    if replica.application_name in self._ready_replicas:
                         sync_confirmed.add(replica.application_name)
-                    if len(active) >= sync_node_count:
-                        break
+                    active.add(replica.application_name)
+            else:
+                active.add(replica.application_name)
+                if replica.sync_state == 'sync' and replica.application_name in self._ready_replicas:
+                    sync_confirmed.add(replica.application_name)
+                if len(active) >= sync_node_count:
+                    break
 
         # We need to handle old case of synchronous_standby_names='*' and when Patroni is restarted while PostgreSQL
         # is running and replace it with __patroni_strict_sync_replica_placeholder__. It requires having non-empty
