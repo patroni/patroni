@@ -538,6 +538,9 @@ class TestRestApiHandler(unittest.TestCase):
         request = make_request(schedule=future_restart_time.isoformat(),
                                role=PostgresqlRole.PRIMARY, postgres_version='9.5.3.1')
         MockRestApiServer(RestApiHandler, request)
+        with patch.object(RestApiHandler, 'write_response') as response_mock:
+            MockRestApiServer(RestApiHandler, make_request(postgres_version={}))
+            response_mock.assert_called_with(400, 'Invalid PostgreSQL version: {}')
         # unknown filter
         request = make_request(schedule=future_restart_time.isoformat(), batman='lives')
         MockRestApiServer(RestApiHandler, request)
