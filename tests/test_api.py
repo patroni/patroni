@@ -544,6 +544,11 @@ class TestRestApiHandler(unittest.TestCase):
         # incorrect schedule
         request = make_request(schedule='2016-08-42 12:45TZ+1', role=PostgresqlRole.PRIMARY)
         MockRestApiServer(RestApiHandler, request)
+        for schedule in ('100000000000000000000-01-01', '55550000000000000814674440730m'):
+            with patch.object(RestApiHandler, 'write_response') as response_mock:
+                MockRestApiServer(RestApiHandler, make_request(schedule=schedule))
+                response_mock.assert_called_with(
+                    422, 'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601')
         # everything fine, but the schedule is missing
         request = make_request(role=PostgresqlRole.PRIMARY, postgres_version='9.5.2')
         MockRestApiServer(RestApiHandler, request)

@@ -950,7 +950,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = 422
             else:
                 status_code = None
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, ArithmeticError):
             logger.exception('Invalid scheduled %s time: %s', action, schedule)
             error = 'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601'
             status_code = 422
