@@ -1,0 +1,21 @@
+name = "pgbouncer"
+
+[[template]]
+src = "/etc/remco/templates/pgbouncer.tmpl"
+dst = "/etc/pgbouncer/pgbouncer.ini"
+make_directories = true
+reload_cmd = "systemctl reload pgbouncer"
+mode = "0644"
+
+[backend]
+[backend.etcd]
+nodes = [
+    "http://...:2379",
+    "http://...:2379",
+    "http://...:2379"
+]
+prefix = "/service/patroni"
+keys = ["/members", "/leader"]
+watch = true
+interval = 60
+version = 3

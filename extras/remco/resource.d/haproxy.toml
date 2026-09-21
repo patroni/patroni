@@ -1,0 +1,23 @@
+name = "haproxy"
+[[template]]
+src = "/etc/remco/templates/haproxy.tmpl"
+dst = "/etc/haproxy/haproxy.cfg"
+make_directories = true
+reload_cmd = "haproxy -f {{ .dst }} -p /var/run/haproxy.pid -D -sf $(cat /var/run/haproxy.pid)"
+
+check_cmd = "/usr/sbin/haproxy -c -f {{ .src }}"
+mode = "0644"
+
+[backend]
+[backend.etcd]
+nodes = [
+    "http://...:2379",
+    "http://...:2379",
+    "http://...:2379"
+]
+prefix = "/service/patroni"
+keys = ["/members"]
+watchKeys = ["/haproxy/reload"]
+watch = true
+interval = 60
+version = 3
