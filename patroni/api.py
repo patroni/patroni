@@ -1021,6 +1021,10 @@ class RestApiHandler(BaseHTTPRequestHandler):
                     data = "PostgreSQL role should be either primary, standby_leader, or replica"
                     break
             elif k == 'postgres_version':
+                if not isinstance(request[k], str):
+                    status_code = 400
+                    data = 'Invalid PostgreSQL version: {0}'.format(request[k])
+                    break
                 try:
                     postgres_version_to_int(request[k])
                 except PostgresException as e:
