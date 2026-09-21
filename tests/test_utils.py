@@ -5,10 +5,14 @@ from unittest.mock import Mock, patch
 
 from patroni.exceptions import PatroniException
 from patroni.utils import apply_keepalive_limit, enable_keepalive, get_major_version, get_postgres_version, \
-    polling_loop, process_user_options, Retry, RetryFailedError, unquote, validate_directory
+    parse_int, polling_loop, process_user_options, Retry, RetryFailedError, unquote, validate_directory
 
 
 class TestUtils(unittest.TestCase):
+
+    def test_parse_int_overflow(self):
+        self.assertIsNone(parse_int('1e999'))
+        self.assertIsNone(parse_int('1e999MB', 'B'))
 
     @patch('time.monotonic', Mock(side_effect=[0, 0, 0.001]))
     def test_polling_loop(self):
