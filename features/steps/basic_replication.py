@@ -145,9 +145,10 @@ def wal_positions_are_equal(context, name1, name2, timeout):
                 if previous_lsn == row1[0]:
                     break
                 previous_lsn = row1[0]
-                sleep(1)
-                continue
-        previous_lsn = None
+            else:
+                previous_lsn = None
+        else:
+            previous_lsn = None
         sleep(1)
     else:
         assert False, \
