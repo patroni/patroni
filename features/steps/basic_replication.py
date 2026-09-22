@@ -134,6 +134,7 @@ def wal_positions_are_equal(context, name1, name2, timeout):
     timeout *= context.timeout_multiplier
     wal_name = get_wal_name(context)
     lsn_func = 'pg_last_{0}_replay_{1}()'.format(wal_name, 'lsn' if wal_name == 'wal' else 'location')
+    previous_lsn = None
     for _ in range(int(timeout)):
         lsn1 = context.pctl.query(name1, "SELECT {0}".format(lsn_func), fail_ok=True)
         lsn2 = context.pctl.query(name2, "SELECT {0}".format(lsn_func), fail_ok=True)
@@ -141,7 +142,12 @@ def wal_positions_are_equal(context, name1, name2, timeout):
             row1 = lsn1.fetchone()
             row2 = lsn2.fetchone()
             if row1 and row2 and row1[0] == row2[0]:
-                break
+                if previous_lsn == row1[0]:
+                    break
+                previous_lsn = row1[0]
+                sleep(1)
+                continue
+        previous_lsn = None
         sleep(1)
     else:
         assert False, \
