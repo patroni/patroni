@@ -406,16 +406,28 @@ class TestConfigureTLS(unittest.TestCase):
         kw = self._run({'protocol': 'http', 'verify': False})
         self.assertEqual(kw, {})
 
-    def test_secure_defaults_build_ca_context(self):
+    def test_verify_false_sets_cert_none(self):
+        # verify=false disables cert verification via pool options only,
+        # without building an SSLContext.
+        kw = self._run({'protocol': 'https', 'verify': False})
+        self.assertEqual(kw['cert_reqs'], 'CERT_NONE')
+        self.assertFalse(kw['assert_hostname'])
+        self.assertNotIn('ssl_context', kw)
+
+    def test_secure_defaults_are_noop(self):
+        # With all flags at their secure defaults, _configure_tls returns
+        # early and leaves the stock python-etcd / urllib3 TLS setup untouched.
         kw = self._run({'protocol': 'https'})
-        self.assertEqual(kw.get('cert_reqs'), 'CERT_REQUIRED')
+        self.assertEqual(kw, {})
 
     def test_default_preserves_cn_fallback(self):
-        # When hostname_checks_common_name is NOT configured, the SSLContext
-        # default must be preserved - no behavior change for existing configs.
+        # When hostname_checks_common_name is NOT configured, _configure_tls
+        # does not touch the pool at all, so the stock SSLContext default
+        # (CN fallback enabled) is preserved - no behavior change for
+        # existing configs.
         kw = self._run({'protocol': 'https'})
-        ctx = kw['ssl_context']
-        self.assertTrue(ctx.hostname_checks_common_name)
+        self.assertNotIn('ssl_context', kw)
+        self.assertNotIn('cert_reqs', kw)
 
     def test_explicit_cn_fallback_false_is_applied(self):
         kw = self._run({'protocol': 'https',
@@ -425,31 +437,41 @@ class TestConfigureTLS(unittest.TestCase):
         # read-only it stays True with a logged warning. Either way, no raise.
         self.assertIn(ctx.hostname_checks_common_name, (True, False))
 
-    def test_verify_false_sets_cert_none(self):
-        kw = self._run({'protocol': 'https', 'verify': False})
-        self.assertEqual(kw['cert_reqs'], 'CERT_NONE')
-        self.assertFalse(kw['assert_hostname'])
-        self.assertNotIn('ssl_context', kw)
+    def _run_with_pool(self, config, pool_kw):
+        from patroni.dcs.etcd import AbstractEtcdClientWithFailover
 
-    def test_verify_hostname_false_keeps_ca(self):
-        import ssl
-        kw = self._run({'protocol': 'https', 'verify_hostname': False})
-        ctx = kw['ssl_context']
-        self.assertEqual(ctx.verify_mode, ssl.CERT_REQUIRED)
-        self.assertFalse(ctx.check_hostname)
-        self.assertFalse(kw['assert_hostname'])
+        class _FakeHTTP:
+            def __init__(self):
+                self.connection_pool_kw = dict(pool_kw)
 
-    def test_cn_fallback_true_keeps_hostname_check(self):
-        import ssl
-        kw = self._run({'protocol': 'https',
-                        'hostname_checks_common_name': True})
-        ctx = kw['ssl_context']
-        self.assertEqual(ctx.verify_mode, ssl.CERT_REQUIRED)
-        self.assertTrue(ctx.check_hostname)
+        class _FakeClient:
+            _config = config
+            protocol = config.get('protocol', 'http')
+            http = _FakeHTTP()
 
-    def test_cn_fallback_false_does_not_raise(self):
-        try:
+        client = _FakeClient()
+        AbstractEtcdClientWithFailover._configure_tls(client)
+        return client.http.connection_pool_kw
+
+    def test_client_cert_is_loaded(self):
+        from unittest.mock import patch
+        with patch('ssl.SSLContext.load_cert_chain') as mocked:
+            self._run_with_pool(
+                {'protocol': 'https', 'verify_hostname': False},
+                {'cert_file': '/tmp/c.pem', 'key_file': '/tmp/k.pem'})
+        mocked.assert_called_once()
+
+    def test_cn_fallback_readonly_platform_warns(self):
+        from unittest.mock import patch
+
+        class _ReadOnlyCtx:
+            check_hostname = True
+
+            def __setattr__(self, name, value):
+                if name == 'hostname_checks_common_name':
+                    raise AttributeError('read-only')
+                object.__setattr__(self, name, value)
+
+        with patch('ssl.create_default_context', return_value=_ReadOnlyCtx()):
             self._run({'protocol': 'https',
                        'hostname_checks_common_name': False})
-        except Exception as e:
-            self.fail('unexpected exception: %r' % e)

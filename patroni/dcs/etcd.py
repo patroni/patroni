@@ -179,6 +179,13 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
         verify_hostname = config.get('verify_hostname', True)
         cn_fallback = config.get('hostname_checks_common_name')
 
+        # Nothing to do when everything is at its secure default: leave the
+        # stock python-etcd / urllib3 TLS setup unchanged. This also avoids
+        # building an SSLContext (and loading the platform trust store) for
+        # existing configurations that set none of these flags.
+        if verify and verify_hostname and cn_fallback is None:
+            return
+
         pool_kw = self.http.connection_pool_kw
 
         if not verify:
