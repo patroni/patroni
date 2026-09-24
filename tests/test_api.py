@@ -2,8 +2,10 @@ import datetime
 import json
 import socket
 import unittest
+import ssl
 
 from http.server import HTTPServer
+from socketserver import ThreadingMixIn
 from io import BytesIO as IO
 from unittest.mock import Mock, patch, PropertyMock
 
@@ -814,6 +816,252 @@ class TestRestApiServer(unittest.TestCase):
                                                   'ciphers': '!SSLv1:!SSLv2:!SSLv3:!TLSv1:!TLSv1.1',
                                                   'allowlist': ['127.0.0.1', '::1/128', '::1/zxc'],
                                                   'allowlist_include_members': True, 'thread_pool_size': 'a'})
+        self._reset_tls_counters()
+    # ---- TLS fixture (goes into TestRestApiServer.setUp) and helper ----
+
+    def _reset_tls_counters(self):
+        for name in ('_tls_detect_timeout_total', '_tls_handshake_failed_total',
+                     '_tls_unknown_protocol_total', '_tls_permissive_http_accepted_total',
+                     '_tls_permissive_https_accepted_total'):
+            setattr(MockRestApiServer, name, 0)
+        MockRestApiServer._last_tls_stats_log_at = 0.0
+
+    @staticmethod
+    def _new_mock_server(config):
+        with patch('ssl.SSLContext.load_cert_chain', Mock()), \
+                patch('ssl.SSLContext.wrap_socket', Mock(return_value=0)), \
+                patch('patroni.api.PatroniThreadPoolExecutor', Mock()), \
+                patch.object(HTTPServer, '__init__', Mock()):
+            return MockRestApiServer(Mock(), '', config)
+
+    # ---- TLS tests ----
+    def test_tls_mode_contract(self):
+        self.assertEqual(('disabled', 0.5), RestApiServer._parse_tls_config({}, {}))
+        self.assertEqual(('strict', 0.5),
+                         RestApiServer._parse_tls_config({'certfile': 'a'}, {'certfile': 'a'}))
+        self.assertEqual(('permissive', 0.1), RestApiServer._parse_tls_config(
+            {'tls': {'mode': 'permissive', 'detect_timeout': 0.1}, 'certfile': 'a'}, {'certfile': 'a'}))
+        invalid = (
+            ({'tls': None}, {}),
+            ({'tls': {'mode': 'unknown'}}, {}),
+            ({'tls': {'mode': 'strict'}}, {}),
+            ({'tls': {'mode': 'permissive'}}, {}),
+            ({'tls': {'mode': 'disabled'}, 'certfile': 'a'}, {'certfile': 'a'}),
+            ({'tls': {'detect_timeout': True}}, {}),
+            ({'tls': {'detect_timeout': 0.09}}, {}),
+            ({'tls': {'detect_timeout': 5.01}}, {}),
+            ({'tls': {'detect_timeout': float('nan')}}, {}),
+            ({'tls': {'detect_timeout': float('inf')}}, {}),
+        )
+        for config, ssl_options in invalid:
+            with self.subTest(config=config), self.assertRaises(ValueError):
+                RestApiServer._parse_tls_config(config, ssl_options)
+
+    def test_verify_client_valid_sets_mode_invalid_is_logged(self):
+        context = Mock()
+        with patch('ssl.create_default_context', return_value=context), \
+                patch('patroni.api.logger.error') as log_error:
+            self.assertIs(context, RestApiServer._create_ssl_context(
+                {'certfile': 'a', 'verify_client': 'required'}, 'strict'))
+            self.assertEqual(ssl.CERT_REQUIRED, context.verify_mode)
+            log_error.assert_not_called()
+        context2 = Mock()
+        with patch('ssl.create_default_context', return_value=context2), \
+                patch('patroni.api.logger.error') as log_error2:
+            # a bad verify_client is logged and tolerated, not fatal
+            self.assertIs(context2, RestApiServer._create_ssl_context(
+                {'certfile': 'a', 'verify_client': 'invalid'}, 'strict'))
+            log_error2.assert_called_once()
+
+    def test_invalid_certificate_rotation_is_prevalidated(self):
+        before = (self.srv._RestApiServer__ssl_options, self.srv._RestApiServer__ssl_ctx,
+                  self.srv.connection_string)
+        replacement = {'listen': '*:8008', 'certfile': 'replacement', 'tls': {'mode': 'strict'}}
+        with patch.object(self.srv, '_create_ssl_context', side_effect=ssl.SSLError('bad cert')), \
+                patch.object(HTTPServer, 'shutdown') as shutdown:
+            with self.assertRaises(ssl.SSLError):
+                self.srv.reload_config(replacement)
+        shutdown.assert_not_called()
+        self.assertEqual(before, (self.srv._RestApiServer__ssl_options,
+                                  self.srv._RestApiServer__ssl_ctx,
+                                  self.srv.connection_string))
+
+    def test_failed_certificate_rotation_is_retryable(self):
+        good_ctx = Mock()
+        candidate = {'listen': '*:8008', 'certfile': 'rotated', 'tls': {'mode': 'strict'}}
+        with patch.object(self.srv, '_create_ssl_context',
+                          side_effect=(ssl.SSLError('mismatched key'), good_ctx)) as create_ctx, \
+                patch.object(self.srv, '_RestApiServer__initialize', return_value=False) as initialize:
+            with self.assertRaises(ssl.SSLError):
+                self.srv.reload_config(candidate)
+            initialize.assert_not_called()
+            self.srv.reload_config(candidate)   # retry succeeds
+        self.assertEqual(2, create_ctx.call_count)
+        initialize.assert_called_once()
+
+    def test_permissive_worker_classifies_http_tls_and_unknown_protocol(self):
+        srv = self._new_mock_server({'listen': '*:8008', 'certfile': 'a', 'tls': {'mode': 'permissive'}})
+        ssl_context = Mock()
+        wrapped = Mock()
+        ssl_context.wrap_socket.return_value = wrapped
+        srv._RestApiServer__ssl_ctx = ssl_context
+
+        server_socket, client_socket = socket.socketpair()
+        try:
+            client_socket.sendall(b'GET /health HTTP/1.0\r\n\r\n')
+            self.assertIs(server_socket, srv._prepare_permissive_request(server_socket, ('local', 1)))
+            self.assertEqual(1, MockRestApiServer._tls_permissive_http_accepted_total)
+        finally:
+            server_socket.close()
+            client_socket.close()
+
+        server_socket, client_socket = socket.socketpair()
+        try:
+            client_socket.sendall(b'\x16client hello')
+            self.assertIs(wrapped, srv._prepare_permissive_request(server_socket, ('local', 2)))
+            ssl_context.wrap_socket.assert_called_once_with(
+                server_socket, server_side=True, do_handshake_on_connect=False)
+        finally:
+            server_socket.close()
+            client_socket.close()
+
+        server_socket, client_socket = socket.socketpair()
+        try:
+            client_socket.sendall(b'\x16client hello')
+            ssl_context.wrap_socket.side_effect = ssl.SSLError('failed to wrap')
+            with self.assertRaises(ssl.SSLError):
+                srv._prepare_permissive_request(server_socket, ('local', 3))
+            self.assertEqual(1, MockRestApiServer._tls_handshake_failed_total)
+        finally:
+            server_socket.close()
+            client_socket.close()
+
+        server_socket, client_socket = socket.socketpair()
+        try:
+            client_socket.sendall(b'\x01unknown')
+            with self.assertRaises(ConnectionAbortedError):
+                srv._prepare_permissive_request(server_socket, ('local', 4))
+            self.assertEqual(1, MockRestApiServer._tls_unknown_protocol_total)
+        finally:
+            server_socket.close()
+            client_socket.close()
+
+    def test_permissive_worker_detection_timeout_is_bounded(self):
+        srv = self._new_mock_server({'listen': '*:8008', 'certfile': 'a',
+                                     'tls': {'mode': 'permissive', 'detect_timeout': 0.1}})
+        srv._RestApiServer__ssl_ctx = Mock()
+        server_socket, client_socket = socket.socketpair()
+        try:
+            with patch('patroni.api.select.select', return_value=([], [], [])) as select_mock:
+                with self.assertRaises(socket.timeout):
+                    srv._prepare_permissive_request(server_socket, ('local', 5))
+            select_mock.assert_called_once_with([server_socket], [], [], 0.1)
+            self.assertEqual(1, MockRestApiServer._tls_detect_timeout_total)
+        finally:
+            server_socket.close()
+            client_socket.close()
+
+    def test_worker_closes_detection_rejections_without_dispatching(self):
+        srv = self._new_mock_server({'listen': '*:8008', 'certfile': 'a', 'tls': {'mode': 'permissive'}})
+        raw_socket, peer_socket = socket.socketpair()
+        try:
+            for failure in (socket.timeout('slow client'), ConnectionAbortedError('unknown protocol')):
+                with self.subTest(failure=failure), \
+                        patch('patroni.api.enable_keepalive', Mock()), \
+                        patch.object(srv, '_prepare_permissive_request', side_effect=failure), \
+                        patch.object(srv, 'shutdown_request') as shutdown, \
+                        patch.object(srv, 'handle_error') as handle_error, \
+                        patch.object(ThreadingMixIn, 'process_request_thread') as parent_process:
+                    srv.process_request_thread(raw_socket, ('local', 6))
+                shutdown.assert_called_once_with(raw_socket)
+                handle_error.assert_not_called()
+                parent_process.assert_not_called()
+        finally:
+            raw_socket.close()
+            peer_socket.close()
+
+    def test_worker_handshake_restores_timeout_and_counts_results(self):
+        srv = self._new_mock_server({'listen': '*:8008', 'certfile': 'a', 'tls': {'mode': 'permissive'}})
+        handshake_timeout = srv._RestApiServer__handshake_timeout
+
+        class FakeSSLSocket:
+            def __init__(self, failure=None):
+                self.failure = failure
+                self.timeout = 7
+                self.timeouts = []
+
+            def gettimeout(self):
+                return self.timeout
+
+            def settimeout(self, value):
+                self.timeout = value
+                self.timeouts.append(value)
+
+            def do_handshake(self):
+                if self.failure:
+                    raise self.failure
+
+        raw_socket, peer_socket = socket.socketpair()
+        try:
+            success = FakeSSLSocket()
+            with patch('patroni.api.ssl.SSLSocket', FakeSSLSocket), \
+                    patch('patroni.api.enable_keepalive', Mock()), \
+                    patch.object(srv, '_prepare_permissive_request', return_value=success), \
+                    patch.object(ThreadingMixIn, 'process_request_thread') as parent_process:
+                srv.process_request_thread(raw_socket, ('local', 7))
+            self.assertEqual([handshake_timeout, 7], success.timeouts)
+            self.assertEqual(1, MockRestApiServer._tls_permissive_https_accepted_total)
+            self.assertEqual(0, MockRestApiServer._tls_handshake_failed_total)
+            parent_process.assert_called_once_with(success, ('local', 7))
+
+            failure = FakeSSLSocket(ssl.SSLError('bad handshake'))
+            with patch('patroni.api.ssl.SSLSocket', FakeSSLSocket), \
+                    patch('patroni.api.enable_keepalive', Mock()), \
+                    patch.object(srv, '_prepare_permissive_request', return_value=failure), \
+                    patch.object(srv, 'shutdown_request') as shutdown:
+                srv.process_request_thread(raw_socket, ('local', 8))
+            self.assertEqual([handshake_timeout], failure.timeouts)
+            self.assertEqual(1, MockRestApiServer._tls_handshake_failed_total)
+            shutdown.assert_called_once_with(failure)
+        finally:
+            raw_socket.close()
+            peer_socket.close()
+
+    def test_extra_headers_follow_actual_socket_transport(self):
+        self.srv.http_extra_headers = {'common': 'http', 'transport': 'http'}
+        self.srv.https_extra_headers = {'transport': 'https', 'secure': 'yes'}
+
+        class FakeSSLSocket:
+            pass
+
+        self.assertEqual({'common': 'http', 'transport': 'http'}, self.srv.get_extra_headers(object()))
+        with patch('patroni.api.ssl.SSLSocket', FakeSSLSocket):
+            self.assertEqual({'common': 'http', 'transport': 'https', 'secure': 'yes'},
+                             self.srv.get_extra_headers(FakeSSLSocket()))
+
+    def test_tls_stats_logging_uses_locked_snapshot_and_throttle(self):
+        MockRestApiServer._tls_unknown_protocol_total = 2
+        with patch('patroni.api.time.monotonic', side_effect=(1000.0, 1001.0)), \
+                patch('patroni.api.logger.info') as log_info:
+            self.srv._log_tls_stats_if_due()
+            self.srv._log_tls_stats_if_due()
+        log_info.assert_called_once_with(
+            'REST API TLS permissive stats: http_accepted=%d https_accepted=%d '
+            'detect_timeout=%d unknown_protocol=%d handshake_failed=%d', 0, 0, 0, 2, 0)
+
+    def test_permissive_tls_client_cert_required_rejects_plaintext(self):
+        for verify_client in ('optional', 'required'):
+            with self.subTest(verify_client=verify_client):
+                srv = self._new_mock_server({
+                    'listen': '*:8008', 'certfile': 'a', 'verify_client': verify_client,
+                    'tls': {'mode': 'permissive'}})
+                request_handler = Mock()
+                request_handler.headers = {}
+                request_handler.client_address = ('127.0.0.1',)
+                request_handler.request = object()
+                request_handler.write_response.return_value = None
+                self.assertIsNone(srv.check_access(request_handler))
+                request_handler.write_response.assert_called_once_with(403, 'client certificate required')
 
     @patch.object(HTTPServer, '__init__', Mock())
     def test_reload_config(self):

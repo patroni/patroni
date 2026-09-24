@@ -1073,6 +1073,14 @@ class RealValidator(object):
         return ret
 
 
+def validate_restapi_tls_detect_timeout(value: Any) -> bool:
+    """Validate the timeout used to detect HTTP or TLS in permissive mode."""
+    assert_(not isinstance(value, bool) and isinstance(value, (int, float)),
+            "expected an integer or a number")
+    assert_(0.1 <= float(value) <= 5.0, "must be between 0.1 and 5.0 seconds")
+    return True
+
+
 userattributes = {"username": "", Optional("password"): ""}
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 setattr(validate_host_port_list, 'expected_type', list)
@@ -1138,6 +1146,11 @@ schema = Schema({
         Optional("authentication"): {
             "username": str,
             "password": str
+        },
+        Optional("tls"): {
+            Optional("mode"): EnumValidator(('disabled', 'permissive', 'strict'),
+                                            case_sensitive=True, raise_assert=True),
+            Optional("detect_timeout"): validate_restapi_tls_detect_timeout
         },
         Optional("certfile"): str,
         Optional("keyfile"): str,

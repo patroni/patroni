@@ -545,3 +545,29 @@ class TestValidator(unittest.TestCase):
         errors = schema(c)
         output = "\n".join(errors)
         self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
+    def test_restapi_tls_options(self, mock_out, mock_err):
+        for mode in ('disabled', 'permissive', 'strict'):
+            for detect_timeout in (0.1, 1, 5.0):
+                with self.subTest(mode=mode, detect_timeout=detect_timeout):
+                    c = copy.deepcopy(config)
+                    c['restapi']['tls'] = {'mode': mode, 'detect_timeout': detect_timeout}
+                    errors = parse_output('\n'.join(schema(c)))
+                    self.assertNotIn('restapi.tls.mode', errors)
+                    self.assertNotIn('restapi.tls.detect_timeout', errors)
+
+    def test_restapi_tls_rejects_invalid_options(self, mock_out, mock_err):
+        for mode in ('PERMISSIVE', 'unknown', True, 1):
+            with self.subTest(mode=mode):
+                c = copy.deepcopy(config)
+                c['restapi']['tls'] = {'mode': mode}
+                errors = parse_output('\n'.join(schema(c)))
+                self.assertIn('restapi.tls.mode', errors)
+
+        for detect_timeout in (False, True, '0.5', 0, 0.09, 5.01,
+                               float('nan'), float('inf'), -float('inf')):
+            with self.subTest(detect_timeout=detect_timeout):
+                c = copy.deepcopy(config)
+                c['restapi']['tls'] = {'detect_timeout': detect_timeout}
+                errors = parse_output('\n'.join(schema(c)))
+                self.assertIn('restapi.tls.detect_timeout', errors)
