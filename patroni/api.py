@@ -12,10 +12,13 @@ import hmac
 import json
 import logging
 import os
+import select
 import socket
+import ssl
 import sys
 import time
 import traceback
+from threading import Lock
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import ip_address, ip_network, IPv4Network, IPv6Network
@@ -172,7 +175,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
             headers['Content-Type'] = content_type
         for name, value in headers.items():
             self.send_header(name, value)
-        for name, value in (self.server.http_extra_headers or {}).items():
+        for name, value in self.server.get_extra_headers(self.request).items():
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body.encode('utf-8'))
@@ -1535,6 +1538,23 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
     An asynchronous thread-pool-based HTTP server.
     """
 
+    _TLS_MODES = ('disabled', 'permissive', 'strict')
+    _TLS_DETECT_TIMEOUT_DEFAULT = 0.5
+    _TLS_DETECT_TIMEOUT_MIN = 0.1
+    _TLS_DETECT_TIMEOUT_MAX = 5.0
+    _TLS_STATS_LOG_INTERVAL_SECONDS = 300.0
+    _HTTP_METHOD_INITIAL_BYTES = (b'G', b'P', b'H', b'D', b'O', b'C', b'T')
+
+    # Class-level counters survive HTTP listener reloads during the migration
+    # window. They are intentionally process-local and reset on Patroni restart.
+    _tls_detect_timeout_total = 0
+    _tls_handshake_failed_total = 0
+    _tls_unknown_protocol_total = 0
+    _tls_permissive_http_accepted_total = 0
+    _tls_permissive_https_accepted_total = 0
+    _last_tls_stats_log_at = 0.0
+    _tls_stats_lock = Lock()
+
     def __init__(self, patroni: Patroni, config: Dict[str, Any]) -> None:
         """Establish patroni configuration for the REST API daemon.
 
@@ -1549,8 +1569,12 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         self.__allowlist: Tuple[Union[IPv4Network, IPv6Network], ...] = ()
         self.__handshake_timeout: int = 2
         self.http_extra_headers: Dict[str, str] = {}
+        self.https_extra_headers: Dict[str, str] = {}
         self.patroni = patroni
         self.__listen = None
+        self.__tls_mode = 'disabled'
+        self.__tls_detect_timeout = self._TLS_DETECT_TIMEOUT_DEFAULT
+        self.__ssl_ctx: Optional[ssl.SSLContext] = None
         self.request_queue_size = int(config.get('request_queue_size', 5))
         self.request_timeout: int = 5
         try:
@@ -1575,6 +1599,128 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         certificate.
         """
         return self.__ssl_not_after
+
+    def get_extra_headers(self, request: Any) -> Dict[str, str]:
+        """Return response headers appropriate for the request transport."""
+        headers = dict(self.http_extra_headers)
+        if isinstance(request, ssl.SSLSocket):
+            headers.update(self.https_extra_headers)
+        return headers
+
+    @classmethod
+    def _parse_tls_config(cls, config: Dict[str, Any], ssl_options: Dict[str, Any]) -> Tuple[str, float]:
+        """Resolve and validate the effective REST API TLS configuration."""
+        tls_config: Dict[str, Any]
+        if 'tls' not in config:
+            tls_config = {}
+        elif not isinstance(config['tls'], dict):
+            raise ValueError('restapi.tls must be a dictionary')
+        else:
+            tls_config = cast(Dict[str, Any], config['tls'])
+
+        explicit_mode = 'mode' in tls_config
+        if explicit_mode:
+            tls_mode = tls_config['mode']
+            if tls_mode not in cls._TLS_MODES:
+                raise ValueError('restapi.tls.mode must be one of {0}, got {1!r}'
+                                 .format(cls._TLS_MODES, tls_mode))
+        else:
+            # Preserve stock Patroni behavior for configurations created before
+            # tls.mode existed: certfile means HTTPS, otherwise plain HTTP.
+            tls_mode = 'strict' if ssl_options.get('certfile') else 'disabled'
+
+        if tls_mode in ('permissive', 'strict') and not ssl_options.get('certfile'):
+            raise ValueError('restapi.tls.mode={0} requires restapi.certfile'.format(tls_mode))
+        if explicit_mode and tls_mode == 'disabled' and ssl_options.get('certfile'):
+            raise ValueError('restapi.tls.mode=disabled cannot be combined with restapi.certfile')
+
+        detect_timeout = tls_config.get('detect_timeout', cls._TLS_DETECT_TIMEOUT_DEFAULT)
+        if isinstance(detect_timeout, bool) or not isinstance(detect_timeout, (int, float)):
+            raise ValueError('restapi.tls.detect_timeout must be an integer or a number')
+        detect_timeout = float(detect_timeout)
+        if not cls._TLS_DETECT_TIMEOUT_MIN <= detect_timeout <= cls._TLS_DETECT_TIMEOUT_MAX:
+            raise ValueError('restapi.tls.detect_timeout must be between {0} and {1} seconds'
+                             .format(cls._TLS_DETECT_TIMEOUT_MIN, cls._TLS_DETECT_TIMEOUT_MAX))
+        return tls_mode, detect_timeout
+
+    @staticmethod
+    def _create_ssl_context(ssl_options: Dict[str, Any], tls_mode: str) -> Optional[ssl.SSLContext]:
+        """Build and fully validate an SSL context before replacing a live listener."""
+        if tls_mode == 'disabled':
+            return None
+
+        ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH, cafile=ssl_options.get('cafile'))
+        if ssl_options.get('ciphers'):
+            ctx.set_ciphers(ssl_options['ciphers'])
+        ctx.load_cert_chain(certfile=ssl_options['certfile'], keyfile=ssl_options.get('keyfile'),
+                            password=ssl_options.get('keyfile_password'))
+        verify_client = ssl_options.get('verify_client')
+        if verify_client:
+            modes = {'none': ssl.CERT_NONE, 'optional': ssl.CERT_OPTIONAL, 'required': ssl.CERT_REQUIRED}
+            if verify_client in modes:
+                ctx.verify_mode = modes[verify_client]
+            else:
+                logger.error('Bad value in the "restapi.verify_client": %s', verify_client)
+        return ctx
+
+    @classmethod
+    def _increment_tls_counter(cls, counter: str) -> None:
+        """Increment a migration counter while serializing snapshots used for logging."""
+        with cls._tls_stats_lock:
+            setattr(cls, counter, getattr(cls, counter) + 1)
+
+    def _log_tls_stats_if_due(self) -> None:
+        """Periodically report process-local permissive-mode migration counters."""
+        cls = type(self)
+        now = time.monotonic()
+        with cls._tls_stats_lock:
+            if now - cls._last_tls_stats_log_at < cls._TLS_STATS_LOG_INTERVAL_SECONDS:
+                return
+            counters = (cls._tls_permissive_http_accepted_total,
+                        cls._tls_permissive_https_accepted_total,
+                        cls._tls_detect_timeout_total,
+                        cls._tls_unknown_protocol_total,
+                        cls._tls_handshake_failed_total)
+            if not any(counters):
+                return
+            cls._last_tls_stats_log_at = now
+        logger.info('REST API TLS permissive stats: http_accepted=%d https_accepted=%d '
+                    'detect_timeout=%d unknown_protocol=%d handshake_failed=%d',
+                    *counters)
+
+    def _prepare_permissive_request(self, request: socket.socket,
+                                    client_address: Tuple[str, int]) -> socket.socket:
+        """Classify a raw permissive-mode connection inside a request worker."""
+        tls_mode = self.__tls_mode
+        ssl_ctx = self.__ssl_ctx
+        detect_timeout = self.__tls_detect_timeout
+        if tls_mode != 'permissive' or ssl_ctx is None:
+            return request
+
+        cls = type(self)
+        readable, _, _ = select.select([request], [], [], detect_timeout)
+        if not readable:
+            cls._increment_tls_counter('_tls_detect_timeout_total')
+            raise socket.timeout('REST API TLS detection timeout from {0!r}'.format(client_address))
+
+        first_byte = request.recv(1, socket.MSG_PEEK)
+        if not first_byte:
+            cls._increment_tls_counter('_tls_unknown_protocol_total')
+            raise ConnectionAbortedError('REST API client closed before sending data from {0!r}'
+                                         .format(client_address))
+        if first_byte in self._HTTP_METHOD_INITIAL_BYTES:
+            cls._increment_tls_counter('_tls_permissive_http_accepted_total')
+            return request
+        if first_byte != b'\x16':
+            cls._increment_tls_counter('_tls_unknown_protocol_total')
+            raise ConnectionAbortedError('REST API unknown protocol byte {0!r} from {1!r}'
+                                         .format(first_byte, client_address))
+
+        try:
+            return ssl_ctx.wrap_socket(request, server_side=True, do_handshake_on_connect=False)
+        except Exception:
+            cls._increment_tls_counter('_tls_handshake_failed_total')
+            raise
 
     def construct_server_tokens(self, token_config: str) -> str:
         """Construct the value for the ``Server`` HTTP header based on *server_tokens*.
@@ -1796,7 +1942,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
                 "Couldn't start a service on '%s:%s', please check your `restapi.listen` configuration", hostname, port)
             raise
 
-    def __initialize(self, listen: str, ssl_options: Dict[str, Any]) -> None:
+    def __initialize(self, listen: str, ssl_options: Dict[str, Any], tls_mode: str,
+                     ssl_ctx: Optional[ssl.SSLContext]) -> bool:
         """Configure and start REST API HTTP server.
 
         .. note::
@@ -1818,6 +1965,10 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
                 * ``none``: do not check client certificates;
                 * ``optional``: check client certificate only for unsafe REST API endpoints;
                 * ``required``: check client certificate for all REST API endpoints.
+        :param tls_mode: effective TLS mode for the new listener.
+        :param ssl_ctx: prevalidated SSL context for permissive or strict mode.
+
+        :returns: ``True`` when a live listener was replaced and must be restarted.
 
         :raises:
             :class:`ValueError`: if any issue is faced while parsing *listen*.
@@ -1834,35 +1985,29 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
             # Rely on TCPServer.server_close() to have all requests terminate before we continue
             self.server_close()
 
+        try:
+            self.__httpserver_init(host, port)
+            self._set_fd_cloexec(self.socket)
+            if tls_mode == 'strict':
+                if ssl_ctx is None:  # pragma: no cover - guarded by _parse_tls_config
+                    raise ValueError('restapi.tls.mode=strict requires an SSL context')
+                self.socket = ssl_ctx.wrap_socket(self.socket, server_side=True, do_handshake_on_connect=False)
+        except Exception:
+            try:
+                self.server_close()
+            except Exception as close_error:
+                logger.warning('Failed to close the REST API socket after a failed initialization: %r',
+                               close_error)
+            raise
+
         self.__listen = listen
         self.__ssl_options = ssl_options
-        self._received_new_cert = False  # reset to False after reload_config()
-
-        self.__httpserver_init(host, port)
-        self._set_fd_cloexec(self.socket)
-
-        # wrap socket with ssl if 'certfile' is defined in a config.yaml
-        # Sometime it's also needed to pass reference to a 'keyfile'.
-        self.__protocol = 'https' if ssl_options.get('certfile') else 'http'
-        self.__ssl_not_after = None
-        if self.__protocol == 'https':
-            import ssl
-            ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH, cafile=ssl_options.get('cafile'))
-            if ssl_options.get('ciphers'):
-                ctx.set_ciphers(ssl_options['ciphers'])
-            ctx.load_cert_chain(certfile=ssl_options['certfile'], keyfile=ssl_options.get('keyfile'),
-                                password=ssl_options.get('keyfile_password'))
-            verify_client = ssl_options.get('verify_client')
-            if verify_client:
-                modes = {'none': ssl.CERT_NONE, 'optional': ssl.CERT_OPTIONAL, 'required': ssl.CERT_REQUIRED}
-                if verify_client in modes:
-                    ctx.verify_mode = modes[verify_client]
-                else:
-                    logger.error('Bad value in the "restapi.verify_client": %s', verify_client)
-            self.__ssl_serial_number, self.__ssl_not_after = self.parse_certificate()
-            self.socket = ctx.wrap_socket(self.socket, server_side=True, do_handshake_on_connect=False)
-        if reloading_config:
-            self.start()
+        self.__tls_mode = tls_mode
+        self.__ssl_ctx = ssl_ctx
+        self.__protocol = 'https' if tls_mode in ('permissive', 'strict') else 'http'
+        self._received_new_cert = False
+        self.__ssl_serial_number, self.__ssl_not_after = self.parse_certificate()
+        return reloading_config
 
     def start(self) -> None:
         self._executor.submit(self.serve_forever)
@@ -1874,35 +2019,41 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         Wrapper for :func:`~socketserver.ThreadingMixIn.process_request_thread` that additionally:
 
             * Enable TCP keepalive
+            * Detect HTTP vs HTTPS per connection in permissive mode
             * Perform SSL handshake (if an SSL socket).
 
         :param request: socket to handle the client request.
         :param client_address: tuple containing the client IP and port.
         """
-        if isinstance(request, socket.socket):
-            enable_keepalive(request, 10, 3)
-        if hasattr(request, 'context'):  # SSLSocket
-            from ssl import SSLSocket
-            if isinstance(request, SSLSocket):  # pyright
-                previous_timeout = request.gettimeout()
+        prepared_request = request
+        try:
+            self._log_tls_stats_if_due()
+            if isinstance(request, socket.socket):
+                enable_keepalive(request, 10, 3)
+                prepared_request = self._prepare_permissive_request(request, client_address)
+            if isinstance(prepared_request, ssl.SSLSocket):
+                previous_timeout = prepared_request.gettimeout()
+                # Without a timeout, a client that opens the connection and never completes the TLS
+                # handshake blocks this worker forever; enough such clients exhaust the thread pool.
+                prepared_request.settimeout(self.__handshake_timeout)
                 try:
-                    # Without a timeout, a client that opens the connection and never sends a ClientHello
-                    # blocks this worker forever, and `restapi.thread_pool_size`. Such clients are enough
-                    # to make the REST API stop answering until Patroni is restarted.
-                    request.settimeout(self.__handshake_timeout)
-                    request.do_handshake()
-                except OSError as e:
-                    # The client may reset the connection (or otherwise fail the TLS handshake, e.g.
-                    # ssl.SSLError or a timeout -- all OSError subclasses) before we even start handling
-                    # the request. In that case the parent process_request_thread(), which is responsible
-                    # for closing the socket, is never reached, so we shut the request down ourselves and
-                    # log at DEBUG instead of leaking it.
-                    logger.debug('Connection from %s:%s was reset during the SSL handshake: %r',
-                                 client_address[0], client_address[1], e)
-                    self.shutdown_request(request)
-                    return
-                request.settimeout(previous_timeout)
-        super(RestApiServer, self).process_request_thread(request, client_address)
+                    prepared_request.do_handshake()
+                except Exception:
+                    type(self)._increment_tls_counter('_tls_handshake_failed_total')
+                    raise
+                prepared_request.settimeout(previous_timeout)
+                if self.__tls_mode == 'permissive':
+                    type(self)._increment_tls_counter('_tls_permissive_https_accepted_total')
+        except OSError as e:
+            logger.debug('Connection from %s:%s was reset during the SSL handshake: %r',
+                         client_address[0], client_address[1], e)
+            self.shutdown_request(prepared_request)
+            return
+        except Exception:
+            self.handle_error(prepared_request, client_address)
+            self.shutdown_request(prepared_request)
+            return
+        super(RestApiServer, self).process_request_thread(prepared_request, client_address)
 
     def process_request(self, request: Union[socket.socket, Tuple[bytes, socket.socket]],
                         client_address: Tuple[str, int]) -> None:
@@ -1963,7 +2114,6 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         if not certfile:
             return None, None
 
-        import ssl
         try:
             crt = cast(Dict[str, Any], ssl._ssl._test_decode_cert(certfile))  # pyright: ignore
         except ssl.SSLError as e:
@@ -2033,15 +2183,22 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         ssl_options = {n: config[n] for n in ('certfile', 'keyfile', 'keyfile_password',
                                               'cafile', 'ciphers') if n in config}
 
-        self.http_extra_headers = config.get('http_extra_headers') or {}
-        self.http_extra_headers.update((config.get('https_extra_headers') or {}) if ssl_options.get('certfile') else {})
-
         if isinstance(config.get('verify_client'), str):
             ssl_options['verify_client'] = config['verify_client'].lower()
 
-        if self.__listen != config['listen'] or self.__ssl_options != ssl_options or self._received_new_cert:
-            self.__initialize(config['listen'], ssl_options)
+        tls_mode, detect_timeout = self._parse_tls_config(config, ssl_options)
+        reloading_config = self.__listen is not None
 
+        self.http_extra_headers = dict(config.get('http_extra_headers') or {})
+        self.https_extra_headers = dict(config.get('https_extra_headers') or {})
+
+        restart_listener = False
+        if self.__listen != config['listen'] or self.__ssl_options != ssl_options \
+                or self._received_new_cert or tls_mode != self.__tls_mode:
+            ssl_ctx = self._create_ssl_context(ssl_options, tls_mode)
+            restart_listener = self.__initialize(config['listen'], ssl_options, tls_mode, ssl_ctx)
+
+        self.__tls_detect_timeout = detect_timeout
         self.__auth_key = base64.b64encode(config['auth'].encode('utf-8')) if 'auth' in config else None
         # pyright -- ``__listen`` is initially created as ``None``, but right after that it is replaced with a string
         # through :func:`__initialize`.
@@ -2051,6 +2208,13 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
 
         # Define the Server header response using the server_tokens option.
         self.server_header = self.construct_server_tokens(config.get('server_tokens', 'original'))
+
+        if not reloading_config and tls_mode == 'permissive':
+            logger.warning('REST API is running in TLS PERMISSIVE mode. Both plain HTTP and HTTPS connections '
+                           'are accepted. This is intended only for the migration window; move to strict mode '
+                           'promptly.')
+        if restart_listener:
+            self.start()
 
     @staticmethod
     def _parse_timeout(config: Dict[str, Any], name: str, default: int) -> int:
