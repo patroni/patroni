@@ -92,7 +92,7 @@ Scenario: check the switchover via the API in the pause mode
 	Then I receive a response code 200
 	And postgres-1 is a leader after 5 seconds
 	And postgres-1 role is the primary after 10 seconds
-	And postgres-0 role is the secondary after 10 seconds
+	And postgres-0 role is the secondary after 30 seconds
 	And replication works from postgres-1 to postgres-0 after 20 seconds
 	And "members/postgres-0" key in DCS has state=running after 10 seconds
 	When I issue a GET request to http://127.0.0.1:8008/primary

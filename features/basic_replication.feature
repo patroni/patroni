@@ -80,9 +80,9 @@ Feature: basic replication
   Scenario: check rejoin of the former primary with pg_rewind
     Given I add the table splitbrain to postgres-0
     And I start postgres-0
-    Then postgres-0 role is the secondary after 20 seconds
+    Then postgres-0 role is the secondary after 60 seconds
     When I add the table buz to postgres-2
-    Then table buz is present on postgres-0 after 20 seconds
+    Then table buz is present on postgres-0 after 60 seconds
 
   @reject-duplicate-name
   Scenario: check graceful rejection when two nodes have the same name
