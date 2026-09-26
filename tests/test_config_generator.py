@@ -220,8 +220,13 @@ class TestGenerateConfig(unittest.TestCase):
     @patch.object(MockConnect, 'server_version', PropertyMock(return_value=140000))
     def test_generate_config_running_instance_14(self, mock_sys_stdout):
         self._set_running_instance_config_vals()
+        # hosts_file exists only on PostgreSQL 19+, so pg_settings doesn't return it and pg_hosts.conf is not read
+        open_res = self._get_running_instance_open_res()
+        del open_res[2]
+        fetchall = MockCursor.fetchall
 
-        with patch('builtins.open', Mock(side_effect=self._get_running_instance_open_res())), \
+        with patch('builtins.open', Mock(side_effect=open_res)), \
+             patch.object(MockCursor, 'fetchall', lambda c: [r for r in fetchall(c) if r[0] != 'hosts_file']), \
              patch('sys.argv', ['patroni.py', '--generate-config',
                                 '--dsn', 'host=foo port=bar user=foobar password=qwerty']), \
                 self.assertRaises(SystemExit) as e:
@@ -229,6 +234,7 @@ class TestGenerateConfig(unittest.TestCase):
         self.assertEqual(e.exception.code, 0)
         config = deepcopy(self.config)
         del config['postgresql']['authentication']['superuser']['sslnegotiation']
+        del config['postgresql']['parameters']['hosts_file']
         self.assertEqual(config, yaml.safe_load(mock_sys_stdout.write.call_args_list[0][0][0]))
 
     @patch('os.makedirs', Mock())
