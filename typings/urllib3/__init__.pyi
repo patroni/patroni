@@ -4,4 +4,6 @@ from .response import HTTPResponse
 from .util.request import make_headers
 from .util.timeout import Timeout
 
+__version__: str
+
 __all__ = ['HTTPResponse', 'HTTPConnectionPool', 'HTTPSConnectionPool', 'PoolManager', 'Timeout', 'make_headers']

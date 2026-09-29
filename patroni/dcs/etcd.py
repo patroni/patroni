@@ -20,7 +20,8 @@ import urllib3.util.connection
 from dns import resolver
 from dns.exception import DNSException
 from urllib3 import Timeout
-from urllib3.exceptions import HTTPError, ProtocolError, ReadTimeoutError
+from urllib3.connection import HTTPSConnection
+from urllib3.exceptions import HTTPError, ProtocolError, ReadTimeoutError, SSLError
 
 from ..exceptions import DCSError
 from ..postgresql.mpp import AbstractMPP
@@ -138,6 +139,19 @@ class StaleEtcdNodeGuard(object):
         self._raft_term = raft_term
 
 
+class EtcdHTTPSConnectionPool(urllib3.HTTPSConnectionPool):
+    """Enforce SAN-only verification with urllib3's legacy hostname matcher."""
+
+    def _validate_conn(self, conn: HTTPSConnection) -> None:
+        super()._validate_conn(conn)
+        cert = conn.sock.getpeercert() if conn.sock is not None else None
+        # The legacy matcher only falls back to CN when there are no DNS/IP SAN entries.
+        if not cert or not any(key in ('DNS', 'IP Address') for key, _ in cert.get('subjectAltName', ())):
+            conn.close()
+            raise SSLError('Etcd TLS certificate has no DNS or IP Subject Alternative Name; '
+                           'Common Name fallback is disabled')
+
+
 class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
 
     ERROR_CLS: Type[Exception]
@@ -154,7 +168,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
         # Workaround for the case when https://github.com/jplana/python-etcd/pull/196 is not applied
         self.http.connection_pool_kw.pop('ssl_version', None)
         self._config = config
-        self._configure_tls()
+        self._tls_configured = False
         self._load_machines_cache()
         self._allow_reconnect = True
         # allow passing retry argument to api_execute in params
@@ -163,18 +177,20 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
         self._del_conditions.add('retry')
 
     def _configure_tls(self) -> None:
-        """Apply opt-in TLS relaxation flags to the etcd connection pool.
+        """Apply opt-in TLS verification settings for discovered HTTPS client endpoints.
+
+        With no overrides, preserve the installed urllib3's behavior.
+        If Common Name fallback cannot be enabled, log a warning and retain SAN-only verification.
 
         Behavior matrix (verify / verify_hostname / hostname_checks_common_name):
           false / any   / any   -> no CA-chain or hostname verification
           true  / false / any   -> CA-chain validation only; hostname check off
+          true  / true  / unset -> preserve python-etcd / urllib3 defaults
           true  / true  / false -> CA-chain + SAN validation; no CN fallback
-          true  / true  / true  -> CA-chain + SAN validation, with DNS CN fallback
+          true  / true  / true  -> CA-chain + hostname validation, allowing CN fallback
+                                  if supported by the TLS backend; otherwise warn and retain SAN-only
         """
         config = self._config
-        if self.protocol != 'https':
-            return
-
         verify = config.get('verify', True)
         verify_hostname = config.get('verify_hostname', True)
         cn_fallback = config.get('hostname_checks_common_name')
@@ -192,40 +208,54 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
             pool_kw['cert_reqs'] = 'CERT_NONE'
             pool_kw['assert_hostname'] = False
             pool_kw.pop('ca_certs', None)
-            logger.warning('Etcd TLS certificate verification is disabled')
+            return logger.warning('Etcd TLS certificate verification is disabled')
+
+        pool_kw['cert_reqs'] = 'CERT_REQUIRED'
+        if not verify_hostname:
+            pool_kw['assert_hostname'] = False
+            return logger.warning('Etcd TLS hostname verification is disabled')
+
+        if int(urllib3.__version__.split('.')[0]) < 2:
+            if cn_fallback:
+                return logger.warning('Etcd TLS Common Name fallback is enabled')
+            self.http.pool_classes_by_scheme = dict(self.http.pool_classes_by_scheme,
+                                                    https=EtcdHTTPSConnectionPool)
+            return
+
+        # urllib3 2.x already enforces SAN-only verification by default.
+        # A custom context is needed only to enable CN fallback.
+        if not cn_fallback:
             return
 
         import ssl
 
-        cafile = pool_kw.get('ca_certs') or config.get('ca_cert') or config.get('cacert')
-        ctx = ssl.create_default_context(cafile=cafile)
+        from urllib3.connection import create_urllib3_context
 
-        if not verify_hostname:
-            ctx.check_hostname = False
-            pool_kw['assert_hostname'] = False
-            logger.warning('Etcd TLS hostname verification is disabled')
-        elif cn_fallback is not None:
-            # Only override the SSLContext default (True) when the user
-            # explicitly configured hostname_checks_common_name. Leaving it
-            # untouched preserves stock behavior for existing configs. True
-            # enables DNS Common Name fallback; False enforces SAN-only, which
-            # depends on the platform supporting the setter.
-            try:
-                ctx.hostname_checks_common_name = cn_fallback
-            except AttributeError:
-                if not cn_fallback:
-                    logger.warning(
-                        'This platform cannot disable Common Name fallback '
-                        '(SSLContext.hostname_checks_common_name is read-only); '
-                        'SAN-only verification cannot be enforced.')
+        ctx = create_urllib3_context(cert_reqs=ssl.CERT_REQUIRED)
+        # Delegate identity verification to urllib3's matcher, which honors
+        # hostname_checks_common_name on this context.
+        ctx.check_hostname = False
+        try:
+            ctx.hostname_checks_common_name = True
+            cn_fallback_enabled = ctx.hostname_checks_common_name
+        except AttributeError:
+            cn_fallback_enabled = False
 
-        cert_file = pool_kw.get('cert_file')
-        key_file = pool_kw.get('key_file')
-        if cert_file:
-            ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
+        if not cn_fallback_enabled:
+            return logger.warning('This TLS backend cannot enable Common Name fallback; '
+                                  'retaining SAN-only verification')
+
+        # urllib3 loads explicit CA/client files from pool options.
+        # For a supplied context, load system trust ourselves.
+        if not any(pool_kw.get(key) for key in ('ca_certs', 'ca_cert_dir', 'ca_cert_data')):
+            load_default_certs = getattr(ctx, 'load_default_certs', None)
+            if not callable(load_default_certs):
+                return logger.warning('This TLS backend requires an explicit cacert '
+                                      'when enabling Common Name fallback; retaining SAN-only verification')
+            load_default_certs()
 
         pool_kw['ssl_context'] = ctx
-        pool_kw['cert_reqs'] = 'CERT_REQUIRED'
+        logger.warning('Etcd TLS Common Name fallback is enabled')
 
     def _calculate_timeouts(self, etcd_nodes: int, timeout: Optional[float] = None) -> Tuple[int, float, int]:
         """Calculate a request timeout and number of retries per single etcd node.
@@ -508,6 +538,11 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
         # Can not bootstrap list of etcd-cluster members, giving up
         if not machines_cache:
             raise etcd.EtcdException
+
+        # Peer discovery and client endpoints may use different protocols.
+        if not self._tls_configured and any(urlparse(url).scheme == 'https' for url in machines_cache):
+            self._configure_tls()
+            self._tls_configured = True
 
         # enforce resolving dns name,they might get new ips
         self._update_dns_cache(self._dns_resolver.remove, machines_cache)
