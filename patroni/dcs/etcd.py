@@ -182,7 +182,8 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
         With no overrides, preserve the installed urllib3's behavior.
         If Common Name fallback cannot be enabled, log a warning and retain SAN-only verification.
 
-        Behavior matrix (verify / verify_hostname / hostname_checks_common_name):
+        Behavior matrix (verify / verify_hostname / hostname_checks_common_name)::
+
           false / any   / any   -> no CA-chain or hostname verification
           true  / false / any   -> CA-chain validation only; hostname check off
           true  / true  / unset -> preserve python-etcd / urllib3 defaults

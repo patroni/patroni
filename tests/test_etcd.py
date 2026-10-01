@@ -491,8 +491,9 @@ class TestConfigureTLS(unittest.TestCase):
 class TestEtcdHTTPSConnectionPool(unittest.TestCase):
 
     def _validate(self, cert):
-        from patroni.dcs.etcd import EtcdHTTPSConnectionPool
         import urllib3
+
+        from patroni.dcs.etcd import EtcdHTTPSConnectionPool
         pool = EtcdHTTPSConnectionPool.__new__(EtcdHTTPSConnectionPool)
         conn = MagicMock()
         conn.sock.getpeercert.return_value = cert
