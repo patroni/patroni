@@ -132,6 +132,22 @@ def dcs_key_contains(context, name, subkey, key):
     assert key in response and subkey in response[key], f"{name} key in DCS doesn't have {subkey} in {key}"
 
 
+@step('"{name}" key in DCS has {subkey} in {key:w} after {time_limit:d} seconds')
+def dcs_key_contains_after(context, name, subkey, key, time_limit):
+    # The primary writes slot positions to DCS on its HA loop. Retry until then.
+    time_limit *= context.timeout_multiplier
+    max_time = time.monotonic() + int(time_limit)
+    while time.monotonic() < max_time:
+        try:
+            response = json.loads(context.dcs_ctl.query(name))
+            if key in response and subkey in response[key]:
+                return
+        except Exception:
+            pass
+        time.sleep(1)
+    assert False, f"{name} key in DCS doesn't have {subkey} in {key} after {time_limit} seconds"
+
+
 @step('"{name}" key in DCS does not have {subkey} in {key:w}')
 def dcs_key_does_not_contain(context, name, subkey, key):
     response = json.loads(context.dcs_ctl.query(name))
