@@ -100,9 +100,10 @@ class TestPatroniLogger(unittest.TestCase):
             format_threads.append(threading.get_ident())
             return orig(self, ei)
 
-        # pytest's log capture handler also formats records in the caller thread
+        # Other root handlers (pytest capture, leftovers from other tests) would
+        # format the record in the caller thread. tearDown restores them.
+        logging.getLogger().handlers[:] = []
         with patch('sys.stderr', StringIO()) as stderr_output, \
-                patch('_pytest.logging.LogCaptureHandler.emit', Mock()), \
                 patch.object(logging.Formatter, 'formatException', formatException):
             logger = PatroniLogger()
             logger.reload_config({'level': 'INFO'})
