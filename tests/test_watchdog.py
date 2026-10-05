@@ -92,6 +92,16 @@ class TestWatchdog(unittest.TestCase):
         self.assertFalse(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}).activate())
 
     @patch('platform.system', Mock(return_value='Linux'))
+    def test_warn_when_device_can_not_be_opened_in_automatic_mode(self):
+        # A leader without a watchdog has no fence. The operator must see this.
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'automatic'}})
+        with patch.object(LinuxWatchdogDevice, 'open', Mock(side_effect=WatchdogError('no device'))), \
+                patch('patroni.watchdog.base.logger.warning') as warning_mock:
+            self.assertTrue(watchdog.activate())
+        self.assertFalse(watchdog.is_running)
+        self.assertTrue(any('no device' in str(c) for c in warning_mock.call_args_list))
+
+    @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'is_running', PropertyMock(return_value=False))
     def test_watchdog_activate(self):
         with patch.object(LinuxWatchdogDevice, 'open', Mock(side_effect=WatchdogError(''))):
