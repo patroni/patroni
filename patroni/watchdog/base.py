@@ -140,11 +140,14 @@ class Watchdog(object):
             self.impl.open()
             actual_timeout = self._set_timeout()
         except WatchdogError as e:
-            # Always warn. Without a watchdog, a hung Patroni can not fence
-            # this node. The operator must know this before an incident.
-            logger.warning("Could not activate %s: %s. Patroni runs without a watchdog. "
-                           "A hung Patroni can not fence this node. On Linux, load the softdog "
-                           "module or set watchdog.mode to off.", self.impl.describe(), e)
+            if self.config.mode == MODE_REQUIRED:
+                logger.warning("Could not activate %s: %s", self.impl.describe(), e)
+            else:
+                # Warn, do not debug-log. The leader runs without a fence.
+                # The operator must know this before an incident.
+                logger.warning("Could not activate %s: %s. Patroni runs without a watchdog. "
+                               "A hung Patroni can not fence this node. On Linux, load the softdog "
+                               "module or set watchdog.mode to off.", self.impl.describe(), e)
             self.impl = NullWatchdog()
             actual_timeout = self.impl.get_timeout()
 

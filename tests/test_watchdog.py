@@ -92,14 +92,22 @@ class TestWatchdog(unittest.TestCase):
         self.assertFalse(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}).activate())
 
     @patch('platform.system', Mock(return_value='Linux'))
-    def test_warn_when_device_can_not_be_opened_in_automatic_mode(self):
+    @patch.object(LinuxWatchdogDevice, 'open', Mock(side_effect=WatchdogError('no device')))
+    def test_warn_when_device_can_not_be_opened(self):
         # A leader without a watchdog has no fence. The operator must see this.
         watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'automatic'}})
-        with patch.object(LinuxWatchdogDevice, 'open', Mock(side_effect=WatchdogError('no device'))), \
-                patch('patroni.watchdog.base.logger.warning') as warning_mock:
+        with self.assertLogs('patroni.watchdog.base', level='WARNING') as logs:
             self.assertTrue(watchdog.activate())
-        self.assertFalse(watchdog.is_running)
-        self.assertTrue(any('no device' in str(c) for c in warning_mock.call_args_list))
+        self.assertTrue(watchdog.impl.is_null)
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn('no device. Patroni runs without a watchdog.', logs.output[0])
+
+        # In required mode the node does not run without a watchdog, so the message must not say so.
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}})
+        with self.assertLogs('patroni.watchdog.base', level='WARNING') as logs:
+            self.assertFalse(watchdog.activate())
+        self.assertIn('Could not activate Linux watchdog device: no device', logs.output[0])
+        self.assertNotIn('runs without a watchdog', logs.output[0])
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'is_running', PropertyMock(return_value=False))
