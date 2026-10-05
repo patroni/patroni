@@ -140,7 +140,9 @@ class Watchdog(object):
             self.impl.open()
             actual_timeout = self._set_timeout()
         except WatchdogError as e:
-            if self.config.mode == MODE_REQUIRED:
+            if self.config.mode == MODE_REQUIRED or self.impl.is_running:
+                # Required mode refuses to lead below. An open device that could
+                # not be configured is not "no watchdog": keep the short message.
                 logger.warning("Could not activate %s: %s", self.impl.describe(), e)
             else:
                 # Warn, do not debug-log. The leader runs without a fence.
@@ -148,6 +150,9 @@ class Watchdog(object):
                 logger.warning("Could not activate %s: %s. Patroni runs without a watchdog. "
                                "A hung Patroni can not fence this node. On Linux, load the softdog "
                                "module or set watchdog.mode to off.", self.impl.describe(), e)
+            if self.impl.is_running:
+                # Do not leave an armed device behind without keepalives.
+                self._disable()
             self.impl = NullWatchdog()
             actual_timeout = self.impl.get_timeout()
 

@@ -110,6 +110,18 @@ class TestWatchdog(unittest.TestCase):
         self.assertNotIn('runs without a watchdog', logs.output[0])
 
     @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'set_timeout', Mock(side_effect=WatchdogError('bad timeout')))
+    def test_device_opened_but_not_configured(self):
+        # The device is armed. Close it and do not claim that there is no watchdog.
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'automatic'}})
+        with patch.object(LinuxWatchdogDevice, 'close') as mock_close, \
+                self.assertLogs('patroni.watchdog.base', level='WARNING') as logs:
+            self.assertTrue(watchdog.activate())
+        mock_close.assert_called_once_with()
+        self.assertTrue(watchdog.impl.is_null)
+        self.assertNotIn('runs without a watchdog', logs.output[0])
+
+    @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'is_running', PropertyMock(return_value=False))
     def test_watchdog_activate(self):
         with patch.object(LinuxWatchdogDevice, 'open', Mock(side_effect=WatchdogError(''))):
