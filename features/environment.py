@@ -182,10 +182,10 @@ class PatroniController(AbstractController):
             self.watchdog.stop()
 
     def _is_accessible(self):
-        cursor = self.query("SELECT 1", fail_ok=True)
-        if cursor is not None:
-            cursor.execute("SET synchronous_commit TO 'local'")
-            return True
+        if self.query("SELECT 1", fail_ok=True) is not None:
+            # Postgres could be restarted by Patroni right after we connected to it,
+            # therefore we should tolerate errors and simply retry a bit later.
+            return self.query("SET synchronous_commit TO 'local'", fail_ok=True) is not None
 
     def _make_patroni_test_config(self, name, custom_config):
         patroni_config_name = self.PATRONI_CONFIG.format(name)
