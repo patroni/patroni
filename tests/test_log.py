@@ -100,9 +100,6 @@ class TestPatroniLogger(unittest.TestCase):
             format_threads.append(threading.get_ident())
             return orig(self, ei)
 
-        # Other root handlers (pytest capture, leftovers from other tests) would
-        # format the record in the caller thread. tearDown restores them.
-        logging.getLogger().handlers[:] = []
         with patch('sys.stderr', StringIO()) as stderr_output, \
                 patch.object(logging.Formatter, 'formatException', formatException):
             logger = PatroniLogger()
@@ -111,7 +108,11 @@ class TestPatroniLogger(unittest.TestCase):
             try:
                 raise ValueError('boom')
             except ValueError:
-                _LOG.exception('test')
+                record = _LOG.makeRecord(_LOG.name, logging.ERROR, __file__, 0, 'test', (), sys.exc_info())
+            # start() returns before the logger thread installs the QueueHandler.
+            # Until then the root logger formats records in the caller thread.
+            # Send the record to the QueueHandler directly.
+            logger._queue_handler.handle(record)
             logger.shutdown()
 
         self.assertIn('ValueError: boom', stderr_output.getvalue())
