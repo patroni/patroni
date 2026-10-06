@@ -537,14 +537,16 @@ def get_all_members(cluster: Cluster, group: Optional[int],
     if is_citus_cluster() and group is None:
         clusters.update(cluster.workers)
     if role in (CtlPostgresqlRole.LEADER, CtlPostgresqlRole.PRIMARY, CtlPostgresqlRole.STANDBY_LEADER):
-        # In the DCS the members' role can be one among: ``primary``, ``master``, ``replica`` or ``standby_leader``.
-        # ``primary`` and ``master`` are the same thing.
+        # In the DCS the members' role can be one among: ``primary``, ``master``, ``replica``, ``standby_leader``,
+        # or ``promoted``. ``primary`` and ``master`` are the same thing. ``promoted`` means the member holds the
+        # leader lock but Postgres promotion has not completed yet, so it is neither a primary nor a standby leader.
         for cluster in clusters.values():
             if cluster.leader is not None and cluster.leader.name and\
                 (role == CtlPostgresqlRole.LEADER
-                 or cluster.leader.data.get('role') not in (PostgresqlRole.PRIMARY, PostgresqlRole.MASTER)
+                 or cluster.leader.data.get('role') not in (PostgresqlRole.PRIMARY, PostgresqlRole.MASTER,
+                                                            PostgresqlRole.PROMOTED)
                  and role == CtlPostgresqlRole.STANDBY_LEADER
-                 or cluster.leader.data.get('role') != PostgresqlRole.STANDBY_LEADER
+                 or cluster.leader.data.get('role') not in (PostgresqlRole.STANDBY_LEADER, PostgresqlRole.PROMOTED)
                  and role == CtlPostgresqlRole.PRIMARY):
                 yield cluster.leader.member
         return
@@ -1593,7 +1595,8 @@ def output_members(cluster: Cluster, name: str, extended: bool = False,
         * ``Site``: site of the Patroni node, as per ``site`` configuration;
         * ``Member``: name of the Patroni node, as per ``name`` configuration;
         * ``Host``: hostname (or IP) and port, as per ``postgresql.listen`` configuration;
-        * ``Role``: ``Leader``, ``Standby Leader``, ``Sync Standby`` or ``Replica``;
+        * ``Role``: ``Leader``, ``Promoted`` (holds the leader lock but promotion has not completed yet),
+          ``Standby Leader``, ``Sync Standby`` or ``Replica``;
         * ``State``: one of :class:`~patroni.postgresql.misc.PostgresqlState`;
         * ``TL``: current timeline in Postgres;
         * ``Receive LSN``: last received LSN (``pg_catalog.pg_last_(xlog|wal)_receive_(location|lsn)()``);
