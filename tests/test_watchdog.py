@@ -122,6 +122,16 @@ class TestWatchdog(unittest.TestCase):
         self.assertNotIn('runs without a watchdog', logs.output[0])
 
     @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'get_support', Mock(side_effect=WatchdogError('no ioctl')))
+    def test_device_closed_when_capability_query_fails(self):
+        # get_support() fails in _set_timeout() and again in _disable(). The device must still be closed.
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'automatic'}})
+        with patch.object(LinuxWatchdogDevice, 'close') as mock_close:
+            self.assertTrue(watchdog.activate())
+        mock_close.assert_called_once_with()
+        self.assertTrue(watchdog.impl.is_null)
+
+    @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'is_running', PropertyMock(return_value=False))
     def test_watchdog_activate(self):
         with patch.object(LinuxWatchdogDevice, 'open', Mock(side_effect=WatchdogError(''))):
