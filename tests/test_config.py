@@ -101,6 +101,38 @@ class TestConfig(unittest.TestCase):
             self.assertTrue(config.reload_local_configuration())
             self.assertIsNone(config.reload_local_configuration())
 
+    def test_etcd_auth_from_environment_without_other_etcd_settings(self):
+        """Credentials-only PATRONI_ETCD(3)_USERNAME/PASSWORD must reach the config."""
+        for dcs in ('etcd', 'etcd3'):
+            with patch.dict('os.environ', {
+                'PATRONI_{0}_USERNAME'.format(dcs.upper()): 'etcd-user',
+                'PATRONI_{0}_PASSWORD'.format(dcs.upper()): 'etcd-pass',
+            }, clear=True):
+                env_config = Config._build_environment_configuration()
+            self.assertEqual(env_config, {dcs: {'username': 'etcd-user', 'password': 'etcd-pass'}})
+
+        with patch.dict('os.environ', {}, clear=True):
+            env_config = Config._build_environment_configuration()
+        self.assertNotIn('etcd', env_config)
+        self.assertNotIn('etcd3', env_config)
+
+        def open_mock(fname, *args, **kwargs):
+            return io.StringIO('name: postgres0\netcd3:\n  hosts: 127.0.0.1:2379\n')
+
+        with patch.dict('os.environ', {
+            'PATRONI_ETCD3_USERNAME': 'etcd-user',
+            'PATRONI_ETCD3_PASSWORD': 'etcd-pass',
+        }, clear=True):
+            with patch('os.path.exists', Mock(return_value=True)):
+                with patch('os.path.isfile', Mock(side_effect=lambda fname: fname == 'postgres0.yml')):
+                    with patch('builtins.open', MagicMock(side_effect=open_mock)):
+                        config = Config('postgres0.yml')
+        self.assertEqual(config.local_configuration['etcd3'], {
+            'hosts': '127.0.0.1:2379',
+            'username': 'etcd-user',
+            'password': 'etcd-pass',
+        })
+
     @patch('tempfile.mkstemp', Mock(return_value=[3000, 'blabla']))
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.remove', Mock(side_effect=IOError))

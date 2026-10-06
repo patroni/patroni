@@ -706,8 +706,9 @@ class Config(object):
                     if value is not None:
                         ret[name.lower()][suffix.lower()] = value
         for dcs in ('etcd', 'etcd3'):
-            if dcs in ret:
-                ret[dcs].update(_get_auth(dcs))
+            auth = _get_auth(dcs)
+            if auth:
+                ret[dcs].update(auth)
 
         return ret
 
