@@ -298,11 +298,19 @@ class TestPostgresql(BaseTestPostgresql):
         mock_get_pg_settings.return_value['primary_conninfo'][1] = ''
         mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '1'
         self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
+        # Nothing changed, but postgresql.conf must be written when joining the running postgres
+        with patch.object(Postgresql, 'cb_called', PropertyMock(return_value=False)), \
+                patch('patroni.postgresql.config.logger.info') as mock_info:
+            self.assertEqual(self.p.config.check_recovery_conf(None), (True, False))
+            mock_info.assert_not_called()
         mock_get_pg_settings.return_value['recovery_min_apply_delay'][5] = self.p.config._auto_conf
+        mock_get_pg_settings.return_value['restore_command'] = [
+            'restore_command', 'foo', None, 'string', 'sighup', self.p.config._auto_conf]
         with self.assertLogs('patroni.postgresql.config', logging.INFO) as logs:
             self.assertEqual(self.p.config.check_recovery_conf(None), (True, False))
         self.assertEqual(logs.output, ['INFO:patroni.postgresql.config:Recovery parameters changed, '
-                                       'reload required: recovery_min_apply_delay'])
+                                       'reload required: recovery_min_apply_delay, restore_command'])
+        del mock_get_pg_settings.return_value['restore_command']
         mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '0'
         self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
         conninfo = {'host': '1', 'password': 'bar'}

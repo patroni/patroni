@@ -509,6 +509,11 @@ class TestHa(PostgresInit):
         self.p.is_primary = false
         self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), a secondary, and following a leader ()')
         self.ha.patroni.replicatefrom = "foo"
+        self.p.config.check_recovery_conf = Mock(return_value=(True, True))
+        with patch('patroni.async_executor.AsyncExecutor.try_run_async') as mock_try_run_async:
+            self.ha.run_cycle()
+            self.assertEqual(mock_try_run_async.call_args[0][0],
+                             'changing replication-related parameters and restarting')
         self.p.config.check_recovery_conf = Mock(return_value=(True, False))
         self.ha.cluster.config.data.update({'slots': {'l': {'database': 'a', 'plugin': 'b'}}})
         self.ha.cluster.members[1].data['tags']['replicatefrom'] = 'postgresql0'
