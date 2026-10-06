@@ -455,6 +455,34 @@ class TestPostgresql(BaseTestPostgresql):
     def test_reload(self):
         self.assertTrue(self.p.reload())
 
+    @patch('subprocess.Popen')
+    def test_pg_ctl(self, mock_popen):
+        process = mock_popen.return_value.__enter__.return_value
+        for returncode in (0, 1):
+            process.wait.return_value = returncode
+            self.assertEqual(Postgresql.pg_ctl(self.p, 'promote', '-W', timeout=10, stderr=subprocess.DEVNULL),
+                             returncode == 0)
+            mock_popen.assert_called_with([self.p.pgcommand('pg_ctl'), 'promote', '-D', self.p.data_dir, '-W'],
+                                          stderr=subprocess.DEVNULL)
+            process.wait.assert_called_with(timeout=10)
+        process.kill.assert_not_called()
+
+    @patch('subprocess.Popen')
+    def test_pg_ctl_interrupted(self, mock_popen):
+        process = mock_popen.return_value.__enter__.return_value
+        for error in (SystemExit(), KeyboardInterrupt(), subprocess.TimeoutExpired('pg_ctl', 10)):
+            for kill_error in (None, ProcessLookupError()):
+                with self.subTest(error=type(error), kill_error=type(kill_error)):
+                    process.reset_mock()
+                    process.wait.side_effect = error
+                    process.kill.side_effect = kill_error
+                    with self.assertRaises(type(error)) as raised:
+                        Postgresql.pg_ctl(self.p, 'reload')
+                    self.assertIs(raised.exception, error)
+                    process.wait.assert_called_once_with(timeout=None)
+                    process.kill.assert_called_once_with()
+                    self.assertEqual(mock_popen.return_value.__exit__.call_args[0][:2], (type(error), error))
+
     @patch.object(Postgresql, 'is_running')
     def test_is_healthy(self, mock_is_running):
         mock_is_running.return_value = True

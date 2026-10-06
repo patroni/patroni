@@ -251,6 +251,7 @@ class PostgresInit(unittest.TestCase):
 
     @patch('patroni.psycopg._connect', psycopg_connect)
     @patch('patroni.postgresql.CallbackExecutor', Mock())
+    @patch.object(Postgresql, 'pg_ctl', Mock(return_value=True))
     @patch('patroni.postgresql.mpp.citus.CitusHandler.start', Mock())
     @patch('patroni.postgresql.slots.SlotsAdvanceThread.start', Mock())
     @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
@@ -278,6 +279,7 @@ class PostgresInit(unittest.TestCase):
                                 'on_restart': 'true', 'on_role_change': 'true'},
                   'citus': {'group': 0, 'database': 'citus'}}
         self.p = Postgresql(config, get_mpp(config))
+        self.p.pg_ctl = Mock(return_value=True)
 
 
 class BaseTestPostgresql(PostgresInit):

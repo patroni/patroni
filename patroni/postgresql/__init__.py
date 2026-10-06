@@ -309,7 +309,16 @@ class Postgresql(ClusterSite):
         :returns: `!True` when return_code == 0, otherwise `!False`"""
 
         pg_ctl = [self.pgcommand('pg_ctl'), cmd]
-        return subprocess.call(pg_ctl + ['-D', self._data_dir] + list(args), **kwargs) == 0
+        timeout = kwargs.pop('timeout', None)
+        with subprocess.Popen(pg_ctl + ['-D', self._data_dir] + list(args), **kwargs) as process:
+            try:
+                return process.wait(timeout=timeout) == 0
+            except BaseException:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                raise
 
     def initdb(self, *args: str, **kwargs: Any) -> bool:
         """Builds and executes the initdb command.
