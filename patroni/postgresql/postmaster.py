@@ -292,6 +292,8 @@ class PostmasterProcess(psutil.Process):
             else:
                 logger.debug("Backends closed")
                 return True
+        else:
+            return True
 
     @staticmethod
     def start(pgcommand: str, data_dir: str, conf: str, options: List[str]) -> Optional['PostmasterProcess']:

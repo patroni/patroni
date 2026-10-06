@@ -160,7 +160,15 @@ class TestPostmasterProcess(unittest.TestCase):
         mock_wait.return_value = ([c2], [])
         with patch('psutil.Process.children', Mock(return_value=[c1, c2, c3, c4])):
             proc = PostmasterProcess(123)
-            proc.wait_for_user_backends_to_close(1)
+            self.assertTrue(proc.wait_for_user_backends_to_close(1))
+
+        for children in ([], [c1, c3, c4]):
+            for stop_timeout in (None, 1):
+                with self.subTest(children=children, stop_timeout=stop_timeout):
+                    mock_wait.reset_mock()
+                    with patch('psutil.Process.children', Mock(return_value=children)):
+                        self.assertTrue(proc.wait_for_user_backends_to_close(stop_timeout))
+                    mock_wait.assert_not_called()
 
         with patch('psutil.Process.children', Mock(side_effect=psutil.NoSuchProcess(123))):
             proc = PostmasterProcess(123)
