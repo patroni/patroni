@@ -1,4 +1,5 @@
 import datetime
+import logging
 import os
 import re
 import stat
@@ -298,13 +299,22 @@ class TestPostgresql(BaseTestPostgresql):
         mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '1'
         self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
         mock_get_pg_settings.return_value['recovery_min_apply_delay'][5] = self.p.config._auto_conf
-        self.assertEqual(self.p.config.check_recovery_conf(None), (True, False))
+        with self.assertLogs('patroni.postgresql.config', logging.INFO) as logs:
+            self.assertEqual(self.p.config.check_recovery_conf(None), (True, False))
+        self.assertEqual(logs.output, ['INFO:patroni.postgresql.config:Recovery parameters changed, '
+                                       'reload required: recovery_min_apply_delay'])
         mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '0'
         self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
         conninfo = {'host': '1', 'password': 'bar'}
         with patch('patroni.postgresql.config.ConfigHandler.primary_conninfo_params', Mock(return_value=conninfo)):
             mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '1'
-            self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
+            with self.assertLogs('patroni.postgresql.config', logging.INFO) as logs:
+                self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
+            # Only names are logged. The password from primary_conninfo must not appear.
+            self.assertEqual(logs.output, ['INFO:patroni.postgresql.config:Recovery parameters changed, '
+                                           'restart required: primary_conninfo',
+                                           'INFO:patroni.postgresql.config:Recovery parameters changed, '
+                                           'reload required: recovery_min_apply_delay'])
             mock_get_pg_settings.return_value['primary_conninfo'][1] = 'host=1 target_session_attrs=read-write'\
                 + ' dbname=postgres passfile=' + re.sub(r'([\'\\ ])', r'\\\1', self.p.config._pgpass)
             mock_get_pg_settings.return_value['recovery_min_apply_delay'][1] = '0'
