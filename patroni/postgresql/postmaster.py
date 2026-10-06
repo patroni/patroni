@@ -266,7 +266,6 @@ class PostmasterProcess(psutil.Process):
                                  "logical replication tablesync worker for subscription|"
                                  "logical replication parallel apply worker for subscription|"
                                  "logical replication apply worker for subscription|"
-                                 "datachecksums launcher|datachecksums worker|"
                                  "slotsync worker|walsummarizer|io worker|bgworker:) ")
 
         try:
@@ -293,6 +292,8 @@ class PostmasterProcess(psutil.Process):
             else:
                 logger.debug("Backends closed")
                 return True
+        else:
+            return True
 
     @staticmethod
     def start(pgcommand: str, data_dir: str, conf: str, options: List[str]) -> Optional['PostmasterProcess']:
