@@ -38,4 +38,4 @@ To enable software watchdog issue the following commands as root before starting
 
 For testing it may be helpful to disable rebooting by adding ``soft_noboot=1`` to the modprobe command line. In this case the watchdog will just log a line in kernel ring buffer, visible via `dmesg`.
 
-Patroni will log information about the watchdog when it is successfully enabled.
+Patroni will log information about the watchdog when it is successfully enabled. If the watchdog can not be activated in ``automatic`` mode (for example, the device can not be opened), Patroni logs a warning and runs without a watchdog.

@@ -92,6 +92,46 @@ class TestWatchdog(unittest.TestCase):
         self.assertFalse(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}).activate())
 
     @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'open', Mock(side_effect=WatchdogError('no device')))
+    def test_warn_when_device_can_not_be_opened(self):
+        # A leader without a watchdog has no fence. The operator must see this.
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'automatic'}})
+        with self.assertLogs('patroni.watchdog.base', level='WARNING') as logs:
+            self.assertTrue(watchdog.activate())
+        self.assertTrue(watchdog.impl.is_null)
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn('no device. Patroni runs without a watchdog.', logs.output[0])
+
+        # In required mode the node does not run without a watchdog, so the message must not say so.
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}})
+        with self.assertLogs('patroni.watchdog.base', level='WARNING') as logs:
+            self.assertFalse(watchdog.activate())
+        self.assertIn('Could not activate Linux watchdog device: no device', logs.output[0])
+        self.assertNotIn('runs without a watchdog', logs.output[0])
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'set_timeout', Mock(side_effect=WatchdogError('bad timeout')))
+    def test_device_opened_but_not_configured(self):
+        # The device is armed. Close it and do not claim that there is no watchdog.
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'automatic'}})
+        with patch.object(LinuxWatchdogDevice, 'close') as mock_close, \
+                self.assertLogs('patroni.watchdog.base', level='WARNING') as logs:
+            self.assertTrue(watchdog.activate())
+        mock_close.assert_called_once_with()
+        self.assertTrue(watchdog.impl.is_null)
+        self.assertNotIn('runs without a watchdog', logs.output[0])
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'get_support', Mock(side_effect=WatchdogError('no ioctl')))
+    def test_device_closed_when_capability_query_fails(self):
+        # get_support() fails in _set_timeout() and again in _disable(). The device must still be closed.
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'automatic'}})
+        with patch.object(LinuxWatchdogDevice, 'close') as mock_close:
+            self.assertTrue(watchdog.activate())
+        mock_close.assert_called_once_with()
+        self.assertTrue(watchdog.impl.is_null)
+
+    @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'is_running', PropertyMock(return_value=False))
     def test_watchdog_activate(self):
         with patch.object(LinuxWatchdogDevice, 'open', Mock(side_effect=WatchdogError(''))):
