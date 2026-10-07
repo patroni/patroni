@@ -1518,8 +1518,8 @@ class RestApiHandler(BaseHTTPRequestHandler):
         try:
             BaseHTTPRequestHandler.handle_one_request(self)
         except Exception:
-            logger.exception('Exception while processing REST API request')
             self.send_error(503)
+            raise
 
     def log_message(self, format: str, *args: Any) -> None:
         """Log a custom ``debug`` message.
