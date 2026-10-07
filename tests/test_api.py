@@ -476,6 +476,22 @@ class TestRestApiHandler(unittest.TestCase):
         mock_dcs.get_cluster.return_value.config = None
         MockRestApiServer(RestApiHandler, request)
 
+    def test_do_PATCH_config_exception(self):
+        request_body = json.dumps({'postgresql': {'use_slots': False}})
+        request = 'PATCH /config HTTP/1.0' + self._authorization + '\nContent-Length: ' + \
+            str(len(request_body)) + '\n\n' + request_body
+        for failure in ('get_cluster', 'set_config_value'):
+            dcs = Mock()
+            dcs.get_cluster.return_value.config = ClusterConfig.from_node(
+                1, json.dumps({'postgresql': {'use_slots': True}}))
+            setattr(dcs, failure, Mock(side_effect=Exception('sensitive exception details')))
+            with patch.object(MockPatroni, 'dcs', dcs), \
+                    patch.object(RestApiHandler, 'send_error') as response_mock, \
+                    patch('patroni.api.logger.exception') as logger_mock:
+                MockRestApiServer(RestApiHandler, request)
+            response_mock.assert_called_once_with(503)
+            logger_mock.assert_called_once()
+
     @patch.object(MockPatroni, 'dcs')
     def test_do_PUT_config(self, mock_dcs):
         mock_dcs.get_cluster.return_value.config = ClusterConfig.from_node(1, '{}')

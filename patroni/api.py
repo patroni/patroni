@@ -829,15 +829,19 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         request = self._read_json_content()
         if request:
-            cluster = self.server.patroni.dcs.get_cluster()
-            if not (cluster.config and cluster.config.modify_version):
+            try:
+                cluster = self.server.patroni.dcs.get_cluster()
+                if not (cluster.config and cluster.config.modify_version):
+                    return self.send_error(503)
+                data = cluster.config.data.copy()
+                if patch_config(data, request):
+                    value = json.dumps(data, separators=(',', ':'))
+                    if not self.server.patroni.dcs.set_config_value(value, cluster.config.version):
+                        return self.send_error(409)
+                self.server.patroni.ha.wakeup()
+            except Exception:
+                logger.exception('Exception while processing PATCH /config request')
                 return self.send_error(503)
-            data = cluster.config.data.copy()
-            if patch_config(data, request):
-                value = json.dumps(data, separators=(',', ':'))
-                if not self.server.patroni.dcs.set_config_value(value, cluster.config.version):
-                    return self.send_error(409)
-            self.server.patroni.ha.wakeup()
             self._write_json_response(200, data)
 
     @check_access

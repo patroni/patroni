@@ -77,7 +77,7 @@ def do_request(context, request_method, url, data):
     data = data and json.loads(data)
     try:
         r = context.request_executor.request(request_method, url, data)
-        if request_method == 'PATCH' and r.status == 409:
+        if request_method == 'PATCH' and r.status in (409, 503):
             r = context.request_executor.request(request_method, url, data)
     except Exception:
         context.status_code = context.response = None
