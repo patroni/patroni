@@ -16,6 +16,10 @@ if __name__ == "__main__":
         if not os.path.isdir(args.dirname):
             os.makedirs(args.dirname)
         if not os.path.exists(full_filename):
-            shutil.copy(args.pathname, full_filename)
+            # Copy to a temporary name, then rename. A restore on another node
+            # must never see a partly written segment.
+            tmp_filename = full_filename + ".tmp." + str(os.getpid())
+            shutil.copy(args.pathname, tmp_filename)
+            os.replace(tmp_filename, full_filename)
     else:
         shutil.copy(full_filename, args.pathname)
