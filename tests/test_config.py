@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, Mock, patch
 from patroni import global_config
 from patroni.config import ClusterConfig, Config, ConfigParseError
 from patroni.postgresql.misc import PostgresqlRole
+from patroni.utils import SyncCrossSiteMode
 
 from .test_ha import get_cluster_initialized_with_only_leader
 
@@ -398,3 +399,9 @@ class TestConfig(unittest.TestCase):
         # Modifying the result should not affect the config
         result['parameters']['shared_buffers'] = '1GB'
         self.assertEqual(self.config['postgresql']['parameters']['shared_buffers'], '256MB')
+
+    def test_global_config_sync_cross_site_mode(self):
+        config = {'synchronous_mode': True, 'synchronous_cross_site': 'invalid'}
+        cluster = get_cluster_initialized_with_only_leader(cluster_config=ClusterConfig(1, config, 1))
+        test_config = global_config.from_cluster(cluster)
+        self.assertEqual(test_config.sync_cross_site_mode, SyncCrossSiteMode.ANY)
