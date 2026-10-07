@@ -829,19 +829,15 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         request = self._read_json_content()
         if request:
-            try:
-                cluster = self.server.patroni.dcs.get_cluster()
-                if not (cluster.config and cluster.config.modify_version):
-                    return self.send_error(503)
-                data = cluster.config.data.copy()
-                if patch_config(data, request):
-                    value = json.dumps(data, separators=(',', ':'))
-                    if not self.server.patroni.dcs.set_config_value(value, cluster.config.version):
-                        return self.send_error(409)
-                self.server.patroni.ha.wakeup()
-            except Exception:
-                logger.exception('Exception while processing PATCH /config request')
+            cluster = self.server.patroni.dcs.get_cluster()
+            if not (cluster.config and cluster.config.modify_version):
                 return self.send_error(503)
+            data = cluster.config.data.copy()
+            if patch_config(data, request):
+                value = json.dumps(data, separators=(',', ':'))
+                if not self.server.patroni.dcs.set_config_value(value, cluster.config.version):
+                    return self.send_error(409)
+            self.server.patroni.ha.wakeup()
             self._write_json_response(200, data)
 
     @check_access
@@ -1519,7 +1515,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
             This is only used to keep track of latency when logging messages through :func:`log_message`.
         """
         self.__start_time = time.monotonic()
-        BaseHTTPRequestHandler.handle_one_request(self)
+        try:
+            BaseHTTPRequestHandler.handle_one_request(self)
+        except Exception:
+            logger.exception('Exception while processing REST API request')
+            self.send_error(503)
 
     def log_message(self, format: str, *args: Any) -> None:
         """Log a custom ``debug`` message.

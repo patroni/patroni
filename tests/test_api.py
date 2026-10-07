@@ -822,6 +822,14 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, 'GET /replica')
         mock_settimeout.assert_called_once_with(5)
 
+    def test_handler_exception_returns_503(self):
+        with patch.object(RestApiHandler, 'do_GET_cluster', Mock(side_effect=Exception('sensitive details'))), \
+                patch.object(RestApiHandler, 'send_error') as response_mock, \
+                patch('patroni.api.logger.exception') as logger_mock:
+            MockRestApiServer(RestApiHandler, 'GET /cluster HTTP/1.0' + self._authorization)
+        response_mock.assert_called_once_with(503)
+        logger_mock.assert_called_once_with('Exception while processing REST API request')
+
 
 class TestRestApiServer(unittest.TestCase):
 
