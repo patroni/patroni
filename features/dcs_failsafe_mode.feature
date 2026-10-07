@@ -35,6 +35,7 @@ Feature: dcs failsafe mode
     And I start postgres-1
     Then "members/postgres-0" key in DCS has state=running after 10 seconds
     And "members/postgres-1" key in DCS has state=running after 2 seconds
+    And postgres-0 role is the primary after 10 seconds
     And Response on GET http://127.0.0.1:8009/failsafe contains postgres-1 after 10 seconds
     When I issue a GET request to http://127.0.0.1:8009/failsafe
     Then I receive a response code 200
