@@ -23,10 +23,11 @@ def etcd_watch(self, key, index=None, timeout=None, recursive=None):
         raise etcd.EtcdWatchTimedOut
     elif timeout == 5.0:
         return etcd.EtcdResult('compareAndSwap', {})
-    elif 5 < timeout <= 10.0:
-        raise etcd.EtcdException
     elif timeout == 20.0:
         raise etcd.EtcdEventIndexCleared
+    # Etcd.watch() computes the timeout of a retry from the clock.
+    # Do not depend on its exact value.
+    raise etcd.EtcdException
 
 
 def etcd_write(self, key, value, **kwargs):
