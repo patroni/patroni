@@ -940,14 +940,15 @@ class ConfigHandler(object):
             if wal_receiver_primary_slot_name is not None:
                 self._current_recovery_params['primary_slot_name'][0] = wal_receiver_primary_slot_name
 
-        # Increment the 'reload' to enforce write of postgresql.conf when joining the running postgres
-        required = {'restart': 0,
-                    'reload': int(self._postgresql.major_version >= 120000
-                                  and not self._postgresql.cb_called
-                                  and not self._postgresql.is_starting())}
+        # Enforce write of postgresql.conf when joining the running postgres
+        force_reload = self._postgresql.major_version >= 120000 \
+            and not self._postgresql.cb_called and not self._postgresql.is_starting()
 
-        def record_mismatch(mtype: bool) -> None:
-            required['restart' if mtype else 'reload'] += 1
+        # Names of the changed parameters. Values are not logged, they can be sensitive.
+        changed: Dict[str, List[str]] = {'restart': [], 'reload': []}
+
+        def record_mismatch(param: str, mtype: bool) -> None:
+            changed['restart' if mtype else 'reload'].append(param)
 
         wanted_recovery_params = self.build_recovery_params(member)
         for param, value in (self._current_recovery_params or EMPTY_DICT).items():
@@ -959,17 +960,20 @@ class ConfigHandler(object):
                 continue
             if param == 'recovery_min_apply_delay':
                 if not compare_values('integer', 'ms', value[0], wanted_recovery_params.get(param, 0)):
-                    record_mismatch(value[1])
+                    record_mismatch(param, value[1])
             elif param == 'standby_mode':
                 if not compare_values('bool', None, value[0], wanted_recovery_params.get(param, 'on')):
-                    record_mismatch(value[1])
+                    record_mismatch(param, value[1])
             elif param == 'primary_conninfo':
                 if not self._check_primary_conninfo(value[0], wanted_recovery_params.get('primary_conninfo', {})):
-                    record_mismatch(value[1])
+                    record_mismatch(param, value[1])
             elif (param != 'primary_slot_name' or wanted_recovery_params.get('primary_conninfo')) \
                     and str(value[0]) != str(wanted_recovery_params.get(param, '')):
-                record_mismatch(value[1])
-        return required['restart'] + required['reload'] > 0, required['restart'] > 0
+                record_mismatch(param, value[1])
+        for key, names in changed.items():
+            if names:
+                logger.info('Recovery parameters changed, %s required: %s', key, ', '.join(names))
+        return bool(force_reload or changed['restart'] or changed['reload']), bool(changed['restart'])
 
     @staticmethod
     def _remove_file_if_exists(name: str) -> None:
