@@ -116,6 +116,23 @@ class TestConfig(unittest.TestCase):
         self.assertNotIn('etcd', env_config)
         self.assertNotIn('etcd3', env_config)
 
+        # Role credentials are consumed before the generic suffix loop, so they
+        # stay under postgresql.authentication and do not open their own section.
+        with patch.dict('os.environ', {
+            'PATRONI_REPLICATION_USERNAME': 'replicator',
+            'PATRONI_REPLICATION_PASSWORD': 'rep-pass',
+            'PATRONI_ETCD_USERNAME': 'etcd-user',
+            'PATRONI_RAFT_PASSWORD': 'raft-secret',
+        }, clear=True):
+            env_config = Config._build_environment_configuration()
+        self.assertEqual(env_config['etcd'], {'username': 'etcd-user'})
+        self.assertEqual(env_config['raft'], {'password': 'raft-secret'})
+        self.assertNotIn('replication', env_config)
+        self.assertEqual(env_config['postgresql']['authentication']['replication'], {
+            'username': 'replicator',
+            'password': 'rep-pass',
+        })
+
         def open_mock(fname, *args, **kwargs):
             return io.StringIO('name: postgres0\netcd3:\n  hosts: 127.0.0.1:2379\n')
 

@@ -687,6 +687,7 @@ class Config(object):
                               'REGISTER_SERVICE', 'SERVICE_CHECK_INTERVAL', 'SERVICE_CHECK_TLS_SERVER_NAME',
                               'SERVICE_TAGS', 'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL',
                               'POD_IP', 'PORTS', 'LABELS', 'BYPASS_API_SERVICE', 'RETRIABLE_HTTP_CODES', 'KEY_PASSWORD',
+                              'USERNAME', 'PASSWORD',
                               'USE_SSL', 'SET_ACLS', 'GROUP', 'DATABASE', 'LEADER_LABEL_VALUE', 'FOLLOWER_LABEL_VALUE',
                               'STANDBY_LEADER_LABEL_VALUE', 'TMP_ROLE_LABEL', 'AUTH_DATA', 'BOOTSTRAP_LABELS') and name:
                     value = os.environ.pop(param)
@@ -705,10 +706,6 @@ class Config(object):
                         value = parse_bool(value)
                     if value is not None:
                         ret[name.lower()][suffix.lower()] = value
-        for dcs in ('etcd', 'etcd3'):
-            auth = _get_auth(dcs)
-            if auth:
-                ret[dcs].update(auth)
 
         return ret
 
