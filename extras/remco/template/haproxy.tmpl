@@ -19,7 +19,7 @@ listen stats
 
 listen primary
 	bind *:5000
-	option httpchk OPTIONS /master
+	option httpchk HEAD /primary
 	http-check expect status 200
 	default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
 {% for node in ls("/members") %}
