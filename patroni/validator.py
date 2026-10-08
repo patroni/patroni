@@ -1098,7 +1098,10 @@ validate_etcd = {
     Optional("password"): str,
     Optional("cacert"): str,
     Optional("cert"): str,
-    Optional("key"): str
+    Optional("key"): str,
+    Optional("verify"): bool,
+    Optional("verify_hostname"): bool,
+    Optional("hostname_checks_common_name"): bool
 }
 
 schema = Schema({
