@@ -236,6 +236,18 @@ class TestClient(unittest.TestCase):
         self.assertFalse(self.client._refresh_machines_cache())
         self.assertRaises(etcd.EtcdException, self.client._refresh_machines_cache, ['http://localhost:2379'])
 
+    @patch.object(EtcdClient, '_get_machines_list',
+                  Mock(return_value=['https://localhost:2379', 'https://localhost:4001']))
+    def test__refresh_machines_cache_configures_tls_for_https_members(self):
+        # An HTTP seed can advertise HTTPS client URLs via member discovery;
+        # TLS must be (re)configured when such endpoints appear even though the
+        # seed itself was HTTP.
+        self.client._tls_configured = False
+        with patch.object(EtcdClient, '_configure_tls') as configure_tls:
+            self.client._refresh_machines_cache(['http://localhost:2379'])
+        configure_tls.assert_called_once()
+        self.assertTrue(self.client._tls_configured)
+
     def test__load_machines_cache(self):
         self.client._config = {}
         self.assertRaises(Exception, self.client._load_machines_cache)

@@ -700,7 +700,8 @@ class Config(object):
                         value = value and _parse_list(value)
                     elif suffix in ('LABELS', 'SET_ACLS', 'AUTH_DATA', 'BOOTSTRAP_LABELS'):
                         value = _parse_dict(value)
-                    elif suffix in ('USE_PROXIES', 'REGISTER_SERVICE', 'USE_ENDPOINTS', 'BYPASS_API_SERVICE', 'VERIFY'):
+                    elif suffix in ('USE_PROXIES', 'REGISTER_SERVICE', 'USE_ENDPOINTS', 'BYPASS_API_SERVICE',
+                                    'VERIFY', 'VERIFY_HOSTNAME', 'HOSTNAME_CHECKS_COMMON_NAME'):
                         value = parse_bool(value)
                     if value is not None:
                         ret[name.lower()][suffix.lower()] = value

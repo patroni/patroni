@@ -540,11 +540,6 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
         if not machines_cache:
             raise etcd.EtcdException
 
-        # Peer discovery and client endpoints may use different protocols.
-        if not self._tls_configured and any(urlparse(url).scheme == 'https' for url in machines_cache):
-            self._configure_tls()
-            self._tls_configured = True
-
         # enforce resolving dns name,they might get new ips
         self._update_dns_cache(self._dns_resolver.remove, machines_cache)
 
@@ -577,6 +572,13 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
         if value:
             ret = set(self._machines_cache) != set(value)
             self._machines_cache = value
+            # Endpoints learned through member discovery may use a different
+            # protocol than the seed (e.g. an HTTP seed advertising HTTPS
+            # client URLs), so (re)configure TLS whenever an HTTPS endpoint
+            # appears and it has not been configured yet.
+            if not self._tls_configured and any(urlparse(url).scheme == 'https' for url in value):
+                self._configure_tls()
+                self._tls_configured = True
         elif machines_cache:  # we are just starting or all nodes were not available at some point
             raise etcd.EtcdException("Could not get the list of servers, "
                                      "maybe you provided the wrong "
