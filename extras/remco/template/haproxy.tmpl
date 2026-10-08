@@ -30,7 +30,7 @@ listen primary
 
 listen replicas
 	bind *:5001
-	option httpchk OPTIONS /replica
+	option httpchk HEAD /replica
 	http-check expect status 200
 	default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
 {% for node in ls("/members") %}
