@@ -17,7 +17,7 @@ listen stats
 	stats uri /
 
 
-listen master
+listen primary
 	bind *:5000
 	option httpchk OPTIONS /master
 	http-check expect status 200
