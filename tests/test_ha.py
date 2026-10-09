@@ -439,7 +439,8 @@ class TestHa(PostgresInit):
         self.ha.has_lock = true
         self.p.is_primary = false
         self.p.set_role(PostgresqlRole.PRIMARY)
-        self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock')
+        self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock'
+                                              + ', in recovery (promotion has not completed)')
 
     def test_demote_after_failing_to_obtain_lock(self):
         self.ha.acquire_lock = false

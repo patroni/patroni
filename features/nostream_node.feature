@@ -20,7 +20,7 @@ Scenario: check permanent logical replication slots are not copied
 @pg110000
 Scenario: check that slots are written to the /status key
     Given "status" key in DCS has postgres_0 in slots
-    And "status" key in DCS has postgres_2 in slots
+    And "status" key in DCS has postgres_2 in slots after 10 seconds
     And "status" key in DCS has test_logical in slots
     And "status" key in DCS has test_logical in slots
     And "status" key in DCS does not have postgres_1 in slots

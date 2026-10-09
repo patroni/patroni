@@ -511,14 +511,17 @@ def parse_int(value: Any, base_unit: Optional[str] = None) -> Optional[int]:
     if val is None and unit.startswith('.') or unit and unit[0] in ('.', 'e', 'E'):
         val, unit = strtod(value)
 
-    if val is not None:
-        unit = unit.strip()
-        if not unit:
-            return round(val)
-
-        val = convert_to_base_unit(val, unit, base_unit)
+    try:
         if val is not None:
-            return round(val)
+            unit = unit.strip()
+            if not unit:
+                return round(val)
+
+            val = convert_to_base_unit(val, unit, base_unit)
+            if val is not None:
+                return round(val)
+    except OverflowError:
+        return None
 
 
 def parse_real(value: Any, base_unit: Optional[str] = None) -> Optional[float]:

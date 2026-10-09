@@ -950,7 +950,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
                 status_code = 422
             else:
                 status_code = None
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, ArithmeticError):
             logger.exception('Invalid scheduled %s time: %s', action, schedule)
             error = 'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601'
             status_code = 422
@@ -1305,7 +1305,6 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         self.do_POST_failover(action='switchover')
 
-    @check_access
     def do_POST_citus(self) -> None:
         """Handle a ``POST`` request to ``/citus`` path.
 
@@ -1314,6 +1313,7 @@ class RestApiHandler(BaseHTTPRequestHandler):
         """
         self.do_POST_mpp()
 
+    @check_access
     def do_POST_mpp(self) -> None:
         """Handle a ``POST`` request to ``/mpp`` path.
 
