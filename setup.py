@@ -171,23 +171,40 @@ def get_versions():
         sys.modules.update(old_modules)
 
 
+def requirement_name(requirement):
+    """Distribution name of a requirements.txt line, without version specifiers,
+    extras or environment markers, e.g. 'py-consul' for
+    'py-consul>=1.1.1; python_version>="3.9"'."""
+    return re.split(r'[\s;<>=!~\[(]', requirement, maxsplit=1)[0].lower()
+
+
 def main():
     logging.basicConfig(format='%(message)s', level=os.getenv('LOGLEVEL', logging.WARNING))
 
     install_requires = []
+    extras_names = {e: [d.lower() for d in deps] for e, deps in EXTRAS_REQUIRE.items()}
+    extras_lines = {e: [] for e in EXTRAS_REQUIRE}
     for r in read('requirements.txt').split('\n'):
         r = r.strip()
-        if r == '':
+        if r == '' or r.startswith('#'):
             continue
+        name = requirement_name(r)
         extra = False
-        for e, deps in EXTRAS_REQUIRE.items():
-            for i, v in enumerate(deps):
-                if r.startswith(v):
-                    deps[i] = r
-                    EXTRAS_REQUIRE[e] = deps
-                    extra = True
+        for e, names in extras_names.items():
+            if name in names:
+                extras_lines[e].append(r)
+                extra = True
         if not extra:
             install_requires.append(r)
+
+    # Every requirements.txt line of an extra's dependency belongs to that extra, not
+    # only the first one: py-consul has one line per Python version range, and with
+    # first-match-only the later ones fell through to install_requires, which made
+    # py-consul mandatory on Python >= 3.7. A dependency with no line in
+    # requirements.txt (systemd-python) keeps its bare name.
+    for e in extras_names:
+        found = {requirement_name(r) for r in extras_lines[e]}
+        EXTRAS_REQUIRE[e] = extras_lines[e] + [d for d in EXTRAS_REQUIRE[e] if d.lower() not in found]
 
     # Just for convenience, if someone wants to install dependencies for all extras
     EXTRAS_REQUIRE['all'] = list({e for extras in EXTRAS_REQUIRE.values() for e in extras})
