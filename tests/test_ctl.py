@@ -903,6 +903,13 @@ class TestCtl(unittest.TestCase):
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=only_leader_cluster)):
             result = self.runner.invoke(ctl, ['promote-cluster', 'dummy'])
             assert 'Cluster is already in the required state' in result.output
+        # a 'promoted' lock holder means promotion is already initiated
+        m = Member(0, 'leader', 28, {'conn_url': 'postgres://replicator:rep-pass@127.0.0.1:5435/postgres',
+                                     'role': PostgresqlRole.PROMOTED, 'state': 'running'})
+        promoted_cluster = get_cluster('12345678901', Leader(0, 0, m), [m], None, SyncState.empty(), None)
+        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=promoted_cluster)):
+            result = self.runner.invoke(ctl, ['promote-cluster', 'dummy'])
+            assert 'Cluster is already in the required state' in result.output
         # PATCH error
         mock_patch.return_value.status = 500
         result = self.runner.invoke(ctl, ['demote-cluster', 'dummy', '--restore-command', 'foo', '--force'])
@@ -918,6 +925,13 @@ class TestCtl(unittest.TestCase):
                 patch('time.sleep', Mock()):
             result = self.runner.invoke(ctl, ['promote-cluster', 'dummy', '--force'])
             assert result.exit_code == 0
+        # success as soon as promotion is initiated (role 'promoted'), without waiting for it to complete
+        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(side_effect=[standby_cluster, standby_cluster,
+                                                                            promoted_cluster])), \
+                patch('time.sleep', Mock()):
+            result = self.runner.invoke(ctl, ['promote-cluster', 'dummy', '--force'])
+            assert result.exit_code == 0
+            assert 'cluster is successfully promoted' in result.output
 
 
 class TestPatronictlPrettyTable(unittest.TestCase):

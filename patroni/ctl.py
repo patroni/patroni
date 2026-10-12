@@ -2370,14 +2370,16 @@ def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional
     """
     demote = bool(standby_config)
     action_name = 'demot' if demote else 'promot'
-    target_role = PostgresqlRole.STANDBY_LEADER if demote else PostgresqlRole.PRIMARY
+    # the member key reports role 'promoted' as soon as promotion is initiated with ``pg_ctl promote``, and only
+    # switches to 'primary' once Postgres has left recovery; don't make the user wait for the latter
+    target_roles = (PostgresqlRole.STANDBY_LEADER,) if demote else (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED)
 
     dcs = get_dcs(cluster_name, None)
     cluster = dcs.get_cluster()
     leader_name = cluster.leader and cluster.leader.name
     if not leader_name:
         raise PatroniCtlException(f'Cluster has no leader, {action_name}ion is not possible')
-    if cluster.leader and cluster.leader.data.get('role') == target_role:
+    if cluster.leader and cluster.leader.data.get('role') in target_roles:
         raise PatroniCtlException('Cluster is already in the required state')
 
     click.echo('Current cluster topology')
@@ -2407,7 +2409,7 @@ def change_cluster_role(cluster_name: str, force: bool, standby_config: Optional
         old_leader = cluster.get_member(leader_name, False)
         old_leader_state = old_leader and old_leader.data.get('state')
 
-        if not is_unlocked and leader_role == target_role and leader_state == PostgresqlState.RUNNING:
+        if not is_unlocked and leader_role in target_roles and leader_state == PostgresqlState.RUNNING:
             if not demote or old_leader_state == PostgresqlState.RUNNING:
                 click.echo(
                     f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")} cluster is successfully {action_name}ed')
