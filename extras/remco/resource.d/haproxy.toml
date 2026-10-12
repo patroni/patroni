@@ -10,12 +10,13 @@ mode = "0644"
 
 [backend]
 [backend.etcd]
+# replace $BACKEND_NODES by the actual list of backend nodes 
 nodes = [
     "http://...:2379",
     "http://...:2379",
     "http://...:2379"
 ]
-prefix = "/service/patroni"
+prefix = "/service/demo"
 keys = ["/members"]
 watchKeys = ["/haproxy/reload"]
 watch = true

@@ -17,23 +17,25 @@ listen stats
 	stats uri /
 
 
-listen master
+listen coordinator
 	bind *:5000
-	option httpchk OPTIONS /primary
+	option httpchk HEAD /primary
 	http-check expect status 200
 	default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
-{% for node in ls("/members") %}
-    {% set nodeinfo = getv(printf("/members/%s", node)) | parseJSON  %}
-    server {{node}} {{nodeinfo.conn_url | split:"/" | index:"2" }}  maxconn 100 check check-ssl port {{(nodeinfo.api_url | split:"/" | index:"2" | split:":" | index:"1")  }} verify required ca-file /etc/ssl/certs/ssl-cert-snakeoil.pem crt /etc/ssl/private/ssl-cert-snakeoil.crt
+{% for node in ls("/0/members") %}
+    {% set nodeinfo = getv(printf("/0/members/%s", node)) | parseJSON %}
+    server {{node}} {{ nodeinfo.conn_url | split:"/" | index:"2" | split:"@" | last }} maxconn 100 check check-ssl port {{ nodeinfo.api_url | split:"/" | index:"2" | split:":" | index:"1" }} verify required ca-file /etc/ssl/certs/ssl-cert-snakeoil.pem crt /etc/ssl/private/ssl-cert-snakeoil.crt
 {% endfor %}
 
-
-listen replicas
+listen workers
 	bind *:5001
-	option httpchk OPTIONS /primary
+	option httpchk HEAD /primary
 	http-check expect status 200
 	default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
-{% for node in ls("/members") %}
-    {% set nodeinfo = getv(printf("/members/%s", node)) | parseJSON  %}
-    server {{node}} {{nodeinfo.conn_url | split:"/" | index:"2" }}  maxconn 100 check check-ssl port {{(nodeinfo.api_url | split:"/" | index:"2" | split:":" | index:"1")  }} verify required ca-file /etc/ssl/certs/ssl-cert-snakeoil.pem crt /etc/ssl/private/ssl-cert-snakeoil.crt
+{% for kv in gets("/*/members/*") %}
+    {% set group = kv.Key | split:"/" | index:"1" | stringformat:"%s" %}
+    {% if group != "0" %}
+    {% set nodeinfo = kv.Value | parseJSON %}
+    server {{ kv.Key | split:"/" | last }} {{ nodeinfo.conn_url | split:"/" | index:"2" | split:"@" | last }} maxconn 100 check check-ssl port {{ nodeinfo.api_url | split:"/" | index:"2" | split:":" | index:"1" }} verify required ca-file /etc/ssl/certs/ssl-cert-snakeoil.pem crt /etc/ssl/private/ssl-cert-snakeoil.crt
+    {% endif %}
 {% endfor %}

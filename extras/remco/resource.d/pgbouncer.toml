@@ -14,7 +14,7 @@ nodes = [
     "http://...:2379",
     "http://...:2379"
 ]
-prefix = "/service/patroni"
+prefix = "/service/demo"
 keys = ["/members", "/leader"]
 watch = true
 interval = 60
