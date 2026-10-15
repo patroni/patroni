@@ -841,7 +841,7 @@ class Ha(object):
         """
         sync = self.cluster.sync
         if sync.is_empty:
-            sync = self.dcs.write_sync_state(self.state_handler.name, None, 0, version=sync.version)
+            sync = self._update_sync_state(self.state_handler.name, None, 0, sync.version)
             if sync:
                 logger.info("Enabled synchronous replication")
             else:
@@ -963,7 +963,7 @@ class Ha(object):
 
                 if transition == 'quorum':
                     logger.info("Setting leader to %s, quorum to %d of (%s)", leader, num, ", ".join(sorted(nodes)))
-                    sync = self.dcs.write_sync_state(leader, nodes, num, version=sync.version)
+                    sync = self._update_sync_state(leader, nodes, num, sync.version)
                     if not sync:
                         return logger.info('Synchronous replication key updated by someone else.')
                 elif transition == 'sync':
@@ -983,6 +983,48 @@ class Ha(object):
             # hoping that we can update /sync key earlier than in loop_wait seconds.
             time.sleep(1)
             self.state_handler.reset_cluster_info_state(None)
+
+    def _update_sync_state(self, leader: Optional[str], sync_standby: Optional[Collection[str]],
+                           quorum: int, version: Any) -> Optional[SyncState]:
+        """Update the ``/sync`` key in DCS and make sure callers can proceed.
+
+        :meth:`~patroni.dcs.AbstractDCS.write_sync_state` returns ``None`` when the conditional
+        update did not apply. That usually means the ``/sync`` key was modified by somebody else and
+        the expected *version* is stale, but it also happens when the DCS was temporarily not
+        accessible - including the case when the write was actually applied on the server but the
+        response was lost (for example a read timeout).
+
+        Callers of this method bail out as soon as it returns ``None`` and therefore skip updating
+        ``synchronous_standby_names``. If that happens while the ``/sync`` key already no longer
+        references a node, the stale ``synchronous_standby_names`` would keep the primary waiting
+        for that node on every commit. To avoid that we
+
+            1. re-read the ``/sync`` key and, if it already holds the requested value (the previous
+               write was applied but the response was lost, or somebody else applied an equivalent
+               state), treat it as a success so the caller keeps going and reconciles
+               ``synchronous_standby_names``;
+            2. otherwise refresh the expected *version* and retry the write once.
+
+        :returns: the :class:`~patroni.dcs.SyncState` on success, otherwise ``None``.
+        """
+        sync = self.dcs.write_sync_state(leader, sync_standby, quorum, version=version)
+        if sync:
+            return sync
+
+        sync_standby = CaseInsensitiveSet(sync_standby or [])
+        try:
+            cluster_sync = self.dcs.get_cluster().sync
+        except DCSError as e:
+            logger.warning('Failed to get the latest version of the /sync key from DCS: %r', e)
+            cluster_sync = None
+
+        if cluster_sync is not None and cluster_sync.leader == leader \
+                and CaseInsensitiveSet(cluster_sync.voters) == sync_standby:
+            return cluster_sync
+
+        if cluster_sync is not None:
+            version = cluster_sync.version
+        return self.dcs.write_sync_state(leader, sync_standby, quorum, version=version)
 
     def _process_multisync_replication(self) -> None:
         """Process synchronous replication state with one or more sync standbys.
@@ -1005,7 +1047,7 @@ class Ha(object):
         if self.state_handler.name != sync.leader:
             logger.warning("Inconsistent state of /sync key detected, leader = %s doesn't match %s, "
                            "updating synchronous replication key", sync.leader, self.state_handler.name)
-            sync = self.dcs.write_sync_state(self.state_handler.name, None, 0, version=sync.version)
+            sync = self._update_sync_state(self.state_handler.name, None, 0, sync.version)
             if not sync:
                 return logger.warning("Updating sync state failed")
             voters = CaseInsensitiveSet()
@@ -1013,7 +1055,7 @@ class Ha(object):
         if picked == voters and voters != allow_promote:
             logger.warning('Inconsistent state between synchronous_standby_names = %s and /sync = %s key '
                            'detected, updating synchronous replication key...', list(allow_promote), list(voters))
-            sync = self.dcs.write_sync_state(self.state_handler.name, allow_promote, 0, version=sync.version)
+            sync = self._update_sync_state(self.state_handler.name, allow_promote, 0, sync.version)
             if not sync:
                 return logger.warning("Updating sync state failed")
             voters = CaseInsensitiveSet(sync.voters)
@@ -1034,7 +1076,7 @@ class Ha(object):
         sync_common = voters & allow_promote
         if sync_common != voters:
             logger.info("Updating /sync key temporarily from %s to %s", list(voters), list(sync_common))
-            sync = self.dcs.write_sync_state(self.state_handler.name, sync_common, 0, version=sync.version)
+            sync = self._update_sync_state(self.state_handler.name, sync_common, 0, sync.version)
             if not sync:
                 return logger.info('Synchronous replication key updated by someone else.')
 
@@ -1047,7 +1089,7 @@ class Ha(object):
             allow_promote = self.state_handler.sync_handler.current_state(self.cluster).sync_confirmed
 
         if allow_promote and allow_promote != sync_common:
-            if self.dcs.write_sync_state(self.state_handler.name, allow_promote, 0, version=sync.version):
+            if self._update_sync_state(self.state_handler.name, allow_promote, 0, sync.version):
                 logger.info("Synchronous standby status assigned to %s", list(allow_promote))
             else:
                 logger.info("Synchronous replication key updated by someone else")
@@ -1086,7 +1128,7 @@ class Ha(object):
 
         numsync = global_config.min_synchronous_nodes if global_config.min_synchronous_nodes > 0 and not sync else None
 
-        if not self.dcs.write_sync_state(self.state_handler.name, sync, 0, version=self.cluster.sync.version):
+        if not self._update_sync_state(self.state_handler.name, sync, 0, self.cluster.sync.version):
             return False
 
         self.state_handler.sync_handler.set_synchronous_standby_names(sync, numsync)

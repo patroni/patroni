@@ -1599,6 +1599,22 @@ class TestHa(PostgresInit):
         self.assertIsInstance(follow_mock.call_args[0][0], RemoteMember)
         archive_mock.assert_called_once()
 
+    def test__process_multisync_replication_when_sync_key_already_updated(self):
+        self.ha.has_lock = true
+        self.ha.is_synchronous_mode = true
+        self.p.name = 'leader'
+        mock_set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock()
+        # The /sync key was updated even though the conditional write response was lost.
+        # Reconcile synchronous_standby_names instead of bailing out.
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'other'))
+        self.p.sync_handler.current_state = Mock(return_value=_SyncState(
+            'priority', 1, CaseInsensitiveSet(['other']), CaseInsensitiveSet(), CaseInsensitiveSet()))
+        self.ha.dcs.write_sync_state = Mock(return_value=None)
+        self.ha.dcs.get_cluster = Mock(return_value=get_cluster_initialized_with_leader(sync=('leader', None)))
+        self.ha.run_cycle()
+        self.ha.dcs.write_sync_state.assert_called_once()
+        mock_set_sync.assert_called_once_with(CaseInsensitiveSet())
+
     def test__process_multisync_replication(self):
         self.ha.has_lock = true
         mock_set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock()
@@ -1662,6 +1678,7 @@ class TestHa(PostgresInit):
         mock_set_sync.reset_mock()
         # Test sync standby is not disabled when updating dcs fails
         self.ha.dcs.write_sync_state = Mock(return_value=None)
+        self.ha.dcs.get_cluster = Mock(side_effect=DCSError("dcs-unreachable"))
         self.ha.run_cycle()
         mock_set_sync.assert_not_called()
         mock_cfg_set_sync.assert_not_called()
@@ -1678,15 +1695,21 @@ class TestHa(PostgresInit):
         self.ha.run_cycle()
         self.assertEqual(self.ha.dcs.write_sync_state.call_count, 2)
 
-        # Test updating sync standby key failed due to race
-        self.ha.dcs.write_sync_state = Mock(side_effect=[SyncState.empty(), None])
+        # Test updating sync standby key failed on the first attempt but succeeded after the retry
+        self.ha.dcs.write_sync_state = Mock(side_effect=[SyncState.empty(), None, SyncState.empty()])
         self.ha.run_cycle()
-        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 2)
+        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 3)
+
+        # Test updating sync standby key failed on both attempts (e.g. concurrent update)
+        self.ha.dcs.write_sync_state = Mock(side_effect=[SyncState.empty(), None, None])
+        self.ha.run_cycle()
+        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 3)
 
         # Test updating sync standby key failed due to DCS being not accessible
-        self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
+        self.ha.dcs.write_sync_state = Mock(return_value=None)
         self.ha.dcs.get_cluster = Mock(side_effect=DCSError('foo'))
         self.ha.run_cycle()
+        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 2)
 
         # Test changing sync standby failed due to race
         self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
@@ -1753,6 +1776,7 @@ class TestHa(PostgresInit):
         # When we just became primary nobody is sync
         self.p.set_role(PostgresqlRole.REPLICA)
         mock_write_sync.return_value = False
+        self.ha.dcs.get_cluster = Mock(side_effect=DCSError("dcs-unreachable"))
         self.assertTrue(self.ha.enforce_primary_role('msg', 'promote msg') != 'promote msg')
         mock_set_sync.assert_not_called()
 
@@ -1834,6 +1858,7 @@ class TestHa(PostgresInit):
             self.assertEqual(mock_logger.call_args_list[0][0][0], 'Enabled synchronous replication')
         self.ha.dcs.write_sync_state = Mock(return_value=None)
         with patch('patroni.ha.logger.warning') as mock_logger:
+            self.ha.dcs.get_cluster = Mock(side_effect=DCSError("dcs-unreachable"))
             self.ha.run_cycle()
             self.assertEqual(mock_logger.call_args[0][0], 'Updating sync state failed')
 
@@ -1855,6 +1880,7 @@ class TestHa(PostgresInit):
                     mock_set_sync.assert_called_once()
                     self.assertTrue(mock_logger.call_args_list[0][0][0].startswith('Inconsistent state '))
                 self.ha.dcs.write_sync_state = Mock(return_value=None)
+                self.ha.dcs.get_cluster = Mock(side_effect=DCSError("dcs-unreachable"))
                 with patch('patroni.ha.logger.warning') as mock_logger:
                     self.ha.run_cycle()
                     self.assertEqual(mock_logger.call_args[0][0], 'Updating sync state failed')
@@ -2042,10 +2068,11 @@ class TestHa(PostgresInit):
         self.p.is_primary = false
         self.p.set_role(PostgresqlRole.REPLICA)
         mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=None)
+        self.ha.dcs.get_cluster = Mock(side_effect=DCSError("dcs-unreachable"))
         # Postgres 9.5, write_sync_state to DCS failed
         self.assertEqual(self.ha.run_cycle(),
                          'Postponing promotion because synchronous replication state was updated by somebody else')
-        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 1)
+        self.assertEqual(self.ha.dcs.write_sync_state.call_count, 2)
         self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(), 0))
         self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': 0})
 
@@ -2144,21 +2171,23 @@ class TestHa(PostgresInit):
         self.p.name = 'leader'
 
         mock_write_sync = self.ha.dcs.write_sync_state = Mock(return_value=None)
+        self.ha.dcs.get_cluster = Mock(side_effect=DCSError('dcs-unreachable'))
         # Test /sync key is attempted to set and failed when missing or invalid
         self.p.sync_handler.current_state = Mock(return_value=_SyncState('quorum', 1, CaseInsensitiveSet(['other']),
                                                                          CaseInsensitiveSet(['other']),
                                                                          CaseInsensitiveSet(['other'])))
         self.ha.run_cycle()
-        self.assertEqual(mock_write_sync.call_count, 1)
+        self.assertEqual(mock_write_sync.call_count, 2)
         self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, None, 0))
         self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': None})
         self.assertEqual(mock_set_sync.call_count, 0)
 
-        mock_write_sync = self.ha.dcs.write_sync_state = Mock(side_effect=[SyncState(None, self.p.name, None, 0), None])
+        mock_write_sync = self.ha.dcs.write_sync_state = Mock(
+            side_effect=[SyncState(None, self.p.name, None, 0), None, None])
         # Test /sync key is attempted to set and succeed when missing or invalid
         with patch.object(SyncState, 'is_empty', Mock(side_effect=[True, False])):
             self.ha.run_cycle()
-        self.assertEqual(mock_write_sync.call_count, 2)
+        self.assertEqual(mock_write_sync.call_count, 3)
         self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, None, 0))
         self.assertEqual(mock_write_sync.call_args_list[0][1], {'version': None})
         self.assertEqual(mock_write_sync.call_args_list[1][0], (self.p.name, CaseInsensitiveSet(['other']), 0))
