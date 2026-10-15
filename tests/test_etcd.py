@@ -254,6 +254,18 @@ class TestClient(unittest.TestCase):
         self.client._config = {'srv': 'blabla'}
         self.assertRaises(etcd.EtcdException, self.client._load_machines_cache)
 
+    @patch.object(EtcdClient, '_get_machines_cache_from_config',
+                  Mock(return_value=['https://localhost:2379', 'https://localhost:4001']))
+    def test__load_machines_cache_configures_tls_for_https_config(self):
+        # Config/SRV endpoints that are already HTTPS must trigger TLS
+        # configuration before the first request.
+        self.client._tls_configured = False
+        with patch.object(EtcdClient, '_refresh_machines_cache', Mock(return_value=True)), \
+                patch.object(EtcdClient, '_configure_tls') as configure_tls:
+            self.client._load_machines_cache()
+        configure_tls.assert_called_once()
+        self.assertTrue(self.client._tls_configured)
+
     @patch.object(socket.socket, 'connect')
     def test_create_connection_patched(self, mock_connect):
         self.assertRaises(socket.error, urllib3.util.connection.create_connection, ('fail', 2379))

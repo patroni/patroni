@@ -540,6 +540,12 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
         if not machines_cache:
             raise etcd.EtcdException
 
+        # Config/SRV endpoints may already be HTTPS; configure TLS before the
+        # first request so the initial contact uses the right settings.
+        if not self._tls_configured and any(urlparse(url).scheme == 'https' for url in machines_cache):
+            self._configure_tls()
+            self._tls_configured = True
+
         # enforce resolving dns name,they might get new ips
         self._update_dns_cache(self._dns_resolver.remove, machines_cache)
 
