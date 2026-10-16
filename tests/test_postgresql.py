@@ -448,21 +448,34 @@ class TestPostgresql(BaseTestPostgresql):
             mock_error.assert_called_once()
 
     @unittest.skipIf(os.name == 'nt', "Windows not supported")
-    def test_config_writer_keeps_mode(self):
+    def test_config_writer_permissions(self):
         config_dir = os.path.join(self.p.data_dir, 'config_writer')
         os.makedirs(config_dir)
         filename = os.path.join(config_dir, 'postgresql.conf')
 
-        # The target does not exist: the writer makes it.
-        with ConfigWriter(filename) as f:
-            f.write_param('foo', 'bar')
-        self.assertTrue(os.path.isfile(filename))
+        # The writer sets the permissions of the temporary file before it writes data.
+        def set_permissions(tmpfile):
+            self.assertEqual(os.path.dirname(tmpfile), os.path.realpath(config_dir))
+            self.assertEqual(os.path.getsize(tmpfile), 0)
+            os.chmod(tmpfile, 0o604)
 
-        # The target exists: the writer keeps its mode.
-        os.chmod(filename, 0o640)
-        with ConfigWriter(filename) as f:
+        with ConfigWriter(filename, set_permissions) as f:
+            f.write_param('foo', 'bar')
+        self.assertEqual(stat.S_IMODE(os.stat(filename).st_mode), 0o604)
+
+        # config_writer() sets the permissions with set_file_permissions().
+        with self.p.config.config_writer(filename) as f:
             f.write_param('foo', 'baz')
-        self.assertEqual(stat.S_IMODE(os.stat(filename).st_mode), 0o640)
+        self.assertEqual(stat.S_IMODE(os.stat(filename).st_mode), pg_perm.file_create_mode)
+
+        # The function that sets the permissions fails: the writer keeps the target.
+        with patch('os.chmod', Mock(side_effect=OSError)):
+            with self.assertRaises(OSError):
+                with self.p.config.config_writer(filename) as f:
+                    f.write_param('foo', 'qux')
+        with open(filename) as fd:
+            self.assertTrue(fd.read().endswith("foo = 'baz'\n"))
+        self.assertEqual(os.listdir(config_dir), ['postgresql.conf'])
 
     @unittest.skipIf(os.name == 'nt', "Windows not supported")
     def test_config_writer_symlink(self):
