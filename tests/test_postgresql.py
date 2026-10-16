@@ -379,14 +379,106 @@ class TestPostgresql(BaseTestPostgresql):
 
         mock_read_auto = mock_open(read_data=read_data)
         mock_read_auto.return_value.__iter__ = lambda o: iter(o.readline, '')
-        with patch('builtins.open', Mock(side_effect=[mock_open()(), mock_read_auto(), IOError])), \
+        with patch('builtins.open', Mock(side_effect=[mock_read_auto(), IOError])), \
                 patch('os.chmod', Mock()):
             self.p.config.write_postgresql_conf()
 
-        with patch('builtins.open', Mock(side_effect=[mock_open()(), IOError])), patch('os.chmod', Mock()):
+        with patch('builtins.open', Mock(side_effect=IOError)), patch('os.chmod', Mock()):
             self.p.config.write_postgresql_conf()
         self.p.config.write_recovery_conf({'foo': 'bar'})
         self.p.config.write_postgresql_conf()
+
+    def test_config_writer(self):
+        config_dir = os.path.join(self.p.data_dir, 'config_writer')
+        os.makedirs(config_dir)
+        filename = os.path.join(config_dir, 'postgresql.conf')
+        with open(filename, 'w') as f:
+            f.write('old content\n')
+
+        def read():
+            with open(filename) as f:
+                return f.read()
+
+        # Success: the writer replaces the target and removes the temporary file.
+        with ConfigWriter(filename) as f:
+            f.write_param('foo', 'bar')
+        self.assertTrue(read().endswith("foo = 'bar'\n"))
+        self.assertEqual(os.listdir(config_dir), ['postgresql.conf'])
+
+        # A write fails (for example ENOSPC on fsync): the writer keeps the target and removes the temporary file.
+        with open(filename, 'w') as f:
+            f.write('old content\n')
+        with patch('os.fsync', Mock(side_effect=OSError)):
+            with self.assertRaises(OSError):
+                with ConfigWriter(filename) as f:
+                    f.write_param('foo', 'baz')
+        self.assertEqual(read(), 'old content\n')
+        self.assertEqual(os.listdir(config_dir), ['postgresql.conf'])
+
+        # The fsync of the directory fails after the rename: the writer logs a warning and does not raise.
+        with patch('patroni.postgresql.config.fsync_dir', Mock(side_effect=OSError)), \
+                patch('patroni.postgresql.config.logger.warning') as mock_warning:
+            with ConfigWriter(filename) as f:
+                f.write_param('foo', 'qux')
+            mock_warning.assert_called_once()
+        self.assertTrue(read().endswith("foo = 'qux'\n"))
+        with open(filename, 'w') as f:
+            f.write('old content\n')
+
+        # The caller raises an exception: the writer keeps the target.
+        with self.assertRaises(ValueError):
+            with ConfigWriter(filename) as f:
+                f.write_param('foo', 'baz')
+                raise ValueError
+        self.assertEqual(read(), 'old content\n')
+        self.assertEqual(os.listdir(config_dir), ['postgresql.conf'])
+
+        # The write of the header fails: the writer keeps the target.
+        with patch.object(ConfigWriter, 'writeline', Mock(side_effect=OSError)):
+            self.assertRaises(OSError, ConfigWriter(filename).__enter__)
+        self.assertEqual(read(), 'old content\n')
+        self.assertEqual(os.listdir(config_dir), ['postgresql.conf'])
+
+        # The writer does not raise errors from the cleanup.
+        writer = ConfigWriter(filename)
+        writer._fd = Mock(close=Mock(side_effect=OSError))
+        writer._tmpfile = os.path.join(config_dir, 'does_not_exist')
+        with patch('patroni.postgresql.config.logger.error') as mock_error:
+            writer._discard()
+            mock_error.assert_called_once()
+
+    @unittest.skipIf(os.name == 'nt', "Windows not supported")
+    def test_config_writer_keeps_mode(self):
+        config_dir = os.path.join(self.p.data_dir, 'config_writer')
+        os.makedirs(config_dir)
+        filename = os.path.join(config_dir, 'postgresql.conf')
+
+        # The target does not exist: the writer makes it.
+        with ConfigWriter(filename) as f:
+            f.write_param('foo', 'bar')
+        self.assertTrue(os.path.isfile(filename))
+
+        # The target exists: the writer keeps its mode.
+        os.chmod(filename, 0o640)
+        with ConfigWriter(filename) as f:
+            f.write_param('foo', 'baz')
+        self.assertEqual(stat.S_IMODE(os.stat(filename).st_mode), 0o640)
+
+    @unittest.skipIf(os.name == 'nt', "Windows not supported")
+    def test_config_writer_symlink(self):
+        config_dir = os.path.join(self.p.data_dir, 'config_writer')
+        os.makedirs(config_dir)
+        target = os.path.join(config_dir, 'real.conf')
+        link = os.path.join(self.p.data_dir, 'link.conf')
+        open(target, 'w').close()
+        os.symlink(os.path.abspath(target), link)
+
+        with ConfigWriter(link) as f:
+            f.write_param('foo', 'bar')
+        self.assertTrue(os.path.islink(link))
+        with open(target) as f:
+            self.assertTrue(f.read().endswith("foo = 'bar'\n"))
+        self.assertEqual(os.listdir(config_dir), ['real.conf'])
 
     @patch.object(Postgresql, 'is_running', Mock(return_value=False))
     @patch.object(Postgresql, 'start', Mock())
