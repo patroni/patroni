@@ -1515,7 +1515,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
             This is only used to keep track of latency when logging messages through :func:`log_message`.
         """
         self.__start_time = time.monotonic()
-        BaseHTTPRequestHandler.handle_one_request(self)
+        try:
+            BaseHTTPRequestHandler.handle_one_request(self)
+        except Exception:
+            self.send_error(503)
+            raise
 
     def log_message(self, format: str, *args: Any) -> None:
         """Log a custom ``debug`` message.
