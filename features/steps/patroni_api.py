@@ -79,6 +79,12 @@ def do_request(context, request_method, url, data):
         r = context.request_executor.request(request_method, url, data)
         if request_method == 'PATCH' and r.status == 409:
             r = context.request_executor.request(request_method, url, data)
+        elif request_method == 'PATCH' and r.status == 503:
+            for _ in range(2):
+                time.sleep(1)
+                r = context.request_executor.request(request_method, url, data)
+                if r.status != 503:
+                    break
     except Exception:
         context.status_code = context.response = None
     else:
