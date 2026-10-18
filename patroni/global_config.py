@@ -11,7 +11,7 @@ from copy import deepcopy
 from typing import Any, cast, Dict, List, Optional, TYPE_CHECKING
 
 from .collections import EMPTY_DICT
-from .utils import parse_bool, parse_int
+from .utils import parse_bool, parse_int, SyncCrossSiteMode
 
 if TYPE_CHECKING:  # pragma: no cover
     from .dcs import Cluster
@@ -81,14 +81,24 @@ class GlobalConfig(types.ModuleType):
         ret.update(cluster)
         return ret
 
-    def get(self, name: str) -> Any:
+    def get(self, name: str, default: Optional[str] = None) -> Any:
         """Gets global configuration value by *name*.
 
         :param name: parameter name.
+        :param default: optional value to return if parameter is not set.
 
         :returns: configuration value or ``None`` if it is missing.
         """
-        return self.__config.get(name)
+        return self.__config.get(name, default)
+
+    @property
+    def sync_cross_site_mode(self) -> SyncCrossSiteMode:
+        """Currently configured value of ``synchronous_cross_site`` from the global configuration."""
+        try:
+            val = SyncCrossSiteMode((self.get('synchronous_cross_site', 'any')).lower())
+        except ValueError:
+            val = SyncCrossSiteMode.ANY
+        return val
 
     def check_mode(self, mode: str) -> bool:
         """Checks whether the certain parameter is enabled.

@@ -23,6 +23,7 @@ import tempfile
 import time
 
 from collections import OrderedDict
+from enum import Enum
 from json import JSONDecoder
 from shlex import split
 from typing import Any, Callable, cast, Dict, Iterator, List, Mapping, Optional, Tuple, Type, TYPE_CHECKING, Union
@@ -46,6 +47,15 @@ DEC_RE = re.compile(r'^[-+]?(0|[1-9][0-9]*)')
 HEX_RE = re.compile(r'^[-+]?0x[0-9a-fA-F]+')
 DBL_RE = re.compile(r'^[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?')
 WHITESPACE_RE = re.compile(r'[ \t\n\r]*', re.VERBOSE | re.MULTILINE | re.DOTALL)
+
+
+class SyncCrossSiteMode(str, Enum):
+    ANY = 'any'
+    BALANCED = 'balanced'
+    LOCAL_ONLY = 'local_only'
+    REMOTE_ONLY = 'remote_only'
+    PREFER_LOCAL = 'prefer_local'
+    PREFER_REMOTE = 'prefer_remote'
 
 
 def get_conversion_table(base_unit: str) -> Dict[str, Dict[str, Union[int, float]]]:
