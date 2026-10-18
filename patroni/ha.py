@@ -942,22 +942,27 @@ class Ha(object):
             return time.monotonic() - start_time + offset >= self.dcs.loop_wait
 
         while True:
-            transition = 'break'  # we need define transition value if `QuorumStateResolver` produced no changes
             sync_state = self.state_handler.sync_handler.current_state(self.cluster)
+            if sync_state is None:
+                transition = 'restart'
+                transitions = []
+            else:
+                if leader == self.state_handler.name and \
+                        self._handle_synchronous_strict_mode(sync, sync_state):
+                    return
 
-            if leader == self.state_handler.name and \
-                    self._handle_synchronous_strict_mode(sync, sync_state):
-                return
+                transition = 'break'  # we need to define transition value if `QuorumStateResolver` produced no changes
+                transitions = list(QuorumStateResolver(leader=leader,
+                                                       quorum=sync.quorum,
+                                                       voters=sync.voters,
+                                                       numsync=sync_state.numsync,
+                                                       sync=sync_state.sync,
+                                                       numsync_confirmed=len(sync_state.sync_confirmed),
+                                                       active=sync_state.active,
+                                                       sync_wanted=global_config.synchronous_node_count,
+                                                       leader_wanted=self.state_handler.name))
 
-            for transition, leader, num, nodes in QuorumStateResolver(leader=leader,
-                                                                      quorum=sync.quorum,
-                                                                      voters=sync.voters,
-                                                                      numsync=sync_state.numsync,
-                                                                      sync=sync_state.sync,
-                                                                      numsync_confirmed=len(sync_state.sync_confirmed),
-                                                                      active=sync_state.active,
-                                                                      sync_wanted=global_config.synchronous_node_count,
-                                                                      leader_wanted=self.state_handler.name):
+            for i, (transition, leader, num, nodes) in enumerate(transitions):
                 if _check_timeout():
                     return
 
@@ -967,20 +972,29 @@ class Ha(object):
                     if not sync:
                         return logger.info('Synchronous replication key updated by someone else.')
                 elif transition == 'sync':
-                    self.state_handler.sync_handler.set_synchronous_standby_names(nodes, num)
+                    if self.state_handler.sync_handler.set_synchronous_standby_names(nodes, num) and \
+                            i < len(transitions) - 1:
+                        # If some nodes were removed from synchronous_standby_names and this is not
+                        # the last transition we need to wait until change becomes active after reload.
+                        transition = 'restart'
+                        break
 
-            if transition == 'break' and sync_state.sync_type != 'quorum':
+            if transition == 'break' and sync_state and sync_state.sync_type != 'quorum':
                 # FIRST -> ANY
                 self.state_handler.sync_handler.set_synchronous_standby_names(sync_state.sync, sync_state.numsync)
 
             if transition != 'restart' or _check_timeout(1):
                 # Check if manage_synchronized_standby_slots feature state changed even when no sync changes
-                if transition == 'break':
+                if transition == 'break' and sync_state:
                     self.state_handler.slots_handler.handle_manage_sync_slots_toggle(sync_state.active)
                 return
-            # synchronous_standby_names was transitioned from empty to non-empty and it may take
-            # some time for nodes to become synchronous. In this case we want to restart state machine
-            # hoping that we can update /sync key earlier than in loop_wait seconds.
+            # Here we consider two cases:
+            # 1. synchronous_standby_names was transitioned from empty to non-empty and it may take
+            #    some time for nodes to become synchronous.
+            # 2. some nodes where removed from synchronous_standby_names and we need to wait until
+            #    this change becomes effective after reload.
+            # In both cases we need to wait and restart state machine hoping that we can update
+            # /sync key earlier than in loop_wait seconds.
             time.sleep(1)
             self.state_handler.reset_cluster_info_state(None)
 
@@ -998,6 +1012,9 @@ class Ha(object):
             return
 
         current_state = self.state_handler.sync_handler.current_state(self.cluster)
+        if current_state is None:
+            return
+
         picked = current_state.active
         allow_promote = current_state.sync_confirmed
         voters = CaseInsensitiveSet(sync.voters)
@@ -1044,7 +1061,10 @@ class Ha(object):
         if picked and allow_promote != picked:
             # Wait for PostgreSQL to enable synchronous mode and see if we can immediately set sync_standby
             time.sleep(2)
-            allow_promote = self.state_handler.sync_handler.current_state(self.cluster).sync_confirmed
+            current_state = self.state_handler.sync_handler.current_state(self.cluster)
+            if current_state is None:
+                return
+            allow_promote = current_state.sync_confirmed
 
         if allow_promote and allow_promote != sync_common:
             if self.dcs.write_sync_state(self.state_handler.name, allow_promote, 0, version=sync.version):
