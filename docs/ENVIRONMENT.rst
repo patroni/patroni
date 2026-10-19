@@ -83,6 +83,9 @@ Etcd
 -  **PATRONI\_ETCD\_CACERT**: The ca certificate. If present it will enable validation.
 -  **PATRONI\_ETCD\_CERT**: File with the client certificate.
 -  **PATRONI\_ETCD\_KEY**: File with the client key. Can be empty if the key is part of certificate.
+-  **PATRONI\_ETCD\_VERIFY**: whether to verify the etcd server's TLS certificate. Defaults to ``true``. Set to ``false`` to disable certificate and hostname verification entirely.
+-  **PATRONI\_ETCD\_VERIFY\_HOSTNAME**: whether to verify that the certificate matches the host/IP being connected to. Defaults to ``true``. Set to ``false`` to keep CA-chain validation but skip the hostname check.
+-  **PATRONI\_ETCD\_HOSTNAME\_CHECKS\_COMMON\_NAME**: whether to allow matching the certificate Common Name when it has no Subject Alternative Name. Set to ``true`` to enable Common Name fallback where supported, or ``false`` to enforce SAN-only.
 
 Etcdv3
 ------
