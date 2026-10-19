@@ -1,4 +1,5 @@
 import copy
+import errno
 import os
 import socket
 import tempfile
@@ -427,6 +428,51 @@ class TestValidator(unittest.TestCase):
         errors = schema(c)
         output = "\n".join(errors)
         self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
+    @staticmethod
+    def _wildcard_getaddrinfo(host, port, *args):
+        if host is None:
+            return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, '', ('0.0.0.0', port)),
+                    (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, '', ('::', port, 0, 0))]
+        family = socket.AF_INET6 if ':' in host else socket.AF_INET
+        return [(family, socket.SOCK_STREAM, socket.IPPROTO_TCP, '', (host, port))]
+
+    @staticmethod
+    def _socket_without(*families, err=errno.EAFNOSUPPORT):
+        real_socket = socket.socket
+
+        def side_effect(family, *args):
+            if family in families:
+                raise OSError(err, os.strerror(err))
+            return real_socket(family, *args)
+        return side_effect
+
+    def test_listen_wildcard_unsupported_address_family(self, mock_out, mock_err):
+        c = copy.deepcopy(config)
+        c['postgresql']['listen'] = '*:543'
+        with patch('socket.getaddrinfo', Mock(side_effect=self._wildcard_getaddrinfo)):
+            # IPv6 is disabled in the kernel: "*" is still valid, since 0.0.0.0 is usable
+            with patch('socket.socket', Mock(side_effect=self._socket_without(socket.AF_INET6))):
+                self.assertNotIn('postgresql.listen', parse_output("\n".join(schema(c))))
+
+            # No address family is usable
+            with patch('socket.socket', Mock(side_effect=self._socket_without(socket.AF_INET, socket.AF_INET6))):
+                output = "\n".join(schema(c))
+                self.assertIn('postgresql.listen', parse_output(output))
+                self.assertIn('address families of 0.0.0.0, :: are not supported', output)
+
+            # Errors other than an unsupported address family are not ignored for "*"
+            with patch('socket.socket', Mock(side_effect=self._socket_without(socket.AF_INET6, err=errno.EMFILE))):
+                output = "\n".join(schema(c))
+                self.assertIn('postgresql.listen', parse_output(output))
+                self.assertIn("cannot create a socket for '::': {0}".format(os.strerror(errno.EMFILE)), output)
+
+            # An explicitly configured IPv6 address must fail if IPv6 is disabled
+            c['postgresql']['listen'] = '[::]:543'
+            with patch('socket.socket', Mock(side_effect=self._socket_without(socket.AF_INET6))):
+                output = "\n".join(schema(c))
+                self.assertIn('postgresql.listen', parse_output(output))
+                self.assertIn("cannot create a socket for '::': {0}".format(os.strerror(errno.EAFNOSUPPORT)), output)
 
     @patch('socket.socket.connect_ex', Mock(return_value=0))
     def test_bound_port_checks_without_ignore(self, mock_out, mock_err):
