@@ -8,8 +8,9 @@ from io import StringIO
 from unittest.mock import Mock, mock_open, patch
 
 from patroni.dcs import dcs_modules
+from patroni.exceptions import ConfigParseError
 from patroni.postgresql.sync import SYNC_STRICT_PLACEHOLDER
-from patroni.validator import Directory, populate_validate_params, schema, Schema
+from patroni.validator import Directory, populate_validate_params, schema, Schema, WithSection
 
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 config = {
@@ -427,6 +428,44 @@ class TestValidator(unittest.TestCase):
         errors = schema(c)
         output = "\n".join(errors)
         self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
+    def test_consul_host_port(self, mock_out, mock_err):
+        # The mocked agent accepts connections on ports 1000-9999 and refuses them on ports below 1000
+        def consul_errors(consul):
+            c = copy.deepcopy(config)
+            c['consul'] = consul
+            return [e for e in schema(c) if e.startswith('consul.')]
+
+        # Without a port in host and consul.port the default Consul port 8500 is used
+        self.assertEqual(consul_errors({'host': '127.0.0.1'}), [])
+        # consul.port is used if host has no port
+        self.assertEqual(consul_errors({'host': '127.0.0.1', 'port': 500}),
+                         ["consul.host 127.0.0.1 didn't pass validation: 127.0.0.1 (port 500) is not reachable"])
+        # consul.port takes precedence over the port in host
+        self.assertEqual(consul_errors({'host': '127.0.0.1:500', 'port': 8500}), [])
+        self.assertEqual(consul_errors({'host': '127.0.0.1:5000', 'port': 500}),
+                         ["consul.host 127.0.0.1:5000 didn't pass validation: "
+                          "127.0.0.1:5000 (port 500) is not reachable"])
+        # The port in host is used if consul.port is not set
+        self.assertEqual(consul_errors({'host': '127.0.0.1:500'}),
+                         ["consul.host 127.0.0.1:500 didn't pass validation: 127.0.0.1:500 is not reachable"])
+        # An invalid consul.port is reported on its own, host is checked with the port in it
+        self.assertEqual(parse_output("\n".join(consul_errors({'host': '127.0.0.1:5000', 'port': 'foo'}))),
+                         ['consul.port'])
+        self.assertEqual(parse_output("\n".join(consul_errors({'host': '127.0.0.1:invalidport'}))), ['consul.host'])
+        self.assertEqual(consul_errors({'host': 8500}), ['consul.host 8500 is not a string'])
+
+    def test_with_section(self, mock_out, mock_err):
+        def validate_equals_other(value, section):
+            if value != section['other']:
+                raise ConfigParseError('must be equal to other')
+            return True
+
+        validator = WithSection(validate_equals_other)
+        self.assertFalse(hasattr(validator.bind({}), 'expected_type'))
+        self.assertEqual(Schema({'value': validator, 'other': int})({'value': 1, 'other': 1}), [])
+        self.assertEqual(Schema({'value': validator, 'other': int})({'value': 1, 'other': 2}),
+                         ["value 1 didn't pass validation: must be equal to other"])
 
     @patch('socket.socket.connect_ex', Mock(return_value=0))
     def test_bound_port_checks_without_ignore(self, mock_out, mock_err):
