@@ -1,0 +1,9 @@
+
+################################################################
+# Global configuration
+################################################################
+log_level   = "debug"
+log_format  = "text"
+include_dir = "/etc/remco/resource.d/"
+pid_file    = "/tmp/remco.pid"
+log_file    = "/var/log/remco.log"
