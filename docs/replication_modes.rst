@@ -220,3 +220,25 @@ If the primary (``node0``) failed, in the above example two of the ``node1``, ``
 .. [1] The data is still there, but recovering it requires a manual recovery effort by data recovery specialists. When Patroni is allowed to rewind with ``use_pg_rewind`` the forked timeline will be automatically erased to rejoin the failed primary with the cluster. However, for ``use_pg_rewind`` to function properly, either the cluster must be initialized with ``data page checksums`` (``--data-checksums`` option for ``initdb``) and/or ``wal_log_hints`` must be set to ``on``.
 
 .. [2] Clients can change the behavior per transaction using PostgreSQL's ``synchronous_commit`` setting. Transactions with ``synchronous_commit`` values of ``off`` and ``local`` may be lost on fail over, but will not be blocked by replication delays.
+
+
+Cross-site synchronous mode
+===========================
+
+When a Patroni cluster spans multiple physical :ref:`sites <global_settings>` (datacenters, regions, or availability zones), the dynamic configuration option ``synchronous_cross_site`` constrains which replicas may become synchronous standbys based on the ``site`` attribute published by each member. The option is only meaningful when ``synchronous_mode`` is enabled (set to ``on`` or ``quorum``) and at least some members publish a non-empty ``site`` attribute.
+
+Available modes
+---------------
+
+The ``synchronous_cross_site`` parameter accepts the following values:
+
+- ``any`` (default): no site-based filtering. Eligible replicas from any site may be picked. This is the historical behaviour and is the right choice for single-site clusters or topologies where the inter-site latency is uniform enough that no site should be privileged.
+- ``local_only``: only replicas from the same site as the primary are considered. Minimises commit latency by keeping the synchronous acknowledgement within the local site. Pair with ``synchronous_mode_strict`` to block writes when no local replica is available, instead of silently falling back to a remote synchronous standby.
+- ``remote_only``: only replicas from sites other than the primary's site are considered. Suited to deployments where durability comes first and every commit must be acknowledged by a replica in a different failure domain, at the cost of higher write latency. Pair with ``synchronous_mode_strict`` for the same fail-closed semantics.
+- ``prefer_local``: local replicas are picked first; remote replicas fill any remaining slots. Suited to deployments that want a low-latency path under normal conditions but still meet ``synchronous_node_count`` after a local failure.
+- ``prefer_remote``: remote replicas are picked first; local replicas fill any remaining slots. The mirror of ``prefer_local`` — suited to deployments where durability is prioritised over latency but local replicas should still be used as fallback during a multi-site outage.
+- ``balanced``: replicas are interleaved round-robin across sites. Intended for clusters that span three or more sites and want each site to contribute proportionally to the synchronous set — one replica from each remote site first, then a local replica, repeating.
+
+If the *primary itself* has no ``site`` attribute configured, the cross-site logic is bypassed entirely and the selection falls back to the plain ``any`` ordering regardless of the configured mode.
+
+For additional information, see :ref:`site_awareness_synchronous`.
