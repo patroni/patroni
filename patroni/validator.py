@@ -5,6 +5,7 @@ This module contains facilities for validating configuration of Patroni processe
 
 :var schema: configuration schema of the daemon launched by ``patroni`` command.
 """
+import errno
 import os
 import shutil
 import socket
@@ -127,6 +128,9 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
             * If ``*`` was specified along with more hosts in *host_port*; or
             * If we are expecting to bind to an address that is already in use; or
             * If we are not able to connect to an address that we are expecting to do so; or
+            * If a socket can't be created for an address, e.g. because its address family isn't supported by the
+              kernel. For ``*``, addresses with an unsupported address family are skipped, and the error is raised only
+              if none of them is supported; or
             * If :class:`~socket.gaierror` is thrown by socket module when attempting to connect to the given
               address(es).
     """
@@ -141,17 +145,28 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
             hosts = [hosts]
 
         # If host is set to "*" get all hostnames and/or IP addresses that the host would be able to listen to
-        if "*" in hosts:
+        wildcard = "*" in hosts
+        if wildcard:
             if len(hosts) != 1:
                 raise ConfigParseError("expecting '*' alone")
             # Filter out unexpected results when python is compiled with --disable-ipv6 and running on IPv6 system.
             hosts = [a[4][0] for a in socket.getaddrinfo(None, port, 0, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
                      if isinstance(a[4][0], str)]
+        unsupported: List[str] = []
         for host in hosts:
             # Check if "socket.IF_INET" or "socket.IF_INET6" is being used and instantiate a socket with the identified
             # protocol
             proto = socket.getaddrinfo(host, None, 0, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
-            s = socket.socket(proto[0][0], socket.SOCK_STREAM)
+            try:
+                s = socket.socket(proto[0][0], socket.SOCK_STREAM)
+            except OSError as e:
+                # getaddrinfo() returns both IPv4 and IPv6 wildcard addresses even if the kernel doesn't support one
+                # of the address families (e.g. IPv6 disabled with ipv6.disable=1). Postgres skips such addresses
+                # when listening on "*" and fails only if none of them is usable, so do the same here.
+                if wildcard and e.errno == errno.EAFNOSUPPORT:
+                    unsupported.append(host)
+                    continue
+                raise ConfigParseError("cannot create a socket for '{0}': {1}".format(host, e.strerror or e))
             try:
                 if s.connect_ex((host, port)) == 0:
                     # Do not raise an exception if ignore_listen_port is set to True.
@@ -163,6 +178,8 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
                 raise ConfigParseError(e)
             finally:
                 s.close()
+        if hosts and len(unsupported) == len(hosts):
+            raise ConfigParseError("address families of {0} are not supported".format(", ".join(unsupported)))
     return True
 
 
