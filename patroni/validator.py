@@ -15,6 +15,7 @@ from .collections import CaseInsensitiveSet, EMPTY_DICT
 from .dcs import dcs_modules
 from .exceptions import ConfigParseError, PatroniAssertionError
 from .log import type_logformat
+from .postgresql.connection import KEEPALIVE_PARAMETERS
 from .postgresql.sync import SYNC_STRICT_PLACEHOLDER
 from .utils import data_directory_is_empty, get_major_version, parse_bool, parse_int, parse_real, split_host_port
 
@@ -1307,6 +1308,10 @@ schema = Schema({
         Optional("pg_ctl_timeout"): IntValidator(min=0, raise_assert=True),
         Optional("use_pg_rewind"): bool,
         Optional("rewind"): [Or(str, dict)],
+        Optional("rewind_keepalives"): {
+            Optional(key): IntValidator(min=0, max=2147483647, raise_assert=True)
+            for key in KEEPALIVE_PARAMETERS
+        },
         Optional("basebackup"): [Or(str, dict)],
     },
     Optional("watchdog"): {

@@ -358,6 +358,18 @@ PostgreSQL
              - progress
              - sync-method: fsync
 
+   -  **rewind\_keepalives**: (optional, local configuration) TCP keepalive settings for the source connection opened by ``pg_rewind``. Use ``keepalives_idle`` for the idle time in seconds before the first probe, ``keepalives_interval`` for the interval between unanswered probes in seconds, and ``keepalives_count`` for the number of unanswered probes before the connection is dropped. A value of zero uses the operating system default. These parameters apply only where the platform supports them and have no effect on Unix-domain socket connections or when TCP keepalives are disabled. See the `libpq connection parameters <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS>`__.
+
+      Example:
+
+      .. code:: YAML
+
+         postgresql:
+           rewind_keepalives:
+             keepalives_idle: 10
+             keepalives_interval: 5
+             keepalives_count: 2
+
    -  **remove\_data\_directory\_on\_rewind\_failure**: If this option is enabled, Patroni will remove the PostgreSQL data directory and recreate the replica. Otherwise it will try to follow the new leader. Default value is **false**.
    -  **remove\_data\_directory\_on\_diverged\_timelines**: Patroni will remove the PostgreSQL data directory and recreate the replica if it notices that timelines are diverging and the former primary can not start streaming from the new primary. This option is useful when ``pg_rewind`` can not be used. While performing timelines divergence check on PostgreSQL v10 and older Patroni will try to connect with replication credential to the "postgres" database. Hence, such access should be allowed in the pg_hba.conf. Default value is **false**.
    -  **replica\_method**: for each create_replica_methods other than basebackup, you would add a configuration section of the same name. At a minimum, this should include "command" with a full path to the actual script to be executed. Other configuration parameters will be passed along to the script in the form "parameter=value".

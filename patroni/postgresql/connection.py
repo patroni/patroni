@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CONNECT_TIMEOUT = 3
 DEFAULT_CONNECTION_OPTIONS = '-c statement_timeout=2000'
+KEEPALIVE_PARAMETERS = ('keepalives_idle', 'keepalives_interval', 'keepalives_count')
 
 
 class NamedConnection:

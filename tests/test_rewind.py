@@ -1,7 +1,9 @@
 from unittest.mock import call, Mock, mock_open, patch, PropertyMock
 
+from patroni import psycopg
 from patroni.postgresql import Postgresql
 from patroni.postgresql.cancellable import CancellableSubprocess
+from patroni.postgresql.config import _conninfo_parse
 from patroni.postgresql.rewind import Rewind
 
 from . import BaseTestPostgresql, MockCursor, psycopg_connect
@@ -106,6 +108,34 @@ class TestRewind(BaseTestPostgresql):
                 self.assertTrue(self.r.pg_rewind(r))
             with patch.object(CancellableSubprocess, 'call', mock_cancellable_call1):
                 self.assertFalse(self.r.pg_rewind(r))
+
+    def test_pg_rewind_keepalives(self):
+        source = {
+            'host': '127.0.0.1', 'port': 5432, 'user': 'rewind_user',
+            'dbname': 'postgres', 'password': 'test-password', 'target_session_attrs': 'read-write',
+        }
+        source_before = source.copy()
+        expected = {key: str(value) for key, value in source.items() if key != 'password'}
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=150000)), \
+                patch('subprocess.check_output', return_value=b''), \
+                patch.object(CancellableSubprocess, 'call', side_effect=mock_cancellable_call0) as run, \
+                patch.object(self.p.config, 'write_pgpass', return_value={'PGPASSFILE': 'test.pgpass'}) as pgpass:
+            for keepalives, expected_options in (
+                ({'keepalives_idle': 10, 'keepalives_interval': 5, 'keepalives_count': 2},
+                 {'keepalives_idle': '10', 'keepalives_interval': '5', 'keepalives_count': '2'}),
+                ({'keepalives_idle': 0, 'keepalives_count': -1}, {'keepalives_idle': '0'}),
+                (['keepalives_idle=10'], {}),
+                (None, {}),
+            ):
+                with self.subTest(keepalives=keepalives), \
+                        patch.dict(self.p.config._config, {'rewind_keepalives': keepalives}):
+                    self.assertTrue(self.r.pg_rewind(source))
+                    cmd = run.call_args[0][0]
+                    dsn = cmd[cmd.index('--source-server') + 1]
+                    self.assertEqual(psycopg.parse_conninfo(dsn, _conninfo_parse), {**expected, **expected_options})
+                    self.assertEqual(pgpass.call_args[0][0], source_before)
+                    self.assertEqual(run.call_args[1]['env']['PGPASSFILE'], 'test.pgpass')
+            self.assertEqual(source, source_before)
 
     def test_pg_rewind_user_options(self):
         """Test pg_rewind with custom user options."""

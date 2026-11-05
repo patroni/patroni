@@ -13,9 +13,9 @@ from .. import thread_pool
 from ..async_executor import CriticalTask
 from ..collections import EMPTY_DICT
 from ..dcs import Leader, RemoteMember
-from ..utils import process_user_options
+from ..utils import parse_int, process_user_options
 from . import Postgresql
-from .connection import get_connection_cursor
+from .connection import get_connection_cursor, KEEPALIVE_PARAMETERS
 from .misc import format_lsn, fsync_dir, parse_history, parse_lsn, PostgresqlRole
 
 logger = logging.getLogger(__name__)
@@ -482,7 +482,19 @@ class Rewind(object):
         # prepare pg_rewind connection string
         env = self._postgresql.config.write_pgpass(conn_kwargs)
         env.update(LANG='C', LC_ALL='C', PGOPTIONS='-c statement_timeout=0')
-        dsn = self._postgresql.config.format_dsn({**conn_kwargs, 'password': None})
+        params = {**conn_kwargs, 'password': None}
+        keepalives = self._postgresql.config.get('rewind_keepalives')
+        if isinstance(keepalives, dict):
+            for key in KEEPALIVE_PARAMETERS:
+                if key in keepalives:
+                    value = parse_int(keepalives[key])
+                    if value is not None and 0 <= value <= 2147483647:
+                        params[key] = value
+                    else:
+                        logger.warning('Ignoring invalid postgresql.rewind_keepalives.%s', key)
+        elif keepalives is not None:
+            logger.warning('Ignoring postgresql.rewind_keepalives: expected a mapping')
+        dsn = self._postgresql.config.format_dsn(params)
         logger.info('running pg_rewind from %s', dsn)
 
         restore_command = (self._postgresql.config.get('recovery_conf') or EMPTY_DICT).get('restore_command') \
