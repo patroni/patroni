@@ -438,9 +438,27 @@ class TestHa(PostgresInit):
     def test_long_promote(self):
         self.ha.has_lock = true
         self.p.is_primary = false
-        self.p.set_role(PostgresqlRole.PRIMARY)
+        self.p.set_role(PostgresqlRole.PROMOTED)
         self.assertEqual(self.ha.run_cycle(), 'no action. I am (postgresql0), the leader with the lock'
                                               + ', in recovery (promotion has not completed)')
+
+    @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
+    def test_primary_restarts_in_recovery(self):
+        self.ha.has_lock = true
+        self.p.is_primary = false
+        self.p.set_role(PostgresqlRole.PRIMARY)
+        self.p.stop = Mock(return_value=True)
+        self.p.follow = Mock()
+        self.ha.release_leader_key_voluntarily = Mock()
+        self.ha.touch_member = Mock()
+        self.ha._rewind.get_archive_command = Mock(return_value=None)
+
+        self.assertEqual(self.ha.run_cycle(),
+                         'demoted self because PostgreSQL is in recovery while holding the leader lock')
+        self.p.stop.assert_called_once()
+        self.ha.release_leader_key_voluntarily.assert_called_once_with(None)
+        self.assertEqual(self.p.role, PostgresqlRole.DEMOTED)
+        self.p.follow.assert_called_once()
 
     def test_demote_after_failing_to_obtain_lock(self):
         self.ha.acquire_lock = false
