@@ -299,9 +299,9 @@ class ConfigWriter(object):
         self._tmpfile = None
 
     def __enter__(self) -> 'ConfigWriter':
-        fd, self._tmpfile = tempfile.mkstemp(prefix=os.path.basename(self._filename) + '.', suffix='.tmp',
-                                             dir=os.path.dirname(self._filename))
-        self._fd = os.fdopen(fd, 'w')
+        self._fd = tempfile.NamedTemporaryFile(mode='w', prefix=os.path.basename(self._filename) + '.', suffix='.tmp',
+                                               dir=os.path.dirname(self._filename), delete=False)
+        self._tmpfile = self._fd.name
         try:
             if self._set_permissions:
                 self._set_permissions(self._tmpfile)
