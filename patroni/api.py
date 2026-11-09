@@ -1759,7 +1759,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         when name resolution is slow.
         """
         TCPServer.server_bind(self)
-        self.server_name, self.server_port = self.server_address[:2]
+        self.server_name = str(self.server_address[0])
+        self.server_port = self.server_address[1]
 
     @staticmethod
     def __has_dual_stack() -> bool:
