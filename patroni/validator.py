@@ -1075,6 +1075,10 @@ class RealValidator(object):
 
 
 userattributes = {"username": "", Optional("password"): ""}
+postgresql_userattributes = {
+    **userattributes,
+    **{Optional(key): IntValidator(min=0, max=2147483647, raise_assert=True) for key in KEEPALIVE_PARAMETERS},
+}
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 setattr(validate_host_port_list, 'expected_type', list)
 setattr(comma_separated_host_port, 'expected_type', str)
@@ -1284,9 +1288,9 @@ schema = Schema({
         "connect_address": validate_connect_address,
         Optional("proxy_address"): validate_connect_address,
         "authentication": {
-            "replication": userattributes,
-            "superuser": userattributes,
-            Optional("rewind"): userattributes
+            "replication": postgresql_userattributes,
+            "superuser": postgresql_userattributes,
+            Optional("rewind"): postgresql_userattributes
         },
         "data_dir": validate_data_dir,
         Optional("bin_name"): {
@@ -1308,10 +1312,6 @@ schema = Schema({
         Optional("pg_ctl_timeout"): IntValidator(min=0, raise_assert=True),
         Optional("use_pg_rewind"): bool,
         Optional("rewind"): [Or(str, dict)],
-        Optional("rewind_keepalives"): {
-            Optional(key): IntValidator(min=0, max=2147483647, raise_assert=True)
-            for key in KEEPALIVE_PARAMETERS
-        },
         Optional("basebackup"): [Or(str, dict)],
     },
     Optional("watchdog"): {
