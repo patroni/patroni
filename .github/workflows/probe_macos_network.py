@@ -1,7 +1,6 @@
 import json
 import os
 import pwd
-import re
 import shlex
 import shutil
 import subprocess
@@ -80,30 +79,34 @@ def main():
             names = ('PATH', 'DCS', 'PGVERSION', 'GITHUB_ACTIONS', 'CI', 'TMPDIR',
                      'LANG', 'LC_ALL', 'LC_CTYPE', 'PYTHONUNBUFFERED')
             remote_env = ['{}={}'.format(name, env[name]) for name in names if name in env]
-            remote = 'cd {} && {}'.format(shlex.quote(str(workspace)),
-                                          shlex.join(['env'] + remote_env + command))
 
             # Repeat normal execution after SSH to distinguish a context change from a cold-start cost.
             for label in ('normal-1', 'ssh-1', 'ssh-2', 'normal-2'):
                 print('Starting ' + label, flush=True)
                 log_path = output / (label + '.log')
+                report_path = output / (label + '.json')
+                run_command = command + ['--format', 'json', '--outfile', str(report_path),
+                                         '--format', 'plain', '--outfile', '-']
+                remote = 'cd {} && {}'.format(shlex.quote(str(workspace)),
+                                              shlex.join(['env'] + remote_env + run_command))
                 start = time.monotonic()
                 try:
                     with log_path.open('w') as log:
-                        result = subprocess.run(ssh + [remote] if label.startswith('ssh') else command,
+                        result = subprocess.run(ssh + [remote] if label.startswith('ssh') else run_command,
                                                 env=env, stdout=log, stderr=subprocess.STDOUT, timeout=300)
                 finally:
                     if Path('features/output').exists():
                         shutil.copytree('features/output', output / (label + '-services'),
                                         ignore=shutil.ignore_patterns('*.key', '*.crt', '*.yml'))
-                text = log_path.read_text()
-                match = re.search(r'I start postgres-0[^\n]*?\s(\d+\.\d+)s', text)
-                if not match:
-                    print(text, flush=True)
-                    raise RuntimeError('No first-node startup timing was recorded for ' + label)
+                report = json.loads(report_path.read_text())
+                starts = [step['result']['duration'] for feature in report for scenario in feature['elements']
+                          if scenario['name'] == 'check replication of a single table' for step in scenario['steps']
+                          if step['name'] == 'I start postgres-0']
+                if len(starts) != 1:
+                    raise RuntimeError('Expected exactly one first-node startup timing for ' + label)
                 results.append({'mode': label, 'exit_code': result.returncode,
                                 'duration_seconds': time.monotonic() - start,
-                                'first_node_seconds': float(match.group(1))})
+                                'first_node_seconds': starts[0]})
                 (output / 'results.json').write_text(json.dumps(results, indent=2))
                 print(json.dumps(results[-1]), flush=True)
             return int(any(result['exit_code'] != 0 for result in results))

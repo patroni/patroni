@@ -27,6 +27,10 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: macos-network-probe
-        path: macos-network-probe-output/
+        path: |
+          macos-network-probe-output/*.log
+          macos-network-probe-output/*.json
+          macos-network-probe-output/*-services/**/*.log
+          macos-network-probe-output/*-services/**/*.csv
         if-no-files-found: error
         retention-days: 5
