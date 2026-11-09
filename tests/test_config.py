@@ -53,6 +53,8 @@ class TestConfig(unittest.TestCase):
             'PATRONI_RESTAPI_CONNECT_ADDRESS': '127.0.0.1:8008',
             'PATRONI_RESTAPI_CERTFILE': '/certfile',
             'PATRONI_RESTAPI_KEYFILE': '/keyfile',
+            'PATRONI_RESTAPI_CRLFILE': '/crlfile',
+            'PATRONI_CTL_CRLFILE': '/ctl-crlfile',
             'PATRONI_RESTAPI_ALLOWLIST_INCLUDE_MEMBERS': 'on',
             'PATRONI_POSTGRESQL_LISTEN': '0.0.0.0:5432',
             'PATRONI_POSTGRESQL_CONNECT_ADDRESS': '127.0.0.1:5432',
@@ -91,6 +93,8 @@ class TestConfig(unittest.TestCase):
         })
         config = Config('postgres0.yml')
         self.assertEqual(config.local_configuration['log']['mode'], 0o123)
+        self.assertEqual(config.local_configuration['restapi']['crlfile'], '/crlfile')
+        self.assertEqual(config.local_configuration['ctl']['crlfile'], '/ctl-crlfile')
         raft = config.local_configuration.get('raft', {})
         self.assertEqual(raft.get('min_timeout'), 5.0)
         self.assertEqual(raft.get('max_timeout'), 10.0)

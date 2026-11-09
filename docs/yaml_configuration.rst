@@ -381,6 +381,7 @@ REST API
    -  **keyfile**: (optional): Specifies the file with the secret key in the PEM format.
    -  **keyfile\_password**: (optional): Specifies a password for decrypting the keyfile.
    -  **cafile**: (optional): Specifies the file with the CA_BUNDLE with certificates of trusted CAs to use while verifying client certs.
+   -  **crlfile**: (optional): Specifies the file with certificate revocation lists (CRLs) in the PEM format. When set, a client certificate is also checked against it and rejected if it is revoked. The file must contain a CRL of the CA that issued the client certificate, and it is only read when the REST API is (re)configured: to load a new CRL without a restart, put it into a file with a new name, change ``crlfile`` and reload Patroni. A CRL with an expired ``nextUpdate`` makes every client certificate fail verification.
    -  **ciphers**: (optional): Specifies the permitted cipher suites (e.g. "ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES128-GCM-SHA256:!SSLv1:!SSLv2:!SSLv3:!TLSv1:!TLSv1.1")
    -  **verify\_client**: (optional): ``none`` (default), ``optional`` or ``required``. When ``none`` REST API will not check client certificates. When ``required`` client certificates are required for all REST API calls. When ``optional`` client certificates are required for all unsafe REST API endpoints. When ``required`` is used, then client authentication succeeds, if the certificate signature verification succeeds.  For ``optional`` the client cert will only be checked for ``PUT``, ``POST``, ``PATCH``, and ``DELETE`` requests.
    -  **allowlist**: (optional): Specifies the set of hosts that are allowed to call unsafe REST API endpoints. The single element could be a host name, an IP address or a network address using CIDR notation. By default ``allow all`` is used. In case if ``allowlist`` or ``allowlist_include_members`` are set, anything that is not included is rejected.
@@ -433,6 +434,7 @@ CTL
       -  **password**: Basic-auth password for accessing protected REST API endpoints. If not provided :ref:`patronictl` will use the value provided for REST API "password" parameter.
    -  **insecure**: Allow connections to REST API without verifying SSL certs.
    -  **cacert**: Specifies the file with the CA_BUNDLE file or directory with certificates of trusted CAs to use while verifying REST API SSL certs. If not provided :ref:`patronictl` will use the value provided for REST API "cafile" parameter.
+   -  **crlfile**: Specifies the file with certificate revocation lists (CRLs) in the PEM format, to check REST API SSL certs against. It is used only when REST API SSL certs are verified (not with ``insecure``). If not provided :ref:`patronictl` will use the value provided for REST API "crlfile" parameter.
    -  **certfile**: Specifies the file with the client certificate in the PEM format.
    -  **keyfile**: Specifies the file with the client secret key in the PEM format.
    -  **keyfile\_password**: Specifies a password for decrypting the client keyfile.

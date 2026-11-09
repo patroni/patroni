@@ -1,9 +1,12 @@
 """Facilities for handling communication with Patroni's REST API."""
 import json
+import ssl
 
 from typing import Any, Dict, Optional, Union
 
 import urllib3
+
+from urllib3.util.ssl_ import create_urllib3_context
 
 from .config import Config
 from .dcs import Member
@@ -95,6 +98,25 @@ class PatroniRequest(object):
         self._apply_pool_param(name + '_file', value)
         return value
 
+    @staticmethod
+    def _create_crl_context(crlfile: str, check_hostname: bool) -> ssl.SSLContext:
+        """Create an SSL context that also checks the server certificate against certificate revocation lists.
+
+        The context is the one :mod:`urllib3` would create by itself. The CA bundle and the client certificate are
+        still loaded by :mod:`urllib3` from ``ca_certs``, ``cert_file`` and ``key_file``.
+
+        :param crlfile: path to a file with certificate revocation lists in the PEM format.
+        :param check_hostname: ``False`` if the server hostname must not be verified.
+
+        :returns: the SSL context to be used by the request manager.
+        """
+        ctx = create_urllib3_context(cert_reqs=ssl.CERT_REQUIRED)
+        if not check_hostname:
+            ctx.check_hostname = False
+        ctx.load_verify_locations(cafile=crlfile)
+        ctx.verify_flags |= ssl.VERIFY_CRL_CHECK_LEAF
+        return ctx
+
     def reload_config(self, config: Union[Config, Dict[str, Any]]) -> None:
         """Apply *config* to request manager.
 
@@ -106,7 +128,9 @@ class PatroniRequest(object):
         Also configure SSL related settings for requests:
 
             * ``ca_certs`` is configured if ``ctl.cacert`` or ``restapi.cafile`` is available;
-            * ``cert``, ``key`` and ``key_password`` are configured if ``ctl.certfile`` is available.
+            * ``cert``, ``key`` and ``key_password`` are configured if ``ctl.certfile`` is available;
+            * ``ssl_context`` is configured if ``ctl.crlfile`` or ``restapi.crlfile`` is available and server
+              certificates are verified, so that they are also checked against certificate revocation lists.
 
         :param config: Patroni YAML configuration.
         """
@@ -134,6 +158,13 @@ class PatroniRequest(object):
 
         cacert = self._get_ctl_value(config, 'cacert') or self._get_restapi_value(config, 'cafile')
         self._apply_pool_param('ca_certs', cacert)
+
+        crlfile = self._get_ctl_value(config, 'crlfile') or self._get_restapi_value(config, 'crlfile')
+        ssl_context = None
+        if crlfile and self._pool.connection_pool_kw['cert_reqs'] == 'CERT_REQUIRED':
+            check_hostname = self._pool.connection_pool_kw.get('assert_hostname') is not False
+            ssl_context = self._create_crl_context(crlfile, check_hostname)
+        self._apply_pool_param('ssl_context', ssl_context)
 
     def request(self, method: str, url: str, body: Optional[Any] = None,
                 **kwargs: Any) -> urllib3.response.HTTPResponse:

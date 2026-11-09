@@ -547,11 +547,11 @@ class Config(object):
                     ret[section][param] = value
 
         _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile', 'keyfile_password',
-                                        'cafile', 'ciphers', 'verify_client', 'http_extra_headers',
+                                        'cafile', 'crlfile', 'ciphers', 'verify_client', 'http_extra_headers',
                                         'https_extra_headers', 'allowlist', 'allowlist_include_members',
                                         'request_queue_size', 'handshake_timeout', 'request_timeout',
                                         'server_tokens'])
-        _set_section_values('ctl', ['insecure', 'cacert', 'certfile', 'keyfile', 'keyfile_password'])
+        _set_section_values('ctl', ['insecure', 'cacert', 'crlfile', 'certfile', 'keyfile', 'keyfile_password'])
         _set_section_values('postgresql', ['listen', 'connect_address', 'proxy_address',
                                            'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
         _set_section_values('log', ['type', 'level', 'traceback_level', 'format', 'dateformat', 'static_fields',
