@@ -20,7 +20,7 @@ jobs:
         python-version: 3.8
     - name: Install dependencies
       run: python .github/workflows/install_deps.py
-    - name: Compare normal and SSH bootstrap
+    - name: Trace the REST API startup delay
       run: python -u .github/workflows/probe_macos_network.py
     - name: Upload diagnostic logs
       if: always()

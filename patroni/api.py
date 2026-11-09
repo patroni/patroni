@@ -1568,7 +1568,13 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         self.__ssl_serial_number = None
         self.__ssl_not_after: Optional[int] = None
         self._received_new_cert = False
-        self.reload_config(config)
+        import faulthandler
+        faulthandler.dump_traceback_later(5, repeat=True)
+        try:
+            self.reload_config(config)
+        finally:
+            faulthandler.cancel_dump_traceback_later()
+        logger.info('REST API initialization completed')
         self.daemon = True
 
     @property
