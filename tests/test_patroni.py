@@ -444,6 +444,23 @@ class TestPatroni(unittest.TestCase):
         with patch('urllib3.PoolManager.request', Mock()):
             self.assertRaises(SystemExit, self.p.ensure_unique_name, bad_cluster)
 
+        def identity(scope, name):
+            return Mock(data='{{"patroni": {{"scope": "{0}", "name": "{1}"}}}}'.format(scope, name).encode('utf-8'))
+
+        # The responder reports the same scope and name, so it really is a second instance of this node
+        with patch('urllib3.PoolManager.request', Mock(return_value=identity('batman', 'postgresql0'))):
+            self.assertRaises(SystemExit, self.p.ensure_unique_name, bad_cluster)
+        # The stale api_url is now served by another member or by a node of another cluster
+        with patch('urllib3.PoolManager.request', Mock(return_value=identity('batman', 'postgresql1'))):
+            self.assertIsNone(self.p.ensure_unique_name(bad_cluster))
+        with patch('urllib3.PoolManager.request', Mock(return_value=identity('robin', 'postgresql0'))):
+            self.assertIsNone(self.p.ensure_unique_name(bad_cluster))
+        # The responder doesn't report its identity, so we keep refusing to start
+        with patch('urllib3.PoolManager.request', Mock(return_value=Mock(data=b'{"patroni": {"version": "3.0.0"}}'))):
+            self.assertRaises(SystemExit, self.p.ensure_unique_name, bad_cluster)
+        with patch('urllib3.PoolManager.request', Mock(return_value=Mock(data=b'not json'))):
+            self.assertRaises(SystemExit, self.p.ensure_unique_name, bad_cluster)
+
     @patch('patroni.dcs.AbstractDCS.get_cluster', Mock(side_effect=[DCSError('foo'), DCSError('foo'), None]))
     def test_ensure_dcs_access(self):
         with patch('patroni.__main__.logger.warning') as mock_logger:

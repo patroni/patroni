@@ -3,6 +3,7 @@
 Implement ``patroni`` main daemon and expose its entry point.
 """
 
+import json
 import logging
 import os
 import signal
@@ -150,11 +151,26 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         configured_loggers: Dict[str, Any] = (self.config.get('log') or EMPTY_DICT).get('loggers') or {}
         try:
             self.logger.update_loggers({**configured_loggers, 'urllib3.connectionpool': 'ERROR'})
-            _ = self.request(member, endpoint="/liveness", timeout=3)
-            logger.fatal("Can't start; there is already a node named '%s' running", self.config['name'])
-            sys.exit(1)
+            response = self.request(member, endpoint="/patroni", timeout=3)
         except Exception:
+            return
+        finally:
             self.logger.update_loggers(configured_loggers)
+
+        # The address in the member record may be stale and now belong to another node (e.g. a Pod IP reused
+        # after a Kubernetes node reboot). Refuse to start only if the responder doesn't identify itself as
+        # a different node; responders that don't report their identity are treated as before.
+        try:
+            identity = json.loads(response.data.decode('utf-8'))['patroni']
+            responder = (identity['scope'], identity['name'])
+        except Exception:
+            responder = None
+        if responder and responder != (self.config['scope'], self.config['name']):
+            logger.warning("Member record of '%s' points to %s, which is served by node '%s' of cluster '%s';"
+                           " ignoring stale record", self.config['name'], member.api_url, responder[1], responder[0])
+            return
+        logger.fatal("Can't start; there is already a node named '%s' running", self.config['name'])
+        sys.exit(1)
 
     def _get_tags(self) -> Dict[str, Any]:
         """Get tags configured for this node, if any.
