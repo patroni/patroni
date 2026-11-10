@@ -1202,3 +1202,5 @@ def before_scenario(context, scenario):
         scenario.skip('it is not possible to control state of {0} from tests'.format(context.dcs_ctl.name()))
     if 'reject-duplicate-name' in scenario.effective_tags and context.dcs_ctl.name() == 'raft':
         scenario.skip('Flaky test with Raft')
+    if 'reject-duplicate-name' in scenario.effective_tags and context.dcs_ctl.name() == 'kubernetes':
+        scenario.skip('Unique name check is skipped with Kubernetes')
