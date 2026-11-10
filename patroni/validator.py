@@ -133,13 +133,12 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
               address(es).
     """
     try:
-        # 0 stands for "no port in *host_port*", since it is not a valid port to connect to or listen on
-        hosts, written_port = split_host_port(host_port, 0)
+        hosts, written_port = split_host_port(host_port, 1)
     except (ValueError, TypeError):
         raise ConfigParseError("contains a wrong value")
     else:
         if port is None:
-            port = written_port or 1
+            port = written_port
         # Mention the port in error messages unless it is the one written in *host_port*
         address = host_port if port == written_port else '{0} (port {1})'.format(host_port, port)
         if multiple_hosts:
@@ -177,23 +176,27 @@ def validate_consul_host(host: str, consul: Dict[str, Any]) -> bool:
     """Check if the Consul agent configured with ``consul.host`` is reachable.
 
     The port is resolved the same way the Consul client does it: ``consul.port`` if it is set, otherwise the port in
-    *host*, otherwise ``8500``.
+    *host*, otherwise ``8500``. ``consul.host`` is not checked if ``consul.url`` is set, because the Consul client then
+    takes the address from the URL.
 
     :param host: value of ``consul.host`` to be validated, in the format ``host`` or ``host:port``.
     :param consul: the ``consul`` configuration section.
 
-    :returns: ``True`` if the Consul agent is reachable.
+    :returns: ``True`` if the Consul agent is reachable, or if ``consul.url`` is set.
 
     :raises:
         :class:`~patroni.exceptions.ConfigParseError`: if validation by :func:`validate_host_port` failed.
     """
+    if 'url' in consul:
+        return True
     try:
         _, port = split_host_port(host, 8500)
     except (ValueError, TypeError):
         raise ConfigParseError("contains a wrong value")
-    # An invalid ``consul.port`` is reported by its own validator, fall back to the port in *host* then.
+    # An invalid ``consul.port`` is reported by the schema, but this function still needs a usable port to probe
+    # *host*, so it falls back to the port in *host* when ``consul.port`` is out of range.
     explicit_port = consul.get('port')
-    if isinstance(explicit_port, int) and not isinstance(explicit_port, bool) and 0 < explicit_port <= 65535:
+    if isinstance(explicit_port, int) and not isinstance(explicit_port, bool) and 1 <= explicit_port <= 65535:
         port = explicit_port
     return validate_host_port(host, port=port)
 
@@ -495,7 +498,7 @@ class WithSection(object):
 
                 "consul": {
                     "host": WithSection(validate_consul_host, str),
-                    Optional("port"): int,
+                    Optional("port"): IntValidator(min=1, max=65535, expected_type=int, raise_assert=True),
                 }
         """
         self.validator = validator
@@ -684,6 +687,8 @@ class Schema(object):
         * ``callable``: any callable object, defines that validation will follow the code defined in the callable
           object. If the callable object contains an ``expected_type`` attribute, then it will check if the
           configuration value is of the expected type before calling the code of the callable object; or
+        * :class:`WithSection`: a validation function that also needs the other options of the configuration section
+          containing the value. It is supported only as a direct value in a :class:`dict`; or
         * :class:`list`: list representing one or more values in the configuration; or
         * :class:`dict`: dictionary representing the YAML configuration tree.
     """
@@ -706,6 +711,8 @@ class Schema(object):
             * ``callable``: Any callable object, defines that validation will follow the code defined in the callable
               object. If the callable object contains an ``expected_type`` attribute, then it will check if the
               configuration value is of the expected type before calling the code of the callable object; or
+            * :class:`WithSection`: a validation function that also needs the other options of the configuration section
+              containing the value. It is supported only as a direct value in a :class:`dict`; or
             * :class:`list`: list representing it expects to contain one or more values in the configuration; or
             * :class:`dict`: dictionary representing the YAML configuration tree.
 
@@ -817,6 +824,10 @@ class Schema(object):
                 yield Result(True, data=self.data)
             except Exception as e:
                 yield Result(False, "didn't pass validation: {}".format(e), data=self.data)
+        # `iter_dict` binds `WithSection` to the section it is a direct value of. Reaching this point means it was
+        # placed elsewhere, e.g. inside an `Or` or a list, where there is no section to bind it to.
+        elif isinstance(self.validator, WithSection):
+            raise ConfigParseError("WithSection can only be used as a direct value in a dictionary")
         elif isinstance(self.validator, dict):
             if not isinstance(self.data, dict):
                 yield Result(isinstance(self.data, dict), "is not a dictionary", level=1, data=self.data)
@@ -1285,7 +1296,7 @@ schema = Schema({
                 "host": WithSection(validate_consul_host, str),
                 "url": str
             }),
-            Optional("port"): IntValidator(max=65535, expected_type=int, raise_assert=True),
+            Optional("port"): IntValidator(min=1, max=65535, expected_type=int, raise_assert=True),
             Optional("scheme"): str,
             Optional("token"): str,
             Optional("verify"): bool,
@@ -1305,7 +1316,7 @@ schema = Schema({
         "etcd3": validate_etcd,
         "exhibitor": {
             "hosts": [str],
-            "port": IntValidator(max=65535, expected_type=int, raise_assert=True),
+            "port": IntValidator(min=1, max=65535, expected_type=int, raise_assert=True),
             Optional("poll_interval"): IntValidator(min=1, expected_type=int, raise_assert=True),
         },
         "raft": {
@@ -1344,7 +1355,8 @@ schema = Schema({
             Optional("tmp_role_label"): str,
             Optional("use_endpoints"): bool,
             Optional("pod_ip"): Or(is_ipv4_address, is_ipv6_address),
-            Optional("ports"): [{"name": str, "port": IntValidator(max=65535, expected_type=int, raise_assert=True)}],
+            Optional("ports"): [{"name": str,
+                                 "port": IntValidator(min=1, max=65535, expected_type=int, raise_assert=True)}],
             Optional("cacert"): str,
             Optional("retriable_http_codes"): Or(int, [int]),
             Optional("bootstrap_labels"): dict,
