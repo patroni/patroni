@@ -542,7 +542,6 @@ class Consul(AbstractDCS):
             'port': conn_parts.port,
             'check': check,
             'tags': tags,
-            'enable_tag_override': True,
         }
 
         if state == PostgresqlState.STOPPED or (not self._register_service and self._previous_loop_register_service):
