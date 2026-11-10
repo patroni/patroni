@@ -1,7 +1,10 @@
 from unittest.mock import call, Mock, mock_open, patch, PropertyMock
 
+from patroni import psycopg
+from patroni.dcs import RemoteMember
 from patroni.postgresql import Postgresql
 from patroni.postgresql.cancellable import CancellableSubprocess
+from patroni.postgresql.config import _conninfo_parse
 from patroni.postgresql.rewind import Rewind
 
 from . import BaseTestPostgresql, MockCursor, psycopg_connect
@@ -106,6 +109,33 @@ class TestRewind(BaseTestPostgresql):
                 self.assertTrue(self.r.pg_rewind(r))
             with patch.object(CancellableSubprocess, 'call', mock_cancellable_call1):
                 self.assertFalse(self.r.pg_rewind(r))
+
+    def test_pg_rewind_keepalives(self):
+        member = RemoteMember('leader', {'conn_url': 'postgres://127.0.0.1:5432/postgres'})
+        expected = {'host': '127.0.0.1', 'port': '5432', 'user': 'rewind_user',
+                    'dbname': 'postgres', 'target_session_attrs': 'read-write'}
+        with patch.object(Postgresql, 'major_version', PropertyMock(return_value=150000)), \
+                patch('subprocess.check_output', return_value=b''), \
+                patch.object(CancellableSubprocess, 'call', side_effect=mock_cancellable_call0) as run, \
+                patch.object(self.p.config, 'write_pgpass', return_value={'PGPASSFILE': 'test.pgpass'}) as pgpass:
+            for keepalives, expected_options in (
+                ({'keepalives_idle': 10, 'keepalives_interval': 5, 'keepalives_count': 2},
+                 {'keepalives_idle': '10', 'keepalives_interval': '5', 'keepalives_count': '2'}),
+                ({'keepalives_idle': 0}, {'keepalives_idle': '0'}),
+                ({}, {}),
+            ):
+                auth = {'rewind': {'username': 'rewind_user', 'password': 'test-password', **keepalives}}
+                with self.subTest(keepalives=keepalives), \
+                        patch.dict(self.p.config._config, {'authentication': auth}):
+                    source = self.r._conn_kwargs(member, self.p.config.rewind_credentials)
+                    source_before = source.copy()
+                    self.assertTrue(self.r.pg_rewind(source))
+                    cmd = run.call_args[0][0]
+                    dsn = cmd[cmd.index('--source-server') + 1]
+                    self.assertEqual(psycopg.parse_conninfo(dsn, _conninfo_parse), {**expected, **expected_options})
+                    self.assertEqual(pgpass.call_args[0][0], source_before)
+                    self.assertEqual(run.call_args[1]['env']['PGPASSFILE'], 'test.pgpass')
+                    self.assertEqual(source, source_before)
 
     def test_pg_rewind_user_options(self):
         """Test pg_rewind with custom user options."""

@@ -85,12 +85,20 @@ class TestConfig(unittest.TestCase):
             'PATRONI_SUPERUSER_PASSWORD': 'patroni',
             'PATRONI_REPLICATION_USERNAME': 'replicator',
             'PATRONI_REPLICATION_PASSWORD': 'rep-pass',
+            'PATRONI_SUPERUSER_KEEPALIVES_IDLE': '10',
+            'PATRONI_REPLICATION_KEEPALIVES_INTERVAL': '5',
+            'PATRONI_REWIND_USERNAME': 'rewind_user',
+            'PATRONI_REWIND_KEEPALIVES_COUNT': '2',
             'PATRONI_admin_PASSWORD': 'admin',
             'PATRONI_admin_OPTIONS': 'createrole,createdb',
             'PATRONI_POSTGRESQL_BIN_POSTGRES': 'sergtsop'
         })
         config = Config('postgres0.yml')
         self.assertEqual(config.local_configuration['log']['mode'], 0o123)
+        auth = config['postgresql']['authentication']
+        self.assertEqual(auth['superuser']['keepalives_idle'], '10')
+        self.assertEqual(auth['replication']['keepalives_interval'], '5')
+        self.assertEqual(auth['rewind']['keepalives_count'], '2')
         raft = config.local_configuration.get('raft', {})
         self.assertEqual(raft.get('min_timeout'), 5.0)
         self.assertEqual(raft.get('max_timeout'), 10.0)

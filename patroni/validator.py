@@ -15,6 +15,7 @@ from .collections import CaseInsensitiveSet, EMPTY_DICT
 from .dcs import dcs_modules
 from .exceptions import ConfigParseError, PatroniAssertionError
 from .log import type_logformat
+from .postgresql.connection import KEEPALIVE_PARAMETERS
 from .postgresql.sync import SYNC_STRICT_PLACEHOLDER
 from .utils import data_directory_is_empty, get_major_version, parse_bool, parse_int, parse_real, split_host_port
 
@@ -1074,6 +1075,10 @@ class RealValidator(object):
 
 
 userattributes = {"username": "", Optional("password"): ""}
+postgresql_userattributes = {
+    **userattributes,
+    **{Optional(key): IntValidator(min=0, max=2147483647, raise_assert=True) for key in KEEPALIVE_PARAMETERS},
+}
 available_dcs = [m.split(".")[-1] for m in dcs_modules()]
 setattr(validate_host_port_list, 'expected_type', list)
 setattr(comma_separated_host_port, 'expected_type', str)
@@ -1283,9 +1288,9 @@ schema = Schema({
         "connect_address": validate_connect_address,
         Optional("proxy_address"): validate_connect_address,
         "authentication": {
-            "replication": userattributes,
-            "superuser": userattributes,
-            Optional("rewind"): userattributes
+            "replication": postgresql_userattributes,
+            "superuser": postgresql_userattributes,
+            Optional("rewind"): postgresql_userattributes
         },
         "data_dir": validate_data_dir,
         Optional("bin_name"): {

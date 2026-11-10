@@ -251,6 +251,14 @@ PostgreSQL
 
    -  **authentication**:
 
+      The ``superuser``, ``replication``, and ``rewind`` sections can set the libpq
+      TCP keepalive parameters ``keepalives_idle`` (seconds before the first probe),
+      ``keepalives_interval`` (seconds between unanswered probes), and
+      ``keepalives_count`` (unanswered probes before dropping the connection).
+      Zero uses the operating system default. Support depends on the platform.
+      These settings have no effect on Unix-domain sockets. See the
+      `libpq connection parameters <https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS>`__.
+
       -  **superuser**:
 
          -  **username**: name for the superuser, set during initialization (initdb) and later used by Patroni to connect to the postgres.

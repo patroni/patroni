@@ -18,6 +18,7 @@ from .dcs import ClusterConfig
 from .exceptions import ConfigParseError
 from .file_perm import pg_perm
 from .postgresql.config import ConfigHandler
+from .postgresql.connection import KEEPALIVE_PARAMETERS
 from .postgresql.misc import PostgresqlRole
 from .utils import deep_compare, parse_bool, parse_int, parse_real, patch_config
 from .validator import IntValidator, validate_name
@@ -37,7 +38,7 @@ _AUTH_ALLOWED_PARAMETERS = (
     'gssencmode',
     'channel_binding',
     'sslnegotiation'
-)
+) + KEEPALIVE_PARAMETERS
 
 ROLE_CONFIG_SUFFIX_MAP: Dict[PostgresqlRole, PostgresqlRole] = {
     PostgresqlRole.PRIMARY: PostgresqlRole.PRIMARY,
