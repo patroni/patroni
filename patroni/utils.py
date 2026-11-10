@@ -805,7 +805,7 @@ def polling_loop(timeout: Union[int, float], interval: Union[int, float] = 1) ->
 AddrInfo = Tuple[socket.AddressFamily, socket.SocketKind, int, str, Union[Tuple[str, int], Tuple[str, int, int, int]]]
 
 
-def getaddrinfo(host: Optional[str], port: Union[str, int, None], family: int = 0, type: int = 0,
+def getaddrinfo(host: Optional[str], port: Union[str, int, None], family: int = 0, socktype: int = 0,
                 proto: int = 0, flags: int = 0) -> List[AddrInfo]:
     """Resolve *host* and *port* to IPv4 and/or IPv6 addresses.
 
@@ -822,7 +822,7 @@ def getaddrinfo(host: Optional[str], port: Union[str, int, None], family: int = 
         :data:`socket.AI_PASSIVE`.
     :param port: port number or service name.
     :param family: address family, ``0`` means any.
-    :param type: socket type, ``0`` means any.
+    :param socktype: socket type, ``0`` means any.
     :param proto: protocol, ``0`` means any.
     :param flags: :func:`socket.getaddrinfo` flags.
 
@@ -832,7 +832,7 @@ def getaddrinfo(host: Optional[str], port: Union[str, int, None], family: int = 
     :raises:
         :class:`socket.gaierror`: if *host* can't be resolved.
     """
-    return [cast(AddrInfo, a) for a in socket.getaddrinfo(host, port, family, type, proto, flags)
+    return [cast(AddrInfo, a) for a in socket.getaddrinfo(host, port, family, socktype, proto, flags)
             if isinstance(a[4][0], str) and isinstance(a[4][1], int)]
 
 
