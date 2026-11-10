@@ -17,8 +17,8 @@ from .dcs import dcs_modules
 from .exceptions import ConfigParseError, PatroniAssertionError
 from .log import type_logformat
 from .postgresql.sync import SYNC_STRICT_PLACEHOLDER
-from .utils import data_directory_is_empty, get_major_version, getaddrinfo, parse_bool, parse_int, parse_real, \
-    split_host_port
+from .utils import data_directory_is_empty, get_major_version, \
+    getaddrinfo, parse_bool, parse_int, parse_real, split_host_port
 
 # Additional parameters to fine-tune validation process
 _validation_params: Dict[str, Any] = {}
