@@ -99,7 +99,7 @@ class PatroniRequest(object):
         return value
 
     @staticmethod
-    def _create_crl_context(crlfile: str, check_hostname: bool) -> ssl.SSLContext:
+    def _create_crl_context(crlfile: str, check_hostname: bool, default_certs: bool) -> ssl.SSLContext:
         """Create an SSL context that also checks the server certificate against certificate revocation lists.
 
         The context is the one :mod:`urllib3` would create by itself. The CA bundle and the client certificate are
@@ -107,12 +107,16 @@ class PatroniRequest(object):
 
         :param crlfile: path to a file with certificate revocation lists in the PEM format.
         :param check_hostname: ``False`` if the server hostname must not be verified.
+        :param default_certs: ``True`` if no CA bundle is configured: :mod:`urllib3` loads the system's default CA
+            certificates only into a context it creates itself, so they are loaded here.
 
         :returns: the SSL context to be used by the request manager.
         """
         ctx = create_urllib3_context(cert_reqs=ssl.CERT_REQUIRED)
         if not check_hostname:
             ctx.check_hostname = False
+        if default_certs:
+            ctx.load_default_certs()
         ctx.load_verify_locations(cafile=crlfile)
         ctx.verify_flags |= ssl.VERIFY_CRL_CHECK_LEAF
         return ctx
@@ -163,7 +167,8 @@ class PatroniRequest(object):
         ssl_context = None
         if crlfile and self._pool.connection_pool_kw['cert_reqs'] == 'CERT_REQUIRED':
             check_hostname = self._pool.connection_pool_kw.get('assert_hostname') is not False
-            ssl_context = self._create_crl_context(crlfile, check_hostname)
+            default_certs = not self._pool.connection_pool_kw.get('ca_certs')
+            ssl_context = self._create_crl_context(crlfile, check_hostname, default_certs)
         self._apply_pool_param('ssl_context', ssl_context)
 
     def request(self, method: str, url: str, body: Optional[Any] = None,
