@@ -18,7 +18,7 @@ from ..dcs import Leader, Member, RemoteMember, slot_name_from_member_name
 from ..exceptions import PatroniFatalException, PostgresConnectionException
 from ..file_perm import pg_perm
 from ..psycopg import parse_conninfo
-from ..utils import compare_values, get_postgres_version, is_subpath, \
+from ..utils import compare_values, get_postgres_version, getaddrinfo, is_subpath, \
     maybe_convert_from_base_unit, parse_bool, parse_int, split_host_port, uri, validate_directory
 from ..validator import EnumValidator, IntValidator
 from .misc import fsync_dir, get_major_from_minor_version, postgres_version_to_int, PostgresqlRole, PostgresqlState
@@ -663,10 +663,9 @@ class ConfigHandler(object):
         if self._postgresql.bootstrap.running_custom_bootstrap:
             addresses = {} if os.name == 'nt' else {'': 'local'}  # windows doesn't yet support unix-domain sockets
             if 'host' in self.local_replication_address and not self.local_replication_address['host'].startswith('/'):
-                addresses.update({sa[0] + '/32': 'host' for _, _, _, _, sa in socket.getaddrinfo(
+                addresses.update({sa[0] + '/32': 'host' for _, _, _, _, sa in getaddrinfo(
                                   self.local_replication_address['host'], self.local_replication_address['port'],
-                                  0, socket.SOCK_STREAM, socket.IPPROTO_TCP) if isinstance(sa[0], str)})
-                # Filter out unexpected results when python is compiled with --disable-ipv6 and running on IPv6 system.
+                                  0, socket.SOCK_STREAM, socket.IPPROTO_TCP)})
 
             with self.config_writer(self._pg_hba_conf) as f:
                 for address, t in addresses.items():

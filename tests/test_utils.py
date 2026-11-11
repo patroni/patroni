@@ -1,3 +1,4 @@
+import socket
 import sys
 import unittest
 
@@ -5,7 +6,7 @@ from unittest.mock import Mock, patch
 
 from patroni.exceptions import PatroniException
 from patroni.utils import apply_keepalive_limit, enable_keepalive, get_major_version, get_postgres_version, \
-    parse_int, polling_loop, process_user_options, Retry, RetryFailedError, unquote, validate_directory
+    getaddrinfo, parse_int, polling_loop, process_user_options, Retry, RetryFailedError, unquote, validate_directory
 
 
 class TestUtils(unittest.TestCase):
@@ -181,6 +182,17 @@ class TestUtils(unittest.TestCase):
                 ),
                 ['--checkpoint=fast', '--label=standby'],
             )
+
+    def test_getaddrinfo(self):
+        ipv4 = (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('127.0.0.1', 5432))
+        ipv6 = (socket.AF_INET6, socket.SOCK_STREAM, 6, '', ('::1', 5432, 0, 0))
+        # Python built without IPv6 support represents an AF_INET6 socket address as (family, raw_bytes)
+        undecodable = (socket.AF_INET6, socket.SOCK_STREAM, 6, '', (socket.AF_INET6, b'\x15\x38' + b'\x00' * 24))
+        with patch('socket.getaddrinfo', Mock(return_value=[ipv4, undecodable, ipv6])) as mock_getaddrinfo:
+            self.assertEqual(getaddrinfo('localhost', 5432, 0, socket.SOCK_STREAM, 0, socket.AI_PASSIVE), [ipv4, ipv6])
+            mock_getaddrinfo.assert_called_once_with('localhost', 5432, 0, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
+        with patch('socket.getaddrinfo', Mock(side_effect=socket.gaierror)):
+            self.assertRaises(socket.gaierror, getaddrinfo, 'localhost', 5432)
 
 
 @patch('time.sleep', Mock())
