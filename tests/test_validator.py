@@ -545,3 +545,18 @@ class TestValidator(unittest.TestCase):
         errors = schema(c)
         output = "\n".join(errors)
         self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
+    def test_crlfile(self, mock_out, mock_err):
+        c = copy.deepcopy(config)
+        c['restapi']['crlfile'] = '/crl.pem'
+        c['ctl'] = {'crlfile': '/crl.pem'}
+        errors = schema(c)
+        output = "\n".join(errors)
+        self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
+        c['restapi']['crlfile'] = 1
+        c['ctl']['crlfile'] = 1
+        errors = schema(c)
+        output = "\n".join(errors)
+        self.assertEqual(['ctl.crlfile', 'postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr', 'restapi.crlfile'],
+                         parse_output(output))

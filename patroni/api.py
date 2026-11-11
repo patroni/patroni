@@ -1826,6 +1826,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
             * ``keyfile``: path to key of ``certfile``;
             * ``keyfile_password``: password for decrypting ``keyfile``;
             * ``cafile``: path to CA file to validate client certificates;
+            * ``crlfile``: path to a file with certificate revocation lists, in the PEM format. If given, client
+              certificates are also checked against it;
             * ``ciphers``: permitted cipher suites;
             * ``verify_client``: value can be one among:
 
@@ -1862,6 +1864,9 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         if self.__protocol == 'https':
             import ssl
             ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH, cafile=ssl_options.get('cafile'))
+            if ssl_options.get('crlfile'):
+                ctx.load_verify_locations(cafile=ssl_options['crlfile'])
+                ctx.verify_flags |= ssl.VERIFY_CRL_CHECK_LEAF
             if ssl_options.get('ciphers'):
                 ctx.set_ciphers(ssl_options['ciphers'])
             ctx.load_cert_chain(certfile=ssl_options['certfile'], keyfile=ssl_options.get('keyfile'),
@@ -2045,7 +2050,7 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         self.request_timeout = self._parse_timeout(config, 'request_timeout', 5)
 
         ssl_options = {n: config[n] for n in ('certfile', 'keyfile', 'keyfile_password',
-                                              'cafile', 'ciphers') if n in config}
+                                              'cafile', 'crlfile', 'ciphers') if n in config}
 
         self.http_extra_headers = config.get('http_extra_headers') or {}
         self.http_extra_headers.update((config.get('https_extra_headers') or {}) if ssl_options.get('certfile') else {})

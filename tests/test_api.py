@@ -5,7 +5,7 @@ import unittest
 
 from http.server import HTTPServer
 from io import BytesIO as IO
-from unittest.mock import Mock, patch, PropertyMock
+from unittest.mock import MagicMock, Mock, patch, PropertyMock
 
 from patroni import global_config
 from patroni.api import RestApiHandler, RestApiServer
@@ -1062,6 +1062,35 @@ class TestRestApiServer(unittest.TestCase):
 
             self.srv.reload_config({'listen': ':8008'})
             self.assertIsNone(self.srv.ssl_not_after)
+
+    @patch.object(HTTPServer, '__init__', Mock())
+    @patch('ssl._ssl._test_decode_cert', Mock(return_value={}))
+    def test_crlfile(self):
+        import ssl
+        ctx = MagicMock()
+        ctx.verify_flags = ssl.VERIFY_DEFAULT
+        ctx.wrap_socket.return_value = 0
+        with patch.object(MockRestApiServer, 'server_close', Mock()), \
+                patch('ssl.create_default_context', Mock(return_value=ctx)):
+            # without crlfile nothing changes
+            self.srv.reload_config({'listen': ':8008', 'certfile': 'a', 'verify_client': 'required'})
+            ctx.load_verify_locations.assert_not_called()
+            self.assertFalse(ctx.verify_flags & ssl.VERIFY_CRL_CHECK_LEAF)
+
+            # crlfile is loaded and client certificates are checked against it
+            self.srv.reload_config({'listen': ':8008', 'certfile': 'a', 'verify_client': 'required',
+                                    'crlfile': 'crl-1.pem'})
+            ctx.load_verify_locations.assert_called_once_with(cafile='crl-1.pem')
+            self.assertTrue(ctx.verify_flags & ssl.VERIFY_CRL_CHECK_LEAF)
+
+            # a new crlfile rebuilds the SSL context, the same one does not
+            with patch.object(MockRestApiServer, '_RestApiServer__initialize') as mock_initialize:
+                self.srv.reload_config({'listen': ':8008', 'certfile': 'a', 'verify_client': 'required',
+                                        'crlfile': 'crl-1.pem'})
+                mock_initialize.assert_not_called()
+                self.srv.reload_config({'listen': ':8008', 'certfile': 'a', 'verify_client': 'required',
+                                        'crlfile': 'crl-2.pem'})
+                mock_initialize.assert_called_once()
 
     def test_query(self):
         with patch.object(MockConnection, 'get', Mock(side_effect=OperationalError)):
