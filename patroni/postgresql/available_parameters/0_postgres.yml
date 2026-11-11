@@ -276,6 +276,41 @@ parameters:
     min_val: 0
     max_val: 131072
     unit: 8kB
+  composite_type_mismatch:
+  - type: Enum
+    possible_values:
+    - error
+    - warn
+    - disabled
+    version_from: 180007
+  - type: Enum
+    possible_values:
+    - error
+    - warn
+    - disabled
+    version_from: 170012
+    version_till: 170099
+  - type: Enum
+    possible_values:
+    - error
+    - warn
+    - disabled
+    version_from: 160016
+    version_till: 160099
+  - type: Enum
+    possible_values:
+    - error
+    - warn
+    - disabled
+    version_from: 150020
+    version_till: 150099
+  - type: Enum
+    possible_values:
+    - error
+    - warn
+    - disabled
+    version_from: 140025
+    version_till: 140099
   compute_query_id:
   - type: EnumBool
     version_from: 140000
