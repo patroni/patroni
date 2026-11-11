@@ -150,6 +150,11 @@ class TestConfig(unittest.TestCase):
             'password': 'etcd-pass',
         })
 
+    def test_restapi_thread_pool_size_from_environment(self):
+        with patch.dict('os.environ', {'PATRONI_RESTAPI_THREAD_POOL_SIZE': '10'}, clear=True):
+            env_config = Config._build_environment_configuration()
+        self.assertEqual(env_config, {'restapi': {'thread_pool_size': 10}})
+
     @patch('tempfile.mkstemp', Mock(return_value=[3000, 'blabla']))
     @patch('os.path.exists', Mock(return_value=True))
     @patch('os.remove', Mock(side_effect=IOError))
