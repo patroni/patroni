@@ -225,6 +225,11 @@ Other rules applied for the values definition:
 
 Other parameters defined using :ref:`Environment configuration <environment>` are also included into the configuration.
 
+.. note::
+    ``postgresql.pg_hba``, ``postgresql.pg_ident`` and ``postgresql.pg_hosts`` are written into the local ``postgresql`` section on purpose, and not into ``bootstrap.dcs``.
+    ``pg_hba`` is a very powerful tool: if somebody gets write access to the ``/config`` key in the DCS, they could modify it to allow ``trust`` connections to Postgres from anywhere and get full control over it.
+    Therefore, these settings are kept in the local configuration file. As a consequence, they can't be changed with ``patronictl edit-config`` or the REST API, and the local configuration file must be edited instead (followed by a reload).
+
 Parameters
 """"""""""
 
