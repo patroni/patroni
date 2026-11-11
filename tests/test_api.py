@@ -544,6 +544,11 @@ class TestRestApiHandler(unittest.TestCase):
         # incorrect schedule
         request = make_request(schedule='2016-08-42 12:45TZ+1', role=PostgresqlRole.PRIMARY)
         MockRestApiServer(RestApiHandler, request)
+        for schedule in ('100000000000000000000-01-01', '55550000000000000814674440730m'):
+            with patch.object(RestApiHandler, 'write_response') as response_mock:
+                MockRestApiServer(RestApiHandler, make_request(schedule=schedule))
+                response_mock.assert_called_with(
+                    422, 'Unable to parse scheduled timestamp. It should be in an unambiguous format, e.g. ISO 8601')
         # everything fine, but the schedule is missing
         request = make_request(role=PostgresqlRole.PRIMARY, postgres_version='9.5.2')
         MockRestApiServer(RestApiHandler, request)
@@ -801,6 +806,13 @@ class TestRestApiHandler(unittest.TestCase):
             MockRestApiServer(RestApiHandler, 'GET /replica')
         mock_settimeout.assert_called_once_with(5)
 
+    def test_handler_exception_returns_503(self):
+        with patch.object(RestApiHandler, 'do_GET_cluster', Mock(side_effect=Exception('sensitive details'))), \
+                patch.object(RestApiHandler, 'send_error') as response_mock:
+            with self.assertRaisesRegex(Exception, 'sensitive details'):
+                MockRestApiServer(RestApiHandler, 'GET /cluster HTTP/1.0' + self._authorization)
+        response_mock.assert_called_once_with(503)
+
 
 class TestRestApiServer(unittest.TestCase):
 
@@ -814,6 +826,27 @@ class TestRestApiServer(unittest.TestCase):
                                                   'ciphers': '!SSLv1:!SSLv2:!SSLv3:!TLSv1:!TLSv1.1',
                                                   'allowlist': ['127.0.0.1', '::1/128', '::1/zxc'],
                                                   'allowlist_include_members': True, 'thread_pool_size': 'a'})
+
+    @patch.object(socket, 'getfqdn', side_effect=AssertionError('Unexpected reverse DNS lookup'))
+    def test_server_bind(self, mock_getfqdn):
+        for address in (('127.0.0.1', 8008), ('::1', 8008, 0, 0)):
+            with self.subTest(address=address):
+                requested_address = (address[0], 0) + address[2:]
+                self.srv.server_address = requested_address
+                self.srv.socket = Mock()
+                self.srv.socket.getsockname.return_value = address
+
+                self.srv.server_bind()
+
+                self.srv.socket.bind.assert_called_once_with(requested_address)
+                self.assertEqual(self.srv.server_address, address)
+                self.assertEqual(self.srv.server_name, address[0])
+                self.assertEqual(self.srv.server_port, address[1])
+
+        self.srv.socket.bind.side_effect = socket.error('bind failed')
+        with self.assertRaisesRegex(socket.error, 'bind failed'):
+            self.srv.server_bind()
+        mock_getfqdn.assert_not_called()
 
     @patch.object(HTTPServer, '__init__', Mock())
     def test_reload_config(self):

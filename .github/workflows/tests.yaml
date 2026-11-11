@@ -13,7 +13,7 @@ env:
 
 jobs:
   unit:
-    runs-on: ${{ fromJson('{"ubuntu":"ubuntu-22.04","windows":"windows-latest","macos":"macos-15"}')[matrix.os] }}
+    runs-on: ${{ fromJson('{"ubuntu":"ubuntu-24.04","windows":"windows-latest","macos":"macos-latest"}')[matrix.os] }}
     strategy:
       fail-fast: false
       matrix:
@@ -21,18 +21,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
-
-    - name: Set up Python 3.7
-      uses: actions/setup-python@v7
-      with:
-        python-version: 3.7
-      if: matrix.os != 'macos'
-    - name: Install dependencies
-      run: python .github/workflows/install_deps.py
-      if: matrix.os != 'macos'
-    - name: Run tests and flake8
-      run: python .github/workflows/run_tests.py
-      if: matrix.os != 'macos'
 
     - name: Set up Python 3.8
       uses: actions/setup-python@v7
@@ -112,7 +100,7 @@ jobs:
         flags: unit-${{ matrix.os }}
 
   behave:
-    runs-on: ${{ fromJson('{"ubuntu":"ubuntu-22.04","windows":"windows-latest","macos":"macos-14"}')[matrix.os] }}
+    runs-on: ${{ fromJson('{"ubuntu":"ubuntu-24.04","windows":"windows-latest","macos":"macos-latest"}')[matrix.os] }}
     env:
       DCS: ${{ matrix.dcs }}
       ETCDVERSION: 3.4.23
@@ -121,14 +109,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu]
-        python-version: [3.7, 3.14]
+        python-version: [3.8, 3.14]
         dcs: [etcd, etcd3, consul, exhibitor, kubernetes, raft]
         include:
         - os: macos
-          python-version: 3.8
+          python-version: 3.9
           dcs: raft
         - os: macos
-          python-version: 3.9
+          python-version: '3.10'
           dcs: etcd
         - os: macos
           python-version: 3.11
@@ -150,8 +138,8 @@ jobs:
         sudo apt-get install -y wget ca-certificates gnupg debian-archive-keyring apt-transport-https
         sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
         sudo sh -c 'wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg'
-        sudo sh -c 'echo "deb [signed-by=/etc/apt/trusted.gpg.d/citusdata_community.gpg] https://packagecloud.io/citusdata/community/ubuntu/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/citusdata_community.list'
-        sudo sh -c 'wget -qO - https://packagecloud.io/citusdata/community/gpgkey | gpg --dearmor > /etc/apt/trusted.gpg.d/citusdata_community.gpg'
+        sudo sh -c 'echo "deb [signed-by=/etc/apt/trusted.gpg.d/citusdata_community.gpg] https://repos.citusdata.com/community/ubuntu/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/citusdata_community.list'
+        sudo sh -c 'wget -qO - https://repos.citusdata.com/community/gpgkey | gpg --dearmor > /etc/apt/trusted.gpg.d/citusdata_community.gpg'
       if: matrix.os == 'ubuntu'
     - name: Install dependencies
       run: python .github/workflows/install_deps.py

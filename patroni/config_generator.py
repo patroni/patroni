@@ -456,7 +456,7 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
 
         for ftype in ('ident', 'hosts'):
             default_path = os.path.join(self.config['postgresql']['data_dir'], f'pg_{ftype}.conf')
-            if self.config['postgresql']['parameters'][f'{ftype}_file'] == default_path:
+            if self.config['postgresql']['parameters'].get(f'{ftype}_file') == default_path:
                 try:
                     self.config['postgresql'][f'pg_{ftype}'] = [i for i in read_stripped(default_path)
                                                                 if i and not i.startswith('#')]
