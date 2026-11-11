@@ -228,7 +228,7 @@ Other parameters defined using :ref:`Environment configuration <environment>` ar
 .. note::
     ``postgresql.pg_hba``, ``postgresql.pg_ident`` and ``postgresql.pg_hosts`` are written into the local ``postgresql`` section on purpose, and not into ``bootstrap.dcs``.
     ``pg_hba`` is a very powerful tool: if somebody gets write access to the ``/config`` key in the DCS, they could modify it to allow ``trust`` connections to Postgres from anywhere and get full control over it.
-    Therefore, these settings are kept in the local configuration file. As a consequence, they can't be changed with ``patronictl edit-config`` or the REST API, and the local configuration file must be edited instead (followed by a reload).
+    Therefore, these settings are kept in the local configuration file. Since the local configuration takes precedence over the :ref:`dynamic configuration <dynamic_configuration>`, a change to ``pg_hba``, ``pg_ident`` or ``pg_hosts`` in ``/config`` in the DCS does not override them. The exception is the role-specific variants (for example ``pg_hba_primary``, ``pg_hba_replica`` or ``pg_hba_standby_leader``): if one of them is set in the DCS, it replaces the matching local setting for nodes with that role. To change these settings later, edit the local configuration file and reload Patroni.
 
 Parameters
 """"""""""
