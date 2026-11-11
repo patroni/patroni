@@ -970,9 +970,10 @@ class ConfigHandler(object):
             elif (param != 'primary_slot_name' or wanted_recovery_params.get('primary_conninfo')) \
                     and str(value[0]) != str(wanted_recovery_params.get(param, '')):
                 record_mismatch(param, value[1])
-        for key, names in changed.items():
-            if names:
-                logger.info('Recovery parameters changed, %s required: %s', key, ', '.join(names))
+        names = changed['restart'] + changed['reload']
+        if names:
+            logger.info('Recovery parameters changed, %s required: %s',
+                        'restart' if changed['restart'] else 'reload', ', '.join(names))
         return bool(force_reload or changed['restart'] or changed['reload']), bool(changed['restart'])
 
     @staticmethod
