@@ -17,5 +17,4 @@ nodes = [
 prefix = "/service/demo"
 keys = ["/members", "/leader"]
 watch = true
-interval = 60
 version = 3

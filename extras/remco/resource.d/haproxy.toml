@@ -17,4 +17,5 @@ nodes = [
 ]
 prefix = "/service/demo"
 keys = ["/members"]
+watch = true
 version = 3
