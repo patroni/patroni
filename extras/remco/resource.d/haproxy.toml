@@ -16,6 +16,6 @@ nodes = [
     "http://...:2379"
 ]
 prefix = "/service/demo"
-keys = ["/members"]
+keys = ["/"]
 watch = true
 version = 3
