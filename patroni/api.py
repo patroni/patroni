@@ -15,7 +15,6 @@ import os
 import socket
 import sys
 import time
-import traceback
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import ip_address, ip_network, IPv4Network, IPv6Network
@@ -2084,11 +2083,11 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
                      client_address: Tuple[str, int]) -> None:
         """Handle any exception that is thrown while handling a request to the REST API.
 
-        Logs ``WARNING`` messages with the client information, and the stack trace of the faced exception.
+        Logs a ``WARNING`` message with client information and exception details.
+        Traceback formatting is left to the logging handler.
 
         :param request: the request that faced an exception.
         :param client_address: a tuple composed of the IP and port of the client connection.
         """
         logger.warning('Exception happened during processing of request from %s:%s',
-                       client_address[0], client_address[1])
-        logger.warning(traceback.format_exc())
+                       client_address[0], client_address[1], exc_info=True)

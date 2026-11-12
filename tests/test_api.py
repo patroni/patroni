@@ -872,10 +872,18 @@ class TestRestApiServer(unittest.TestCase):
         self.assertIsNot(self.srv.check_access(mock_rh), True)
 
     def test_handle_error(self):
-        try:
-            raise Exception()
-        except Exception:
-            self.assertIsNone(self.srv.handle_error(None, ('127.0.0.1', 55555)))
+        error = ValueError('test error')
+        with self.assertLogs('patroni.api', level='WARNING') as captured_log:
+            try:
+                raise error
+            except ValueError:
+                self.assertIsNone(self.srv.handle_error(None, ('127.0.0.1', 55555)))
+
+        self.assertEqual(len(captured_log.records), 1)
+        record = captured_log.records[0]
+        self.assertEqual(record.getMessage(), 'Exception happened during processing of request from 127.0.0.1:55555')
+        self.assertIs(record.exc_info[1], error)
+        self.assertIn('ValueError: test error', captured_log.output[0])
 
     def test_finish_request_connection_reset(self):
         import ssl
