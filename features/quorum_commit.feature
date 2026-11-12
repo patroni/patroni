@@ -5,7 +5,7 @@ Feature: quorum commit
     Given I start postgres-0
     Then postgres-0 is a leader after 10 seconds
     And there is a non empty initialize key in DCS after 15 seconds
-    When I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 20, "synchronous_mode": "quorum"}
+    When I issue a PATCH request to http://127.0.0.1:8008/config with {"ttl": 60, "synchronous_mode": "quorum"}
     Then I receive a response code 200
     And sync key in DCS has leader=postgres-0 after 20 seconds
     And sync key in DCS has quorum=0 after 2 seconds

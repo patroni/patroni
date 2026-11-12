@@ -17,6 +17,7 @@ from patroni.api import RestApiServer
 from patroni.async_executor import AsyncExecutor
 from patroni.dcs import Cluster, ClusterConfig, Member
 from patroni.dcs.etcd import AbstractEtcdClientWithFailover
+from patroni.dcs.kubernetes import Kubernetes
 from patroni.exceptions import DCSError
 from patroni.log import PatroniLogger
 from patroni.postgresql import Postgresql
@@ -443,6 +444,11 @@ class TestPatroni(unittest.TestCase):
         # Only if the api of the running node is reachable do we throw an error
         with patch('urllib3.PoolManager.request', Mock()):
             self.assertRaises(SystemExit, self.p.ensure_unique_name, bad_cluster)
+        # With the Kubernetes DCS the check is skipped, the api_url in the Pod annotation may be stale
+        with patch('urllib3.PoolManager.request', Mock()) as mock_request, \
+                patch.object(self.p, 'dcs', Mock(spec=Kubernetes)):
+            self.assertIsNone(self.p.ensure_unique_name(bad_cluster))
+            mock_request.assert_not_called()
 
     @patch('patroni.dcs.AbstractDCS.get_cluster', Mock(side_effect=[DCSError('foo'), DCSError('foo'), None]))
     def test_ensure_dcs_access(self):

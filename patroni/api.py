@@ -19,7 +19,7 @@ import traceback
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from ipaddress import ip_address, ip_network, IPv4Network, IPv6Network
-from socketserver import ThreadingMixIn
+from socketserver import TCPServer, ThreadingMixIn
 from typing import Any, Callable, cast, Dict, Iterator, List, Optional, Tuple, TYPE_CHECKING, Union
 from urllib.parse import parse_qs, urlparse
 
@@ -31,7 +31,7 @@ from .dcs import Cluster
 from .exceptions import PostgresConnectionException, PostgresException
 from .postgresql.misc import postgres_version_to_int, PostgresqlRole, PostgresqlState
 from .thread_pool import PatroniThreadPoolExecutor
-from .utils import cluster_as_json, deep_compare, enable_keepalive, parse_bool, \
+from .utils import cluster_as_json, deep_compare, enable_keepalive, getaddrinfo, parse_bool, \
     parse_int, patch_config, Retry, RetryFailedError, split_host_port, tzutc, uri
 
 logger = logging.getLogger(__name__)
@@ -1515,7 +1515,11 @@ class RestApiHandler(BaseHTTPRequestHandler):
             This is only used to keep track of latency when logging messages through :func:`log_message`.
         """
         self.__start_time = time.monotonic()
-        BaseHTTPRequestHandler.handle_one_request(self)
+        try:
+            BaseHTTPRequestHandler.handle_one_request(self)
+        except Exception:
+            self.send_error(503)
+            raise
 
     def log_message(self, format: str, *args: Any) -> None:
         """Log a custom ``debug`` message.
@@ -1748,6 +1752,16 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
             return rh.write_response(401, reason, headers=headers)
         return True
 
+    def server_bind(self) -> None:
+        """Bind the REST API socket without resolving its address to a hostname.
+
+        ``HTTPServer.server_bind`` performs a reverse DNS lookup that Patroni does not need and that can block startup
+        when name resolution is slow.
+        """
+        TCPServer.server_bind(self)
+        self.server_name = str(self.server_address[0])
+        self.server_port = self.server_address[1]
+
     @staticmethod
     def __has_dual_stack() -> bool:
         """Check if the system has support for dual stack sockets.
@@ -1781,10 +1795,8 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         if hostname in ('', '*'):
             hostname = None
 
-        # Filter out unexpected results when python is compiled with --disable-ipv6 and running on IPv6 system.
         info = [(a[0], a[4][0], a[4][1])
-                for a in socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)
-                if isinstance(a[4][0], str) and isinstance(a[4][1], int)]
+                for a in getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, socket.AI_PASSIVE)]
         # in case dual stack is not supported we want IPv4 to be preferred over IPv6
         info.sort(key=lambda x: x[0] == socket.AF_INET, reverse=not dual_stack)
 
