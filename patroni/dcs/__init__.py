@@ -642,7 +642,7 @@ class SyncState(NamedTuple):
             leader = value.get('leader')
             quorum = value.get('quorum')
             try:
-                cross_site_mode = SyncCrossSiteMode(value.get('cross_site_mode', 'any'))
+                cross_site_mode = SyncCrossSiteMode(value.get('cross_site_mode') or 'any')
             except ValueError:
                 cross_site_mode = SyncCrossSiteMode.ANY
             return SyncState(version, leader, value.get('sync_standby'),
