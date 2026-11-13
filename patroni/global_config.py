@@ -95,7 +95,7 @@ class GlobalConfig(types.ModuleType):
     def sync_cross_site_mode(self) -> SyncCrossSiteMode:
         """Currently configured value of ``synchronous_cross_site`` from the global configuration."""
         try:
-            val = SyncCrossSiteMode((self.get('synchronous_cross_site', 'any')).lower())
+            val = SyncCrossSiteMode(str(self.get('synchronous_cross_site', 'any')).lower())
         except ValueError:
             val = SyncCrossSiteMode.ANY
         return val

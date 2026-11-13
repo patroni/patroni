@@ -124,7 +124,7 @@ Behaviour:
 Cross-site synchronous mode
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-When the Patroni cluster spans multiple physical :ref:`sites <yaml_configuration>` (datacenters, regions, or availability zones), the choice of which replicas become synchronous has a direct impact on the latency, durability, and failure domain of committed writes. Patroni's ``synchronous_cross_site`` dynamic configuration option lets you constrain this choice based on the ``site`` attribute published by each member. See :ref:`site_awareness_synchronous` for more information.
+When the Patroni cluster spans multiple physical :ref:`sites <yaml_configuration>` (datacenters, regions, or availability zones), the choice of which replicas become synchronous has a direct impact on the latency, durability, and failure domain of committed writes. Patroni's ``synchronous_cross_site`` dynamic configuration option lets you constrain this choice based on the ``site`` attribute published by each member.
 
 The option is only meaningful when ``synchronous_mode`` is enabled (i.e. set to ``on`` or ``quorum``) and at least some members publish a non-empty ``site`` attribute. Members without a configured site are treated specially: in ``local_only`` and ``remote_only`` modes they are excluded from the synchronous set, while in ``balanced`` mode they are considered only after every site-aware replica has been picked.
 
@@ -145,13 +145,17 @@ Available modes
 
 - ``balanced``: replicas are picked round-robin across sites. Patroni builds a per-site list of eligible replicas (sorted deterministically for stability), then interleaves them: one replica from each remote site, then one from the local site, then back to the first remote site, and so on. Replicas without a configured site are added at the end of the list. ``balanced`` is intended for clusters that span three or more sites and want each site to contribute proportionally to the synchronous set.
 
+.. note::
+
+    ``balanced`` is intended for ``synchronous_mode=on``. With ``synchronous_mode=quorum``, Patroni includes all eligible candidates rather than selecting only the first ``synchronous_node_count`` replicas, and PostgreSQL's ``ANY`` semantics do not use their ordering to choose which acknowledgements satisfy a commit. Consequently, ``balanced`` does not guarantee that commit acknowledgements are distributed across sites; they may all come from a single site if it has enough eligible replicas.
+
 
 Interaction with ``synchronous_node_count`` and ``sync_priority``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The replica selection pipeline runs in five strict steps on every HA loop iteration:
 
-1. **Build the eligible set.** Patroni reads ``pg_stat_replication`` on the primary, joins each row with the corresponding member from DCS, and drops cascading replicas, ``nosync`` members, and the primary itself.
+1. **Build the eligible set.** Patroni reads ``pg_stat_replication`` on the primary, joins each row with the corresponding member from DCS, and excludes cascading replicas, ``nosync`` members, and the primary itself.
 2. **Sort by sync_priority.** The eligible set is sorted in descending order by ``sync_priority`` (higher is preferred), then by ``sync_state`` (``sync`` before ``async``), then by the relevant LSN column (``write``, ``flush``, or ``replay`` depending on the ``synchronous_commit`` setting).
 3. **Stable sort by nofailover.** A second stable sort puts replicas without ``nofailover`` *before* replicas with it, without disturbing the priority order from step 2.
 4. **Apply synchronous_cross_site.** The sorted list is partitioned by site and reordered according to the configured mode. The mode decides **which site contributes replicas first and how many**; the priority order from steps 2–3 is preserved *within each site*.
