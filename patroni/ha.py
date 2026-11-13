@@ -1230,7 +1230,13 @@ class Ha(object):
             self.update_cluster_history()
             self.state_handler.mpp_handler.sync_meta_data(self.cluster)
             return message
-        elif self.state_handler.role in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
+        elif self.state_handler.role == PostgresqlRole.PRIMARY:
+            # A former primary has restarted as a standby without Patroni
+            # restarting its postmaster. It can no longer serve writes, so
+            # release the leader key and let another member take over.
+            self.demote('immediate')
+            return 'demoted self because PostgreSQL is in recovery while holding the leader lock'
+        elif self.state_handler.role == PostgresqlRole.PROMOTED:
             self.process_sync_replication()
             return message + ', in recovery (promotion has not completed)'
         else:
