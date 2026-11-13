@@ -121,10 +121,12 @@ class QueueHandler(logging.Handler):
 
         :param record: the record to be logged.
         """
-        self.format(record)
-        record.msg = record.message
+        # Render the message now. The arguments can be mutable objects.
+        record.msg = record.getMessage()
         record.args = None
-        record.exc_info = None
+        # Keep ``exc_info``. The logger thread formats the traceback. Traceback
+        # formatting reads source files from disk. If the disk stalls, the
+        # caller thread (for example, the HA loop) would block in the kernel.
         self.queue.put_nowait(record)
 
     def _try_to_report_lost_records(self) -> None:

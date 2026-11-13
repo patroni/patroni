@@ -25,7 +25,7 @@ from urllib3.exceptions import HTTPError, ProtocolError, ReadTimeoutError
 from ..exceptions import DCSError
 from ..postgresql.mpp import AbstractMPP
 from ..request import get as requests_get
-from ..utils import Retry, RetryFailedError, split_host_port, uri, USER_AGENT
+from ..utils import AddrInfo, getaddrinfo, Retry, RetryFailedError, split_host_port, uri, USER_AGENT
 from . import AbstractDCS, catch_return_false_exception, Cluster, ClusterConfig, \
     Failover, Leader, Member, ReturnFalseException, Status, SyncState, TimelineHistory
 
@@ -47,15 +47,11 @@ class EtcdError(DCSError):
     pass
 
 
-_AddrInfo = Tuple[socket.AddressFamily, socket.SocketKind, int, str,
-                  Union[Tuple[str, int], Tuple[str, int, int, int], Tuple[int, bytes]]]
-
-
 class DnsCachingResolver(Thread):
 
     def __init__(self, cache_time: float = 600.0, cache_fail_time: float = 30.0) -> None:
         super(DnsCachingResolver, self).__init__()
-        self._cache: Dict[Tuple[str, int], Tuple[float, List[_AddrInfo]]] = {}
+        self._cache: Dict[Tuple[str, int], Tuple[float, List[AddrInfo]]] = {}
         self._cache_time = cache_time
         self._cache_fail_time = cache_fail_time
         self._resolve_queue: Queue[Tuple[Tuple[str, int], int]] = Queue()
@@ -73,7 +69,7 @@ class DnsCachingResolver(Thread):
                     self.resolve_async(host, port, attempt + 1)
                     time.sleep(1)
 
-    def resolve(self, host: str, port: int) -> List[_AddrInfo]:
+    def resolve(self, host: str, port: int) -> List[AddrInfo]:
         current_time = time.monotonic()
         cached_time, response = self._cache.get((host, port), (float('-inf'), []))
         time_passed = current_time - cached_time
@@ -91,9 +87,9 @@ class DnsCachingResolver(Thread):
         self._cache.pop((host, port), None)
 
     @staticmethod
-    def _do_resolve(host: str, port: int) -> List[_AddrInfo]:
+    def _do_resolve(host: str, port: int) -> List[AddrInfo]:
         try:
-            return socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM, socket.IPPROTO_TCP)
+            return getaddrinfo(host, port, 0, socket.SOCK_STREAM, socket.IPPROTO_TCP)
         except Exception as e:
             logger.warning('failed to resolve host %s: %s', host, e)
             return []
@@ -397,9 +393,7 @@ class AbstractEtcdClientWithFailover(abc.ABC, etcd.Client, StaleEtcdNodeGuard):
     def _get_machines_cache_from_dns(self, host: str, port: int) -> List[str]:
         """One host might be resolved into multiple ip addresses. We will make list out of it"""
         if self.protocol == 'http':
-            # Filter out unexpected results when python is compiled with --disable-ipv6 and running on IPv6 system.
-            ret = [uri(self.protocol, (res[4][0], res[4][1])) for res in self._dns_resolver.resolve(host, port)
-                   if isinstance(res[4][0], str) and isinstance(res[4][1], int)]
+            ret = [uri(self.protocol, (res[4][0], res[4][1])) for res in self._dns_resolver.resolve(host, port)]
             if ret:
                 return list(set(ret))
         return [uri(self.protocol, (host, port))]

@@ -549,8 +549,8 @@ class Config(object):
         _set_section_values('restapi', ['listen', 'connect_address', 'certfile', 'keyfile', 'keyfile_password',
                                         'cafile', 'ciphers', 'verify_client', 'http_extra_headers',
                                         'https_extra_headers', 'allowlist', 'allowlist_include_members',
-                                        'request_queue_size', 'handshake_timeout', 'request_timeout',
-                                        'server_tokens'])
+                                        'request_queue_size', 'thread_pool_size', 'handshake_timeout',
+                                        'request_timeout', 'server_tokens'])
         _set_section_values('ctl', ['insecure', 'cacert', 'certfile', 'keyfile', 'keyfile_password'])
         _set_section_values('postgresql', ['listen', 'connect_address', 'proxy_address',
                                            'config_dir', 'data_dir', 'pgpass', 'bin_dir'])
@@ -687,6 +687,7 @@ class Config(object):
                               'REGISTER_SERVICE', 'SERVICE_CHECK_INTERVAL', 'SERVICE_CHECK_TLS_SERVER_NAME',
                               'SERVICE_TAGS', 'NAMESPACE', 'CONTEXT', 'USE_ENDPOINTS', 'SCOPE_LABEL', 'ROLE_LABEL',
                               'POD_IP', 'PORTS', 'LABELS', 'BYPASS_API_SERVICE', 'RETRIABLE_HTTP_CODES', 'KEY_PASSWORD',
+                              'USERNAME', 'PASSWORD',
                               'USE_SSL', 'SET_ACLS', 'GROUP', 'DATABASE', 'LEADER_LABEL_VALUE', 'FOLLOWER_LABEL_VALUE',
                               'STANDBY_LEADER_LABEL_VALUE', 'TMP_ROLE_LABEL', 'AUTH_DATA', 'BOOTSTRAP_LABELS') and name:
                     value = os.environ.pop(param)
@@ -705,9 +706,6 @@ class Config(object):
                         value = parse_bool(value)
                     if value is not None:
                         ret[name.lower()][suffix.lower()] = value
-        for dcs in ('etcd', 'etcd3'):
-            if dcs in ret:
-                ret[dcs].update(_get_auth(dcs))
 
         return ret
 
