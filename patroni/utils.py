@@ -521,14 +521,17 @@ def parse_int(value: Any, base_unit: Optional[str] = None) -> Optional[int]:
     if val is None and unit.startswith('.') or unit and unit[0] in ('.', 'e', 'E'):
         val, unit = strtod(value)
 
-    if val is not None:
-        unit = unit.strip()
-        if not unit:
-            return round(val)
-
-        val = convert_to_base_unit(val, unit, base_unit)
+    try:
         if val is not None:
-            return round(val)
+            unit = unit.strip()
+            if not unit:
+                return round(val)
+
+            val = convert_to_base_unit(val, unit, base_unit)
+            if val is not None:
+                return round(val)
+    except OverflowError:
+        return None
 
 
 def parse_real(value: Any, base_unit: Optional[str] = None) -> Optional[float]:
@@ -807,6 +810,40 @@ def polling_loop(timeout: Union[int, float], interval: Union[int, float] = 1) ->
         yield iteration
         iteration += 1
         time.sleep(float(interval))
+
+
+AddrInfo = Tuple[socket.AddressFamily, socket.SocketKind, int, str, Union[Tuple[str, int], Tuple[str, int, int, int]]]
+
+
+def getaddrinfo(host: Optional[str], port: Union[str, int, None], family: int = 0, socktype: int = 0,
+                proto: int = 0, flags: int = 0) -> List[AddrInfo]:
+    """Resolve *host* and *port* to IPv4 and/or IPv6 addresses.
+
+    A wrapper around :func:`socket.getaddrinfo` that returns only entries whose socket address is a
+    ``(host, port, ...)`` tuple, i.e. the ``AF_INET`` and ``AF_INET6`` ones.
+
+    .. note::
+        When Python is compiled without IPv6 support (``--disable-ipv6``) but runs on a system that has IPv6, the
+        resolver still returns ``AF_INET6`` entries. Python can't decode their socket address and represents it as a
+        ``(family, raw_bytes)`` tuple instead of ``(host, port, flowinfo, scope_id)``. Such entries are useless to the
+        callers, which expect a textual address, and are therefore dropped.
+
+    :param host: host name or IP address to resolve, or ``None`` for the wildcard address when *flags* contains
+        :data:`socket.AI_PASSIVE`.
+    :param port: port number or service name.
+    :param family: address family, ``0`` means any.
+    :param socktype: socket type, ``0`` means any.
+    :param proto: protocol, ``0`` means any.
+    :param flags: :func:`socket.getaddrinfo` flags.
+
+    :returns: list of ``(family, type, proto, canonname, sockaddr)`` tuples, in the order returned by
+        :func:`socket.getaddrinfo`.
+
+    :raises:
+        :class:`socket.gaierror`: if *host* can't be resolved.
+    """
+    return [cast(AddrInfo, a) for a in socket.getaddrinfo(host, port, family, socktype, proto, flags)
+            if isinstance(a[4][0], str) and isinstance(a[4][1], int)]
 
 
 def split_host_port(value: str, default_port: Optional[int]) -> Tuple[str, int]:

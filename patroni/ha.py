@@ -800,7 +800,7 @@ class Ha(object):
             change_required, restart_required = self.state_handler.config.check_recovery_conf(node_to_follow)
             if change_required:
                 if restart_required:
-                    self._async_executor.try_run_async('changing primary_conninfo and restarting',
+                    self._async_executor.try_run_async('changing replication-related parameters and restarting',
                                                        self.state_handler.follow, args=(node_to_follow, role))
                 else:
                     self.state_handler.follow(node_to_follow, role, do_reload=True)
@@ -1238,7 +1238,7 @@ class Ha(object):
             return message
         elif self.state_handler.role in (PostgresqlRole.PRIMARY, PostgresqlRole.PROMOTED):
             self.process_sync_replication()
-            return message
+            return message + ', in recovery (promotion has not completed)'
         else:
             if not self.process_sync_replication_prepromote():
                 # Somebody else updated sync state, it may be due to us losing the lock. To be safe,

@@ -44,7 +44,7 @@ Released 2026-07-07
 
 - Unify ``pg_replication_slots`` query (Polina Bungina)
 
-  Incorrect handling of the ``failover`` and ``synced`` values was resulting in ``KeyError`` exceptions during removal of the incorrect logical replication slots.
+  Use the same query to fetch replication slots in the HA loop and when loading replication slots, so temporary slots are now excluded in both places.
 
 - Consider version-specific authentication parameters in configuration generation (Polina Bungina)
 

@@ -19,6 +19,8 @@ By default Patroni will set up the watchdog to expire 5 seconds before TTL expir
 
 Safety margin is the amount of time that Patroni reserves for time between leader key update and watchdog keepalive. Patroni will try to send a keepalive immediately after confirmation of leader key update. If Patroni process is suspended for extended amount of time at exactly the right moment the keepalive may be delayed for more than the safety margin without triggering the watchdog. This results in a window of time where watchdog will not trigger before leader key expiration, invalidating the guarantee. To be absolutely sure that watchdog will trigger under all circumstances set up the watchdog to expire after half of TTL by setting ``safety_margin`` to -1 to set watchdog timeout to ``ttl // 2``. If you need this guarantee you probably should increase ``ttl`` and/or reduce ``loop_wait`` and ``retry_timeout``.
 
+During demotion, once PostgreSQL has started shutting down, Patroni can disable the watchdog as soon as all user backends have exited. If there are no user backends, it can disable the watchdog without waiting for the remaining PostgreSQL shutdown work to finish.
+
 Currently watchdogs are only supported using Linux watchdog device interface.
 
 Setting up software watchdog on Linux

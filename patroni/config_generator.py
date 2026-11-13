@@ -23,7 +23,7 @@ from .exceptions import PatroniException
 from .log import PatroniLogger
 from .postgresql.config import AUTH_ALLOWED_PARAMETERS_VERSIONS, ConfigHandler, parse_dsn
 from .postgresql.misc import postgres_major_version_to_int
-from .utils import get_major_version, parse_bool, patch_config, read_stripped
+from .utils import get_major_version, getaddrinfo, parse_bool, patch_config, read_stripped
 
 # Mapping between the libpq connection parameters and the environment variables.
 # This dict should be kept in sync with `patroni.utils._AUTH_ALLOWED_PARAMETERS`
@@ -59,9 +59,7 @@ def get_address() -> Tuple[str, str]:
     hostname = None
     try:
         hostname = socket.gethostname()
-        # Filter out unexpected results when python is compiled with --disable-ipv6 and running on IPv6 system.
-        addrs = [(a[0], a[4][0]) for a in socket.getaddrinfo(hostname, 0, socket.AF_UNSPEC, socket.SOCK_STREAM, 0)
-                 if isinstance(a[4][0], str)]
+        addrs = [(a[0], a[4][0]) for a in getaddrinfo(hostname, 0, socket.AF_UNSPEC, socket.SOCK_STREAM, 0)]
         return hostname, sorted(addrs, key=lambda x: x[0])[0][1]
     except Exception as err:
         logging.warning('Failed to obtain address: %r', err)
@@ -456,7 +454,7 @@ class RunningClusterConfigGenerator(AbstractConfigGenerator):
 
         for ftype in ('ident', 'hosts'):
             default_path = os.path.join(self.config['postgresql']['data_dir'], f'pg_{ftype}.conf')
-            if self.config['postgresql']['parameters'][f'{ftype}_file'] == default_path:
+            if self.config['postgresql']['parameters'].get(f'{ftype}_file') == default_path:
                 try:
                     self.config['postgresql'][f'pg_{ftype}'] = [i for i in read_stripped(default_path)
                                                                 if i and not i.startswith('#')]
