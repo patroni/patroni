@@ -615,6 +615,11 @@ class ConfigHandler(object):
         if self._postgresql.enforce_hot_standby_feedback:
             configuration['hot_standby_feedback'] = 'on'
 
+        # PG19 breaks max_locks_per_transaction - default is 128, older versions 64
+        if self._postgresql.major_version >= 190000:
+            if configuration['max_locks_per_transaction'] == self.CMDLINE_OPTIONS['max_locks_per_transaction'][0]:
+                configuration['max_locks_per_transaction'] = 128
+
         with self.config_writer(self._postgresql_conf) as f:
             include = self._config.get('custom_conf') or self._postgresql_base_conf_name
             f.writeline("include '{0}'\n".format(ConfigWriter.escape(include)))
