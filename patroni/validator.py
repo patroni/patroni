@@ -10,7 +10,7 @@ import os
 import shutil
 import socket
 
-from typing import Any, cast, Dict, Iterator, List, Optional as OptionalType, Tuple, TYPE_CHECKING, Union
+from typing import Any, Callable, cast, Dict, Iterator, List, Optional as OptionalType, Tuple, TYPE_CHECKING, Union
 
 from .collections import CaseInsensitiveSet, EMPTY_DICT
 from .dcs import dcs_modules
@@ -109,7 +109,8 @@ def validate_connect_address(address: str) -> bool:
     return True
 
 
-def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: bool = False) -> bool:
+def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: bool = False,
+                       port: OptionalType[int] = None) -> bool:
     """Check if host(s) and port are valid and available for usage.
 
     :param host_port: the host(s) and port to be validated. It can be in either of these formats:
@@ -120,6 +121,7 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
     :param listen: if the address is expected to be available for binding. ``False`` means it expects to connect to that
         address, and ``True`` that it expects to bind to that address.
     :param multiple_hosts: if *host_port* can contain multiple hosts.
+    :param port: the port to check instead of the one in *host_port*, for options whose port is configured separately.
 
     :returns: ``True`` if the host(s) and port are valid.
 
@@ -136,10 +138,14 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
               address(es).
     """
     try:
-        hosts, port = split_host_port(host_port, 1)
+        hosts, written_port = split_host_port(host_port, 1)
     except (ValueError, TypeError):
         raise ConfigParseError("contains a wrong value")
     else:
+        if port is None:
+            port = written_port
+        # Mention the port in error messages unless it is the one written in *host_port*
+        address = host_port if port == written_port else '{0} (port {1})'.format(host_port, port)
         if multiple_hosts:
             hosts = hosts.split(",")
         else:
@@ -172,7 +178,7 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
                     if listen and not _validation_params.get('ignore_listen_port', False):
                         raise ConfigParseError("Port {} is already in use.".format(port))
                 elif not listen:
-                    raise ConfigParseError("{} is not reachable".format(host_port))
+                    raise ConfigParseError("{} is not reachable".format(address))
             except socket.gaierror as e:
                 raise ConfigParseError(e)
             finally:
@@ -180,6 +186,35 @@ def validate_host_port(host_port: str, listen: bool = False, multiple_hosts: boo
         if hosts and len(unsupported) == len(hosts):
             raise ConfigParseError("address families of {0} are not supported".format(", ".join(unsupported)))
     return True
+
+
+def validate_consul_host(host: str, consul: Dict[str, Any]) -> bool:
+    """Check if the Consul agent configured with ``consul.host`` is reachable.
+
+    The port is resolved the same way the Consul client does it: ``consul.port`` if it is set, otherwise the port in
+    *host*, otherwise ``8500``. ``consul.host`` is not checked if ``consul.url`` is set, because the Consul client then
+    takes the address from the URL.
+
+    :param host: value of ``consul.host`` to be validated, in the format ``host`` or ``host:port``.
+    :param consul: the ``consul`` configuration section.
+
+    :returns: ``True`` if the Consul agent is reachable, or if ``consul.url`` is set.
+
+    :raises:
+        :class:`~patroni.exceptions.ConfigParseError`: if validation by :func:`validate_host_port` failed.
+    """
+    if 'url' in consul:
+        return True
+    try:
+        _, port = split_host_port(host, 8500)
+    except (ValueError, TypeError):
+        raise ConfigParseError("contains a wrong value")
+    # An invalid ``consul.port`` is reported by the schema, but this function still needs a usable port to probe
+    # *host*, so it falls back to the port in *host* when ``consul.port`` is out of range.
+    explicit_port = consul.get('port')
+    if isinstance(explicit_port, int) and not isinstance(explicit_port, bool) and 1 <= explicit_port <= 65535:
+        port = explicit_port
+    return validate_host_port(host, port=port)
 
 
 def validate_standby_cluster_port(port: Any) -> bool:
@@ -458,6 +493,48 @@ class Case(object):
         self._schema = schema
 
 
+class WithSection(object):
+    """Represent a validation function that also needs other options from the same configuration section.
+
+    Validation functions usually receive only the value of the option they validate. Some options can be validated
+    only together with other options from the same section, e.g. the port of the Consul agent configured with
+    ``consul.host`` may come from ``consul.port``.
+    """
+
+    def __init__(self, validator: Callable[[Any, Dict[str, Any]], bool], expected_type: Any = None) -> None:
+        """Create a :class:`WithSection` object.
+
+        :param validator: function to be called with the value of the option and the configuration section (a
+            :class:`dict`) containing the option.
+        :param expected_type: the type the value of the option is expected to have, if any.
+
+        :Example:
+
+            .. code-block:: python
+
+                "consul": {
+                    "host": WithSection(validate_consul_host, str),
+                    Optional("port"): IntValidator(min=1, max=65535, expected_type=int, raise_assert=True),
+                }
+        """
+        self.validator = validator
+        self.expected_type = expected_type
+
+    def bind(self, section: Dict[str, Any]) -> Callable[[Any], bool]:
+        """Get a validation function of the option value only, for the given configuration *section*.
+
+        :param section: the configuration section containing the option to be validated.
+
+        :returns: function calling ``validator`` with the value of the option and *section*.
+        """
+        def validate(value: Any) -> bool:
+            return self.validator(value, section)
+
+        if self.expected_type is not None:
+            setattr(validate, 'expected_type', self.expected_type)
+        return validate
+
+
 class Or(object):
     """Represent the list of options that are available.
 
@@ -626,6 +703,8 @@ class Schema(object):
         * ``callable``: any callable object, defines that validation will follow the code defined in the callable
           object. If the callable object contains an ``expected_type`` attribute, then it will check if the
           configuration value is of the expected type before calling the code of the callable object; or
+        * :class:`WithSection`: a validation function that also needs the other options of the configuration section
+          containing the value. It is supported only as a direct value in a :class:`dict`; or
         * :class:`list`: list representing one or more values in the configuration; or
         * :class:`dict`: dictionary representing the YAML configuration tree.
     """
@@ -648,6 +727,8 @@ class Schema(object):
             * ``callable``: Any callable object, defines that validation will follow the code defined in the callable
               object. If the callable object contains an ``expected_type`` attribute, then it will check if the
               configuration value is of the expected type before calling the code of the callable object; or
+            * :class:`WithSection`: a validation function that also needs the other options of the configuration section
+              containing the value. It is supported only as a direct value in a :class:`dict`; or
             * :class:`list`: list representing it expects to contain one or more values in the configuration; or
             * :class:`dict`: dictionary representing the YAML configuration tree.
 
@@ -759,6 +840,10 @@ class Schema(object):
                 yield Result(True, data=self.data)
             except Exception as e:
                 yield Result(False, "didn't pass validation: {}".format(e), data=self.data)
+        # `iter_dict` binds `WithSection` to the section it is a direct value of. Reaching this point means it was
+        # placed elsewhere, e.g. inside an `Or` or a list, where there is no section to bind it to.
+        elif isinstance(self.validator, WithSection):
+            raise ConfigParseError("WithSection can only be used as a direct value in a dictionary")
         elif isinstance(self.validator, dict):
             if not isinstance(self.data, dict):
                 yield Result(isinstance(self.data, dict), "is not a dictionary", level=1, data=self.data)
@@ -819,6 +904,8 @@ class Schema(object):
                     validator = validators[key]
                     if isinstance(key, (Or, AtMostOne)) and isinstance(validators[key], Case):
                         validator = validators[key]._schema[d]
+                    if isinstance(validator, WithSection):
+                        validator = validator.bind(data)
                     # In this loop we may be calling a new `Schema` either over an intermediate node in the tree, or
                     # over a leaf node. In the latter case the recursive calls in the given path will finish.
                     for v in Schema(validator).validate(data[d]):
@@ -1222,10 +1309,10 @@ schema = Schema({
     Or(*available_dcs): Case({
         "consul": {
             Or("host", "url"): Case({
-                "host": validate_host_port,
+                "host": WithSection(validate_consul_host, str),
                 "url": str
             }),
-            Optional("port"): IntValidator(max=65535, expected_type=int, raise_assert=True),
+            Optional("port"): IntValidator(min=1, max=65535, expected_type=int, raise_assert=True),
             Optional("scheme"): str,
             Optional("token"): str,
             Optional("verify"): bool,
@@ -1245,7 +1332,7 @@ schema = Schema({
         "etcd3": validate_etcd,
         "exhibitor": {
             "hosts": [str],
-            "port": IntValidator(max=65535, expected_type=int, raise_assert=True),
+            "port": IntValidator(min=1, max=65535, expected_type=int, raise_assert=True),
             Optional("poll_interval"): IntValidator(min=1, expected_type=int, raise_assert=True),
         },
         "raft": {
@@ -1284,7 +1371,8 @@ schema = Schema({
             Optional("tmp_role_label"): str,
             Optional("use_endpoints"): bool,
             Optional("pod_ip"): Or(is_ipv4_address, is_ipv6_address),
-            Optional("ports"): [{"name": str, "port": IntValidator(max=65535, expected_type=int, raise_assert=True)}],
+            Optional("ports"): [{"name": str,
+                                 "port": IntValidator(min=1, max=65535, expected_type=int, raise_assert=True)}],
             Optional("cacert"): str,
             Optional("retriable_http_codes"): Or(int, [int]),
             Optional("bootstrap_labels"): dict,
