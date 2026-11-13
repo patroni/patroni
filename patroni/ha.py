@@ -1218,6 +1218,10 @@ class Ha(object):
                     logger.warning("Releasing the leader key voluntarily because the pre-promote script failed")
                     self._released_leader_key_timestamp = time.monotonic()
                     self.release_leader_key_voluntarily()
+                    if not self.state_handler.is_primary():
+                        # the leader key is gone and nobody will feed the watchdog anymore,
+                        # disarm it to avoid a reset while the node is in the backoff as a replica
+                        self.watchdog.disable()
                     # discard the result of the failed pre-promote script to be able to re-try promote
                     self._async_response.reset()
                     return 'Promotion cancelled because the pre-promote script failed'

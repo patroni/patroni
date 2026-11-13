@@ -425,9 +425,23 @@ class TestHa(PostgresInit):
         self.p.is_primary = false
         self.p._pre_promote = false
         self.ha._is_healthiest_node = true
-        self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
-        self.assertEqual(self.ha.run_cycle(), 'Promotion cancelled because the pre-promote script failed')
-        self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
+        with patch.object(Watchdog, 'disable') as mock_disable:
+            self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+            mock_disable.assert_not_called()
+            self.assertEqual(self.ha.run_cycle(), 'Promotion cancelled because the pre-promote script failed')
+            # the leader key is released, nobody feeds the watchdog anymore
+            mock_disable.assert_called_once()
+            self.assertEqual(self.ha.run_cycle(), 'following a different leader because i am not the healthiest node')
+
+    def test_pre_promote_failed_keeps_watchdog_on_primary(self):
+        self.p.is_primary = false
+        self.p._pre_promote = false
+        self.ha._is_healthiest_node = true
+        with patch.object(Watchdog, 'disable') as mock_disable:
+            self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+            self.p.is_primary = true
+            self.assertEqual(self.ha.run_cycle(), 'Promotion cancelled because the pre-promote script failed')
+            mock_disable.assert_not_called()
 
     def test_lost_leader_lock_during_promote(self):
         with patch('patroni.async_executor.AsyncExecutor.busy', PropertyMock(return_value=True)):
