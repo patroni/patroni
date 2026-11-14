@@ -9,11 +9,13 @@ Health check endpoints
 ----------------------
 For all health check ``GET`` requests Patroni returns a JSON document with the status of the node, along with the HTTP status code. If you don't want or don't need the JSON document, you might consider using the ``HEAD`` or ``OPTIONS`` method instead of ``GET``.
 
-- The following requests to Patroni REST API will return HTTP status code **200** only when the Patroni node is running as the primary with leader lock:
+- In a normal primary cluster, the following requests to Patroni REST API return HTTP status code **200** when Patroni considers the node the leader. They do not require PostgreSQL to have completed the promotion:
 
   - ``GET /``
   - ``GET /primary``
   - ``GET /read-write``
+
+  During a promotion these endpoints can return **200** while PostgreSQL is still in recovery. To wait for the promotion, also require ``"state": "running"`` and ``"role": "primary"`` in the JSON body (``"master"`` in Patroni 3.x). Paused mode and DCS failsafe mode have additional behavior, and these endpoints do not perform a fresh DCS ownership check for each request. See :ref:`ha_data_safety`.
 
 - ``GET /standby-leader``: returns HTTP status code **200** only when the Patroni node is running as the leader in a :ref:`standby cluster <standby_cluster>`.
 
