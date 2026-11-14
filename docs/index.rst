@@ -79,6 +79,7 @@ Currently supported PostgreSQL versions: 9.3 to 18.
    replication_modes
    standby_cluster
    watchdog
+   ha_data_safety
    pause
    dcs_failsafe_mode
    kubernetes
