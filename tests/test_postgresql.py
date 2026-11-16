@@ -909,6 +909,11 @@ class TestPostgresql(BaseTestPostgresql):
                 self.p.config.resolve_connection_addresses()
                 tcp_local_address = self.p.config._get_tcp_local_address()
             self.assertEqual(self.p.config.local_replication_address, {'host': tcp_local_address, 'port': '5432'})
+        # the same for a directory without a drive letter
+        self.p.config._server_parameters['unix_socket_directories'] = '/pgsock'
+        with patch('os.name', 'nt'), patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000)):
+            self.p.config.resolve_connection_addresses()
+        self.assertEqual(self.p.config.local_replication_address, {'host': tcp_local_address, 'port': '5432'})
         self.p.config._server_parameters.pop('unix_socket_directories')
         self.p.config.resolve_connection_addresses()
         self.assertEqual(self.p.connection_pool.conn_kwargs,
@@ -926,8 +931,6 @@ class TestPostgresql(BaseTestPostgresql):
             self.assertEqual(get('relative, C:\\pgsock'), 'C:\\pgsock')
             self.assertEqual(get('/tmp'), '/tmp')
             self.assertEqual(get('C:pgsock'), '')  # relative to the current directory of drive C:
-            self.assertEqual(get('C:/pgsock', False), '')  # PostgreSQL 12 and older on Windows
-            self.assertEqual(get('/tmp', False), '/tmp')
 
     @patch.object(Bootstrap, 'running_custom_bootstrap', PropertyMock(return_value=True))
     def test_replace_pg_hba_custom_bootstrap_on_windows(self):
