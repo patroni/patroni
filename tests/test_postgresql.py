@@ -1,5 +1,6 @@
 import datetime
 import logging
+import ntpath
 import os
 import re
 import stat
@@ -291,6 +292,11 @@ class TestPostgresql(BaseTestPostgresql):
     def test__pgpass_content(self):
         pgpass = self.p.config._pgpass_content({'host': '/tmp', 'port': '5432', 'user': 'foo', 'password': 'bar'})
         self.assertEqual(pgpass, "/tmp:5432:*:foo:bar\nlocalhost:5432:*:foo:bar\n")
+        # a Windows socket directory with a drive letter is looked up under "localhost" too
+        with patch('os.path.isabs', ntpath.isabs):
+            pgpass = self.p.config._pgpass_content({'host': 'C:/pgsock', 'port': '5432', 'user': 'foo',
+                                                    'password': 'bar'})
+        self.assertEqual(pgpass, "C\\:/pgsock:5432:*:foo:bar\nlocalhost:5432:*:foo:bar\n")
 
     def test_checkpoint(self):
         with patch.object(MockCursor, 'fetchone', Mock(return_value=(True, ))):
@@ -898,12 +904,28 @@ class TestPostgresql(BaseTestPostgresql):
         self.p.config._config['use_unix_socket'] = self.p.config._config['use_unix_socket_repl'] = True
         self.p.config.resolve_connection_addresses()
         self.assertEqual(self.p.config.local_replication_address, {'host': '/tmp', 'port': '5432'})
+        # a Windows socket directory with a drive letter, as libpq accepts it there
+        with patch('os.path.isabs', ntpath.isabs):
+            self.p.config._server_parameters['unix_socket_directories'] = 'C:/pgsock'
+            self.p.config.resolve_connection_addresses()
+            self.assertEqual(self.p.config.local_replication_address, {'host': 'C:/pgsock', 'port': '5432'})
         self.p.config._server_parameters.pop('unix_socket_directories')
         self.p.config.resolve_connection_addresses()
         self.assertEqual(self.p.connection_pool.conn_kwargs,
                          {'connect_timeout': 3, 'dbname': 'postgres', 'fallback_application_name': 'Patroni',
                           'options': '-c statement_timeout=2000 -c pg_stat_statements.track=none',
                           'password': 'test', 'port': '5432', 'user': 'foo'})
+
+    def test__get_unix_local_address(self):
+        get = self.p.config._get_unix_local_address
+        self.assertEqual(get('/tmp'), '/tmp')
+        self.assertEqual(get('relative, /var/run/postgresql'), '/var/run/postgresql')
+        self.assertEqual(get('relative'), '')  # only an absolute path can be used, so fall back to TCP
+        with patch('os.path.isabs', ntpath.isabs):  # what Windows accepts as an absolute path
+            self.assertEqual(get('C:/pgsock'), 'C:/pgsock')
+            self.assertEqual(get('relative, C:\\pgsock'), 'C:\\pgsock')
+            self.assertEqual(get('/tmp'), '/tmp')
+            self.assertEqual(get('C:pgsock'), '')  # relative to the current directory of drive C:
 
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
     def test_get_major_version(self):

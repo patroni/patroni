@@ -277,6 +277,19 @@ def mtime(filename: str) -> Optional[float]:
         return None
 
 
+def is_unix_socket_path(host: str) -> bool:
+    """Check whether *host* is a unix socket directory rather than a host name or an IP address.
+
+    ``libpq`` treats an absolute path as a unix socket directory. On Windows that includes a path that starts with a
+    drive letter, such as ``C:/pgsock``, which unix sockets support there since PostgreSQL 13.
+
+    :param host: value of the ``host`` connection parameter or one item of ``unix_socket_directories``.
+
+    :returns: ``True`` if *host* is an absolute path on this platform.
+    """
+    return host.startswith('/') or os.path.isabs(host)
+
+
 class ConfigWriter(object):
     """Write a configuration file atomically.
 
@@ -662,7 +675,8 @@ class ConfigHandler(object):
         # and in order to be able to change it, we are opening trust access from a certain address
         if self._postgresql.bootstrap.running_custom_bootstrap:
             addresses = {} if os.name == 'nt' else {'': 'local'}  # windows doesn't yet support unix-domain sockets
-            if 'host' in self.local_replication_address and not self.local_replication_address['host'].startswith('/'):
+            if 'host' in self.local_replication_address \
+                    and not is_unix_socket_path(self.local_replication_address['host']):
                 addresses.update({sa[0] + '/32': 'host' for _, _, _, _, sa in getaddrinfo(
                                   self.local_replication_address['host'], self.local_replication_address['port'],
                                   0, socket.SOCK_STREAM, socket.IPPROTO_TCP)})
@@ -1046,9 +1060,11 @@ class ConfigHandler(object):
                 return re.sub(r'([:\\])', r'\\\1', str(value))
 
             # 'host' could be several comma-separated hostnames, in this case we need to write on pgpass line per host
-            hosts = [escape(host) for host in filter(None, map(str.strip,
-                     (record.get('host', '') or '*').split(',')))]  # pyright: ignore [reportUnknownArgumentType]
-            if any(host.startswith('/') for host in hosts) and 'localhost' not in hosts:
+            raw_hosts = [host for host in filter(None, map(str.strip,
+                         (record.get('host', '') or '*').split(',')))]  # pyright: ignore [reportUnknownArgumentType]
+            hosts = [escape(host) for host in raw_hosts]
+            # libpq looks up a connection via a unix socket under "localhost"
+            if any(is_unix_socket_path(host) for host in raw_hosts) and 'localhost' not in hosts:
                 hosts.append('localhost')
             record = {n: escape(record.get(n) or '*') for n in ('port', 'user', 'password')}
             return ''.join('{host}:{port}:*:{user}:{password}\n'.format(**record, host=host) for host in hosts)
@@ -1192,7 +1208,7 @@ class ConfigHandler(object):
     def _get_unix_local_address(unix_socket_directories: str) -> str:
         for d in unix_socket_directories.split(','):
             d = d.strip()
-            if d.startswith('/'):  # Only absolute path can be used to connect via unix-socket
+            if is_unix_socket_path(d):  # Only absolute path can be used to connect via unix-socket
                 return d
         return ''
 
