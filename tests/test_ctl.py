@@ -621,6 +621,13 @@ class TestCtl(unittest.TestCase):
             assert '|\n|      |     0 |   + cascade     | 127.0.0.1:5437 | Replica |' in result.output
             assert '|\n|      |     0 | + wrong_cascade | 127.0.0.1:5438 | Replica |' in result.output
 
+        # a 'promoted' lock holder is rendered as the root of the tree, not as a replica
+        cluster.members[0].data['role'] = PostgresqlRole.PROMOTED
+        with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=cluster)):
+            result = self.runner.invoke(ctl, ['topology', 'dummy'])
+            assert '+\n| dc1  |     0 | leader          | 127.0.0.1:5435 | Promoted |' in result.output
+            assert '|\n| dc1  |     0 | + other         | 127.0.0.1:5436 | Replica  |' in result.output
+
         with patch('patroni.dcs.AbstractDCS.get_cluster', Mock(return_value=get_cluster_initialized_without_leader())):
             result = self.runner.invoke(ctl, ['topology', 'dummy'])
             assert '+\n|     0 | + leader | 127.0.0.1:5435 | Replica |' in result.output

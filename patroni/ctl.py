@@ -1538,7 +1538,7 @@ def topology_sort(members: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
     :param members: list of members in the cluster. Each item should contain at least these keys:
 
         * ``name``: name of the node, according to ``name`` configuration;
-        * ``role``: ``leader``, ``standby_leader`` or ``replica``.
+        * ``role``: ``leader``, ``standby_leader``, ``promoted`` or ``replica``.
 
         Cascading replicas are identified through ``tags`` -> ``replicatefrom`` value -- if that is set, and they are
         in fact attached to another replica.
@@ -1551,10 +1551,11 @@ def topology_sort(members: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
         in the topology.
     """
     topology: Dict[Optional[str], List[Dict[str, Any]]] = defaultdict(list)
-    leader = next((m for m in members if m['role'].endswith('leader')), {'name': None})
-    replicas = set(member['name'] for member in members if not member['role'].endswith('leader'))
+    leader = next((m for m in members if m['role'] == 'promoted' or m['role'].endswith('leader')), {'name': None})
+    replicas = set(member['name'] for member in members
+                   if member['role'] != 'promoted' and not member['role'].endswith('leader'))
     for member in members:
-        if not member['role'].endswith('leader'):
+        if member['role'] != 'promoted' and not member['role'].endswith('leader'):
             parent = member.get('tags', {}).get('replicatefrom')
             parent = parent if parent and parent != member['name'] and parent in replicas else leader['name']
             topology[parent].append(member)
