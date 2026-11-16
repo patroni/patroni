@@ -367,14 +367,22 @@ class SyncHandler(object):
         if not self._synchronous_standby_names_pending:
             return
 
+        pg_stat_replication = self._postgresql.pg_stat_replication()
         replication = CaseInsensitiveSet(
-            [row['application_name'] for row in self._postgresql.pg_stat_replication()
+            [row['application_name'] for row in pg_stat_replication
              if self._ssn_data.sync_type == 'priority' and row['sync_state'] in ('potential', 'sync')
                 or self._ssn_data.sync_type == 'quorum' and row['sync_state'] == 'quorum'])
 
+        members = self._ssn_data.members
+        if self._quorum_catchup:
+            # Members that are not streaming can't acknowledge commits and will use the new value after (re)connect.
+            # Don't wait for them, otherwise remaining nodes would never be checked against _primary_flush_lsn.
+            streaming = CaseInsensitiveSet([row['application_name'] for row in pg_stat_replication])
+            members = CaseInsensitiveSet(members & streaming)
+
         # Nodes listed in synchronous_standby_names should have corresponding sync_state in pg_stat_replication.
         # Only from this moment we count synchronous_standby_names effectively applied.
-        if replication != self._ssn_data.members:
+        if replication != members:
             # If some (not ALL) nodes were removed from synchronous_standby_names we need to notify caller
             # that it has to wait until synchronous_standby_names change becomes active after reload.
             return bool(self._ssn_data.members and not self._ssn_data.has_star
@@ -504,11 +512,16 @@ END;$$""")
                     if len(active) >= sync_node_count:
                         break
 
-        # After quorum became stricter wait until enough remaining nodes caught up, unless it is not possible.
-        if self._quorum_catchup and not self._synchronous_standby_names_pending:
-            if not global_config.is_quorum_commit_mode or len(sync_confirmed) >= self._ssn_data.num:
+        # After quorum became stricter wait until enough remaining nodes caught up, but not more than requested by
+        # synchronous_node_count. If it is not possible, wait until all remaining active nodes caught up.
+        if not global_config.is_quorum_commit_mode:
+            self._quorum_catchup = False
+        elif self._quorum_catchup:
+            if self._synchronous_standby_names_pending:
+                return None
+            if len(sync_confirmed) >= min(self._ssn_data.num, sync_node_count):
                 self._quorum_catchup = False
-            elif len(active & self._ssn_data.members) >= self._ssn_data.num:
+            elif (active & self._ssn_data.members) - sync_confirmed:
                 return None
 
         # We need to handle old case of synchronous_standby_names='*' and when Patroni is restarted while PostgreSQL

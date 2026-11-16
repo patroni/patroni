@@ -2347,7 +2347,8 @@ class TestHa(PostgresInit):
         mock_set_sync.reset_mock()
         with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)), \
                 patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')), \
-                patch.object(Postgresql, 'pg_stat_replication', Mock(return_value=[])):
+                patch.object(Postgresql, 'pg_stat_replication', Mock(return_value=[])), \
+                patch.object(Postgresql, 'query', Mock(return_value=[(True,)])):
             self.ha.run_cycle()
         mock_write_sync.assert_not_called()
         self.assertEqual(mock_set_sync.call_count, 1)

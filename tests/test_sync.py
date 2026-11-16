@@ -291,17 +291,59 @@ class TestSync(BaseTestPostgresql):
             self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([b]))
 
             # num was increased, transactions acknowledged by one node must reach two nodes
+            self.cluster.config.data['synchronous_node_count'] = 2
+            global_config.update(self.cluster)
             mock_ssn.return_value = 'ANY 2 ({0},{1})'.format(a, b)
             mock_lsn.return_value = 300
             replication[0]['flush_lsn'] = 300
             self.assertIsNone(self.s.current_state(self.cluster))
 
-            # don't wait when there are not enough eligible nodes
+            # don't wait when there are not enough eligible nodes and all of them caught up
             self.cluster.config.data['maximum_lag_on_syncnode'] = 50
+            global_config.update(self.cluster)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+            self.cluster.config.data['maximum_lag_on_syncnode'] = -1
+            global_config.update(self.cluster)
+            self.assertIsNone(self.s.current_state(self.cluster))
+
+            # synchronous_node_count was reduced, don't wait for more nodes than needed
+            self.cluster.config.data['synchronous_node_count'] = 1
             global_config.update(self.cluster)
             self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
             replication[1]['flush_lsn'] = 300
             self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b]))
+
+    def test_current_state_quorum_catchup_degraded(self):
+        self.cluster.config.data.update(synchronous_mode='quorum', synchronous_node_count=2)
+        global_config.update(self.cluster)
+        self.other.data['tags'] = {}
+        a, b, c = self.leadermem.name, self.me.name, self.other.name
+        replication = [{'pid': 100 + i, 'application_name': name, 'sync_state': 'quorum', 'flush_lsn': 100}
+                       for i, name in enumerate((a, b, c))]
+
+        with patch.object(Postgresql, 'synchronous_standby_names',
+                          return_value='ANY 2 ({0},{1},"{2}")'.format(a, b, c)) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(Postgresql, 'last_operation', return_value=100) as mock_lsn:
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b, c]))
+
+            # c was removed and b disconnected, transactions acknowledged by b and c must reach a
+            mock_ssn.return_value = 'ANY 2 ({0},{1})'.format(a, b)
+            mock_lsn.return_value = 200
+            replication[2].update(sync_state='async', flush_lsn=200)
+            del replication[1]
+            self.assertIsNone(self.s.current_state(self.cluster))
+            replication[0]['flush_lsn'] = 200
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            # b was replaced with c, but c is not yet reporting the new sync_state
+            mock_ssn.return_value = 'ANY 1 ({0},"{1}")'.format(a, c)
+            mock_lsn.return_value = 300
+            self.assertIsNone(self.s.current_state(self.cluster))
+            replication[1]['sync_state'] = 'quorum'
+            self.assertIsNone(self.s.current_state(self.cluster))
+            replication[0]['flush_lsn'] = 300
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
 
     @patch('time.sleep', Mock())
     def test_set_sync_standby(self):
