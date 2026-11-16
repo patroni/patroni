@@ -211,8 +211,12 @@ class TestSync(BaseTestPostgresql):
             executor.submit.assert_called_once_with(self.p.checkpoint)
 
             futures[0].set_result('not accessible or not healthy')
-            self.assertIsNone(self.s.current_state(self.cluster))
-            self.assertIsNone(self.s.current_state(self.cluster))
+            with patch('time.time', Mock(return_value=1)) as mock_time:
+                self.assertIsNone(self.s.current_state(self.cluster))
+                self.assertIsNone(self.s.current_state(self.cluster))
+                self.assertEqual(executor.submit.call_count, 1)  # don't retry before loop_wait passed
+                mock_time.return_value = 11
+                self.assertIsNone(self.s.current_state(self.cluster))
             self.assertEqual(executor.submit.call_count, 2)
 
             futures[1].set_result(None)

@@ -307,6 +307,7 @@ class SyncHandler(object):
         # synchronous_standby_names was empty and checkpointer might still not enforce the new value
         self._checkpoint_required = False
         self._checkpoint_task: Optional['Future[Optional[str]]'] = None
+        self._checkpoint_retry_at = 0.0
         # quorum became stricter and remaining members must catch up before they could be counted as synchronous
         self._quorum_catchup = False
 
@@ -345,7 +346,7 @@ class SyncHandler(object):
             try:
                 ssn_data = parse_sync_standby_names(synchronous_standby_names)
             except ValueError as e:
-                logger.warning('%r', e)
+                logger.warning('%s', e)
                 ssn_data = deepcopy(_EMPTY_SSN)
 
             # It takes some time before synchronous_standby_names names change propagates via checkpointer.
@@ -416,7 +417,13 @@ END;$$""")
         checkpoint requested after that has started. The latter is visible as a backend waiting on ``CheckpointDone``
         (PostgreSQL 12+), or when ``CHECKPOINT`` requested by us completes successfully. ``CHECKPOINT`` is executed in
         a separate thread because it could take a long time, and the request remains queued even if the query is
-        canceled.
+        canceled. If it failed, it is requested again not earlier than after ``loop_wait`` seconds.
+
+        .. note::
+            Patroni doesn't know the previous value after restart, therefore an already enforced non-empty value is
+            handled as a change from the empty one. It may result in an extra ``CHECKPOINT`` if no checkpoint started
+            since the last reload, but it isn't safe to skip it, because the previous Patroni process could have
+            changed the value right before it was terminated.
 
         :returns: ``True`` if checkpointer is known to have processed the configuration reload.
         """
@@ -425,13 +432,14 @@ END;$$""")
             self._checkpoint_task = None
             if task.exception() is None and task.result() is None:
                 return True
+            self._checkpoint_retry_at = time.time() + global_config.get_int('loop_wait', 10)
         # Waiting on CheckpointDone means that checkpoint requested at query_start (after reload) has already started.
         if self._postgresql.major_version >= 90600 and self._postgresql.query(
                 'SELECT checkpoint_time > pg_catalog.pg_conf_load_time() OR EXISTS(SELECT 1 FROM'
                 " pg_catalog.pg_stat_activity WHERE wait_event = 'CheckpointDone' AND query_start >"
                 ' pg_catalog.pg_conf_load_time()) FROM pg_catalog.pg_control_checkpoint()')[0][0]:
             return True
-        if self._checkpoint_task is None:
+        if self._checkpoint_task is None and time.time() >= self._checkpoint_retry_at:
             logger.info('Requesting CHECKPOINT to make sure that synchronous_standby_names is enforced')
             self._checkpoint_task = thread_pool.get_executor().submit(self._postgresql.checkpoint)
         return False
@@ -514,6 +522,9 @@ END;$$""")
 
         # After quorum became stricter wait until enough remaining nodes caught up, but not more than requested by
         # synchronous_node_count. If it is not possible, wait until all remaining active nodes caught up.
+        # It is intended that neither /sync nor synchronous_standby_names are updated in the meantime. The wait is
+        # bounded, because the target LSN is fixed, while lagging (maximum_lag_on_syncnode) and disconnected
+        # nodes are not counted as active.
         if not global_config.is_quorum_commit_mode:
             self._quorum_catchup = False
         elif self._quorum_catchup:
