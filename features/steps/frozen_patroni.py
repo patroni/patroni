@@ -19,6 +19,47 @@ def start_patroni_with_watchdog(context, name):
     return context.pctl.start(name, custom_config={'watchdog': True, 'bootstrap': {'dcs': {'ttl': 21}}})
 
 
+@step('I start {name:name} with watchdog thread fallback')
+def start_patroni_with_watchdog_thread(context, name):
+    context.pctl.start(name, custom_config={
+        'scope': 'thread_watchdog',
+        'watchdog': {'mode': 'automatic', 'driver': 'unknown', 'fallback': 'thread', 'safety_margin': 15},
+        'bootstrap': {'dcs': {'ttl': 20, 'retry_timeout': 5}}
+    })
+
+
+@step('{name:name} uses watchdog thread fallback after {timeout:d} seconds')
+def watchdog_thread_is_active(context, name, timeout):
+    for _ in polling_loop(timeout * context.timeout_multiplier):
+        messages = context.pctl.read_patroni_log(name, 'WARNING')
+        if any('using thread watchdog fallback' in message for message in messages):
+            return
+    assert False, '{0} did not activate watchdog thread fallback'.format(name)
+
+
+@step('{name:name} heartbeat connection hangs for {timeout:d} seconds')
+def patroni_connection_hang(context, name, timeout):
+    context.watchdog_postmaster = context.pctl.postgres_connection_hang(name, timeout * context.timeout_multiplier)
+
+
+@then('{name:name} exits with status {status:d} after {timeout:d} seconds')
+def patroni_has_exited(context, name, status, timeout):
+    for _ in polling_loop(timeout * context.timeout_multiplier):
+        returncode = context.pctl._processes[name]._handle.poll()
+        if returncode is not None:
+            assert returncode == status, '{0} exited with status {1}, expected {2}'.format(name, returncode, status)
+            return
+    assert False, '{0} did not exit'.format(name)
+
+
+@then('{name:name} PostgreSQL is stopped after {timeout:d} seconds')
+def watchdog_stopped_postgresql(context, name, timeout):
+    for _ in polling_loop(timeout * context.timeout_multiplier):
+        if not context.watchdog_postmaster.is_running():
+            return
+    assert False, '{0} PostgreSQL is still running'.format(name)
+
+
 @step('{name:name} watchdog has been pinged after {timeout:d} seconds')
 def watchdog_was_pinged(context, name, timeout):
     for _ in polling_loop(timeout):

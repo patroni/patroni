@@ -21,7 +21,44 @@ Safety margin is the amount of time that Patroni reserves for time between leade
 
 During demotion, once PostgreSQL has started shutting down, Patroni can disable the watchdog as soon as all user backends have exited. If there are no user backends, it can disable the watchdog without waiting for the remaining PostgreSQL shutdown work to finish.
 
-Currently watchdogs are only supported using Linux watchdog device interface.
+Watchdog devices are supported using the Linux watchdog device interface. By default, ``automatic`` mode never
+arms a watchdog thread: ``watchdog.fallback`` defaults to ``none``. Setting ``watchdog.fallback`` to ``thread``
+explicitly enables a fallback when a device is unavailable, unsupported, or cannot be configured with a suitable timeout.
+The thread uses the same timeout and safety margin as a device, provided the timeout is at least ``loop_wait``.
+With this opt-in, it also replaces a device if sending a keepalive fails. A device that is still running is replaced
+only if Patroni can disable it. Patroni logs a warning when switching to
+the thread fallback. ``required`` mode still requires a usable watchdog device;
+the thread does not satisfy this requirement. ``off`` disables both implementations.
+
+Thread watchdog fallback
+------------------------
+
+To enable the fallback explicitly:
+
+.. code-block:: yaml
+
+        watchdog:
+            mode: automatic
+            fallback: thread
+            safety_margin: 5
+
+The watchdog thread is started during Patroni initialization and waits while disarmed. Activation, disabling, and
+configuration changes reuse this same thread rather than starting or stopping a worker.
+Reloading ``fallback: none`` disarms an active fallback immediately. Enabling the fallback while the watchdog is
+active takes effect on the next keepalive. Changing only this setting does not replace a working device watchdog.
+
+The watchdog thread tracks HA-loop keepalives using a monotonic clock. If no keepalive arrives before the timeout,
+it logs a critical message, requests immediate PostgreSQL shutdown, and forcibly exits Patroni without running normal
+shutdown handlers.
+This bypasses checkpoints and user-defined shutdown callbacks. It does not wait for PostgreSQL shutdown to finish.
+As with a device watchdog, the thread is disarmed when Patroni disables the watchdog, including during pause and
+after demotion reaches a safe point.
+
+This fallback is best-effort protection against a stalled HA loop, not a substitute for a watchdog device.
+It cannot run if Patroni is killed or suspended, if Python cannot schedule the watchdog thread, or if the operating
+system or virtual machine is stalled. It cannot guarantee that PostgreSQL will process the shutdown request before
+the leader key expires, and it does not reboot the host. Use ``required`` mode with a watchdog device when those
+stronger guarantees are needed.
 
 Setting up software watchdog on Linux
 -------------------------------------

@@ -47,3 +47,13 @@ Feature: frozen patroni
   Scenario: check primary race backoff
     Given primary race backoff is triggered on postgres-1 in 12 seconds because postgres-0 is active
     And postgres-1 is promoted to primary in 20 seconds despite postgres-0 being active
+
+  @thread-watchdog
+  Scenario: thread watchdog stops PostgreSQL when Patroni heartbeat connection hangs
+    Given I start postgres-2 with watchdog thread fallback
+    Then postgres-2 is a leader of thread_watchdog after 10 seconds
+    And postgres-2 role is the primary after 10 seconds
+    And postgres-2 uses watchdog thread fallback after 10 seconds
+    When postgres-2 heartbeat connection hangs for 30 seconds
+    Then postgres-2 exits with status 1 after 20 seconds
+    And postgres-2 PostgreSQL is stopped after 10 seconds

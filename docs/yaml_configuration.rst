@@ -439,7 +439,8 @@ CTL
 
 Watchdog
 --------
--  **mode**: ``off``, ``automatic`` or ``required``. When ``off`` watchdog is disabled. When ``automatic`` watchdog will be used if available, but ignored if it is not. When ``required`` the node will not become a leader unless watchdog can be successfully enabled.
+-  **mode**: ``off``, ``automatic`` or ``required``. When ``off`` watchdog is disabled. When ``automatic`` watchdog will be used if available, but ignored if it is not, unless the thread fallback is explicitly enabled. When ``required`` the node will not become a leader unless a watchdog device can be successfully enabled. The thread fallback does not satisfy ``required`` mode.
+-  **fallback**: ``none`` (default) or ``thread``. Only applies in ``automatic`` mode. With ``thread``, an unavailable or unusable device, or a failed device keepalive, causes Patroni to use a watchdog thread. On timeout it requests immediate PostgreSQL shutdown and forcibly exits Patroni. It uses the same TTL-derived timeout and **safety_margin** as a device. See :ref:`watchdog` for the limitations of the thread fallback.
 -  **device**: Path to watchdog device. Defaults to ``/dev/watchdog``.
 -  **safety_margin**: Number of seconds of safety margin between watchdog triggering and leader key expiration.
 

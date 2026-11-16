@@ -1415,6 +1415,7 @@ schema = Schema({
     },
     Optional("watchdog"): {
         Optional("mode"): validate_watchdog_mode,
+        Optional("fallback"): EnumValidator(("none", "thread"), case_sensitive=False, raise_assert=True),
         Optional("device"): str,
         Optional("safety_margin"): IntValidator(min=-1, expected_type=int, raise_assert=True),
     },

@@ -81,7 +81,7 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
         cluster = self.ensure_dcs_access()
         self.ensure_unique_name(cluster)
 
-        self.watchdog = Watchdog(self.config)
+        self.watchdog = Watchdog(self.config, self._watchdog_timeout)
         self.apply_dynamic_configuration(cluster)
 
         # Initialize global config
@@ -97,6 +97,17 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
 
         self._last_effective_role = None
         self._last_effective_pg_config = self.config['postgresql']
+
+    def _watchdog_timeout(self) -> None:
+        """Request immediate PostgreSQL shutdown without running the normal shutdown hooks."""
+        logger.critical('Watchdog thread expired, requesting immediate PostgreSQL shutdown and terminating Patroni')
+        postmaster = self.postgresql.is_running()
+        if postmaster is not None:
+            postmaster.signal_stop('immediate', self.postgresql.pgcommand('pg_ctl'))
+        # os._exit() discards records still queued for the logger thread
+        deadline = time.monotonic() + 1
+        while self.logger.queue_size and time.monotonic() < deadline:
+            time.sleep(0.1)
 
     def ensure_dcs_access(self, sleep_time: int = 5) -> 'Cluster':
         """Continuously attempt to retrieve cluster from DCS with delay.

@@ -103,6 +103,16 @@ class TestPatroni(unittest.TestCase):
     def tearDown(self):
         logging.getLogger().handlers[:] = self._handlers
 
+    def test_watchdog_timeout(self):
+        postmaster = MockPostmaster()
+        with patch.object(Postgresql, 'is_running', Mock(side_effect=[postmaster, None])), \
+                patch.object(PatroniLogger, 'queue_size', PropertyMock(side_effect=[1, 0, 0])), \
+                patch('time.sleep') as mock_sleep, self.assertLogs('patroni.__main__', 'CRITICAL'):
+            self.p.watchdog._on_timeout()
+            postmaster.signal_stop.assert_called_once_with('immediate', self.p.postgresql.pgcommand('pg_ctl'))
+            mock_sleep.assert_called_once_with(0.1)
+            self.p.watchdog._on_timeout()
+
     def test_apply_dynamic_configuration(self):
         empty_cluster = Cluster.empty()
         self.p.config._dynamic_configuration = {}

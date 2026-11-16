@@ -103,6 +103,7 @@ config = {
     },
     "watchdog": {
         "mode": "off",
+        "fallback": "none",
         "device": "string"
     },
     "tags": {
@@ -208,6 +209,15 @@ class TestValidator(unittest.TestCase):
         errors = schema(config)
         output = "\n".join(errors)
         self.assertEqual(['postgresql.bin_dir', 'raft.bind_addr', 'raft.self_addr'], parse_output(output))
+
+    def test_watchdog_fallback(self, mock_out, mock_err):
+        for value in ('none', 'thread', 'THREAD', 'invalid', True, None):
+            with self.subTest(value=value):
+                configuration = copy.deepcopy(config)
+                configuration['watchdog']['fallback'] = value
+                errors = [error for error in schema(configuration) if error.startswith('watchdog.')]
+                expected = [] if value in ('none', 'thread', 'THREAD') else ['watchdog.fallback']
+                self.assertEqual(parse_output('\n'.join(errors)), expected)
 
     def test_bin_dir_is_file(self, mock_out, mock_err):
         files.append(config["postgresql"]["data_dir"])
