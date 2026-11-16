@@ -946,7 +946,8 @@ class TestPostgresql(BaseTestPostgresql):
             self.p.config.local_replication_address = {'host': '127.0.0.1', 'port': '5432'}
             with patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000)):
                 self.p.config.replace_pg_hba()
-            self.assertEqual([c[0][0].split('\t')[0] for c in mock_writeline.call_args_list], ['host'])
+            self.assertEqual([c[0][0].split('\t')[0] for c in mock_writeline.call_args_list
+                              if not c[0][0].startswith('#')], ['host'])  # the header aside
 
     @patch.object(Postgresql, '_version_file_exists', Mock(return_value=True))
     def test_get_major_version(self):
