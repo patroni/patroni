@@ -256,6 +256,8 @@ class PostgresInit(unittest.TestCase):
     @patch.object(ConfigHandler, 'write_postgresql_conf', Mock())
     @patch.object(ConfigHandler, 'replace_pg_hba', Mock())
     @patch.object(ConfigHandler, 'replace_pg_ident', Mock())
+    # the data dir has no PG_VERSION, and an unknown version gets no unix sockets on Windows
+    @patch.object(ConfigHandler, '_unix_sockets_supported', PropertyMock(return_value=True))
     @patch.object(Postgresql, 'get_postgres_role_from_data_directory', Mock(return_value='primary'))
     def setUp(self):
         self._tmp_dir = 'data'
