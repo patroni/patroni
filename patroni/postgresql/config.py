@@ -1559,6 +1559,24 @@ class ConfigHandler(object):
     def restore_command(self) -> Optional[str]:
         return (self.get('recovery_conf') or EMPTY_DICT).get('restore_command')
 
+    def write_restore_command(self, member: Union[Leader, RemoteMember]) -> None:
+        """Write ``restore_command`` to ``postgresql.conf`` so that ``pg_rewind`` can fetch WAL from the archive.
+
+        A node that is not a standby has no recovery parameters, and therefore no ``restore_command`` in its
+        config files, but ``pg_rewind --restore-target-wal`` and ``Rewind.pg_rewind()`` read it from there.
+
+        :param member: the member we are going to rewind from. For the standby cluster leader it is
+            :class:`RemoteMember` and its ``restore_command`` takes precedence.
+        """
+        if self._postgresql.major_version < 120000:
+            return
+
+        restore_command = isinstance(member, RemoteMember) and member.data.get('restore_command') \
+            or self.restore_command()
+        if restore_command:
+            self._recovery_params = CaseInsensitiveDict({'restore_command': restore_command})
+            self.write_postgresql_conf()
+
     @property
     def synchronous_standby_names(self) -> Optional[str]:
         """Get ``synchronous_standby_names`` value configured by the user.
