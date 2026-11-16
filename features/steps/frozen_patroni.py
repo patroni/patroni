@@ -22,7 +22,7 @@ def start_patroni_with_watchdog(context, name):
 @step('I start {name:name} with watchdog thread fallback')
 def start_patroni_with_watchdog_thread(context, name):
     context.pctl.start(name, custom_config={
-        'scope': 'thread_watchdog',
+        'scope': 'threadwatchdog',
         'watchdog': {'mode': 'automatic', 'driver': 'unknown', 'fallback': 'thread', 'safety_margin': 15},
         'bootstrap': {'dcs': {'ttl': 20, 'retry_timeout': 5}}
     })
