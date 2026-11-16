@@ -152,6 +152,8 @@ class MockCursor(object):
             self.results = [(False, 2)]
         elif sql.startswith('SELECT pg_catalog.pg_postmaster_start_time'):
             self.results = [(datetime.datetime.now(tzutc),)]
+        elif sql.startswith('SELECT checkpoint_time > pg_catalog.pg_conf_load_time()'):
+            self.results = [(True,)]
         elif sql.endswith('AND pending_restart'):
             self.results = []
         elif sql.startswith('SELECT name, pg_catalog.current_setting(name) FROM pg_catalog.pg_settings'):

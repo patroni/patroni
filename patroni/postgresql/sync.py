@@ -2,10 +2,11 @@ import logging
 import re
 import time
 
+from concurrent.futures import Future
 from copy import deepcopy
 from typing import Collection, List, NamedTuple, Optional, TYPE_CHECKING
 
-from .. import global_config
+from .. import global_config, thread_pool
 from ..collections import CaseInsensitiveDict, CaseInsensitiveSet
 from ..dcs import Cluster, Member
 from ..psycopg import quote_ident
@@ -303,6 +304,11 @@ class SyncHandler(object):
         self._primary_flush_lsn = 0
         # "sync" replication connections, that were verified to reach self._primary_flush_lsn at some point
         self._ready_replicas = CaseInsensitiveDict({})  # keys: member names, values: connection pids
+        # synchronous_standby_names was empty and checkpointer might still not enforce the new value
+        self._checkpoint_required = False
+        self._checkpoint_task: Optional['Future[Optional[str]]'] = None
+        # quorum became stricter and remaining members must catch up before they could be counted as synchronous
+        self._quorum_catchup = False
 
     def _set_active_synchronous_standby_names_members(self, members: CaseInsensitiveSet) -> None:
         """Record nodes from synchronous_standby_names that are counted as synchronous according to pg_stat_replication.
@@ -322,12 +328,18 @@ class SyncHandler(object):
         If "synchronous_standby_names" was changed, we need to check that newly added replicas have
         reached `self._primary_flush_lsn`. Only after that they could be counted as synchronous.
 
-        :returns: `True` if we detect that some nodes were removed from synchronous_standby_names and
-                  caller needs to wait until changes becomes active after reload.
+        :returns: `True` if we detect that some nodes were removed from synchronous_standby_names, or that
+                  checkpointer might still not enforce synchronous replication, and caller needs to wait until
+                  changes becomes active after reload.
         """
         synchronous_standby_names = self._postgresql.synchronous_standby_names()
 
         if synchronous_standby_names != self._synchronous_standby_names:
+            if not self._synchronous_standby_names:
+                # Commits start waiting for synchronous standbys only after checkpointer processed the reload.
+                # It could be busy for a long time, while walsenders already report the expected sync_state.
+                self._checkpoint_required = True
+                self._checkpoint_task = None
             self._synchronous_standby_names = synchronous_standby_names
 
             try:
@@ -338,8 +350,16 @@ class SyncHandler(object):
 
             # It takes some time before synchronous_standby_names names change propagates via checkpointer.
             # Only previously verified members can remain active while the new value is pending.
-            self._set_active_synchronous_standby_names_members(
-                CaseInsensitiveSet(self._active_synchronous_standby_names_members & ssn_data.members))
+            active = CaseInsensitiveSet(self._active_synchronous_standby_names_members & ssn_data.members)
+            if not global_config.is_quorum_commit_mode or not ssn_data.members or ssn_data.has_star:
+                self._quorum_catchup = False
+            elif self._ssn_data.members and not self._ssn_data.has_star\
+                    and (self._ssn_data.members - ssn_data.members or ssn_data.num > self._ssn_data.num):
+                # Transactions committed before removing nodes or increasing num might exist only on removed nodes
+                # or on fewer than num nodes. Remaining nodes must catch up again before they are counted.
+                self._quorum_catchup = True
+                active = CaseInsensitiveSet()
+            self._set_active_synchronous_standby_names_members(active)
 
             self._ssn_data = ssn_data
             self._synchronous_standby_names_pending = bool(ssn_data.members)
@@ -360,6 +380,13 @@ class SyncHandler(object):
             return bool(self._ssn_data.members and not self._ssn_data.has_star
                         and len(replication - self._ssn_data.members))
 
+        if self._checkpoint_required:
+            if not self._checkpointer_applied():
+                return True
+            self._checkpoint_required = False
+            # WAL position must be taken after checkpointer started enforcing synchronous replication
+            self._postgresql.reset_cluster_info_state(None)
+
         self._set_active_synchronous_standby_names_members(self._ssn_data.members)
 
         # Newly connected replicas will be counted as sync only when reached self._primary_flush_lsn
@@ -372,6 +399,34 @@ BEGIN
 END;$$""")
         self._postgresql.reset_cluster_info_state(None)  # Reset internal cache to query fresh values
         self._synchronous_standby_names_pending = False
+
+    def _checkpointer_applied(self) -> bool:
+        """Check whether checkpointer processed the configuration reload.
+
+        Checkpointer always processes a pending reload before starting a new checkpoint. Therefore, the change is
+        known to be applied if the last checkpoint started after our backend loaded the new configuration, or if a
+        checkpoint requested after that has started. The latter is visible as a backend waiting on ``CheckpointDone``
+        (PostgreSQL 12+), or when ``CHECKPOINT`` requested by us completes successfully. ``CHECKPOINT`` is executed in
+        a separate thread because it could take a long time, and the request remains queued even if the query is
+        canceled.
+
+        :returns: ``True`` if checkpointer is known to have processed the configuration reload.
+        """
+        task = self._checkpoint_task
+        if task and task.done():
+            self._checkpoint_task = None
+            if task.exception() is None and task.result() is None:
+                return True
+        # Waiting on CheckpointDone means that checkpoint requested at query_start (after reload) has already started.
+        if self._postgresql.major_version >= 90600 and self._postgresql.query(
+                'SELECT checkpoint_time > pg_catalog.pg_conf_load_time() OR EXISTS(SELECT 1 FROM'
+                " pg_catalog.pg_stat_activity WHERE wait_event = 'CheckpointDone' AND query_start >"
+                ' pg_catalog.pg_conf_load_time()) FROM pg_catalog.pg_control_checkpoint()')[0][0]:
+            return True
+        if self._checkpoint_task is None:
+            logger.info('Requesting CHECKPOINT to make sure that synchronous_standby_names is enforced')
+            self._checkpoint_task = thread_pool.get_executor().submit(self._postgresql.checkpoint)
+        return False
 
     def _process_replica_readiness(self, cluster: Cluster, replica_list: _ReplicaList) -> None:
         """Flags replicas as truly "synchronous" when they have caught up with ``_primary_flush_lsn``.
@@ -416,7 +471,8 @@ END;$$""")
         :param cluster: current cluster topology from DCS
 
         :returns: current synchronous replication state as a :class:`_SyncState` object or `None` in case if we detect
-                  that some nodes were removed from synchronous_standby_names and change is not yet active after reload.
+                  that some nodes were removed from synchronous_standby_names and change is not yet active after reload,
+                  or if remaining nodes have not yet caught up after quorum became stricter.
         """
         if self._handle_synchronous_standby_names_change():
             return None
@@ -448,6 +504,13 @@ END;$$""")
                     if len(active) >= sync_node_count:
                         break
 
+        # After quorum became stricter wait until enough remaining nodes caught up, unless it is not possible.
+        if self._quorum_catchup and not self._synchronous_standby_names_pending:
+            if not global_config.is_quorum_commit_mode or len(sync_confirmed) >= self._ssn_data.num:
+                self._quorum_catchup = False
+            elif len(active & self._ssn_data.members) >= self._ssn_data.num:
+                return None
+
         # We need to handle old case of synchronous_standby_names='*' and when Patroni is restarted while PostgreSQL
         # is running and replace it with __patroni_strict_sync_replica_placeholder__. It requires having non-empty
         # value of _SyncState.sync which doesn't match any exiting cluster members.
@@ -463,8 +526,8 @@ END;$$""")
         :param sync: set of nodes to sync to
         :param num: specifies number of nodes to sync to. The *num* is set only in case if quorum commit is enabled
 
-        :returns: `True` if we detect that some nodes were removed from synchronous_standby_names and
-                  caller needs to wait until changes becomes active after reload.
+        :returns: `True` if caller needs to wait until synchronous_standby_names change becomes active after reload,
+                  or until remaining nodes caught up after quorum became stricter.
         """
         # Update synchronized_standby_slots in _server_parameters first (no reload yet) so
         # that the subsequent set_synchronous_standby_names() reload picks up both changes.
@@ -501,16 +564,19 @@ END;$$""")
             self._postgresql.config.write_postgresql_conf()
             self._postgresql.reload()
 
-        if not (ssn_changed
-                and self._postgresql.state == PostgresqlState.RUNNING
-                and self._postgresql.is_primary()) or sync_strict:
+        if sync_strict or self._postgresql.state != PostgresqlState.RUNNING or not self._postgresql.is_primary():
             return
 
-        time.sleep(0.1)  # Usually it takes 1ms to reload postgresql.conf, but we will give it 100ms
+        if ssn_changed:
+            time.sleep(0.1)  # Usually it takes 1ms to reload postgresql.conf, but we will give it 100ms
 
-        # Reset internal cache to query fresh values
-        self._postgresql.reset_cluster_info_state(None)
+            # Reset internal cache to query fresh values
+            self._postgresql.reset_cluster_info_state(None)
+        elif self._synchronous_standby_names == (sync_param or ''):
+            return  # the value was already written and observed earlier
 
         # timeline == 0 -- indicates that this is the replica
         if self._postgresql.get_primary_timeline() > 0:
-            return self._handle_synchronous_standby_names_change()
+            # Reload could take longer than 100ms, in this case the new value is still not visible.
+            return self._handle_synchronous_standby_names_change()\
+                or self._synchronous_standby_names != (sync_param or '') or self._quorum_catchup

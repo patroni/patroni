@@ -1,5 +1,6 @@
 import os
 
+from concurrent.futures import Future
 from unittest.mock import Mock, patch, PropertyMock
 
 from patroni import global_config
@@ -191,6 +192,116 @@ class TestSync(BaseTestPostgresql):
             replication[0]['flush_lsn'] = 500
             replication[1]['flush_lsn'] = replication[2]['flush_lsn'] = 400
             self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b, c]))
+
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    def test_current_state_wait_for_checkpointer(self):
+        a = self.leadermem.name
+        replication = [{'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 1}]
+        futures = [Future(), Future(), Future()]
+        executor = Mock()
+        executor.submit.side_effect = futures
+
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value=a) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(Postgresql, 'query', return_value=[(False,)]) as mock_query, \
+                patch('patroni.thread_pool.get_executor', Mock(return_value=executor)):
+            # walsender already reports sync_state=sync, but checkpointer might still not enforce it
+            self.assertIsNone(self.s.current_state(self.cluster))
+            self.assertIsNone(self.s.current_state(self.cluster))
+            executor.submit.assert_called_once_with(self.p.checkpoint)
+
+            futures[0].set_result('not accessible or not healthy')
+            self.assertIsNone(self.s.current_state(self.cluster))
+            self.assertIsNone(self.s.current_state(self.cluster))
+            self.assertEqual(executor.submit.call_count, 2)
+
+            futures[1].set_result(None)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            # synchronous_standby_names became empty and non-empty again, the last checkpoint started after reload
+            mock_ssn.return_value = ''
+            self.s.current_state(self.cluster)
+            mock_ssn.return_value = a
+            mock_query.return_value = [(True,)]
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+            self.assertEqual(executor.submit.call_count, 2)
+
+            # requested checkpoint started (CheckpointDone), there is no need to wait for its completion
+            mock_ssn.return_value = ''
+            self.s.current_state(self.cluster)
+            mock_ssn.return_value = a
+            mock_query.return_value = [(False,)]
+            self.assertIsNone(self.s.current_state(self.cluster))
+            self.assertEqual(executor.submit.call_count, 3)
+            mock_query.return_value = [(True,)]
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+            self.assertFalse(futures[2].done())
+
+    @patch('time.sleep', Mock())
+    @patch.object(Postgresql, 'is_primary', Mock(return_value=True))
+    @patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=1))
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    @patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.RUNNING))
+    def test_set_sync_standby_slow_reload(self):
+        a, b = self.leadermem.name, self.me.name
+        replication = [{'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 1},
+                       {'pid': 101, 'application_name': b, 'sync_state': 'async', 'flush_lsn': 1}]
+
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value=a) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(ConfigHandler, 'set_synchronous_standby_names', Mock(return_value=True)) as mock_set:
+            self.assertFalse(self.s.set_synchronous_standby_names([a]))
+
+            # postgresql.conf was updated, but the new value is not yet visible
+            self.assertTrue(self.s.set_synchronous_standby_names([a, b]))
+            mock_set.return_value = None  # postgresql.conf already has the new value
+            self.assertTrue(self.s.set_synchronous_standby_names([a, b]))
+
+            mock_ssn.return_value = '2 ({0},{1})'.format(a, b)
+            replication[1]['sync_state'] = 'sync'
+            self.assertFalse(self.s.set_synchronous_standby_names([a, b]))
+            self.assertIsNone(self.s.set_synchronous_standby_names([a, b]))
+
+    @patch('time.sleep', Mock())
+    @patch.object(Postgresql, 'is_primary', Mock(return_value=True))
+    @patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=1))
+    @patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.RUNNING))
+    def test_current_state_quorum_catchup(self):
+        self.cluster.config.data['synchronous_mode'] = 'quorum'
+        global_config.update(self.cluster)
+        self.other.data['tags'] = {}
+        a, b, c = self.leadermem.name, self.me.name, self.other.name
+        replication = [{'pid': 100 + i, 'application_name': name, 'sync_state': 'quorum', 'flush_lsn': 100}
+                       for i, name in enumerate((a, b, c))]
+
+        with patch.object(Postgresql, 'synchronous_standby_names',
+                          return_value='ANY 1 ({0},{1},"{2}")'.format(a, b, c)) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(Postgresql, 'last_operation', return_value=100) as mock_lsn, \
+                patch.object(ConfigHandler, 'set_synchronous_standby_names', Mock(return_value=True)):
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b, c]))
+
+            # c was removed, transactions acknowledged only by c must reach one of remaining nodes
+            mock_ssn.return_value = 'ANY 1 ({0},{1})'.format(a, b)
+            mock_lsn.return_value = 200
+            replication[2]['sync_state'] = 'async'
+            self.assertTrue(self.s.set_synchronous_standby_names([a, b], 1))
+            self.assertIsNone(self.s.current_state(self.cluster))
+            replication[1]['flush_lsn'] = 200
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([b]))
+
+            # num was increased, transactions acknowledged by one node must reach two nodes
+            mock_ssn.return_value = 'ANY 2 ({0},{1})'.format(a, b)
+            mock_lsn.return_value = 300
+            replication[0]['flush_lsn'] = 300
+            self.assertIsNone(self.s.current_state(self.cluster))
+
+            # don't wait when there are not enough eligible nodes
+            self.cluster.config.data['maximum_lag_on_syncnode'] = 50
+            global_config.update(self.cluster)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+            replication[1]['flush_lsn'] = 300
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b]))
 
     @patch('time.sleep', Mock())
     def test_set_sync_standby(self):

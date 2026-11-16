@@ -993,8 +993,8 @@ class Ha(object):
                 elif transition == 'sync':
                     if self.state_handler.sync_handler.set_synchronous_standby_names(nodes, num) and \
                             i < len(transitions) - 1:
-                        # If some nodes were removed from synchronous_standby_names and this is not
-                        # the last transition we need to wait until change becomes active after reload.
+                        # If synchronous_standby_names change is not yet effective (or remaining nodes must catch up)
+                        # and this is not the last transition we need to wait and restart the state machine.
                         transition = 'restart'
                         break
 
@@ -1007,12 +1007,13 @@ class Ha(object):
                 if transition == 'break' and sync_state:
                     self.state_handler.slots_handler.handle_manage_sync_slots_toggle(sync_state.active)
                 return
-            # Here we consider two cases:
+            # Here we consider three cases:
             # 1. synchronous_standby_names was transitioned from empty to non-empty and it may take
-            #    some time for nodes to become synchronous.
-            # 2. some nodes where removed from synchronous_standby_names and we need to wait until
+            #    some time for checkpointer to enforce it and for nodes to become synchronous.
+            # 2. some nodes were removed from synchronous_standby_names and we need to wait until
             #    this change becomes effective after reload.
-            # In both cases we need to wait and restart state machine hoping that we can update
+            # 3. quorum became stricter and remaining nodes must catch up with the primary.
+            # In all cases we need to wait and restart state machine hoping that we can update
             # /sync key earlier than in loop_wait seconds.
             time.sleep(1)
             self.state_handler.reset_cluster_info_state(None)
