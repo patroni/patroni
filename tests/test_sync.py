@@ -6,9 +6,10 @@ from unittest.mock import Mock, patch, PropertyMock
 from patroni import global_config
 from patroni.collections import CaseInsensitiveSet
 from patroni.dcs import Cluster, ClusterConfig, Status, SyncState
-from patroni.postgresql import Postgresql, PostgresqlState
+from patroni.postgresql import Postgresql, PostgresqlRole, PostgresqlState
 from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.slots import SlotsHandler
+from patroni.postgresql.sync import SYNC_STRICT_PLACEHOLDER
 
 from . import BaseTestPostgresql, mock_available_gucs, psycopg_connect
 
@@ -197,26 +198,30 @@ class TestSync(BaseTestPostgresql):
     def test_current_state_wait_for_checkpointer(self):
         a = self.leadermem.name
         replication = [{'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 1}]
-        futures = [Future(), Future(), Future()]
+        futures = [Future(), Future(), Future(), Future()]
         executor = Mock()
         executor.submit.side_effect = futures
+
+        def assert_waiting():
+            # state is returned, so that sync nodes could be removed/replaced, but nothing is confirmed
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
 
         with patch.object(Postgresql, 'synchronous_standby_names', return_value=a) as mock_ssn, \
                 patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
                 patch.object(Postgresql, 'query', return_value=[(False,)]) as mock_query, \
                 patch('patroni.thread_pool.get_executor', Mock(return_value=executor)):
             # walsender already reports sync_state=sync, but checkpointer might still not enforce it
-            self.assertIsNone(self.s.current_state(self.cluster))
-            self.assertIsNone(self.s.current_state(self.cluster))
+            assert_waiting()
+            assert_waiting()
             executor.submit.assert_called_once_with(self.p.checkpoint)
 
             futures[0].set_result('not accessible or not healthy')
-            with patch('time.time', Mock(return_value=1)) as mock_time:
-                self.assertIsNone(self.s.current_state(self.cluster))
-                self.assertIsNone(self.s.current_state(self.cluster))
+            with patch('time.monotonic', Mock(return_value=1)) as mock_time:
+                assert_waiting()
+                assert_waiting()
                 self.assertEqual(executor.submit.call_count, 1)  # don't retry before loop_wait passed
                 mock_time.return_value = 11
-                self.assertIsNone(self.s.current_state(self.cluster))
+                assert_waiting()
             self.assertEqual(executor.submit.call_count, 2)
 
             futures[1].set_result(None)
@@ -235,11 +240,49 @@ class TestSync(BaseTestPostgresql):
             self.s.current_state(self.cluster)
             mock_ssn.return_value = a
             mock_query.return_value = [(False,)]
-            self.assertIsNone(self.s.current_state(self.cluster))
+            assert_waiting()
             self.assertEqual(executor.submit.call_count, 3)
             mock_query.return_value = [(True,)]
             self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
             self.assertFalse(futures[2].done())
+
+            # CHECKPOINT requested before the next change is still running: don't request another one,
+            # and don't trust its result, because it doesn't prove that the new value is enforced
+            mock_ssn.return_value = ''
+            self.s.current_state(self.cluster)
+            mock_ssn.return_value = a
+            mock_query.return_value = [(False,)]
+            assert_waiting()
+            self.assertEqual(executor.submit.call_count, 3)
+            futures[2].set_result(None)
+            assert_waiting()
+            self.assertEqual(executor.submit.call_count, 4)
+            futures[3].set_result(None)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+    @patch('time.sleep', Mock())
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    @patch.object(Postgresql, 'get_primary_timeline', Mock(return_value=1))
+    @patch.object(Postgresql, 'state', PropertyMock(return_value=PostgresqlState.RUNNING))
+    def test_reset_state_on_demote(self):
+        a = self.leadermem.name
+        replication = [{'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 1}]
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value=a) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(Postgresql, 'query', return_value=[(True,)]) as mock_query, \
+                patch('patroni.thread_pool.get_executor', Mock()):
+            self.p.set_role(PostgresqlRole.PRIMARY)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            # demoted, strict mode placeholder is set before the next promote
+            self.p.set_role(PostgresqlRole.REPLICA)
+            self.p.set_role(PostgresqlRole.PROMOTED)
+            mock_query.return_value = [(False,)]
+            mock_ssn.return_value = SYNC_STRICT_PLACEHOLDER
+            self.s.current_state(self.cluster)
+            # checkpointer must be verified again, the previous primary tenure must not be trusted
+            mock_ssn.return_value = a
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
 
     @patch('time.sleep', Mock())
     @patch.object(Postgresql, 'is_primary', Mock(return_value=True))
