@@ -129,6 +129,69 @@ class TestSync(BaseTestPostgresql):
                           side_effect=['1 ("{0}")'.format(self.other.name), pg_stat_replication]):
             self.assertIsNone(self.s.current_state(self.cluster))
 
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=100))
+    def test_current_state_waiting_after_removal(self):
+        self.cluster.config.data['synchronous_mode'] = 'quorum'
+        global_config.update(self.cluster)
+        a, b = self.leadermem.name, self.me.name
+        replication = [
+            {'pid': 100, 'application_name': a, 'sync_state': 'quorum', 'flush_lsn': 100},
+            {'pid': 101, 'application_name': b, 'sync_state': 'quorum', 'flush_lsn': 100}]
+
+        with patch.object(Postgresql, 'synchronous_standby_names',
+                          return_value='ANY 1 ({0},{1})'.format(a, b)) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication):
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b]))
+
+            # SHOW changed, but b is still reported as quorum.
+            mock_ssn.return_value = 'ANY 1 ({0})'.format(a)
+            for _ in range(2):
+                self.assertIsNone(self.s.current_state(self.cluster))
+
+            replication[1]['sync_state'] = 'async'
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+    def test_current_state_overlapping_changes(self):
+        self.cluster.config.data['synchronous_node_count'] = 3
+        global_config.update(self.cluster)
+        self.other.data['tags'] = {}
+        a, b, c = self.leadermem.name, self.me.name, self.other.name
+        replication = [
+            {'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 100},
+            {'pid': 101, 'application_name': b, 'sync_state': 'async', 'flush_lsn': 100}]
+
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value=a) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
+                patch.object(Postgresql, 'last_operation', return_value=100) as mock_lsn:
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            mock_ssn.return_value = '2 ({0},{1})'.format(a, b)
+            mock_lsn.return_value = 200
+            replication[0]['flush_lsn'] = 200
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            # Add c before the previous configuration was verified.
+            mock_ssn.return_value = '3 ({0},{1},"{2}")'.format(a, b, c)
+            mock_lsn.return_value = 300
+            replication[0]['flush_lsn'] = 300
+            replication[1]['sync_state'] = 'sync'
+            replication.append({'pid': 102, 'application_name': c, 'sync_state': 'async', 'flush_lsn': 100})
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            # All names now match, but b and c have not reached the new WAL boundary.
+            mock_lsn.return_value = 400
+            replication[0]['flush_lsn'] = 400
+            replication[2]['sync_state'] = 'sync'
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+            replication[1]['flush_lsn'] = 300
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+            # Catching up to that boundary is sufficient even if the primary advances.
+            mock_lsn.return_value = 500
+            replication[0]['flush_lsn'] = 500
+            replication[1]['flush_lsn'] = replication[2]['flush_lsn'] = 400
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a, b, c]))
+
     @patch('time.sleep', Mock())
     def test_set_sync_standby(self):
         def value_in_conf():

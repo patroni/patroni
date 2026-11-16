@@ -296,6 +296,7 @@ class SyncHandler(object):
     def __init__(self, postgresql: 'Postgresql') -> None:
         self._postgresql = postgresql
         self._synchronous_standby_names = ''  # last known value of synchronous_standby_names
+        self._synchronous_standby_names_pending = False
         # names from synchronous_standby_names that are counted as synchronous according to pg_stat_replication
         self._active_synchronous_standby_names_members = CaseInsensitiveSet()
         self._ssn_data = deepcopy(_EMPTY_SSN)
@@ -336,13 +337,14 @@ class SyncHandler(object):
                 ssn_data = deepcopy(_EMPTY_SSN)
 
             # It takes some time before synchronous_standby_names names change propagates via checkpointer.
-            # Therefore only old subset of synchronous_standby_names could be counted as sync.
+            # Only previously verified members can remain active while the new value is pending.
             self._set_active_synchronous_standby_names_members(
-                CaseInsensitiveSet(self._ssn_data.members & ssn_data.members))
+                CaseInsensitiveSet(self._active_synchronous_standby_names_members & ssn_data.members))
 
             self._ssn_data = ssn_data
+            self._synchronous_standby_names_pending = bool(ssn_data.members)
 
-        if self._active_synchronous_standby_names_members == self._ssn_data.members:
+        if not self._synchronous_standby_names_pending:
             return
 
         replication = CaseInsensitiveSet(
@@ -369,6 +371,7 @@ BEGIN
     PERFORM * FROM pg_catalog.txid_current();
 END;$$""")
         self._postgresql.reset_cluster_info_state(None)  # Reset internal cache to query fresh values
+        self._synchronous_standby_names_pending = False
 
     def _process_replica_readiness(self, cluster: Cluster, replica_list: _ReplicaList) -> None:
         """Flags replicas as truly "synchronous" when they have caught up with ``_primary_flush_lsn``.
