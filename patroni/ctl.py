@@ -539,7 +539,7 @@ def get_all_members(cluster: Cluster, group: Optional[int],
     if role in (CtlPostgresqlRole.LEADER, CtlPostgresqlRole.PRIMARY, CtlPostgresqlRole.STANDBY_LEADER):
         # In the DCS the members' role can be one among: ``primary``, ``master``, ``replica``, ``standby_leader``,
         # or ``promoted``. ``primary`` and ``master`` are the same thing. ``promoted`` means the member holds the
-        # leader lock but Postgres promotion has not completed yet, so it is neither a primary nor a standby leader.
+        # leader lock but Postgres promotion has not completed yet.
         for cluster in clusters.values():
             if cluster.leader is not None and cluster.leader.name and\
                 (role == CtlPostgresqlRole.LEADER
