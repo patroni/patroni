@@ -282,8 +282,11 @@ class PostgresInit(unittest.TestCase):
 
 class BaseTestPostgresql(PostgresInit):
 
-    @patch('time.sleep', Mock())
     def setUp(self):
+        for target in ('os.fsync', 'time.sleep'):
+            patcher = patch(target, Mock())
+            self.addCleanup(patcher.stop)
+            patcher.start()
         super(BaseTestPostgresql, self).setUp()
 
         if not os.path.exists(self.p.data_dir):

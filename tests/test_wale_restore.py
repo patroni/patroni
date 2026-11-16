@@ -31,6 +31,7 @@ wale_restore.RETRY_SLEEP_INTERVAL = 0.001  # Speed up retries
 WALE_TEST_RETRIES = 2
 
 
+@patch('time.sleep', Mock())
 @patch('os.access', Mock(return_value=True))
 @patch('os.makedirs', Mock(return_value=True))
 @patch('os.path.exists', Mock(return_value=True))
