@@ -6,6 +6,12 @@ They are meant in aiding development of Patroni and quick testing of features an
     docker build -t patroni .
     docker build -f Dockerfile.citus -t patroni-citus .
 
+By default, HAProxy in the container uses confd to manage its configuration.
+You can build the image with remco instead by setting the `TEMPLATER` build argument:
+
+    docker build --build-arg TEMPLATER=remco -t patroni-remco .
+    docker build -f Dockerfile.citus --build-arg TEMPLATER=remco -t patroni-citus-remco .
+
 # Examples
 
 ## Standalone Patroni
