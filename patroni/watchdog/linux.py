@@ -157,6 +157,20 @@ class LinuxWatchdogDevice(WatchdogBase):
             except OSError as e:
                 raise WatchdogError("Error while closing {0}: {1}".format(self.describe(), e))
 
+    def disable(self) -> None:
+        if self._fd is not None:
+            try:
+                self._ioctl(WDIOC_SETOPTIONS, ctypes.c_int(WDIOS['DISABLECARD']))
+            except (WatchdogError, OSError, IOError) as e:
+                raise WatchdogError("Could not disable watchdog device: {}".format(e))
+            try:
+                os.close(self._fd)
+            except OSError as e:
+                raise WatchdogError("Error while closing {0}: {1}".format(self.describe(), e))
+            finally:
+                # On Linux close() releases the descriptor even when it reports an error.
+                self._fd = None
+
     @property
     def can_be_disabled(self) -> bool:
         return self.get_support().has_MAGICCLOSE
@@ -230,6 +244,9 @@ class LinuxWatchdogDevice(WatchdogBase):
 class TestingWatchdogDevice(LinuxWatchdogDevice):  # pragma: no cover
     """Converts timeout ioctls to regular writes that can be intercepted from a named pipe."""
     timeout = 60
+
+    def disable(self) -> None:
+        self.close()
 
     def get_support(self) -> WatchdogInfo:
         return WatchdogInfo(WDIOF['MAGICCLOSE'] | WDIOF['SETTIMEOUT'], 0, "Watchdog test harness")

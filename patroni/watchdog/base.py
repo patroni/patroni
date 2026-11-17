@@ -141,11 +141,13 @@ class Watchdog(object):
 
         :returns False if a safe watchdog could not be configured, but is required.
         """
+        self.active = True
         if self.config.mode != self.active_config.mode or self.config.fallback != self.active_config.fallback \
            and self.impl.is_null:
-            self._disable()
+            self._disable(confirm=True)
+            if self.impl.is_running:
+                return self.config.mode != MODE_REQUIRED
             self.impl = self.config.get_impl()
-        self.active = True
         return self._activate()
 
     def _activate(self) -> bool:
@@ -162,26 +164,13 @@ class Watchdog(object):
         except WatchdogError as e:
             log = logger.warning if self.config.mode == MODE_REQUIRED else logger.debug
             log("Could not activate %s: %s", self.impl.describe(), e)
-            self._disable()
+            self._disable(confirm=True)
+            if self.impl.is_running:
+                return self.config.mode != MODE_REQUIRED
             self.impl = NullWatchdog()
             actual_timeout = self.impl.get_timeout()
 
-        fallback_allowed = self.config.mode == MODE_AUTOMATIC and self.config.fallback == 'thread' \
-            and self.config.timing_slack >= 0
-        if fallback_allowed and self.impl.is_running and actual_timeout and actual_timeout > self.config.timeout \
-                and self.impl.can_be_disabled:
-            self._disable()
-        if fallback_allowed and not self.impl.is_running:
-            self.impl = self._fallback
-            try:
-                actual_timeout = self._set_timeout()
-                self.impl.open()
-                if self.impl.is_running:
-                    logger.warning("Watchdog device is unavailable or unusable, using thread watchdog fallback")
-            except WatchdogError as e:
-                logger.warning("Could not activate %s: %s", self.impl.describe(), e)
-                self.impl = NullWatchdog()
-                actual_timeout = self.impl.get_timeout()
+        actual_timeout = self._activate_fallback(actual_timeout)
 
         if self.impl.is_running and not self.impl.can_be_disabled:
             logger.warning("Watchdog implementation can't be disabled."
@@ -210,6 +199,29 @@ class Watchdog(object):
 
         return True
 
+    def _activate_fallback(self, actual_timeout: Optional[int]) -> Optional[int]:
+        if self.config.mode != MODE_AUTOMATIC or self.config.fallback != 'thread' or self.config.timing_slack < 0:
+            return actual_timeout
+        if self.impl.is_running:
+            if actual_timeout is not None and self.config.loop_wait <= actual_timeout <= self.config.timeout:
+                return actual_timeout
+            if not self.impl.can_be_disabled:
+                return actual_timeout
+            self._disable(confirm=True)
+            if self.impl.is_running:
+                return actual_timeout
+        self.impl = self._fallback
+        try:
+            actual_timeout = self._set_timeout()
+            self.impl.open()
+            if self.impl.is_running:
+                logger.warning("Watchdog device is unavailable or unusable, using thread watchdog fallback")
+        except WatchdogError as e:
+            logger.warning("Could not activate %s: %s", self.impl.describe(), e)
+            self.impl = NullWatchdog()
+            actual_timeout = self.impl.get_timeout()
+        return actual_timeout
+
     def _set_timeout(self) -> Optional[int]:
         if self.impl.has_set_timeout():
             self.impl.set_timeout(self.config.timeout)
@@ -221,7 +233,7 @@ class Watchdog(object):
                          self.config.loop_wait, actual_timeout)
             if self.impl.can_be_disabled:
                 logger.info('Disabling watchdog due to unsafe timeout.')
-                self.impl.close()
+                self.impl.disable()
                 self.impl = NullWatchdog()
                 return None
         return actual_timeout
@@ -231,7 +243,7 @@ class Watchdog(object):
         self._disable()
         self.active = False
 
-    def _disable(self) -> None:
+    def _disable(self, confirm: bool = False) -> None:
         try:
             if self.impl.is_running and not self.impl.can_be_disabled:
                 # Give sysadmin some extra time to clean stuff up.
@@ -241,7 +253,10 @@ class Watchdog(object):
         except WatchdogError as e:
             logger.error("Error while disabling watchdog: %s", e)
         try:
-            self.impl.close()
+            if confirm:
+                self.impl.disable()
+            else:
+                self.impl.close()
         except WatchdogError as e:
             logger.error("Error while disabling watchdog: %s", e)
 
@@ -255,7 +270,9 @@ class Watchdog(object):
                 if self.config.mode != self.active_config.mode or self.config.driver != self.active_config.driver or \
                         self.config.driver_config != self.active_config.driver_config or \
                         self.config.fallback != self.active_config.fallback and self.impl.is_null:
-                    self._disable()
+                    self._disable(confirm=True)
+                    if self.impl.is_running:
+                        return
                     self.impl = self.config.get_impl()
                     self._activate()
                 if self.impl is self._fallback and self.config.timing_slack < 0:
@@ -266,16 +283,13 @@ class Watchdog(object):
                     if self.is_running:
                         logger.info("%s updated with %s second timeout, timing slack %s seconds",
                                     self.impl.describe(), self.impl.get_timeout(), self.config.timing_slack)
+                if self.config.mode == MODE_AUTOMATIC and self.config.fallback == 'thread':
+                    self._activate_fallback(self.impl.get_timeout())
                 self.active_config = self.config
         except WatchdogError as e:
             logger.error("Error while sending keepalive: %s", e)
-            if self.active and self.config.mode == MODE_AUTOMATIC and self.config.fallback == 'thread' \
-                    and self.impl.can_be_disabled:
-                self._disable()
-                # A device that failed to close is still armed and must keep receiving keepalives
-                if not self.impl.is_running:
-                    self.impl = NullWatchdog()
-                    self._activate()
+            if self.active:
+                self._activate_fallback(None)
 
     @property
     @synchronized
@@ -307,9 +321,10 @@ class WatchdogBase(abc.ABC):
 
     @property
     def can_be_disabled(self) -> bool:
-        """Returns True when watchdog will be disabled by calling close(). Some watchdog devices
-        will keep running no matter what once activated. May raise WatchdogError if called without
-        calling open() first."""
+        """Whether the implementation supports disabling; this does not guarantee success.
+
+        Use disable() to confirm the timer stopped before replacing it. May raise WatchdogError
+        if called without calling open() first."""
         return True
 
     @abc.abstractmethod
@@ -322,6 +337,10 @@ class WatchdogBase(abc.ABC):
     @abc.abstractmethod
     def close(self) -> None:
         """Gracefully close watchdog device."""
+
+    def disable(self) -> None:
+        """Confirm the watchdog stopped and close it; retain an armed device on failure."""
+        self.close()
 
     @abc.abstractmethod
     def keepalive(self) -> None:

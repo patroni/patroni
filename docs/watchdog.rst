@@ -21,14 +21,19 @@ Safety margin is the amount of time that Patroni reserves for time between leade
 
 During demotion, once PostgreSQL has started shutting down, Patroni can disable the watchdog as soon as all user backends have exited. If there are no user backends, it can disable the watchdog without waiting for the remaining PostgreSQL shutdown work to finish.
 
-Watchdog devices are supported using the Linux watchdog device interface. By default, ``automatic`` mode never
-arms a watchdog thread: ``watchdog.fallback`` defaults to ``none``. Setting ``watchdog.fallback`` to ``thread``
-explicitly enables a fallback when a device is unavailable, unsupported, or cannot be configured with a suitable timeout.
-The thread uses the same timeout and safety margin as a device, provided the timeout is at least ``loop_wait``.
-With this opt-in, it also replaces a device if sending a keepalive fails. A device that is still running is replaced
-only if Patroni can disable it. Patroni logs a warning when switching to
-the thread fallback. ``required`` mode still requires a usable watchdog device;
-the thread does not satisfy this requirement. ``off`` disables both implementations.
+Patroni supports watchdog devices through the Linux watchdog device interface. In ``automatic`` mode,
+``watchdog.fallback`` defaults to ``none``, so no thread fallback is used. Setting it to ``thread`` enables
+the fallback described below. ``required`` mode requires a usable watchdog device and never uses the thread
+fallback; ``off`` disables both implementations.
+
+With the fallback enabled, Patroni can use a thread if a device is unavailable, cannot provide a suitable timeout,
+or fails to accept a keepalive. The thread uses the same configured timeout and safety margin as a device,
+and its timeout must be at least ``loop_wait``. Patroni logs a warning when activating the thread fallback.
+Timeout changes and enabling the fallback trigger a device timeout suitability check on the next keepalive.
+
+Patroni replaces an active device with the thread fallback only after confirming that the device has stopped.
+On Linux, this requires a successful explicit disable ioctl; closing the device alone does not confirm this.
+If disabling fails or is unsupported, Patroni does not switch to the thread fallback.
 
 Thread watchdog fallback
 ------------------------
