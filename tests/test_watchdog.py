@@ -585,8 +585,10 @@ class TestWatchdog(unittest.TestCase):
                 fallback = watchdog.impl
                 self.assertIsInstance(fallback, ThreadWatchdog)
                 watchdog.reload_config(config)
-                # the next HA loop sleep uses the new loop_wait, so waiting for keepalive would be too late
-                self.assertFalse(fallback.is_running)
+                # the armed timeout protects the leader key until the keepalive that follows its update with the new
+                # TTL, which has to be sent right away if the next HA loop sleep would be longer
+                self.assertTrue(fallback.is_running)
+                self.assertEqual(watchdog.needs_immediate_keepalive, config['loop_wait'] > 25)
                 watchdog.keepalive()
                 self.assertFalse(fallback.is_running)
                 self.assertFalse(watchdog.is_running)
@@ -622,11 +624,14 @@ class TestWatchdog(unittest.TestCase):
                 try:
                     self.assertTrue(watchdog.activate())
                     device = mock_devices[-1]
-                    # 8 second timeout is shorter than loop_wait, the device must not stay armed
+                    # 8 second timeout is shorter than loop_wait, the device must not stay armed after the keepalive
+                    # that follows the leader key update with the new TTL. Until then the old timeout protects it.
                     watchdog.reload_config(dict(config, ttl=20))
+                    self.assertTrue(device.armed)
+                    self.assertFalse(watchdog.needs_immediate_keepalive)
+                    watchdog.keepalive()
                     self.assertFalse(device.open)
                     self.assertFalse(device.armed)
-                    watchdog.keepalive()
                     self.assertFalse(watchdog.is_running)
                     self.assertFalse(watchdog._fallback.is_running)
                     # the device is acquired again once the timing is fixed
@@ -652,8 +657,12 @@ class TestWatchdog(unittest.TestCase):
                 watchdog = Watchdog(config)
                 self.addCleanup(watchdog.disable)
                 self.assertTrue(watchdog.activate())
+                device = mock_devices[-1]
                 watchdog.reload_config(dict(config, ttl=20))
-                self.assertFalse(mock_devices[-1].armed)
+                # the armed device protects the leader key until the HA loop is able to demote the primary
+                self.assertTrue(device.armed)
+                watchdog.keepalive()
+                self.assertFalse(device.armed)
                 if not early_demotion:
                     # the HA loop demotes the primary, which doesn't disable a watchdog that isn't running
                     self.assertFalse(watchdog.activate())

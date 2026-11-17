@@ -129,14 +129,9 @@ class Watchdog(object):
         elif self.config.fallback != 'thread' and self.impl is self._fallback:
             self._close_impl()
             self.impl = NullWatchdog()
-        elif self.active and self.impl.is_running and self.config.timing_slack < 0:
-            # The next HA loop sleep already uses the new loop_wait, so the watchdog would expire before the next
-            # keepalive could disarm it, or that keepalive would arm a device with a timeout shorter than loop_wait.
-            self._close_impl()
-            # In required mode the HA loop is about to give up the leader key, see activate()
-            self.active = self._activate()
         # If watchdog is not active we can apply config immediately to show any warnings early. Otherwise we need to
-        # delay until next time a keepalive is sent so timeout matches up with leader key update.
+        # delay until next time a keepalive is sent so timeout matches up with leader key update. Until then the armed
+        # timeout still protects the leader key, see needs_immediate_keepalive.
         if self.active:
             return
         if self._impl_pending or self.config.mode != self.active_config.mode or \
@@ -305,6 +300,12 @@ class Watchdog(object):
             logger.error("Error while disabling watchdog: %s", e)
 
     def _apply_config_changes(self) -> None:
+        if self.config.timing_slack < 0:
+            # No timeout is safe with the new timing, see _activate(). In required mode the HA loop gives up the leader
+            # key, see activate().
+            self._close_impl()
+            self.active = self._activate()
+            return
         device_changed = self.config.driver != self.active_config.driver or \
             self.config.driver_config != self.active_config.driver_config
         mode_requires_replacement = self.config.mode != self.active_config.mode and \
