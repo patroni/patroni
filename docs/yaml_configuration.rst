@@ -439,7 +439,7 @@ CTL
 
 Watchdog
 --------
--  **mode**: ``off``, ``automatic`` or ``required``. When ``off`` watchdog is disabled. When ``automatic`` watchdog will be used if available, but ignored if it is not. When ``required`` the node will not become a leader unless watchdog can be successfully enabled.
+-  **mode**: ``off``, ``automatic`` or ``required``. When ``off`` watchdog is disabled. When ``automatic`` watchdog will be used if available. If it can not be activated, Patroni logs a warning and continues without it. When ``required`` the node will not become a leader unless watchdog can be successfully enabled.
 -  **device**: Path to watchdog device. Defaults to ``/dev/watchdog``.
 -  **safety_margin**: Number of seconds of safety margin between watchdog triggering and leader key expiration.
 
