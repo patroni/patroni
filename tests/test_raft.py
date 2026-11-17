@@ -3,6 +3,7 @@ import tempfile
 import time
 import unittest
 
+from threading import Event
 from unittest.mock import Mock, patch, PropertyMock
 
 from pysyncobj import FAIL_REASON, SyncObjConf
@@ -62,6 +63,7 @@ class TestDynMemberSyncObj(unittest.TestCase):
         self.so._SyncObj__doChangeCluster(['add', '127.0.0.1:1236'])
 
 
+@patch('time.sleep', Mock())
 @patch.object(SyncObjConf, 'fullDumpFile', PropertyMock(return_value=None), create=True)
 @patch.object(SyncObjConf, 'journalFile', PropertyMock(return_value=None), create=True)
 class TestKVStoreTTL(unittest.TestCase):
@@ -69,9 +71,11 @@ class TestKVStoreTTL(unittest.TestCase):
     @patch.object(SyncObjConf, 'fullDumpFile', PropertyMock(return_value=None), create=True)
     @patch.object(SyncObjConf, 'journalFile', PropertyMock(return_value=None), create=True)
     def setUp(self):
+        self.ready = Event()
+        self.deleted = Event()
         callback = Mock()
         callback.replicated = False
-        self.so = KVStoreTTL(None, callback, callback, self_addr='127.0.0.1:1234')
+        self.so = KVStoreTTL(self.ready.set, callback, lambda key: self.deleted.set(), self_addr='127.0.0.1:1234')
         self.so.startAutoTick()
         self.so.set_retry_timeout(10)
 
@@ -80,6 +84,7 @@ class TestKVStoreTTL(unittest.TestCase):
             self.so.destroy()
 
     def test_set(self):
+        self.assertTrue(self.ready.wait(10))
         self.assertTrue(self.so.set('foo', 'bar', prevExist=False, ttl=30))
         self.assertFalse(self.so.set('foo', 'bar', prevExist=False, ttl=30))
         self.assertFalse(self.so.retry(self.so._set, 'foo', {'value': 'buz', 'created': 1, 'updated': 1}, prevValue=''))
@@ -90,6 +95,7 @@ class TestKVStoreTTL(unittest.TestCase):
 
     def test_delete(self):
         self.so.autoTickPeriod = 0.2
+        self.assertTrue(self.ready.wait(10))
         self.so.set('foo', 'bar')
         self.so.set('fooo', 'bar')
         self.assertFalse(self.so.delete('foo', prevValue='buz'))
@@ -98,9 +104,13 @@ class TestKVStoreTTL(unittest.TestCase):
         with patch.object(KVStoreTTL, 'retry', Mock(side_effect=RaftError(''))):
             self.assertFalse(self.so.delete('foo'))
 
+    @patch('time.time', Mock(return_value=0))
     def test_expire(self):
-        self.so.set('foo', 'bar', ttl=0.001)
-        time.sleep(1)
+        self.assertTrue(self.ready.wait(10))
+        self.so.set('foo', 'bar', ttl=1)
+        self.assertIsNotNone(self.so.get('foo'))
+        with patch('time.time', Mock(return_value=1)):
+            self.assertTrue(self.deleted.wait(10))
         self.assertIsNone(self.so.get('foo'))
         self.assertEqual(self.so.get('foo', recursive=True), {})
 
@@ -118,6 +128,7 @@ class TestKVStoreTTL(unittest.TestCase):
         self.assertFalse(self.so.retry(test))
 
     def test_on_ready_override(self):
+        self.assertTrue(self.ready.wait(10))
         self.assertTrue(self.so.set('foo', 'bar'))
         self.so.destroy()
         self.so = None

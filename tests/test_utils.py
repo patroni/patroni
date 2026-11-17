@@ -15,6 +15,7 @@ class TestUtils(unittest.TestCase):
         self.assertIsNone(parse_int('1e999'))
         self.assertIsNone(parse_int('1e999MB', 'B'))
 
+    @patch('time.sleep', Mock())
     @patch('time.monotonic', Mock(side_effect=[0, 0, 0.001]))
     def test_polling_loop(self):
         self.assertEqual(list(polling_loop(0.001, interval=0.001)), [0])
