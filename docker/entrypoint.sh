@@ -17,14 +17,46 @@ export DUMB_INIT_SETSID=0
 
 case "$1" in
     haproxy)
+    echo "Starting HAProxy..."  
         haproxy -f /etc/haproxy/haproxy.cfg -p /var/run/haproxy.pid -D
-        set -- confd "-prefix=$PATRONI_NAMESPACE/$PATRONI_SCOPE" -interval=10 -backend
-        if [ -n "$PATRONI_ZOOKEEPER_HOSTS" ]; then
-            while ! /usr/share/zookeeper/bin/zkCli.sh -server "$PATRONI_ZOOKEEPER_HOSTS" ls /; do
-                sleep 1
+
+        if [ -f $REMCO_CONFIG ]; then
+             
+            REMCO_PREFIX="$PATRONI_NAMESPACE/$PATRONI_SCOPE"
+            if [ -n "$PATRONI_ZOOKEEPER_HOSTS" ]; then
+                while ! /usr/share/zookeeper/bin/zkCli.sh -server "$PATRONI_ZOOKEEPER_HOSTS" ls /; do
+                    sleep 1
+                done
+                BACKEND_NAME=zookeeper
+                # "h1:2181,h2:2181" -> "h1:2181","h2:2181"
+                BACKEND_NODES=$(echo "$PATRONI_ZOOKEEPER_HOSTS" | sed 's/[^,]*/"&"/g')
+            else
+                while ! etcdctl member list 2> /dev/null; do
+                    sleep 1
+                done
+                BACKEND_NAME=etcd
+                BACKEND_NODES=$(echo "$ETCDCTL_ENDPOINTS" | sed 's/[^,]*/"&"/g')
+            fi
+            
+            for f in "$REMCO_RESOURCE_DIR"/*.toml; do
+                [ -f "$f" ] || continue
+                sed -i \
+                    -e "s|\\\$BACKEND_NAME|$BACKEND_NAME|g" \
+                    -e "s|\\\$BACKEND_NODES|$BACKEND_NODES|g" \
+                    -e "s|\\\$REMCO_PREFIX|$REMCO_PREFIX|g" \
+                    "$f"
             done
-            set -- "$@" zookeeper -node "$PATRONI_ZOOKEEPER_HOSTS"
+
+            set -- remco -config "$REMCO_CONFIG" 
         else
+            set -- confd "-prefix=$PATRONI_NAMESPACE/$PATRONI_SCOPE" -interval=10 -backend
+             
+            if [ -n "$PATRONI_ZOOKEEPER_HOSTS" ]; then
+                while ! /usr/share/zookeeper/bin/zkCli.sh -server "$PATRONI_ZOOKEEPER_HOSTS" ls /; do
+                    sleep 1
+                done
+                set -- "$@" zookeeper -node "$PATRONI_ZOOKEEPER_HOSTS"
+                   else
             while ! etcdctl member list 2> /dev/null; do
                 sleep 1
             done
@@ -34,6 +66,7 @@ case "$1" in
             done <<-EOT
 $(echo "$ETCDCTL_ENDPOINTS" | sed 's/,/\n/g')
 EOT
+            fi
         fi
         exec dumb-init "$@"
         ;;

@@ -8,14 +8,18 @@ reload_cmd = "haproxy -f {{ .dst }} -p /var/run/haproxy.pid -D -sf $(cat /var/ru
 check_cmd = "/usr/sbin/haproxy -c -f {{ .src }}"
 mode = "0644"
 
+#[backend]
+# [backend.etcd]
+# nodes = [
+    # "http://...:2379",
+    # "http://...:2379",
+    # "http://...:2379"
+# ]
+
 [backend]
-[backend.etcd]
-nodes = [
-    "http://...:2379",
-    "http://...:2379",
-    "http://...:2379"
-]
-prefix = "/service/demo"
+[backend.$BACKEND_NAME]
+nodes = [ $BACKEND_NODES ]
+prefix = "$REMCO_PREFIX"
 keys = ["/"]
 watch = true
 version = 3

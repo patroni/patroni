@@ -1,29 +1,35 @@
 ## This Dockerfile is meant to aid in the building and debugging patroni whilst developing on your local machine
 ## It has all the necessary components to play/debug with a single node appliance, running etcd
+## Select the config templating tool used by HAProxy with:
+##   --build-arg TEMPLATER=confd   (default)
+##   --build-arg TEMPLATER=remco
 ARG PG_MAJOR=17
 ARG COMPRESS=false
 ARG PGHOME=/home/postgres
 ARG PGDATA=$PGHOME/data
 ARG LC_ALL=C.UTF-8
 ARG LANG=C.UTF-8
+ARG TEMPLATER=confd
 
-FROM postgres:$PG_MAJOR as builder
+FROM postgres:$PG_MAJOR AS builder
 
 ARG PGHOME
 ARG PGDATA
 ARG LC_ALL
 ARG LANG
+ARG TEMPLATER
 
-ENV ETCDVERSION=3.3.13 CONFDVERSION=0.16.0
+ENV ETCDVERSION=3.3.13 CONFDVERSION=0.16.0 REMCOVERSION=0.12.2
 
 RUN set -ex \
+    && case "$TEMPLATER" in confd|remco) ;; *) echo "TEMPLATER must be 'confd' or 'remco' (got '$TEMPLATER')" >&2; exit 1;; esac \
     && export DEBIAN_FRONTEND=noninteractive \
     && echo 'APT::Install-Recommends "0";\nAPT::Install-Suggests "0";' > /etc/apt/apt.conf.d/01norecommend \
     && apt-get update -y \
     # postgres:10 is based on debian, which has the patroni package. We will install all required dependencies
     && apt-cache depends patroni | sed -n -e 's/.*Depends: \(python3-.\+\)$/\1/p' \
             | grep -Ev '^python3-(sphinx|etcd|consul|kazoo|kubernetes)' \
-            | xargs apt-get install -y vim curl less jq locales haproxy sudo \
+            | xargs apt-get install -y vim curl less jq locales haproxy sudo unzip\
                             python3-etcd python3-kazoo python3-pip busybox \
                             net-tools iputils-ping dumb-init --fix-missing \
 \
@@ -52,19 +58,37 @@ RUN set -ex \
     && curl -sL "https://github.com/coreos/etcd/releases/download/v$ETCDVERSION/etcd-v$ETCDVERSION-linux-$(dpkg --print-architecture).tar.gz" \
             | tar xz -C /usr/local/bin --strip=1 --wildcards --no-anchored etcd etcdctl \
 \
-    && if [ $(dpkg --print-architecture) = 'arm64' ]; then \
-        # Build confd
-        apt-get install -y git make \
-        && curl -sL https://go.dev/dl/go1.20.4.linux-arm64.tar.gz | tar xz -C /usr/local go \
-        && export GOROOT=/usr/local/go && export PATH=$PATH:$GOROOT/bin \
-        && git clone --recurse-submodules https://github.com/kelseyhightower/confd.git \
-        && make -C confd \
-        && cp confd/bin/confd /usr/local/bin/confd \
-        && rm -rf /confd /usr/local/go; \
+    # Install the templating tool selected by TEMPLATER (remco or confd)
+    && if [ "$TEMPLATER" = "remco" ]; then \
+        if [ $(dpkg --print-architecture) = 'arm64' ]; then \
+            # Build remco
+            curl -fsSL https://go.dev/dl/go1.20.4.linux-arm64.tar.gz | tar xz -C /usr/local go \
+            && export GOROOT=/usr/local/go GOPATH=/tmp/gopath GOBIN=/usr/local/bin CGO_ENABLED=0 \
+            && export PATH=$PATH:$GOROOT/bin \
+            && go install github.com/HeavyHorst/remco/cmd/remco@v$REMCOVERSION \
+            && rm -rf /usr/local/go /tmp/gopath; \
+        else \
+            # Download remco
+            curl -fsSL https://github.com/HeavyHorst/remco/releases/download/v${REMCOVERSION}/remco_${REMCOVERSION}_linux_amd64.zip -o /tmp/remco.zip \
+            && unzip -o /tmp/remco.zip -d /tmp \
+            && mv /tmp/remco_linux /usr/local/bin/remco \
+            && chmod +x /usr/local/bin/remco \
+            && rm -f /tmp/remco.zip; \
+        fi; \
     else \
-        # Download confd
-        curl -sL "https://github.com/kelseyhightower/confd/releases/download/v$CONFDVERSION/confd-$CONFDVERSION-linux-$(dpkg --print-architecture)" \
-            > /usr/local/bin/confd && chmod +x /usr/local/bin/confd; \
+        if [ $(dpkg --print-architecture) = 'arm64' ]; then \
+            # Build confd
+            curl -sL https://go.dev/dl/go1.20.4.linux-arm64.tar.gz | tar xz -C /usr/local go \
+            && export GOROOT=/usr/local/go && export PATH=$PATH:$GOROOT/bin \
+            && git clone --recurse-submodules https://github.com/kelseyhightower/confd.git \
+            && make -C confd \
+            && cp confd/bin/confd /usr/local/bin/confd \
+            && rm -rf /confd /usr/local/go; \
+        else \
+            # Download confd
+            curl -sL "https://github.com/kelseyhightower/confd/releases/download/v$CONFDVERSION/confd-$CONFDVERSION-linux-$(dpkg --print-architecture)" \
+                > /usr/local/bin/confd && chmod +x /usr/local/bin/confd; \
+        fi; \
     fi \
 \
     # Clean up all useless packages and some files
@@ -140,20 +164,38 @@ ARG PGHOME
 ARG PGDATA
 ARG LC_ALL
 ARG LANG
+ARG TEMPLATER
 
 ARG PGBIN=/usr/lib/postgresql/$PG_MAJOR/bin
 
 ENV LC_ALL=$LC_ALL LANG=$LANG EDITOR=/usr/bin/editor
 ENV PGDATA=$PGDATA PATH=$PATH:$PGBIN
 ENV ETCDCTL_API=3
+ENV TEMPLATER=$TEMPLATER
+ENV REMCO_CONFIG=/etc/remco/config
+ENV REMCO_RESOURCE_DIR=/etc/remco/resource.d
+
 
 COPY patroni /patroni/
-COPY extras/confd/conf.d/haproxy.toml /etc/confd/conf.d/
-COPY extras/confd/templates/haproxy.tmpl /etc/confd/templates/
+# Both sets are staged, then only the selected one is installed 
+COPY extras/confd /tmp/templater/confd
+COPY extras/remco /tmp/templater/remco
 COPY patroni*.py docker/entrypoint.sh /
 COPY postgres?.yml $PGHOME/
 
 WORKDIR $PGHOME
+
+RUN if [ "$TEMPLATER" = "remco" ]; then \
+        mkdir -p /etc/remco/resource.d /etc/remco/templates \
+        && cp /tmp/templater/remco/resource.d/haproxy.toml /etc/remco/resource.d/ \
+        && cp /tmp/templater/remco/templates/haproxy.tmpl /etc/remco/templates/haproxy.tmpl \
+        && cp -r /tmp/templater/remco/config /etc/remco/config; \
+    else \
+        mkdir -p /etc/confd/conf.d /etc/confd/templates \
+        && cp /tmp/templater/confd/conf.d/haproxy.toml /etc/confd/conf.d/ \
+        && cp /tmp/templater/confd/templates/haproxy.tmpl /etc/confd/templates/haproxy.tmpl; \
+    fi \
+    && rm -rf /tmp/templater
 
 RUN sed -i 's/env python/&3/' /patroni*.py \
     # "fix" patroni configs
@@ -168,7 +210,7 @@ RUN sed -i 's/env python/&3/' /patroni*.py \
     && sed -i 's/^\(.*\) \(.*\) md5/\1 all md5/' postgres?.yml \
     && if [ "$COMPRESS" = "true" ]; then chmod u+s /usr/bin/sudo; fi \
     && chmod +s /bin/ping \
-    && chown -R postgres:postgres "$PGHOME" /run /etc/haproxy
+    && chown -R postgres:postgres $PGHOME /run /etc/haproxy /etc/$TEMPLATER
 
 USER postgres
 

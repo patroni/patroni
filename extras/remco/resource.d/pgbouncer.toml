@@ -7,13 +7,18 @@ make_directories = true
 reload_cmd = "systemctl reload pgbouncer"
 mode = "0644"
 
+#[backend]
+# [backend.etcd]
+# nodes = [
+    # "http://...:2379",
+    # "http://...:2379",
+    # "http://...:2379"
+# ]
+
 [backend]
-[backend.etcd]
-nodes = [
-    "http://...:2379",
-    "http://...:2379",
-    "http://...:2379"
-]
+[backend]
+[backend.$BACKEND_NAME]
+nodes = [ $BACKEND_NODES ]
 prefix = "/service/demo"
 keys = ["/members", "/leader"]
 watch = true
