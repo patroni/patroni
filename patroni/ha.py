@@ -1210,6 +1210,9 @@ class Ha(object):
                     self.demote('immediate')
                     return 'Demoting self because watchdog could not be activated'
                 else:
+                    # A failed activation might leave the device armed with a too long timeout. Then the next leader
+                    # race would skip the activation because the watchdog is running, and promote.
+                    self.watchdog.disable()
                     self.release_leader_key_voluntarily()
                     return 'Not promoting self because watchdog could not be activated'
 

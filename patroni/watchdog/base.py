@@ -97,6 +97,8 @@ class Watchdog(object):
         self.lock = RLock()
         self.active = False
         self._impl_pending = False
+        # Activation in required mode failed because of a too long timeout of the device, see is_healthy
+        self._unsafe_timeout = False
 
         if self.config.mode == MODE_OFF:
             self.impl = NullWatchdog()
@@ -116,6 +118,7 @@ class Watchdog(object):
     @synchronized
     def reload_config(self, config: Config) -> None:
         self.config = WatchdogConfig(config)
+        self._unsafe_timeout = False
         # Turning a watchdog off can always be done immediately
         if self.config.mode == MODE_OFF:
             if self.active:
@@ -211,6 +214,8 @@ class Watchdog(object):
                 else:
                     logger.error("Configuration requires watchdog, but a safe watchdog timeout %s could"
                                  " not be configured. Watchdog timeout is %s.", self.config.timeout, actual_timeout)
+                    # Otherwise the node would keep winning leader races only to give up the leader key again
+                    self._unsafe_timeout = True
                 return False
             if not self.impl.is_null:
                 logger.warning("Watchdog timeout %s seconds does not ensure safe termination within %s seconds",
@@ -360,7 +365,8 @@ class Watchdog(object):
     def is_healthy(self) -> bool:
         if self.config.mode != MODE_REQUIRED:
             return True
-        return self.config.timing_slack >= 0 and self.config.mode == self.active_config.mode and self.impl.is_healthy
+        return self.config.timing_slack >= 0 and self.config.mode == self.active_config.mode and \
+            not self._unsafe_timeout and self.impl.is_healthy
 
 
 class WatchdogBase(abc.ABC):
