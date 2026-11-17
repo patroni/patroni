@@ -297,6 +297,7 @@ class TestWatchdog(unittest.TestCase):
                 self.assertEqual(watchdog.impl.get_timeout(), 15)
                 self.assertFalse(device.open)
                 self.assertFalse(device.armed)
+                self.assertEqual(device.writes[-1], b'V')
                 watchdog.disable()
 
     @patch('platform.system', Mock(return_value='Linux'))
@@ -369,6 +370,49 @@ class TestWatchdog(unittest.TestCase):
                 self.assertEqual(device.writes[writes:], [b'1'])
 
     @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
+    def test_keepalive_applies_config_when_device_is_retained(self):
+        with patch('fcntl.ioctl', mock_nowayout_ioctl):
+            config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'automatic', 'fallback': 'thread'}}
+            watchdog = Watchdog(config)
+            self.assertTrue(watchdog.activate())
+            impl = watchdog.impl
+            device = mock_devices[-1]
+
+            # A mode change keeps a running device without trying to disable it
+            config['watchdog']['mode'] = 'required'
+            watchdog.reload_config(config)
+            with patch.object(LinuxWatchdogDevice, 'disable') as mock_disable:
+                watchdog.keepalive()
+                mock_disable.assert_not_called()
+            self.assertIs(watchdog.impl, impl)
+            self.assertEqual(len(mock_devices), 2)
+
+            # A failed device replacement is attempted only once
+            config['watchdog']['device'] = '/dev/other'
+            watchdog.reload_config(config)
+            with patch.object(LinuxWatchdogDevice, 'disable', side_effect=WatchdogError('busy')) as mock_disable:
+                watchdog.keepalive()
+                watchdog.keepalive()
+                mock_disable.assert_called_once()
+            self.assertIs(watchdog.impl, impl)
+
+            # Timeout changes are still applied to the retained device
+            config['ttl'] = 20
+            watchdog.reload_config(config)
+            watchdog.keepalive()
+            self.assertIs(watchdog.impl, impl)
+            self.assertEqual(device.timeout, 14)
+            self.assertTrue(device.open)
+            self.assertTrue(device.armed)
+
+            # The pending device change is applied on the next activation
+            watchdog.disable()
+            self.assertTrue(watchdog.activate())
+            self.assertEqual(mock_devices[-1].filename, '/dev/other')
+            self.assertTrue(mock_devices[-1].open)
+
+    @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'keepalive', Mock(side_effect=WatchdogError('failed')))
     def test_automatic_keepalive_failure(self):
         on_timeout = Mock()
@@ -396,9 +440,11 @@ class TestWatchdog(unittest.TestCase):
         device = watchdog.impl
         with patch.object(LinuxWatchdogDevice, 'keepalive', side_effect=WatchdogError('failed')):
             watchdog.keepalive()
-        self.assertIs(watchdog.impl, device)
-        self.assertTrue(mock_devices[-1].open)
-        self.assertFalse(watchdog._fallback.is_running)
+            self.assertIs(watchdog.impl, device)
+            self.assertTrue(mock_devices[-1].open)
+            self.assertFalse(watchdog._fallback.is_running)
+            watchdog.disable()
+        self.assertFalse(mock_devices[-1].open)
 
     @patch('platform.system', Mock(return_value='Unknown'))
     def test_fallback_reload(self):
@@ -724,24 +770,30 @@ class TestLinuxWatchdogDevice(unittest.TestCase):
         self.assertFalse(self.impl.is_healthy)
 
     @patch('os.open', Mock(return_value=3))
+    @patch('os.write')
     @patch('os.close')
     @patch('fcntl.ioctl')
-    def test_disable_rejected(self, mock_ioctl, mock_close):
+    def test_disable_rejected(self, mock_ioctl, mock_close, mock_write):
         for error in (errno.EBUSY, errno.ENOTTY):
             with self.subTest(error=error):
                 mock_ioctl.side_effect = OSError(error, 'cannot disable')
                 self.impl.open()
                 self.assertRaises(WatchdogError, self.impl.disable)
                 self.assertTrue(self.impl.is_running)
+                mock_write.assert_not_called()
                 mock_close.assert_not_called()
 
     @patch('os.open', Mock(return_value=3))
-    @patch('os.close', side_effect=OSError(errno.EIO, 'close failed'))
     @patch('fcntl.ioctl', Mock(return_value=0))
-    def test_disable_close_error(self, mock_close):
-        self.impl.open()
-        self.assertRaises(WatchdogError, self.impl.disable)
-        self.assertFalse(self.impl.is_running)
+    def test_disable_close_error(self):
+        for write_error in (None, OSError(errno.EIO, 'write failed')):
+            with self.subTest(write_error=write_error), patch('os.write', side_effect=write_error) as mock_write, \
+                    patch('os.close', side_effect=OSError(errno.EIO, 'close failed')) as mock_close:
+                self.impl.open()
+                self.assertRaises(WatchdogError, self.impl.disable)
+                self.assertFalse(self.impl.is_running)
+                mock_write.assert_called_once_with(3, b'V')
+                mock_close.assert_called_once_with(3)
 
     @patch('os.open', Mock(return_value=3))
     @patch('fcntl.ioctl', Mock(side_effect=OSError))

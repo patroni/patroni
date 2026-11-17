@@ -96,6 +96,7 @@ class Watchdog(object):
         self.active_config: WatchdogConfig = self.config
         self.lock = RLock()
         self.active = False
+        self._impl_pending = False
         self._on_timeout = on_timeout
 
         if self.config.mode == MODE_OFF:
@@ -122,6 +123,7 @@ class Watchdog(object):
                 self._disable()
             self.active_config = self.config
             self.impl = NullWatchdog()
+            self._impl_pending = False
         elif self.config.fallback != 'thread' and self.impl is self._fallback:
             self._disable()
             self.impl = NullWatchdog()
@@ -132,6 +134,7 @@ class Watchdog(object):
                     self.config.driver_config != self.active_config.driver_config or \
                     self.config.fallback != self.active_config.fallback:
                 self.impl = self.config.get_impl()
+                self._impl_pending = False
             self.active_config = self.config
 
     @synchronized
@@ -142,13 +145,22 @@ class Watchdog(object):
         :returns False if a safe watchdog could not be configured, but is required.
         """
         self.active = True
-        if self.config.mode != self.active_config.mode or self.config.fallback != self.active_config.fallback \
-           and self.impl.is_null:
-            self._disable(confirm=True)
-            if self.impl.is_running:
+        if self._impl_pending or self.config.mode != self.active_config.mode or \
+                self.config.fallback != self.active_config.fallback and self.impl.is_null:
+            if not self._replace_impl():
                 return self.config.mode != MODE_REQUIRED
-            self.impl = self.config.get_impl()
         return self._activate()
+
+    def _replace_impl(self) -> bool:
+        """Replace the implementation, unless the current one could not be confirmed as disabled."""
+        self._disable(confirm=True)
+        if self.impl.is_running:
+            logger.warning("Keeping %s because it could not be disabled", self.impl.describe())
+            self._impl_pending = True
+            return False
+        self.impl = self.config.get_impl()
+        self._impl_pending = False
+        return True
 
     def _activate(self) -> bool:
         self.active_config = self.config
@@ -245,7 +257,7 @@ class Watchdog(object):
 
     def _disable(self, confirm: bool = False) -> None:
         try:
-            if self.impl.is_running and not self.impl.can_be_disabled:
+            if not confirm and self.impl.is_running and not self.impl.can_be_disabled:
                 # Give sysadmin some extra time to clean stuff up.
                 self.impl.keepalive()
                 logger.warning("Watchdog implementation can't be disabled. System will reboot after "
@@ -267,14 +279,14 @@ class Watchdog(object):
                 self.impl.keepalive()
             # In case there are any pending configuration changes apply them now.
             if self.active and self.config != self.active_config:
-                if self.config.mode != self.active_config.mode or self.config.driver != self.active_config.driver or \
+                # A running device keeps working across mode changes; only the thread or an inactive one is replaced.
+                if self._impl_pending or self.config.driver != self.active_config.driver or \
                         self.config.driver_config != self.active_config.driver_config or \
+                        self.config.mode != self.active_config.mode and \
+                        (self.impl is self._fallback or not self.impl.is_running) or \
                         self.config.fallback != self.active_config.fallback and self.impl.is_null:
-                    self._disable(confirm=True)
-                    if self.impl.is_running:
-                        return
-                    self.impl = self.config.get_impl()
-                    self._activate()
+                    if self._replace_impl():
+                        self._activate()
                 if self.impl is self._fallback and self.config.timing_slack < 0:
                     self._disable()
                     self._activate()

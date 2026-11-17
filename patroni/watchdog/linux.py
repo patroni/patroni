@@ -163,13 +163,16 @@ class LinuxWatchdogDevice(WatchdogBase):
                 self._ioctl(WDIOC_SETOPTIONS, ctypes.c_int(WDIOS['DISABLECARD']))
             except (WatchdogError, OSError, IOError) as e:
                 raise WatchdogError("Could not disable watchdog device: {}".format(e))
+            # On Linux close() releases the descriptor even when it reports an error.
+            fd, self._fd = self._fd, None
             try:
-                os.close(self._fd)
+                try:
+                    # Some legacy drivers rearm the timer on close unless the magic character was written.
+                    os.write(fd, b'V')
+                finally:
+                    os.close(fd)
             except OSError as e:
                 raise WatchdogError("Error while closing {0}: {1}".format(self.describe(), e))
-            finally:
-                # On Linux close() releases the descriptor even when it reports an error.
-                self._fd = None
 
     @property
     def can_be_disabled(self) -> bool:
