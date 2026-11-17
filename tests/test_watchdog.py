@@ -629,6 +629,28 @@ class TestWatchdog(unittest.TestCase):
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
+    @patch.object(LinuxWatchdogDevice, 'is_healthy', PropertyMock(return_value=True))
+    def test_required_unsafe_timing_reload_demotes(self):
+        config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required', 'safety_margin': 12}}
+        for early_demotion in (False, True):
+            with self.subTest(early_demotion=early_demotion):
+                watchdog = Watchdog(config)
+                self.addCleanup(watchdog.disable)
+                self.assertTrue(watchdog.activate())
+                watchdog.reload_config(dict(config, ttl=20))
+                self.assertFalse(mock_devices[-1].armed)
+                if not early_demotion:
+                    # the HA loop demotes the primary, which doesn't disable a watchdog that isn't running
+                    self.assertFalse(watchdog.activate())
+                self.assertFalse(watchdog.is_healthy)
+                # only the leader sends keepalives, so the device is acquired again on reload
+                watchdog.reload_config(config)
+                self.assertTrue(watchdog.is_healthy)
+                self.assertTrue(watchdog.activate())
+                self.assertTrue(mock_devices[-1].armed)
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
     @patch.object(LinuxWatchdogDevice, 'has_set_timeout', Mock(return_value=False))
     @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=15))
     def test_longer_loop_wait_reload_with_fixed_timeout_device(self):
@@ -686,7 +708,7 @@ class TestWatchdog(unittest.TestCase):
         self.assertFalse(watchdog.activate())
 
         watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
-        watchdog.keepalive()
+        self.assertTrue(watchdog.activate())
         self.assertIsInstance(watchdog.impl, ThreadWatchdog)
         watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'off', 'fallback': 'thread'}})
         self.assertFalse(watchdog.is_running)
@@ -752,9 +774,12 @@ class TestWatchdog(unittest.TestCase):
         self.assertFalse(watchdog.is_healthy)
 
         self.assertFalse(watchdog.activate())
+        # the HA loop gives up the leader key, so the next activation picks up the reloaded configuration
         watchdog.reload_config({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
         self.assertFalse(watchdog.is_running)
         watchdog.keepalive()
+        self.assertFalse(watchdog.is_running)
+        self.assertTrue(watchdog.activate())
         self.assertTrue(watchdog.is_running)
 
         watchdog.reload_config({'ttl': 60, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})

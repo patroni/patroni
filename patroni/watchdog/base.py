@@ -130,7 +130,8 @@ class Watchdog(object):
             # The next HA loop sleep already uses the new loop_wait, so the watchdog would expire before the next
             # keepalive could disarm it, or that keepalive would arm a device with a timeout shorter than loop_wait.
             self._close_impl()
-            self._activate()
+            # In required mode the HA loop is about to give up the leader key, see activate()
+            self.active = self._activate()
         # If watchdog is not active we can apply config immediately to show any warnings early. Otherwise we need to
         # delay until next time a keepalive is sent so timeout matches up with leader key update.
         if self.active:
@@ -155,7 +156,12 @@ class Watchdog(object):
                 self.config.fallback != self.active_config.fallback and self.impl.is_null:
             if not self._replace_impl():
                 return self.config.mode != MODE_REQUIRED
-        return self._activate()
+        if self._activate():
+            return True
+        # The HA loop gives up the leader key, so keepalive() won't apply configuration changes anymore. Unless a
+        # running watchdog has to be disabled on demotion, reload_config() must apply them, or the node stays unhealthy.
+        self.active = self.impl.is_running
+        return False
 
     def _replace_impl(self) -> bool:
         """Replace the implementation, unless the current one could not be confirmed as disabled."""
