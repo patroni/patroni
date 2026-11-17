@@ -105,13 +105,19 @@ class TestPatroni(unittest.TestCase):
 
     def test_watchdog_timeout(self):
         postmaster = MockPostmaster()
-        with patch.object(Postgresql, 'is_running', Mock(side_effect=[postmaster, None])), \
-                patch.object(PatroniLogger, 'queue_size', PropertyMock(side_effect=[1, 0, 0])), \
-                patch('time.sleep') as mock_sleep, self.assertLogs('patroni.__main__', 'CRITICAL'):
+        with patch.object(Postgresql, 'is_running', Mock(side_effect=[postmaster, postmaster, None, OSError])), \
+                patch.object(PatroniLogger, 'flush') as mock_flush, self.assertLogs('patroni.__main__') as logs:
             self.p.watchdog._on_timeout()
             postmaster.signal_stop.assert_called_once_with('immediate', self.p.postgresql.pgcommand('pg_ctl'))
-            mock_sleep.assert_called_once_with(0.1)
+            postmaster.signal_kill.assert_not_called()
+            mock_flush.assert_called_once_with(1)
+            postmaster.signal_stop.return_value = False
             self.p.watchdog._on_timeout()
+            postmaster.signal_kill.assert_called_once_with()
+            self.p.watchdog._on_timeout()
+            self.p.watchdog._on_timeout()
+        self.assertIn('Failed to stop PostgreSQL after watchdog thread expiry', logs.output[-1])
+        self.assertEqual(mock_flush.call_count, 4)
 
     def test_apply_dynamic_configuration(self):
         empty_cluster = Cluster.empty()

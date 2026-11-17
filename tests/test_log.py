@@ -87,6 +87,12 @@ class TestPatroniLogger(unittest.TestCase):
         del config['log']['traceback_level']
         logger.reload_config(config)
 
+    def test_flush(self):
+        logger = PatroniLogger()
+        self.assertTrue(logger.flush(0))
+        logger._queue_handler.queue.put_nowait(Mock())
+        self.assertFalse(logger.flush(0))
+
     def test_traceback_is_formatted_in_logger_thread(self):
         """The caller thread must not format the traceback.
 

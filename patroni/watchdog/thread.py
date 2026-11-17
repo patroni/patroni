@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 
@@ -5,6 +6,8 @@ from threading import Condition, Thread
 from typing import Callable, Optional
 
 from .base import WatchdogBase, WatchdogError
+
+logger = logging.getLogger(__name__)
 
 
 class ThreadWatchdog(WatchdogBase):
@@ -79,5 +82,7 @@ class ThreadWatchdog(WatchdogBase):
         try:
             if self._on_timeout is not None:
                 self._on_timeout()
+        except Exception:
+            logger.exception('Watchdog timeout handler failed')
         finally:
             os._exit(1)

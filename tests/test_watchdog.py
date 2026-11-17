@@ -75,6 +75,12 @@ def mock_close(fd):
     mock_devices[fd].open = False
 
 
+def mock_legacy_ioctl(fd, op, arg=None, mutate_flag=False):
+    if op == linuxwd.WDIOC_SETOPTIONS:
+        raise OSError(errno.ENOTTY, 'Inappropriate ioctl for device')
+    return mock_ioctl(fd, op, arg, mutate_flag)
+
+
 def mock_nowayout_ioctl(fd, *args):
     mock_devices[fd].nowayout = True
     return mock_ioctl(fd, *args)
@@ -268,6 +274,28 @@ class TestWatchdog(unittest.TestCase):
         self.assertFalse(mock_devices[-1].open)
 
     @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
+    @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=5))
+    def test_unsafe_timeout_falls_back_to_magic_close(self):
+        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'automatic'}})
+        with patch('fcntl.ioctl', mock_legacy_ioctl), self.assertLogs('patroni.watchdog.base', 'WARNING'):
+            self.assertTrue(watchdog.activate())
+        self.assertIsInstance(watchdog.impl, NullWatchdog)
+        self.assertFalse(mock_devices[-1].open)
+        self.assertFalse(mock_devices[-1].armed)
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    def test_timeout_change_without_device(self):
+        config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'automatic', 'driver': 'none'}}
+        watchdog = Watchdog(config)
+        self.assertTrue(watchdog.activate())
+        watchdog.reload_config(dict(config, ttl=40))
+        with patch('patroni.watchdog.base.logger.error') as mock_error:
+            watchdog.keepalive()
+        mock_error.assert_not_called()
+        self.assertEqual(watchdog.active_config, watchdog.config)
+
+    @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=60))
     def test_automatic_long_timeout(self):
         with patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True)):
@@ -303,7 +331,8 @@ class TestWatchdog(unittest.TestCase):
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
     def test_fallback_retains_nowayout_device(self):
-        for timeout in (5, 60):
+        # a timeout shorter than loop_wait is covered by test_unsafe_timeout_falls_back_to_magic_close
+        for timeout in (25, 60):
             with self.subTest(timeout=timeout), \
                     patch.object(LinuxWatchdogDevice, 'get_timeout', return_value=timeout), \
                     patch('fcntl.ioctl', mock_nowayout_ioctl):
@@ -713,7 +742,8 @@ class TestThreadWatchdog(unittest.TestCase):
         self.watchdog.open()
         self.clock.return_value = 125
         self.on_timeout.side_effect = RuntimeError('shutdown failed')
-        self.assertRaises(RuntimeError, self.watchdog._run)
+        with self.assertLogs('patroni.watchdog.thread', 'ERROR'):
+            self.watchdog._run()
         self.exit.assert_called_once_with(1)
 
     def test_no_callback(self):

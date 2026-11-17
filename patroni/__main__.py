@@ -101,13 +101,17 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
     def _watchdog_timeout(self) -> None:
         """Request immediate PostgreSQL shutdown without running the normal shutdown hooks."""
         logger.critical('Watchdog thread expired, requesting immediate PostgreSQL shutdown and terminating Patroni')
-        postmaster = self.postgresql.is_running()
-        if postmaster is not None:
-            postmaster.signal_stop('immediate', self.postgresql.pgcommand('pg_ctl'))
-        # os._exit() discards records still queued for the logger thread
-        deadline = time.monotonic() + 1
-        while self.logger.queue_size and time.monotonic() < deadline:
-            time.sleep(0.1)
+        try:
+            postmaster = self.postgresql.is_running()
+            if postmaster is not None and \
+                    postmaster.signal_stop('immediate', self.postgresql.pgcommand('pg_ctl')) is False:
+                # A primary left running after Patroni exits would keep accepting writes after the leader key expires.
+                logger.critical('Could not request immediate shutdown, killing PostgreSQL')
+                postmaster.signal_kill()
+        except Exception:
+            logger.exception('Failed to stop PostgreSQL after watchdog thread expiry')
+        # os._exit() discards records not yet written by the logger thread
+        self.logger.flush(1)
 
     def ensure_dcs_access(self, sleep_time: int = 5) -> 'Cluster':
         """Continuously attempt to retrieve cluster from DCS with delay.

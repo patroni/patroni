@@ -245,7 +245,12 @@ class Watchdog(object):
                          self.config.loop_wait, actual_timeout)
             if self.impl.can_be_disabled:
                 logger.info('Disabling watchdog due to unsafe timeout.')
-                self.impl.disable()
+                try:
+                    self.impl.disable()
+                except WatchdogError as e:
+                    # Keeping a device armed with this timeout would reboot the host, so do a magic close instead.
+                    logger.warning('%s, closing watchdog device instead', e)
+                    self.impl.close()
                 self.impl = NullWatchdog()
                 return None
         return actual_timeout
@@ -290,7 +295,7 @@ class Watchdog(object):
                 if self.impl is self._fallback and self.config.timing_slack < 0:
                     self._disable()
                     self._activate()
-                elif self.config.timeout != self.active_config.timeout:
+                elif self.config.timeout != self.active_config.timeout and not self.impl.is_null:
                     self.impl.set_timeout(self.config.timeout)
                     if self.is_running:
                         logger.info("%s updated with %s second timeout, timing slack %s seconds",
