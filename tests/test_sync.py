@@ -208,9 +208,15 @@ class TestSync(BaseTestPostgresql):
 
         with patch.object(Postgresql, 'synchronous_standby_names', return_value=a) as mock_ssn, \
                 patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
-                patch.object(Postgresql, 'query', return_value=[(False,)]) as mock_query, \
+                patch.object(Postgresql, 'query', return_value=[(False, True)]) as mock_query, \
                 patch('patroni.thread_pool.get_executor', Mock(return_value=executor)):
-            # walsender already reports sync_state=sync, but checkpointer might still not enforce it
+            # checkpointer might process the reload without help, don't force CHECKPOINT right after reload
+            mock_query.return_value = [(False, False)]
+            assert_waiting()
+            executor.submit.assert_not_called()
+
+            # walsender already reports sync_state=sync, but checkpointer is busy and might still not enforce it
+            mock_query.return_value = [(False, True)]
             assert_waiting()
             assert_waiting()
             executor.submit.assert_called_once_with(self.p.checkpoint)
@@ -231,7 +237,7 @@ class TestSync(BaseTestPostgresql):
             mock_ssn.return_value = ''
             self.s.current_state(self.cluster)
             mock_ssn.return_value = a
-            mock_query.return_value = [(True,)]
+            mock_query.return_value = [(True, True)]
             self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
             self.assertEqual(executor.submit.call_count, 2)
 
@@ -239,10 +245,10 @@ class TestSync(BaseTestPostgresql):
             mock_ssn.return_value = ''
             self.s.current_state(self.cluster)
             mock_ssn.return_value = a
-            mock_query.return_value = [(False,)]
+            mock_query.return_value = [(False, True)]
             assert_waiting()
             self.assertEqual(executor.submit.call_count, 3)
-            mock_query.return_value = [(True,)]
+            mock_query.return_value = [(True, True)]
             self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
             self.assertFalse(futures[2].done())
 
@@ -251,7 +257,7 @@ class TestSync(BaseTestPostgresql):
             mock_ssn.return_value = ''
             self.s.current_state(self.cluster)
             mock_ssn.return_value = a
-            mock_query.return_value = [(False,)]
+            mock_query.return_value = [(False, True)]
             assert_waiting()
             self.assertEqual(executor.submit.call_count, 3)
             futures[2].set_result(None)
@@ -269,7 +275,7 @@ class TestSync(BaseTestPostgresql):
         replication = [{'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 1}]
         with patch.object(Postgresql, 'synchronous_standby_names', return_value=a) as mock_ssn, \
                 patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
-                patch.object(Postgresql, 'query', return_value=[(True,)]) as mock_query, \
+                patch.object(Postgresql, 'query', return_value=[(True, True)]) as mock_query, \
                 patch('patroni.thread_pool.get_executor', Mock()):
             self.p.set_role(PostgresqlRole.PRIMARY)
             self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
@@ -277,7 +283,7 @@ class TestSync(BaseTestPostgresql):
             # demoted, strict mode placeholder is set before the next promote
             self.p.set_role(PostgresqlRole.REPLICA)
             self.p.set_role(PostgresqlRole.PROMOTED)
-            mock_query.return_value = [(False,)]
+            mock_query.return_value = [(False, True)]
             mock_ssn.return_value = SYNC_STRICT_PLACEHOLDER
             self.s.current_state(self.cluster)
             # checkpointer must be verified again, the previous primary tenure must not be trusted

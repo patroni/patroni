@@ -621,10 +621,12 @@ class QuorumTest(unittest.TestCase):
             ('restart', 'a', 1, set('d')),
         ])
 
-    def test_quorum_catchup_defers_leader_change(self):
+    def test_quorum_catchup_changes_leader(self):
+        # the former leader replaces the new one in voters, quorum is preserved
         self.check_state_transitions(leader='a', quorum=1, voters=set('bc'),
                                      numsync=1, sync=set('b'), numsync_confirmed=0, active=set('ab'),
                                      sync_wanted=1, leader_wanted='c', quorum_catchup=True, expected=[
-            ('sync', 'a', 1, set('ab')),
-            ('restart', 'a', 1, set('bc')),
+            ('quorum', 'c', 1, set('ab')),
+            ('sync', 'c', 1, set('ab')),
+            ('restart', 'c', 1, set('ab')),
         ])

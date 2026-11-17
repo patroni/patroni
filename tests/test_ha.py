@@ -2331,7 +2331,7 @@ class TestHa(PostgresInit):
         # Test the sync node is removed from voters, added to ssn
         with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='other')), \
                 patch.object(Postgresql, 'pg_stat_replication', Mock(return_value=[])), \
-                patch.object(Postgresql, 'query', Mock(return_value=[(True,)])):
+                patch.object(Postgresql, 'query', Mock(return_value=[(True, True)])):
             self.assertEqual(self.ha.run_cycle(), 'no action. I am (leader), the leader with the lock')
         self.assertEqual(mock_write_sync.call_count, 1)
         self.assertEqual(mock_write_sync.call_args_list[0][0], (self.p.name, CaseInsensitiveSet(), 0))
@@ -2349,7 +2349,7 @@ class TestHa(PostgresInit):
         with patch.object(global_config.__class__, 'is_synchronous_mode_strict', PropertyMock(return_value=True)), \
                 patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value='ANY 1 (foo)')), \
                 patch.object(Postgresql, 'pg_stat_replication', Mock(return_value=[])), \
-                patch.object(Postgresql, 'query', Mock(return_value=[(True,)])):
+                patch.object(Postgresql, 'query', Mock(return_value=[(True, True)])):
             self.ha.run_cycle()
         mock_write_sync.assert_not_called()
         self.assertEqual(mock_set_sync.call_count, 1)
@@ -2442,16 +2442,18 @@ class TestHa(PostgresInit):
         self.ha._process_quorum_replication()
         set_sync_mock.assert_not_called()
 
-    def test_quorum_catchup_preserves_implicit_leader(self):
+    def test_quorum_catchup_changes_leader(self):
         self.p.name = 'newleader'
         self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'a,newleader', 1))
         self.p.sync_handler.current_state = Mock(return_value=_SyncState(
             'quorum', 1, CaseInsensitiveSet('a'), CaseInsensitiveSet(), CaseInsensitiveSet(['a', 'leader']), True))
         write_sync = self.ha.dcs.write_sync_state = Mock()
         set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock(return_value=True)
-        with patch('time.monotonic', side_effect=[0, 0, 100]):
+        with patch('time.monotonic', side_effect=[0, 0, 0, 100]):
             self.ha._process_quorum_replication()
-        write_sync.assert_not_called()
+        # the former leader must not keep the privilege to be promoted without votes
+        write_sync.assert_called_once()
+        self.assertEqual(write_sync.call_args[0], ('newleader', CaseInsensitiveSet(['a', 'leader']), 1))
         set_sync.assert_called_once_with(CaseInsensitiveSet(['a', 'leader']), 1)
 
     @patch.object(global_config.__class__, 'is_quorum_commit_mode', PropertyMock(return_value=True))
@@ -2468,7 +2470,7 @@ class TestHa(PostgresInit):
                 patch.object(Postgresql, 'synchronous_commit', return_value='on'), \
                 patch.object(Postgresql, 'pg_stat_replication', return_value=replication), \
                 patch.object(Postgresql, 'last_operation', return_value=200), \
-                patch.object(Postgresql, 'query', return_value=[(True,)]), \
+                patch.object(Postgresql, 'query', return_value=[(True, True)]), \
                 patch('time.monotonic', side_effect=range(100)):
             self.ha._process_quorum_replication()
             write_sync.assert_not_called()

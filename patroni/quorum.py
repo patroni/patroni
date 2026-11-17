@@ -131,7 +131,7 @@ class QuorumStateResolver:
         :param quorum_catchup: whether historical durability is still being verified after restart or a stricter SSN.
 
         """
-        self.leader = leader
+        self.leader: str = leader
         self.quorum = quorum
         self.voters = CaseInsensitiveSet(voters)
         # While catch-up is pending, preserve the actual setting even if there are too few listed nodes.
@@ -407,6 +407,14 @@ class QuorumStateResolver:
         Bypass readiness adjustments and invariant repair while historical durability is unverified.
         A quorum that temporarily prevents all elections must stay in place until catch-up completes.
         """
+        if self.leader_wanted != self.leader:  # failover
+            # The former leader takes the place of the new one in voters, therefore the set of nodes that could
+            # vote and the quorum don't change. But the former leader must lose the privilege to be promoted without
+            # votes, because it might not have commits acknowledged after the failover.
+            self.voters = CaseInsensitiveSet((self.voters - CaseInsensitiveSet([self.leader_wanted]))
+                                             | CaseInsensitiveSet([self.leader]))
+            self.leader = self.leader_wanted
+            yield Transition('quorum', self.leader, self.quorum, self.voters)
         added = CaseInsensitiveSet(self.active - self.sync)
         added_voters = CaseInsensitiveSet(added - self.voters)
         added_voters.discard(self.leader)  # The DCS leader is already an implicit member.

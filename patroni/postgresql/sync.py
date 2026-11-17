@@ -18,6 +18,8 @@ if TYPE_CHECKING:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 SYNC_STRICT_PLACEHOLDER = '__patroni_strict_sync_replica_placeholder__'
+# Seconds after reload when checkpointer waiting for work proves that it processed the reload
+CHECKPOINTER_RELOAD_GRACE = 1
 SYNC_STANDBY_NAME_RE = re.compile(r'^[A-Za-z_][A-Za-z_0-9\$]*$')
 SYNC_REP_PARSER_RE = re.compile(r"""
            (?P<first> [fF][iI][rR][sS][tT] )
@@ -433,11 +435,17 @@ END;$$""")
         a separate thread because it could take a long time, and the request remains queued even if the query is
         canceled. If it failed, it is requested again not earlier than after ``loop_wait`` seconds.
 
+        Checkpointer also processes a pending reload before it starts waiting in its main loop (``CheckpointerMain``)
+        or between writes of a spread checkpoint that is on schedule (``CheckpointWriteDelay``, PostgreSQL 14+). Such
+        a wait observed at least :data:`CHECKPOINTER_RELOAD_GRACE` seconds after the reload proves it was processed,
+        because the postmaster forwards the reload signal to checkpointer only after other backends, and because
+        ``CheckpointWriteDelay`` waits are only 100ms long. The ``CHECKPOINT`` is requested only after the grace period,
+        i.e. when checkpointer is busy with an immediate checkpoint or with a checkpoint that is behind schedule.
+
         .. note::
             Patroni doesn't know the previous value after restart, therefore an already enforced non-empty value is
-            handled as a change from the empty one. It may result in an extra ``CHECKPOINT`` if no checkpoint started
-            since the last reload, but it isn't safe to skip it, because the previous Patroni process could have
-            changed the value right before it was terminated.
+            handled as a change from the empty one. It isn't safe to skip the verification, because the previous
+            Patroni process could have changed the value right before it was terminated.
 
         :returns: ``True`` if checkpointer is known to have processed the configuration reload.
         """
@@ -448,12 +456,22 @@ END;$$""")
                 if task.exception() is None and task.result() is None:
                     return True
                 self._checkpoint_retry_at = time.monotonic() + global_config.get_int('loop_wait', 10)
-        # Waiting on CheckpointDone means that checkpoint requested at query_start (after reload) has already started.
-        if self._postgresql.major_version >= 90600 and self._postgresql.query(
+        if self._postgresql.major_version >= 90600:
+            settled_sql = "pg_catalog.statement_timestamp() > pg_catalog.pg_conf_load_time() + '{0} seconds'::interval"\
+                .format(CHECKPOINTER_RELOAD_GRACE)
+            idle = " OR {0} AND EXISTS(SELECT 1 FROM pg_catalog.pg_stat_activity WHERE backend_type = 'checkpointer'"\
+                " AND wait_event IN ('CheckpointerMain', 'CheckpointWriteDelay'))".format(settled_sql)\
+                if self._postgresql.major_version >= 100000 else ''
+            # Waiting on CheckpointDone means that checkpoint requested at query_start (after reload) has started.
+            applied, settled = self._postgresql.query(
                 'SELECT checkpoint_time > pg_catalog.pg_conf_load_time() OR EXISTS(SELECT 1 FROM'
                 " pg_catalog.pg_stat_activity WHERE wait_event = 'CheckpointDone' AND query_start >"
-                ' pg_catalog.pg_conf_load_time()) FROM pg_catalog.pg_control_checkpoint()')[0][0]:
-            return True
+                ' pg_catalog.pg_conf_load_time()){0}, {1} FROM pg_catalog.pg_control_checkpoint()'
+                .format(idle, settled_sql))[0]
+            if applied:
+                return True
+            if not settled:  # give checkpointer a chance to process the reload without forcing CHECKPOINT
+                return False
         if self._checkpoint_task is None and time.monotonic() >= self._checkpoint_retry_at:
             logger.info('Requesting CHECKPOINT to make sure that synchronous_standby_names is enforced')
             self._checkpoint_task = thread_pool.get_executor().submit(self._postgresql.checkpoint)
