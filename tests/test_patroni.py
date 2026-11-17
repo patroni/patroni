@@ -23,6 +23,7 @@ from patroni.log import PatroniLogger
 from patroni.postgresql import Postgresql
 from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.misc import PostgresqlRole, PostgresqlState
+from patroni.watchdog.thread import ThreadWatchdog
 
 from . import psycopg_connect, SleepException
 from .test_etcd import etcd_read, etcd_write
@@ -420,7 +421,9 @@ class TestPatroni(unittest.TestCase):
     def test_shutdown(self):
         self.p.api.shutdown = Mock(side_effect=Exception)
         self.p.ha.shutdown = Mock(side_effect=Exception)
-        self.p.shutdown()
+        with patch.object(ThreadWatchdog, 'wait') as mock_wait:
+            self.p.shutdown()
+        mock_wait.assert_called_once_with()
 
     def test_check_psycopg(self):
         with patch('builtins.__import__', Mock(side_effect=ImportError)):

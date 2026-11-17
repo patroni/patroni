@@ -51,7 +51,7 @@ class WatchdogConfig(object):
         self.driver = watchdog_config.get('driver', 'default')
         self.fallback = str(watchdog_config.get('fallback', 'none')).lower()
         if self.fallback not in ['none', 'thread']:
-            logger.warning("Watchdog fallback %s not recognized, disabling fallback", self.fallback)
+            logger.warning("Watchdog fallback %s not recognized", self.fallback)
             self.fallback = 'none'
         self.driver_config = dict((k, v) for k, v in watchdog_config.items()
                                   if k not in ['mode', 'safety_margin', 'driver', 'fallback'])
@@ -127,6 +127,11 @@ class Watchdog(object):
         elif self.config.fallback != 'thread' and self.impl is self._fallback:
             self._disable()
             self.impl = NullWatchdog()
+        elif self.active and self.impl is self._fallback and self.config.timing_slack < 0:
+            # The next HA loop sleep already uses the new loop_wait, so the thread would expire before the next
+            # keepalive could disarm it.
+            self._disable()
+            self._activate()
         # If watchdog is not active we can apply config immediately to show any warnings early. Otherwise we need to
         # delay until next time a keepalive is sent so timeout matches up with leader key update.
         if not self.active:
@@ -217,8 +222,7 @@ class Watchdog(object):
         if self.impl.is_running:
             if actual_timeout is not None and self.config.loop_wait <= actual_timeout <= self.config.timeout:
                 return actual_timeout
-            if not self.impl.can_be_disabled:
-                return actual_timeout
+            # An explicit disable doesn't depend on magic close support; a device that can't be stopped stays armed.
             self._disable(confirm=True)
             if self.impl.is_running:
                 return actual_timeout
@@ -260,6 +264,12 @@ class Watchdog(object):
         self._disable()
         self.active = False
 
+    def wait_for_thread_expiry(self) -> None:
+        """Unlike a device, the watchdog thread can't outlive Patroni, so block while it is armed or firing."""
+        from patroni.watchdog.thread import ThreadWatchdog
+        if isinstance(self._fallback, ThreadWatchdog):
+            self._fallback.wait()
+
     def _disable(self, confirm: bool = False) -> None:
         try:
             if not confirm and self.impl.is_running and not self.impl.can_be_disabled:
@@ -292,10 +302,7 @@ class Watchdog(object):
                         self.config.fallback != self.active_config.fallback and self.impl.is_null:
                     if self._replace_impl():
                         self._activate()
-                if self.impl is self._fallback and self.config.timing_slack < 0:
-                    self._disable()
-                    self._activate()
-                elif self.config.timeout != self.active_config.timeout and not self.impl.is_null:
+                if self.config.timeout != self.active_config.timeout and not self.impl.is_null:
                     self.impl.set_timeout(self.config.timeout)
                     if self.is_running:
                         logger.info("%s updated with %s second timeout, timing slack %s seconds",

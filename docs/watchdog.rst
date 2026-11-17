@@ -33,7 +33,9 @@ Timeout changes and enabling the fallback trigger a device timeout suitability c
 
 Patroni replaces an active device with the thread fallback only after confirming that the device has stopped.
 On Linux, this requires a successful explicit disable ioctl; closing the device alone does not confirm this.
-If disabling fails or is unsupported, Patroni does not switch to the thread fallback.
+If disabling fails or is unsupported, Patroni does not switch to the thread fallback. A device that has disappeared,
+for example because its driver was unbound, reports ``ENODEV`` and can no longer be pinged or stopped, so Patroni
+releases it and switches to the thread fallback.
 
 Thread watchdog fallback
 ------------------------
@@ -56,8 +58,13 @@ The watchdog thread tracks HA-loop keepalives using a monotonic clock. If no kee
 it logs a critical message, requests immediate PostgreSQL shutdown, and forcibly exits Patroni without running normal
 shutdown handlers.
 This bypasses checkpoints and user-defined shutdown callbacks. It does not wait for PostgreSQL shutdown to finish.
+If requesting the shutdown takes longer than 5 seconds, Patroni writes the stacks of all its threads to standard
+error and exits anyway. On POSIX systems, if writing the stacks blocks, for example because the reader of standard
+error is stalled, ``SIGALRM`` terminates Patroni after 10 seconds.
 As with a device watchdog, the thread is disarmed when Patroni disables the watchdog, including during pause and
-after demotion reaches a safe point.
+after demotion reaches a safe point. Unlike a device, the thread cannot outlive Patroni, so if Patroni is shutting
+down but could not stop PostgreSQL, it keeps running until the armed thread expires. The stop timeout of the service
+manager, for example ``TimeoutStopSec`` of systemd, should therefore exceed the watchdog timeout.
 
 This fallback is best-effort protection against a stalled HA loop, not a substitute for a watchdog device.
 It cannot run if Patroni is killed or suspended, if Python cannot schedule the watchdog thread, or if the operating

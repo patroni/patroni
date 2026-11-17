@@ -1,5 +1,6 @@
 # pyright: reportConstantRedefinition=false
 import ctypes
+import errno
 import os
 import platform
 
@@ -162,6 +163,15 @@ class LinuxWatchdogDevice(WatchdogBase):
             try:
                 self._ioctl(WDIOC_SETOPTIONS, ctypes.c_int(WDIOS['DISABLECARD']))
             except (WatchdogError, OSError, IOError) as e:
+                if getattr(e, 'errno', None) == errno.ENODEV:
+                    # The device was unregistered (driver unbound or device unplugged). The kernel fails every
+                    # operation on this descriptor with ENODEV, so it can no longer be used to ping or stop it.
+                    fd, self._fd = self._fd, None
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+                    raise WatchdogError("Watchdog device is no longer available: {0}".format(e))
                 raise WatchdogError("Could not disable watchdog device: {}".format(e))
             # On Linux close() releases the descriptor even when it reports an error.
             fd, self._fd = self._fd, None

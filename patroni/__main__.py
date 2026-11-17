@@ -291,6 +291,8 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
             self.ha.shutdown()
         except Exception:
             logger.exception('Exception during Ha.shutdown')
+        # The watchdog is still armed only if PostgreSQL was not stopped, e.g. because the stop request failed.
+        self.watchdog.wait_for_thread_expiry()
 
         thread_pool.get_executor().shutdown(wait=False)
 
