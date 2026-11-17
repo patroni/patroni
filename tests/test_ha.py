@@ -1308,6 +1308,17 @@ class TestHa(PostgresInit):
             self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', None, None, 'dc1'))
             self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
 
+    @patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True))
+    def test__is_healthiest_node_respects_quorum_in_sync_key(self):
+        # synchronous_mode was switched from quorum to on, but /sync key still contains a non-zero quorum
+        self.p.is_primary = false
+        self.ha.cluster = get_cluster_initialized_without_leader(sync=('leader', self.p.name + ',other', 1))
+        global_config.update(self.ha.cluster)
+        self.ha.fetch_node_status = get_node_status(reachable=False)
+        self.assertFalse(self.ha._is_healthiest_node(self.ha.cluster.members))
+        self.ha.fetch_node_status = get_node_status()
+        self.assertTrue(self.ha._is_healthiest_node(self.ha.cluster.members))
+
     def test_fetch_node_status(self):
         member = Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni'})
         self.ha.fetch_node_status(member)
