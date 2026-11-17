@@ -121,6 +121,18 @@ class TestWatchdog(unittest.TestCase):
         self.assertFalse(device.open)
         self.assertEqual(device.writes[-1], b'V')
 
+    @patch('platform.system', Mock(return_value='Linux'))
+    def test_activation_failure_closes_device(self):
+        for method in ('get_support', 'set_timeout', 'get_timeout'):
+            with self.subTest(method=method), \
+                    patch.object(LinuxWatchdogDevice, method, Mock(side_effect=WatchdogError('failed'))):
+                watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'automatic'}})
+                self.assertTrue(watchdog.activate())
+                self.assertFalse(watchdog.is_running)
+                # open() armed the device, it must be closed with the magic character
+                self.assertFalse(mock_devices[-1].open)
+                self.assertEqual(mock_devices[-1].writes[-1], b'V')
+
     def test_invalid_timings(self):
         watchdog = Watchdog({'ttl': 30, 'loop_wait': 20, 'watchdog': {'mode': 'automatic', 'safety_margin': -1}})
         watchdog.activate()
