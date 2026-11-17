@@ -9,7 +9,7 @@ from patroni.dcs import Cluster, ClusterConfig, Status, SyncState
 from patroni.postgresql import Postgresql, PostgresqlRole, PostgresqlState
 from patroni.postgresql.config import ConfigHandler
 from patroni.postgresql.slots import SlotsHandler
-from patroni.postgresql.sync import SYNC_STRICT_PLACEHOLDER
+from patroni.postgresql.sync import CHECKPOINTER_RELOAD_GRACE, SYNC_STRICT_PLACEHOLDER
 
 from . import BaseTestPostgresql, mock_available_gucs, psycopg_connect
 
@@ -265,6 +265,92 @@ class TestSync(BaseTestPostgresql):
             self.assertEqual(executor.submit.call_count, 4)
             futures[3].set_result(None)
             self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    def test_current_state_releases_waiters_on_change(self):
+        a, b = self.leadermem.name, '"{0}"'.format(self.other.name)
+
+        def wal_generated():
+            return any('txid_current' in c[0][0] for c in mock_query.call_args_list)
+
+        with patch.object(Postgresql, 'synchronous_standby_names', return_value=a) as mock_ssn, \
+                patch.object(Postgresql, 'pg_stat_replication', side_effect=lambda: [
+                    {'pid': 100, 'application_name': mock_ssn.return_value.strip('"'), 'sync_state': 'sync',
+                     'flush_lsn': 1}]), \
+                patch.object(Postgresql, 'query', return_value=[(False, False)]) as mock_query:
+            # nothing waited for synchronous replication while synchronous_standby_names was empty
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
+            self.assertFalse(wal_generated())
+            # backends that were waiting for the old value must be released without waiting for verification
+            mock_ssn.return_value = b
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
+            self.assertTrue(wal_generated())
+
+    @patch.object(Postgresql, 'last_operation', Mock(return_value=1))
+    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000))
+    def test_current_state_wait_for_checkpointer_before_v14(self):
+        a = self.leadermem.name
+        replication = [{'pid': 100, 'application_name': a, 'sync_state': 'sync', 'flush_lsn': 1}]
+        executor = Mock()
+        executor.submit.return_value = Future()
+        with patch.object(Postgresql, 'synchronous_standby_names', Mock(return_value=a)), \
+                patch.object(Postgresql, 'pg_stat_replication', Mock(return_value=replication)), \
+                patch.object(Postgresql, 'query', Mock(return_value=[(False, False)])), \
+                patch('patroni.thread_pool.get_executor', Mock(return_value=executor)):
+            # an idle checkpointer can't be detected, hence there is no reason to wait for the grace period
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet())
+            executor.submit.assert_called_once_with(self.p.checkpoint)
+            executor.submit.return_value.set_result(None)
+            self.assertEqual(self.s.current_state(self.cluster).sync_confirmed, CaseInsensitiveSet([a]))
+
+    @patch('time.sleep')
+    def test_wait_for_checkpointer(self, mock_sleep):
+        a = self.leadermem.name
+        executor = Mock()
+        with patch.object(Postgresql, 'query') as mock_query, \
+                patch.object(ConfigHandler, 'set_synchronous_standby_names', Mock()), \
+                patch('patroni.thread_pool.get_executor', Mock(return_value=executor)):
+            # nothing to enforce
+            self.s.set_synchronous_standby_names([])
+            self.assertTrue(self.s.wait_for_checkpointer(5))
+            mock_query.assert_not_called()
+
+            # our backend has just loaded the new value, checkpointer waits for work after the grace period
+            self.s.set_synchronous_standby_names([a])
+            mock_query.side_effect = [[(False, False)], [(True, True)]]
+            self.assertTrue(self.s.wait_for_checkpointer(5))
+            self.assertEqual(mock_query.call_count, 2)
+            self.assertEqual(mock_query.call_args[0][1], a)
+            self.assertIn("'CheckpointerMain'", mock_query.call_args[0][0])
+            mock_sleep.assert_called_with(CHECKPOINTER_RELOAD_GRACE)
+            executor.submit.assert_not_called()
+
+            # checkpointer is busy, the new value isn't visible, or there is no time to wait for the grace period:
+            # the restartpoint requested after reload must complete in time
+            mock_query.side_effect = None
+            for rows, timeout in (([(False, True)], 5), ([], 5), ([(False, False)], 1)):
+                mock_query.reset_mock()
+                mock_query.return_value = rows
+                executor.submit.return_value = Future()
+                executor.submit.return_value.set_result(None)
+                self.assertTrue(self.s.wait_for_checkpointer(timeout))
+                mock_query.assert_called_once()
+            executor.submit.return_value = Future()
+            executor.submit.return_value.set_result('not accessible or not healthy')
+            self.assertFalse(self.s.wait_for_checkpointer(5))
+            executor.submit.return_value = Future()
+            self.assertFalse(self.s.wait_for_checkpointer(0))
+
+            # before v14 interrupts are not processed after a checkpoint, so a wait in the main loop proves nothing
+            mock_query.reset_mock()
+            with patch.object(Postgresql, 'major_version', PropertyMock(return_value=130000)):
+                self.assertFalse(self.s.wait_for_checkpointer(0))
+                mock_query.assert_not_called()
+                self.s._checkpointer_status()
+                self.assertNotIn("'CheckpointerMain'", mock_query.call_args[0][0])
+
+            mock_query.side_effect = Exception
+            self.assertFalse(self.s.wait_for_checkpointer(5))
 
     @patch('time.sleep', Mock())
     @patch.object(Postgresql, 'last_operation', Mock(return_value=1))

@@ -422,6 +422,29 @@ class TestHa(PostgresInit):
         self.p.is_primary = false
         self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
 
+    def test_wait_for_checkpointer_before_promote(self):
+        self.ha.is_healthiest_node = true
+        self.p.is_primary = false
+        self.ha.dcs.write_sync_state = Mock(return_value=True)
+        with patch.object(self.p.sync_handler, 'wait_for_checkpointer', Mock(return_value=False)) as mock_wait, \
+                patch('patroni.ha.logger.warning') as mock_logger:
+            self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+            mock_wait.assert_not_called()  # synchronous_mode is off
+
+            self.p.set_role(PostgresqlRole.REPLICA)
+            with patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True)):
+                self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+            mock_wait.assert_called_once_with(self.ha.dcs.loop_wait)
+            self.assertTrue(mock_logger.call_args[0][0].startswith('Promoting although checkpointer'))
+            self.assertEqual(self.p.role, PostgresqlRole.PROMOTED)
+
+            # promote is still cancellable while waiting, e.g. if the leader lock was lost meanwhile
+            self.p.set_role(PostgresqlRole.REPLICA)
+            mock_wait.side_effect = lambda _: self.ha._async_response.cancel()
+            with patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True)):
+                self.assertEqual(self.ha.run_cycle(), 'promoted self to leader by acquiring session lock')
+            self.assertEqual(self.p.role, PostgresqlRole.REPLICA)
+
     def test_promotion_cancelled_after_pre_promote_failed(self):
         self.p.is_primary = false
         self.p._pre_promote = false
@@ -2015,6 +2038,32 @@ class TestHa(PostgresInit):
                     self.ha.run_cycle()
                     self.assertEqual(mock_logger.call_args[0][0], 'Updating sync state failed')
 
+    @patch.object(Cluster, 'is_unlocked', Mock(return_value=False))
+    def test_unconfirmed_synchronous_state(self):
+        self.ha.is_synchronous_mode = true
+        self.ha.has_lock = true
+        self.p.name = 'leader'
+        self.ha.cluster = get_cluster_initialized_without_leader(sync=('leader', 'a'))
+        self.ha.dcs.write_sync_state = Mock(return_value=SyncState.empty())
+        mock_set_sync = self.p.sync_handler.set_synchronous_standby_names = Mock()
+        unconfirmed = _SyncState('priority', 1, CaseInsensitiveSet('a'), CaseInsensitiveSet(), CaseInsensitiveSet('a'))
+        confirmed = _SyncState('priority', 1, CaseInsensitiveSet('a'), CaseInsensitiveSet('a'), CaseInsensitiveSet('a'))
+        # e.g. after Patroni restart synchronous_standby_names is confirmed when configuration reload settles
+        self.p.sync_handler._checkpoint_required = True
+        for state in (confirmed, None):
+            with self.subTest(state=state):
+                self.p.sync_handler.current_state = Mock(side_effect=[unconfirmed, state])
+                self.ha.run_cycle()
+                self.assertEqual(self.p.sync_handler.current_state.call_count, 2)
+                self.ha.dcs.write_sync_state.assert_not_called()
+                mock_set_sync.assert_not_called()
+        # nothing to wait for if enforcement by checkpointer is already verified
+        self.p.sync_handler._checkpoint_required = False
+        self.p.sync_handler.current_state = Mock(return_value=unconfirmed)
+        self.ha.run_cycle()
+        self.ha.dcs.write_sync_state.assert_called_once()
+        mock_set_sync.assert_called_once()
+
     def test_effective_tags(self):
         self.ha._disable_sync = True
         self.assertEqual(self.ha.get_effective_tags(), {'foo': 'bar', 'nosync': True, 'sync_priority': 0})
@@ -2455,6 +2504,21 @@ class TestHa(PostgresInit):
         write_sync.assert_called_once()
         self.assertEqual(write_sync.call_args[0], ('newleader', CaseInsensitiveSet(['a', 'leader']), 1))
         set_sync.assert_called_once_with(CaseInsensitiveSet(['a', 'leader']), 1)
+
+    def test_quorum_unverified_changes_leader(self):
+        self.p.name = 'newleader'
+        self.ha.cluster = get_cluster_initialized_with_leader(sync=('leader', 'a,newleader', 1))
+        self.p.sync_handler.current_state = Mock(return_value=None)
+        write_sync = self.ha.dcs.write_sync_state = Mock(return_value=SyncState(1, 'newleader', 'a,leader', 1))
+        with patch('time.monotonic', side_effect=[0, 0, 100]):
+            self.ha._process_quorum_replication()
+        # the former leader must lose the privilege to be promoted without votes before verification completes
+        write_sync.assert_called_once_with('newleader', CaseInsensitiveSet(['a', 'leader']), 1, version=0)
+
+        write_sync = self.ha.dcs.write_sync_state = Mock(return_value=None)
+        with patch('time.monotonic', side_effect=[0, 100]):
+            self.ha._process_quorum_replication()
+        write_sync.assert_called_once()
 
     @patch.object(global_config.__class__, 'is_quorum_commit_mode', PropertyMock(return_value=True))
     def test_quorum_catchup_preserves_voters_after_restart(self):
