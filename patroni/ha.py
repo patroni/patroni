@@ -979,7 +979,8 @@ class Ha(object):
                                                        numsync_confirmed=len(sync_state.sync_confirmed),
                                                        active=sync_state.active,
                                                        sync_wanted=global_config.synchronous_node_count,
-                                                       leader_wanted=self.state_handler.name))
+                                                       leader_wanted=self.state_handler.name,
+                                                       quorum_catchup=sync_state.quorum_catchup))
 
             for i, (transition, leader, num, nodes) in enumerate(transitions):
                 if _check_timeout():
