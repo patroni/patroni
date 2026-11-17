@@ -473,7 +473,10 @@ class TestHa(PostgresInit):
         with patch.object(Watchdog, 'activate', Mock(return_value=False)):
             self.assertEqual(self.ha.run_cycle(), 'Demoting self because watchdog could not be activated')
             self.p.is_primary = false
-            self.assertEqual(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
+            with patch.object(Watchdog, 'disable') as mock_disable:
+                self.assertEqual(self.ha.run_cycle(), 'Not promoting self because watchdog could not be activated')
+            # a device with a too long timeout stays armed after a failed activation, and the next cycle would promote
+            mock_disable.assert_called_once_with()
 
     def test_leader_with_lock(self):
         self.ha.cluster = get_cluster_initialized_with_leader()

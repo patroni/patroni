@@ -87,6 +87,21 @@ class TestWatchdog(unittest.TestCase):
         self.assertEqual(len(mock_devices), 2)
 
     @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'is_healthy', PropertyMock(return_value=True))
+    @patch.object(LinuxWatchdogDevice, 'has_set_timeout', Mock(return_value=False))
+    @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=60))
+    def test_required_timeout_too_long(self):
+        config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}
+        watchdog = Watchdog(config)
+        self.assertFalse(watchdog.activate())
+        # stays armed until the HA loop disables it, e.g. on the safepoint of the demotion
+        self.assertTrue(watchdog.is_running)
+        watchdog.disable()
+        self.assertFalse(watchdog.is_healthy)
+        watchdog.reload_config(config)
+        self.assertTrue(watchdog.is_healthy)
+
+    @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(Watchdog, 'is_running', PropertyMock(return_value=False))
     def test_watchdog_not_activated(self):
         self.assertFalse(Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}).activate())
