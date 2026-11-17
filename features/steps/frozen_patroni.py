@@ -28,15 +28,6 @@ def start_patroni_with_watchdog_thread(context, name):
     })
 
 
-@step('{name:name} uses watchdog thread fallback after {timeout:d} seconds')
-def watchdog_thread_is_active(context, name, timeout):
-    for _ in polling_loop(timeout * context.timeout_multiplier):
-        messages = context.pctl.read_patroni_log(name, 'WARNING')
-        if any('using thread watchdog fallback' in message for message in messages):
-            return
-    assert False, '{0} did not activate watchdog thread fallback'.format(name)
-
-
 @step('{name:name} heartbeat connection hangs for {timeout:d} seconds')
 def patroni_connection_hang(context, name, timeout):
     context.watchdog_postmaster = context.pctl.postgres_connection_hang(name, timeout * context.timeout_multiplier)

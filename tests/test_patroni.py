@@ -105,18 +105,19 @@ class TestPatroni(unittest.TestCase):
         logging.getLogger().handlers[:] = self._handlers
 
     def test_watchdog_timeout(self):
+        self.assertEqual(self.p.watchdog._fallback._on_timeout, self.p._watchdog_timeout)
         postmaster = MockPostmaster()
         with patch.object(Postgresql, 'is_running', Mock(side_effect=[postmaster, postmaster, None, OSError])), \
                 patch.object(PatroniLogger, 'flush') as mock_flush, self.assertLogs('patroni.__main__') as logs:
-            self.p.watchdog._on_timeout()
+            self.p._watchdog_timeout()
             postmaster.signal_stop.assert_called_once_with('immediate', self.p.postgresql.pgcommand('pg_ctl'))
             postmaster.signal_kill.assert_not_called()
             mock_flush.assert_called_once_with(1)
             postmaster.signal_stop.return_value = False
-            self.p.watchdog._on_timeout()
+            self.p._watchdog_timeout()
             postmaster.signal_kill.assert_called_once_with()
-            self.p.watchdog._on_timeout()
-            self.p.watchdog._on_timeout()
+            self.p._watchdog_timeout()
+            self.p._watchdog_timeout()
         self.assertIn('Failed to stop PostgreSQL after watchdog thread expiry', logs.output[-1])
         self.assertEqual(mock_flush.call_count, 4)
 

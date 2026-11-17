@@ -265,15 +265,32 @@ class TestWatchdog(unittest.TestCase):
                 watchdog.disable()
 
     @patch('platform.system', Mock(return_value='Linux'))
-    @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=5))
-    def test_automatic_short_timeout(self):
+    def test_automatic_unsafe_timeout(self):
         # the mock device does not support magic close, but an explicit disable stops it
+        for timeout in (5, 60):
+            with self.subTest(timeout=timeout), patch.object(LinuxWatchdogDevice, 'get_timeout', return_value=timeout):
+                watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
+                try:
+                    self.assertTrue(watchdog.activate())
+                    self.assertIsInstance(watchdog.impl, ThreadWatchdog)
+                    self.assertEqual(watchdog.impl.get_timeout(), 25)
+                    self.assertFalse(mock_devices[-1].open)
+                    self.assertFalse(mock_devices[-1].armed)
+                finally:
+                    watchdog.disable()
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
+    @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=5))
+    def test_set_timeout_keeps_impl(self):
         watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
-        self.addCleanup(watchdog.disable)
-        self.assertTrue(watchdog.activate())
-        self.assertIsInstance(watchdog.impl, ThreadWatchdog)
-        self.assertFalse(mock_devices[-1].open)
-        self.assertFalse(mock_devices[-1].armed)
+        impl = watchdog.impl
+        impl.open()
+        self.assertEqual(watchdog._set_timeout(), 5)
+        self.assertIs(watchdog.impl, impl)
+        self.assertTrue(mock_devices[-1].open)
+        self.assertTrue(mock_devices[-1].armed)
+        watchdog.disable()
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
@@ -298,14 +315,29 @@ class TestWatchdog(unittest.TestCase):
         self.assertEqual(watchdog.active_config, watchdog.config)
 
     @patch('platform.system', Mock(return_value='Linux'))
-    @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=60))
-    def test_automatic_long_timeout(self):
-        watchdog = Watchdog({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
-        self.assertTrue(watchdog.activate())
-        self.assertIsInstance(watchdog.impl, ThreadWatchdog)
-        self.assertEqual(watchdog.impl.get_timeout(), 25)
-        self.assertFalse(mock_devices[-1].open)
-        self.assertFalse(mock_devices[-1].armed)
+    @patch.object(LinuxWatchdogDevice, 'has_set_timeout', Mock(return_value=False))
+    def test_timeout_change_with_fixed_timeout_device(self):
+        for mode, fallback in (('automatic', 'none'), ('automatic', 'thread'), ('required', 'none')):
+            with self.subTest(mode=mode, fallback=fallback):
+                config = {'ttl': 90, 'loop_wait': 10, 'watchdog': {'mode': mode, 'fallback': fallback}}
+                watchdog = Watchdog(config)
+                try:
+                    self.assertTrue(watchdog.activate())
+                    impl = watchdog.impl
+                    with patch.object(impl, 'set_timeout',
+                                      side_effect=WatchdogError('unsupported')) as mock_set_timeout:
+                        watchdog.reload_config(dict(config, ttl=100))
+                        with patch('patroni.watchdog.base.logger.error') as mock_error:
+                            watchdog.keepalive()
+                        mock_set_timeout.assert_not_called()
+                        mock_error.assert_not_called()
+                    self.assertIs(watchdog.impl, impl)
+                    self.assertEqual(impl.get_timeout(), 60)
+                    self.assertTrue(watchdog.is_running)
+                    self.assertFalse(watchdog._fallback.is_running)
+                    self.assertEqual(watchdog.active_config, watchdog.config)
+                finally:
+                    watchdog.disable()
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
