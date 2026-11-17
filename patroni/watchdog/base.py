@@ -126,16 +126,17 @@ class Watchdog(object):
         elif self.config.fallback != 'thread' and self.impl is self._fallback:
             self._close_impl()
             self.impl = NullWatchdog()
-        elif self.active and self.impl is self._fallback and self.config.timing_slack < 0:
-            # The next HA loop sleep already uses the new loop_wait, so the thread would expire before the next
-            # keepalive could disarm it.
+        elif self.active and self.impl.is_running and self.config.timing_slack < 0:
+            # The next HA loop sleep already uses the new loop_wait, so the watchdog would expire before the next
+            # keepalive could disarm it, or that keepalive would arm a device with a timeout shorter than loop_wait.
             self._close_impl()
             self._activate()
         # If watchdog is not active we can apply config immediately to show any warnings early. Otherwise we need to
         # delay until next time a keepalive is sent so timeout matches up with leader key update.
         if self.active:
             return
-        if self.config.mode != self.active_config.mode or self.config.driver != self.active_config.driver or \
+        if self._impl_pending or self.config.mode != self.active_config.mode or \
+                self.config.driver != self.active_config.driver or \
                 self.config.driver_config != self.active_config.driver_config or \
                 self.config.fallback != self.active_config.fallback:
             self.impl = self.config.get_impl()
@@ -173,6 +174,8 @@ class Watchdog(object):
             logger.warning('Watchdog not supported because leader TTL %s is less than 2x loop_wait %s',
                            self.config.ttl, self.config.loop_wait)
             self.impl = NullWatchdog()
+            # Reacquire the configured device once a configuration change fixes the timing.
+            self._impl_pending = True
 
         try:
             self.impl.open()
@@ -301,9 +304,14 @@ class Watchdog(object):
 
         if needs_replacement and self._replace_impl():
             self._activate()
-        if self.config.timeout != self.active_config.timeout and not self.impl.is_null:
-            actual_timeout = self._set_timeout()
-            if self.is_running:
+        timeout_changed = self.config.timeout != self.active_config.timeout
+        if not self.impl.is_null and (timeout_changed or self.config.loop_wait != self.active_config.loop_wait):
+            actual_timeout = self._set_timeout() if timeout_changed else self.impl.get_timeout()
+            # Same check as on activation, a device might not accept a timeout that covers the new loop_wait.
+            if self.impl.is_running and actual_timeout < self.config.loop_wait and \
+                    self._disable_unsafe_timeout(actual_timeout):
+                self.impl = NullWatchdog()
+            elif timeout_changed and self.is_running:
                 logger.info("%s updated with %s second timeout, timing slack %s seconds",
                             self.impl.describe(), actual_timeout, self.config.timing_slack)
         if self.config.mode == MODE_AUTOMATIC and self.config.fallback == 'thread':
@@ -326,6 +334,20 @@ class Watchdog(object):
     @synchronized
     def is_running(self) -> bool:
         return self.impl.is_running
+
+    @property
+    @synchronized
+    def needs_immediate_keepalive(self) -> bool:
+        """The timeout armed for the previous configuration would expire before the HA loop wakes up after the new
+        ``loop_wait``. Only the keepalive following the leader key update with the new TTL may apply the new timeout,
+        so it has to be sent right away."""
+        if not self.active or not self.impl.is_running:
+            return False
+        try:
+            # The actual timeout, because a device might not have accepted the configured one.
+            return self.impl.get_timeout() < self.config.loop_wait
+        except WatchdogError:
+            return True
 
     @property
     @synchronized

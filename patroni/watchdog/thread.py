@@ -71,7 +71,11 @@ class ThreadWatchdog(WatchdogBase):
             if self._deadline is not None:
                 logger.warning('Watchdog thread is still armed, waiting for it to expire')
             while self._deadline is not None or self._expired:
-                self._condition.wait()
+                try:
+                    self._condition.wait()
+                except KeyboardInterrupt:
+                    # Exiting the interpreter would end this daemon thread before it stops PostgreSQL
+                    logger.warning('Ignoring interrupt, PostgreSQL must be stopped by the watchdog thread first')
 
     def get_timeout(self) -> int:
         return self._timeout
