@@ -1664,7 +1664,13 @@ class Ha(object):
             return True
 
         if self.is_paused():
-            return False
+            # In a standby cluster the former standby leader is allowed to (re)acquire the leader lock in pause
+            # (for example, after the leader key expired or DCS was wiped). We identify it by checking that Postgres
+            # is already configured to replicate from the remote member, i.e. becoming a standby leader is a no-op.
+            # Nodes with the nostream tag are excluded, because their recovery parameters might be identical.
+            return self.is_standby_cluster() and not self.patroni.nostream \
+                and (not self.cluster.initialize or self.state_handler.sysid == self.cluster.initialize) \
+                and self.state_handler.config.recovery_params_match(self.get_remote_member())
 
         if self.patroni.nofailover:  # nofailover tag makes node always unhealthy
             return False

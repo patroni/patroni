@@ -349,6 +349,24 @@ class TestPostgresql(BaseTestPostgresql):
                     'primary_slot_name', '', '', 'string', 'postmaster', self.p.config._postgresql_conf]
                 self.assertEqual(self.p.config.check_recovery_conf(None), (True, True))
 
+    @patch('patroni.postgresql.config.mtime', mock_mtime)
+    @patch('patroni.postgresql.config.ConfigHandler._get_pg_settings')
+    def test_recovery_params_match(self, mock_get_pg_settings):
+        mock_get_pg_settings.return_value = {
+            'primary_conninfo': ['primary_conninfo', '', None, 'string', 'postmaster', self.p.config._auto_conf]}
+        # not a standby
+        self.assertFalse(self.p.config.recovery_params_match(None))
+        self.p.config.write_recovery_conf({'standby_mode': 'on'})
+        # current values of recovery parameters are unknown
+        with patch.object(Postgresql, 'is_starting', Mock(return_value=True)):
+            self.assertFalse(self.p.config.recovery_params_match(None))
+        # unlike check_recovery_conf() it doesn't enforce reload when joining running postgres
+        with patch.object(Postgresql, 'cb_called', PropertyMock(return_value=False)):
+            self.assertTrue(self.p.config.recovery_params_match(None))
+        mock_get_pg_settings.return_value['restore_command'] = [
+            'restore_command', 'foo', None, 'string', 'sighup', self.p.config._auto_conf]
+        self.assertFalse(self.p.config.recovery_params_match(None))
+
     @patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000))
     @patch.object(Postgresql, 'is_running', MockPostmaster)
     @patch.object(MockPostmaster, 'create_time', Mock(return_value=1234567), create=True)
