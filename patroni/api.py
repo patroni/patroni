@@ -1939,6 +1939,16 @@ class RestApiServer(ThreadingMixIn, HTTPServer):
         except OSError as e:
             logger.debug('Connection from %s:%s was reset: %r', client_address[0], client_address[1], e)
 
+    def service_actions(self) -> None:
+        """Wake up the HA loop if SIGTERM was received.
+
+        Called by :func:`~socketserver.BaseServer.serve_forever` every 0.5 seconds. The SIGTERM handler can't do it
+        itself, because it must not acquire locks.
+        """
+        super(RestApiServer, self).service_actions()
+        if self.patroni.received_sigterm:
+            self.patroni.ha.wakeup()
+
     def shutdown(self) -> None:
         super(RestApiServer, self).shutdown()
         self._executor.shutdown(wait=True)

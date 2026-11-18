@@ -203,6 +203,30 @@ class TestPatroni(unittest.TestCase):
     def test_sigterm_handler(self):
         self.assertRaises(SystemExit, self.p.sigterm_handler)
 
+    def test_api_sigterm(self):
+        self.assertTrue(self.p.api_sigterm())
+        self.assertFalse(self.p.api_sigterm())
+        self.p.sigterm_handler()  # doesn't raise SystemExit, because SIGTERM was already received
+
+    @patch('patroni.config.Config.save_cache', Mock())
+    @patch('patroni.config.Config.set_dynamic_configuration', Mock(return_value=False))
+    @patch.object(Postgresql, 'reload_config', Mock())
+    def test_graceful_sigterm(self):
+        self.p.enable_graceful_sigterm()
+        self.p.api.start = Mock()
+        self.p.logger.start = Mock()
+        self.p.ha.dcs.watch = Mock(side_effect=SleepException)
+
+        def run_cycle():
+            self.p.sigterm_handler()  # doesn't raise SystemExit anymore
+            return 'no action'
+
+        # the main loop exits after the HA cycle, during which SIGTERM was received, without waiting for the next one
+        self.p.ha.run_cycle = Mock(side_effect=run_cycle)
+        self.p.run()
+        self.assertTrue(self.p.received_sigterm)
+        self.p.ha.dcs.watch.assert_not_called()
+
     def test_schedule_next_run(self):
         self.p.ha.cluster = Mock()
         self.p.ha.dcs.watch = Mock(return_value=True)

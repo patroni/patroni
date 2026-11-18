@@ -125,10 +125,22 @@ class AbstractPatroniDaemon(abc.ABC):
     def sigterm_handler(self, *_: Any) -> None:
         """Handle SIGTERM signals.
 
-        Terminate the daemon process through :func:`api_sigterm`.
+        Terminate the daemon process until :func:`enable_graceful_sigterm` is called. Afterwards only flag the daemon
+        as "SIGTERM received", the main loop exits and shuts down the daemon.
+
+        .. note::
+            Python runs signal handlers in the main thread between arbitrary bytecode instructions. An exception
+            raised here could leave a lock held by the interrupted code locked forever, and the shutdown would
+            deadlock on it. The handler must not acquire locks either, because the interrupted code could hold them.
         """
-        if self.api_sigterm():
-            sys.exit()
+        if not self._received_sigterm:
+            self._received_sigterm = True
+            if not self._graceful_sigterm:
+                sys.exit()
+
+    def enable_graceful_sigterm(self) -> None:
+        """Make :func:`sigterm_handler` only flag the daemon as "SIGTERM received" instead of terminating it."""
+        self._graceful_sigterm = True
 
     def setup_signal_handlers(self) -> None:
         """Set up daemon signal handlers.
@@ -142,6 +154,7 @@ class AbstractPatroniDaemon(abc.ABC):
         self._received_sighup = False
         self._sigterm_lock = Lock()
         self._received_sigterm = False
+        self._graceful_sigterm = False
         if os.name != 'nt':
             signal.signal(signal.SIGHUP, self.sighup_handler)
         signal.signal(signal.SIGTERM, self.sigterm_handler)
@@ -238,6 +251,7 @@ def abstract_main(cls: Type[AbstractPatroniDaemon], configfile: str) -> None:
         logger.warning('Failed to set threading.stack_size(%s): %r', thread_stack_size, e)
 
     controller = cls(config, patroni_logger)
+    controller.enable_graceful_sigterm()
     try:
         controller.run()
     except KeyboardInterrupt:

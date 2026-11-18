@@ -175,6 +175,8 @@ class MockPatroni(object):
     def api_sigterm():
         pass
 
+    received_sigterm = False
+
 
 class MockRequest(object):
 
@@ -847,6 +849,14 @@ class TestRestApiServer(unittest.TestCase):
         with self.assertRaisesRegex(socket.error, 'bind failed'):
             self.srv.server_bind()
         mock_getfqdn.assert_not_called()
+
+    @patch.object(MockHa, 'wakeup')
+    def test_service_actions(self, mock_wakeup):
+        self.srv.service_actions()
+        mock_wakeup.assert_not_called()
+        with patch.object(MockPatroni, 'received_sigterm', True):
+            self.srv.service_actions()
+        mock_wakeup.assert_called_once()
 
     @patch.object(HTTPServer, '__init__', Mock())
     def test_reload_config(self):
