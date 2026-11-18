@@ -70,6 +70,12 @@ class _MemberStatus(Tags, NamedTuple('_MemberStatus',
         return self.data.get('timeline', 0)
 
     @property
+    def replay_lsn(self) -> int:
+        """Value of ``replayed_location`` from JSON, ``0`` if unknown."""
+        wal: Dict[str, Any] = self.data.get('wal') or self.data.get('xlog') or {}
+        return wal.get('replayed_location') or 0
+
+    @property
     def watchdog_failed(self) -> bool:
         """Indicates that watchdog is required by configuration but not available or failed."""
         return self.data.get('watchdog_failed', False)
@@ -1402,6 +1408,12 @@ class Ha(object):
             return False  # Too far behind last reported wal position on primary
 
         check_timeline = not self.is_standby_cluster() and self.check_timeline()
+        switchpoints: Dict[int, int] = {}
+        if check_timeline and self.cluster.history and self.cluster.history.lines:
+            try:
+                switchpoints = {int(line[0]): int(line[1]) for line in self.cluster.history.lines}
+            except Exception:
+                pass
         if check_timeline:
             if my_timeline is None:
                 logger.info('Can not figure out my timeline')
@@ -1445,8 +1457,14 @@ class Ha(object):
                     logger.warning('Primary (%s) is still alive', st.member.name)
                     return False
                 timeline_ok = not check_timeline or bool(st.timeline) and st.timeline >= cluster_timeline
+                # A member on an older timeline that replayed WAL beyond the point where its timeline ended has
+                # diverged from the cluster history. Otherwise it might still be catching up and we wait for it.
+                # If the switchpoint is unknown we compare with our position, which is beyond it, because we
+                # passed the timeline check.
+                diverged = not timeline_ok and (not st.timeline
+                                                or st.replay_lsn > switchpoints.get(st.timeline, my_wal_position))
                 if my_wal_position < st.wal_position:
-                    if not timeline_ok:
+                    if diverged:
                         logger.info('Ignoring %s being ahead of us: its timeline %s is behind '
                                     'last known cluster timeline %s', st.member.name, st.timeline, cluster_timeline)
                         continue
@@ -1462,7 +1480,7 @@ class Ha(object):
                     if quorum_vote:
                         logger.info('Got quorum vote from %s', st.member.name)
                         quorum_votes += 1
-                    if my_wal_position == st.wal_position and timeline_ok:
+                    if my_wal_position == st.wal_position and not diverged:
                         eligible_members.append(st)
 
         action = self._get_failover_action_name()
