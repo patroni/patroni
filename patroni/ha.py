@@ -1444,13 +1444,11 @@ class Ha(object):
                 if st.in_recovery is False:
                     logger.warning('Primary (%s) is still alive', st.member.name)
                     return False
+                timeline_ok = not check_timeline or bool(st.timeline) and st.timeline >= cluster_timeline
                 if my_wal_position < st.wal_position:
-                    # With check_timeline enabled a node with the timeline behind the cluster timeline disqualifies
-                    # itself, therefore it will never promote and it must not make us give up our own candidacy.
-                    # Its WAL position is higher only because of the WAL it generated on the abandoned timeline.
-                    if check_timeline and st.timeline and st.timeline < cluster_timeline:
-                        logger.info('Ignoring %s being ahead of us: its timeline %s is behind last known '
-                                    'cluster timeline %s', st.member.name, st.timeline, cluster_timeline)
+                    if not timeline_ok:
+                        logger.info('Ignoring %s being ahead of us: its timeline %s is behind '
+                                    'last known cluster timeline %s', st.member.name, st.timeline, cluster_timeline)
                         continue
                     nodes_ahead += 1
                     logger.info('Wal position of %s is ahead of my wal position', st.member.name)
@@ -1464,7 +1462,7 @@ class Ha(object):
                     if quorum_vote:
                         logger.info('Got quorum vote from %s', st.member.name)
                         quorum_votes += 1
-                    if my_wal_position == st.wal_position:
+                    if my_wal_position == st.wal_position and timeline_ok:
                         eligible_members.append(st)
 
         action = self._get_failover_action_name()

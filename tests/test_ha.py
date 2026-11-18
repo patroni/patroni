@@ -1313,24 +1313,62 @@ class TestHa(PostgresInit):
         self.ha.cluster = get_cluster_initialized_without_leader()
         global_config.update(self.ha.cluster)
         members = self.ha.old_cluster.members
-        # the peer is ahead on LSN, but it is on a timeline behind the cluster timeline
         with patch.object(Cluster, 'timeline', PropertyMock(return_value=3)), \
                 patch('patroni.postgresql.Postgresql.replica_cached_timeline', return_value=3):
-            # the peer can't be promoted (check_timeline), so it must not make us defer
             self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2)
             with patch('patroni.ha.logger.info') as mock_info:
                 self.assertTrue(self.ha._is_healthiest_node(members))
                 self.assertIn('Ignoring %s being ahead of us', mock_info.call_args_list[0][0][0])
-            # the peer is on the cluster timeline and ahead: defer to it
             self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=3)
             self.assertFalse(self.ha._is_healthiest_node(members))
-            # unknown timeline of the peer: keep the old behaviour
             self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=0)
-            self.assertFalse(self.ha._is_healthiest_node(members))
-            # check_timeline is disabled: timelines are not taken into account
+            self.assertTrue(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=None)
+            self.assertTrue(self.ha._is_healthiest_node(members))
             self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2)
             with patch.object(Ha, 'check_timeline', Mock(return_value=False)):
                 self.assertFalse(self.ha._is_healthiest_node(members))
+
+            self.ha.fetch_node_status = get_node_status(timeline=2, failover_priority=2)
+            self.assertTrue(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(timeline=3, failover_priority=2)
+            self.assertFalse(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(timeline=None, failover_priority=2)
+            self.assertTrue(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(timeline=2, failover_priority=2)
+            with patch.object(Ha, 'check_timeline', Mock(return_value=False)):
+                self.assertFalse(self.ha._is_healthiest_node(members))
+
+            self.ha.fetch_node_status = get_node_status(in_recovery=False, timeline=2)
+            self.assertFalse(self.ha._is_healthiest_node(members))
+
+            self.ha.patroni.site = 'dc2'
+            self.ha.fetch_node_status = get_node_status(timeline=3)
+            self.assertFalse(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(timeline=2)
+            self.assertTrue(self.ha._is_healthiest_node(members))
+            self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', None, None, 'dc1'))
+            self.ha.patroni.site = 'dc2'
+            self.ha.fetch_node_status = get_node_status(timeline=3, site='dc1')
+            self.assertFalse(self.ha._is_healthiest_node(members))
+            self.ha.fetch_node_status = get_node_status(timeline=2, site='dc1')
+            self.assertTrue(self.ha._is_healthiest_node(members))
+
+    @patch.object(global_config.__class__, 'is_quorum_commit_mode', PropertyMock(return_value=True))
+    @patch.object(Postgresql, 'supports_multiple_sync', PropertyMock(return_value=True))
+    def test__is_healthiest_node_quorum_vote_from_older_timeline(self):
+        self.p.is_primary = false
+        self.ha.cluster = get_cluster_initialized_without_leader(sync=('leader', self.p.name + ',other', 1))
+        global_config.update(self.ha.cluster)
+        members = self.ha.cluster.members
+        with patch.object(Cluster, 'timeline', PropertyMock(return_value=3)), \
+                patch('patroni.postgresql.Postgresql.replica_cached_timeline', return_value=3):
+            self.ha.fetch_node_status = get_node_status(wal_position=9, timeline=2)
+            with patch('patroni.ha.logger.info') as mock_info:
+                self.assertTrue(self.ha._is_healthiest_node(members))
+                self.assertIn('Got quorum vote from %s', [c[0][0] for c in mock_info.call_args_list])
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2)
+            self.assertFalse(self.ha._is_healthiest_node(members))
 
     def test_fetch_node_status(self):
         member = Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni'})
