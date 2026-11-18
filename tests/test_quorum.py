@@ -568,3 +568,15 @@ class QuorumTest(unittest.TestCase):
             ('quorum', leader, 1, set('bcd')),  # add d to voters without changing guarantees
             ('sync', leader, 3, set('bcd')),    # increase replication factor to requested value
         ])
+
+    def test_reduce_replication_factor_before_new_node_confirmed(self):
+        leader = 'a'
+
+        # With synchronous_node_count=3 node d joined and quorum was increased by 1, because d didn't yet
+        # confirm reaching the safe LSN. Before it happened, synchronous_node_count was reduced to 1.
+        self.check_state_transitions(leader=leader, quorum=1, voters=set('bcd'),
+                                     numsync=3, sync=set('bcd'), numsync_confirmed=2, active=set('bcd'),
+                                     sync_wanted=1, leader_wanted=leader, expected=[
+            ('quorum', leader, 2, set('bcd')),  # increase quorum before reducing replication factor
+            ('sync', leader, 1, set('bcd')),    # reduce replication factor
+        ])

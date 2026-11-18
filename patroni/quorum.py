@@ -389,8 +389,11 @@ class QuorumStateResolver:
         elif sync_increase < 0:
             # Reduce replication factor
             logger.debug("Reducing replication factor to %s", self.numsync + sync_increase)
-            if self.quorum - sync_increase < len(self.voters):
-                yield from self.quorum_update(len(self.voters) - self.numsync - sync_increase, self.voters,
+            quorum = len(self.voters) - self.numsync - sync_increase
+            # The current quorum could be already increased due to not yet confirmed sync nodes,
+            # but it still might be not enough for the reduced replication factor.
+            if self.quorum - sync_increase < len(self.voters) or self.quorum < quorum:
+                yield from self.quorum_update(quorum, self.voters,
                                               adjust_quorum=self.sync_wanted > self.numsync_confirmed)
             yield from self.sync_update(self.numsync + sync_increase, self.sync)
 
