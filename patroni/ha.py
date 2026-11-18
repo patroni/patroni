@@ -322,6 +322,19 @@ class Ha(object):
         """
         return self.is_quorum_commit_mode() and not self.cluster.sync.is_empty
 
+    def _sync_quorum_is_active(self) -> bool:
+        """Check whether the ``quorum`` from the ``/sync`` key must be respected in the leader race.
+
+        A non-zero ``quorum`` is written to the ``/sync`` key only in quorum commit mode. After ``synchronous_mode``
+        is switched from ``quorum`` to ``on`` the key keeps it until the primary processes the change, while
+        ``synchronous_standby_names`` still uses ``ANY`` semantics, therefore a single voter might not have all
+        transactions that were already acknowledged to clients.
+
+        :returns: ``True`` if quorum commit mode is active or if synchronous mode is active and the ``/sync`` key
+                  has a non-zero ``quorum``.
+        """
+        return self.quorum_commit_mode_is_active() or self.sync_mode_is_active() and self.cluster.sync.quorum > 0
+
     def _get_failover_action_name(self) -> str:
         """Return the currently requested manual failover action name or the default ``failover``.
 
@@ -1409,7 +1422,8 @@ class Ha(object):
                 logger.info('My timeline %s is behind last known cluster timeline %s', my_timeline, cluster_timeline)
                 return False
 
-        if self.quorum_commit_mode_is_active():
+        quorum_active = self._sync_quorum_is_active()
+        if quorum_active:
             quorum = self.cluster.sync.quorum
             voting_set = CaseInsensitiveSet(self.cluster.sync.members)
         else:
@@ -1498,7 +1512,7 @@ class Ha(object):
                             leader_name, st.failover_priority, self.patroni.failover_priority)
                 low_priority = False
 
-            if low_priority and (not self.quorum_commit_mode_is_active() or st.member.name in voting_set):
+            if low_priority and (not quorum_active or st.member.name in voting_set):
                 # There's a higher priority non-lagging replica
                 logger.info(
                     '%s has equally tolerable WAL position and priority %s, while this node has priority %s',
@@ -1508,7 +1522,7 @@ class Ha(object):
         # When not in quorum commit we just want to return `True`.
         # In quorum commit the former leader is special and counted healthy even when there are no other nodes.
         # Otherwise check that the number of votes exceeds the quorum field from the /sync key.
-        return not self.quorum_commit_mode_is_active() or quorum_votes >= quorum\
+        return not quorum_active or quorum_votes >= quorum\
             or nodes_ahead == 0 and self.cluster.sync.leader == self.state_handler.name
 
     def is_failover_possible(self, *, cluster_lsn: int = 0,
