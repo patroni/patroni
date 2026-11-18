@@ -274,7 +274,7 @@ class QuorumStateResolver:
         elif self.sync > self.voters:
             logger.debug("Case 2: synchronous_standby_names %s is a superset of DCS state %s", self.sync, self.voters)
             # Case 2: sync is superset of voters nodes. In the middle of changing replication factor (sync).
-            # Add to voters nodes that are already synced and active
+            # Remove from sync dead nodes that are not in voters.
             # Dead voters are not removed here, otherwise sync and voters would not be subsets of each other.
             # They will be removed later by __remove_gone_nodes().
             remove_from_sync = self.sync - self.voters - self.active
@@ -282,6 +282,7 @@ class QuorumStateResolver:
             # If sync will not become empty after removing dead nodes - remove them.
             if remove_from_sync and sync:
                 yield from self.sync_update(min(self.numsync, len(sync)), sync)
+            # Add to voters nodes that are already synced and active
             add_to_voters = (self.sync - self.voters) & self.active
             if add_to_voters:
                 voters = CaseInsensitiveSet(self.voters | add_to_voters)
