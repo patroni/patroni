@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import re
@@ -705,7 +706,8 @@ class ConfigHandler(object):
         if not member or not member.conn_url or member.name == self._postgresql.name:
             return None
         ret = member.conn_kwargs(self.replication)
-        ret['application_name'] = self._postgresql.name
+        ret['application_name'] = ('geo_' + hashlib.sha256(self._postgresql.name.encode('utf-8')).hexdigest()[:59]
+                                   if isinstance(member, RemoteMember) else self._postgresql.name)
         ret.setdefault('sslmode', 'prefer')
         if self._postgresql.major_version >= AUTH_ALLOWED_PARAMETERS_VERSIONS['gssencmode']:
             ret.setdefault('gssencmode', 'prefer')
