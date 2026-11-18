@@ -1425,6 +1425,27 @@ class TestHa(PostgresInit):
         self.p._sysid = True
         self.assertEqual(self.ha.run_cycle(), 'promoted self to a standby leader by acquiring session lock')
 
+    @patch.object(Cluster, 'is_unlocked', Mock(return_value=True))
+    def test_process_unhealthy_standby_cluster_as_standby_leader_in_pause(self):
+        self.ha.is_paused = true
+        self.p.is_primary = false
+        self.p.name = 'leader'
+        self.ha.cluster = get_standby_cluster_initialized_with_only_leader()
+        global_config.update(self.ha.cluster)
+        self.ha.sysid_valid = true
+        self.p._sysid = True
+        with patch.object(ConfigHandler, 'recovery_params_match', Mock(return_value=False)):
+            self.assertFalse(self.ha.is_healthiest_node())
+        with patch.object(ConfigHandler, 'recovery_params_match', Mock(return_value=True)) as mock_match:
+            self.ha.patroni.nostream = True
+            self.assertFalse(self.ha.is_healthiest_node())
+            self.ha.patroni.nostream = False
+            self.p._sysid = '1'
+            self.assertFalse(self.ha.is_healthiest_node())
+            self.p._sysid = True
+            self.assertEqual(self.ha.run_cycle(), 'PAUSE: promoted self to a standby leader by acquiring session lock')
+            self.assertIsInstance(mock_match.call_args[0][0], RemoteMember)
+
     @patch.object(Rewind, 'rewind_or_reinitialize_needed_and_possible', Mock(return_value=True))
     @patch.object(Rewind, 'can_rewind', PropertyMock(return_value=True))
     def test_process_unhealthy_standby_cluster_as_cascade_replica(self):
