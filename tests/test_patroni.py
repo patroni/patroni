@@ -1,6 +1,7 @@
 import logging
 import os
 import signal
+import sys
 import time
 import unittest
 
@@ -211,10 +212,8 @@ class TestPatroni(unittest.TestCase):
     @patch('patroni.config.Config.save_cache', Mock())
     @patch('patroni.config.Config.set_dynamic_configuration', Mock(return_value=False))
     @patch.object(Postgresql, 'reload_config', Mock())
-    @patch('patroni.daemon.Thread')
-    def test_graceful_sigterm(self, mock_thread):
+    def test_graceful_sigterm(self):
         self.p.enable_graceful_sigterm()
-        mock_thread.return_value.start.assert_called_once_with()
         self.p.api.start = Mock()
         self.p.logger.start = Mock()
         self.p.ha.dcs.watch = Mock(side_effect=SleepException)
@@ -229,14 +228,20 @@ class TestPatroni(unittest.TestCase):
         self.assertTrue(self.p.received_sigterm)
         self.p.ha.dcs.watch.assert_not_called()
 
-        # nested call of the signal handler
-        self.p._received_sigterm = False
-        self.p.sigterm_handler()
-
-        # the thread started by enable_graceful_sigterm() wakes up the HA loop
-        with patch.object(self.p.ha, 'wakeup') as mock_wakeup:
-            mock_thread.call_args[1]['target']()
-            mock_wakeup.assert_called_once_with()
+    @unittest.skipIf(sys.thread_info.lock != 'semaphore', 'signals do not interrupt Lock.acquire()')
+    def test_sigterm_wakes_up_ha_loop(self):
+        self.p.enable_graceful_sigterm()
+        self.p.dcs.event.clear()
+        handler = signal.signal(signal.SIGALRM, self.p.sigterm_handler)
+        try:
+            signal.setitimer(signal.ITIMER_REAL, 0.1)
+            start = time.time()
+            self.assertTrue(self.p.dcs.watch(None, 10))
+            self.assertLess(time.time() - start, 5)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, handler)
+        self.assertTrue(self.p.received_sigterm)
 
     def test_schedule_next_run(self):
         self.p.ha.cluster = Mock()

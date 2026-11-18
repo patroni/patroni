@@ -268,7 +268,12 @@ class Patroni(AbstractPatroniDaemon, ClusterSite, Tags):
             self.schedule_next_run()
 
     def _wakeup(self) -> None:
-        """Wake up the HA loop if it is waiting for the next cycle in :func:`schedule_next_run`."""
+        """Wake up the HA loop if it is waiting for the next cycle in :func:`schedule_next_run`.
+
+        .. note::
+            :func:`~patroni.ha.Ha.wakeup` only sets :class:`~patroni.dcs.SignalSafeEvent`, which is safe to do in
+            the signal handler.
+        """
         self.ha.wakeup()
 
     def _shutdown(self) -> None:

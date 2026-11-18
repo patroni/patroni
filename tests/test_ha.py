@@ -2045,6 +2045,11 @@ class TestHa(PostgresInit):
 
     def test_wakeup(self):
         self.ha.wakeup()
+        self.ha.wakeup()  # the event is already set
+        self.assertTrue(self.ha.dcs.event.wait())
+        self.assertTrue(self.ha.dcs.event.is_set())
+        self.ha.dcs.event.clear()
+        self.assertFalse(self.ha.dcs.event.wait(-1))
 
     def test_shutdown(self):
         self.p.is_running = false
