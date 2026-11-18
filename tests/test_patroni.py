@@ -209,10 +209,11 @@ class TestPatroni(unittest.TestCase):
         self.assertFalse(self.p.api_sigterm())
         self.p.sigterm_handler()  # doesn't raise SystemExit, because SIGTERM was already received
 
+    @patch('signal.alarm', create=True)
     @patch('patroni.config.Config.save_cache', Mock())
     @patch('patroni.config.Config.set_dynamic_configuration', Mock(return_value=False))
     @patch.object(Postgresql, 'reload_config', Mock())
-    def test_graceful_sigterm(self):
+    def test_graceful_sigterm(self, mock_alarm):
         self.p.enable_graceful_sigterm()
         self.p.api.start = Mock()
         self.p.logger.start = Mock()
@@ -227,6 +228,18 @@ class TestPatroni(unittest.TestCase):
         self.p.run()
         self.assertTrue(self.p.received_sigterm)
         self.p.ha.dcs.watch.assert_not_called()
+        # the alarm is armed on SIGTERM and canceled when the main loop exits
+        loop_wait = self.p.config['loop_wait']
+        self.assertEqual(mock_alarm.call_args_list, [] if os.name == 'nt' else [((loop_wait,),), ((0,),)])
+
+    def test_sigalrm_handler(self):
+        self.p.sigalrm_handler()  # doesn't raise SystemExit before the main loop has started
+        self.p.api.start = Mock()
+        self.p.logger.start = Mock()
+        # the main loop is stuck in the HA cycle when SIGALRM arrives
+        self.p.ha.run_cycle = Mock(side_effect=self.p.sigalrm_handler)
+        self.assertRaises(SystemExit, self.p.run)
+        self.p.sigalrm_handler()  # doesn't raise SystemExit after the main loop has exited
 
     @unittest.skipIf(sys.thread_info.lock != 'semaphore', 'signals do not interrupt Lock.acquire()')
     def test_sigterm_wakes_up_ha_loop(self):
