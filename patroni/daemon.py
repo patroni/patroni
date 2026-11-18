@@ -134,10 +134,12 @@ class AbstractPatroniDaemon(abc.ABC):
 
         .. note::
             Python runs signal handlers in the main thread between arbitrary bytecode instructions. An exception
-            raised from the handler could be raised after the interrupted code acquired a lock, but before it entered
-            the ``with`` or ``try`` block that releases it, for example, the mutex of the logging queue. Such a lock
-            remains locked forever and the shutdown deadlocks. The handler must not acquire locks either, because the
-            interrupted code could be holding them.
+            raised from the handler could leave a lock held by the interrupted code locked forever: if it is raised
+            after the lock was acquired, but before the ``with`` or ``try`` block that releases it was entered, or, on
+            Python 3.9 and older, after the ``with`` block was left, but before ``__exit__()`` was called. For example,
+            the ``Postgresql.state`` property could leak the lock that ``Postgresql.stop()`` needs to set the
+            "stopping" state, and the shutdown deadlocks without stopping Postgres. The handler must not acquire locks
+            either, because the interrupted code could be holding them.
         """
         if self._received_sigterm:
             return
