@@ -948,19 +948,24 @@ class ConfigHandler(object):
 
         return all(str(primary_conninfo.get(p)) == str(v) for p, v in wanted_primary_conninfo.items() if v is not None)
 
-    def check_recovery_conf(self, member: Union[Leader, Member, None]) -> Tuple[bool, bool]:
-        """Returns a tuple. The first boolean element indicates that recovery params don't match
-           and the second is set to `True` if the restart is required in order to apply new values"""
+    def _get_changed_recovery_params(self, member: Union[Leader, Member, None]) -> Optional[Dict[str, List[str]]]:
+        """Compare current values of recovery parameters with values required to replicate from the *member*.
 
+        :param member: the member to replicate from, or ``None``.
+
+        :returns: ``None`` if Postgres isn't configured as a standby or current values of recovery parameters
+            can't be determined, otherwise a :class:`dict` with ``restart`` and ``reload`` keys, containing names
+            of mismatched parameters which require a restart or a reload, respectively, to apply new values.
+        """
         # TODO: recovery.conf could be stale, would be nice to detect that.
         if self._postgresql.major_version >= 120000:
             if not os.path.exists(self._standby_signal):
-                return True, True
+                return None
 
             _read_recovery_params = self._read_recovery_params
         else:
             if not self.recovery_conf_exists():
-                return True, True
+                return None
 
             _read_recovery_params = self._read_recovery_params_pre_v12
 
@@ -969,7 +974,7 @@ class ConfigHandler(object):
         # was changed and params were read either from the config or from the database connection.
         if updated:
             if params is None:  # exception or unparsable config
-                return True, True
+                return None
 
             # We will cache parsed value until the next config change.
             self._current_recovery_params = params
@@ -978,7 +983,7 @@ class ConfigHandler(object):
                 primary_conninfo[0] = parse_dsn(params['primary_conninfo'][0])
                 # If we failed to parse non-empty connection string this indicates that config if broken.
                 if not primary_conninfo[0]:
-                    return True, True
+                    return None
             else:  # empty string, primary_conninfo is not in the config
                 primary_conninfo[0] = {}
 
@@ -989,10 +994,6 @@ class ConfigHandler(object):
                 wal_receiver_primary_slot_name = ''
             if wal_receiver_primary_slot_name is not None:
                 self._current_recovery_params['primary_slot_name'][0] = wal_receiver_primary_slot_name
-
-        # Enforce write of postgresql.conf when joining the running postgres
-        force_reload = self._postgresql.major_version >= 120000 \
-            and not self._postgresql.cb_called and not self._postgresql.is_starting()
 
         # Names of the changed parameters. Values are not logged, they can be sensitive.
         changed: Dict[str, List[str]] = {'restart': [], 'reload': []}
@@ -1020,11 +1021,40 @@ class ConfigHandler(object):
             elif (param != 'primary_slot_name' or wanted_recovery_params.get('primary_conninfo')) \
                     and str(value[0]) != str(wanted_recovery_params.get(param, '')):
                 record_mismatch(param, value[1])
+        return changed
+
+    def check_recovery_conf(self, member: Union[Leader, Member, None]) -> Tuple[bool, bool]:
+        """Returns a tuple. The first boolean element indicates that recovery params don't match
+           and the second is set to `True` if the restart is required in order to apply new values"""
+        changed = self._get_changed_recovery_params(member)
+        if changed is None:
+            return True, True
+
+        # Enforce write of postgresql.conf when joining the running postgres
+        force_reload = self._postgresql.major_version >= 120000 \
+            and not self._postgresql.cb_called and not self._postgresql.is_starting()
+
         names = changed['restart'] + changed['reload']
         if names:
             logger.info('Recovery parameters changed, %s required: %s',
                         'restart' if changed['restart'] else 'reload', ', '.join(names))
-        return bool(force_reload or changed['restart'] or changed['reload']), bool(changed['restart'])
+        return bool(force_reload or names), bool(changed['restart'])
+
+    def recovery_params_match(self, member: Union[Leader, Member, None]) -> bool:
+        """Check whether Postgres is already configured to replicate from the *member*.
+
+        .. note::
+            Unlike :meth:`check_recovery_conf` it doesn't enforce rewrite of ``postgresql.conf`` when Patroni
+            is joining running Postgres and doesn't log names of mismatched parameters.
+
+        :param member: the member to replicate from, or ``None``.
+
+        :returns: ``True`` if current values of recovery parameters are known and match values that Patroni
+            would set in order to replicate from the *member*, ``False`` otherwise.
+        """
+        changed = self._get_changed_recovery_params(member)
+        return bool(changed is not None and self._current_recovery_params
+                    and not changed['restart'] and not changed['reload'])
 
     @staticmethod
     def _remove_file_if_exists(name: str) -> None:
