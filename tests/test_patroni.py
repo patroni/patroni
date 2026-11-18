@@ -227,7 +227,9 @@ class TestPatroni(unittest.TestCase):
         self.p.run()
         self.assertTrue(self.p.received_sigterm)
         self.p.ha.dcs.watch.assert_not_called()
-        self.assertEqual(mock_alarm.call_args_list, [] if os.name == 'nt' else [((self.p.config['loop_wait'],),)])
+        # the alarm is armed on SIGTERM and canceled when the main loop exits
+        loop_wait = self.p.config['loop_wait']
+        self.assertEqual(mock_alarm.call_args_list, [] if os.name == 'nt' else [((loop_wait,),), ((0,),)])
 
     def test_sigalrm_handler(self):
         self.p.sigalrm_handler()  # doesn't raise SystemExit before the main loop has started

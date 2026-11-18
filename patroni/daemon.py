@@ -138,7 +138,7 @@ class AbstractPatroniDaemon(abc.ABC):
             self._received_sigterm = True
             if not self._graceful_sigterm:
                 sys.exit()
-            if os.name != 'nt':
+            if self._main_loop_running and os.name != 'nt':
                 signal.alarm(self.config['loop_wait'])
 
     def sigalrm_handler(self, *_: Any) -> None:
@@ -213,7 +213,10 @@ class AbstractPatroniDaemon(abc.ABC):
 
                 self._run_cycle()
         finally:
-            self._main_loop_running = False  # sigalrm_handler must not interrupt the shutdown
+            # SIGALRM must neither interrupt the shutdown nor kill the process after Python restores default handlers
+            self._main_loop_running = False
+            if os.name != 'nt':
+                signal.alarm(0)
 
     @abc.abstractmethod
     def _shutdown(self) -> None:
