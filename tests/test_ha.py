@@ -1308,6 +1308,30 @@ class TestHa(PostgresInit):
             self.ha.cluster = get_cluster_initialized_without_leader(failover=Failover(0, 'leader', None, None, 'dc1'))
             self.assertTrue(self.ha._is_healthiest_node(self.ha.old_cluster.members))
 
+    def test__is_healthiest_node_peer_on_older_timeline(self):
+        self.p.is_primary = false
+        self.ha.cluster = get_cluster_initialized_without_leader()
+        global_config.update(self.ha.cluster)
+        members = self.ha.old_cluster.members
+        # the peer is ahead on LSN, but it is on a timeline behind the cluster timeline
+        with patch.object(Cluster, 'timeline', PropertyMock(return_value=3)), \
+                patch('patroni.postgresql.Postgresql.replica_cached_timeline', return_value=3):
+            # the peer can't be promoted (check_timeline), so it must not make us defer
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2)
+            with patch('patroni.ha.logger.info') as mock_info:
+                self.assertTrue(self.ha._is_healthiest_node(members))
+                self.assertIn('Ignoring %s being ahead of us', mock_info.call_args_list[0][0][0])
+            # the peer is on the cluster timeline and ahead: defer to it
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=3)
+            self.assertFalse(self.ha._is_healthiest_node(members))
+            # unknown timeline of the peer: keep the old behaviour
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=0)
+            self.assertFalse(self.ha._is_healthiest_node(members))
+            # check_timeline is disabled: timelines are not taken into account
+            self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2)
+            with patch.object(Ha, 'check_timeline', Mock(return_value=False)):
+                self.assertFalse(self.ha._is_healthiest_node(members))
+
     def test_fetch_node_status(self):
         member = Member(0, 'test', 1, {'api_url': 'http://127.0.0.1:8011/patroni'})
         self.ha.fetch_node_status(member)

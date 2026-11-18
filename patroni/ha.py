@@ -1401,7 +1401,8 @@ class Ha(object):
             logger.info('My wal position exceeds maximum replication lag')
             return False  # Too far behind last reported wal position on primary
 
-        if not self.is_standby_cluster() and self.check_timeline():
+        check_timeline = not self.is_standby_cluster() and self.check_timeline()
+        if check_timeline:
             if my_timeline is None:
                 logger.info('Can not figure out my timeline')
                 return False
@@ -1444,6 +1445,13 @@ class Ha(object):
                     logger.warning('Primary (%s) is still alive', st.member.name)
                     return False
                 if my_wal_position < st.wal_position:
+                    # With check_timeline enabled a node with the timeline behind the cluster timeline disqualifies
+                    # itself, therefore it will never promote and it must not make us give up our own candidacy.
+                    # Its WAL position is higher only because of the WAL it generated on the abandoned timeline.
+                    if check_timeline and st.timeline and st.timeline < cluster_timeline:
+                        logger.info('Ignoring %s being ahead of us: its timeline %s is behind last known '
+                                    'cluster timeline %s', st.member.name, st.timeline, cluster_timeline)
+                        continue
                     nodes_ahead += 1
                     logger.info('Wal position of %s is ahead of my wal position', st.member.name)
                     # In synchronous mode the former leader might be still accessible and even be ahead of us.
