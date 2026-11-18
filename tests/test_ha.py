@@ -1400,6 +1400,7 @@ class TestHa(PostgresInit):
                 self.assertIn('Got quorum vote from %s', [c[0][0] for c in mock_info.call_args_list])
             self.ha.fetch_node_status = get_node_status(wal_position=11, timeline=2, replay_lsn=9)
             self.assertFalse(self.ha._is_healthiest_node(members))
+
     @patch.object(global_config.__class__, 'is_synchronous_mode', PropertyMock(return_value=True))
     def test__is_healthiest_node_respects_quorum_in_sync_key(self):
         # synchronous_mode was switched from quorum to on, but /sync key still contains a non-zero quorum
