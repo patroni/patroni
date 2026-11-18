@@ -126,7 +126,8 @@ class AbstractPatroniDaemon(abc.ABC):
         """Handle SIGTERM signals.
 
         Terminate the daemon process until :func:`enable_graceful_sigterm` is called. Afterwards only flag the daemon
-        as "SIGTERM received", the main loop exits and shuts down the daemon.
+        as "SIGTERM received", the main loop exits and shuts down the daemon. If the main loop doesn't exit within
+        ``loop_wait`` seconds, for example because it hangs, :func:`sigalrm_handler` terminates the daemon process.
 
         .. note::
             Python runs signal handlers in the main thread between arbitrary bytecode instructions. An exception
@@ -137,6 +138,16 @@ class AbstractPatroniDaemon(abc.ABC):
             self._received_sigterm = True
             if not self._graceful_sigterm:
                 sys.exit()
+            if os.name != 'nt':
+                signal.alarm(self.config['loop_wait'])
+
+    def sigalrm_handler(self, *_: Any) -> None:
+        """Handle SIGALRM signals.
+
+        Terminate the daemon process if the main loop is still running, i.e. it didn't exit in time after SIGTERM.
+        """
+        if self._main_loop_running:
+            sys.exit()
 
     def enable_graceful_sigterm(self) -> None:
         """Make :func:`sigterm_handler` only flag the daemon as "SIGTERM received" instead of terminating it."""
@@ -145,18 +156,20 @@ class AbstractPatroniDaemon(abc.ABC):
     def setup_signal_handlers(self) -> None:
         """Set up daemon signal handlers.
 
-        Set up SIGHUP and SIGTERM signal handlers.
+        Set up SIGHUP, SIGALRM and SIGTERM signal handlers.
 
         .. note::
 
-            SIGHUP is only handled in non-Windows environments.
+            SIGHUP and SIGALRM are only handled in non-Windows environments.
         """
         self._received_sighup = False
         self._sigterm_lock = Lock()
         self._received_sigterm = False
         self._graceful_sigterm = False
+        self._main_loop_running = False
         if os.name != 'nt':
             signal.signal(signal.SIGHUP, self.sighup_handler)
+            signal.signal(signal.SIGALRM, self.sigalrm_handler)
         signal.signal(signal.SIGTERM, self.sigterm_handler)
 
     @property
@@ -190,13 +203,17 @@ class AbstractPatroniDaemon(abc.ABC):
         """
         notify_systemd("READY=1")
         self.logger.start()
-        while not self.received_sigterm:
-            if self._received_sighup:
-                self._received_sighup = False
-                self.reload_config(True, self.config.reload_local_configuration())
-                notify_systemd("READY=1")
+        self._main_loop_running = True
+        try:
+            while not self.received_sigterm:
+                if self._received_sighup:
+                    self._received_sighup = False
+                    self.reload_config(True, self.config.reload_local_configuration())
+                    notify_systemd("READY=1")
 
-            self._run_cycle()
+                self._run_cycle()
+        finally:
+            self._main_loop_running = False  # sigalrm_handler must not interrupt the shutdown
 
     @abc.abstractmethod
     def _shutdown(self) -> None:
