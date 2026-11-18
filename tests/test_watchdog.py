@@ -116,6 +116,21 @@ class TestWatchdog(unittest.TestCase):
         self.assertEqual(len(mock_devices), 2)
 
     @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'is_healthy', PropertyMock(return_value=True))
+    @patch.object(LinuxWatchdogDevice, 'has_set_timeout', Mock(return_value=False))
+    @patch.object(LinuxWatchdogDevice, 'get_timeout', Mock(return_value=60))
+    def test_required_timeout_too_long(self):
+        config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required'}}
+        watchdog = Watchdog(config)
+        self.assertFalse(watchdog.activate())
+        # stays armed until the HA loop disables it, e.g. on the safepoint of the demotion
+        self.assertTrue(watchdog.is_running)
+        watchdog.disable()
+        self.assertFalse(watchdog.is_healthy)
+        watchdog.reload_config(config)
+        self.assertTrue(watchdog.is_healthy)
+
+    @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(Watchdog, 'is_running', PropertyMock(return_value=False))
     def test_watchdog_not_activated(self):
         self.assertFalse(Watchdog({
@@ -570,8 +585,10 @@ class TestWatchdog(unittest.TestCase):
                 fallback = watchdog.impl
                 self.assertIsInstance(fallback, ThreadWatchdog)
                 watchdog.reload_config(config)
-                # the next HA loop sleep uses the new loop_wait, so waiting for keepalive would be too late
-                self.assertFalse(fallback.is_running)
+                # the armed timeout protects the leader key until the keepalive that follows its update with the new
+                # TTL, which has to be sent right away if the next HA loop sleep would be longer
+                self.assertTrue(fallback.is_running)
+                self.assertEqual(watchdog.needs_immediate_keepalive, config['loop_wait'] > 25)
                 watchdog.keepalive()
                 self.assertFalse(fallback.is_running)
                 self.assertFalse(watchdog.is_running)
@@ -607,11 +624,14 @@ class TestWatchdog(unittest.TestCase):
                 try:
                     self.assertTrue(watchdog.activate())
                     device = mock_devices[-1]
-                    # 8 second timeout is shorter than loop_wait, the device must not stay armed
+                    # 8 second timeout is shorter than loop_wait, the device must not stay armed after the keepalive
+                    # that follows the leader key update with the new TTL. Until then the old timeout protects it.
                     watchdog.reload_config(dict(config, ttl=20))
+                    self.assertTrue(device.armed)
+                    self.assertFalse(watchdog.needs_immediate_keepalive)
+                    watchdog.keepalive()
                     self.assertFalse(device.open)
                     self.assertFalse(device.armed)
-                    watchdog.keepalive()
                     self.assertFalse(watchdog.is_running)
                     self.assertFalse(watchdog._fallback.is_running)
                     # the device is acquired again once the timing is fixed
@@ -626,6 +646,32 @@ class TestWatchdog(unittest.TestCase):
                     self.assertTrue(mock_devices[-1].armed)
                 finally:
                     watchdog.disable()
+
+    @patch('platform.system', Mock(return_value='Linux'))
+    @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
+    @patch.object(LinuxWatchdogDevice, 'is_healthy', PropertyMock(return_value=True))
+    def test_required_unsafe_timing_reload_demotes(self):
+        config = {'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'required', 'safety_margin': 12}}
+        for early_demotion in (False, True):
+            with self.subTest(early_demotion=early_demotion):
+                watchdog = Watchdog(config)
+                self.addCleanup(watchdog.disable)
+                self.assertTrue(watchdog.activate())
+                device = mock_devices[-1]
+                watchdog.reload_config(dict(config, ttl=20))
+                # the armed device protects the leader key until the HA loop is able to demote the primary
+                self.assertTrue(device.armed)
+                watchdog.keepalive()
+                self.assertFalse(device.armed)
+                if not early_demotion:
+                    # the HA loop demotes the primary, which doesn't disable a watchdog that isn't running
+                    self.assertFalse(watchdog.activate())
+                self.assertFalse(watchdog.is_healthy)
+                # only the leader sends keepalives, so the device is acquired again on reload
+                watchdog.reload_config(config)
+                self.assertTrue(watchdog.is_healthy)
+                self.assertTrue(watchdog.activate())
+                self.assertTrue(mock_devices[-1].armed)
 
     @patch('platform.system', Mock(return_value='Linux'))
     @patch.object(LinuxWatchdogDevice, 'can_be_disabled', PropertyMock(return_value=True))
@@ -686,7 +732,7 @@ class TestWatchdog(unittest.TestCase):
         self.assertFalse(watchdog.activate())
 
         watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'fallback': 'thread'}})
-        watchdog.keepalive()
+        self.assertTrue(watchdog.activate())
         self.assertIsInstance(watchdog.impl, ThreadWatchdog)
         watchdog.reload_config({'ttl': 30, 'loop_wait': 10, 'watchdog': {'mode': 'off', 'fallback': 'thread'}})
         self.assertFalse(watchdog.is_running)
@@ -752,9 +798,12 @@ class TestWatchdog(unittest.TestCase):
         self.assertFalse(watchdog.is_healthy)
 
         self.assertFalse(watchdog.activate())
+        # the HA loop gives up the leader key, so the next activation picks up the reloaded configuration
         watchdog.reload_config({'ttl': 30, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})
         self.assertFalse(watchdog.is_running)
         watchdog.keepalive()
+        self.assertFalse(watchdog.is_running)
+        self.assertTrue(watchdog.activate())
         self.assertTrue(watchdog.is_running)
 
         watchdog.reload_config({'ttl': 60, 'loop_wait': 15, 'watchdog': {'mode': 'required'}})

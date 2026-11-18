@@ -97,6 +97,8 @@ class Watchdog(object):
         self.lock = RLock()
         self.active = False
         self._impl_pending = False
+        # Activation in required mode failed because of a too long timeout of the device, see is_healthy
+        self._unsafe_timeout = False
 
         if self.config.mode == MODE_OFF:
             self.impl = NullWatchdog()
@@ -116,6 +118,7 @@ class Watchdog(object):
     @synchronized
     def reload_config(self, config: Config) -> None:
         self.config = WatchdogConfig(config)
+        self._unsafe_timeout = False
         # Turning a watchdog off can always be done immediately
         if self.config.mode == MODE_OFF:
             if self.active:
@@ -126,13 +129,9 @@ class Watchdog(object):
         elif self.config.fallback != 'thread' and self.impl is self._fallback:
             self._close_impl()
             self.impl = NullWatchdog()
-        elif self.active and self.impl.is_running and self.config.timing_slack < 0:
-            # The next HA loop sleep already uses the new loop_wait, so the watchdog would expire before the next
-            # keepalive could disarm it, or that keepalive would arm a device with a timeout shorter than loop_wait.
-            self._close_impl()
-            self._activate()
         # If watchdog is not active we can apply config immediately to show any warnings early. Otherwise we need to
-        # delay until next time a keepalive is sent so timeout matches up with leader key update.
+        # delay until next time a keepalive is sent so timeout matches up with leader key update. Until then the armed
+        # timeout still protects the leader key, see needs_immediate_keepalive.
         if self.active:
             return
         if self._impl_pending or self.config.mode != self.active_config.mode or \
@@ -155,7 +154,12 @@ class Watchdog(object):
                 self.config.fallback != self.active_config.fallback and self.impl.is_null:
             if not self._replace_impl():
                 return self.config.mode != MODE_REQUIRED
-        return self._activate()
+        if self._activate():
+            return True
+        # The HA loop gives up the leader key, so keepalive() won't apply configuration changes anymore. Unless a
+        # running watchdog has to be disabled on demotion, reload_config() must apply them, or the node stays unhealthy.
+        self.active = self.impl.is_running
+        return False
 
     def _replace_impl(self) -> bool:
         """Replace the implementation, unless the current one could not be confirmed as disabled."""
@@ -205,6 +209,8 @@ class Watchdog(object):
                 else:
                     logger.error("Configuration requires watchdog, but a safe watchdog timeout %s could"
                                  " not be configured. Watchdog timeout is %s.", self.config.timeout, actual_timeout)
+                    # Otherwise the node would keep winning leader races only to give up the leader key again
+                    self._unsafe_timeout = True
                 return False
             if not self.impl.is_null:
                 logger.warning("Watchdog timeout %s seconds does not ensure safe termination within %s seconds",
@@ -294,6 +300,12 @@ class Watchdog(object):
             logger.error("Error while disabling watchdog: %s", e)
 
     def _apply_config_changes(self) -> None:
+        if self.config.timing_slack < 0:
+            # No timeout is safe with the new timing, see _activate(). In required mode the HA loop gives up the leader
+            # key, see activate().
+            self._close_impl()
+            self.active = self._activate()
+            return
         device_changed = self.config.driver != self.active_config.driver or \
             self.config.driver_config != self.active_config.driver_config
         mode_requires_replacement = self.config.mode != self.active_config.mode and \
@@ -354,7 +366,8 @@ class Watchdog(object):
     def is_healthy(self) -> bool:
         if self.config.mode != MODE_REQUIRED:
             return True
-        return self.config.timing_slack >= 0 and self.config.mode == self.active_config.mode and self.impl.is_healthy
+        return self.config.timing_slack >= 0 and self.config.mode == self.active_config.mode and \
+            not self._unsafe_timeout and self.impl.is_healthy
 
 
 class WatchdogBase(abc.ABC):
